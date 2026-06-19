@@ -14815,7 +14815,135 @@
                 overflowY: "visible",
                 WebkitOverflowScrolling: "touch"
               }
-            }, C.fsd_intel && C.fsd_intel.count === 0 && C.fsd_intel.diagnostics?.heal_kicked && React.createElement("div", {
+            }, React.createElement(Panel, {
+              title: "\uD83D\uDD25 News Catalysts",
+              action: C.news?.count > 0 && React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, C.news.count, " headlines \xB7 5d")
+            }, !C.news?.has_data ? React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-muted)"
+              }
+            }, "No news in the last 5 days.") : React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
+              style: {
+                marginBottom: "var(--ds-space-3)",
+                padding: "var(--ds-space-2)",
+                background: C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.06)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
+                borderRadius: "var(--ds-radius-md)"
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+                marginBottom: 4
+              }
+            }, React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "TOP CATALYST"), sentimentChip(C.news.top_catalyst.sentiment), React.createElement("span", {
+              style: {
+                fontSize: 9,
+                fontWeight: 700,
+                padding: "1px 6px",
+                borderRadius: 4,
+                color: "var(--ds-text-body)",
+                background: "rgba(255,255,255,0.08)"
+              }
+            }, "STR ", C.news.top_catalyst.catalyst_strength, "/10")), React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-body)",
+                fontWeight: 600,
+                lineHeight: 1.4
+              }
+            }, C.news.top_catalyst.headline), React.createElement("div", {
+              style: {
+                marginTop: 4,
+                fontSize: 10,
+                color: "var(--ds-text-muted)"
+              }
+            }, C.news.top_catalyst.source, " \xB7 ", fmtAgo(C.news.top_catalyst.datetime))), React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                marginBottom: "var(--ds-space-2)",
+                flexWrap: "wrap"
+              }
+            }, C.news.bull > 0 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(52,211,153,0.10)",
+                color: "var(--ds-color-up, #34d399)"
+              }
+            }, C.news.bull, " bull"), C.news.bear > 0 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(248,113,113,0.10)",
+                color: "var(--ds-color-down, #f87171)"
+              }
+            }, C.news.bear, " bear"), C.news.neutral > 0 && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.05)",
+                color: "var(--ds-text-muted)"
+              }
+            }, C.news.neutral, " neutral"), C.news.dominant_sentiment && React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "2px 6px",
+                borderRadius: 4,
+                background: "rgba(255,255,255,0.05)",
+                color: "var(--ds-text-faint)"
+              }
+            }, "DOMINANT: ", String(C.news.dominant_sentiment).toUpperCase())), Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && React.createElement("div", {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                marginTop: "var(--ds-space-2)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.05em"
+              }
+            }, "RECENT HEADLINES"), C.news.latest_3.map((h, i) => React.createElement("div", {
+              key: `hl-${i}`,
+              style: {
+                display: "flex",
+                gap: 6,
+                alignItems: "flex-start",
+                fontSize: "var(--ds-fs-meta)"
+              }
+            }, sentimentChip(h.sentiment), React.createElement("div", {
+              style: {
+                flex: 1,
+                color: "var(--ds-text-body)",
+                lineHeight: 1.35
+              }
+            }, h.headline, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                color: "var(--ds-text-muted)",
+                marginTop: 1
+              }
+            }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10")))))))), C.fsd_intel && C.fsd_intel.count === 0 && C.fsd_intel.diagnostics?.heal_kicked && React.createElement("div", {
               style: {
                 padding: "10px 12px",
                 background: "rgba(103,232,249,0.05)",
@@ -15052,9 +15180,9 @@
                   gap: 8,
                   alignItems: "center"
                 }
-              }, React.createElement("span", null, "EDITORIAL RESEARCH \u2014 POSTS MENTIONING ", tickerSymbol), catalystsFetchedAt && React.createElement("span", {
-                title: "Last catalyst bundle fetch"
-              }, "Updated ", fmtAgo(catalystsFetchedAt)), _fsdPendingRewrite && React.createElement("span", {
+              }, React.createElement("span", null, "EDITORIAL RESEARCH \u2014 POSTS MENTIONING ", tickerSymbol), (C.fsd_intel.latest_published_at || C.fsd_intel.publications[0] && (C.fsd_intel.publications[0].published_at || C.fsd_intel.publications[0].fetched_at)) && React.createElement("span", {
+                title: "Age of the newest research mention"
+              }, "Newest mention \xB7 ", fmtAgo(C.fsd_intel.latest_published_at || C.fsd_intel.publications[0].published_at || C.fsd_intel.publications[0].fetched_at)), _fsdPendingRewrite && React.createElement("span", {
                 style: {
                   color: "#67e8f9"
                 },
@@ -15169,157 +15297,9 @@
                     fontStyle: "italic",
                     lineHeight: 1.4
                   }
-                }, "\u2192 ", p.tt_cta), React.createElement("div", {
-                  style: {
-                    marginTop: 6,
-                    fontSize: 9,
-                    color: "var(--ds-text-muted)"
-                  }
-                }, p.attribution || "Source: Fundstrat Direct", p.source_url && React.createElement(React.Fragment, null, " · ", React.createElement("a", {
-                  href: p.source_url,
-                  target: "_blank",
-                  rel: "noopener noreferrer",
-                  style: {
-                    color: "var(--ds-text-muted)",
-                    textDecoration: "underline"
-                  }
-                }, "read original \u2192"))));
-              })), React.createElement("div", {
-                style: {
-                  marginTop: 8,
-                  fontSize: 9,
-                  color: "var(--ds-text-faint)"
-                }
-              }, "TT summaries are paraphrased for compliance. Original research \xA9 Fundstrat Direct \u2014 link above to read in full."));
+                }, "\u2192 ", p.tt_cta));
+              })));
             })(), React.createElement(Panel, {
-              title: "\uD83D\uDD25 News Catalysts",
-              action: C.news?.count > 0 && React.createElement("span", {
-                className: "ds-chip ds-chip--sm"
-              }, C.news.count, " headlines \xB7 5d")
-            }, !C.news?.has_data ? React.createElement("div", {
-              style: {
-                fontSize: "var(--ds-fs-body)",
-                color: "var(--ds-text-muted)"
-              }
-            }, "No news in the last 5 days.") : React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
-              style: {
-                marginBottom: "var(--ds-space-3)",
-                padding: "var(--ds-space-2)",
-                background: C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.06)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.03)",
-                border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
-                borderRadius: "var(--ds-radius-md)"
-              }
-            }, React.createElement("div", {
-              style: {
-                display: "flex",
-                gap: 6,
-                alignItems: "center",
-                marginBottom: 4
-              }
-            }, React.createElement("span", {
-              style: {
-                fontSize: 10,
-                fontWeight: 700,
-                color: "var(--ds-text-faint)",
-                letterSpacing: "0.05em"
-              }
-            }, "TOP CATALYST"), sentimentChip(C.news.top_catalyst.sentiment), React.createElement("span", {
-              style: {
-                fontSize: 9,
-                fontWeight: 700,
-                padding: "1px 6px",
-                borderRadius: 4,
-                color: "var(--ds-text-body)",
-                background: "rgba(255,255,255,0.08)"
-              }
-            }, "STR ", C.news.top_catalyst.catalyst_strength, "/10")), React.createElement("div", {
-              style: {
-                fontSize: "var(--ds-fs-body)",
-                color: "var(--ds-text-body)",
-                fontWeight: 600,
-                lineHeight: 1.4
-              }
-            }, C.news.top_catalyst.headline), React.createElement("div", {
-              style: {
-                marginTop: 4,
-                fontSize: 10,
-                color: "var(--ds-text-muted)"
-              }
-            }, C.news.top_catalyst.source, " \xB7 ", fmtAgo(C.news.top_catalyst.datetime))), React.createElement("div", {
-              style: {
-                display: "flex",
-                gap: 4,
-                marginBottom: "var(--ds-space-2)",
-                flexWrap: "wrap"
-              }
-            }, C.news.bull > 0 && React.createElement("span", {
-              style: {
-                fontSize: 10,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(52,211,153,0.10)",
-                color: "var(--ds-color-up, #34d399)"
-              }
-            }, C.news.bull, " bull"), C.news.bear > 0 && React.createElement("span", {
-              style: {
-                fontSize: 10,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(248,113,113,0.10)",
-                color: "var(--ds-color-down, #f87171)"
-              }
-            }, C.news.bear, " bear"), C.news.neutral > 0 && React.createElement("span", {
-              style: {
-                fontSize: 10,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(255,255,255,0.05)",
-                color: "var(--ds-text-muted)"
-              }
-            }, C.news.neutral, " neutral"), C.news.dominant_sentiment && React.createElement("span", {
-              style: {
-                fontSize: 10,
-                fontWeight: 700,
-                padding: "2px 6px",
-                borderRadius: 4,
-                background: "rgba(255,255,255,0.05)",
-                color: "var(--ds-text-faint)"
-              }
-            }, "DOMINANT: ", String(C.news.dominant_sentiment).toUpperCase())), Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && React.createElement("div", {
-              style: {
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                marginTop: "var(--ds-space-2)"
-              }
-            }, React.createElement("div", {
-              style: {
-                fontSize: 10,
-                fontWeight: 700,
-                color: "var(--ds-text-faint)",
-                letterSpacing: "0.05em"
-              }
-            }, "RECENT HEADLINES"), C.news.latest_3.map((h, i) => React.createElement("div", {
-              key: `hl-${i}`,
-              style: {
-                display: "flex",
-                gap: 6,
-                alignItems: "flex-start",
-                fontSize: "var(--ds-fs-meta)"
-              }
-            }, sentimentChip(h.sentiment), React.createElement("div", {
-              style: {
-                flex: 1,
-                color: "var(--ds-text-body)",
-                lineHeight: 1.35
-              }
-            }, h.headline, React.createElement("div", {
-              style: {
-                fontSize: 9,
-                color: "var(--ds-text-muted)",
-                marginTop: 1
-              }
-            }, h.source, " \xB7 ", fmtAgo(h.datetime), h.catalyst_strength >= 5 && React.createElement(React.Fragment, null, " \xB7 str ", h.catalyst_strength, "/10")))))))), React.createElement(Panel, {
               title: "\uD83D\uDCBC Insider Activity",
               action: C.insider?.has_data && React.createElement("span", {
                 className: "ds-chip ds-chip--sm"

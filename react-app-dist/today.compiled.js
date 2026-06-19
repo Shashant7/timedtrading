@@ -149,6 +149,80 @@ function isNyRegularMarketOpen() {
     return false;
   }
 }
+const US_MARKET_HOLIDAY_NAMES = {
+  "2026-06-19": "Juneteenth",
+  "2026-01-01": "New Year's Day",
+  "2026-01-19": "Martin Luther King Jr. Day",
+  "2026-02-16": "Presidents' Day",
+  "2026-04-03": "Good Friday",
+  "2026-05-25": "Memorial Day",
+  "2026-07-03": "Independence Day",
+  "2026-09-07": "Labor Day",
+  "2026-11-26": "Thanksgiving",
+  "2026-12-25": "Christmas"
+};
+function holidayNameForToday(cal) {
+  if (cal?.equity?.holiday_name_today) return cal.equity.holiday_name_today;
+  if (!cal?.equity?.is_holiday_today) return null;
+  try {
+    const ds = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+    return US_MARKET_HOLIDAY_NAMES[ds] || null;
+  } catch (_) {
+    return null;
+  }
+}
+function resolveMarketSession(cal) {
+  const equity = cal?.equity || {};
+  const sess = cal?.session || {};
+  const hasCal = cal?.ok === true;
+  const isHoliday = equity.is_holiday_today === true;
+  const holidayName = holidayNameForToday(cal);
+  const isEarlyClose = equity.is_early_close_today === true;
+  const sessionType = String(sess.session_type || "").toUpperCase();
+  let isWeekend = false;
+  try {
+    const wd = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short"
+    }).format(new Date());
+    isWeekend = wd.startsWith("Sat") || wd.startsWith("Sun");
+  } catch (_) {}
+  const rthOpen = hasCal ? sess.is_rth === true : isNyRegularMarketOpen();
+  const operatingHours = hasCal ? sess.is_within_operating_hours === true : !isWeekend;
+  const showDayTradeSections = hasCal && sess.is_rth === true && !isHoliday && !isWeekend;
+  let bannerKind = null;
+  let bannerMessage = "";
+  if (hasCal && isHoliday) {
+    bannerKind = "closed";
+    bannerMessage = holidayName ? `Markets are closed today for ${holidayName}.` : "Markets are closed today for a US market holiday.";
+  } else if (hasCal && isWeekend) {
+    bannerKind = "closed";
+    bannerMessage = "Markets are closed for the weekend.";
+  } else if (hasCal && !rthOpen && sessionType === "PM") {
+    bannerKind = "premarket";
+    bannerMessage = "Pre-market — regular session opens at 9:30 AM ET.";
+  } else if (hasCal && !rthOpen && sessionType === "AH") {
+    bannerKind = "afterhours";
+    bannerMessage = "After-hours — regular session closed at 4:00 PM ET.";
+  } else if (hasCal && !rthOpen) {
+    bannerKind = "closed";
+    bannerMessage = "Markets are closed.";
+  }
+  return {
+    rthOpen,
+    operatingHours,
+    isHoliday,
+    holidayName,
+    isEarlyClose,
+    isWeekend,
+    sessionType,
+    showDayTradeSections,
+    bannerKind,
+    bannerMessage
+  };
+}
 const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
 async function fetchJsonRetry(url, opts = {}, retries = 3) {
   const fetchOpts = {
@@ -266,48 +340,48 @@ async function fetchCal() {
 function SessionPill({
   cal
 }) {
-  const open = isNyRegularMarketOpen();
+  const session = resolveMarketSession(cal);
   let label, cls;
-  if (open) {
-    label = "Market open · RTH";
+  if (session.rthOpen) {
+    label = session.isEarlyClose ? "Market open · Early close 1 PM ET" : "Market open · RTH";
     cls = "up";
+  } else if (session.isHoliday) {
+    label = session.holidayName ? `${session.holidayName} · Markets closed` : "Holiday · Market closed";
+    cls = "";
+  } else if (session.isWeekend) {
+    label = "Weekend · Market closed";
+    cls = "";
+  } else if (session.sessionType === "PM") {
+    label = "Pre-market";
+    cls = "accent";
+  } else if (session.sessionType === "AH") {
+    label = "After-hours";
+    cls = "accent";
   } else {
-    try {
-      const f = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        weekday: "short"
-      });
-      const parts = f.formatToParts(new Date());
-      const wd = parts.find(p => p.type === "weekday")?.value;
-      const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
-      const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
-      const min = hh * 60 + mm;
-      if (wd === "Sat" || wd === "Sun") {
-        label = "Weekend · Market closed";
-        cls = "";
-      } else if (min < 9 * 60 + 30) {
-        label = "Pre-market";
-        cls = "accent";
-      } else if (min >= 16 * 60 && min < 20 * 60) {
-        label = "After-hours";
-        cls = "accent";
-      } else {
-        label = "Market closed";
-        cls = "";
-      }
-    } catch {
-      label = "Market closed";
-      cls = "";
-    }
+    label = "Market closed";
+    cls = "";
   }
   return h("span", {
     className: `tt-pill ${cls}`
   }, h("span", {
     className: "dot"
   }), label);
+}
+function MarketStatusBanner({
+  cal
+}) {
+  const session = resolveMarketSession(cal);
+  if (!session.bannerKind || !session.bannerMessage) return null;
+  return h("div", {
+    className: `tt-market-banner tt-market-banner--${session.bannerKind}`,
+    role: "status",
+    "aria-live": "polite"
+  }, h("span", {
+    className: "tt-market-banner-icon",
+    "aria-hidden": true
+  }, session.bannerKind === "closed" ? "◼" : "◷"), h("span", {
+    className: "tt-market-banner-text"
+  }, session.bannerMessage));
 }
 const REGIME_TONE = {
   RISK_ON: "var(--tt-up-soft)",
@@ -3925,6 +3999,33 @@ function Viewport({
     }
   }, `Showing 60 of ${ranked.length} — narrow the filter to see more.`));
 }
+function BubbleMapGuide() {
+  const storageKey = "tt-bubble-map-guide-dismissed";
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return window.localStorage.getItem(storageKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (dismissed) return null;
+  return h("div", {
+    className: "tt-bmap-guide"
+  }, h("div", {
+    className: "tt-bmap-guide-head"
+  }, h("div", {
+    className: "tt-bmap-guide-title"
+  }, "How to read the Bubble Map"), h("button", {
+    type: "button",
+    className: "tt-bmap-guide-dismiss",
+    onClick: () => {
+      setDismissed(true);
+      try {
+        window.localStorage.setItem(storageKey, "1");
+      } catch (_) {}
+    }
+  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (LTF Score): short-term momentum — left is weak, right is strong."), h("li", null, "Vertical axis (HTF Score): higher-timeframe trend — bottom is bearish, top is bullish."), h("li", null, "Top-right green zone: bullish alignment. Bottom-left red zone: bearish alignment."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
+}
 function BubbleMapViewportSplit({
   allTickers,
   visible,
@@ -3936,11 +4037,12 @@ function BubbleMapViewportSplit({
   ensureSpark,
   onSelectTicker,
   filters,
-  setFilters
+  setFilters,
+  tradeByTicker
 }) {
   return h("section", {
     className: "tt-row"
-  }, h("div", {
+  }, h(BubbleMapGuide, null), h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -4001,7 +4103,8 @@ function BubbleMapViewportSplit({
     embedded: true,
     onSelectTicker,
     filters,
-    setFilters
+    setFilters,
+    tradeByTicker
   }))));
 }
 function SharedBubbleMapSection({
@@ -4014,7 +4117,8 @@ function SharedBubbleMapSection({
   embedded = false,
   onSelectTicker,
   filters,
-  setFilters
+  setFilters,
+  tradeByTicker
 }) {
   const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
@@ -4128,7 +4232,8 @@ function SharedBubbleMapSection({
     thesisMode: false,
     forwardReturns: null,
     activeInsightTickers: null,
-    layoutMode: "score"
+    layoutMode: "score",
+    tradeByTicker
   }), bubbleSearchOpen && h("div", {
     className: "bm-quick-search-overlay",
     onClick: e => {
@@ -4677,7 +4782,7 @@ function TodayApp() {
     let alive = true;
     (async () => {
       try {
-        const [a, b, e, c, universe] = await Promise.all([fetchAll(), fetchBrief(), fetchEarnings(), fetchCal(), fetchTickerUniverse()]);
+        const [a, c, universe] = await Promise.all([fetchAll(), fetchCal(), fetchTickerUniverse()]);
         if (!alive) return;
         if (a?.ok) {
           const merged = {
@@ -4693,17 +4798,25 @@ function TodayApp() {
             }
           }
           setData(merged);
+        } else if (a === null) {
+          setError("Couldn't load market data");
         }
+        if (c?.ok) setCal(c);
+      } catch (err) {
+        if (alive) setError(String(err?.message || err));
+      }
+    })();
+    (async () => {
+      try {
+        const [b, e] = await Promise.all([fetchBrief(), fetchEarnings()]);
+        if (!alive) return;
         if (b?.ok) {
           const picked = pickTodayBriefSlot(b.brief);
           setBrief(picked?.slot || null);
           setBriefSlot(picked?.type || b.active_slot || null);
         }
         if (e?.ok) setEarnings(e);
-        if (c?.ok) setCal(c);
-      } catch (err) {
-        if (alive) setError(String(err?.message || err));
-      }
+      } catch (_) {}
     })();
     return () => {
       alive = false;
@@ -4764,6 +4877,7 @@ function TodayApp() {
     });
     return m;
   }, [rankedTickers]);
+  const marketSession = useMemo(() => resolveMarketSession(cal), [cal]);
   const [railTicker, setRailTicker] = useState(null);
   const [railInitialTab, setRailInitialTab] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
@@ -4837,7 +4951,7 @@ function TodayApp() {
       }
     }, "Couldn't load today's data: " + error));
   }
-  const loading = !data && !brief;
+  const loading = !data;
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -4848,6 +4962,8 @@ function TodayApp() {
     brief,
     briefSlot,
     data
+  }), h(MarketStatusBanner, {
+    cal
   }), h(TodayHero, {
     brief,
     briefSlot,
@@ -4876,13 +4992,13 @@ function TodayApp() {
     onSelectTicker,
     strip: true,
     universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), h(Disclosure, {
+  }), marketSession.showDayTradeSections && h(Disclosure, {
     id: "daytrade",
     title: "Day-Trade Game Plan",
     sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade"
   }, h(DayTradePredictions, {
     onSelectTicker
-  })), h(Disclosure, {
+  })), marketSession.showDayTradeSections && h(Disclosure, {
     id: "options",
     title: "Options Plays of the Day",
     sub: "0/1DTE index plays + top swing structures"
@@ -4906,7 +5022,8 @@ function TodayApp() {
     ensureSpark,
     onSelectTicker,
     filters,
-    setFilters
+    setFilters,
+    tradeByTicker
   }) : h(BubbleViewportSkeleton, null), data && h(Disclosure, {
     id: "heatmap",
     title: "Universe Heat Map",

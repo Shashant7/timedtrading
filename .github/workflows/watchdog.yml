@@ -6,7 +6,7 @@ name: Health watchdog
 # opened Mission Control.
 #
 # Every 30 minutes: hit /timed/health, check (a) it answers ok:true,
-# (b) the 5-min cron heartbeat is fresh during market hours, (c) the
+# (b) the 5-min cron heartbeat is fresh during operating hours, (c) the
 # tombstone count is sane. On failure the run goes red (GitHub emails
 # the repo owner) and, if DISCORD_SYSTEM_WEBHOOK_URL is configured as a
 # repo secret, posts to the system Discord lane.
@@ -66,55 +66,56 @@ jobs:
             TRACKED=$(echo "$HEALTH" | jq -r '.cronFailures.tracked // "?"')
             SCORING=$(echo "$HEALTH" | jq -r '.minutesSinceScoring // "null"')
             FEEDAGE=$(echo "$HEALTH" | jq -r '.pricesAgeSec // "null"')
-            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING feedAgeSec=$FEEDAGE activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
+            NY_RTH=$(echo "$HEALTH" | jq -r '.nyRthOpen // false')
+            OP_HOURS=$(echo "$HEALTH" | jq -r '.operatingHours // false')
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING feedAgeSec=$FEEDAGE nyRthOpen=$NY_RTH operatingHours=$OP_HOURS activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
 
             if [ "$OK" != "true" ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: health endpoint not ok."
               continue
             fi
 
-            # Heartbeat freshness only matters when crons should run:
-            # weekdays 13:00–21:30 UTC (NY regular hours incl. open).
-            DOW=$(date -u +%u)   # 1=Mon … 7=Sun
-            HOUR=$(date -u +%H)
-            if [ "$DOW" -le 5 ] && [ "$HOUR" -ge 14 ] && [ "$HOUR" -le 20 ]; then
+            # Heartbeat / feed / scoring freshness only matter when the
+            # worker is expected to be doing work. Use the calendar-aware
+            # flags from /timed/health (Alpaca holidays + early closes),
+            # NOT a crude UTC weekday window — Juneteenth is a weekday but
+            # markets are closed, and scoring intentionally skips outside
+            # operating hours (4 AM–8 PM ET, excl holidays).
+            if [ "$OP_HOURS" = "true" ]; then
               if [ "$TICK" != "null" ]; then
                 TICK_INT=$(printf "%.0f" "$TICK")
                 if [ "$TICK_INT" -gt 20 ]; then
-                  FAILED="yes"; DETAIL="$DETAIL $BASE: 5-min cron heartbeat is ${TICK_INT}min stale during RTH."
+                  FAILED="yes"; DETAIL="$DETAIL $BASE: 5-min cron heartbeat is ${TICK_INT}min stale during operating hours."
                 fi
               fi
               # Price-feed freshness — covers the feed whichever worker owns
               # the */1 cron (monolith today, tt-feed after cutover).
               if [ "$FEEDAGE" != "null" ] && [ "$FEEDAGE" -gt 600 ]; then
-                FAILED="yes"; DETAIL="$DETAIL $BASE: timed:prices is ${FEEDAGE}s stale during RTH."
-              fi
-              # 2026-06-10 (SMCI incident) — PER-SYMBOL staleness. The
-              # global age was fresh while 29 symbols served 5-day-old
-              # prices. The feed's stale sweep self-heals; symbols that
-              # survive it surface in staleSymbolCount — alarm when more
-              # than a handful stay stale during RTH.
-              STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
-              if [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 5 ]; then
-                STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
-                FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
+                FAILED="yes"; DETAIL="$DETAIL $BASE: timed:prices is ${FEEDAGE}s stale during operating hours."
               fi
               # Scoring staleness — REQUIRED once the */5 trade path moves
               # to the dedicated tt-engine worker (Step 3 role split): the
               # monolith's */1 keeps the generic heartbeat fresh, so a dead
               # engine would otherwise be invisible here. timed:scoring:
               # last_run is written only by whichever worker actually runs
-              # the scoring tick.
+              # the scoring tick (skipped outside operating hours by design).
               if [ "$SCORING" != "null" ]; then
                 SCORING_INT=$(printf "%.0f" "$SCORING")
                 if [ "$SCORING_INT" -gt 30 ]; then
-                  FAILED="yes"; DETAIL="$DETAIL $BASE: scoring loop is ${SCORING_INT}min stale during RTH (engine worker down?)."
+                  FAILED="yes"; DETAIL="$DETAIL $BASE: scoring loop is ${SCORING_INT}min stale during operating hours (engine worker down?)."
                 fi
               fi
-              # Freshness Doctrine (2026-06-11) — the Data Age Contract
-              # summary. A handful of quarantined tickers self-heal within
-              # 1-2 ticks; a persistent pile-up during RTH means the heal
-              # lane is losing the fight — page.
+            fi
+
+            # Per-symbol price staleness + Data Age Contract quarantine are
+            # RTH-only signals — after the close (and on full-day holidays)
+            # last-trade timestamps age normally and must not page.
+            if [ "$NY_RTH" = "true" ]; then
+              STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
+              if [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 5 ]; then
+                STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
+                FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
+              fi
               FRESH_STALE=$(echo "$HEALTH" | jq -r '.freshness.stale // "null"')
               if [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 10 ]; then
                 FRESH_LIST=$(echo "$HEALTH" | jq -r '(.freshness.stale_tickers // []) | map(.ticker) | join(",")')

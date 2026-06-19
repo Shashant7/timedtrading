@@ -340,6 +340,76 @@
       .tt-pill.accent { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(56,242,161,0.30); }
       .tt-pill.violet { color: var(--tt-violet); background: var(--tt-violet-dim); border-color: rgba(166,247,207,0.30); }
       .tt-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+      .tt-market-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 11px 14px;
+        margin-bottom: 14px;
+        border-radius: 10px;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--tt-text-muted);
+      }
+      .tt-market-banner--closed {
+        border-color: rgba(148,163,184,0.35);
+        background: rgba(15,23,42,0.55);
+      }
+      .tt-market-banner--premarket,
+      .tt-market-banner--afterhours {
+        border-color: rgba(56,242,161,0.28);
+        background: rgba(56,242,161,0.06);
+        color: var(--tt-text);
+      }
+      .tt-market-banner-icon {
+        flex-shrink: 0;
+        font-size: 11px;
+        line-height: 1.6;
+        opacity: 0.85;
+      }
+      .tt-bmap-guide {
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(56,242,161,0.22);
+        background: rgba(56,242,161,0.05);
+      }
+      .tt-bmap-guide-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .tt-bmap-guide-title {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--tt-accent);
+      }
+      .tt-bmap-guide ul {
+        margin: 0;
+        padding-left: 18px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--tt-text-muted);
+      }
+      .tt-bmap-guide li + li { margin-top: 4px; }
+      .tt-bmap-guide-dismiss {
+        flex-shrink: 0;
+        border: 1px solid var(--tt-border);
+        background: transparent;
+        color: var(--tt-text-muted);
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .tt-bmap-guide-dismiss:hover { color: var(--tt-text); border-color: var(--tt-border-hi); }
       .tt-grid { display: grid; gap: 14px; }
       @media (min-width: 920px) {
         .tt-grid-2 { grid-template-columns: 1fr 1fr; }

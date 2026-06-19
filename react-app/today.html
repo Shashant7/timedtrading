@@ -341,6 +341,76 @@
       .tt-pill.accent { color: var(--tt-accent); background: var(--tt-accent-dim); border-color: rgba(56,242,161,0.30); }
       .tt-pill.violet { color: var(--tt-violet); background: var(--tt-violet-dim); border-color: rgba(166,247,207,0.30); }
       .tt-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+      .tt-market-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 11px 14px;
+        margin-bottom: 14px;
+        border-radius: 10px;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--tt-text-muted);
+      }
+      .tt-market-banner--closed {
+        border-color: rgba(148,163,184,0.35);
+        background: rgba(15,23,42,0.55);
+      }
+      .tt-market-banner--premarket,
+      .tt-market-banner--afterhours {
+        border-color: rgba(56,242,161,0.28);
+        background: rgba(56,242,161,0.06);
+        color: var(--tt-text);
+      }
+      .tt-market-banner-icon {
+        flex-shrink: 0;
+        font-size: 11px;
+        line-height: 1.6;
+        opacity: 0.85;
+      }
+      .tt-bmap-guide {
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(56,242,161,0.22);
+        background: rgba(56,242,161,0.05);
+      }
+      .tt-bmap-guide-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .tt-bmap-guide-title {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--tt-accent);
+      }
+      .tt-bmap-guide ul {
+        margin: 0;
+        padding-left: 18px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--tt-text-muted);
+      }
+      .tt-bmap-guide li + li { margin-top: 4px; }
+      .tt-bmap-guide-dismiss {
+        flex-shrink: 0;
+        border: 1px solid var(--tt-border);
+        background: transparent;
+        color: var(--tt-text-muted);
+        font-size: 11px;
+        font-weight: 600;
+        padding: 4px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .tt-bmap-guide-dismiss:hover { color: var(--tt-text); border-color: var(--tt-border-hi); }
       .tt-grid { display: grid; gap: 14px; }
       @media (min-width: 920px) {
         .tt-grid-2 { grid-template-columns: 1fr 1fr; }
@@ -1670,6 +1740,72 @@
         } catch { return false; }
       }
 
+      /** Calendar-aware session state — prefers /timed/market-calendar (holidays + early close). */
+      const US_MARKET_HOLIDAY_NAMES = {
+        "2026-06-19": "Juneteenth", "2026-01-01": "New Year's Day", "2026-01-19": "Martin Luther King Jr. Day",
+        "2026-02-16": "Presidents' Day", "2026-04-03": "Good Friday", "2026-05-25": "Memorial Day",
+        "2026-07-03": "Independence Day", "2026-09-07": "Labor Day", "2026-11-26": "Thanksgiving", "2026-12-25": "Christmas",
+      };
+      function holidayNameForToday(cal) {
+        if (cal?.equity?.holiday_name_today) return cal.equity.holiday_name_today;
+        if (!cal?.equity?.is_holiday_today) return null;
+        try {
+          const ds = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          return US_MARKET_HOLIDAY_NAMES[ds] || null;
+        } catch (_) { return null; }
+      }
+      function resolveMarketSession(cal) {
+        const equity = cal?.equity || {};
+        const sess = cal?.session || {};
+        const hasCal = cal?.ok === true;
+        const isHoliday = equity.is_holiday_today === true;
+        const holidayName = holidayNameForToday(cal);
+        const isEarlyClose = equity.is_early_close_today === true;
+        const sessionType = String(sess.session_type || "").toUpperCase();
+        let isWeekend = false;
+        try {
+          const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(new Date());
+          isWeekend = wd.startsWith("Sat") || wd.startsWith("Sun");
+        } catch (_) {}
+        const rthOpen = hasCal ? sess.is_rth === true : isNyRegularMarketOpen();
+        const operatingHours = hasCal ? sess.is_within_operating_hours === true : !isWeekend;
+        // Wait for calendar before showing intraday sections — client time-only
+        // fallback false-opens on holidays (e.g. Juneteenth weekday 9:30–4).
+        const showDayTradeSections = hasCal && sess.is_rth === true && !isHoliday && !isWeekend;
+        let bannerKind = null;
+        let bannerMessage = "";
+        if (hasCal && isHoliday) {
+          bannerKind = "closed";
+          bannerMessage = holidayName
+            ? `Markets are closed today for ${holidayName}.`
+            : "Markets are closed today for a US market holiday.";
+        } else if (hasCal && isWeekend) {
+          bannerKind = "closed";
+          bannerMessage = "Markets are closed for the weekend.";
+        } else if (hasCal && !rthOpen && sessionType === "PM") {
+          bannerKind = "premarket";
+          bannerMessage = "Pre-market — regular session opens at 9:30 AM ET.";
+        } else if (hasCal && !rthOpen && sessionType === "AH") {
+          bannerKind = "afterhours";
+          bannerMessage = "After-hours — regular session closed at 4:00 PM ET.";
+        } else if (hasCal && !rthOpen) {
+          bannerKind = "closed";
+          bannerMessage = "Markets are closed.";
+        }
+        return {
+          rthOpen,
+          operatingHours,
+          isHoliday,
+          holidayName,
+          isEarlyClose,
+          isWeekend,
+          sessionType,
+          showDayTradeSections,
+          bannerKind,
+          bannerMessage,
+        };
+      }
+
       // ── Fetch helpers ──────────────────────────────────────────
       // V15 P0.7.181 — All four fetchers route through TTFetchCache
       // (sessionStorage-backed stale-while-revalidate). The page now
@@ -1768,26 +1904,45 @@
 
       // ── Session pill ───────────────────────────────────────────
       function SessionPill({ cal }) {
-        const open = isNyRegularMarketOpen();
+        const session = resolveMarketSession(cal);
         let label, cls;
-        if (open) { label = "Market open · RTH"; cls = "up"; }
-        else {
-          try {
-            const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit", weekday: "short" });
-            const parts = f.formatToParts(new Date());
-            const wd = parts.find(p => p.type === "weekday")?.value;
-            const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
-            const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
-            const min = hh*60+mm;
-            if (wd === "Sat" || wd === "Sun") { label = "Weekend · Market closed"; cls = ""; }
-            else if (min < 9*60+30) { label = "Pre-market"; cls = "accent"; }
-            else if (min >= 16*60 && min < 20*60) { label = "After-hours"; cls = "accent"; }
-            else { label = "Market closed"; cls = ""; }
-          } catch { label = "Market closed"; cls = ""; }
+        if (session.rthOpen) {
+          label = session.isEarlyClose ? "Market open · Early close 1 PM ET" : "Market open · RTH";
+          cls = "up";
+        } else if (session.isHoliday) {
+          label = session.holidayName
+            ? `${session.holidayName} · Markets closed`
+            : "Holiday · Market closed";
+          cls = "";
+        } else if (session.isWeekend) {
+          label = "Weekend · Market closed";
+          cls = "";
+        } else if (session.sessionType === "PM") {
+          label = "Pre-market";
+          cls = "accent";
+        } else if (session.sessionType === "AH") {
+          label = "After-hours";
+          cls = "accent";
+        } else {
+          label = "Market closed";
+          cls = "";
         }
         return h("span", { className: `tt-pill ${cls}` },
           h("span", { className: "dot" }),
           label,
+        );
+      }
+
+      function MarketStatusBanner({ cal }) {
+        const session = resolveMarketSession(cal);
+        if (!session.bannerKind || !session.bannerMessage) return null;
+        return h("div", {
+          className: `tt-market-banner tt-market-banner--${session.bannerKind}`,
+          role: "status",
+          "aria-live": "polite",
+        },
+          h("span", { className: "tt-market-banner-icon", "aria-hidden": true }, session.bannerKind === "closed" ? "◼" : "◷"),
+          h("span", { className: "tt-market-banner-text" }, session.bannerMessage),
         );
       }
 
@@ -4836,8 +4991,36 @@
       // beside the Bubble Map (right), mirroring Active Trader's split
       // experience. On narrow screens (<1100px) they stack vertically.
       // ═══════════════════════════════════════════════════════════
-      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters }) {
+      function BubbleMapGuide() {
+        const storageKey = "tt-bubble-map-guide-dismissed";
+        const [dismissed, setDismissed] = useState(() => {
+          try { return window.localStorage.getItem(storageKey) === "1"; } catch { return false; }
+        });
+        if (dismissed) return null;
+        return h("div", { className: "tt-bmap-guide" },
+          h("div", { className: "tt-bmap-guide-head" },
+            h("div", { className: "tt-bmap-guide-title" }, "How to read the Bubble Map"),
+            h("button", {
+              type: "button",
+              className: "tt-bmap-guide-dismiss",
+              onClick: () => {
+                setDismissed(true);
+                try { window.localStorage.setItem(storageKey, "1"); } catch (_) {}
+              },
+            }, "Got it"),
+          ),
+          h("ul", null,
+            h("li", null, "Horizontal axis (LTF Score): short-term momentum — left is weak, right is strong."),
+            h("li", null, "Vertical axis (HTF Score): higher-timeframe trend — bottom is bearish, top is bullish."),
+            h("li", null, "Top-right green zone: bullish alignment. Bottom-left red zone: bearish alignment."),
+            h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel."),
+          ),
+        );
+      }
+
+      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters, tradeByTicker }) {
         return h("section", { className: "tt-row" },
+          h(BubbleMapGuide, null),
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
             h("div", null,
               h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
@@ -4861,6 +5044,7 @@
                 onSelectTicker,
                 filters,
                 setFilters,
+                tradeByTicker,
               }),
             ),
           ),
@@ -4887,7 +5071,7 @@
       // Falls back to the in-page lightweight BubbleMap if the shared
       // module hasn't loaded yet (first paint / network failure).
       // ═══════════════════════════════════════════════════════════
-      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker, filters, setFilters }) {
+      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker, filters, setFilters, tradeByTicker }) {
         const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
         const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
         const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
@@ -4960,6 +5144,7 @@
               forwardReturns: null,
               activeInsightTickers: null,
               layoutMode: "score",
+              tradeByTicker,
             }),
             bubbleSearchOpen && h("div", {
               className: "bm-quick-search-overlay",
@@ -5352,11 +5537,13 @@
 
         useEffect(() => {
           let alive = true;
+          // Phase 1 — unblock the page as soon as /timed/all lands. The daily
+          // brief can take several seconds (LLM-backed) and must not gate the
+          // full Today layout behind Promise.all.
           (async () => {
             try {
-              const [a, b, e, c, universe] = await Promise.all([
-                fetchAll(), fetchBrief(), fetchEarnings(), fetchCal(),
-                fetchTickerUniverse(),
+              const [a, c, universe] = await Promise.all([
+                fetchAll(), fetchCal(), fetchTickerUniverse(),
               ]);
               if (!alive) return;
               // Merge /timed/tickers placeholders into /timed/all data so the
@@ -5373,17 +5560,27 @@
                   }
                 }
                 setData(merged);
+              } else if (a === null) {
+                setError("Couldn't load market data");
               }
+              if (c?.ok) setCal(c);
+            } catch (err) {
+              if (alive) setError(String(err?.message || err));
+            }
+          })();
+          // Phase 2 — hero enrichments; BriefPlaceholder covers the left column
+          // until the brief arrives.
+          (async () => {
+            try {
+              const [b, e] = await Promise.all([fetchBrief(), fetchEarnings()]);
+              if (!alive) return;
               if (b?.ok) {
                 const picked = pickTodayBriefSlot(b.brief);
                 setBrief(picked?.slot || null);
                 setBriefSlot(picked?.type || b.active_slot || null);
               }
               if (e?.ok) setEarnings(e);
-              if (c?.ok) setCal(c);
-            } catch (err) {
-              if (alive) setError(String(err?.message || err));
-            }
+            } catch (_) { /* non-blocking */ }
           })();
           return () => { alive = false; };
         }, []);
@@ -5437,6 +5634,7 @@
           rankedTickers.forEach((t, idx) => { if (t?.ticker) m.set(t.ticker, idx + 1); });
           return m;
         }, [rankedTickers]);
+        const marketSession = useMemo(() => resolveMarketSession(cal), [cal]);
 
         // Right rail overlay state — clicking a card / bubble / heat tile
         // pops the slide-in TickerDetail panel (same component used by
@@ -5536,11 +5734,9 @@
           );
         }
 
-        // Loading = neither brief NOR data has landed yet. Page was
-        // previously near-blank until both arrived (several hundred ms).
-        // Skeletons keep the page populated so users see structure
-        // immediately instead of an empty white-on-black void.
-        const loading = !data && !brief;
+        // Loading gates on /timed/all only — the daily brief loads
+        // independently and TodayHero shows BriefPlaceholder until it lands.
+        const loading = !data;
 
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading today's data" }),
@@ -5554,6 +5750,7 @@
             //   Progressive disclosure: Day-Trade plan, Options plays,
             //     Universe heat map.
             h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
+            h(MarketStatusBanner, { cal }),
             h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker }),
             // Tier 3 — what the model is currently managing.
             h(OpenPositionsPreview, { onSelectTicker, allTickers }),
@@ -5577,13 +5774,13 @@
               strip: true,
               universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
             }),
-            // ── Progressive disclosure — deeper game-plan material ──
-            h(Disclosure, {
+            // ── Progressive disclosure — deeper game-plan material (RTH only) ──
+            marketSession.showDayTradeSections && h(Disclosure, {
               id: "daytrade",
               title: "Day-Trade Game Plan",
               sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade",
             }, h(DayTradePredictions, { onSelectTicker })),
-            h(Disclosure, {
+            marketSession.showDayTradeSections && h(Disclosure, {
               id: "options",
               title: "Options Plays of the Day",
               sub: "0/1DTE index plays + top swing structures",
@@ -5611,6 +5808,7 @@
                   onSelectTicker,
                   filters,
                   setFilters,
+                  tradeByTicker,
                 })
               : h(BubbleViewportSkeleton, null),
             data && h(Disclosure, {

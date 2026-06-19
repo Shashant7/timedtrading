@@ -1213,7 +1213,17 @@ function App() {
     const fromApi = data?.tickers || [];
     const activeUniverse = new Set([...(watchlistTickers || []).map(normalizeTicker).filter(Boolean), ...Array.from(pendingTickers).map(normalizeTicker).filter(Boolean)]);
     const filteredFromApi = watchlistLoaded ? fromApi.filter(t => activeUniverse.has(normalizeTicker(t.ticker))) : fromApi;
-    const fromApiSet = new Set(filteredFromApi.map(t => normalizeTicker(t.ticker)));
+    const enrichedFromApi = filteredFromApi.map(t => {
+      const hasData = Object.values(t.tfs || {}).some(tf => tf && tf.count > 0);
+      if (t.needs_onboard || !hasData && (t.pct === 0 || t.quality === 0)) {
+        return {
+          ...t,
+          needs_onboard: true
+        };
+      }
+      return t;
+    });
+    const fromApiSet = new Set(enrichedFromApi.map(t => normalizeTicker(t.ticker)));
     const missingFromApi = watchlistLoaded ? [...activeUniverse].filter(t => !fromApiSet.has(t)) : [...new Set([...Array.from(pendingTickers).map(normalizeTicker).filter(Boolean), ...(watchlistTickers || []).map(normalizeTicker).filter(t => t && !fromApiSet.has(t))])];
     const placeholders = [...missingFromApi].filter(t => t && !fromApiSet.has(t)).map(t => ({
       ticker: String(t).toUpperCase(),
@@ -1222,9 +1232,9 @@ function App() {
       quality: 0,
       missing: [...TFS],
       tfs: {},
-      backfilling: true
+      coverage_pending: true
     }));
-    const combined = [...filteredFromApi, ...placeholders];
+    const combined = [...enrichedFromApi, ...placeholders];
     const seen = new Set();
     const deduped = combined.filter(r => {
       const k = normalizeTicker(r.ticker);
@@ -1859,7 +1869,7 @@ function App() {
     const bfStatus = backfillStatus[t.ticker];
     return React.createElement("tr", {
       key: t.ticker,
-      className: `border-b border-white/[0.03] hover:bg-white/[0.02] ${selected.has(t.ticker) ? "bg-blue-900/10" : ""} ${t.backfilling ? "bg-blue-900/5" : ""} ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`
+      className: `border-b border-white/[0.03] hover:bg-white/[0.02] ${selected.has(t.ticker) ? "bg-blue-900/10" : ""} ${t.coverage_pending || t.backfilling ? "bg-blue-900/5" : ""} ${t.needs_onboard && !t.coverage_pending ? "bg-amber-900/5" : ""} ${idx % 2 === 0 ? "" : "bg-white/[0.01]"}`
     }, React.createElement("td", {
       className: "px-2 py-1.5"
     }, React.createElement("input", {
@@ -1873,10 +1883,13 @@ function App() {
       href: `index-react.html#ticker=${encodeURIComponent(t.ticker)}`,
       className: "font-semibold text-blue-400 hover:text-blue-300 text-xs cursor-pointer hover:underline",
       title: `View ${t.ticker} details on Dashboard`
-    }, t.ticker), t.backfilling && React.createElement("span", {
+    }, t.ticker), (t.coverage_pending || t.backfilling) && React.createElement("span", {
       className: "ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-900/40 text-amber-400",
-      title: "Backfill in progress; coverage will update shortly"
-    }, "Backfilling"), isTV && !t.backfilling && React.createElement("span", {
+      title: "Registry entry exists but candle coverage has not synced yet \u2014 use Fill then Score"
+    }, "Sync pending"), t.needs_onboard && !t.coverage_pending && !t.backfilling && React.createElement("span", {
+      className: "ml-1.5 text-[9px] px-1 py-0.5 rounded bg-orange-900/40 text-orange-300",
+      title: "No candle data in D1 \u2014 run Fill (backfill) then Score to onboard"
+    }, "Needs onboard"), isTV && !t.coverage_pending && !t.backfilling && !t.needs_onboard && React.createElement("span", {
       className: "ml-1.5 text-[9px] px-1 py-0.5 rounded bg-purple-900/40 text-purple-400"
     }, "TV")), React.createElement("td", {
       className: "px-2 py-1 text-[11px] text-gray-400 max-w-[140px] truncate",
@@ -1919,10 +1932,12 @@ function App() {
       }));
     })()), React.createElement("td", {
       className: "px-2 py-1.5 text-center",
-      title: t.backfilling ? "Backfill in progress" : `Count-based: ${t.pct}% | Quality: ${t.quality ?? t.pct}%`
-    }, t.backfilling ? React.createElement("span", {
+      title: t.coverage_pending || t.backfilling ? "Waiting for coverage sync" : t.needs_onboard ? "No candles yet — Fill then Score" : `Count-based: ${t.pct}% | Quality: ${t.quality ?? t.pct}%`
+    }, t.coverage_pending || t.backfilling ? React.createElement("span", {
       className: "text-[10px] text-amber-400"
-    }, "\u2026") : React.createElement("span", {
+    }, "\u2026") : t.needs_onboard ? React.createElement("span", {
+      className: "text-[10px] text-orange-300 font-semibold"
+    }, "0%") : React.createElement("span", {
       className: "text-xs font-bold px-2 py-0.5 rounded",
       style: {
         color: pctColor(t.quality ?? t.pct),

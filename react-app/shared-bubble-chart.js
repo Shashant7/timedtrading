@@ -295,6 +295,37 @@
     return null;
   }
 
+  // 2026-06-15 — Bubble tooltip + color bias must match the right rail's
+  // trader posture (inferTraderPosture), not raw HTF state. UUUU could show
+  // BEAR on the map while the rail reads "Leaning bullish".
+  function resolveOpenTradeForBubble(ticker, openTradeOpt, tradeMap) {
+    if (openTradeOpt) return openTradeOpt;
+    const sym = String(ticker?.ticker || "").toUpperCase();
+    const fromProp = tradeMap?.get?.(sym) || null;
+    if (fromProp) return fromProp;
+    const fromTicker = ticker?._openTrade || null;
+    if (fromTicker) return fromTicker;
+    return (typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym)) || null;
+  }
+
+  function getPostureBiasForBubble(ticker, openTradeOpt, tradeMap) {
+    const TPU = typeof window !== "undefined" && window.TimedPriceUtils;
+    const openTr = resolveOpenTradeForBubble(ticker, openTradeOpt, tradeMap);
+    if (TPU?.resolveBubblePosture) {
+      const posture = TPU.resolveBubblePosture(ticker, openTr);
+      if (posture?.direction) return posture;
+      if (posture?.strength === "neutral") return posture;
+    }
+    const dir = getDirectionFromState(ticker);
+    return dir
+      ? { direction: dir, strength: "lean", label: dir === "LONG" ? "Leaning bullish" : "Leaning bearish", posture: dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT" }
+      : { direction: "", strength: "neutral", label: "Neutral", posture: "NEUTRAL" };
+  }
+
+  function getPostureBiasDirection(ticker, openTradeOpt, tradeMap) {
+    return getPostureBiasForBubble(ticker, openTradeOpt, tradeMap).direction || null;
+  }
+
   function computeEntryRef(ticker) {
     const entryRef = numFromAny(ticker?.entry_ref);
     if (Number.isFinite(entryRef) && entryRef > 0) return entryRef;
@@ -358,7 +389,7 @@
     if (staleness && staleness !== "FRESH") return null;
     const baseEta = numFromAny(ticker?.eta_days_v2 ?? ticker?.eta_days);
     if (!Number.isFinite(baseEta) || baseEta <= 0) return null;
-    const dir = getDirectionFromState(ticker);
+    const dir = getPostureBiasDirection(ticker, ticker?._openTrade || null, null);
     const entry = computeEntryRef(ticker);
     // Use server-provided TP directly
     const target = numFromAny(ticker?.tp ?? ticker?.tp_trim);
@@ -1046,6 +1077,7 @@
     forwardReturns = null,
     activeInsightTickers = null,
     layoutMode = "score",
+    tradeByTicker: tradeByTickerProp = null,
   }) {
 
     /* V2.1 round 7 (2026-05-01) — When a ticker is SELECTED, solo it.
@@ -1611,19 +1643,19 @@
               );
             })}
 
-            {/* Quadrant labels — descriptive with subtitles */}
+            {/* Quadrant labels — descriptive with subtitles (raised opacity for new-user readability) */}
             {/* Top-Left: PULLBACK (HTF>0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">PULLBACK</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.15">HTF Bullish, LTF Weak</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">PULLBACK</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bullish, LTF Weak</text>
             {/* Top-Right: BULLISH MOMENTUM (HTF>0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BULLISH MOMENTUM</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.15">All Timeframes Aligned</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BULLISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
             {/* Bottom-Left: BEARISH MOMENTUM (HTF<0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BEARISH MOMENTUM</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.15">All Timeframes Aligned</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BEARISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
             {/* Bottom-Right: BOUNCE / REVERSAL (HTF<0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BOUNCE / REVERSAL</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.15">HTF Bearish, LTF Strong</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BOUNCE / REVERSAL</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bearish, LTF Strong</text>
 
             {/* Corridors — subtle fill with dashed borders and labels */}
             {(() => {
@@ -1633,13 +1665,13 @@
               const shortW = xForLtf(SHORT_CORRIDOR.ltfMax) - shortX;
               return (
                 <>
-                  <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.25)" strokeWidth="1" strokeDasharray="6 4" />
+                  <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.35)" strokeWidth="1" strokeDasharray="6 4" />
                   {/* V15 P0.7.84: BULL/BEAR vocabulary for setup zones
                       (no active trade); LONG/SHORT reserved for the
                       actual position direction. */}
-                  <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
-                  <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.06)" stroke="rgba(239,68,68,0.25)" strokeWidth="1" strokeDasharray="6 4" />
-                  <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
+                  <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
+                  <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.35)" strokeWidth="1" strokeDasharray="6 4" />
+                  <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
                 </>
               );
             })()}
@@ -2116,20 +2148,23 @@
                       );
                     })()}
                     {(() => {
-                      // V15 P0.7.83: bias terminology unified.
-                      // LONG/SHORT only when there's an actual open
-                      // position; otherwise BULL/BEAR for the signal
-                      // direction. Matches kanban cards / right rail.
-                      const b = tooltip.bias_direction || getDirectionFromState(tooltip);
-                      if (!b) return null;
-                      const sym = String(tooltip?.ticker || "").toUpperCase();
-                      const tr = (typeof tradeByTicker !== "undefined" && tradeByTicker?.get?.(sym)) || null;
-                      const _trStatus = String(tr?.status || "").toUpperCase();
-                      const hasOpenTrade = !!(tr && (_trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM"));
+                      // V15 P0.7.83 + 2026-06-15 posture sync: use the same
+                      // inferTraderPosture contract as the right rail header.
+                      const posture = getPostureBiasForBubble(tooltip, null, tradeByTickerProp);
+                      const b = posture?.direction || null;
+                      if (!b) {
+                        return (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-white/[0.04] text-[#6b7280]">
+                            NEUTRAL
+                          </span>
+                        );
+                      }
+                      const hasOpenTrade = posture.strength === "open";
+                      const isLean = posture.strength === "lean";
                       const l = String(b).toUpperCase() === "LONG";
                       const s = String(b).toUpperCase() === "SHORT";
-                      const longLabel = hasOpenTrade ? "LONG" : "BULL";
-                      const shortLabel = hasOpenTrade ? "SHORT" : "BEAR";
+                      const longLabel = hasOpenTrade ? "LONG" : (isLean ? "LEAN BULL" : "BULL");
+                      const shortLabel = hasOpenTrade ? "SHORT" : (isLean ? "LEAN BEAR" : "BEAR");
                       return (
                         <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold ${l ? "bg-teal-500/20 text-teal-400" : s ? "bg-rose-500/20 text-rose-400" : "bg-white/[0.04] text-[#6b7280]"}`}>
                           {l ? longLabel : s ? shortLabel : "NEUTRAL"}
@@ -2402,7 +2437,7 @@
         const prime = isPrimeBubble(ticker);
         const winnerSig = isWinnerSignature(ticker);
         const move = getMoveStatusInfo(ticker);
-        const dir = getDirectionFromState(ticker);
+        const dir = getPostureBiasDirection(ticker, ticker?._openTrade || null, tradeByTickerProp);
         const flipWatch = !!flags.flip_watch;
         const isTopRanked = topRankedTicker === ticker.ticker;
         const isBubbleHovered = hoveredTickerRef.current === ticker.ticker;
@@ -3340,6 +3375,8 @@
     isWinnerSignature: isWinnerSignature,
     completionForSize: completionForSize,
     getDirectionFromState: getDirectionFromState,
+    getPostureBiasDirection: getPostureBiasDirection,
+    getPostureBiasForBubble: getPostureBiasForBubble,
     computeEntryRef: computeEntryRef,
     numFromAny: numFromAny,
     computeReturnPct: computeReturnPct,
