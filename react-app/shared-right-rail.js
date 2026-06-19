@@ -11577,9 +11577,13 @@
 
                     const epsChip = growthChip(grw.eps_growth_class);
                     const revChip = growthChip(grw.rev_growth_class);
-                    const fairColor = val.fair_value_class === "discount" ? "var(--ds-up)"
-                                    : val.fair_value_class === "premium" ? "var(--ds-dn)"
-                                    : val.fair_value_class === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+                    const compFv = F.compounder || {};
+                    const fvPrice = val.fair_value_price ?? compFv.fair_value ?? null;
+                    const fvClass = val.fair_value_class ?? compFv.fv_class ?? null;
+                    const fvPremiumPct = val.fair_value_premium_pct ?? compFv.fv_premium_pct ?? null;
+                    const fairColor = fvClass === "discount" ? "var(--ds-up)"
+                                    : fvClass === "premium" ? "var(--ds-dn)"
+                                    : fvClass === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
 
                     // Sortable history rows.
                     const sortedHistory = (() => {
@@ -11684,16 +11688,16 @@
                         </Panel>
 
                         {/* Valuation panel — P/E TTM, Fwd P/E, P/S, Fair Value, Current */}
-                        <Panel title="Valuation" action={val.fair_value_class && (
+                        <Panel title="Valuation" action={fvClass && (
                           <span className="ds-chip ds-chip--sm" style={{
                             color: fairColor,
-                            background: val.fair_value_class === "discount" ? "rgba(34,197,94,0.12)"
-                                       : val.fair_value_class === "premium"  ? "rgba(244,63,94,0.12)"
+                            background: fvClass === "discount" ? "rgba(34,197,94,0.12)"
+                                       : fvClass === "premium"  ? "rgba(244,63,94,0.12)"
                                                                               : "rgba(56,242,161,0.12)",
                             border: `1px solid ${fairColor}`,
                             fontFamily: "var(--tt-font-mono)",
                             letterSpacing: "0.08em",
-                          }}>{String(val.fair_value_class || "").toUpperCase()}</span>
+                          }}>{String(fvClass || "").toUpperCase()}</span>
                         )}>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
                             <Metric label="P/E (TTM)" value={fmtNum(val.pe_ttm, 1)} />
@@ -11703,20 +11707,20 @@
                             <Metric label="PEG" value={fmtNum(val.peg_ratio, 2)} />
                             <Metric label="EV" value={fmtBigUsd(val.enterprise_value)} />
                           </div>
-                          {val.fair_value_price != null && (
+                          {fvPrice != null && (
                             <div style={{ marginTop: "var(--ds-space-3)", padding: "var(--ds-space-3)", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", border: `1px solid ${fairColor}` }}>
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                                 <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>FAIR VALUE</span>
                                 <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)" }} title="Fair value basis">{val.fair_value_basis || "—"}</span>
                               </div>
                               <div style={{ display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)", flexWrap: "wrap" }}>
-                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 700, color: fairColor }}>${fmtNum(val.fair_value_price, 2)}</span>
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-md)", fontWeight: 700, color: fairColor }}>${fmtNum(fvPrice, 2)}</span>
                                 {val.current_price != null && (
                                   <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" }}>vs ${fmtNum(val.current_price, 2)}</span>
                                 )}
-                                {val.fair_value_premium_pct != null && (
+                                {fvPremiumPct != null && (
                                   <span style={{ color: fairColor, fontFamily: "var(--tt-font-mono)", fontSize: 10, fontWeight: 600 }}>
-                                    {val.fair_value_premium_pct >= 0 ? "+" : ""}{val.fair_value_premium_pct.toFixed(1)}%
+                                    {fvPremiumPct >= 0 ? "+" : ""}{fvPremiumPct.toFixed(1)}%
                                   </span>
                                 )}
                               </div>

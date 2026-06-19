@@ -775,6 +775,12 @@ export async function onboardTicker(env, ticker, opts = {}) {
 
     console.log(`[ONBOARD] ${sym} complete: ${fingerprint.behaviorType}, ${moves.length} moves, sl=${calibration.slMult}x tp=${calibration.tpMult}x`);
 
+    // Best-effort company metadata (name, sector, industry, mcap).
+    try {
+      const Meta = await import("./ticker-metadata.js");
+      await Meta.hydrateTicker(env, sym, { syncContext: true });
+    } catch (_) {}
+
     return { ok: true, profile, scored: !!scored, moveCount: moves.length };
 
   } catch (e) {

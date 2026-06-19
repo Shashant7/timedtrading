@@ -737,7 +737,7 @@ function InvestorApp() {
       fontWeight: 600,
       textDecoration: "none"
     }
-  }, "Compounding Opportunities"), " on Today lists fundamentally growing names the model watches for pullbacks. Tap any card to open Fundamentals in the right rail."))), h(HowToReadCard, null), h("section", {
+  }, "Growth Ideas"), " on Today lists fundamentally growing names the model watches for pullbacks. Tap any card to open Fundamentals in the right rail."))), h(HowToReadCard, null), h("section", {
     className: "tt-row inv-controls"
   }, h("div", {
     className: "inv-search-wrap"
@@ -852,6 +852,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781910394506:24981122
+// cache-bust:1781911807407:484132943
 
-// cache-bust:1781910394506:24981122
+// cache-bust:1781911807407:484132943

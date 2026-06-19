@@ -90,11 +90,11 @@ function OpportunitiesApp() {
         });
         const j = await r.json();
         if (!cancelled) {
-          if (j.error_kind === "tier_required") setErr("Compounding Opportunities requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
+          if (j.error_kind === "tier_required") setErr("Growth Ideas requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
         }
       } catch (e) {
         if (!cancelled) {
-          const msg = e?.name === "AbortError" ? "Opportunities request timed out. Try again in a moment." : String(e.message || e);
+          const msg = e?.name === "AbortError" ? "Growth ideas request timed out. Try again in a moment." : String(e.message || e);
           setErr(msg);
         }
       } finally {
@@ -153,13 +153,13 @@ function OpportunitiesApp() {
   if (loading) {
     return h("main", null, h("div", {
       className: "hb-loading"
-    }, "Loading opportunities…"));
+    }, "Loading growth ideas…"));
   }
   const hero = h("header", {
     className: "hb-hero"
   }, h("div", {
     className: "label"
-  }, "TODAY · IDEAS"), h("h1", null, "Compounding Opportunities"), h("p", null, "Fundamentally growing names in the universe worth watching for pullbacks. ", "The Investor model tracks these for dip-buy entry — not a core-hold ledger. ", h("a", {
+  }, "TODAY · IDEAS"), h("h1", null, "Growth Ideas"), h("p", null, "Fundamentally growing names in the universe worth watching for pullbacks. ", "The Investor model tracks these for dip-buy entry — not a core-hold ledger. ", h("a", {
     className: "hb-link",
     href: "/today.html#opportunities"
   }, "Today strip"), " · ", h("a", {
@@ -170,11 +170,11 @@ function OpportunitiesApp() {
   if (err) {
     body = h("div", {
       className: "hb-empty"
-    }, `Could not load opportunities: ${err}`);
+    }, `Could not load growth ideas: ${err}`);
   } else if (!data?.count) {
     body = h("div", {
       className: "hb-empty"
-    }, "No compounding opportunities surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
+    }, "No growth ideas surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
   } else {
     const g = data.groups || {};
     const labels = data.group_labels || {};
@@ -204,6 +204,6 @@ function OpportunitiesApp() {
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(h(OpportunitiesApp));
-// cache-bust:1781910394506:24981122
+// cache-bust:1781911807407:484132943
 
-// cache-bust:1781910394506:24981122
+// cache-bust:1781911807407:484132943

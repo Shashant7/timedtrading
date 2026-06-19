@@ -2611,7 +2611,7 @@ function MacroStrip({
     }
   }, "Rotation to mind: "), themeCallout, ".")));
 }
-function CompoundingOpportunitiesStrip({
+function GrowthIdeasStrip({
   onSelectTicker
 }) {
   const [rows, setRows] = useState(null);
@@ -2657,7 +2657,7 @@ function CompoundingOpportunitiesStrip({
       className: "tt-row"
     }, h("div", {
       className: "tt-sec-title"
-    }, "COMPOUNDING OPPORTUNITIES"), h("div", {
+    }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
     }, "Loading growth watchlist…"));
   }
@@ -2681,7 +2681,7 @@ function CompoundingOpportunitiesStrip({
     }
   }, h("div", null, h("div", {
     className: "tt-sec-title"
-  }, "COMPOUNDING OPPORTUNITIES"), h("div", {
+  }, "GROWTH IDEAS"), h("div", {
     className: "tt-sec-h"
   }, "Fundamentally growing names — watch for pullbacks to add")), h("a", {
     href: "/opportunities.html",
@@ -5127,7 +5127,7 @@ function TodayApp() {
   }), h(OpenPositionsPreview, {
     onSelectTicker,
     allTickers
-  }), h(CompoundingOpportunitiesStrip, {
+  }), h(GrowthIdeasStrip, {
     onSelectTicker
   }), data ? h(MarketState, {
     data,
@@ -5555,6 +5555,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781910394506:24981122
+// cache-bust:1781911807407:484132943
 
-// cache-bust:1781910394506:24981122
+// cache-bust:1781911807407:484132943

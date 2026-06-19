@@ -418,8 +418,9 @@ export function isHoldbookCandidateRow(row) {
   return owned || HOLDBOOK_STAGE_SET.has(stage);
 }
 
-function compactCompounderPayload(comp) {
+function compactCompounderPayload(comp, snapshot = null) {
   if (!comp?.tier) return null;
+  const val = snapshot?.valuation || {};
   return {
     tier: comp.tier,
     tier_label: comp.tier_label || COMPOUNDER_TIER_LABELS[comp.tier] || null,
@@ -427,6 +428,9 @@ function compactCompounderPayload(comp) {
     hold_thesis: comp.hold_thesis || comp.why_hold || [],
     why_hold: comp.why_hold || comp.hold_thesis || [],
     trajectory: comp.trajectory || null,
+    fair_value: comp.fair_value ?? val.fair_value_price ?? null,
+    fv_class: comp.fv_class ?? val.fair_value_class ?? null,
+    fv_premium_pct: comp.fv_premium_pct ?? val.fair_value_premium_pct ?? null,
   };
 }
 
@@ -434,10 +438,22 @@ function compactCompounderPayload(comp) {
  * Attach compounder signal from a fundamentals snapshot when missing on score row.
  */
 export function attachCompounderFromSnapshot(row, snapshot) {
-  if (!row || row?.compounder?.tier) return row;
-  const comp = snapshot?.compounder || (snapshot ? extractGrowthCompounderSignal(snapshot) : null);
-  const payload = compactCompounderPayload(comp);
-  if (!payload) return row;
+  if (!row || !snapshot) return row;
+  const comp = snapshot.compounder || extractGrowthCompounderSignal(snapshot);
+  const payload = compactCompounderPayload(comp, snapshot);
+  if (!payload?.tier && !row?.compounder?.tier) return row;
+  if (!payload?.tier) return row;
+  if (row?.compounder?.tier) {
+    return {
+      ...row,
+      compounder: {
+        ...(row.compounder || {}),
+        fair_value: row.compounder.fair_value ?? payload.fair_value ?? null,
+        fv_class: row.compounder.fv_class ?? payload.fv_class ?? null,
+        fv_premium_pct: row.compounder.fv_premium_pct ?? payload.fv_premium_pct ?? null,
+      },
+    };
+  }
   return { ...row, compounder: { ...(row.compounder || {}), ...payload } };
 }
 
@@ -512,6 +528,9 @@ export function buildInvestorHoldbook(scoreRows, opts = {}) {
       dip_buy: row.compounder.dip_buy === true,
       price: row.price ?? null,
       dailyChgPct: row.dailyChgPct ?? null,
+      fair_value_price: row.compounder.fair_value ?? null,
+      fv_class: row.compounder.fv_class ?? null,
+      fv_premium_pct: row.compounder.fv_premium_pct ?? null,
     }));
 
   const bucket = (stage, owned) => {
