@@ -21,7 +21,9 @@
   window.ttOpenTickerInRail = function ttOpenTickerInRail(opts) {
     const ticker = String(opts?.ticker || "").toUpperCase();
     if (!ticker) return;
-    const initialRailTab = opts?.initialRailTab || "HISTORY";
+    const initialRailTab = opts?.initialRailTab != null
+      ? (String(opts.initialRailTab || "").trim().toUpperCase() || null)
+      : (opts?.tradeId || opts?.trade_id ? "HISTORY" : null);
     const tradeId = opts?.tradeId || opts?.trade_id || null;
     const evType = String(opts?.evType || opts?.type || "").toUpperCase();
     const openAutopsy =

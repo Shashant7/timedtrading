@@ -11,6 +11,7 @@ import {
   extractGrowthCompounderSignal,
   buildInvestorHoldbook,
   attachCompounderFromSnapshot,
+  attachCompounderFromLatest,
   normalizeRevenueEstimates,
   COMPOUNDER_TIER_LABELS,
 } from "./growth-compounder.js";
@@ -121,6 +122,22 @@ describe("buildInvestorHoldbook", () => {
     ]);
     expect(book.count).toBe(1);
     expect(book.groups.in_book).toHaveLength(1);
+  });
+});
+
+describe("attachCompounderFromLatest", () => {
+  it("fills compounder from timed:latest payload", () => {
+    const row = attachCompounderFromLatest(
+      { ticker: "MU", stage: "watch", score: 68 },
+      {
+        _compounder: {
+          tier: "growth_elite",
+          tier_label: "COMPOUND CORE",
+          hold_thesis: ["test"],
+        },
+      },
+    );
+    expect(row.compounder?.tier).toBe("growth_elite");
   });
 });
 

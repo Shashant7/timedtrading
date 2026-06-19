@@ -5684,14 +5684,18 @@
 
         const onSelectTicker = useCallback((sym, initialTab = null) => {
           if (!sym) return;
-          setRailTicker(String(sym).toUpperCase());
-          // 2026-05-30 — Pass through an optional initialTab so callers
-          // (Options Plays of the Day, Open Positions strip, etc.) can
-          // deep-link straight to a specific Right Rail tab. Previously
-          // OptionsPlaysOfTheDay called onSelectTicker(ticker, "OPTIONS")
-          // but the second arg was discarded → rail always opened on
-          // the default ANALYSIS / SNAPSHOT tab.
-          if (initialTab) setRailInitialTab(String(initialTab).toUpperCase());
+          const ticker = String(sym).toUpperCase();
+          const tab = initialTab ? String(initialTab).toUpperCase() : null;
+          if (typeof window.ttOpenTickerInRail === "function") {
+            window.ttOpenTickerInRail({
+              ticker,
+              initialRailTab: tab,
+              source: "today",
+            });
+            return;
+          }
+          setRailTicker(ticker);
+          if (tab) setRailInitialTab(tab);
           else setRailInitialTab(null);
         }, []);
                 const applyRailOpen = useCallback((detail) => {

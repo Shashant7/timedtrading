@@ -1111,13 +1111,20 @@
           return () => clearInterval(id);
         }, [RailOverlay]);
 
-        const onSelectTicker = useCallback((sym) => {
+        const onSelectTicker = useCallback((sym, initialTab = null) => {
           if (!sym) return;
-          // Always set state — even if RailOverlay is briefly null, the
-          // poll above will mount it within ~80ms and the overlay will
-          // render. Avoids the legacy-nav fall-through that caused the
-          // "small delay after page loads" feedback.
-          setRailTicker(String(sym).toUpperCase());
+          const ticker = String(sym).toUpperCase();
+          const tab = initialTab ? String(initialTab).toUpperCase() : null;
+          if (typeof window.ttOpenTickerInRail === "function") {
+            window.ttOpenTickerInRail({
+              ticker,
+              initialRailTab: tab,
+              source: "investor",
+            });
+            return;
+          }
+          setRailTicker(ticker);
+          if (tab) setRailInitialTab(tab);
         }, []);
                 const applyRailOpen = useCallback((detail) => {
           const p = typeof window.ttConsumeRailOpenForReact === "function"
