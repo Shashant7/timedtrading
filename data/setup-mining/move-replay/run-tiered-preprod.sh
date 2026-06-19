@@ -8,6 +8,7 @@
 set -euo pipefail
 cd /workspace
 export TIMED_API_KEY="${TIMED_API_KEY:-${TIMED_TRADING_API_KEY:-}}"
+export TIMED_API_BASE="${TIMED_API_BASE:-https://timed-trading-ingest-preprod.shashant.workers.dev}"
 OUT_DIR="data/setup-mining/move-replay"
 BATCH_SIZE="${BATCH_SIZE:-10}"
 WRANGLER_ENV="${WRANGLER_ENV:-preprod}"
