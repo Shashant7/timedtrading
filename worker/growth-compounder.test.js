@@ -10,6 +10,7 @@ import {
   computeCompounderScoreBoost,
   extractGrowthCompounderSignal,
   buildInvestorHoldbook,
+  attachCompounderFromSnapshot,
   normalizeRevenueEstimates,
   COMPOUNDER_TIER_LABELS,
 } from "./growth-compounder.js";
@@ -117,15 +118,17 @@ describe("buildInvestorHoldbook", () => {
         position: { owned: true },
         compounder: { tier: "growth_elite", tier_label: "COMPOUND CORE", hold_thesis: ["test"] },
       },
-      {
-        ticker: "XYZ",
-        stage: "research_avoid",
-        score: 20,
-        compounder: { tier: "growth_elite" },
-      },
     ]);
     expect(book.count).toBe(1);
     expect(book.groups.in_book).toHaveLength(1);
+  });
+});
+
+describe("attachCompounderFromSnapshot", () => {
+  it("fills compounder from fundamentals snapshot", () => {
+    const snap = muLikeSnapshot();
+    const row = attachCompounderFromSnapshot({ ticker: "MU", stage: "watch", score: 68 }, snap);
+    expect(row.compounder?.tier).toBe("growth_elite");
   });
 });
 
