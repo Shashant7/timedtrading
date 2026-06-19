@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# DEPRECATED for production — use run-tiered-preprod.sh instead.
 # Replay all remaining MISSED discovery moves (resume-safe).
 # Each iteration processes up to BATCH_SIZE moves; skips move_ids in prior summaries.
 set -euo pipefail
@@ -25,7 +26,7 @@ while true; do
     --limit "$BATCH_SIZE" \
     --min-atr "$MIN_ATR" \
     --pre-entry-days 5 \
-    --wrangler-d1 production \
+    --wrangler-d1 preprod \
     --out-dir "$OUT_DIR" \
     --resume \
     2>&1)
