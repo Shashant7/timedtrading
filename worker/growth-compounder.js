@@ -538,7 +538,7 @@ export function buildInvestorHoldbook(scoreRows, opts = {}) {
   return {
     ok: true,
     count: sorted.length,
-    title: "Compounding Opportunities",
+    title: "Growth Ideas",
     subtitle: "Fundamentally growing names worth watching for pullbacks",
     group_labels: {
       in_book: "In Position",

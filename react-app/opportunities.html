@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <title>Compounding Opportunities — Timed Trading</title>
+    <title>Growth Ideas — Timed Trading</title>
     <meta name="description" content="Fundamentally growing names worth watching for pullbacks — revenue path, quality grades, and dip-buy posture tracked by the Investor model." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -109,7 +109,7 @@
 
     <div id="root">
       <main>
-        <div class="hb-loading">Loading opportunities…</div>
+        <div class="hb-loading">Loading growth ideas…</div>
       </main>
     </div>
 
@@ -194,14 +194,14 @@
               });
               const j = await r.json();
               if (!cancelled) {
-                if (j.error_kind === "tier_required") setErr("Compounding Opportunities requires a Pro subscription.");
+                if (j.error_kind === "tier_required") setErr("Growth Ideas requires a Pro subscription.");
                 else if (!j.ok && j.error) setErr(j.error);
                 else setData(j);
               }
             } catch (e) {
               if (!cancelled) {
                 const msg = e?.name === "AbortError"
-                  ? "Opportunities request timed out. Try again in a moment."
+                  ? "Growth ideas request timed out. Try again in a moment."
                   : String(e.message || e);
                 setErr(msg);
               }
@@ -255,12 +255,12 @@
         }, [RailOverlay, applyRailOpen]);
 
         if (loading) {
-          return h("main", null, h("div", { className: "hb-loading" }, "Loading opportunities…"));
+          return h("main", null, h("div", { className: "hb-loading" }, "Loading growth ideas…"));
         }
 
         const hero = h("header", { className: "hb-hero" },
           h("div", { className: "label" }, "TODAY · IDEAS"),
-          h("h1", null, "Compounding Opportunities"),
+          h("h1", null, "Growth Ideas"),
           h("p", null,
             "Fundamentally growing names in the universe worth watching for pullbacks. ",
             "The Investor model tracks these for dip-buy entry — not a core-hold ledger. ",
@@ -273,10 +273,10 @@
 
         let body;
         if (err) {
-          body = h("div", { className: "hb-empty" }, `Could not load opportunities: ${err}`);
+          body = h("div", { className: "hb-empty" }, `Could not load growth ideas: ${err}`);
         } else if (!data?.count) {
           body = h("div", { className: "hb-empty" },
-            "No compounding opportunities surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ",
+            "No growth ideas surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ",
             "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.",
           );
         } else {

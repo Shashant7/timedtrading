@@ -58,7 +58,7 @@
         color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
       }
       .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
-      /* Compounding Opportunities — horizontal idea cards on Today */
+      /* Growth Ideas — horizontal idea cards on Today */
       .tt-opp-scroll {
         display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 10px;
         scroll-snap-type: x proximity; scrollbar-width: thin;
@@ -3606,11 +3606,11 @@
       // a kanban entry stage, straight from the /timed/all snapshot.
       // Click any chip → right-rail overlay. No extra fetch.
       // ═══════════════════════════════════════════════════════════
-      // ── Compounding Opportunities (Today strip) ─────────────────
+      // ── Growth Ideas (Today strip) ─────────────────
       // Fundamentally growing universe names worth watching for pullbacks.
       // Same feed as /timed/investor/holdbook — surfaced on Today as ideas
       // the model tracks for dip-buy entry (not a core-hold ledger).
-      function CompoundingOpportunitiesStrip({ onSelectTicker }) {
+      function GrowthIdeasStrip({ onSelectTicker }) {
         const [rows, setRows] = useState(null);
         const [loadErr, setLoadErr] = useState(null);
 
@@ -3643,7 +3643,7 @@
 
         if (rows === null) {
           return h("section", { id: "opportunities", className: "tt-row" },
-            h("div", { className: "tt-sec-title" }, "COMPOUNDING OPPORTUNITIES"),
+            h("div", { className: "tt-sec-title" }, "GROWTH IDEAS"),
             h("div", { className: "tt-sec-h" }, "Loading growth watchlist…"),
           );
         }
@@ -3658,7 +3658,7 @@
         return h("section", { id: "opportunities", className: "tt-row" },
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 } },
             h("div", null,
-              h("div", { className: "tt-sec-title" }, "COMPOUNDING OPPORTUNITIES"),
+              h("div", { className: "tt-sec-title" }, "GROWTH IDEAS"),
               h("div", { className: "tt-sec-h" }, "Fundamentally growing names — watch for pullbacks to add"),
             ),
             h("a", {
@@ -5895,7 +5895,7 @@
             h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker }),
             // Tier 3 — what the model is currently managing.
             h(OpenPositionsPreview, { onSelectTicker, allTickers }),
-            h(CompoundingOpportunitiesStrip, { onSelectTicker }),
+            h(GrowthIdeasStrip, { onSelectTicker }),
             // ── Retained informative sections ──
             data
               ? h(MarketState, { data, onSelectTicker })
