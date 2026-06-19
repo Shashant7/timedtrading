@@ -45,10 +45,8 @@ compatibility_date = "2024-01-01"
 
 # Dashboard-set vars survive CI deploys (wrangler would otherwise wipe any
 # var not listed in this file on every deploy — which would silently undo
-# a cutover flip). The cutover flag ENGINE_ENABLED is deliberately NOT
-# pinned in [vars]: code defaults it to "false"; the operator sets it via
-# the CF Dashboard (Settings → Variables; type Secret also works) and the
-# value persists.
+# a cutover flip). ENGINE_ENABLED is pinned so tt-engine runs scoring after
+# every deploy; the monolith's ENGINE_EXTERNAL=true prevents dual-scoring.
 keep_vars = true
 
 [triggers]
@@ -105,16 +103,13 @@ script_name = "timed-trading-ingest"
 [vars]
 # ── Role split (Step 3) ──
 WORKER_ROLE = "engine"
+ENGINE_ENABLED = "true"
 # ── Candle-chain cutover (must match the monolith so the SCORER uses the chain) ──
 SCORE_CANDLE_SOURCE = "hybrid_chain"
 CANDLE_CHAIN_INGEST = "1"
 # Shadow setup_events ledger — */5 scoring tick persists derived events
 SETUP_EVENTS_WRITE = "1"
 SETUP_TRAIL_SNAPSHOT = "1"
-# NOTE: ENGINE_ENABLED is NOT pinned here on purpose — set it via the CF
-# Dashboard when cutting over (code defaults to "false"; keep_vars above
-# makes the dashboard value survive deploys).
-
 # ── Mirror of the monolith's [vars] (worker/wrangler.toml) ──
 # KEEP IN SYNC: when a var changes there, change it here. The */5 tick
 # reads the same engine/alert/COO flags.
