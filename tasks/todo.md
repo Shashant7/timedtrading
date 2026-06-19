@@ -22,12 +22,11 @@
 
 ### Active
 
-- [ ] **Active Trader alert parity (2026-06-15).** Entry: await
-      d1InsertNotification + dispatchTradeAlertEmails (queueBackground
-      dropped notifications when isolate exited before async work);
-      rich notification body (setup/SL/TP/CIO). Exit signal: suppress
-      TRADE_EXIT_SIGNAL Discord when flat-price / shield / min-age /
-      Trend-Hold gates block the actual close. Branch:
+- [x] **Active Trader alert parity (2026-06-15).** Entry: await
+      d1InsertNotification + dispatchTradeAlertEmails; rich notification
+      body; full Discord parity in email (signal quality, why entered,
+      scale hint, vehicle pick). Exit signal suppressed when flat-price /
+      shield / min-age / Trend-Hold block close. Branch:
       `cursor/active-trader-alerts-df0c`.
 
 - [x] **CTO universe + tiered refresh (2026-06-11).** Drop screener
