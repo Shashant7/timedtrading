@@ -26,6 +26,7 @@
  *   --skip-replay           skip candle-replay (derive events from existing trail)
  *   --dry-run               print plan only
  *   --interval-minutes N    replay bar interval (default 5)
+ *   --resume                skip move_ids already in out-dir summary-*.json
  */
 
 import fs from "node:fs";
@@ -76,6 +77,7 @@ const OUT_DIR = argValue("--out-dir", "data/setup-mining/move-replay");
 const REPLAY_ONLY = hasFlag("--replay-only");
 const SKIP_REPLAY = hasFlag("--skip-replay");
 const DRY_RUN = hasFlag("--dry-run");
+const RESUME = hasFlag("--resume");
 const INTERVAL_MINUTES = Math.max(1, Number(argValue("--interval-minutes", "5")) || 5);
 const PRE_ENTRY_MS = PRE_ENTRY_DAYS * 86400000;
 
@@ -100,6 +102,21 @@ function fetchD1Rows(wranglerEnv, sql) {
   return parsed[0]?.results || [];
 }
 
+function loadCompletedMoveIds(outDir) {
+  const ids = new Set();
+  if (!outDir || !fs.existsSync(outDir)) return ids;
+  for (const f of fs.readdirSync(outDir)) {
+    if (!f.startsWith("summary-") || !f.endsWith(".json")) continue;
+    try {
+      const j = JSON.parse(fs.readFileSync(path.join(outDir, f), "utf8"));
+      for (const it of j.summary?.items || j.items || []) {
+        if (it?.move_id) ids.add(String(it.move_id));
+      }
+    } catch (_) { /* skip corrupt summaries */ }
+  }
+  return ids;
+}
+
 function loadMoves() {
   if (!DISCOVERY_FILE) {
     console.error("--discovery-file required");
@@ -107,8 +124,10 @@ function loadMoves() {
   }
   const raw = JSON.parse(fs.readFileSync(DISCOVERY_FILE, "utf8"));
   const moves = Array.isArray(raw?.moves) ? raw.moves : [];
+  const completed = RESUME ? loadCompletedMoveIds(OUT_DIR) : new Set();
   let filtered = filterMissedDiscoveryMoves(moves)
     .filter((m) => Number(m.move_atr || 0) >= MIN_ATR)
+    .filter((m) => !completed.has(String(m.move_id || "")))
     .sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
   if (TICKER_FILTER) {
     filtered = filtered.filter((m) => String(m.ticker || "").toUpperCase() === TICKER_FILTER);
@@ -319,10 +338,18 @@ async function processMove(move) {
 }
 
 async function main() {
+  const completed = RESUME ? loadCompletedMoveIds(OUT_DIR) : new Set();
   const moves = loadMoves();
   if (!moves.length) {
+    if (RESUME && completed.size > 0) {
+      console.log(JSON.stringify({ done: true, completed_move_ids: completed.size }, null, 2));
+      return;
+    }
     console.error("No moves matched filters");
     process.exit(1);
+  }
+  if (RESUME && completed.size > 0) {
+    console.log(`Resume: skipping ${completed.size} completed move_id(s), ${moves.length} in this batch`);
   }
 
   if (DRY_RUN) {
