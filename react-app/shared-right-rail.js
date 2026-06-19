@@ -6230,16 +6230,160 @@
               if (d === "SHORT") return "Short mean reversion";
               return "Mean reversion";
             };
-            const currentStageMeta = (seq) => {
-              const stage = Number(seq?.stage) || 0;
-              const results = Array.isArray(seq?.stage_results) ? seq.stage_results : [];
-              const matched = results.filter((r) => r?.matched);
-              const current = matched.length ? matched[matched.length - 1] : null;
-              return {
-                stage,
-                key: current?.key || null,
-                label: current?.key ? humanizeKey(current.key) : (stage > 0 ? `Stage ${stage}` : ""),
-              };
+            const SEQUENCE_STAGE_DEFS = [
+              { stage: 1, label: "Exhaustion forming" },
+              { stage: 2, label: "Exhaustion confirmed" },
+              { stage: 3, label: "Location valid" },
+              { stage: 4, label: "Left zone" },
+              { stage: 5, label: "Mean reversion target" },
+              { stage: 6, label: "Breakthrough" },
+              { stage: 7, label: "Pullback stable" },
+              { stage: 8, label: "Continuation" },
+            ];
+            const formatStageWhen = (ts) => {
+              const n = Number(ts);
+              if (!Number.isFinite(n) || n <= 0) return null;
+              try {
+                return new Date(n).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "America/New_York",
+                });
+              } catch (_) {
+                return null;
+              }
+            };
+            const formatStagePrice = (px) => {
+              const n = Number(px);
+              if (!Number.isFinite(n) || n <= 0) return null;
+              return `$${n.toFixed(2)}`;
+            };
+            const renderSequenceStageJourney = (seq, eventById, accentColor) => {
+              const currentStage = Number(seq?.stage) || 0;
+              const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
+              if (currentStage <= 0) return null;
+              const resultsByStage = new Map(
+                (Array.isArray(seq?.stage_results) ? seq.stage_results : []).map((r) => [Number(r.stage), r]),
+              );
+              const nextDef = SEQUENCE_STAGE_DEFS.find((d) => d.stage === currentStage + 1);
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", marginBottom: 6 }}
+                    aria-label={`Setup journey stage ${currentStage} of ${maxStage}`}
+                  >
+                    {SEQUENCE_STAGE_DEFS.map((def, idx) => {
+                      const matched = resultsByStage.get(def.stage)?.matched === true;
+                      const isCurrent = matched && def.stage === currentStage;
+                      const isDone = matched && def.stage < currentStage;
+                      const isNext = def.stage === currentStage + 1;
+                      const active = isDone || isCurrent;
+                      const dotColor = active ? accentColor : isNext ? "var(--ds-text-muted)" : "var(--ds-stroke)";
+                      const connectorActive = def.stage <= currentStage && resultsByStage.get(def.stage)?.matched;
+                      return (
+                        <React.Fragment key={def.stage}>
+                          {idx > 0 && (
+                            <div style={{
+                              flex: 1,
+                              height: 2,
+                              minWidth: 4,
+                              background: connectorActive || (def.stage <= currentStage)
+                                ? accentColor
+                                : "var(--ds-stroke)",
+                              opacity: def.stage <= currentStage ? 0.75 : 0.25,
+                            }} />
+                          )}
+                          <div
+                            title={`${def.stage}. ${def.label}`}
+                            style={{
+                              width: isCurrent ? 9 : 7,
+                              height: isCurrent ? 9 : 7,
+                              borderRadius: "50%",
+                              background: active ? accentColor : "transparent",
+                              border: `2px solid ${dotColor}`,
+                              boxShadow: isCurrent ? `0 0 0 2px color-mix(in srgb, ${accentColor} 25%, transparent)` : "none",
+                              flexShrink: 0,
+                            }}
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                  <div style={{
+                    fontSize: 10,
+                    color: "var(--ds-text-faint)",
+                    marginBottom: 8,
+                    fontFamily: "var(--tt-font-mono)",
+                  }}>
+                    Stage {currentStage} of {maxStage}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {SEQUENCE_STAGE_DEFS.filter((def) => {
+                      const r = resultsByStage.get(def.stage);
+                      return r?.matched && def.stage <= currentStage;
+                    }).map((def) => {
+                      const r = resultsByStage.get(def.stage);
+                      const isCurrent = def.stage === currentStage;
+                      const ev = r?.event_id ? eventById.get(String(r.event_id)) : null;
+                      const when = formatStageWhen(r?.event_ts ?? ev?.event_ts);
+                      const px = formatStagePrice(r?.price ?? ev?.price);
+                      const trigger = r?.event_type ? humanizeKey(r.event_type) : null;
+                      return (
+                        <div
+                          key={def.stage}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "14px 1fr",
+                            gap: "2px 8px",
+                            fontSize: "var(--ds-fs-caption)",
+                            lineHeight: 1.35,
+                            color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)",
+                          }}
+                        >
+                          <span style={{
+                            color: isCurrent ? accentColor : "var(--ds-up)",
+                            fontWeight: 700,
+                            lineHeight: 1.35,
+                          }}>
+                            {isCurrent ? "●" : "✓"}
+                          </span>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: isCurrent ? 600 : 400 }}>
+                              {def.stage}. {def.label}
+                            </div>
+                            {(when || px || trigger) && (
+                              <div style={{
+                                color: "var(--ds-text-faint)",
+                                fontFamily: "var(--tt-font-mono)",
+                                fontSize: 10,
+                                marginTop: 1,
+                              }}>
+                                {[when, px].filter(Boolean).join(" · ")}
+                                {trigger ? `${when || px ? " · " : ""}${trigger}` : ""}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {nextDef && currentStage < maxStage && (
+                      <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "14px 1fr",
+                        gap: "2px 8px",
+                        fontSize: "var(--ds-fs-caption)",
+                        color: "var(--ds-text-faint)",
+                        fontStyle: "italic",
+                      }}>
+                        <span style={{ lineHeight: 1.35 }}>○</span>
+                        <div>
+                          Next: {nextDef.stage}. {nextDef.label}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
             };
             const tp = setupShadowDiag?.trader_posture || null;
             const active = Array.isArray(setupShadowDiag?.active_sequences)
@@ -6264,6 +6408,13 @@
               if (!aPrimary && bPrimary) return 1;
               return (Number(b.stage) || 0) - (Number(a.stage) || 0);
             });
+            const shadowEventById = (() => {
+              const map = new Map();
+              for (const ev of setupShadowDiag?.events || []) {
+                if (ev?.event_id) map.set(String(ev.event_id), ev);
+              }
+              return map;
+            })();
             return (
               <Panel
                 title="Sequence (shadow)"
@@ -6328,8 +6479,8 @@
                           const dir = String(seq?.direction || "").toUpperCase();
                           const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
                           const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
+                          const journeyColor = headlineColor;
                           const pf = seq?.path_forecast;
-                          const stageMeta = currentStageMeta(seq);
                           const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
                           const isPrimary = !!(primarySeqId && seqId && primarySeqId === seqId);
                           return (
@@ -6350,22 +6501,11 @@
                                 {!isPrimary && active.length > 1 && (
                                   <span className="ds-chip ds-chip--sm ds-chip--solid" title="Alternate direction still forming in shadow">Alternate</span>
                                 )}
-                              </div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", alignItems: "center", marginBottom: seq.posture ? 4 : 0 }}>
-                                {stageMeta.stage > 0 && (
-                                  <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                    Stage {stageMeta.stage}
-                                  </span>
-                                )}
-                                {stageMeta.label && (
-                                  <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
-                                    {stageMeta.label}
-                                  </span>
-                                )}
                                 {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
                               </div>
+                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor)}
                               {seq.posture && (
-                                <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 }}>
+                                <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
                                   {seq.posture}
                                 </div>
                               )}
