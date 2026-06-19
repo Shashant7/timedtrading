@@ -444,8 +444,8 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
         FROM ${PUBLICATION_TICKERS_TABLE} pt
         JOIN ${PUBLICATIONS_TABLE} p ON p.pub_id = pt.pub_id
        WHERE pt.ticker IN (${placeholders})
-         AND p.fetched_at >= ?${queryTickers.length + 1}
-       ORDER BY p.fetched_at DESC
+         AND COALESCE(p.published_at, p.fetched_at) >= ?${queryTickers.length + 1}
+       ORDER BY COALESCE(p.published_at, p.fetched_at) DESC
        LIMIT ?${queryTickers.length + 2}
     `).bind(...queryTickers, since, limit).all();
     const seenPub = new Set();
@@ -486,10 +486,19 @@ export async function loadFSDIntelForTicker(env, ticker, opts = {}) {
     publications = publications.filter((p) =>
       publicationMentionsTicker(p.title, p.excerpt, sym),
     );
+    publications.sort((a, b) => {
+      const ta = Number(a.published_at) || Number(a.fetched_at) || 0;
+      const tb = Number(b.published_at) || Number(b.fetched_at) || 0;
+      return tb - ta;
+    });
+    const latestPublishedAt = publications.length
+      ? (Number(publications[0].published_at) || Number(publications[0].fetched_at) || null)
+      : null;
     return {
       ticker: sym,
       count: publications.length,
       lookback_days: lookbackDays,
+      latest_published_at: latestPublishedAt,
       publications,
     };
   } catch (e) {

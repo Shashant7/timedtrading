@@ -12045,7 +12045,72 @@
                         WebkitOverflowScrolling: "touch",
                       }}>
 
-                        {/* ── 0. FSD Intel (FlashInsights + long-form mentions) ────────── */}
+                        {/* ── 0. News Catalysts (most timely — shown first) ────────── */}
+                        <Panel title="🔥 News Catalysts" action={C.news?.count > 0 && (
+                          <span className="ds-chip ds-chip--sm">{C.news.count} headlines · 5d</span>
+                        )}>
+                          {!C.news?.has_data ? (
+                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
+                              No news in the last 5 days.
+                            </div>
+                          ) : (
+                            <>
+                              {C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && (
+                                <div style={{
+                                  marginBottom: "var(--ds-space-3)",
+                                  padding: "var(--ds-space-2)",
+                                  background: C.news.top_catalyst.sentiment === "bullish"
+                                    ? "rgba(52,211,153,0.06)"
+                                    : C.news.top_catalyst.sentiment === "bearish"
+                                      ? "rgba(248,113,113,0.06)"
+                                      : "rgba(255,255,255,0.03)",
+                                  border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
+                                  borderRadius: "var(--ds-radius-md)",
+                                }}>
+                                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TOP CATALYST</span>
+                                    {sentimentChip(C.news.top_catalyst.sentiment)}
+                                    <span style={{
+                                      fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
+                                      color: "var(--ds-text-body)", background: "rgba(255,255,255,0.08)",
+                                    }}>STR {C.news.top_catalyst.catalyst_strength}/10</span>
+                                  </div>
+                                  <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, lineHeight: 1.4 }}>
+                                    {C.news.top_catalyst.headline}
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                    {C.news.top_catalyst.source} · {fmtAgo(C.news.top_catalyst.datetime)}
+                                  </div>
+                                </div>
+                              )}
+                              <div style={{ display: "flex", gap: 4, marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
+                                {C.news.bull > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(52,211,153,0.10)", color: "var(--ds-color-up, #34d399)" }}>{C.news.bull} bull</span>}
+                                {C.news.bear > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(248,113,113,0.10)", color: "var(--ds-color-down, #f87171)" }}>{C.news.bear} bear</span>}
+                                {C.news.neutral > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ds-text-muted)" }}>{C.news.neutral} neutral</span>}
+                                {C.news.dominant_sentiment && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ds-text-faint)" }}>DOMINANT: {String(C.news.dominant_sentiment).toUpperCase()}</span>}
+                              </div>
+                              {Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: "var(--ds-space-2)" }}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>RECENT HEADLINES</div>
+                                  {C.news.latest_3.map((h, i) => (
+                                    <div key={`hl-${i}`} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: "var(--ds-fs-meta)" }}>
+                                      {sentimentChip(h.sentiment)}
+                                      <div style={{ flex: 1, color: "var(--ds-text-body)", lineHeight: 1.35 }}>
+                                        {h.headline}
+                                        <div style={{ fontSize: 9, color: "var(--ds-text-muted)", marginTop: 1 }}>
+                                          {h.source} · {fmtAgo(h.datetime)}
+                                          {h.catalyst_strength >= 5 && <> · str {h.catalyst_strength}/10</>}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </Panel>
+
+                        {/* ── 1. FSD Intel (FlashInsights + long-form mentions) ────────── */}
                         {/* 2026-06-03 — Renders TT-voice rewrite when available,
                            falls back to raw FSD excerpt when the rewriter hasn't
                            processed the pub yet. Marks latest published_at as
@@ -12236,9 +12301,9 @@
                             >
                               <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginBottom: 6, letterSpacing: "0.05em", display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                                 <span>EDITORIAL RESEARCH — POSTS MENTIONING {tickerSymbol}</span>
-                                {catalystsFetchedAt && (
-                                  <span title="Last catalyst bundle fetch">
-                                    Updated {fmtAgo(catalystsFetchedAt)}
+                                {(C.fsd_intel.latest_published_at || (C.fsd_intel.publications[0] && (C.fsd_intel.publications[0].published_at || C.fsd_intel.publications[0].fetched_at))) && (
+                                  <span title="Age of the newest research mention">
+                                    Newest mention · {fmtAgo(C.fsd_intel.latest_published_at || C.fsd_intel.publications[0].published_at || C.fsd_intel.publications[0].fetched_at)}
                                   </span>
                                 )}
                                 {_fsdPendingRewrite && (
@@ -12325,93 +12390,13 @@
                                           → {p.tt_cta}
                                         </div>
                                       )}
-                                      {/* Attribution + source link */}
-                                      <div style={{ marginTop: 6, fontSize: 9, color: "var(--ds-text-muted)" }}>
-                                        {p.attribution || "Source: Fundstrat Direct"}
-                                        {p.source_url && (
-                                          <>
-                                            {" · "}
-                                            <a href={p.source_url} target="_blank" rel="noopener noreferrer" style={{
-                                              color: "var(--ds-text-muted)", textDecoration: "underline",
-                                            }}>read original →</a>
-                                          </>
-                                        )}
-                                      </div>
                                     </div>
                                   );
                                 })}
                               </div>
-                              <div style={{ marginTop: 8, fontSize: 9, color: "var(--ds-text-faint)" }}>
-                                TT summaries are paraphrased for compliance. Original research © Fundstrat Direct — link above to read in full.
-                              </div>
                             </Panel>
                           );
                         })()}
-
-                        {/* ── 1. News Catalysts ────────────────────────── */}
-                        <Panel title="🔥 News Catalysts" action={C.news?.count > 0 && (
-                          <span className="ds-chip ds-chip--sm">{C.news.count} headlines · 5d</span>
-                        )}>
-                          {!C.news?.has_data ? (
-                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
-                              No news in the last 5 days.
-                            </div>
-                          ) : (
-                            <>
-                              {C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && (
-                                <div style={{
-                                  marginBottom: "var(--ds-space-3)",
-                                  padding: "var(--ds-space-2)",
-                                  background: C.news.top_catalyst.sentiment === "bullish"
-                                    ? "rgba(52,211,153,0.06)"
-                                    : C.news.top_catalyst.sentiment === "bearish"
-                                      ? "rgba(248,113,113,0.06)"
-                                      : "rgba(255,255,255,0.03)",
-                                  border: `1px solid ${C.news.top_catalyst.sentiment === "bullish" ? "rgba(52,211,153,0.30)" : C.news.top_catalyst.sentiment === "bearish" ? "rgba(248,113,113,0.30)" : "rgba(255,255,255,0.06)"}`,
-                                  borderRadius: "var(--ds-radius-md)",
-                                }}>
-                                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
-                                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>TOP CATALYST</span>
-                                    {sentimentChip(C.news.top_catalyst.sentiment)}
-                                    <span style={{
-                                      fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 4,
-                                      color: "var(--ds-text-body)", background: "rgba(255,255,255,0.08)",
-                                    }}>STR {C.news.top_catalyst.catalyst_strength}/10</span>
-                                  </div>
-                                  <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, lineHeight: 1.4 }}>
-                                    {C.news.top_catalyst.headline}
-                                  </div>
-                                  <div style={{ marginTop: 4, fontSize: 10, color: "var(--ds-text-muted)" }}>
-                                    {C.news.top_catalyst.source} · {fmtAgo(C.news.top_catalyst.datetime)}
-                                  </div>
-                                </div>
-                              )}
-                              <div style={{ display: "flex", gap: 4, marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
-                                {C.news.bull > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(52,211,153,0.10)", color: "var(--ds-color-up, #34d399)" }}>{C.news.bull} bull</span>}
-                                {C.news.bear > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(248,113,113,0.10)", color: "var(--ds-color-down, #f87171)" }}>{C.news.bear} bear</span>}
-                                {C.news.neutral > 0 && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ds-text-muted)" }}>{C.news.neutral} neutral</span>}
-                                {C.news.dominant_sentiment && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.05)", color: "var(--ds-text-faint)" }}>DOMINANT: {String(C.news.dominant_sentiment).toUpperCase()}</span>}
-                              </div>
-                              {Array.isArray(C.news.latest_3) && C.news.latest_3.length > 0 && (
-                                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: "var(--ds-space-2)" }}>
-                                  <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>RECENT HEADLINES</div>
-                                  {C.news.latest_3.map((h, i) => (
-                                    <div key={`hl-${i}`} style={{ display: "flex", gap: 6, alignItems: "flex-start", fontSize: "var(--ds-fs-meta)" }}>
-                                      {sentimentChip(h.sentiment)}
-                                      <div style={{ flex: 1, color: "var(--ds-text-body)", lineHeight: 1.35 }}>
-                                        {h.headline}
-                                        <div style={{ fontSize: 9, color: "var(--ds-text-muted)", marginTop: 1 }}>
-                                          {h.source} · {fmtAgo(h.datetime)}
-                                          {h.catalyst_strength >= 5 && <> · str {h.catalyst_strength}/10</>}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </Panel>
 
                         {/* ── 2. Insider Activity ──────────────────────── */}
                         <Panel title="💼 Insider Activity" action={C.insider?.has_data && (
