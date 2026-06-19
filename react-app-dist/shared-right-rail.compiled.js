@@ -7301,6 +7301,47 @@
             stage: 8,
             label: "Continuation"
           }];
+          const stageTipFor = (stage, dir) => {
+            const d = String(dir || "LONG").toUpperCase();
+            const tips = {
+              1: "Early reversal energy building — TD prep, RSI stretch, timing watch, or phase extreme.",
+              2: "TD9 or TD13 exhaustion print confirms the counter-trend setup.",
+              3: d === "SHORT" ? "Price at a valid short location: premium PDZ, FVG fill/reclaim, or liquidity sweep." : "Price at a valid long location: discount PDZ, FVG fill/reclaim, or liquidity sweep.",
+              4: d === "SHORT" ? "Market leaves distribution or extreme — bearish momentum can accelerate." : "Market leaves accumulation or extreme — bullish momentum can accelerate.",
+              5: d === "SHORT" ? "Mean-reversion target reached: EMA21 reject, VWAP reject, or PDZ equilibrium." : "Mean-reversion target reached: EMA21 reclaim, VWAP reclaim, or PDZ equilibrium.",
+              6: "Breakthrough with momentum — supertrend, ORB reclaim, squeeze release, or RVOL spike.",
+              7: "Pullback stabilizes after the reversal leg — continuation watch.",
+              8: "Continuation trigger fires (supertrend flip or ORB). Shadow marks entry-ready."
+            };
+            return tips[stage] || "";
+          };
+          const buildStageTooltip = ({
+            def,
+            dir,
+            r,
+            isCurrent,
+            isNext,
+            eventById
+          }) => {
+            const lines = [`Stage ${def.stage}: ${def.label}`];
+            const tip = stageTipFor(def.stage, dir);
+            if (tip) lines.push(tip);
+            if (r?.matched) {
+              const ev = r.event_id ? eventById.get(String(r.event_id)) : null;
+              const when = formatStageWhen(r.event_ts ?? ev?.event_ts);
+              const px = formatStagePrice(r.price ?? ev?.price);
+              const trigger = r.event_type ? humanizeKey(r.event_type) : null;
+              lines.push(isCurrent ? "Status: Current" : "Status: Completed");
+              if (when) lines.push(`Date: ${when}`);
+              if (px) lines.push(`Price: ${px}`);
+              if (trigger) lines.push(`Trigger: ${trigger}`);
+            } else if (isNext) {
+              lines.push("Status: Next — waiting for trigger");
+            } else {
+              lines.push("Status: Ahead in the journey");
+            }
+            return lines.join("\n");
+          };
           const formatStageWhen = ts => {
             const n = Number(ts);
             if (!Number.isFinite(n) || n <= 0) return null;
@@ -7319,7 +7360,7 @@
             if (!Number.isFinite(n) || n <= 0) return null;
             return `$${n.toFixed(2)}`;
           };
-          const renderSequenceStageJourney = (seq, eventById, accentColor) => {
+          const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
             const currentStage = Number(seq?.stage) || 0;
             const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
             if (currentStage <= 0) return null;
@@ -7337,13 +7378,22 @@
               },
               "aria-label": `Setup journey stage ${currentStage} of ${maxStage}`
             }, SEQUENCE_STAGE_DEFS.map((def, idx) => {
-              const matched = resultsByStage.get(def.stage)?.matched === true;
+              const r = resultsByStage.get(def.stage);
+              const matched = r?.matched === true;
               const isCurrent = matched && def.stage === currentStage;
               const isDone = matched && def.stage < currentStage;
               const isNext = def.stage === currentStage + 1;
               const active = isDone || isCurrent;
               const dotColor = active ? accentColor : isNext ? "var(--ds-text-muted)" : "var(--ds-stroke)";
               const connectorActive = def.stage <= currentStage && resultsByStage.get(def.stage)?.matched;
+              const dotTip = buildStageTooltip({
+                def,
+                dir,
+                r,
+                isCurrent,
+                isNext,
+                eventById
+              });
               return React.createElement(React.Fragment, {
                 key: def.stage
               }, idx > 0 && React.createElement("div", {
@@ -7355,7 +7405,7 @@
                   opacity: def.stage <= currentStage ? 0.75 : 0.25
                 }
               }), React.createElement("div", {
-                title: `${def.stage}. ${def.label}`,
+                title: dotTip,
                 style: {
                   width: isCurrent ? 9 : 7,
                   height: isCurrent ? 9 : 7,
@@ -7363,7 +7413,8 @@
                   background: active ? accentColor : "transparent",
                   border: `2px solid ${dotColor}`,
                   boxShadow: isCurrent ? `0 0 0 2px color-mix(in srgb, ${accentColor} 25%, transparent)` : "none",
-                  flexShrink: 0
+                  flexShrink: 0,
+                  cursor: "help"
                 }
               }));
             })), React.createElement("div", {
@@ -7389,15 +7440,25 @@
               const when = formatStageWhen(r?.event_ts ?? ev?.event_ts);
               const px = formatStagePrice(r?.price ?? ev?.price);
               const trigger = r?.event_type ? humanizeKey(r.event_type) : null;
+              const rowTip = buildStageTooltip({
+                def,
+                dir,
+                r,
+                isCurrent,
+                isNext: false,
+                eventById
+              });
               return React.createElement("div", {
                 key: def.stage,
+                title: rowTip,
                 style: {
                   display: "grid",
                   gridTemplateColumns: "14px 1fr",
                   gap: "2px 8px",
                   fontSize: "var(--ds-fs-caption)",
                   lineHeight: 1.35,
-                  color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)"
+                  color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)",
+                  cursor: "help"
                 }
               }, React.createElement("span", {
                 style: {
@@ -7422,13 +7483,22 @@
                 }
               }, [when, px].filter(Boolean).join(" · "), trigger ? `${when || px ? " · " : ""}${trigger}` : "")));
             }), nextDef && currentStage < maxStage && React.createElement("div", {
+              title: buildStageTooltip({
+                def: nextDef,
+                dir,
+                r: resultsByStage.get(nextDef.stage),
+                isCurrent: false,
+                isNext: true,
+                eventById
+              }),
               style: {
                 display: "grid",
                 gridTemplateColumns: "14px 1fr",
                 gap: "2px 8px",
                 fontSize: "var(--ds-fs-caption)",
                 color: "var(--ds-text-faint)",
-                fontStyle: "italic"
+                fontStyle: "italic",
+                cursor: "help"
               }
             }, React.createElement("span", {
               style: {
@@ -7580,7 +7650,7 @@
               title: "Alternate direction still forming in shadow"
             }, "Alternate"), seq.status && React.createElement("span", {
               className: "ds-chip ds-chip--sm ds-chip--solid"
-            }, String(seq.status))), renderSequenceStageJourney(seq, shadowEventById, journeyColor), seq.posture && React.createElement("div", {
+            }, String(seq.status))), renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir), seq.posture && React.createElement("div", {
               style: {
                 fontSize: "var(--ds-fs-body)",
                 color: "var(--ds-text-body)",
@@ -20574,4 +20644,4 @@
   };
 })();
 
-// cache-bust:1781883628928:241277479
+// cache-bust:1781888814062:494062715

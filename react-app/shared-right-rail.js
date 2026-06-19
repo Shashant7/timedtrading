@@ -6240,6 +6240,53 @@
               { stage: 7, label: "Pullback stable" },
               { stage: 8, label: "Continuation" },
             ];
+            const stageTipFor = (stage, dir) => {
+              const d = String(dir || "LONG").toUpperCase();
+              const tips = {
+                1: "Early reversal energy building — TD prep, RSI stretch, timing watch, or phase extreme.",
+                2: "TD9 or TD13 exhaustion print confirms the counter-trend setup.",
+                3: d === "SHORT"
+                  ? "Price at a valid short location: premium PDZ, FVG fill/reclaim, or liquidity sweep."
+                  : "Price at a valid long location: discount PDZ, FVG fill/reclaim, or liquidity sweep.",
+                4: d === "SHORT"
+                  ? "Market leaves distribution or extreme — bearish momentum can accelerate."
+                  : "Market leaves accumulation or extreme — bullish momentum can accelerate.",
+                5: d === "SHORT"
+                  ? "Mean-reversion target reached: EMA21 reject, VWAP reject, or PDZ equilibrium."
+                  : "Mean-reversion target reached: EMA21 reclaim, VWAP reclaim, or PDZ equilibrium.",
+                6: "Breakthrough with momentum — supertrend, ORB reclaim, squeeze release, or RVOL spike.",
+                7: "Pullback stabilizes after the reversal leg — continuation watch.",
+                8: "Continuation trigger fires (supertrend flip or ORB). Shadow marks entry-ready.",
+              };
+              return tips[stage] || "";
+            };
+            const buildStageTooltip = ({
+              def,
+              dir,
+              r,
+              isCurrent,
+              isNext,
+              eventById,
+            }) => {
+              const lines = [`Stage ${def.stage}: ${def.label}`];
+              const tip = stageTipFor(def.stage, dir);
+              if (tip) lines.push(tip);
+              if (r?.matched) {
+                const ev = r.event_id ? eventById.get(String(r.event_id)) : null;
+                const when = formatStageWhen(r.event_ts ?? ev?.event_ts);
+                const px = formatStagePrice(r.price ?? ev?.price);
+                const trigger = r.event_type ? humanizeKey(r.event_type) : null;
+                lines.push(isCurrent ? "Status: Current" : "Status: Completed");
+                if (when) lines.push(`Date: ${when}`);
+                if (px) lines.push(`Price: ${px}`);
+                if (trigger) lines.push(`Trigger: ${trigger}`);
+              } else if (isNext) {
+                lines.push("Status: Next — waiting for trigger");
+              } else {
+                lines.push("Status: Ahead in the journey");
+              }
+              return lines.join("\n");
+            };
             const formatStageWhen = (ts) => {
               const n = Number(ts);
               if (!Number.isFinite(n) || n <= 0) return null;
@@ -6258,7 +6305,7 @@
               if (!Number.isFinite(n) || n <= 0) return null;
               return `$${n.toFixed(2)}`;
             };
-            const renderSequenceStageJourney = (seq, eventById, accentColor) => {
+            const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
               const currentStage = Number(seq?.stage) || 0;
               const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
               if (currentStage <= 0) return null;
@@ -6273,13 +6320,22 @@
                     aria-label={`Setup journey stage ${currentStage} of ${maxStage}`}
                   >
                     {SEQUENCE_STAGE_DEFS.map((def, idx) => {
-                      const matched = resultsByStage.get(def.stage)?.matched === true;
+                      const r = resultsByStage.get(def.stage);
+                      const matched = r?.matched === true;
                       const isCurrent = matched && def.stage === currentStage;
                       const isDone = matched && def.stage < currentStage;
                       const isNext = def.stage === currentStage + 1;
                       const active = isDone || isCurrent;
                       const dotColor = active ? accentColor : isNext ? "var(--ds-text-muted)" : "var(--ds-stroke)";
                       const connectorActive = def.stage <= currentStage && resultsByStage.get(def.stage)?.matched;
+                      const dotTip = buildStageTooltip({
+                        def,
+                        dir,
+                        r,
+                        isCurrent,
+                        isNext,
+                        eventById,
+                      });
                       return (
                         <React.Fragment key={def.stage}>
                           {idx > 0 && (
@@ -6294,7 +6350,7 @@
                             }} />
                           )}
                           <div
-                            title={`${def.stage}. ${def.label}`}
+                            title={dotTip}
                             style={{
                               width: isCurrent ? 9 : 7,
                               height: isCurrent ? 9 : 7,
@@ -6303,6 +6359,7 @@
                               border: `2px solid ${dotColor}`,
                               boxShadow: isCurrent ? `0 0 0 2px color-mix(in srgb, ${accentColor} 25%, transparent)` : "none",
                               flexShrink: 0,
+                              cursor: "help",
                             }}
                           />
                         </React.Fragment>
@@ -6328,9 +6385,18 @@
                       const when = formatStageWhen(r?.event_ts ?? ev?.event_ts);
                       const px = formatStagePrice(r?.price ?? ev?.price);
                       const trigger = r?.event_type ? humanizeKey(r.event_type) : null;
+                      const rowTip = buildStageTooltip({
+                        def,
+                        dir,
+                        r,
+                        isCurrent,
+                        isNext: false,
+                        eventById,
+                      });
                       return (
                         <div
                           key={def.stage}
+                          title={rowTip}
                           style={{
                             display: "grid",
                             gridTemplateColumns: "14px 1fr",
@@ -6338,6 +6404,7 @@
                             fontSize: "var(--ds-fs-caption)",
                             lineHeight: 1.35,
                             color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)",
+                            cursor: "help",
                           }}
                         >
                           <span style={{
@@ -6367,14 +6434,25 @@
                       );
                     })}
                     {nextDef && currentStage < maxStage && (
-                      <div style={{
-                        display: "grid",
-                        gridTemplateColumns: "14px 1fr",
-                        gap: "2px 8px",
-                        fontSize: "var(--ds-fs-caption)",
-                        color: "var(--ds-text-faint)",
-                        fontStyle: "italic",
-                      }}>
+                      <div
+                        title={buildStageTooltip({
+                          def: nextDef,
+                          dir,
+                          r: resultsByStage.get(nextDef.stage),
+                          isCurrent: false,
+                          isNext: true,
+                          eventById,
+                        })}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "14px 1fr",
+                          gap: "2px 8px",
+                          fontSize: "var(--ds-fs-caption)",
+                          color: "var(--ds-text-faint)",
+                          fontStyle: "italic",
+                          cursor: "help",
+                        }}
+                      >
                         <span style={{ lineHeight: 1.35 }}>○</span>
                         <div>
                           Next: {nextDef.stage}. {nextDef.label}
@@ -6503,7 +6581,7 @@
                                 )}
                                 {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
                               </div>
-                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor)}
+                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir)}
                               {seq.posture && (
                                 <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
                                   {seq.posture}
