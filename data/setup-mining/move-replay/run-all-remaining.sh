@@ -37,8 +37,9 @@ while true; do
     exit 0
   fi
   if [ "$code" -ne 0 ]; then
-    echo "=== batch $batch failed exit=$code $(date -u -Iseconds) ==="
-    exit "$code"
+    echo "=== batch $batch failed exit=$code — retry in 60s $(date -u -Iseconds) ==="
+    sleep 60
+    continue
   fi
   sleep 5
 done

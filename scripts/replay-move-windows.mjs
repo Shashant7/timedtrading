@@ -85,21 +85,42 @@ const REPLAY_RETRIES = 5;
 const REPLAY_RETRY_MS = 30000;
 const REPLAY_TIMEOUT_MS = 180000;
 
-function fetchD1Rows(wranglerEnv, sql) {
+function syncSleep(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { /* spin */ }
+}
+
+function fetchD1Rows(wranglerEnv, sql, opts = {}) {
+  const retries = Number(opts.retries) || 5;
+  const retryMs = Number(opts.retryMs) || 10000;
   const dbName = wranglerEnv === "preprod" ? "timed-trading-ledger-preprod" : "timed-trading-ledger";
-  const out = execFileSync(path.join(process.cwd(), "node_modules/.bin/wrangler"), [
-    "d1", "execute", dbName,
-    "--env", wranglerEnv,
-    "--remote", "--json",
-    "--command", sql,
-  ], {
-    cwd: path.join(process.cwd(), "worker"),
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    maxBuffer: 128 * 1024 * 1024,
-  });
-  const parsed = JSON.parse(out);
-  return parsed[0]?.results || [];
+  let lastErr = null;
+  for (let attempt = 1; attempt <= retries; attempt += 1) {
+    try {
+      const out = execFileSync(path.join(process.cwd(), "node_modules/.bin/wrangler"), [
+        "d1", "execute", dbName,
+        "--env", wranglerEnv,
+        "--remote", "--json",
+        "--command", sql,
+      ], {
+        cwd: path.join(process.cwd(), "worker"),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 128 * 1024 * 1024,
+      });
+      const parsed = JSON.parse(out);
+      const errText = parsed[0]?.error?.text || parsed.error?.text;
+      if (errText) throw new Error(String(errText));
+      return parsed[0]?.results || [];
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        console.warn(`  D1 fetch retry ${attempt}/${retries}: ${String(e.message || e).slice(0, 120)}`);
+        syncSleep(retryMs);
+      }
+    }
+  }
+  throw lastErr || new Error("d1_fetch_failed");
 }
 
 function loadCompletedMoveIds(outDir) {
