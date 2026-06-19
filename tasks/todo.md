@@ -22,6 +22,11 @@
 
 ### Active
 
+- [ ] **Investor invalidation → auto-rebalance exit (2026-06-15).** Wire
+      primary invalidation price breach into live auto-rebalance (full exit,
+      no CIO gate). Sticky invalidation for owned positions so floors don't
+      ratchet down on a drop. Branch: `cursor/investor-invalidation-exit-df0c`.
+
 - [x] **Active Trader alert parity (2026-06-15).** Entry: await
       d1InsertNotification + dispatchTradeAlertEmails; rich notification
       body; full Discord parity in email (signal quality, why entered,
