@@ -71,8 +71,12 @@ const EXCLUDE_TICKERS_RAW = argValue("--exclude-ticker", "") || argValue("--excl
 const ONE_PER_TICKER = hasFlag("--one-per-ticker");
 const MIN_ATR = Number(argValue("--min-atr", "0")) || 0;
 const PRE_ENTRY_DAYS = Number(argValue("--pre-entry-days", "5")) || 5;
-const API_BASE_ARG = argValue("--api-base", API_BASE);
 const WRANGLER_D1 = argValue("--wrangler-d1", "");
+const PREPROD_API_BASE = "https://timed-trading-ingest-preprod.shashant.workers.dev";
+const API_BASE_ARG = argValue(
+  "--api-base",
+  WRANGLER_D1 === "preprod" ? PREPROD_API_BASE : API_BASE,
+);
 const OUT_DIR = argValue("--out-dir", "data/setup-mining/move-replay");
 const REPLAY_ONLY = hasFlag("--replay-only");
 const SKIP_REPLAY = hasFlag("--skip-replay");
@@ -220,7 +224,7 @@ function fetchSequenceTrailRows(ticker, since, until, wranglerEnv) {
   const all = [];
   let offset = 0;
   while (true) {
-    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND payload_json IS NOT NULL AND ts >= ${Number(since)} AND ts <= ${Number(until)} ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
+    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(since)} AND ts <= ${Number(until)} AND (payload_json IS NOT NULL OR flags_json IS NOT NULL) ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
     const batch = fetchD1Rows(wranglerEnv, sql);
     all.push(...batch);
     if (batch.length < pageSize) break;
