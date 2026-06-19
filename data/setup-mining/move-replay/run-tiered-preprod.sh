@@ -12,6 +12,12 @@ OUT_DIR="data/setup-mining/move-replay"
 BATCH_SIZE="${BATCH_SIZE:-10}"
 WRANGLER_ENV="${WRANGLER_ENV:-preprod}"
 mkdir -p "$OUT_DIR"
+
+if [ ! -x "node_modules/.bin/wrangler" ]; then
+  echo "wrangler missing — run: npm install"
+  exit 1
+fi
+
 LOG="$OUT_DIR/run-tiered-preprod-$(date -u +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
 
