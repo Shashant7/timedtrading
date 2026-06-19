@@ -411,6 +411,58 @@ export function extractGrowthCompounderSignal(snapshot) {
 }
 
 /**
+ * Attach compounder signal from a fundamentals snapshot when missing on score row.
+ */
+export function attachCompounderFromSnapshot(row, snapshot) {
+  if (!row || !snapshot || row?.compounder?.tier) return row;
+  const comp = snapshot.compounder || extractGrowthCompounderSignal(snapshot);
+  if (!comp?.tier) return row;
+  return {
+    ...row,
+    compounder: {
+      ...(row.compounder || {}),
+      tier: comp.tier,
+      tier_label: comp.tier_label || COMPOUNDER_TIER_LABELS[comp.tier] || null,
+      eligible: comp.eligible === true,
+      hold_thesis: comp.hold_thesis || comp.why_hold || [],
+      why_hold: comp.why_hold || comp.hold_thesis || [],
+      trajectory: comp.trajectory || null,
+    },
+  };
+}
+
+/**
+ * Enrich score rows with compounder data from fundamentals KV (read-time).
+ */
+export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
+  const cap = Number(opts.enrichCap) || 150;
+  const out = [];
+  let enriched = 0;
+  for (const row of rows) {
+    if (row?.compounder?.tier) {
+      out.push(row);
+      continue;
+    }
+    const stage = String(row?.stage || "").toLowerCase();
+    const owned = row?.position?.owned === true;
+    const candidate = owned || ["core_hold", "accumulate", "watch"].includes(stage);
+    if (!candidate || enriched >= cap) {
+      out.push(row);
+      continue;
+    }
+    try {
+      const snap = await kvGetJSON(kvKeyFn(row.ticker));
+      const next = attachCompounderFromSnapshot(row, snap);
+      if (next.compounder?.tier) enriched += 1;
+      out.push(next);
+    } catch (_) {
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+/**
  * Portfolio-level holdbook — compounders in book, building, or on radar.
  * Input rows are /timed/investor/scores entries (already enriched).
  */
