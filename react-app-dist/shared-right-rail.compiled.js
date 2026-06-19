@@ -172,6 +172,23 @@
     const CHART_TF_CHIPS = ["60", "240", "D", "W"];
     const chartTfLabel = tf => tf === "D" ? "D" : tf === "W" ? "W" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`;
     const chartTfTitle = tf => tf === "D" ? "Daily" : tf === "W" ? "Weekly" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`;
+    const candleArraySig = arr => {
+      if (!Array.isArray(arr) || arr.length === 0) return "0";
+      const first = arr[0];
+      const last = arr[arr.length - 1];
+      const fTs = first?.ts ?? first?.t ?? first?.time;
+      const lTs = last?.ts ?? last?.t ?? last?.time;
+      return `${arr.length}|${fTs}|${lTs}|${last?.c ?? last?.close}|${last?.o ?? last?.open}`;
+    };
+    const enforceMinBarGapSec = (candles, minGapSec) => {
+      if (!Array.isArray(candles) || candles.length < 2 || !Number.isFinite(minGapSec) || minGapSec <= 0) return candles;
+      const out = [candles[0]];
+      for (let i = 1; i < candles.length; i++) {
+        const prev = out[out.length - 1];
+        if (candles[i].time - prev.time >= minGapSec) out.push(candles[i]);
+      }
+      return out;
+    };
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross",
       supertrend: "SuperTrend",
@@ -3262,6 +3279,19 @@
                 low: Math.min(Number(prev.low), livePx)
               };
             }
+          } else if (tfMinutes === 60) {
+            const maxAgeSec = 3 * 3600;
+            if (last && nowSec - last.time < maxAgeSec) {
+              raw = raw.slice();
+              const idx = raw.length - 1;
+              const prev = raw[idx];
+              raw[idx] = {
+                ...prev,
+                close: livePx,
+                high: Math.max(Number(prev.high), livePx),
+                low: Math.min(Number(prev.low), livePx)
+              };
+            }
           } else {
             const tfSec = tfMinutes * 60;
             const bucketStartSec = Math.floor(nowSec / tfSec) * tfSec;
@@ -3315,6 +3345,8 @@
             cur.high = tmp;
           }
         }
+        if (tfMinutes === 60) raw = enforceMinBarGapSec(raw, 45 * 60);
+        if (tfMinutes === 240) raw = enforceMinBarGapSec(raw, 3 * 3600);
         return raw;
       }, [rawCandles, chartTf, livePrice]);
       const indicatorData = useMemo(() => {
@@ -3441,6 +3473,18 @@
                   day: "numeric",
                   timeZone: "America/New_York"
                 });
+                if (String(chartTf) === "60") {
+                  const parts = new Intl.DateTimeFormat("en-US", {
+                    timeZone: "America/New_York",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true
+                  }).formatToParts(d);
+                  const map = {};
+                  for (const p of parts) map[p.type] = p.value;
+                  const mins = Number(map.minute || 0);
+                  if (mins !== 30) return "";
+                }
                 return d.toLocaleTimeString("en-US", {
                   hour: "numeric",
                   minute: "2-digit",
@@ -3600,7 +3644,6 @@
               });
               lastAppliedWidth = w;
             }
-            chart.timeScale().fitContent();
           }
           settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
@@ -5300,7 +5343,7 @@
       const [catalystsFetchNonce, setCatalystsFetchNonce] = useState(0);
       const [chartTf, setChartTf] = useState("60");
       const [chartCandles, setChartCandles] = useState([]);
-      const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
+      const chartCandlesSigRef = useRef("");
       const [chartLoading, setChartLoading] = useState(false);
       const [chartError, setChartError] = useState(null);
       const [crosshair, setCrosshair] = useState(null);
@@ -5431,6 +5474,7 @@
         if (!Array.isArray(lines) || lines.length === 0) return "";
         return lines.map(l => `${Number(l.price)}|${l.title || ""}|${l.lineStyle || 0}`).join(";");
       }, [subtleKeyLevelLines]);
+      const _chartCandlesSig = useMemo(() => candleArraySig(chartCandles), [chartCandles]);
       const chartLivePrice = useMemo(() => {
         const src = window.TimedPriceUtils?.mergePriceSrc ? window.TimedPriceUtils.mergePriceSrc(ticker, latestTicker) : {
           ...(latestTicker || {}),
@@ -5458,7 +5502,7 @@
         ticker,
         hideOverlayToggles: true,
         livePrice: chartLivePrice
-      }), [chartCandles, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice]);
+      }), [_chartCandlesSig, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
         if (chartCandles.length >= 2) {
@@ -6512,19 +6556,33 @@
           try {
             setSetupShadowLoading(true);
             setSetupShadowError(null);
-            const apiKey = String(window._ttApiKey || "").trim();
             const qs = new URLSearchParams({
               ticker: sym,
               lookbackHours: "168",
               limit: "240"
             });
-            if (apiKey) qs.set("key", apiKey);
             const fetchOpts = {
               credentials: "include",
               cache: "no-store"
             };
-            const res = await fetch(`${API_BASE}/timed/admin/setup-diagnostics?${qs.toString()}`, fetchOpts);
-            const json = await res.json().catch(() => null);
+            const tryFetch = async path => {
+              const res = await fetch(`${API_BASE}${path}?${qs.toString()}`, fetchOpts);
+              const json = await res.json().catch(() => null);
+              return {
+                res,
+                json
+              };
+            };
+            let {
+              res,
+              json
+            } = await tryFetch("/timed/setup-shadow");
+            if ((!res.ok || !json?.ok) && (json?.error === "admin_required" || json?.error === "unauthorized" || res.status === 401 || res.status === 403)) {
+              ({
+                res,
+                json
+              } = await tryFetch("/timed/admin/setup-diagnostics"));
+            }
             if (!res.ok || !json?.ok) {
               const err = String(json?.error || `HTTP ${res.status}`);
               if (err === "no_snapshots") {
@@ -6550,7 +6608,7 @@
                 }
                 return;
               }
-              throw new Error(err);
+              throw new Error(err === "admin_required" || err === "unauthorized" ? "sign_in_required" : err);
             }
             if (!cancelled) {
               setupShadowCacheRef.current[sym] = {
@@ -6602,36 +6660,28 @@
       const candleCacheRef = useRef({});
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        if (!sym) return undefined;
-        const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-        if (!rthOpen) return undefined;
-        const pollMs = 30 * 1000;
-        const id = setInterval(() => {
-          const tf = String(chartTf || "30");
-          delete candleCacheRef.current[`${sym}:${tf}`];
-          setChartRefreshNonce(n => n + 1);
-        }, pollMs);
-        return () => clearInterval(id);
-      }, [tickerSymbol, chartTf]);
-      useEffect(() => {
-        const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) return;
         let cancelled = false;
         const run = async () => {
           try {
             setChartError(null);
-            const tf = String(chartTf || "30");
+            const tf = String(chartTf || "60");
             const cacheKey = `${sym}:${tf}`;
             const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
             const cacheTtlMs = rthOpen ? 15000 : 60000;
             const cached = candleCacheRef.current[cacheKey];
             const haveCached = cached && Date.now() - cached.ts < cacheTtlMs && Array.isArray(cached.data) && cached.data.length >= 2;
             if (haveCached) {
-              if (!cancelled) setChartCandles(cached.data);
+              const sig = candleArraySig(cached.data);
+              if (!cancelled && sig !== chartCandlesSigRef.current) {
+                chartCandlesSigRef.current = sig;
+                setChartCandles(cached.data);
+              }
               if (!cancelled) setChartLoading(false);
               return;
             }
-            if (!cancelled) setChartLoading(true);
+            const hadCandles = chartCandlesSigRef.current && chartCandlesSigRef.current !== "0";
+            if (!cancelled && !hadCandles) setChartLoading(true);
             const TF_LIMITS = {
               "5": 250,
               "15": 180,
@@ -6666,9 +6716,14 @@
               data: candles,
               ts: Date.now()
             };
-            if (!cancelled) setChartCandles(candles);
+            const sig = candleArraySig(candles);
+            if (!cancelled && sig !== chartCandlesSigRef.current) {
+              chartCandlesSigRef.current = sig;
+              setChartCandles(candles);
+            }
           } catch (e) {
             if (!cancelled) {
+              chartCandlesSigRef.current = "";
               setChartCandles([]);
               setChartError(String(e?.message || e));
             }
@@ -6680,7 +6735,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, chartTf, chartRefreshNonce]);
+      }, [tickerSymbol, chartTf]);
       const _contextReady = !!(ticker?.context && typeof ticker.context === "object" && (ticker.context.name || ticker.context.industry || ticker.context.sector || ticker.context.description));
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
@@ -7249,7 +7304,7 @@
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-dn)"
             }
-          }, "Shadow diagnostics unavailable (", setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, React.createElement("p", {
+          }, "Shadow diagnostics unavailable (", setupShadowError === "sign_in_required" ? "admin session required — hard refresh after login" : setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, React.createElement("p", {
             style: {
               margin: "0 0 var(--ds-space-2) 0",
               fontSize: "var(--ds-fs-caption)",
@@ -20315,4 +20370,4 @@
   };
 })();
 
-// cache-bust:1781879589278:345450807
+// cache-bust:1781880641465:145180608

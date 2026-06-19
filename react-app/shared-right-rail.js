@@ -211,6 +211,23 @@
     const chartTfTitle = (tf) => (
       tf === "D" ? "Daily" : tf === "W" ? "Weekly" : tf === "60" ? "1H" : tf === "240" ? "4H" : `${tf}m`
     );
+    const candleArraySig = (arr) => {
+      if (!Array.isArray(arr) || arr.length === 0) return "0";
+      const first = arr[0];
+      const last = arr[arr.length - 1];
+      const fTs = first?.ts ?? first?.t ?? first?.time;
+      const lTs = last?.ts ?? last?.t ?? last?.time;
+      return `${arr.length}|${fTs}|${lTs}|${last?.c ?? last?.close}|${last?.o ?? last?.open}`;
+    };
+    const enforceMinBarGapSec = (candles, minGapSec) => {
+      if (!Array.isArray(candles) || candles.length < 2 || !Number.isFinite(minGapSec) || minGapSec <= 0) return candles;
+      const out = [candles[0]];
+      for (let i = 1; i < candles.length; i++) {
+        const prev = out[out.length - 1];
+        if (candles[i].time - prev.time >= minGapSec) out.push(candles[i]);
+      }
+      return out;
+    };
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross", supertrend: "SuperTrend", ema_structure: "EMA structure",
       ema_depth: "EMA depth", rsi: "RSI", ema5_48: "EMA 5/48", s1_slope: "Slope",
@@ -2089,8 +2106,23 @@
           // 4H bars from the provider are session-aligned (9:30/13:30 ET),
           // not UTC epoch buckets. Merging via floor(now/4h) appends orphan
           // flat bars and hides missing completed candles (UUUU incident).
+          // 1H has the same problem: UTC hourly buckets interleave with
+          // session-aligned 60m bars and read as 30m spacing on the axis.
           if (tfMinutes === 240) {
             const maxAgeSec = 6 * 3600;
+            if (last && nowSec - last.time < maxAgeSec) {
+              raw = raw.slice();
+              const idx = raw.length - 1;
+              const prev = raw[idx];
+              raw[idx] = {
+                ...prev,
+                close: livePx,
+                high: Math.max(Number(prev.high), livePx),
+                low: Math.min(Number(prev.low), livePx),
+              };
+            }
+          } else if (tfMinutes === 60) {
+            const maxAgeSec = 3 * 3600;
             if (last && nowSec - last.time < maxAgeSec) {
               raw = raw.slice();
               const idx = raw.length - 1;
@@ -2164,6 +2196,9 @@
           if (cur.low < refLow - threshold) cur.low = Math.min(cur.open, cur.close) - refRange * 0.5;
           if (cur.low > cur.high) { const tmp = cur.low; cur.low = cur.high; cur.high = tmp; }
         }
+
+        if (tfMinutes === 60) raw = enforceMinBarGapSec(raw, 45 * 60);
+        if (tfMinutes === 240) raw = enforceMinBarGapSec(raw, 3 * 3600);
 
         return raw;
       }, [rawCandles, chartTf, livePrice]);
@@ -2309,6 +2344,20 @@
               try {
                 const d = new Date(time * 1000);
                 if (_isHtfChart) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+                if (String(chartTf) === "60") {
+                  const parts = new Intl.DateTimeFormat("en-US", {
+                    timeZone: "America/New_York",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true,
+                  }).formatToParts(d);
+                  const map = {};
+                  for (const p of parts) map[p.type] = p.value;
+                  const mins = Number(map.minute || 0);
+                  // Session-aligned 1H bars land on :30; hide auto ticks on :00
+                  // that come from UTC orphan bars we filtered out.
+                  if (mins !== 30) return "";
+                }
                 return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
               } catch (_) { return ""; }
             },
@@ -2478,7 +2527,9 @@
               chart.applyOptions({ width: w });
               lastAppliedWidth = w;
             }
-            chart.timeScale().fitContent();
+            // Do NOT fitContent here — UPDATE effect owns the first visible
+            // range. fitContent on mount + 150ms later caused zoom snap-back
+            // flicker when data/levels loaded.
           }
           settleTimeout = setTimeout(() => {
             if (containerRef.current && chart) {
@@ -3045,8 +3096,9 @@
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       const prevLive = Number(prev.livePrice);
       const nextLive = Number(next.livePrice);
-      if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && Math.abs(prevLive - nextLive) > 0.005) return false;
-      if (Number.isFinite(prevLive) !== Number.isFinite(nextLive)) return false;
+      if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && prevLive > 0) {
+        if (Math.abs(prevLive - nextLive) / prevLive > 0.0001) return false;
+      } else if (Number.isFinite(prevLive) !== Number.isFinite(nextLive)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
@@ -3987,7 +4039,7 @@
            reads cleanly first; toggles available to enable. */
         const [chartTf, setChartTf] = useState("60");
         const [chartCandles, setChartCandles] = useState([]);
-        const [chartRefreshNonce, setChartRefreshNonce] = useState(0);
+        const chartCandlesSigRef = useRef("");
         const [chartLoading, setChartLoading] = useState(false);
         const [chartError, setChartError] = useState(null);
         const [crosshair, setCrosshair] = useState(null);
@@ -4147,6 +4199,8 @@
           return lines.map((l) => `${Number(l.price)}|${l.title || ""}|${l.lineStyle || 0}`).join(";");
         }, [subtleKeyLevelLines]);
 
+        const _chartCandlesSig = useMemo(() => candleArraySig(chartCandles), [chartCandles]);
+
         const chartLivePrice = useMemo(() => {
           const src = (window.TimedPriceUtils?.mergePriceSrc
             ? window.TimedPriceUtils.mergePriceSrc(ticker, latestTicker)
@@ -4187,7 +4241,7 @@
             livePrice: chartLivePrice,
           }),
           [
-            chartCandles,
+            _chartCandlesSig,
             chartTf,
             chartOverlays,
             _priceLinesSig,
@@ -5363,19 +5417,23 @@
             try {
               setSetupShadowLoading(true);
               setSetupShadowError(null);
-              const apiKey = String(window._ttApiKey || "").trim();
               const qs = new URLSearchParams({
                 ticker: sym,
                 lookbackHours: "168",
                 limit: "240",
               });
-              if (apiKey) qs.set("key", apiKey);
               const fetchOpts = { credentials: "include", cache: "no-store" };
-              const res = await fetch(`${API_BASE}/timed/admin/setup-diagnostics?${qs.toString()}`, fetchOpts);
-              const json = await res.json().catch(() => null);
+              const tryFetch = async (path) => {
+                const res = await fetch(`${API_BASE}${path}?${qs.toString()}`, fetchOpts);
+                const json = await res.json().catch(() => null);
+                return { res, json };
+              };
+              let { res, json } = await tryFetch("/timed/setup-shadow");
+              if ((!res.ok || !json?.ok) && (json?.error === "admin_required" || json?.error === "unauthorized" || res.status === 401 || res.status === 403)) {
+                ({ res, json } = await tryFetch("/timed/admin/setup-diagnostics"));
+              }
               if (!res.ok || !json?.ok) {
                 const err = String(json?.error || `HTTP ${res.status}`);
-                // Empty trail window is expected for some tickers — show soft empty state.
                 if (err === "no_snapshots") {
                   if (!cancelled) {
                     setupShadowCacheRef.current[sym] = { data: { empty: true, error: err, hint: json?.hint }, ts: Date.now() };
@@ -5384,7 +5442,7 @@
                   }
                   return;
                 }
-                throw new Error(err);
+                throw new Error(err === "admin_required" || err === "unauthorized" ? "sign_in_required" : err);
               }
               if (!cancelled) {
                 setupShadowCacheRef.current[sym] = { data: json, ts: Date.now() };
@@ -5440,23 +5498,6 @@
         // In-memory candle cache: key = "TICKER:TF", value = { data, ts }
         const candleCacheRef = useRef({});
 
-        // 2026-06-09 — During RTH, poll /timed/candles every 30s so the
-        // rail chart does not sit on a 60s+ stale D1 snapshot while the
-        // header streams live quotes.
-        useEffect(() => {
-          const sym = String(tickerSymbol || "").trim().toUpperCase();
-          if (!sym) return undefined;
-          const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-          if (!rthOpen) return undefined;
-          const pollMs = 30 * 1000;
-          const id = setInterval(() => {
-            const tf = String(chartTf || "30");
-            delete candleCacheRef.current[`${sym}:${tf}`];
-            setChartRefreshNonce((n) => n + 1);
-          }, pollMs);
-          return () => clearInterval(id);
-        }, [tickerSymbol, chartTf]);
-
         useEffect(() => {
           const sym = String(tickerSymbol || "")
             .trim()
@@ -5474,7 +5515,7 @@
           const run = async () => {
             try {
               setChartError(null);
-              const tf = String(chartTf || "30");
+              const tf = String(chartTf || "60");
               const cacheKey = `${sym}:${tf}`;
               const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
               const cacheTtlMs = rthOpen ? 15000 : 60000;
@@ -5483,17 +5524,18 @@
               const cached = candleCacheRef.current[cacheKey];
               const haveCached = cached && Date.now() - cached.ts < cacheTtlMs && Array.isArray(cached.data) && cached.data.length >= 2;
               if (haveCached) {
-                if (!cancelled) setChartCandles(cached.data);
+                const sig = candleArraySig(cached.data);
+                if (!cancelled && sig !== chartCandlesSigRef.current) {
+                  chartCandlesSigRef.current = sig;
+                  setChartCandles(cached.data);
+                }
                 if (!cancelled) setChartLoading(false);
                 return;
               }
-              if (!cancelled) setChartLoading(true);
+              const hadCandles = chartCandlesSigRef.current && chartCandlesSigRef.current !== "0";
+              if (!cancelled && !hadCandles) setChartLoading(true);
 
               // V15 P0.7.98 — match Daily Brief MiniChart limits exactly.
-              // Was 500 bars (~2 weeks of 30m, costly + unnecessary). User
-              // wants ~100 bars / today + previous day for the rail chart.
-              // The daily-brief uses these exact per-TF limits and the chart
-              // looks much cleaner / loads faster / flickers less.
               const TF_LIMITS = { "5": 250, "15": 180, "30": 130, "60": 100, "240": 60, "D": 60, "W": 52 };
               const limit = TF_LIMITS[tf] || 130;
               const qs = new URLSearchParams();
@@ -5516,9 +5558,14 @@
               const candles = Array.isArray(json.candles) ? json.candles : [];
               // Store in cache
               candleCacheRef.current[cacheKey] = { data: candles, ts: Date.now() };
-              if (!cancelled) setChartCandles(candles);
+              const sig = candleArraySig(candles);
+              if (!cancelled && sig !== chartCandlesSigRef.current) {
+                chartCandlesSigRef.current = sig;
+                setChartCandles(candles);
+              }
             } catch (e) {
               if (!cancelled) {
+                chartCandlesSigRef.current = "";
                 setChartCandles([]);
                 setChartError(String(e?.message || e));
               }
@@ -5530,7 +5577,7 @@
           return () => {
             cancelled = true;
           };
-        }, [tickerSymbol, chartTf, chartRefreshNonce]);
+        }, [tickerSymbol, chartTf]);
 
         // P0.7.101 — derive contextReady from STABLE primitive values
         // (not the ticker object reference). Was: deps included the
@@ -6199,7 +6246,9 @@
                 )}
                 {setupShadowError && (
                   <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-dn)" }}>
-                    Shadow diagnostics unavailable ({setupShadowError})
+                    Shadow diagnostics unavailable ({setupShadowError === "sign_in_required"
+                      ? "admin session required — hard refresh after login"
+                      : setupShadowError})
                   </p>
                 )}
                 {setupShadowDiag && !setupShadowError && (
