@@ -1182,6 +1182,9 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     trimmedPct, newTrimmedPct, trimDeltaPct, shares_trimmed, shares_remaining,
     trim_reason, action_ts, chart_url,
     momentum_elite, vwap_pct, cio,
+    // 2026-06-15 — Discord parity fields (shared via buildTraderEntryAlertParityPayload)
+    signal_quality_lines, signal_tags, why_entered, scale_hint, vehicle_pick,
+    conviction_score, conviction_tier,
     // 2026-06-01 — recommended options play surfaced alongside the equity
     // entry. Compact representation built via compactOptionsPlay(); see
     // worker/options-plays.js for the shape. Trader entries surface a
@@ -1229,6 +1232,12 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       const qtyLine = `Shares: <strong style="color:white">${Number(shares).toFixed(4).replace(/\.?0+$/, "")}</strong>`;
       const valLine = Number.isFinite(Number(notional)) ? ` &nbsp;|&nbsp; Notional: <strong style="color:white">$${Number(notional).toFixed(2)}</strong>` : "";
       posLines.push(qtyLine + valLine);
+    }
+    if (isEntry && scale_hint && Number(scale_hint.pct_of_account) > 0) {
+      posLines.push(`Sizing: <strong style="color:white">${Number(scale_hint.pct_of_account).toFixed(1)}% of account</strong>`);
+      if (Number(scale_hint.per_thousand) > 0) {
+        posLines.push(`Scale to your own: <strong style="color:white">≈ $${Number(scale_hint.per_thousand).toFixed(0)} per $1k</strong> of your account`);
+      }
     }
     if (Number.isFinite(Number(rr)) && Number(rr) > 0) posLines.push(`R:R: <strong style="color:${Number(rr) >= 2 ? '#10b981' : 'white'}">${Number(rr).toFixed(2)}:1</strong>`);
     if (Number.isFinite(Number(rank)) && Number(rank) > 0) posLines.push(`Rank: <strong style="color:white">${Math.round(Number(rank))}/100</strong>`);
@@ -1337,10 +1346,64 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     }
   }
 
-  // SIGNALS row (compact)
+  // SIGNAL QUALITY (entry) — rank, conviction, R:R, full signal tag list
+  let signalQualitySection = "";
+  if (isEntry) {
+    const sqLines = [];
+    if (Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
+      for (const line of signal_quality_lines) {
+        const idx = String(line).indexOf(": ");
+        if (idx > 0) {
+          sqLines.push(`<strong style="color:white">${String(line).slice(0, idx)}</strong>: ${String(line).slice(idx + 2)}`);
+        } else {
+          sqLines.push(String(line));
+        }
+      }
+    } else {
+      if (Number.isFinite(Number(rank)) && Number(rank) > 0) {
+        sqLines.push(`Signal Strength (Rank): <strong style="color:white">${Math.round(Number(rank))}/100</strong>`);
+      }
+      if (Number.isFinite(Number(conviction_score)) && Number(conviction_score) > 0) {
+        sqLines.push(`Conviction: <strong style="color:white">${Number(conviction_score).toFixed(0)}</strong>${conviction_tier ? ` (${conviction_tier})` : ""}`);
+      }
+      if (Number.isFinite(Number(rr)) && Number(rr) > 0) {
+        sqLines.push(`Risk/Reward: <strong style="color:white">${Number(rr).toFixed(1)}:1</strong>`);
+      }
+      if (momentum_elite) sqLines.push("Strong Momentum");
+      if (Number.isFinite(Number(vwap_pct))) {
+        const v = Number(vwap_pct);
+        sqLines.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
+      }
+    }
+    if (sqLines.length > 0) {
+      signalQualitySection = _section("Signal Quality", sqLines.join("<br>"));
+    }
+  }
+
+  // WHY WE ENTERED (entry only)
+  let entryWhySection = "";
+  if (isEntry && why_entered) {
+    entryWhySection = _section("Why We Entered", `<strong style="color:white">${String(why_entered).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong>`);
+  }
+
+  // PLAY THE MOVE — engine vehicle pick (entry only)
+  let vehiclePickSection = "";
+  if (isEntry && vehicle_pick && vehicle_pick.vehicle) {
+    const _veh = String(vehicle_pick.vehicle).toUpperCase();
+    const _suit = vehicle_pick.suitability != null ? ` (suitability ${vehicle_pick.suitability})` : "";
+    const _why = vehicle_pick.why
+      ? `<div style="margin:8px 0 0;color:${BRAND.textSecondary};white-space:pre-wrap">${String(vehicle_pick.why).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`
+      : "";
+    vehiclePickSection = _section(
+      `Play the Move — engine pick: ${_veh}`,
+      `<strong style="color:white">${String(vehicle_pick.label || _veh).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong>${_suit}${_why}`,
+    );
+  }
+
+  // Legacy compact signals row (fallback when parity payload absent)
   const signalsParts = [];
-  if (momentum_elite) signalsParts.push("🚀 Momentum Elite");
-  if (Number.isFinite(Number(vwap_pct))) {
+  if (!signalQualitySection && momentum_elite) signalsParts.push("Strong Momentum");
+  if (!signalQualitySection && Number.isFinite(Number(vwap_pct))) {
     const v = Number(vwap_pct);
     signalsParts.push(`${v >= 0 ? "Above" : "Below"} 1H VWAP ${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
   }
@@ -1410,7 +1473,10 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   // ── Compose ───────────────────────────────────────────────────────────
 
   const headlineColor = isEntry ? "#10b981" : isExit ? (Number(pnlPct) >= 0 ? "#10b981" : "#f43f5e") : "#f59e0b";
-  const ctaUrl = `https://timed-trading.com/today.html?ticker=${ticker}`;
+  const isTrader = String(mode || "").toLowerCase() !== "investor";
+  const ctaUrl = isTrader && ticker
+    ? `${baseUrl}/active-trader.html?ticker=${encodeURIComponent(String(ticker).toUpperCase())}`
+    : `${baseUrl}/today.html?ticker=${encodeURIComponent(String(ticker || "").toUpperCase())}`;
   const chartLinkHtml = chart_url
     ? `<div style="margin:18px 0 0"><a href="${chart_url}" style="color:${BRAND.green};text-decoration:none;font-size:12px;font-weight:600">📊 View entry/trim/exit chart</a></div>`
     : "";
@@ -1485,6 +1551,9 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     ${trimSection}
     ${setupSection}
     ${optionsPlaySection}
+    ${signalQualitySection}
+    ${entryWhySection}
+    ${vehiclePickSection}
     ${signalsSection}
     ${whySection}
     ${exhaustionSection}
@@ -1492,7 +1561,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     ${chartLinkHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
-        <a href="${ctaUrl}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View in Dashboard</a>
+        <a href="${ctaUrl}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">${isTrader ? "Open in Active Trader" : "View in Dashboard"}</a>
       </td></tr>
     </table>
   `, { unsubscribeUrl, preheader: `${typeLabel}: ${ticker} ${dir} @ ${priceFmt}${cio ? ` — AI CIO ${cio.decision}` : ""}` });
@@ -1516,6 +1585,20 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   }
   if (isExit && exitReason) _txtParts.push("", "Why: " + humanizeEmailExitReason(exitReason));
   if (isTrim && trim_reason) _txtParts.push("", "Why: " + humanizeEmailTrimReason(trim_reason));
+  if (isEntry && why_entered) _txtParts.push("", "Why we entered: " + why_entered);
+  if (isEntry && Array.isArray(signal_quality_lines) && signal_quality_lines.length > 0) {
+    _txtParts.push("", "Signal quality:");
+    for (const line of signal_quality_lines) _txtParts.push("  " + line);
+  }
+  if (isEntry && scale_hint && Number(scale_hint.pct_of_account) > 0) {
+    _txtParts.push(`Sizing: ${Number(scale_hint.pct_of_account).toFixed(1)}% of account`);
+    if (Number(scale_hint.per_thousand) > 0) {
+      _txtParts.push(`Scale: ≈ $${Number(scale_hint.per_thousand).toFixed(0)} per $1k`);
+    }
+  }
+  if (isEntry && vehicle_pick?.vehicle) {
+    _txtParts.push("", `Play the Move: ${vehicle_pick.vehicle} — ${vehicle_pick.label || ""}${vehicle_pick.why ? "\n" + vehicle_pick.why : ""}`);
+  }
   if (cio && cio.decision) {
     _txtParts.push("", `AI CIO: ${cio.decision} (${cio.confidence ? Math.round(cio.confidence * 100) + "% conf" : ""}${cio.edge_score ? ", edge " + Math.round(cio.edge_score * 100) + "%" : ""})`);
     if (cio.reasoning) _txtParts.push(cio.reasoning);
