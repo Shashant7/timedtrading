@@ -1,29 +1,100 @@
 // worker/ticker-metadata.js
 //
-// 2026-05-29 — Ticker metadata hydration (Name / Sector / Industry /
-// MCap). Primary source: TwelveData `/profile` and `/quote` (for
-// market_cap). Fallback chain handles Alpaca + Finnhub.
+// Ticker metadata hydration (Name / Sector / Industry / MCap).
+// Primary source: TwelveData `/profile` + `/statistics`. Finnhub fallback.
 //
-// User report: "Tickers Page has a lot of tickers missing Name,
-// Sector, Industry, MCap. We should easily be able to hydrate these
-// values for each ticker and keep them. Minus MCap, the other things
-// don't change."
-//
-// Storage: D1 table `ticker_metadata` (created lazily on first
-// hydrate). Read path: GET /timed/admin/ticker-metadata?ticker=SYM
-// or batch via /timed/admin/ticker-metadata/all.
-//
-// Hydration policy:
-//   - Static fields (name, sector, industry, country, currency,
-//     exchange) — fetched ONCE per ticker, persisted forever.
-//   - MCap — refreshed weekly (Sunday at 23 UTC), persisted with
-//     timestamp so the UI can show "as of YYYY-MM-DD".
+// Static fields (name, sector, industry) are fetched once and persisted.
+// MCap is refreshed on demand / weekly cron.
 
 const TD_PROFILE_BASE = "https://api.twelvedata.com/profile";
 const TD_STATS_BASE = "https://api.twelvedata.com/statistics";
 const FINNHUB_PROFILE_BASE = "https://finnhub.io/api/v1/stock/profile2";
 
 const REQUEST_TIMEOUT_MS = 8_000;
+const CONTEXT_TTL_SEC = 90 * 24 * 60 * 60;
+
+const SECTOR_ETF_INDUSTRY = {
+  XLE: "Energy Sector ETF", XLF: "Financial Sector ETF", XLK: "Technology Sector ETF",
+  XLV: "Health Care Sector ETF", XLI: "Industrial Sector ETF", XLY: "Consumer Discretionary Sector ETF",
+  XLP: "Consumer Staples Sector ETF", XLU: "Utilities Sector ETF", XLB: "Materials Sector ETF",
+  XLRE: "Real Estate Sector ETF", XLC: "Communication Services Sector ETF",
+};
+
+function inferMetadataFallback(sym, partial = {}) {
+  const t = String(sym || "").toUpperCase();
+  const name = String(partial.name || "");
+  const out = {};
+  if (/USD$/.test(t) && (t.includes("BTC") || t.includes("ETH"))) {
+    out.sector = "Crypto";
+    out.industry = t.includes("BTC") ? "Bitcoin" : "Ethereum";
+    if (!partial.name) out.name = t.includes("BTC") ? "Bitcoin USD" : "Ethereum USD";
+    return out;
+  }
+  if (/!\s*$/.test(t) || /[0-9]!$/.test(t)) {
+    out.sector = "Futures";
+    const futNames = {
+      "ES1!": "E-mini S&P 500", "NQ1!": "E-mini Nasdaq 100", "YM1!": "E-mini Dow",
+      "RTY1!": "E-mini Russell 2000", "CL1!": "Crude Oil", "GC1!": "Gold", "SI1!": "Silver",
+    };
+    out.industry = futNames[t] || "Index Future";
+    if (!partial.name) out.name = out.industry;
+    return out;
+  }
+  if (SECTOR_ETF_INDUSTRY[t]) {
+    out.sector = "ETF";
+    out.industry = SECTOR_ETF_INDUSTRY[t];
+    return out;
+  }
+  const indexEtfs = new Set(["SPY", "QQQ", "DIA", "IWM", "RSP", "RPG", "TNA", "SPHB"]);
+  if (indexEtfs.has(t)) {
+    out.sector = "ETF";
+    out.industry = "Index ETF";
+    return out;
+  }
+  const commodityEtfs = {
+    GLD: "Gold ETF", IAU: "Gold ETF", SLV: "Silver ETF", AGQ: "Silver ETF",
+    USO: "Oil ETF", UNG: "Natural Gas ETF", CPER: "Copper ETF", DBA: "Agriculture ETF",
+  };
+  if (commodityEtfs[t]) {
+    out.sector = "Commodities";
+    out.industry = commodityEtfs[t];
+    return out;
+  }
+  const themed = {
+    KWEB: "China Internet ETF", IGV: "Software ETF", IBB: "Biotech ETF",
+    SOXL: "Semiconductor ETF", LIT: "Lithium ETF", XHB: "Homebuilders ETF",
+    INFL: "Inflation ETF", VIXY: "Volatility ETF", GRNY: "Growth ETF",
+    GRNI: "Growth ETF", GRNJ: "Growth ETF", ETHA: "Ethereum ETF",
+  };
+  if (themed[t]) {
+    out.sector = "ETF";
+    out.industry = themed[t];
+    return out;
+  }
+  if (/ETF|Trust|Fund/i.test(name)) {
+    out.sector = "ETF";
+    out.industry = name.replace(/\s+(ETF|Trust|Fund).*$/i, "").trim() || "Exchange Traded Fund";
+  }
+  return out;
+}
+
+async function kvPutJSON(KV, key, val, ttlSec) {
+  if (!KV) return;
+  try {
+    const opts = ttlSec ? { expirationTtl: ttlSec } : undefined;
+    await KV.put(key, JSON.stringify(val), opts);
+  } catch (_) {}
+}
+
+async function kvGetJSON(KV, key) {
+  if (!KV) return null;
+  try {
+    const raw = await KV.get(key, "text");
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 export async function ensureTickerMetadataSchema(env) {
   const db = env?.DB;
@@ -72,7 +143,6 @@ async function _fetchJson(url, headers = {}) {
   } finally { clearTimeout(tid); }
 }
 
-// TwelveData /profile — name, sector, industry, country, exchange.
 async function fetchTwelvedataProfile(env, ticker) {
   const apiKey = env?.TWELVEDATA_API_KEY;
   if (!apiKey) return null;
@@ -91,7 +161,6 @@ async function fetchTwelvedataProfile(env, ticker) {
   };
 }
 
-// TwelveData /statistics — market_cap, shares_out, pe, beta, div_yield.
 async function fetchTwelvedataStatistics(env, ticker) {
   const apiKey = env?.TWELVEDATA_API_KEY;
   if (!apiKey) return null;
@@ -111,8 +180,6 @@ async function fetchTwelvedataStatistics(env, ticker) {
   };
 }
 
-// Finnhub fallback — same shape, used if TwelveData returns nothing
-// (which happens for some thinly-traded ETFs).
 async function fetchFinnhubProfile(env, ticker) {
   const apiKey = env?.FINNHUB_API_KEY;
   if (!apiKey) return null;
@@ -122,13 +189,13 @@ async function fetchFinnhubProfile(env, ticker) {
   if (!data || !data.name) return null;
   return {
     name: data.name || null,
-    sector: data.finnhubIndustry || null,    // finnhub uses "industry" naming
+    sector: data.finnhubIndustry || null,
     industry: data.finnhubIndustry || null,
     country: data.country || null,
     currency: data.currency || null,
     exchange: data.exchange || null,
     market_cap: Number(data.marketCapitalization)
-      ? Number(data.marketCapitalization) * 1_000_000   // finnhub returns in millions
+      ? Number(data.marketCapitalization) * 1_000_000
       : null,
     shares_out: Number(data.shareOutstanding)
       ? Number(data.shareOutstanding) * 1_000_000
@@ -137,34 +204,164 @@ async function fetchFinnhubProfile(env, ticker) {
   };
 }
 
-// Hydrate a single ticker — TwelveData first, Finnhub fallback.
-// Returns the metadata row that was persisted (or null on failure).
+export function metadataRowToContext(row) {
+  if (!row || typeof row !== "object") return null;
+  const out = {};
+  if (row.name) out.name = String(row.name);
+  if (row.sector) out.sector = String(row.sector);
+  if (row.industry) out.industry = String(row.industry);
+  if (row.country) out.country = String(row.country);
+  if (row.exchange) out.exchange = String(row.exchange);
+  if (row.market_cap != null && Number(row.market_cap) > 0) {
+    out.market_cap = Number(row.market_cap);
+  }
+  if (Object.keys(out).length === 0) return null;
+  out._enriched_at = Date.now();
+  out._source = row.source || "ticker_metadata";
+  return out;
+}
+
+export async function syncMetadataToContext(env, row, opts = {}) {
+  const sym = String(row?.ticker || "").toUpperCase();
+  const ctx = metadataRowToContext(row);
+  if (!sym || !ctx) return false;
+  const KV = env?.KV_TIMED || env?.KV;
+  const existing = await kvGetJSON(KV, `timed:context:${sym}`);
+  const merged = { ...(existing || {}), ...ctx };
+  await kvPutJSON(KV, `timed:context:${sym}`, merged, CONTEXT_TTL_SEC);
+
+  if (opts.patchSectorMap !== false && ctx.sector) {
+    try {
+      const SectorMap = await import("./sector-mapping.js");
+      if (SectorMap.SECTOR_MAP?.[sym] === "Unknown" || !SectorMap.SECTOR_MAP?.[sym]) {
+        SectorMap.SECTOR_MAP[sym] = ctx.sector;
+        if (KV) await KV.put(`timed:sector_map:${sym}`, ctx.sector);
+      }
+    } catch (_) {}
+  }
+
+  try {
+    if (env?.DB) {
+      const d1Row = await env.DB.prepare(
+        `SELECT payload_json FROM ticker_latest WHERE ticker = ?`,
+      ).bind(sym).first();
+      if (d1Row?.payload_json) {
+        const payload = JSON.parse(d1Row.payload_json);
+        payload.context = { ...(payload.context || {}), ...ctx };
+        if (!payload.companyName && ctx.name) payload.companyName = ctx.name;
+        if (!payload.name && ctx.name) payload.name = ctx.name;
+        await env.DB.prepare(
+          `UPDATE ticker_latest SET payload_json = ? WHERE ticker = ?`,
+        ).bind(JSON.stringify(payload), sym).run();
+      }
+    }
+  } catch (_) {}
+
+  return true;
+}
+
+async function persistMetadataRow(env, row) {
+  await env.DB.prepare(`
+    INSERT INTO ticker_metadata
+      (ticker, name, sector, industry, country, currency, exchange,
+       market_cap, shares_out, pe, beta, dividend_yield, source,
+       fetched_at, mcap_fetched_at, updated_at)
+    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
+    ON CONFLICT(ticker) DO UPDATE SET
+      name = COALESCE(excluded.name, ticker_metadata.name),
+      sector = COALESCE(excluded.sector, ticker_metadata.sector),
+      industry = COALESCE(excluded.industry, ticker_metadata.industry),
+      country = COALESCE(excluded.country, ticker_metadata.country),
+      currency = COALESCE(excluded.currency, ticker_metadata.currency),
+      exchange = COALESCE(excluded.exchange, ticker_metadata.exchange),
+      market_cap = COALESCE(excluded.market_cap, ticker_metadata.market_cap),
+      shares_out = COALESCE(excluded.shares_out, ticker_metadata.shares_out),
+      pe = COALESCE(excluded.pe, ticker_metadata.pe),
+      beta = COALESCE(excluded.beta, ticker_metadata.beta),
+      dividend_yield = COALESCE(excluded.dividend_yield, ticker_metadata.dividend_yield),
+      source = COALESCE(excluded.source, ticker_metadata.source),
+      fetched_at = COALESCE(ticker_metadata.fetched_at, excluded.fetched_at),
+      mcap_fetched_at = COALESCE(excluded.mcap_fetched_at, ticker_metadata.mcap_fetched_at),
+      updated_at = excluded.updated_at
+  `).bind(
+    row.ticker, row.name, row.sector, row.industry, row.country,
+    row.currency, row.exchange, row.market_cap, row.shares_out,
+    row.pe, row.beta, row.dividend_yield, row.source,
+    row.fetched_at, row.mcap_fetched_at, Date.now(),
+  ).run();
+}
+
+export async function resolveMetadataUniverse(env) {
+  const SectorMap = await import("./sector-mapping.js");
+  const { resolveScoringUniverse } = await import("./universe.js");
+  const KV = env?.KV_TIMED || env?.KV;
+  const kvTickers = KV ? ((await KV.get("timed:tickers", "json")) || []) : [];
+  const removed = KV ? ((await KV.get("timed:removed", "json")) || []) : [];
+  let d1IndexTickers = [];
+  if (env?.DB) {
+    try {
+      const idxRows = await env.DB.prepare(
+        `SELECT ticker FROM ticker_index ORDER BY ticker ASC`,
+      ).all();
+      d1IndexTickers = (idxRows?.results || [])
+        .map((r) => String(r.ticker || "").toUpperCase())
+        .filter(Boolean);
+    } catch (_) {}
+  }
+  return resolveScoringUniverse({
+    sectorMapKeys: Object.keys(SectorMap.SECTOR_MAP || {}),
+    userTickers: [],
+    kvTickers: [...(Array.isArray(kvTickers) ? kvTickers : []), ...d1IndexTickers],
+    removed,
+  });
+}
+
 export async function hydrateTicker(env, ticker, opts = {}) {
   const t = String(ticker || "").toUpperCase();
   if (!t) return null;
   await ensureTickerMetadataSchema(env);
 
-  // Step 1: try TwelveData /profile for static fields.
   let profile = await fetchTwelvedataProfile(env, t);
-
-  // Step 2: try TwelveData /statistics for MCap + financials.
   let stats = await fetchTwelvedataStatistics(env, t);
 
-  // Step 3: Finnhub fallback when TD returned nothing useful.
   if (!profile && !stats) {
     const fh = await fetchFinnhubProfile(env, t);
     if (fh) {
-      profile = { name: fh.name, sector: fh.sector, industry: fh.industry, country: fh.country, currency: fh.currency, exchange: fh.exchange, source: "finnhub" };
-      stats = { market_cap: fh.market_cap, shares_out: fh.shares_out, pe: null, beta: null, dividend_yield: null };
+      profile = {
+        name: fh.name,
+        sector: fh.sector,
+        industry: fh.industry,
+        country: fh.country,
+        currency: fh.currency,
+        exchange: fh.exchange,
+        source: "finnhub",
+      };
+      stats = {
+        market_cap: fh.market_cap,
+        shares_out: fh.shares_out,
+        pe: null,
+        beta: null,
+        dividend_yield: null,
+      };
     }
   }
-  if (!profile && !stats) return null;
+  if (!profile && !stats) {
+    const fallbackOnly = inferMetadataFallback(t, {});
+    if (!fallbackOnly.name && !fallbackOnly.sector) return null;
+    profile = {
+      name: fallbackOnly.name || t,
+      sector: fallbackOnly.sector || null,
+      industry: fallbackOnly.industry || null,
+      source: "inferred",
+    };
+  }
 
+  const fallback = inferMetadataFallback(t, profile || {});
   const row = {
     ticker: t,
-    name: profile?.name || null,
-    sector: profile?.sector || null,
-    industry: profile?.industry || null,
+    name: profile?.name || fallback.name || null,
+    sector: profile?.sector || fallback.sector || null,
+    industry: profile?.industry || fallback.industry || null,
     country: profile?.country || null,
     currency: profile?.currency || "USD",
     exchange: profile?.exchange || null,
@@ -179,42 +376,25 @@ export async function hydrateTicker(env, ticker, opts = {}) {
   };
 
   try {
-    await env.DB.prepare(`
-      INSERT OR REPLACE INTO ticker_metadata
-        (ticker, name, sector, industry, country, currency, exchange,
-         market_cap, shares_out, pe, beta, dividend_yield, source,
-         fetched_at, mcap_fetched_at, updated_at)
-      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)
-    `).bind(
-      row.ticker, row.name, row.sector, row.industry, row.country,
-      row.currency, row.exchange, row.market_cap, row.shares_out,
-      row.pe, row.beta, row.dividend_yield, row.source,
-      row.fetched_at, row.mcap_fetched_at, Date.now(),
-    ).run();
+    await persistMetadataRow(env, row);
   } catch (e) {
     console.warn(`[META] persist failed for ${t}:`, String(e?.message || e).slice(0, 200));
     return null;
   }
+
+  if (opts.syncContext !== false) {
+    await syncMetadataToContext(env, row);
+  }
   return row;
 }
 
-// Hydrate all tickers missing metadata. Used by the cron + admin
-// endpoint. Polite 250ms delay between calls (TD free tier = ~8
-// req/min, paid is higher).
 export async function hydrateMissing(env, opts = {}) {
   await ensureTickerMetadataSchema(env);
-  const KV = env?.KV_TIMED;
   const max = Math.max(1, Math.min(500, Number(opts.max) || 100));
   const delayMs = Math.max(50, Number(opts.delayMs) || 250);
   const onlyMissing = opts.onlyMissing !== false;
+  const universe = await resolveMetadataUniverse(env);
 
-  // Universe = SECTOR_MAP keys + timed:tickers user-added.
-  const SectorMap = await import("./sector-mapping.js");
-  const canonical = Object.keys(SectorMap.SECTOR_MAP || {});
-  const userAdded = (KV ? ((await KV.get("timed:tickers", "json")) || []) : []).filter(Boolean);
-  const universe = [...new Set([...canonical, ...userAdded].map((s) => String(s).toUpperCase()))];
-
-  // Pull existing metadata to find which tickers are missing fields.
   let existing = {};
   try {
     const rows = (await env.DB.prepare(
@@ -223,13 +403,18 @@ export async function hydrateMissing(env, opts = {}) {
     for (const r of rows) existing[String(r.ticker).toUpperCase()] = r;
   } catch (_) {}
 
-  // Pick tickers needing hydration (name/sector/industry missing) — capped.
   const needing = [];
   for (const t of universe) {
-    if (!onlyMissing) { needing.push(t); continue; }
-    const ex = existing[t];
-    if (!ex) { needing.push(t); continue; }
-    if (!ex.name || !ex.sector || !ex.industry) needing.push(t);
+    if (!onlyMissing) {
+      needing.push(t);
+    } else {
+      const ex = existing[t];
+      if (!ex) {
+        needing.push(t);
+      } else if (!ex.name || !ex.sector || !ex.industry || !ex.market_cap) {
+        needing.push(t);
+      }
+    }
     if (needing.length >= max) break;
   }
 
@@ -238,7 +423,8 @@ export async function hydrateMissing(env, opts = {}) {
   for (let i = 0; i < needing.length; i++) {
     const t = needing[i];
     const row = await hydrateTicker(env, t);
-    if (row) hydrated++; else failures.push(t);
+    if (row) hydrated++;
+    else failures.push(t);
     if (delayMs > 0 && i < needing.length - 1) {
       await new Promise((res) => setTimeout(res, delayMs));
     }
@@ -251,11 +437,30 @@ export async function hydrateMissing(env, opts = {}) {
     hydrated,
     failures: failures.length,
     failure_sample: failures.slice(0, 10),
+    remaining_estimate: Math.max(0, universe.filter((t) => {
+      const ex = existing[t];
+      return !ex || !ex.name || !ex.sector || !ex.industry || !ex.market_cap;
+    }).length - hydrated),
   };
 }
 
-// Refresh MCap for all tickers that already have metadata. Cheap because
-// it skips the static profile lookup and only hits /statistics.
+export async function syncAllMetadataToContext(env, opts = {}) {
+  await ensureTickerMetadataSchema(env);
+  const max = Math.max(1, Math.min(500, Number(opts.max) || 500));
+  const rows = (await env.DB.prepare(
+    `SELECT ticker, name, sector, industry, country, exchange, market_cap, source
+       FROM ticker_metadata
+      WHERE name IS NOT NULL
+      ORDER BY ticker
+      LIMIT ?1`,
+  ).bind(max).all().catch(() => ({ results: [] })))?.results || [];
+  let synced = 0;
+  for (const r of rows) {
+    if (await syncMetadataToContext(env, r, { patchSectorMap: opts.patchSectorMap })) synced++;
+  }
+  return { ok: true, synced, attempted: rows.length };
+}
+
 export async function refreshMarketCaps(env, opts = {}) {
   await ensureTickerMetadataSchema(env);
   const max = Math.max(1, Math.min(500, Number(opts.max) || 500));
@@ -277,6 +482,11 @@ export async function refreshMarketCaps(env, opts = {}) {
                  mcap_fetched_at = ?7, updated_at = ?7
            WHERE ticker = ?1
         `).bind(t, stats.market_cap, stats.shares_out, stats.pe, stats.beta, stats.dividend_yield, Date.now()).run();
+        await syncMetadataToContext(env, {
+          ticker: t,
+          market_cap: stats.market_cap,
+          source: "twelvedata",
+        });
         updated++;
       } catch (_) {}
     }
@@ -287,7 +497,6 @@ export async function refreshMarketCaps(env, opts = {}) {
   return { ok: true, attempted: rows.length, updated };
 }
 
-// Batch read for the Tickers admin page.
 export async function loadAllMetadata(env) {
   await ensureTickerMetadataSchema(env);
   const rows = (await env.DB.prepare(
