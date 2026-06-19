@@ -3646,6 +3646,14 @@
         const [cioVerdictError, setCioVerdictError] = useState(null);
         const cioVerdictCacheRef = useRef({});
 
+        // 2026-06-18 — L2 shadow sequence diagnostics (admin-only, read-only).
+        // Fetches GET /timed/admin/setup-diagnostics on Snapshot + Trader tabs.
+        // Does not influence entry, sizing, or kanban — observability only.
+        const [setupShadowDiag, setSetupShadowDiag] = useState(null);
+        const [setupShadowLoading, setSetupShadowLoading] = useState(false);
+        const [setupShadowError, setSetupShadowError] = useState(null);
+        const setupShadowCacheRef = useRef({});
+
         // V15 P0.7.99-r2 — Subtle Key Levels for the rail chart.
         // Maps the SAME predictionContract.levels rendered in the Setup
         // tab's Key Levels box into a small set of low-alpha dotted lines
@@ -5334,6 +5342,61 @@
           return () => { cancelled = true; };
         }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
 
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          const isShadowTab = railTab === "SNAPSHOT" || railTab === "SETUP";
+          if (!sym || !isShadowTab || typeof window === "undefined" || !window._ttIsAdmin) {
+            setSetupShadowDiag(null);
+            setSetupShadowError(null);
+            setSetupShadowLoading(false);
+            return;
+          }
+          const apiKey = String(window._ttApiKey || "").trim();
+          if (!apiKey) {
+            setSetupShadowDiag(null);
+            setSetupShadowError("missing_api_key");
+            setSetupShadowLoading(false);
+            return;
+          }
+          const cached = setupShadowCacheRef.current[sym];
+          if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+            setSetupShadowDiag(cached.data);
+            setSetupShadowError(null);
+            setSetupShadowLoading(false);
+            return;
+          }
+          let cancelled = false;
+          (async () => {
+            try {
+              setSetupShadowLoading(true);
+              setSetupShadowError(null);
+              const qs = new URLSearchParams({
+                key: apiKey,
+                ticker: sym,
+                lookbackHours: "48",
+                limit: "240",
+              });
+              const res = await fetch(`${API_BASE}/timed/admin/setup-diagnostics?${qs.toString()}`, { cache: "no-store" });
+              const json = await res.json().catch(() => null);
+              if (!res.ok || !json?.ok) {
+                throw new Error(json?.error || `HTTP ${res.status}`);
+              }
+              if (!cancelled) {
+                setupShadowCacheRef.current[sym] = { data: json, ts: Date.now() };
+                setSetupShadowDiag(json);
+              }
+            } catch (e) {
+              if (!cancelled) {
+                setSetupShadowDiag(null);
+                setSetupShadowError(String(e?.message || e));
+              }
+            } finally {
+              if (!cancelled) setSetupShadowLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, railTab, API_BASE]);
+
         // Reset zoom/pan on timeframe change
         useEffect(() => {
           setChartVisibleCount(80);
@@ -6093,6 +6156,111 @@
               {children}
             </div>
           );
+          const renderSequenceShadowPanel = () => {
+            if (typeof window === "undefined" || !window._ttIsAdmin) return null;
+            const labelSeqType = (t) => {
+              if (!t) return "—";
+              return String(t).replace(/^td_/, "TD ").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+            };
+            const tp = setupShadowDiag?.trader_posture || null;
+            const active = Array.isArray(setupShadowDiag?.active_sequences)
+              ? setupShadowDiag.active_sequences
+              : (Array.isArray(setupShadowDiag?.sequences)
+                ? setupShadowDiag.sequences.filter((s) => Number(s?.stage) > 0 && s?.status !== "invalidated")
+                : []);
+            const postureLabel = String(tp?.posture || "Neutral").trim();
+            const postureDir = String(tp?.direction || "").toUpperCase();
+            const postureChipCls = postureDir === "LONG" ? "ds-chip--up" : postureDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+            const ctx = setupShadowDiag?.context_used || {};
+            return (
+              <Panel
+                title="Sequence (shadow)"
+                action={(
+                  <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                    <span className="ds-chip ds-chip--sm ds-chip--solid" title="Shadow-only — does not affect live entry or kanban">SHADOW</span>
+                    {postureLabel && postureLabel !== "Neutral" && (
+                      <span className={`ds-chip ds-chip--sm ${postureChipCls}`} title="Derived trader posture from setup sequences">{postureLabel}</span>
+                    )}
+                    {Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && (
+                      <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Active sequence stage">S{Number(tp.stage)}</span>
+                    )}
+                  </div>
+                )}
+              >
+                {setupShadowLoading && !setupShadowDiag && (
+                  <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic" }}>
+                    Loading shadow sequence diagnostics…
+                  </p>
+                )}
+                {setupShadowError && (
+                  <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-dn)" }}>
+                    Shadow diagnostics unavailable ({setupShadowError})
+                  </p>
+                )}
+                {setupShadowDiag && !setupShadowError && (
+                  <>
+                    <p style={{
+                      margin: "0 0 var(--ds-space-2) 0",
+                      fontSize: "var(--ds-fs-caption)",
+                      color: "var(--ds-text-muted)",
+                      lineHeight: 1.5,
+                    }}>
+                      Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban.
+                    </p>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
+                      {ctx.vix_regime && <span className="ds-chip ds-chip--sm ds-chip--solid" title="VIX regime context">VIX {ctx.vix_regime}</span>}
+                      {ctx.index_posture && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Index posture context">Index {ctx.index_posture}</span>}
+                      {ctx.ticker_personality && <span className="ds-chip ds-chip--sm ds-chip--accent" title="Ticker personality">{String(ctx.ticker_personality).replace(/_/g, " ")}</span>}
+                      {setupShadowDiag.snapshot_source && (
+                        <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9 }} title="Trail snapshot source">
+                          {setupShadowDiag.snapshot_count || 0} snaps · {setupShadowDiag.snapshot_source}
+                        </span>
+                      )}
+                    </div>
+                    {active.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                        {active.slice(0, 3).map((seq) => {
+                          const dir = String(seq?.direction || "").toUpperCase();
+                          const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+                          const pf = seq?.path_forecast;
+                          return (
+                            <div key={seq.sequence_id || `${seq.sequence_type}-${seq.stage}`} style={{
+                              padding: "var(--ds-space-2)",
+                              borderRadius: 8,
+                              border: "1px solid var(--ds-stroke)",
+                              background: "rgba(255,255,255,0.02)",
+                            }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", alignItems: "center", marginBottom: 6 }}>
+                                <span className={`ds-chip ds-chip--sm ${dirCls}`}>{dir || "—"}</span>
+                                <span className="ds-chip ds-chip--sm ds-chip--accent">{labelSeqType(seq.sequence_type)}</span>
+                                <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>Stage {Number(seq.stage) || 0}</span>
+                                {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
+                              </div>
+                              {seq.posture && (
+                                <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 }}>
+                                  {seq.posture}
+                                </div>
+                              )}
+                              {pf?.archetype && (
+                                <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                  Path: {String(pf.archetype).replace(/_/g, " ")}
+                                  {pf.summary ? ` — ${pf.summary}` : ""}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
+                        No active setup sequence in the lookback window.
+                      </p>
+                    )}
+                  </>
+                )}
+              </Panel>
+            );
+          };
           // ── Conviction values ──────────────────────────────────────
           /* V2.1 round 7 (2026-05-01) — Rank must be the position
              (1 = best), not the score. Worker emits both:
@@ -8362,6 +8530,8 @@
                         );
                       })()}
 
+                      {renderSequenceShadowPanel()}
+
                       {/* Model Guidance — moved to top of snapshot.
                           Header surfaces R{rank} so it reconciles with the
                           Conviction panel below (single source of truth). */}
@@ -8627,6 +8797,8 @@
                       label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
+                      {renderSequenceShadowPanel()}
+
                       {/* 2026-05-29 — B8: surface "Current Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors

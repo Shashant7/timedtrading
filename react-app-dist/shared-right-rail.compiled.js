@@ -4991,6 +4991,10 @@
       const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
       const [cioVerdictError, setCioVerdictError] = useState(null);
       const cioVerdictCacheRef = useRef({});
+      const [setupShadowDiag, setSetupShadowDiag] = useState(null);
+      const [setupShadowLoading, setSetupShadowLoading] = useState(false);
+      const [setupShadowError, setSetupShadowError] = useState(null);
+      const setupShadowCacheRef = useRef({});
       const tradeplanPriceLines = useMemo(() => {
         const out = [];
         const trade = effectiveTraderTrade;
@@ -6488,6 +6492,67 @@
         };
       }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
       useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        const isShadowTab = railTab === "SNAPSHOT" || railTab === "SETUP";
+        if (!sym || !isShadowTab || typeof window === "undefined" || !window._ttIsAdmin) {
+          setSetupShadowDiag(null);
+          setSetupShadowError(null);
+          setSetupShadowLoading(false);
+          return;
+        }
+        const apiKey = String(window._ttApiKey || "").trim();
+        if (!apiKey) {
+          setSetupShadowDiag(null);
+          setSetupShadowError("missing_api_key");
+          setSetupShadowLoading(false);
+          return;
+        }
+        const cached = setupShadowCacheRef.current[sym];
+        if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+          setSetupShadowDiag(cached.data);
+          setSetupShadowError(null);
+          setSetupShadowLoading(false);
+          return;
+        }
+        let cancelled = false;
+        (async () => {
+          try {
+            setSetupShadowLoading(true);
+            setSetupShadowError(null);
+            const qs = new URLSearchParams({
+              key: apiKey,
+              ticker: sym,
+              lookbackHours: "48",
+              limit: "240"
+            });
+            const res = await fetch(`${API_BASE}/timed/admin/setup-diagnostics?${qs.toString()}`, {
+              cache: "no-store"
+            });
+            const json = await res.json().catch(() => null);
+            if (!res.ok || !json?.ok) {
+              throw new Error(json?.error || `HTTP ${res.status}`);
+            }
+            if (!cancelled) {
+              setupShadowCacheRef.current[sym] = {
+                data: json,
+                ts: Date.now()
+              };
+              setSetupShadowDiag(json);
+            }
+          } catch (e) {
+            if (!cancelled) {
+              setSetupShadowDiag(null);
+              setSetupShadowError(String(e?.message || e));
+            }
+          } finally {
+            if (!cancelled) setSetupShadowLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, railTab, API_BASE]);
+      useEffect(() => {
         setChartVisibleCount(80);
         setChartEndOffset(0);
       }, [chartTf]);
@@ -7117,6 +7182,142 @@
         }, title && React.createElement("div", {
           className: "ds-glass__title"
         }, title), action), children);
+        const renderSequenceShadowPanel = () => {
+          if (typeof window === "undefined" || !window._ttIsAdmin) return null;
+          const labelSeqType = t => {
+            if (!t) return "—";
+            return String(t).replace(/^td_/, "TD ").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          };
+          const tp = setupShadowDiag?.trader_posture || null;
+          const active = Array.isArray(setupShadowDiag?.active_sequences) ? setupShadowDiag.active_sequences : Array.isArray(setupShadowDiag?.sequences) ? setupShadowDiag.sequences.filter(s => Number(s?.stage) > 0 && s?.status !== "invalidated") : [];
+          const postureLabel = String(tp?.posture || "Neutral").trim();
+          const postureDir = String(tp?.direction || "").toUpperCase();
+          const postureChipCls = postureDir === "LONG" ? "ds-chip--up" : postureDir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+          const ctx = setupShadowDiag?.context_used || {};
+          return React.createElement(Panel, {
+            title: "Sequence (shadow)",
+            action: React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                alignItems: "center",
+                flexWrap: "wrap"
+              }
+            }, React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--solid",
+              title: "Shadow-only \u2014 does not affect live entry or kanban"
+            }, "SHADOW"), postureLabel && postureLabel !== "Neutral" && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${postureChipCls}`,
+              title: "Derived trader posture from setup sequences"
+            }, postureLabel), Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              },
+              title: "Active sequence stage"
+            }, "S", Number(tp.stage)))
+          }, setupShadowLoading && !setupShadowDiag && React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              fontStyle: "italic"
+            }
+          }, "Loading shadow sequence diagnostics\u2026"), setupShadowError && React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-dn)"
+            }
+          }, "Shadow diagnostics unavailable (", setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, React.createElement("p", {
+            style: {
+              margin: "0 0 var(--ds-space-2) 0",
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.5
+            }
+          }, "Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban."), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)",
+              marginBottom: active.length ? "var(--ds-space-2)" : 0
+            }
+          }, ctx.vix_regime && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "VIX regime context"
+          }, "VIX ", ctx.vix_regime), ctx.index_posture && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "Index posture context"
+          }, "Index ", ctx.index_posture), ctx.ticker_personality && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent",
+            title: "Ticker personality"
+          }, String(ctx.ticker_personality).replace(/_/g, " ")), setupShadowDiag.snapshot_source && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9
+            },
+            title: "Trail snapshot source"
+          }, setupShadowDiag.snapshot_count || 0, " snaps \xB7 ", setupShadowDiag.snapshot_source)), active.length > 0 ? React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: "var(--ds-space-2)"
+            }
+          }, active.slice(0, 3).map(seq => {
+            const dir = String(seq?.direction || "").toUpperCase();
+            const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+            const pf = seq?.path_forecast;
+            return React.createElement("div", {
+              key: seq.sequence_id || `${seq.sequence_type}-${seq.stage}`,
+              style: {
+                padding: "var(--ds-space-2)",
+                borderRadius: 8,
+                border: "1px solid var(--ds-stroke)",
+                background: "rgba(255,255,255,0.02)"
+              }
+            }, React.createElement("div", {
+              style: {
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "var(--ds-space-1)",
+                alignItems: "center",
+                marginBottom: 6
+              }
+            }, React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${dirCls}`
+            }, dir || "—"), React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent"
+            }, labelSeqType(seq.sequence_type)), React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, "Stage ", Number(seq.stage) || 0), seq.status && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--solid"
+            }, String(seq.status))), seq.posture && React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-body)",
+                color: "var(--ds-text-body)",
+                fontWeight: 600,
+                marginBottom: 4
+              }
+            }, seq.posture), pf?.archetype && React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-caption)",
+                color: "var(--ds-text-muted)",
+                lineHeight: 1.45
+              }
+            }, "Path: ", String(pf.archetype).replace(/_/g, " "), pf.summary ? ` — ${pf.summary}` : ""));
+          })) : React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)"
+            }
+          }, "No active setup sequence in the lookback window.")));
+        };
         const v2Rank = Number(ticker?.rank_position ?? ticker?.rp) || null;
         const v2Score = Number((typeof rankScoreForTicker === "function" ? rankScoreForTicker(ticker) : 0) || ticker?.score || ticker?.rank) || null;
         const v2Conv = Number(ticker?.focus_conviction_score ?? ticker?.__focus_conviction_score) || null;
@@ -9758,7 +9959,7 @@
               lineHeight: 1.5
             }
           }, copy));
-        })(), predictionContract && (() => {
+        })(), renderSequenceShadowPanel(), predictionContract && (() => {
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
           const pcDir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
           const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").trim();
@@ -10113,7 +10314,7 @@
             size: 240,
             showLegend: true
           }));
-        })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
+        })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, renderSequenceShadowPanel(), (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
             const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && (() => {
@@ -20088,4 +20289,4 @@
   };
 })();
 
-// cache-bust:1781826187517:450815551
+// cache-bust:1781876042754:755390487

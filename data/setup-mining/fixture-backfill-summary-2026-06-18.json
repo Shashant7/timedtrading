@@ -1,0 +1,23 @@
+{
+  "cohort": "fixtures",
+  "trail_source": "snap",
+  "method": "api",
+  "run_at": "2026-06-18T19:30:00Z",
+  "tickers": {
+    "SPY": { "trail_rows": 45, "events_derived": 50, "written": 4, "skipped": 46 },
+    "QQQ": { "trail_rows": 46, "events_derived": 44, "written": 5, "skipped": 39 },
+    "IWM": { "trail_rows": 44, "events_derived": 61, "written": 61, "skipped": 0 },
+    "USO": { "trail_rows": 282, "events_derived": 156, "written": 73, "skipped": 83 },
+    "GLD": { "trail_rows": 45, "events_derived": 44, "written": 44, "skipped": 0 },
+    "XLE": { "trail_rows": 47, "events_derived": 59, "written": 59, "skipped": 0 },
+    "NVDA": { "trail_rows": 45, "events_derived": 61, "written": 60, "skipped": 1 },
+    "TSLA": { "trail_rows": 45, "events_derived": 39, "written": 39, "skipped": 0 },
+    "DIA": { "trail_rows": 45, "events_derived": 43, "written": 38, "skipped": 5 }
+  },
+  "totals": {
+    "events_derived": 557,
+    "written": 383,
+    "skipped": 174
+  },
+  "note": "Direct wrangler D1 path failed with code 7429 (overloaded); API backfill succeeded."
+}
