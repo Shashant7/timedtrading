@@ -4037,7 +4037,8 @@ function BubbleMapViewportSplit({
   ensureSpark,
   onSelectTicker,
   filters,
-  setFilters
+  setFilters,
+  tradeByTicker
 }) {
   return h("section", {
     className: "tt-row"
@@ -4102,7 +4103,8 @@ function BubbleMapViewportSplit({
     embedded: true,
     onSelectTicker,
     filters,
-    setFilters
+    setFilters,
+    tradeByTicker
   }))));
 }
 function SharedBubbleMapSection({
@@ -4115,7 +4117,8 @@ function SharedBubbleMapSection({
   embedded = false,
   onSelectTicker,
   filters,
-  setFilters
+  setFilters,
+  tradeByTicker
 }) {
   const SharedChart = typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers || null;
@@ -4229,7 +4232,8 @@ function SharedBubbleMapSection({
     thesisMode: false,
     forwardReturns: null,
     activeInsightTickers: null,
-    layoutMode: "score"
+    layoutMode: "score",
+    tradeByTicker
   }), bubbleSearchOpen && h("div", {
     className: "bm-quick-search-overlay",
     onClick: e => {
@@ -5010,7 +5014,8 @@ function TodayApp() {
     ensureSpark,
     onSelectTicker,
     filters,
-    setFilters
+    setFilters,
+    tradeByTicker
   }) : h(BubbleViewportSkeleton, null), data && h(Disclosure, {
     id: "heatmap",
     title: "Universe Heat Map",
@@ -5386,6 +5391,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781897517473:436005262
+// cache-bust:1781899845857:268094102
 
-// cache-bust:1781897517473:436005262
+// cache-bust:1781899845857:268094102

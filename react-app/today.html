@@ -5018,7 +5018,7 @@
         );
       }
 
-      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters }) {
+      function BubbleMapViewportSplit({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters, tradeByTicker }) {
         return h("section", { className: "tt-row" },
           h(BubbleMapGuide, null),
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 } },
@@ -5044,6 +5044,7 @@
                 onSelectTicker,
                 filters,
                 setFilters,
+                tradeByTicker,
               }),
             ),
           ),
@@ -5070,7 +5071,7 @@
       // Falls back to the in-page lightweight BubbleMap if the shared
       // module hasn't loaded yet (first paint / network failure).
       // ═══════════════════════════════════════════════════════════
-      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker, filters, setFilters }) {
+      function SharedBubbleMapSection({ allTickers, visible, query, data, rankedTickers: rtProp, rankedTickerPositions: rtpProp, embedded = false, onSelectTicker, filters, setFilters, tradeByTicker }) {
         const SharedChart = (typeof window !== "undefined" && window.TimedBubbleChart && window.TimedBubbleChart.BubbleChart) || null;
         const getRankedTickers = (window.TimedBubbleChart && window.TimedBubbleChart.getRankedTickers) || null;
         const [bubbleSearchOpen, setBubbleSearchOpen] = useState(false);
@@ -5143,6 +5144,7 @@
               forwardReturns: null,
               activeInsightTickers: null,
               layoutMode: "score",
+              tradeByTicker,
             }),
             bubbleSearchOpen && h("div", {
               className: "bm-quick-search-overlay",
@@ -5796,6 +5798,7 @@
                   onSelectTicker,
                   filters,
                   setFilters,
+                  tradeByTicker,
                 })
               : h(BubbleViewportSkeleton, null),
             data && h(Disclosure, {

@@ -745,6 +745,17 @@
     return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "balanced" };
   }
 
+  /** Bubble map + right rail share the same trader posture contract. */
+  function resolveBubblePosture(t, openTrade) {
+    var next = sanitizeTickerOpenPosture(t, openTrade);
+    if (isTradeOpen(openTrade)) next._openTrade = openTrade;
+    return inferTraderPosture(next);
+  }
+
+  function getBubbleBiasDirection(t, openTrade) {
+    return resolveBubblePosture(t, openTrade).direction || "";
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -758,6 +769,8 @@
     getExtChange: getExtChange,
     inferModelDirection: inferModelDirection,
     inferTraderPosture: inferTraderPosture,
+    resolveBubblePosture: resolveBubblePosture,
+    getBubbleBiasDirection: getBubbleBiasDirection,
     isTradeOpen: isTradeOpen,
     isDiscoveryKanbanStage: isDiscoveryKanbanStage,
     sanitizeTickerOpenPosture: sanitizeTickerOpenPosture,
@@ -770,4 +783,4 @@
   };
 })();
 
-// cache-bust:1781882864529:302824185
+// cache-bust:1781899845857:268094102
