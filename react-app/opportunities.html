@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Growth Ideas — Timed Trading</title>
+    <meta name="description" content="Fundamentally growing names worth watching for pullbacks — revenue path, quality grades, and dip-buy posture tracked by the Investor model." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="auth-gate.js?v=20260601-nav-inject"></script>
+    <script src="tt-fetch-cache.js?v=20260517a"></script>
+    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
+    <script src="tt-global-search.js?v=20260610-verda3" defer></script>
+    <script src="tt-rail-bridge.js?v=20260528a" defer></script>
+    <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
+    <script src="shared-price-utils.js?v=20260615a"></script>
+    <script src="tt-bubble-search-utils.js?v=20260615a"></script>
+    <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="shared-rail-helpers.js?v=20260610-verda3"></script>
+    <script src="shared-right-rail.compiled.js?v=20260610-verda3"></script>
+    <script src="ticker-spider-chart.js?v=20260501a"></script>
+    <script src="shared-rail-bootstrap.js?v=20260610-verda3"></script>
+    <style>
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-up: #22c55e;
+        --tt-dn: #f43f5e;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-font: "Inter", system-ui, sans-serif;
+        --tt-font-display: "Manrope", "Inter", system-ui, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, monospace;
+      }
+      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); min-height: 100vh; }
+      main { max-width: 1100px; margin: 0 auto; padding: 20px 20px 96px; }
+
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(10,12,16,0.85);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border);
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: var(--tt-text-muted); text-decoration: none;
+        padding: 6px 12px; border-radius: 8px;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .nav-link:hover { color: var(--tt-text); background: var(--tt-bg-surface); }
+      .nav-link.active { color: var(--tt-accent); background: var(--tt-accent-dim); }
+      .nav-link.learn { color: var(--tt-up); }
+      .nav-link.learn:hover { background: rgba(34,197,94,0.10); }
+      .nav-link.faq { color: #22d3ee; }
+
+      .hb-hero { margin-bottom: 24px; padding: 16px 18px; background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface)); border: 1px solid var(--tt-border); border-radius: 14px; }
+      .hb-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
+      .hb-hero h1 { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.02em; }
+      .hb-hero p { margin: 0; color: var(--tt-text-muted); font-size: 14px; line-height: 1.5; max-width: 720px; }
+      .hb-link { color: var(--tt-accent); text-decoration: none; font-weight: 600; }
+      .hb-section { margin-bottom: 28px; }
+      .hb-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tt-text-muted); margin-bottom: 10px; }
+      .hb-grid { display: grid; gap: 12px; }
+      .hb-card {
+        background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px;
+        padding: 14px 16px; cursor: pointer; transition: border-color 0.15s;
+      }
+      .hb-card:hover { border-color: rgba(56,242,161,0.35); }
+      .hb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+      .hb-ticker { font-family: var(--tt-font-mono); font-weight: 700; font-size: 15px; }
+      .hb-name { font-size: 12px; color: var(--tt-text-muted); margin-top: 2px; }
+      .hb-chip {
+        font-family: var(--tt-font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
+        padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(56,242,161,0.35); color: var(--tt-accent); white-space: nowrap;
+      }
+      .hb-meta { display: flex; flex-wrap: wrap; gap: 10px; font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-bottom: 10px; }
+      .hb-up { color: var(--tt-up); }
+      .hb-dn { color: var(--tt-dn); }
+      .hb-thesis { margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.45; color: var(--tt-text); }
+      .hb-thesis li { margin-bottom: 4px; }
+      .hb-empty, .hb-loading { color: var(--tt-text-muted); font-size: 13px; padding: 20px; text-align: center; border: 1px dashed var(--tt-border); border-radius: 12px; }
+    </style>
+  </head>
+  <body class="vf-page">
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260611a"></script>
+    <div data-tt-activity-strip></div>
+
+    <div id="root">
+      <main>
+        <div class="hb-loading">Loading growth ideas…</div>
+      </main>
+    </div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback } = React;
+      const h = React.createElement;
+      const API_BASE = "";
+
+      function fmtPct(n) {
+        if (!Number.isFinite(Number(n))) return "—";
+        const v = Number(n);
+        return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+      }
+
+      function Section({ title, subtitle, rows, onOpen }) {
+        if (!rows?.length) return null;
+        return h("section", { className: "hb-section" },
+          h("div", { className: "hb-sec-title" }, title),
+          subtitle && h("p", { style: { fontSize: 12, color: "var(--tt-text-muted)", margin: "0 0 10px" } }, subtitle),
+          h("div", { className: "hb-grid" },
+            rows.map((row) => h("article", {
+              key: row.ticker,
+              className: "hb-card",
+              role: "button",
+              tabIndex: 0,
+              onClick: () => onOpen(row.ticker, "FUNDAMENTALS"),
+              onKeyDown: (ev) => { if (ev.key === "Enter") onOpen(row.ticker, "FUNDAMENTALS"); },
+            },
+              h("div", { className: "hb-card-head" },
+                h("div", null,
+                  h("div", { className: "hb-ticker" }, row.ticker),
+                  row.companyName && h("div", { className: "hb-name" }, row.companyName),
+                ),
+                row.tier_label && h("span", { className: "hb-chip" }, row.tier_label),
+              ),
+              h("div", { className: "hb-meta" },
+                h("span", null, `Score ${row.score ?? "—"}`),
+                h("span", null, `RS ${row.rsRank ?? "—"}`),
+                h("span", null, String(row.stage || "").replace(/_/g, " ")),
+                row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`),
+                row.dailyChgPct != null && h("span", { className: Number(row.dailyChgPct) >= 0 ? "hb-up" : "hb-dn" }, fmtPct(row.dailyChgPct)),
+                row.trajectory?.cagr_pct != null && h("span", null, `Runway ${fmtPct(row.trajectory.cagr_pct)} CAGR`),
+                row.dip_buy && h("span", { className: "hb-up" }, "Dip posture"),
+              ),
+              Array.isArray(row.hold_thesis) && row.hold_thesis.length > 0 && h("ul", { className: "hb-thesis" },
+                row.hold_thesis.slice(0, 4).map((b, i) => h("li", { key: i }, b)),
+              ),
+            )),
+          ),
+        );
+      }
+
+      function OpportunitiesApp() {
+        const [data, setData] = useState(null);
+        const [err, setErr] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [railTicker, setRailTicker] = useState(null);
+        const [railInitialTab, setRailInitialTab] = useState(null);
+        const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
+
+        useEffect(() => {
+          if (RailOverlay) return;
+          const id = setInterval(() => {
+            if (window.TimedRightRail?.Overlay) {
+              setRailOverlay(() => window.TimedRightRail.Overlay);
+              clearInterval(id);
+            }
+          }, 80);
+          return () => clearInterval(id);
+        }, [RailOverlay]);
+
+        useEffect(() => {
+          let cancelled = false;
+          const ctrl = new AbortController();
+          const timeoutId = setTimeout(() => ctrl.abort(), 15000);
+          (async () => {
+            try {
+              const r = await fetch(`${API_BASE}/timed/investor/holdbook`, {
+                credentials: "include",
+                cache: "no-store",
+                signal: ctrl.signal,
+              });
+              const j = await r.json();
+              if (!cancelled) {
+                if (j.error_kind === "tier_required") setErr("Growth Ideas requires a Pro subscription.");
+                else if (!j.ok && j.error) setErr(j.error);
+                else setData(j);
+              }
+            } catch (e) {
+              if (!cancelled) {
+                const msg = e?.name === "AbortError"
+                  ? "Growth ideas request timed out. Try again in a moment."
+                  : String(e.message || e);
+                setErr(msg);
+              }
+            } finally {
+              clearTimeout(timeoutId);
+              if (!cancelled) setLoading(false);
+            }
+          })();
+          return () => { cancelled = true; clearTimeout(timeoutId); ctrl.abort(); };
+        }, []);
+
+        const railTickerObj = useMemo(() => (
+          railTicker ? { ticker: String(railTicker).toUpperCase() } : null
+        ), [railTicker]);
+
+        const applyRailOpen = useCallback((detail) => {
+          const p = typeof window.ttConsumeRailOpenForReact === "function"
+            ? window.ttConsumeRailOpenForReact(detail)
+            : null;
+          const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
+          if (!t) return;
+          setRailTicker(t);
+          setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || "FUNDAMENTALS");
+        }, []);
+
+        const openTicker = useCallback((sym, tab) => {
+          const ticker = String(sym || "").toUpperCase();
+          if (!ticker) return;
+          const initialRailTab = tab || "FUNDAMENTALS";
+          applyRailOpen({ ticker, initialRailTab });
+          if (typeof window.ttOpenTickerInRail === "function") {
+            window.ttOpenTickerInRail({ ticker, initialRailTab, source: "opportunities" });
+          }
+        }, [applyRailOpen]);
+
+        const onCloseRail = useCallback(() => {
+          setRailTicker(null);
+          setRailInitialTab(null);
+          try { window.ttClearRailUrlParams?.(); } catch (_) {}
+        }, []);
+
+        useEffect(() => {
+          const handler = (ev) => applyRailOpen(ev?.detail);
+          window.addEventListener("tt-open-ticker", handler);
+          return () => window.removeEventListener("tt-open-ticker", handler);
+        }, [applyRailOpen]);
+
+        useEffect(() => {
+          if (!RailOverlay) return;
+          applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+        }, [RailOverlay, applyRailOpen]);
+
+        if (loading) {
+          return h("main", null, h("div", { className: "hb-loading" }, "Loading growth ideas…"));
+        }
+
+        const hero = h("header", { className: "hb-hero" },
+          h("div", { className: "label" }, "TODAY · IDEAS"),
+          h("h1", null, "Growth Ideas"),
+          h("p", null,
+            "Fundamentally growing names in the universe worth watching for pullbacks. ",
+            "The Investor model tracks these for dip-buy entry — not a core-hold ledger. ",
+            h("a", { className: "hb-link", href: "/today.html#opportunities" }, "Today strip"),
+            " · ",
+            h("a", { className: "hb-link", href: "/investor.html" }, "Investor"),
+            ".",
+          ),
+        );
+
+        let body;
+        if (err) {
+          body = h("div", { className: "hb-empty" }, `Could not load growth ideas: ${err}`);
+        } else if (!data?.count) {
+          body = h("div", { className: "hb-empty" },
+            "No growth ideas surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ",
+            "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.",
+          );
+        } else {
+          const g = data.groups || {};
+          const labels = data.group_labels || {};
+          body = h(React.Fragment, null,
+            Section({ title: labels.in_book || "In Position", subtitle: "Model already holds or rates Core Hold — compounding thesis intact.", rows: g.in_book, onOpen: openTicker }),
+            Section({ title: labels.building || "Accumulate Lane", subtitle: "Starter or add-band names when dip signals align.", rows: g.building, onOpen: openTicker }),
+            Section({ title: labels.on_radar || "Watch for Pullback", subtitle: "Growth profile flagged — add when price and timing cooperate.", rows: g.on_radar, onOpen: openTicker }),
+          );
+        }
+
+        return h(React.Fragment, null,
+          h("main", null, hero, body),
+          RailOverlay && railTickerObj && h(RailOverlay, {
+            ticker: railTickerObj,
+            allLoadedData: {},
+            initialRailTab: railInitialTab,
+            onClose: onCloseRail,
+          }),
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById("root"));
+      root.render(h(OpportunitiesApp));
+    </script>
+  </body>
+</html>

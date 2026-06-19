@@ -52,9 +52,7 @@ function Section({
     className: "hb-meta"
   }, h("span", null, `Score ${row.score ?? "—"}`), h("span", null, `RS ${row.rsRank ?? "—"}`), h("span", null, String(row.stage || "").replace(/_/g, " ")), row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`), row.dailyChgPct != null && h("span", {
     className: Number(row.dailyChgPct) >= 0 ? "hb-up" : "hb-dn"
-  }, fmtPct(row.dailyChgPct)), row.trajectory?.cagr_pct != null && h("span", null, `Runway ${fmtPct(row.trajectory.cagr_pct)} CAGR`), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(2)}`), row.fv_class && h("span", {
-    className: row.fv_class === "discount" ? "hb-up" : row.fv_class === "premium" ? "hb-dn" : ""
-  }, String(row.fv_class).toUpperCase()), row.dip_buy && h("span", {
+  }, fmtPct(row.dailyChgPct)), row.trajectory?.cagr_pct != null && h("span", null, `Runway ${fmtPct(row.trajectory.cagr_pct)} CAGR`), row.dip_buy && h("span", {
     className: "hb-up"
   }, "Dip posture")), Array.isArray(row.hold_thesis) && row.hold_thesis.length > 0 && h("ul", {
     className: "hb-thesis"
@@ -62,7 +60,7 @@ function Section({
     key: i
   }, b)))))));
 }
-function HoldbookApp() {
+function OpportunitiesApp() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -92,11 +90,11 @@ function HoldbookApp() {
         });
         const j = await r.json();
         if (!cancelled) {
-          if (j.error_kind === "tier_required") setErr("Holdbook requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
+          if (j.error_kind === "tier_required") setErr("Growth Ideas requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
         }
       } catch (e) {
         if (!cancelled) {
-          const msg = e?.name === "AbortError" ? "Holdbook request timed out. Try again in a moment." : String(e.message || e);
+          const msg = e?.name === "AbortError" ? "Growth ideas request timed out. Try again in a moment." : String(e.message || e);
           setErr(msg);
         }
       } finally {
@@ -132,7 +130,7 @@ function HoldbookApp() {
       window.ttOpenTickerInRail({
         ticker,
         initialRailTab,
-        source: "holdbook"
+        source: "opportunities"
       });
     }
   }, [applyRailOpen]);
@@ -155,18 +153,16 @@ function HoldbookApp() {
   if (loading) {
     return h("main", null, h("div", {
       className: "hb-loading"
-    }, "Loading Holdbook…"));
+    }, "Loading growth ideas…"));
   }
   const hero = h("header", {
     className: "hb-hero"
   }, h("div", {
     className: "label"
-  }, "INVESTOR"), h("h1", null, "Holdbook"), h("p", null, "Compounding names with a documented revenue path and hold thesis. ", "Share links like ", h("code", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 12
-    }
-  }, "?ticker=MU&railTab=FUNDAMENTALS"), " open the right rail on the Fundamentals tab. See also ", h("a", {
+  }, "TODAY · IDEAS"), h("h1", null, "Growth Ideas"), h("p", null, "Fundamentally growing names in the universe worth watching for pullbacks. ", "The Investor model tracks these for dip-buy entry — not a core-hold ledger. ", h("a", {
+    className: "hb-link",
+    href: "/today.html#opportunities"
+  }, "Today strip"), " · ", h("a", {
     className: "hb-link",
     href: "/investor.html"
   }, "Investor"), "."));
@@ -174,26 +170,27 @@ function HoldbookApp() {
   if (err) {
     body = h("div", {
       className: "hb-empty"
-    }, `Could not load Holdbook: ${err}`);
+    }, `Could not load growth ideas: ${err}`);
   } else if (!data?.count) {
     body = h("div", {
       className: "hb-empty"
-    }, "No compounders surfaced yet. Names need a growth profile plus Accumulate, Core Hold, or Watch stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
+    }, "No growth ideas surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
   } else {
     const g = data.groups || {};
+    const labels = data.group_labels || {};
     body = h(React.Fragment, null, Section({
-      title: "In Book",
-      subtitle: "Owned or Core Hold — established compounding positions.",
+      title: labels.in_book || "In Position",
+      subtitle: "Model already holds or rates Core Hold — compounding thesis intact.",
       rows: g.in_book,
       onOpen: openTicker
     }), Section({
-      title: "Building",
-      subtitle: "Accumulate lane — starter or add-band names.",
+      title: labels.building || "Accumulate Lane",
+      subtitle: "Starter or add-band names when dip signals align.",
       rows: g.building,
       onOpen: openTicker
     }), Section({
-      title: "On Radar",
-      subtitle: "Watch with a compounding profile — add when dip signals align.",
+      title: labels.on_radar || "Watch for Pullback",
+      subtitle: "Growth profile flagged — add when price and timing cooperate.",
       rows: g.on_radar,
       onOpen: openTicker
     }));
@@ -206,7 +203,7 @@ function HoldbookApp() {
   }));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(h(HoldbookApp));
-// cache-bust:1781909538367:467756431
+root.render(h(OpportunitiesApp));
+// cache-bust:1781911807407:484132943
 
-// cache-bust:1781909538367:467756431
+// cache-bust:1781911807407:484132943

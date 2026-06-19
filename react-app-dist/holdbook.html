@@ -2,118 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <title>Holdbook — Timed Trading</title>
-    <meta name="description" content="Portfolio-level compounding hold thesis — revenue path, quality grades, and dip-buy posture for Investor Mode names." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1781909538367" />
-    <script defer src="/vendor/react.production.min.js?v=1781909538367"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1781909538367"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1781909538367" />
-<script defer src="auth-gate.js?v=1781909538367"></script>
-    <script defer src="tt-fetch-cache.js?v=1781909538367"></script>
-    <script src="tt-bottom-nav.js?v=1781909538367" defer></script>
-    <script src="tt-nav-extras.js?v=1781909538367" defer></script>
-    <script src="tt-global-search.js?v=1781909538367" defer></script>
-    <script src="tt-rail-bridge.js?v=1781909538367" defer></script>
-    <script src="tt-activity-strip.js?v=1781909538367" defer></script>
-    <script defer src="shared-price-utils.js?v=1781909538367"></script>
-    <script defer src="tt-bubble-search-utils.js?v=1781909538367"></script>
-    <script defer src="shared-bubble-chart.compiled.js?v=1781909538367"></script>
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1781909538367"></script>
-    <script defer src="shared-rail-helpers.js?v=1781909538367"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1781909538367"></script>
-    <script defer src="ticker-spider-chart.js?v=1781909538367"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1781909538367"></script>
-    <style>
-      :root {
-        --tt-bg-base: var(--vf-ink, #0B1410);
-        --tt-bg-surface: var(--vf-bark, #13201A);
-        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
-        --tt-border: var(--vf-moss, #1F3128);
-        --tt-text: var(--vf-cream, #E8F2EC);
-        --tt-text-muted: var(--vf-sage, #8AA39A);
-        --tt-text-dim: #6E867D;
-        --tt-up: #22c55e;
-        --tt-dn: #f43f5e;
-        --tt-accent: var(--vf-mint, #38F2A1);
-        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
-        --tt-font: "Inter", system-ui, sans-serif;
-        --tt-font-display: "Manrope", "Inter", system-ui, sans-serif;
-        --tt-font-mono: "JetBrains Mono", ui-monospace, monospace;
-      }
-      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); min-height: 100vh; }
-      main { max-width: 1100px; margin: 0 auto; padding: 20px 20px 96px; }
-
-      nav.topnav {
-        position: sticky; top: 0; z-index: 50;
-        background: rgba(10,12,16,0.85);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        border-bottom: 1px solid var(--tt-border);
-      }
-      .nav-row {
-        max-width: 1600px; margin: 0 auto;
-        padding: 12px 24px;
-        display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      }
-      .nav-brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--tt-text); font-weight: 700; }
-      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-      .nav-link {
-        font-size: 12.5px; color: var(--tt-text-muted); text-decoration: none;
-        padding: 6px 12px; border-radius: 8px;
-        transition: background 120ms ease, color 120ms ease;
-      }
-      .nav-link:hover { color: var(--tt-text); background: var(--tt-bg-surface); }
-      .nav-link.active { color: var(--tt-accent); background: var(--tt-accent-dim); }
-      .nav-link.learn { color: var(--tt-up); }
-      .nav-link.learn:hover { background: rgba(34,197,94,0.10); }
-      .nav-link.faq { color: #22d3ee; }
-
-      .hb-hero { margin-bottom: 24px; padding: 16px 18px; background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface)); border: 1px solid var(--tt-border); border-radius: 14px; }
-      .hb-hero .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
-      .hb-hero h1 { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.02em; }
-      .hb-hero p { margin: 0; color: var(--tt-text-muted); font-size: 14px; line-height: 1.5; max-width: 720px; }
-      .hb-link { color: var(--tt-accent); text-decoration: none; font-weight: 600; }
-      .hb-section { margin-bottom: 28px; }
-      .hb-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--tt-text-muted); margin-bottom: 10px; }
-      .hb-grid { display: grid; gap: 12px; }
-      .hb-card {
-        background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px;
-        padding: 14px 16px; cursor: pointer; transition: border-color 0.15s;
-      }
-      .hb-card:hover { border-color: rgba(56,242,161,0.35); }
-      .hb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-      .hb-ticker { font-family: var(--tt-font-mono); font-weight: 700; font-size: 15px; }
-      .hb-name { font-size: 12px; color: var(--tt-text-muted); margin-top: 2px; }
-      .hb-chip {
-        font-family: var(--tt-font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em;
-        padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(56,242,161,0.35); color: var(--tt-accent); white-space: nowrap;
-      }
-      .hb-meta { display: flex; flex-wrap: wrap; gap: 10px; font-family: var(--tt-font-mono); font-size: 11px; color: var(--tt-text-muted); margin-bottom: 10px; }
-      .hb-up { color: var(--tt-up); }
-      .hb-dn { color: var(--tt-dn); }
-      .hb-thesis { margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.45; color: var(--tt-text); }
-      .hb-thesis li { margin-bottom: 4px; }
-      .hb-empty, .hb-loading { color: var(--tt-text-muted); font-size: 13px; padding: 20px; text-align: center; border: 1px dashed var(--tt-border); border-radius: 12px; }
-    </style>
+    <meta http-equiv="refresh" content="0;url=/today.html#opportunities" />
+    <title>Redirect — Growth Ideas</title>
+    <script>location.replace("/today.html#opportunities");</script>
   </head>
-  <body class="vf-page">
-    <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1781909538367"></script>
-    <div data-tt-activity-strip></div>
-
-    <div id="root">
-      <main>
-        <div class="hb-loading">Loading Holdbook…</div>
-      </main>
-    </div>
-
-    <script defer src="holdbook.compiled.js?v=1781909538367"></script>
+  <body>
+    <p>Redirecting to <a href="/today.html#opportunities">Growth Ideas on Today</a>…</p>
   </body>
 </html>
 
-<!-- cache-bust:1781909538367:467756431 -->
+<!-- cache-bust:1781911807407:484132943 -->
