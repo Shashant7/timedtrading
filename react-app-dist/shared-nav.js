@@ -28,7 +28,6 @@
     { href: "/today.html", label: "Today", accent: "today", accentOnSelfOnly: true },
     { href: "/active-trader.html", label: "Active Trader" },
     { href: "/investor.html", label: "Investor" },
-    { href: "/holdbook.html", label: "Holdbook" },
     { href: "/portfolio.html", label: "Portfolio" },
     { href: "/insights.html", label: "Insights" },
     { href: "/faq.html", label: "FAQ", accent: "faq" },
@@ -88,4 +87,4 @@
   mount();
 })();
 
-// cache-bust:1781908022111:769324445
+// cache-bust:1781910394506:24981122

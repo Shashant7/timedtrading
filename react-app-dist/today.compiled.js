@@ -2611,6 +2611,139 @@ function MacroStrip({
     }
   }, "Rotation to mind: "), themeCallout, ".")));
 }
+function CompoundingOpportunitiesStrip({
+  onSelectTicker
+}) {
+  const [rows, setRows] = useState(null);
+  const [loadErr, setLoadErr] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12000);
+    fetch(`${API_BASE}/timed/investor/holdbook`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: ctrl.signal
+    }).then(r => r.json()).then(j => {
+      if (cancelled) return;
+      if (j.error_kind === "tier_required") {
+        setRows([]);
+        return;
+      }
+      if (!j.ok && j.error) {
+        setLoadErr(j.error);
+        setRows([]);
+        return;
+      }
+      const list = Array.isArray(j.holdings) ? j.holdings : [];
+      setRows(list.slice(0, 16));
+    }).catch(e => {
+      if (!cancelled) {
+        setLoadErr(e?.name === "AbortError" ? null : String(e.message || e));
+        setRows([]);
+      }
+    }).finally(() => {
+      clearTimeout(t);
+    });
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, []);
+  if (rows === null) {
+    return h("section", {
+      id: "opportunities",
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "COMPOUNDING OPPORTUNITIES"), h("div", {
+      className: "tt-sec-h"
+    }, "Loading growth watchlist…"));
+  }
+  if (!rows.length) return null;
+  const fmtPctOpp = n => {
+    if (!Number.isFinite(Number(n))) return null;
+    const v = Number(n);
+    return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+  };
+  return h("section", {
+    id: "opportunities",
+    className: "tt-row"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+      marginBottom: 4
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "COMPOUNDING OPPORTUNITIES"), h("div", {
+    className: "tt-sec-h"
+  }, "Fundamentally growing names — watch for pullbacks to add")), h("a", {
+    href: "/opportunities.html",
+    style: {
+      fontSize: 11,
+      fontWeight: 600,
+      color: "var(--tt-accent)",
+      textDecoration: "none",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, "See all →")), loadErr && h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-dim)",
+      marginBottom: 6
+    }
+  }, loadErr), h("div", {
+    className: "tt-opp-scroll"
+  }, rows.map(row => {
+    const sym = String(row.ticker || "").toUpperCase();
+    const why = Array.isArray(row.hold_thesis) && row.hold_thesis[0] ? row.hold_thesis[0] : row.trajectory?.cagr_pct != null ? `Revenue runway ~${fmtPctOpp(row.trajectory.cagr_pct)} CAGR` : "Growth profile flagged by fundamentals";
+    const pct = Number(row.dailyChgPct);
+    return h("button", {
+      key: sym,
+      type: "button",
+      className: "tt-opp-card",
+      onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
+      title: `${sym} — open Fundamentals`
+    }, h("div", {
+      className: "tt-opp-card-head"
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8
+      }
+    }, h(TickerLogo, {
+      sym,
+      size: 22
+    }), h("div", null, h("div", {
+      className: "tt-opp-ticker"
+    }, sym), row.companyName && h("div", {
+      style: {
+        fontSize: 10,
+        color: "var(--tt-text-dim)",
+        marginTop: 1
+      }
+    }, row.companyName))), row.tier_label && h("span", {
+      className: "tt-opp-chip"
+    }, row.tier_label)), h("div", {
+      className: "tt-opp-meta"
+    }, row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`), Number.isFinite(pct) && h("span", {
+      style: {
+        color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
+      }
+    }, fmtPctOpp(pct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`)), row.dip_buy && h("div", {
+      className: "tt-opp-dip"
+    }, "Dip posture active"), h("p", {
+      className: "tt-opp-why"
+    }, why));
+  })));
+}
 function FocusRail({
   data,
   onSelectTicker
@@ -4822,6 +4955,17 @@ function TodayApp() {
       alive = false;
     };
   }, []);
+  useEffect(() => {
+    if (loading) return;
+    if (String(window.location.hash || "") !== "#opportunities") return;
+    const scrollToOpp = () => document.getElementById("opportunities")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+    scrollToOpp();
+    const t = setTimeout(scrollToOpp, 600);
+    return () => clearTimeout(t);
+  }, [loading]);
   const isAdmin = !!window._ttIsAdmin;
   const tradeByTicker = useOpenTrades(!!data);
   const {
@@ -4983,6 +5127,8 @@ function TodayApp() {
   }), h(OpenPositionsPreview, {
     onSelectTicker,
     allTickers
+  }), h(CompoundingOpportunitiesStrip, {
+    onSelectTicker
   }), data ? h(MarketState, {
     data,
     onSelectTicker
@@ -5409,6 +5555,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781908022111:769324445
+// cache-bust:1781910394506:24981122
 
-// cache-bust:1781908022111:769324445
+// cache-bust:1781910394506:24981122

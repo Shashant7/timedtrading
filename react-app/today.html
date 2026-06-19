@@ -58,6 +58,33 @@
         color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
       }
       .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
+      /* Compounding Opportunities — horizontal idea cards on Today */
+      .tt-opp-scroll {
+        display: flex; gap: 10px; overflow-x: auto; padding: 4px 2px 10px;
+        scroll-snap-type: x proximity; scrollbar-width: thin;
+        -webkit-overflow-scrolling: touch;
+      }
+      .tt-opp-scroll::-webkit-scrollbar { height: 6px; }
+      .tt-opp-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
+      .tt-opp-card {
+        flex: 0 0 260px; scroll-snap-align: start;
+        display: flex; flex-direction: column; gap: 8px;
+        padding: 12px 14px; border-radius: 12px; cursor: pointer; text-align: left;
+        background: var(--tt-bg-surface); border: 1px solid var(--tt-border);
+        transition: border-color 0.15s, background 0.15s;
+        color: var(--tt-text);
+      }
+      .tt-opp-card:hover { border-color: rgba(56,242,161,0.35); background: var(--tt-bg-elev); }
+      .tt-opp-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+      .tt-opp-ticker { font-family: var(--tt-font-mono); font-weight: 700; font-size: 14px; }
+      .tt-opp-chip {
+        font-family: var(--tt-font-mono); font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
+        padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(56,242,161,0.35);
+        color: var(--tt-accent); white-space: nowrap;
+      }
+      .tt-opp-meta { display: flex; flex-wrap: wrap; gap: 8px; font-family: var(--tt-font-mono); font-size: 10px; color: var(--tt-text-muted); }
+      .tt-opp-why { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--tt-text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+      .tt-opp-dip { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--tt-up-soft); text-transform: uppercase; }
       :root {
         /* 2026-06-10 — VERDA MIGRATION (first page). The page-local token
            values are re-pointed at the Verda Finance palette (Ink / Bark /
@@ -3579,6 +3606,107 @@
       // a kanban entry stage, straight from the /timed/all snapshot.
       // Click any chip → right-rail overlay. No extra fetch.
       // ═══════════════════════════════════════════════════════════
+      // ── Compounding Opportunities (Today strip) ─────────────────
+      // Fundamentally growing universe names worth watching for pullbacks.
+      // Same feed as /timed/investor/holdbook — surfaced on Today as ideas
+      // the model tracks for dip-buy entry (not a core-hold ledger).
+      function CompoundingOpportunitiesStrip({ onSelectTicker }) {
+        const [rows, setRows] = useState(null);
+        const [loadErr, setLoadErr] = useState(null);
+
+        useEffect(() => {
+          let cancelled = false;
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 12000);
+          fetch(`${API_BASE}/timed/investor/holdbook`, {
+            credentials: "include",
+            cache: "no-store",
+            signal: ctrl.signal,
+          })
+            .then((r) => r.json())
+            .then((j) => {
+              if (cancelled) return;
+              if (j.error_kind === "tier_required") { setRows([]); return; }
+              if (!j.ok && j.error) { setLoadErr(j.error); setRows([]); return; }
+              const list = Array.isArray(j.holdings) ? j.holdings : [];
+              setRows(list.slice(0, 16));
+            })
+            .catch((e) => {
+              if (!cancelled) {
+                setLoadErr(e?.name === "AbortError" ? null : String(e.message || e));
+                setRows([]);
+              }
+            })
+            .finally(() => { clearTimeout(t); });
+          return () => { cancelled = true; clearTimeout(t); ctrl.abort(); };
+        }, []);
+
+        if (rows === null) {
+          return h("section", { id: "opportunities", className: "tt-row" },
+            h("div", { className: "tt-sec-title" }, "COMPOUNDING OPPORTUNITIES"),
+            h("div", { className: "tt-sec-h" }, "Loading growth watchlist…"),
+          );
+        }
+        if (!rows.length) return null;
+
+        const fmtPctOpp = (n) => {
+          if (!Number.isFinite(Number(n))) return null;
+          const v = Number(n);
+          return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
+        };
+
+        return h("section", { id: "opportunities", className: "tt-row" },
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 } },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "COMPOUNDING OPPORTUNITIES"),
+              h("div", { className: "tt-sec-h" }, "Fundamentally growing names — watch for pullbacks to add"),
+            ),
+            h("a", {
+              href: "/opportunities.html",
+              style: { fontSize: 11, fontWeight: 600, color: "var(--tt-accent)", textDecoration: "none", fontFamily: "var(--tt-font-mono)" },
+            }, "See all →"),
+          ),
+          loadErr && h("div", { style: { fontSize: 11, color: "var(--tt-text-dim)", marginBottom: 6 } }, loadErr),
+          h("div", { className: "tt-opp-scroll" },
+            rows.map((row) => {
+              const sym = String(row.ticker || "").toUpperCase();
+              const why = Array.isArray(row.hold_thesis) && row.hold_thesis[0]
+                ? row.hold_thesis[0]
+                : (row.trajectory?.cagr_pct != null
+                  ? `Revenue runway ~${fmtPctOpp(row.trajectory.cagr_pct)} CAGR`
+                  : "Growth profile flagged by fundamentals");
+              const pct = Number(row.dailyChgPct);
+              return h("button", {
+                key: sym,
+                type: "button",
+                className: "tt-opp-card",
+                onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
+                title: `${sym} — open Fundamentals`,
+              },
+                h("div", { className: "tt-opp-card-head" },
+                  h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
+                    h(TickerLogo, { sym, size: 22 }),
+                    h("div", null,
+                      h("div", { className: "tt-opp-ticker" }, sym),
+                      row.companyName && h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginTop: 1 } }, row.companyName),
+                    ),
+                  ),
+                  row.tier_label && h("span", { className: "tt-opp-chip" }, row.tier_label),
+                ),
+                h("div", { className: "tt-opp-meta" },
+                  row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`),
+                  Number.isFinite(pct) && h("span", { style: { color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" } }, fmtPctOpp(pct)),
+                  row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`),
+                  row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`),
+                ),
+                row.dip_buy && h("div", { className: "tt-opp-dip" }, "Dip posture active"),
+                h("p", { className: "tt-opp-why" }, why),
+              );
+            }),
+          ),
+        );
+      }
+
       function FocusRail({ data, onSelectTicker }) {
         const items = useMemo(() => {
           if (!data) return [];
@@ -5585,6 +5713,15 @@
           return () => { alive = false; };
         }, []);
 
+        useEffect(() => {
+          if (loading) return;
+          if (String(window.location.hash || "") !== "#opportunities") return;
+          const scrollToOpp = () => document.getElementById("opportunities")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          scrollToOpp();
+          const t = setTimeout(scrollToOpp, 600);
+          return () => clearTimeout(t);
+        }, [loading]);
+
         // Single source of truth for the universe, trades, chips, and
         // filtered set. allTickers is enriched with _openTrade +
         // _effectiveKanbanStage so the bubble chart's stage overlay,
@@ -5758,6 +5895,7 @@
             h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker }),
             // Tier 3 — what the model is currently managing.
             h(OpenPositionsPreview, { onSelectTicker, allTickers }),
+            h(CompoundingOpportunitiesStrip, { onSelectTicker }),
             // ── Retained informative sections ──
             data
               ? h(MarketState, { data, onSelectTicker })

@@ -60,7 +60,7 @@ function Section({
     key: i
   }, b)))))));
 }
-function HoldbookApp() {
+function OpportunitiesApp() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -90,11 +90,11 @@ function HoldbookApp() {
         });
         const j = await r.json();
         if (!cancelled) {
-          if (j.error_kind === "tier_required") setErr("Holdbook requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
+          if (j.error_kind === "tier_required") setErr("Compounding Opportunities requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
         }
       } catch (e) {
         if (!cancelled) {
-          const msg = e?.name === "AbortError" ? "Holdbook request timed out. Try again in a moment." : String(e.message || e);
+          const msg = e?.name === "AbortError" ? "Opportunities request timed out. Try again in a moment." : String(e.message || e);
           setErr(msg);
         }
       } finally {
@@ -121,16 +121,16 @@ function HoldbookApp() {
   const openTicker = useCallback((sym, tab) => {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
+    const initialRailTab = tab || "FUNDAMENTALS";
+    applyRailOpen({
+      ticker,
+      initialRailTab
+    });
     if (typeof window.ttOpenTickerInRail === "function") {
       window.ttOpenTickerInRail({
         ticker,
-        initialRailTab: tab || "FUNDAMENTALS",
-        source: "holdbook"
-      });
-    } else {
-      applyRailOpen({
-        ticker,
-        initialRailTab: tab || "FUNDAMENTALS"
+        initialRailTab,
+        source: "opportunities"
       });
     }
   }, [applyRailOpen]);
@@ -142,27 +142,27 @@ function HoldbookApp() {
     } catch (_) {}
   }, []);
   useEffect(() => {
-    if (!RailOverlay) return;
     const handler = ev => applyRailOpen(ev?.detail);
     window.addEventListener("tt-open-ticker", handler);
-    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
     return () => window.removeEventListener("tt-open-ticker", handler);
+  }, [applyRailOpen]);
+  useEffect(() => {
+    if (!RailOverlay) return;
+    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
   }, [RailOverlay, applyRailOpen]);
   if (loading) {
     return h("main", null, h("div", {
       className: "hb-loading"
-    }, "Loading Holdbook…"));
+    }, "Loading opportunities…"));
   }
   const hero = h("header", {
     className: "hb-hero"
   }, h("div", {
     className: "label"
-  }, "INVESTOR"), h("h1", null, "Holdbook"), h("p", null, "Compounding names with a documented revenue path and hold thesis. ", "Share links like ", h("code", {
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 12
-    }
-  }, "?ticker=MU&railTab=FUNDAMENTALS"), " open the right rail on the Fundamentals tab. See also ", h("a", {
+  }, "TODAY · IDEAS"), h("h1", null, "Compounding Opportunities"), h("p", null, "Fundamentally growing names in the universe worth watching for pullbacks. ", "The Investor model tracks these for dip-buy entry — not a core-hold ledger. ", h("a", {
+    className: "hb-link",
+    href: "/today.html#opportunities"
+  }, "Today strip"), " · ", h("a", {
     className: "hb-link",
     href: "/investor.html"
   }, "Investor"), "."));
@@ -170,26 +170,27 @@ function HoldbookApp() {
   if (err) {
     body = h("div", {
       className: "hb-empty"
-    }, `Could not load Holdbook: ${err}`);
+    }, `Could not load opportunities: ${err}`);
   } else if (!data?.count) {
     body = h("div", {
       className: "hb-empty"
-    }, "No compounders surfaced yet. Names need a growth profile plus Accumulate, Core Hold, or Watch stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
+    }, "No compounding opportunities surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
   } else {
     const g = data.groups || {};
+    const labels = data.group_labels || {};
     body = h(React.Fragment, null, Section({
-      title: "In Book",
-      subtitle: "Owned or Core Hold — established compounding positions.",
+      title: labels.in_book || "In Position",
+      subtitle: "Model already holds or rates Core Hold — compounding thesis intact.",
       rows: g.in_book,
       onOpen: openTicker
     }), Section({
-      title: "Building",
-      subtitle: "Accumulate lane — starter or add-band names.",
+      title: labels.building || "Accumulate Lane",
+      subtitle: "Starter or add-band names when dip signals align.",
       rows: g.building,
       onOpen: openTicker
     }), Section({
-      title: "On Radar",
-      subtitle: "Watch with a compounding profile — add when dip signals align.",
+      title: labels.on_radar || "Watch for Pullback",
+      subtitle: "Growth profile flagged — add when price and timing cooperate.",
       rows: g.on_radar,
       onOpen: openTicker
     }));
@@ -202,7 +203,7 @@ function HoldbookApp() {
   }));
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(h(HoldbookApp));
-// cache-bust:1781908733013:817208996
+root.render(h(OpportunitiesApp));
+// cache-bust:1781910394506:24981122
 
-// cache-bust:1781908733013:817208996
+// cache-bust:1781910394506:24981122
