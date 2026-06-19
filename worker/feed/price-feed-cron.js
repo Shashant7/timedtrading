@@ -28,6 +28,11 @@ import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { SECTOR_MAP } from "../sector-mapping.js";
 import { reconcileDailyChange } from "./prev-close-reconcile.js";
 
+/** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
+function feedPollTimestamp(nowMs = Date.now()) {
+  return nowMs;
+}
+
 // ─── Price feed (full + lightweight overnight modes) ────────────────────────
 // opts:
 //   isLightweight — 2-8 AM UTC window: overlay TV futures + crypto only,
@@ -145,7 +150,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
-                  t: snap.trade_ts || Date.now(),
+                  t: feedPollTimestamp(),
                   /* Phase C — Stage 0.5 (2026-05-02) — Invalidate stale AH cache
                      when the regular-session price has moved past the cached
                      AH price. Bug: TWLO ahdp cached as +18.59% when AH was
@@ -428,7 +433,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                t: snap.trade_ts || Date.now(),
+                t: feedPollTimestamp(),
                 ahp: extDc !== 0 ? extP : (_marketClosed && !_ahStale ? prev.ahp : undefined),
                 ahdc: extDc !== 0 ? extDc : (_marketClosed && !_ahStale ? prev.ahdc : undefined),
                 ahdp: extDc !== 0 ? extDp : (_marketClosed && !_ahStale ? prev.ahdp : undefined),
@@ -546,7 +551,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           // session + overnight without false-flagging weekends' first
           // ticks either, since the sweep just re-confirms them cheaply).
           const STALE_SWEEP_MS = _marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
-          const SWEEP_CAP = 48;
+          const SWEEP_CAP = _marketOpen ? 120 : 48;
           // 2026-06-11 v4 — sweep EVERYTHING in the price blob, not just
           // the configured lists. SMCI was in neither SECTOR_MAP nor
           // timed:tickers — it's a screener/discovery candidate that got
@@ -602,7 +607,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                t: snap.trade_ts || _sweepNow,
+                t: feedPollTimestamp(_sweepNow),
               };
               _healed++;
             }
@@ -626,9 +631,12 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           ticker_count: Object.keys(prices).length,
           _source: pricesSource,
           // Symbols that survived the stale sweep un-healed — the health
-          // endpoint + watchdog surface these (count + samples).
-          stale_symbols: _stillStale.slice(0, 30),
-          stale_symbol_count: _stillStale.length,
+          // endpoint + watchdog surface these (count + samples) during RTH
+          // only. On holidays / weekends the last-trade clock is expected
+          // to age; suppress false-positive watchdog pages.
+          stale_symbols: _marketOpen ? _stillStale.slice(0, 30) : [],
+          stale_symbol_count: _marketOpen ? _stillStale.length : 0,
+          market_open: _marketOpen,
         });
         ctx.waitUntil(deps.notifyPriceHub(env, { type: "prices", data: prices, updated_at: priceUpdateTs }));
 

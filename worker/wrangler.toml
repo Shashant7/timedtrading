@@ -2,9 +2,10 @@ name = "timed-trading-ingest"
 main = "index.js"
 compatibility_date = "2024-01-01"
 # 2026-06-10 — decomposition cutover flags (PRICE_FEED_EXTERNAL,
-# ENGINE_EXTERNAL, RESEARCH_SLOTS_EXTERNAL) are set via the CF Dashboard;
+# RESEARCH_SLOTS_EXTERNAL) may still be set via the CF Dashboard;
 # keep_vars makes them survive CI deploys (wrangler otherwise wipes any
-# var not listed in [vars] on every deploy).
+# var not listed in [vars] on every deploy). ENGINE_EXTERNAL is pinned
+# below so the monolith never dual-scores with tt-engine after deploy.
 keep_vars = true
 
 # Top-level bindings (used when deploying without --env flag)
@@ -71,6 +72,8 @@ tag = "v6"
 new_sqlite_classes = ["CandleChainShard"]
 
 [vars]
+# ── P2 decomposition Step 3 — tt-engine owns the */5 scoring tail ──
+ENGINE_EXTERNAL = "true"
 # 2026-05-29 — Cron self-fetch goes through the custom domain to avoid
 # Cloudflare's "error code: 1042" block on workers fetching their own
 # .workers.dev URL. Investigation: the investor hourly cron was silently
@@ -296,6 +299,8 @@ class_name = "CandleChainShard"
 # ADMIN_EMAIL: Email address of the admin user (auto-promoted to admin role)
 
 [env.production.vars]
+# ── P2 decomposition Step 3 — tt-engine owns the */5 scoring tail ──
+ENGINE_EXTERNAL = "true"
 # 2026-05-29 — see top-level [vars] WORKER_URL comment.
 WORKER_URL = "https://timed-trading.com"
 DISCORD_ENABLE = "true"
