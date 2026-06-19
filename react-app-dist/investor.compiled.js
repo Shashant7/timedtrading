@@ -719,7 +719,14 @@ function InvestorApp() {
     className: "label"
   }, "INVESTOR"), h("h1", null, "Long-horizon positions"), h("div", {
     className: "sub"
-  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. Click any card to deep-dive in the full chart + right rail."))), h(HowToReadCard, null), h("section", {
+  }, "Multi-week + multi-month holds. The model recommends ", h("strong", null, "Accumulate"), " when a Buy Zone aligns with positive trend strength, ", h("strong", null, "Core Hold"), " for established winners, ", h("strong", null, "Hold & Watch"), " for owned positions without an active signal, and ", h("strong", null, "Reduce"), " when the thesis weakens. ", h("a", {
+    href: "/holdbook.html",
+    style: {
+      color: "var(--tt-accent)",
+      fontWeight: 600,
+      textDecoration: "none"
+    }
+  }, "Holdbook"), " lists compounding names with revenue path + hold thesis. Click any card to deep-dive in the full chart + right rail."))), h(HowToReadCard, null), h("section", {
     className: "tt-row inv-controls"
   }, h("div", {
     className: "inv-search-wrap"
@@ -834,6 +841,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781903363395:978509879
+// cache-bust:1781904195051:851691226
 
-// cache-bust:1781903363395:978509879
+// cache-bust:1781904195051:851691226

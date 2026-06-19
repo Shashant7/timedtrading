@@ -1,15 +1,26 @@
 // worker/growth-compounder.js
 // -----------------------------------------------------------------------------
-// Growth compounder playbook — Tenet-style revenue trajectory + "why we hold"
-// + compounder dip-buy lane for Investor Mode.
-//
-// Pure module (no I/O). Fundamentals snapshots (timed:fundamentals_v4:{T})
-// supply revenue history, growth classes, and fair-value quality grades.
+// Growth compounder playbook — revenue path + hold thesis + dip-buy lane
+// for Investor Mode. Pure module (no I/O).
+// Fundamentals snapshots (timed:fundamentals_v5:{T}) supply revenue history,
+// analyst consensus, growth classes, and fair-value quality grades.
 // -----------------------------------------------------------------------------
 
 import { extractFairValueSignal, qualityGrade, computeQualityScore } from "./fair-value.js";
 
 const BILLION = 1e9;
+
+const TIER_RANK = Object.freeze({
+  growth_elite: 3,
+  growth_strong: 2,
+  growth_watch: 1,
+});
+
+export const COMPOUNDER_TIER_LABELS = Object.freeze({
+  growth_elite: "COMPOUND CORE",
+  growth_strong: "COMPOUND PLUS",
+  growth_watch: "COMPOUND RADAR",
+});
 
 function num(v) {
   const n = Number(v);
@@ -25,10 +36,48 @@ function classifyRevGrowth(pct) {
   return "declining";
 }
 
+function yearFromDate(dateStr) {
+  const y = new Date(dateStr).getUTCFullYear();
+  return Number.isFinite(y) ? y : null;
+}
+
+function periodLabel(row) {
+  const y = yearFromDate(row?.date);
+  const p = String(row?.period || "");
+  if (p === "current_year" && y) return `${y}E`;
+  if (p === "next_year" && y) return `${y}E`;
+  if (p === "current_quarter" && y) return `${y} Q`;
+  if (p === "next_quarter" && y) return `${y} Q+1`;
+  if (y) return `${y}E`;
+  return "Est";
+}
+
+/** Normalize analyst /revenue_estimate rows for trajectory + UI. */
+export function normalizeRevenueEstimates(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => ({
+      date: row.date || null,
+      period: row.period || null,
+      label: periodLabel(row),
+      revenue_b: num(row.avg_estimate) != null ? Number((num(row.avg_estimate) / BILLION).toFixed(2)) : null,
+      low_b: num(row.low_estimate) != null ? Number((num(row.low_estimate) / BILLION).toFixed(2)) : null,
+      high_b: num(row.high_estimate) != null ? Number((num(row.high_estimate) / BILLION).toFixed(2)) : null,
+      analysts: num(row.number_of_analysts),
+      yoy_pct: (() => {
+        const v = num(row.sales_growth_pct ?? row.sales_growth);
+        if (v == null) return null;
+        return Math.abs(v) <= 2 ? Number((v * 100).toFixed(2)) : Number(v.toFixed(2));
+      })(),
+      year_ago_b: num(row.year_ago_sales) != null ? Number((num(row.year_ago_sales) / BILLION).toFixed(2)) : null,
+      source: "analyst_consensus",
+    }))
+    .filter((r) => r.revenue_b != null);
+}
+
 /**
- * Build annual / LTM / forward revenue trajectory from a fundamentals_v4 snapshot.
- * Uses quarterly revenue_actual from earnings history when present; falls back
- * to market_cap / P/S for LTM when revenue rows are sparse.
+ * Build annual / LTM / forward revenue path from a fundamentals snapshot.
+ * Forward bars prefer TwelveData analyst revenue consensus when present.
  */
 export function buildRevenueTrajectory(snapshot, opts = {}) {
   if (!snapshot || typeof snapshot !== "object") {
@@ -39,8 +88,8 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
   const grw = snapshot.growth || {};
   const earn = snapshot.earnings || {};
   const past = Array.isArray(earn.history) ? earn.history : [];
+  const analystEstimates = normalizeRevenueEstimates(earn.revenue_estimates);
 
-  // Collect quarterly revenue from extended history rows (newer snapshots).
   const revRows = (Array.isArray(earn.revenue_history) ? earn.revenue_history : [])
     .concat(
       past.filter((r) => num(r?.revenue_actual) != null || num(r?.revenue_est) != null)
@@ -53,7 +102,6 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
     .filter((r) => r.date && (num(r.revenue_actual) != null || num(r.revenue_est) != null))
     .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
 
-  // Dedupe by date
   const byDate = new Map();
   for (const r of revRows) byDate.set(r.date, r);
   const quarters = [...byDate.values()];
@@ -79,7 +127,6 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
 
   const points = [];
 
-  // Annualize actual quarters into calendar-year buckets when possible.
   const yearBuckets = new Map();
   for (const q of quarters) {
     const y = new Date(q.date).getUTCFullYear();
@@ -96,7 +143,12 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
     if (prevYearRev != null && prevYearRev > 0) {
       yoy = ((revB - prevYearRev) / prevYearRev) * 100;
     }
-    points.push({ label: String(y), revenue_b: Number(revB.toFixed(2)), yoy_pct: yoy != null ? Number(yoy.toFixed(1)) : null, kind: "actual" });
+    points.push({
+      label: String(y),
+      revenue_b: Number(revB.toFixed(2)),
+      yoy_pct: yoy != null ? Number(yoy.toFixed(1)) : null,
+      kind: "actual",
+    });
     prevYearRev = revB;
   }
 
@@ -116,8 +168,28 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
     });
   }
 
-  // Forward estimates — rev growth applied to LTM (analyst revenue consensus is follow-up).
-  if (ltmB != null && fwdGrowth != null) {
+  // Forward — analyst annual consensus first, then model projection fallback.
+  const annualAnalyst = analystEstimates.filter((r) =>
+    String(r.period || "").includes("year") || ["current_year", "next_year"].includes(String(r.period || "")));
+  const usedAnalyst = annualAnalyst.length > 0;
+  if (usedAnalyst) {
+    let prevRev = ltmB;
+    for (const est of annualAnalyst.slice(0, 4)) {
+      let yoy = est.yoy_pct;
+      if (yoy == null && prevRev != null && prevRev > 0) {
+        yoy = Number((((est.revenue_b - prevRev) / prevRev) * 100).toFixed(1));
+      }
+      points.push({
+        label: est.label,
+        revenue_b: est.revenue_b,
+        yoy_pct: yoy != null ? Number(Number(yoy).toFixed(1)) : null,
+        kind: "estimate",
+        analysts: est.analysts,
+        source: "analyst_consensus",
+      });
+      prevRev = est.revenue_b;
+    }
+  } else if (ltmB != null && fwdGrowth != null) {
     let base = ltmB;
     const nowYear = new Date().getUTCFullYear();
     for (let i = 1; i <= 3; i += 1) {
@@ -127,6 +199,7 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
         revenue_b: Number(base.toFixed(2)),
         yoy_pct: Number(fwdGrowth.toFixed(1)),
         kind: "estimate",
+        source: "model_projection",
       });
     }
   }
@@ -149,7 +222,8 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
 
   const forwardStepUp = (() => {
     const ltm = points.find((p) => p.kind === "ltm");
-    const e2 = points.find((p) => p.label?.endsWith("E") && p.label.includes(String(new Date().getUTCFullYear() + 2)));
+    const estPoints = points.filter((p) => p.kind === "estimate");
+    const e2 = estPoints.length >= 2 ? estPoints[1] : estPoints[0];
     if (ltm?.revenue_b > 0 && e2?.revenue_b > 0) {
       return Number((((e2.revenue_b - ltm.revenue_b) / ltm.revenue_b) * 100).toFixed(1));
     }
@@ -165,12 +239,11 @@ export function buildRevenueTrajectory(snapshot, opts = {}) {
     forward_step_up_pct: forwardStepUp,
     rev_growth_pct: revGrowthPct,
     rev_growth_class: grw.rev_growth_class || classifyRevGrowth(revGrowthPct),
+    analyst_estimates: analystEstimates,
+    forward_source: usedAnalyst ? "analyst_consensus" : (fwdGrowth != null ? "model_projection" : null),
   };
 }
 
-/**
- * Classify compounder tier from fundamentals + optional fair-value signal.
- */
 export function classifyGrowthCompounder(snapshot, fvSignal = null) {
   const fv = fvSignal || extractFairValueSignal(snapshot);
   const traj = buildRevenueTrajectory(snapshot);
@@ -198,64 +271,75 @@ export function classifyGrowthCompounder(snapshot, fvSignal = null) {
   }
 
   const eligible = tier === "growth_elite" || tier === "growth_strong";
-  const whyHold = buildWhyWeHoldBullets(snapshot, fv, traj, tier);
+  const whyHold = buildHoldThesisBullets(snapshot, fv, traj, tier);
 
   return {
     eligible,
     tier,
+    tier_label: tier ? COMPOUNDER_TIER_LABELS[tier] : null,
     trajectory: traj,
     quality_grade: quality,
     growth_detected: growthDetected,
     rev_growth_class: revClass,
     beat_rate_pct: beatRate,
     why_hold: whyHold,
+    hold_thesis: whyHold,
     fair_value_rising: growthDetected && strongRev && fv?.fv_class !== "discount",
   };
 }
 
-export function buildWhyWeHoldBullets(snapshot, fvSignal, trajectory, tier) {
+/** Timed Trading hold-thesis bullets — distinct voice, not competitor copy. */
+export function buildHoldThesisBullets(snapshot, fvSignal, trajectory, tier) {
   if (!tier || tier === "growth_watch") return [];
   const grw = snapshot?.growth || {};
   const earn = snapshot?.earnings || {};
   const bullets = [];
   const ticker = snapshot?.ticker || "Name";
 
+  if (tier === "growth_elite") {
+    bullets.push("Compounding core — add on pullbacks; hold while monthly structure stays intact");
+  }
+
   if (trajectory?.cagr_pct != null) {
-    bullets.push(`${ticker}: revenue trajectory ~${trajectory.cagr_pct}% CAGR (${trajectory.ltm_b != null ? `$${trajectory.ltm_b}B LTM` : "LTM est."})`);
+    bullets.push(`${ticker}: revenue runway ~${trajectory.cagr_pct}% CAGR (${trajectory.ltm_b != null ? `$${trajectory.ltm_b}B LTM` : "LTM est."})`);
   } else if (grw.rev_growth_pct != null) {
-    bullets.push(`${ticker}: revenue growing ~${Number(grw.rev_growth_pct).toFixed(0)}% YoY`);
+    bullets.push(`${ticker}: revenue expanding ~${Number(grw.rev_growth_pct).toFixed(0)}% YoY`);
+  }
+
+  if (trajectory?.forward_source === "analyst_consensus") {
+    const fwd = (trajectory.analyst_estimates || []).find((e) => String(e.period || "").includes("year"));
+    if (fwd?.analysts != null) {
+      bullets.push(`Analyst revenue consensus — ${fwd.analysts} estimates on the forward path`);
+    }
   }
 
   if (fvSignal?.growth_detected) {
-    bullets.push("Earnings + revenue growth accelerating with consistent beats");
+    bullets.push("Earnings and revenue accelerating — estimate revisions tend to follow");
   }
   if (fvSignal?.quality_grade === "A") {
-    bullets.push("Quality grade A — strong margins, ROE, and cash generation");
+    bullets.push("Quality A — margins, ROE, and cash flow support the long thesis");
   }
   if (fvSignal?.fair_value != null && fvSignal?.fv_class === "premium" && fvSignal?.growth_detected) {
-    bullets.push("Fair value rising with growth — premium reflects forward estimates, not static overextension");
+    bullets.push("Fair value tracking higher with estimates — extension follows the growth curve");
   } else if (fvSignal?.fair_value != null && fvSignal?.fv_class === "discount") {
-    bullets.push(`Trading below fair value ($${fvSignal.fair_value}) — accumulation zone`);
+    bullets.push(`Below model fair value ($${fvSignal.fair_value}) — favorable accumulation band`);
   }
 
   if (earn.beat_rate_pct != null && earn.beat_rate_pct >= 70) {
-    bullets.push(`Beat rate ${earn.beat_rate_pct}% — guidance credibility supports hold/add on dips`);
-  }
-
-  if (tier === "growth_elite") {
-    bullets.unshift("Portfolio compounder — add on pullbacks, hold through extension unless monthly thesis breaks");
+    bullets.push(`Beat cadence ${earn.beat_rate_pct}% — guidance credibility intact`);
   }
 
   return bullets.slice(0, 5);
 }
 
-/**
- * Detect dip-buy conditions for compounders (pullback / mean-reversion / timing bottom).
- */
+/** @deprecated use buildHoldThesisBullets */
+export function buildWhyWeHoldBullets(snapshot, fvSignal, trajectory, tier) {
+  return buildHoldThesisBullets(snapshot, fvSignal, trajectory, tier);
+}
+
 export function detectCompounderDipBuy(tickerData, timing = null, accumZone = null) {
   const signals = [];
   const price = num(tickerData?._live_price || tickerData?.price);
-  const tfD = tickerData?.tf_tech?.D;
   const tfW = tickerData?.tf_tech?.W;
   const mb = tickerData?.monthly_bundle;
 
@@ -286,7 +370,6 @@ export function detectCompounderDipBuy(tickerData, timing = null, accumZone = nu
     }
   }
 
-  // Daily mean-reversion sequence (shadow / trail path on timed:latest).
   const seqs = tickerData?.setup_sequences || tickerData?.sequences || [];
   const mrSeq = (Array.isArray(seqs) ? seqs : []).find((s) =>
     String(s?.sequence_type || "").includes("mean_reversion")
@@ -307,7 +390,6 @@ export function detectCompounderDipBuy(tickerData, timing = null, accumZone = nu
   };
 }
 
-/** Bounded investor score boost for compounders. */
 export function computeCompounderScoreBoost(compounder, dipBuy, cfg = {}) {
   if (!compounder?.eligible) return 0;
   let boost = compounder.tier === "growth_elite" ? 5 : 3;
@@ -325,5 +407,66 @@ export function extractGrowthCompounderSignal(snapshot) {
     fair_value: fv?.fair_value ?? null,
     fv_premium_pct: fv?.fv_premium_pct ?? null,
     fv_class: fv?.fv_class ?? null,
+  };
+}
+
+/**
+ * Portfolio-level holdbook — compounders in book, building, or on radar.
+ * Input rows are /timed/investor/scores entries (already enriched).
+ */
+export function buildInvestorHoldbook(scoreRows, opts = {}) {
+  const minTier = opts.minTier || "growth_watch";
+  const minRank = TIER_RANK[minTier] || 1;
+  const rows = (Array.isArray(scoreRows) ? scoreRows : [])
+    .filter((row) => {
+      const tier = row?.compounder?.tier;
+      if (!tier || !TIER_RANK[tier] || TIER_RANK[tier] < minRank) return false;
+      const stage = String(row?.stage || "").toLowerCase();
+      const owned = row?.position?.owned === true;
+      return owned || ["core_hold", "accumulate", "watch"].includes(stage);
+    })
+    .map((row) => ({
+      ticker: row.ticker,
+      companyName: row.companyName || null,
+      sector: row.sector || null,
+      stage: row.stage,
+      score: row.score,
+      rsRank: row.rsRank,
+      owned: row?.position?.owned === true,
+      tier: row.compounder.tier,
+      tier_label: row.compounder.tier_label || COMPOUNDER_TIER_LABELS[row.compounder.tier],
+      hold_thesis: row.compounder.hold_thesis || row.compounder.why_hold || [],
+      trajectory: row.compounder.trajectory || null,
+      dip_buy: row.compounder.dip_buy === true,
+      price: row.price ?? null,
+      dailyChgPct: row.dailyChgPct ?? null,
+    }));
+
+  const bucket = (stage, owned) => {
+    if (owned || stage === "core_hold") return "in_book";
+    if (stage === "accumulate") return "building";
+    return "on_radar";
+  };
+
+  const sorted = rows.sort((a, b) => {
+    const tr = (TIER_RANK[b.tier] || 0) - (TIER_RANK[a.tier] || 0);
+    if (tr !== 0) return tr;
+    return (Number(b.score) || 0) - (Number(a.score) || 0);
+  });
+
+  const groups = {
+    in_book: [],
+    building: [],
+    on_radar: [],
+  };
+  for (const row of sorted) {
+    groups[bucket(row.stage, row.owned)].push(row);
+  }
+
+  return {
+    ok: true,
+    count: sorted.length,
+    groups,
+    holdings: sorted,
   };
 }

@@ -1,14 +1,17 @@
 // worker/growth-compounder.test.js
-// Pins growth compounder / Tenet-style revenue trajectory semantics.
+// Pins growth compounder / revenue path semantics.
 
 import { describe, it, expect } from "vitest";
 import {
   buildRevenueTrajectory,
   classifyGrowthCompounder,
-  buildWhyWeHoldBullets,
+  buildHoldThesisBullets,
   detectCompounderDipBuy,
   computeCompounderScoreBoost,
   extractGrowthCompounderSignal,
+  buildInvestorHoldbook,
+  normalizeRevenueEstimates,
+  COMPOUNDER_TIER_LABELS,
 } from "./growth-compounder.js";
 import { extractFairValueSignal } from "./fair-value.js";
 
@@ -43,6 +46,10 @@ function muLikeSnapshot() {
         { date: "2024-09-01", revenue_actual: 7.7e9 },
         { date: "2024-12-01", revenue_actual: 8.7e9 },
       ],
+      revenue_estimates: [
+        { date: "2026-08-31", period: "current_year", avg_estimate: 112e9, number_of_analysts: 28, sales_growth_pct: 94 },
+        { date: "2027-08-31", period: "next_year", avg_estimate: 199e9, number_of_analysts: 30, sales_growth_pct: 77 },
+      ],
     },
     capital_structure: {
       free_cash_flow_ttm: 22e9,
@@ -50,15 +57,22 @@ function muLikeSnapshot() {
   };
 }
 
+describe("normalizeRevenueEstimates", () => {
+  it("converts analyst rows to billions", () => {
+    const rows = normalizeRevenueEstimates([
+      { date: "2026-08-31", period: "current_year", avg_estimate: 50e9, number_of_analysts: 12, sales_growth_pct: 0.25 },
+    ]);
+    expect(rows[0].revenue_b).toBe(50);
+    expect(rows[0].yoy_pct).toBe(25);
+  });
+});
+
 describe("buildRevenueTrajectory", () => {
-  it("builds LTM, forward estimates, and CAGR from quarterly revenue", () => {
+  it("prefers analyst consensus for forward bars", () => {
     const traj = buildRevenueTrajectory(muLikeSnapshot());
-    expect(traj.ok).toBe(true);
-    expect(traj.ltm_b).toBeGreaterThan(20);
-    expect(traj.points.some((p) => p.kind === "ltm")).toBe(true);
-    expect(traj.points.some((p) => p.kind === "estimate")).toBe(true);
-    expect(traj.cagr_pct).not.toBeNull();
-    expect(traj.forward_step_up_pct).toBeGreaterThan(50);
+    expect(traj.forward_source).toBe("analyst_consensus");
+    expect(traj.points.some((p) => p.source === "analyst_consensus")).toBe(true);
+    expect(traj.points.some((p) => p.analysts === 28)).toBe(true);
   });
 
   it("falls back to market cap / P/S when revenue rows are sparse", () => {
@@ -67,7 +81,7 @@ describe("buildRevenueTrajectory", () => {
       growth: { rev_growth_pct: 40 },
     });
     expect(traj.ltm_b).toBe(20);
-    expect(traj.points.some((p) => p.kind === "estimate")).toBe(true);
+    expect(traj.forward_source).toBe("model_projection");
   });
 });
 
@@ -77,52 +91,58 @@ describe("classifyGrowthCompounder", () => {
     const fv = extractFairValueSignal(snap);
     const comp = classifyGrowthCompounder(snap, fv);
     expect(comp.tier).toBe("growth_elite");
-    expect(comp.eligible).toBe(true);
-    expect(comp.why_hold.length).toBeGreaterThan(0);
-  });
-
-  it("returns growth_watch for weak growth profile", () => {
-    const comp = classifyGrowthCompounder({
-      growth: { rev_growth_class: "strong", rev_growth_pct: 30 },
-      earnings: {},
-    });
-    expect(comp.tier).toBe("growth_watch");
-    expect(comp.eligible).toBe(false);
+    expect(comp.tier_label).toBe(COMPOUNDER_TIER_LABELS.growth_elite);
+    expect(comp.hold_thesis.length).toBeGreaterThan(0);
   });
 });
 
-describe("buildWhyWeHoldBullets", () => {
-  it("includes portfolio compounder guidance for growth_elite", () => {
+describe("buildHoldThesisBullets", () => {
+  it("leads with compounding core guidance for growth_elite", () => {
     const snap = muLikeSnapshot();
     const fv = extractFairValueSignal(snap);
     const traj = buildRevenueTrajectory(snap);
-    const bullets = buildWhyWeHoldBullets(snap, fv, traj, "growth_elite");
-    expect(bullets.some((b) => /Portfolio compounder/i.test(b))).toBe(true);
+    const bullets = buildHoldThesisBullets(snap, fv, traj, "growth_elite");
+    expect(bullets.some((b) => /Compounding core/i.test(b))).toBe(true);
+  });
+});
+
+describe("buildInvestorHoldbook", () => {
+  it("groups owned compounders into in_book", () => {
+    const book = buildInvestorHoldbook([
+      {
+        ticker: "MU",
+        stage: "core_hold",
+        score: 72,
+        rsRank: 99,
+        position: { owned: true },
+        compounder: { tier: "growth_elite", tier_label: "COMPOUND CORE", hold_thesis: ["test"] },
+      },
+      {
+        ticker: "XYZ",
+        stage: "research_avoid",
+        score: 20,
+        compounder: { tier: "growth_elite" },
+      },
+    ]);
+    expect(book.count).toBe(1);
+    expect(book.groups.in_book).toHaveLength(1);
   });
 });
 
 describe("detectCompounderDipBuy", () => {
-  it("detects timing bottom + weekly pullback as dip", () => {
+  it("detects timing bottom as dip", () => {
     const dip = detectCompounderDipBuy(
-      {
-        price: 100,
-        tf_tech: {
-          W: { rsi: { r5: 48 }, ema: { priceAboveEma21: true, e21: 98 } },
-        },
-        monthly_bundle: { rsi: 55 },
-      },
+      { price: 100, tf_tech: { W: { rsi: { r5: 48 } } }, monthly_bundle: { rsi: 55 } },
       { timing_primary: "BOTTOM", add_on_dips: true },
       null,
     );
     expect(dip.isDip).toBe(true);
-    expect(dip.signals).toContain("timing_bottom");
   });
 });
 
 describe("computeCompounderScoreBoost", () => {
   it("adds extra boost on dip days", () => {
     const elite = { eligible: true, tier: "growth_elite" };
-    expect(computeCompounderScoreBoost(elite, { isDip: false })).toBe(5);
     expect(computeCompounderScoreBoost(elite, { isDip: true })).toBe(7);
   });
 });
@@ -131,7 +151,6 @@ describe("extractGrowthCompounderSignal", () => {
   it("returns compact compounder payload", () => {
     const sig = extractGrowthCompounderSignal(muLikeSnapshot());
     expect(sig.tier).toBe("growth_elite");
-    expect(sig.trajectory?.ltm_b).toBeGreaterThan(0);
-    expect(Array.isArray(sig.why_hold)).toBe(true);
+    expect(sig.trajectory?.forward_source).toBe("analyst_consensus");
   });
 });

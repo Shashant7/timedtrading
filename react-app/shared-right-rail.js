@@ -11391,7 +11391,7 @@
                         </Panel>
                       )}
 
-                      {/* Fundamentals (light snapshot — full Tenet-style breakdown lives in the Fundamentals tab) */}
+                      {/* Fundamentals (light snapshot — full breakdown lives in the Fundamentals tab) */}
                       {ticker?.fundamentals && (ticker.fundamentals.pe || ticker.fundamentals.peg || ticker.fundamentals.eps_growth) && (
                         <Panel title="Fundamentals" action={<button className="ds-chip ds-chip--sm" onClick={() => setRailTab("FUNDAMENTALS")} style={{ cursor: "pointer" }}>Open Fundamentals →</button>}>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
@@ -11405,7 +11405,7 @@
                   )}
 
                   {/* FUNDAMENTALS TAB
-                      Tenet-style fundamentals breakdown. Sources fundamentals from
+                      Fundamentals breakdown. Sources fundamentals from
                       /timed/admin/fundamentals (TwelveData /profile + /statistics
                       + /earnings; KV-cached 6h to amortize credit cost). Layout:
                         1. Header strip (sector / industry / market cap / cash-rich)
@@ -11795,28 +11795,37 @@
                           </Panel>
                         )}
 
-                        {/* Revenue Trajectory — Tenet-style actuals / LTM / forward estimates */}
+                        {/* Revenue path — actuals / LTM / analyst forward estimates */}
                         {(() => {
                           const traj = F.revenue_trajectory || F.compounder?.trajectory;
                           const comp = F.compounder;
                           const pts = Array.isArray(traj?.points) ? traj.points : [];
                           if (pts.length === 0 && !traj?.ltm_b) return null;
                           const maxRev = Math.max(...pts.map((p) => Number(p.revenue_b) || 0), traj?.ltm_b || 0, 1);
-                          const tierLabel = comp?.tier === "growth_elite" ? "GROWTH ELITE"
-                            : comp?.tier === "growth_strong" ? "GROWTH STRONG"
-                            : comp?.tier === "growth_watch" ? "GROWTH WATCH" : null;
+                          const tierLabel = comp?.tier_label
+                            || (comp?.tier === "growth_elite" ? "COMPOUND CORE"
+                              : comp?.tier === "growth_strong" ? "COMPOUND PLUS"
+                              : comp?.tier === "growth_watch" ? "COMPOUND RADAR" : null);
+                          const fwdSource = traj?.forward_source === "analyst_consensus"
+                            ? "Analyst consensus"
+                            : traj?.forward_source === "model_projection" ? "Model projection" : null;
                           return (
-                            <Panel title="Revenue Trajectory" action={tierLabel ? (
+                            <Panel title="Revenue Path" action={tierLabel ? (
                               <span className="ds-chip ds-chip--sm ds-chip--up" style={{ fontFamily: "var(--tt-font-mono)", letterSpacing: "0.08em" }}>{tierLabel}</span>
                             ) : null}>
                               {(traj?.total_change_pct != null || traj?.cagr_pct != null) && (
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-2)" }}>
                                   {traj.total_change_pct != null && (
-                                    <Metric label="Total Change" value={fmtPctSigned(traj.total_change_pct, 0)} deltaClass={traj.total_change_pct >= 0 ? "up" : "dn"} />
+                                    <Metric label="Span Change" value={fmtPctSigned(traj.total_change_pct, 0)} deltaClass={traj.total_change_pct >= 0 ? "up" : "dn"} />
                                   )}
                                   {traj.cagr_pct != null && (
-                                    <Metric label="CAGR" value={fmtPctSigned(traj.cagr_pct, 0)} deltaClass={traj.cagr_pct >= 20 ? "up" : "muted"} />
+                                    <Metric label="Runway CAGR" value={fmtPctSigned(traj.cagr_pct, 0)} deltaClass={traj.cagr_pct >= 20 ? "up" : "muted"} />
                                   )}
+                                </div>
+                              )}
+                              {fwdSource && (
+                                <div className="ds-caption" style={{ color: "var(--ds-text-muted)", marginBottom: "var(--ds-space-2)" }}>
+                                  Forward bars: {fwdSource}
                                 </div>
                               )}
                               <div style={{ display: "flex", alignItems: "flex-end", gap: 4, minHeight: 88, paddingBottom: 4, borderBottom: "1px solid var(--ds-border-faint)" }}>
@@ -11837,17 +11846,20 @@
                                           {fmtPctSigned(p.yoy_pct, 0)}
                                         </div>
                                       )}
+                                      {p.analysts != null && p.kind === "estimate" && (
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 6, color: "var(--ds-text-faint)" }}>{p.analysts} est.</div>
+                                      )}
                                       <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 7, color: "var(--ds-text-faint)", textAlign: "center", lineHeight: 1.1 }}>{p.label}</div>
                                     </div>
                                   );
                                 })}
                               </div>
-                              {Array.isArray(comp?.why_hold) && comp.why_hold.length > 0 && (
+                              {Array.isArray(comp?.hold_thesis || comp?.why_hold) && (comp.hold_thesis || comp.why_hold).length > 0 && (
                                 <div style={{ marginTop: "var(--ds-space-3)" }}>
-                                  <div className="ds-caption" style={{ color: "var(--ds-text-muted)", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>Why We Hold</div>
+                                  <div className="ds-caption" style={{ color: "var(--ds-text-muted)", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>Hold Thesis</div>
                                   <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
-                                    {comp.why_hold.map((b, bi) => (
-                                      <li key={`wh-${bi}`} style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text)", lineHeight: 1.35 }}>{b}</li>
+                                    {(comp.hold_thesis || comp.why_hold).map((b, bi) => (
+                                      <li key={`ht-${bi}`} style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text)", lineHeight: 1.35 }}>{b}</li>
                                     ))}
                                   </ul>
                                 </div>

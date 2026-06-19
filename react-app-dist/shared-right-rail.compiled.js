@@ -14410,9 +14410,10 @@
             const pts = Array.isArray(traj?.points) ? traj.points : [];
             if (pts.length === 0 && !traj?.ltm_b) return null;
             const maxRev = Math.max(...pts.map(p => Number(p.revenue_b) || 0), traj?.ltm_b || 0, 1);
-            const tierLabel = comp?.tier === "growth_elite" ? "GROWTH ELITE" : comp?.tier === "growth_strong" ? "GROWTH STRONG" : comp?.tier === "growth_watch" ? "GROWTH WATCH" : null;
+            const tierLabel = comp?.tier_label || (comp?.tier === "growth_elite" ? "COMPOUND CORE" : comp?.tier === "growth_strong" ? "COMPOUND PLUS" : comp?.tier === "growth_watch" ? "COMPOUND RADAR" : null);
+            const fwdSource = traj?.forward_source === "analyst_consensus" ? "Analyst consensus" : traj?.forward_source === "model_projection" ? "Model projection" : null;
             return React.createElement(Panel, {
-              title: "Revenue Trajectory",
+              title: "Revenue Path",
               action: tierLabel ? React.createElement("span", {
                 className: "ds-chip ds-chip--sm ds-chip--up",
                 style: {
@@ -14428,14 +14429,20 @@
                 marginBottom: "var(--ds-space-2)"
               }
             }, traj.total_change_pct != null && React.createElement(Metric, {
-              label: "Total Change",
+              label: "Span Change",
               value: fmtPctSigned(traj.total_change_pct, 0),
               deltaClass: traj.total_change_pct >= 0 ? "up" : "dn"
             }), traj.cagr_pct != null && React.createElement(Metric, {
-              label: "CAGR",
+              label: "Runway CAGR",
               value: fmtPctSigned(traj.cagr_pct, 0),
               deltaClass: traj.cagr_pct >= 20 ? "up" : "muted"
-            })), React.createElement("div", {
+            })), fwdSource && React.createElement("div", {
+              className: "ds-caption",
+              style: {
+                color: "var(--ds-text-muted)",
+                marginBottom: "var(--ds-space-2)"
+              }
+            }, "Forward bars: ", fwdSource), React.createElement("div", {
               style: {
                 display: "flex",
                 alignItems: "flex-end",
@@ -14483,7 +14490,13 @@
                   fontSize: 7,
                   color: p.yoy_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
                 }
-              }, fmtPctSigned(p.yoy_pct, 0)), React.createElement("div", {
+              }, fmtPctSigned(p.yoy_pct, 0)), p.analysts != null && p.kind === "estimate" && React.createElement("div", {
+                style: {
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: 6,
+                  color: "var(--ds-text-faint)"
+                }
+              }, p.analysts, " est."), React.createElement("div", {
                 style: {
                   fontFamily: "var(--tt-font-mono)",
                   fontSize: 7,
@@ -14492,7 +14505,7 @@
                   lineHeight: 1.1
                 }
               }, p.label));
-            })), Array.isArray(comp?.why_hold) && comp.why_hold.length > 0 && React.createElement("div", {
+            })), Array.isArray(comp?.hold_thesis || comp?.why_hold) && (comp.hold_thesis || comp.why_hold).length > 0 && React.createElement("div", {
               style: {
                 marginTop: "var(--ds-space-3)"
               }
@@ -14504,7 +14517,7 @@
                 letterSpacing: "0.08em",
                 textTransform: "uppercase"
               }
-            }, "Why We Hold"), React.createElement("ul", {
+            }, "Hold Thesis"), React.createElement("ul", {
               style: {
                 margin: 0,
                 paddingLeft: 16,
@@ -14512,8 +14525,8 @@
                 flexDirection: "column",
                 gap: 4
               }
-            }, comp.why_hold.map((b, bi) => React.createElement("li", {
-              key: `wh-${bi}`,
+            }, (comp.hold_thesis || comp.why_hold).map((b, bi) => React.createElement("li", {
+              key: `ht-${bi}`,
               style: {
                 fontSize: "var(--ds-fs-meta)",
                 color: "var(--ds-text)",
@@ -20845,4 +20858,4 @@
   };
 })();
 
-// cache-bust:1781903363395:978509879
+// cache-bust:1781904220644:659531181
