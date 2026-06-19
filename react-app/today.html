@@ -5537,11 +5537,13 @@
 
         useEffect(() => {
           let alive = true;
+          // Phase 1 — unblock the page as soon as /timed/all lands. The daily
+          // brief can take several seconds (LLM-backed) and must not gate the
+          // full Today layout behind Promise.all.
           (async () => {
             try {
-              const [a, b, e, c, universe] = await Promise.all([
-                fetchAll(), fetchBrief(), fetchEarnings(), fetchCal(),
-                fetchTickerUniverse(),
+              const [a, c, universe] = await Promise.all([
+                fetchAll(), fetchCal(), fetchTickerUniverse(),
               ]);
               if (!alive) return;
               // Merge /timed/tickers placeholders into /timed/all data so the
@@ -5558,17 +5560,27 @@
                   }
                 }
                 setData(merged);
+              } else if (a === null) {
+                setError("Couldn't load market data");
               }
+              if (c?.ok) setCal(c);
+            } catch (err) {
+              if (alive) setError(String(err?.message || err));
+            }
+          })();
+          // Phase 2 — hero enrichments; BriefPlaceholder covers the left column
+          // until the brief arrives.
+          (async () => {
+            try {
+              const [b, e] = await Promise.all([fetchBrief(), fetchEarnings()]);
+              if (!alive) return;
               if (b?.ok) {
                 const picked = pickTodayBriefSlot(b.brief);
                 setBrief(picked?.slot || null);
                 setBriefSlot(picked?.type || b.active_slot || null);
               }
               if (e?.ok) setEarnings(e);
-              if (c?.ok) setCal(c);
-            } catch (err) {
-              if (alive) setError(String(err?.message || err));
-            }
+            } catch (_) { /* non-blocking */ }
           })();
           return () => { alive = false; };
         }, []);
@@ -5722,11 +5734,9 @@
           );
         }
 
-        // Loading = neither brief NOR data has landed yet. Page was
-        // previously near-blank until both arrived (several hundred ms).
-        // Skeletons keep the page populated so users see structure
-        // immediately instead of an empty white-on-black void.
-        const loading = !data && !brief;
+        // Loading gates on /timed/all only — the daily brief loads
+        // independently and TodayHero shows BriefPlaceholder until it lands.
+        const loading = !data;
 
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading today's data" }),
