@@ -79,24 +79,33 @@ function HoldbookApp() {
   }, [RailOverlay]);
   useEffect(() => {
     let cancelled = false;
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 15000);
     (async () => {
       try {
         const r = await fetch(`${API_BASE}/timed/investor/holdbook`, {
           credentials: "include",
-          cache: "no-store"
+          cache: "no-store",
+          signal: ctrl.signal
         });
         const j = await r.json();
         if (!cancelled) {
           if (j.error_kind === "tier_required") setErr("Holdbook requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
         }
       } catch (e) {
-        if (!cancelled) setErr(String(e.message || e));
+        if (!cancelled) {
+          const msg = e?.name === "AbortError" ? "Holdbook request timed out. Try again in a moment." : String(e.message || e);
+          setErr(msg);
+        }
       } finally {
+        clearTimeout(timeoutId);
         if (!cancelled) setLoading(false);
       }
     })();
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
+      ctrl.abort();
     };
   }, []);
   const railTickerObj = useMemo(() => railTicker ? {
@@ -194,6 +203,6 @@ function HoldbookApp() {
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(h(HoldbookApp));
-// cache-bust:1781908022111:769324445
+// cache-bust:1781908733013:817208996
 
-// cache-bust:1781908022111:769324445
+// cache-bust:1781908733013:817208996

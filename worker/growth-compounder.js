@@ -452,24 +452,23 @@ export function attachCompounderFromLatest(row, latestRow) {
 }
 
 /**
- * Enrich score rows with compounder data from fundamentals KV (read-time).
+ * Enrich score rows with compounder data from KV only (read-time, no live TD fetches).
  */
 export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
-  const cap = Number(opts.enrichCap) || 150;
+  const cap = Number(opts.enrichCap) || 30;
   const latestKeyFn = typeof opts.latestKeyFn === "function" ? opts.latestKeyFn : null;
-  const out = [];
-  let enriched = 0;
-  for (const row of rows) {
-    if (row?.compounder?.tier) {
-      out.push(row);
-      continue;
-    }
-    if (!isHoldbookCandidateRow(row) || enriched >= cap) {
-      out.push(row);
-      continue;
-    }
-    let next = row;
+  const out = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
+
+  const needEnrich = out
+    .filter((row) => !row?.compounder?.tier && isHoldbookCandidateRow(row))
+    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+    .slice(0, cap);
+
+  await Promise.all(needEnrich.map(async (row) => {
+    const idx = out.findIndex((r) => r.ticker === row.ticker);
+    if (idx < 0) return;
     try {
+      let next = out[idx];
       if (latestKeyFn) {
         const latest = await kvGetJSON(latestKeyFn(row.ticker));
         next = attachCompounderFromLatest(next, latest);
@@ -478,12 +477,10 @@ export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {
         const snap = await kvGetJSON(kvKeyFn(row.ticker));
         next = attachCompounderFromSnapshot(next, snap);
       }
-      if (next.compounder?.tier) enriched += 1;
-      out.push(next);
-    } catch (_) {
-      out.push(row);
-    }
-  }
+      out[idx] = next;
+    } catch (_) { /* best-effort */ }
+  }));
+
   return out;
 }
 
