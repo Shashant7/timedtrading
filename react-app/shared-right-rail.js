@@ -3704,6 +3704,7 @@
         const [setupShadowDiag, setSetupShadowDiag] = useState(null);
         const [setupShadowLoading, setSetupShadowLoading] = useState(false);
         const [setupShadowError, setSetupShadowError] = useState(null);
+        const [shadowStageTipKey, setShadowStageTipKey] = useState(null);
         const setupShadowCacheRef = useRef({});
 
         // V15 P0.7.99-r2 — Subtle Key Levels for the rail chart.
@@ -5403,8 +5404,10 @@
             setSetupShadowDiag(null);
             setSetupShadowError(null);
             setSetupShadowLoading(false);
+            setShadowStageTipKey(null);
             return;
           }
+          setShadowStageTipKey(null);
           const cached = setupShadowCacheRef.current[sym];
           if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
             setSetupShadowDiag(cached.data);
@@ -6240,6 +6243,83 @@
               { stage: 7, label: "Pullback stable" },
               { stage: 8, label: "Continuation" },
             ];
+            const stageTipFor = (stage, dir) => {
+              const d = String(dir || "LONG").toUpperCase();
+              const tips = {
+                1: "Early reversal energy building — TD prep, RSI stretch, timing watch, or phase extreme.",
+                2: "TD9 or TD13 exhaustion print confirms the counter-trend setup.",
+                3: d === "SHORT"
+                  ? "Price at a valid short location: premium PDZ, FVG fill/reclaim, or liquidity sweep."
+                  : "Price at a valid long location: discount PDZ, FVG fill/reclaim, or liquidity sweep.",
+                4: d === "SHORT"
+                  ? "Market leaves distribution or extreme — bearish momentum can accelerate."
+                  : "Market leaves accumulation or extreme — bullish momentum can accelerate.",
+                5: d === "SHORT"
+                  ? "Mean-reversion target reached: EMA21 reject, VWAP reject, or PDZ equilibrium."
+                  : "Mean-reversion target reached: EMA21 reclaim, VWAP reclaim, or PDZ equilibrium.",
+                6: "Breakthrough with momentum — supertrend, ORB reclaim, squeeze release, or RVOL spike.",
+                7: "Pullback stabilizes after the reversal leg — continuation watch.",
+                8: "Continuation trigger fires (supertrend flip or ORB). Shadow marks entry-ready.",
+              };
+              return tips[stage] || "";
+            };
+            const buildStageTipLines = ({
+              def,
+              dir,
+              r,
+              isCurrent,
+              isNext,
+              eventById,
+            }) => {
+              const lines = [`Stage ${def.stage}: ${def.label}`];
+              const tip = stageTipFor(def.stage, dir);
+              if (tip) lines.push(tip);
+              if (r?.matched) {
+                const ev = r.event_id ? eventById.get(String(r.event_id)) : null;
+                const when = formatStageWhen(r.event_ts ?? ev?.event_ts);
+                const px = formatStagePrice(r.price ?? ev?.price);
+                const trigger = r.event_type ? humanizeKey(r.event_type) : null;
+                lines.push(isCurrent ? "Status: Current" : "Status: Completed");
+                if (when) lines.push(`Date: ${when}`);
+                if (px) lines.push(`Price: ${px}`);
+                if (trigger) lines.push(`Trigger: ${trigger}`);
+              } else if (isNext) {
+                lines.push("Status: Next — waiting for trigger");
+              } else {
+                lines.push("Status: Ahead in the journey");
+              }
+              return lines;
+            };
+            const buildStageTooltip = (opts) => buildStageTipLines(opts).join("\n");
+            const shadowStageTipId = (seqId, stage) => `${seqId}::${stage}`;
+            const parseShadowStageTipId = (key) => {
+              if (!key) return { seqId: null, stage: null };
+              const idx = key.lastIndexOf("::");
+              if (idx < 0) return { seqId: null, stage: null };
+              return { seqId: key.slice(0, idx), stage: Number(key.slice(idx + 2)) };
+            };
+            const toggleShadowStageTip = (seqId, stage) => {
+              const k = shadowStageTipId(seqId, stage);
+              setShadowStageTipKey((prev) => (prev === k ? null : k));
+            };
+            const renderShadowStageTipCard = (lines, accentColor) => (
+              <div style={{
+                marginTop: 6,
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: `1px solid color-mix(in srgb, ${accentColor} 35%, var(--ds-stroke))`,
+                background: "rgba(255,255,255,0.04)",
+                fontSize: 10,
+                lineHeight: 1.45,
+                color: "var(--ds-text-muted)",
+              }}>
+                {lines.map((line, i) => (
+                  <div key={i} style={{ fontWeight: i === 0 ? 600 : 400, color: i === 0 ? "var(--ds-text-body)" : undefined }}>
+                    {line}
+                  </div>
+                ))}
+              </div>
+            );
             const formatStageWhen = (ts) => {
               const n = Number(ts);
               if (!Number.isFinite(n) || n <= 0) return null;
@@ -6258,7 +6338,8 @@
               if (!Number.isFinite(n) || n <= 0) return null;
               return `$${n.toFixed(2)}`;
             };
-            const renderSequenceStageJourney = (seq, eventById, accentColor) => {
+            const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
+              const seqId = seq?.sequence_id ? String(seq.sequence_id) : String(seq?.direction || "seq");
               const currentStage = Number(seq?.stage) || 0;
               const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
               if (currentStage <= 0) return null;
@@ -6266,20 +6347,35 @@
                 (Array.isArray(seq?.stage_results) ? seq.stage_results : []).map((r) => [Number(r.stage), r]),
               );
               const nextDef = SEQUENCE_STAGE_DEFS.find((d) => d.stage === currentStage + 1);
+              const activeTip = parseShadowStageTipId(shadowStageTipKey);
+              const activeTipStage = activeTip.seqId === seqId ? activeTip.stage : null;
               return (
                 <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 9, color: "var(--ds-text-faint)", marginBottom: 4 }}>
+                    Tap any stage for details
+                  </div>
                   <div
                     style={{ display: "flex", alignItems: "center", marginBottom: 6 }}
                     aria-label={`Setup journey stage ${currentStage} of ${maxStage}`}
                   >
                     {SEQUENCE_STAGE_DEFS.map((def, idx) => {
-                      const matched = resultsByStage.get(def.stage)?.matched === true;
+                      const r = resultsByStage.get(def.stage);
+                      const matched = r?.matched === true;
                       const isCurrent = matched && def.stage === currentStage;
                       const isDone = matched && def.stage < currentStage;
                       const isNext = def.stage === currentStage + 1;
                       const active = isDone || isCurrent;
                       const dotColor = active ? accentColor : isNext ? "var(--ds-text-muted)" : "var(--ds-stroke)";
                       const connectorActive = def.stage <= currentStage && resultsByStage.get(def.stage)?.matched;
+                      const dotTip = buildStageTooltip({
+                        def,
+                        dir,
+                        r,
+                        isCurrent,
+                        isNext,
+                        eventById,
+                      });
+                      const tipOpen = shadowStageTipKey === shadowStageTipId(seqId, def.stage);
                       return (
                         <React.Fragment key={def.stage}>
                           {idx > 0 && (
@@ -6293,22 +6389,47 @@
                               opacity: def.stage <= currentStage ? 0.75 : 0.25,
                             }} />
                           )}
-                          <div
-                            title={`${def.stage}. ${def.label}`}
+                          <button
+                            type="button"
+                            title={dotTip}
+                            aria-label={dotTip.replace(/\n/g, ". ")}
+                            aria-expanded={tipOpen}
+                            onClick={() => toggleShadowStageTip(seqId, def.stage)}
                             style={{
-                              width: isCurrent ? 9 : 7,
-                              height: isCurrent ? 9 : 7,
+                              width: isCurrent ? 11 : 9,
+                              height: isCurrent ? 11 : 9,
+                              padding: 0,
                               borderRadius: "50%",
                               background: active ? accentColor : "transparent",
                               border: `2px solid ${dotColor}`,
                               boxShadow: isCurrent ? `0 0 0 2px color-mix(in srgb, ${accentColor} 25%, transparent)` : "none",
                               flexShrink: 0,
+                              cursor: "pointer",
                             }}
                           />
                         </React.Fragment>
                       );
                     })}
                   </div>
+                  {Number.isFinite(activeTipStage) && (() => {
+                    const def = SEQUENCE_STAGE_DEFS.find((d) => d.stage === activeTipStage);
+                    if (!def) return null;
+                    const r = resultsByStage.get(def.stage);
+                    const matched = r?.matched === true;
+                    const isCurrent = matched && def.stage === currentStage;
+                    const isNext = def.stage === currentStage + 1;
+                    return renderShadowStageTipCard(
+                      buildStageTipLines({
+                        def,
+                        dir,
+                        r,
+                        isCurrent,
+                        isNext,
+                        eventById,
+                      }),
+                      accentColor,
+                    );
+                  })()}
                   <div style={{
                     fontSize: 10,
                     color: "var(--ds-text-faint)",
@@ -6328,57 +6449,121 @@
                       const when = formatStageWhen(r?.event_ts ?? ev?.event_ts);
                       const px = formatStagePrice(r?.price ?? ev?.price);
                       const trigger = r?.event_type ? humanizeKey(r.event_type) : null;
+                      const rowTip = buildStageTooltip({
+                        def,
+                        dir,
+                        r,
+                        isCurrent,
+                        isNext: false,
+                        eventById,
+                      });
+                      const rowTipOpen = shadowStageTipKey === shadowStageTipId(seqId, def.stage);
                       return (
-                        <div
-                          key={def.stage}
+                        <div key={def.stage}>
+                          <button
+                            type="button"
+                            title={rowTip}
+                            aria-label={rowTip.replace(/\n/g, ". ")}
+                            aria-expanded={rowTipOpen}
+                            onClick={() => toggleShadowStageTip(seqId, def.stage)}
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "14px 1fr",
+                              gap: "2px 8px",
+                              fontSize: "var(--ds-fs-caption)",
+                              lineHeight: 1.35,
+                              color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)",
+                              cursor: "pointer",
+                              width: "100%",
+                              textAlign: "left",
+                              padding: 0,
+                              border: "none",
+                              background: "transparent",
+                            }}
+                          >
+                            <span style={{
+                              color: isCurrent ? accentColor : "var(--ds-up)",
+                              fontWeight: 700,
+                              lineHeight: 1.35,
+                            }}>
+                              {isCurrent ? "●" : "✓"}
+                            </span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: isCurrent ? 600 : 400 }}>
+                                {def.stage}. {def.label}
+                              </div>
+                              {(when || px || trigger) && (
+                                <div style={{
+                                  color: "var(--ds-text-faint)",
+                                  fontFamily: "var(--tt-font-mono)",
+                                  fontSize: 10,
+                                  marginTop: 1,
+                                }}>
+                                  {[when, px].filter(Boolean).join(" · ")}
+                                  {trigger ? `${when || px ? " · " : ""}${trigger}` : ""}
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                          {rowTipOpen && renderShadowStageTipCard(
+                            buildStageTipLines({
+                              def,
+                              dir,
+                              r,
+                              isCurrent,
+                              isNext: false,
+                              eventById,
+                            }),
+                            accentColor,
+                          )}
+                        </div>
+                      );
+                    })}
+                    {nextDef && currentStage < maxStage && (
+                      <div>
+                        <button
+                          type="button"
+                          title={buildStageTooltip({
+                            def: nextDef,
+                            dir,
+                            r: resultsByStage.get(nextDef.stage),
+                            isCurrent: false,
+                            isNext: true,
+                            eventById,
+                          })}
+                          aria-expanded={shadowStageTipKey === shadowStageTipId(seqId, nextDef.stage)}
+                          onClick={() => toggleShadowStageTip(seqId, nextDef.stage)}
                           style={{
                             display: "grid",
                             gridTemplateColumns: "14px 1fr",
                             gap: "2px 8px",
                             fontSize: "var(--ds-fs-caption)",
-                            lineHeight: 1.35,
-                            color: isCurrent ? "var(--ds-text-body)" : "var(--ds-text-muted)",
+                            color: "var(--ds-text-faint)",
+                            fontStyle: "italic",
+                            cursor: "pointer",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: 0,
+                            border: "none",
+                            background: "transparent",
                           }}
                         >
-                          <span style={{
-                            color: isCurrent ? accentColor : "var(--ds-up)",
-                            fontWeight: 700,
-                            lineHeight: 1.35,
-                          }}>
-                            {isCurrent ? "●" : "✓"}
-                          </span>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: isCurrent ? 600 : 400 }}>
-                              {def.stage}. {def.label}
-                            </div>
-                            {(when || px || trigger) && (
-                              <div style={{
-                                color: "var(--ds-text-faint)",
-                                fontFamily: "var(--tt-font-mono)",
-                                fontSize: 10,
-                                marginTop: 1,
-                              }}>
-                                {[when, px].filter(Boolean).join(" · ")}
-                                {trigger ? `${when || px ? " · " : ""}${trigger}` : ""}
-                              </div>
-                            )}
+                          <span style={{ lineHeight: 1.35 }}>○</span>
+                          <div>
+                            Next: {nextDef.stage}. {nextDef.label}
                           </div>
-                        </div>
-                      );
-                    })}
-                    {nextDef && currentStage < maxStage && (
-                      <div style={{
-                        display: "grid",
-                        gridTemplateColumns: "14px 1fr",
-                        gap: "2px 8px",
-                        fontSize: "var(--ds-fs-caption)",
-                        color: "var(--ds-text-faint)",
-                        fontStyle: "italic",
-                      }}>
-                        <span style={{ lineHeight: 1.35 }}>○</span>
-                        <div>
-                          Next: {nextDef.stage}. {nextDef.label}
-                        </div>
+                        </button>
+                        {shadowStageTipKey === shadowStageTipId(seqId, nextDef.stage) && renderShadowStageTipCard(
+                          buildStageTipLines({
+                            def: nextDef,
+                            dir,
+                            r: resultsByStage.get(nextDef.stage),
+                            isCurrent: false,
+                            isNext: true,
+                            eventById,
+                          }),
+                          accentColor,
+                        )}
                       </div>
                     )}
                   </div>
@@ -6503,7 +6688,7 @@
                                 )}
                                 {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
                               </div>
-                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor)}
+                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir)}
                               {seq.posture && (
                                 <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
                                   {seq.posture}
