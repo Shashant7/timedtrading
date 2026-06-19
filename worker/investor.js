@@ -1020,8 +1020,17 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // ── With open position ──
   if (existingPosition) {
     const posEntry = Number(existingPosition.entry_price || existingPosition.avg_entry || 0);
-    const curPrice = Number(tickerData?.price || 0);
+    const curPrice = Number(tickerData?._live_price || tickerData?.price || 0);
     const posPnlPct = posEntry > 0 && curPrice > 0 ? ((curPrice - posEntry) / posEntry) * 100 : 0;
+
+    // Primary invalidation price breach — matches UI "close below $X" rule.
+    const _invBreach = resolvePrimaryInvalidationBreach(curPrice, {
+      rsRank,
+      primaryInvalidation: opts.primaryInvalidation,
+    }, tickerData);
+    if (_invBreach) {
+      return finalize({ stage: "reduce", reason: "primary_invalidation_breach" });
+    }
 
     // v3: CHOPPY regime + significant loss → exit earlier
     // Relaxed from -5% to -8% to avoid premature exits on normal pullbacks
@@ -1779,6 +1788,53 @@ export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRa
   }
 
   return { invalidated: reasons.length > 0, reasons };
+}
+
+/**
+ * True when live price closed below the primary invalidation floor shown in
+ * the Investor UI ("Exit remainder if price closes below $X").
+ * Prefers scoreData.primaryInvalidation; falls back to tickerData thesis.
+ */
+export function resolvePrimaryInvalidationBreach(livePrice, scoreData = null, tickerData = null) {
+  const px = Number(livePrice);
+  if (!(px > 0)) return null;
+
+  let inv = scoreData?.primaryInvalidation;
+  if (!(Number(inv?.price) > 0) && tickerData) {
+    const rsRank = Number(scoreData?.rsRank ?? tickerData?.rs_rank ?? 50);
+    const thesis = generateThesis(tickerData, rsRank);
+    inv = pickPrimaryInvalidationPrice(tickerData, thesis.criteria, thesis.invalidation);
+  }
+  const invPx = Number(inv?.price);
+  if (!(invPx > 0) || px >= invPx) return null;
+  return {
+    price: invPx,
+    label: String(inv?.label || "Invalidation"),
+    breachPct: Math.round(((px - invPx) / invPx) * 10000) / 100,
+  };
+}
+
+/**
+ * Keep the published invalidation floor sticky for open positions until price
+ * recovers above it. Prevents ratcheting the floor down on a drop (which would
+ * hide a breach the operator already saw).
+ */
+export function resolveStickyPrimaryInvalidation(prevInv, freshInv, livePx, owned) {
+  if (!owned) return freshInv || prevInv || null;
+  const px = Number(livePx);
+  const prevPx = Number(prevInv?.price);
+  const freshPx = Number(freshInv?.price);
+  if (prevPx > 0 && px > 0 && px < prevPx) {
+    return {
+      ...prevInv,
+      distancePct: Math.round(((px - prevPx) / px) * 10000) / 100,
+      breached: true,
+    };
+  }
+  if (prevPx > 0 && px >= prevPx && freshPx > 0) {
+    return freshPx >= prevPx ? freshInv : prevInv;
+  }
+  return freshInv || prevInv || null;
 }
 
 
