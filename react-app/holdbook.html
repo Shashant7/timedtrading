@@ -152,6 +152,8 @@
                 row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`),
                 row.dailyChgPct != null && h("span", { className: Number(row.dailyChgPct) >= 0 ? "hb-up" : "hb-dn" }, fmtPct(row.dailyChgPct)),
                 row.trajectory?.cagr_pct != null && h("span", null, `Runway ${fmtPct(row.trajectory.cagr_pct)} CAGR`),
+                row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(2)}`),
+                row.fv_class && h("span", { className: row.fv_class === "discount" ? "hb-up" : row.fv_class === "premium" ? "hb-dn" : "" }, String(row.fv_class).toUpperCase()),
                 row.dip_buy && h("span", { className: "hb-up" }, "Dip posture"),
               ),
               Array.isArray(row.hold_thesis) && row.hold_thesis.length > 0 && h("ul", { className: "hb-thesis" },
@@ -230,10 +232,12 @@
         const openTicker = useCallback((sym, tab) => {
           const ticker = String(sym || "").toUpperCase();
           if (!ticker) return;
+          const initialRailTab = tab || "FUNDAMENTALS";
+          // Always set React state — the tt-open-ticker listener may not be
+          // registered yet if RailOverlay is still loading.
+          applyRailOpen({ ticker, initialRailTab });
           if (typeof window.ttOpenTickerInRail === "function") {
-            window.ttOpenTickerInRail({ ticker, initialRailTab: tab || "FUNDAMENTALS", source: "holdbook" });
-          } else {
-            applyRailOpen({ ticker, initialRailTab: tab || "FUNDAMENTALS" });
+            window.ttOpenTickerInRail({ ticker, initialRailTab, source: "holdbook" });
           }
         }, [applyRailOpen]);
 
@@ -244,11 +248,14 @@
         }, []);
 
         useEffect(() => {
-          if (!RailOverlay) return;
           const handler = (ev) => applyRailOpen(ev?.detail);
           window.addEventListener("tt-open-ticker", handler);
-          applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
           return () => window.removeEventListener("tt-open-ticker", handler);
+        }, [applyRailOpen]);
+
+        useEffect(() => {
+          if (!RailOverlay) return;
+          applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
         }, [RailOverlay, applyRailOpen]);
 
         if (loading) {

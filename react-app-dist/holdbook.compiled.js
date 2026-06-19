@@ -52,7 +52,9 @@ function Section({
     className: "hb-meta"
   }, h("span", null, `Score ${row.score ?? "—"}`), h("span", null, `RS ${row.rsRank ?? "—"}`), h("span", null, String(row.stage || "").replace(/_/g, " ")), row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`), row.dailyChgPct != null && h("span", {
     className: Number(row.dailyChgPct) >= 0 ? "hb-up" : "hb-dn"
-  }, fmtPct(row.dailyChgPct)), row.trajectory?.cagr_pct != null && h("span", null, `Runway ${fmtPct(row.trajectory.cagr_pct)} CAGR`), row.dip_buy && h("span", {
+  }, fmtPct(row.dailyChgPct)), row.trajectory?.cagr_pct != null && h("span", null, `Runway ${fmtPct(row.trajectory.cagr_pct)} CAGR`), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(2)}`), row.fv_class && h("span", {
+    className: row.fv_class === "discount" ? "hb-up" : row.fv_class === "premium" ? "hb-dn" : ""
+  }, String(row.fv_class).toUpperCase()), row.dip_buy && h("span", {
     className: "hb-up"
   }, "Dip posture")), Array.isArray(row.hold_thesis) && row.hold_thesis.length > 0 && h("ul", {
     className: "hb-thesis"
@@ -121,16 +123,16 @@ function HoldbookApp() {
   const openTicker = useCallback((sym, tab) => {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
+    const initialRailTab = tab || "FUNDAMENTALS";
+    applyRailOpen({
+      ticker,
+      initialRailTab
+    });
     if (typeof window.ttOpenTickerInRail === "function") {
       window.ttOpenTickerInRail({
         ticker,
-        initialRailTab: tab || "FUNDAMENTALS",
+        initialRailTab,
         source: "holdbook"
-      });
-    } else {
-      applyRailOpen({
-        ticker,
-        initialRailTab: tab || "FUNDAMENTALS"
       });
     }
   }, [applyRailOpen]);
@@ -142,11 +144,13 @@ function HoldbookApp() {
     } catch (_) {}
   }, []);
   useEffect(() => {
-    if (!RailOverlay) return;
     const handler = ev => applyRailOpen(ev?.detail);
     window.addEventListener("tt-open-ticker", handler);
-    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
     return () => window.removeEventListener("tt-open-ticker", handler);
+  }, [applyRailOpen]);
+  useEffect(() => {
+    if (!RailOverlay) return;
+    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
   }, [RailOverlay, applyRailOpen]);
   if (loading) {
     return h("main", null, h("div", {
@@ -203,6 +207,6 @@ function HoldbookApp() {
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(h(HoldbookApp));
-// cache-bust:1781908733013:817208996
+// cache-bust:1781909538367:467756431
 
-// cache-bust:1781908733013:817208996
+// cache-bust:1781909538367:467756431
