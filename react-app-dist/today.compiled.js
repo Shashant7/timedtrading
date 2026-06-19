@@ -4778,7 +4778,7 @@ function TodayApp() {
     let alive = true;
     (async () => {
       try {
-        const [a, b, e, c, universe] = await Promise.all([fetchAll(), fetchBrief(), fetchEarnings(), fetchCal(), fetchTickerUniverse()]);
+        const [a, c, universe] = await Promise.all([fetchAll(), fetchCal(), fetchTickerUniverse()]);
         if (!alive) return;
         if (a?.ok) {
           const merged = {
@@ -4794,17 +4794,25 @@ function TodayApp() {
             }
           }
           setData(merged);
+        } else if (a === null) {
+          setError("Couldn't load market data");
         }
+        if (c?.ok) setCal(c);
+      } catch (err) {
+        if (alive) setError(String(err?.message || err));
+      }
+    })();
+    (async () => {
+      try {
+        const [b, e] = await Promise.all([fetchBrief(), fetchEarnings()]);
+        if (!alive) return;
         if (b?.ok) {
           const picked = pickTodayBriefSlot(b.brief);
           setBrief(picked?.slot || null);
           setBriefSlot(picked?.type || b.active_slot || null);
         }
         if (e?.ok) setEarnings(e);
-        if (c?.ok) setCal(c);
-      } catch (err) {
-        if (alive) setError(String(err?.message || err));
-      }
+      } catch (_) {}
     })();
     return () => {
       alive = false;
@@ -4939,7 +4947,7 @@ function TodayApp() {
       }
     }, "Couldn't load today's data: " + error));
   }
-  const loading = !data && !brief;
+  const loading = !data;
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -5386,6 +5394,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781897517473:436005262
+// cache-bust:1781899148654:893099926
 
-// cache-bust:1781897517473:436005262
+// cache-bust:1781899148654:893099926
