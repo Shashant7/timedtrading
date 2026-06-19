@@ -5714,13 +5714,13 @@
         }, []);
 
         useEffect(() => {
-          if (loading) return;
+          if (!data) return;
           if (String(window.location.hash || "") !== "#opportunities") return;
           const scrollToOpp = () => document.getElementById("opportunities")?.scrollIntoView({ behavior: "smooth", block: "start" });
           scrollToOpp();
           const t = setTimeout(scrollToOpp, 600);
           return () => clearTimeout(t);
-        }, [loading]);
+        }, [data]);
 
         // Single source of truth for the universe, trades, chips, and
         // filtered set. allTickers is enriched with _openTrade +
