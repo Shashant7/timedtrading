@@ -410,25 +410,45 @@ export function extractGrowthCompounderSignal(snapshot) {
   };
 }
 
+const HOLDBOOK_STAGE_SET = new Set(["core_hold", "accumulate", "watch", "reduce", "research_on_watch"]);
+
+export function isHoldbookCandidateRow(row) {
+  const stage = String(row?.stage || "").toLowerCase();
+  const owned = row?.position?.owned === true;
+  return owned || HOLDBOOK_STAGE_SET.has(stage);
+}
+
+function compactCompounderPayload(comp) {
+  if (!comp?.tier) return null;
+  return {
+    tier: comp.tier,
+    tier_label: comp.tier_label || COMPOUNDER_TIER_LABELS[comp.tier] || null,
+    eligible: comp.eligible === true,
+    hold_thesis: comp.hold_thesis || comp.why_hold || [],
+    why_hold: comp.why_hold || comp.hold_thesis || [],
+    trajectory: comp.trajectory || null,
+  };
+}
+
 /**
  * Attach compounder signal from a fundamentals snapshot when missing on score row.
  */
 export function attachCompounderFromSnapshot(row, snapshot) {
-  if (!row || !snapshot || row?.compounder?.tier) return row;
-  const comp = snapshot.compounder || extractGrowthCompounderSignal(snapshot);
-  if (!comp?.tier) return row;
-  return {
-    ...row,
-    compounder: {
-      ...(row.compounder || {}),
-      tier: comp.tier,
-      tier_label: comp.tier_label || COMPOUNDER_TIER_LABELS[comp.tier] || null,
-      eligible: comp.eligible === true,
-      hold_thesis: comp.hold_thesis || comp.why_hold || [],
-      why_hold: comp.why_hold || comp.hold_thesis || [],
-      trajectory: comp.trajectory || null,
-    },
-  };
+  if (!row || row?.compounder?.tier) return row;
+  const comp = snapshot?.compounder || (snapshot ? extractGrowthCompounderSignal(snapshot) : null);
+  const payload = compactCompounderPayload(comp);
+  if (!payload) return row;
+  return { ...row, compounder: { ...(row.compounder || {}), ...payload } };
+}
+
+/**
+ * Attach compounder from timed:latest scoring payload (_compounder).
+ */
+export function attachCompounderFromLatest(row, latestRow) {
+  if (!row || row?.compounder?.tier || !latestRow?._compounder?.tier) return row;
+  const payload = compactCompounderPayload(latestRow._compounder);
+  if (!payload) return row;
+  return { ...row, compounder: { ...(row.compounder || {}), ...payload } };
 }
 
 /**
@@ -436,6 +456,7 @@ export function attachCompounderFromSnapshot(row, snapshot) {
  */
 export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
   const cap = Number(opts.enrichCap) || 150;
+  const latestKeyFn = typeof opts.latestKeyFn === "function" ? opts.latestKeyFn : null;
   const out = [];
   let enriched = 0;
   for (const row of rows) {
@@ -443,16 +464,20 @@ export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {
       out.push(row);
       continue;
     }
-    const stage = String(row?.stage || "").toLowerCase();
-    const owned = row?.position?.owned === true;
-    const candidate = owned || ["core_hold", "accumulate", "watch"].includes(stage);
-    if (!candidate || enriched >= cap) {
+    if (!isHoldbookCandidateRow(row) || enriched >= cap) {
       out.push(row);
       continue;
     }
+    let next = row;
     try {
-      const snap = await kvGetJSON(kvKeyFn(row.ticker));
-      const next = attachCompounderFromSnapshot(row, snap);
+      if (latestKeyFn) {
+        const latest = await kvGetJSON(latestKeyFn(row.ticker));
+        next = attachCompounderFromLatest(next, latest);
+      }
+      if (!next.compounder?.tier) {
+        const snap = await kvGetJSON(kvKeyFn(row.ticker));
+        next = attachCompounderFromSnapshot(next, snap);
+      }
       if (next.compounder?.tier) enriched += 1;
       out.push(next);
     } catch (_) {
@@ -473,9 +498,7 @@ export function buildInvestorHoldbook(scoreRows, opts = {}) {
     .filter((row) => {
       const tier = row?.compounder?.tier;
       if (!tier || !TIER_RANK[tier] || TIER_RANK[tier] < minRank) return false;
-      const stage = String(row?.stage || "").toLowerCase();
-      const owned = row?.position?.owned === true;
-      return owned || ["core_hold", "accumulate", "watch"].includes(stage);
+      return isHoldbookCandidateRow(row);
     })
     .map((row) => ({
       ticker: row.ticker,

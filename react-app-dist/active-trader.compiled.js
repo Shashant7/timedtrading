@@ -1314,9 +1314,20 @@ function ActiveTraderApp() {
     }, 80);
     return () => clearInterval(id);
   }, [RailOverlay]);
-  const onOpen = useCallback(sym => {
+  const onOpen = useCallback((sym, initialTab = null) => {
     if (!sym) return;
-    setRailTicker(String(sym).toUpperCase());
+    const ticker = String(sym).toUpperCase();
+    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    if (typeof window.ttOpenTickerInRail === "function") {
+      window.ttOpenTickerInRail({
+        ticker,
+        initialRailTab: tab,
+        source: "active-trader"
+      });
+      return;
+    }
+    setRailTicker(ticker);
+    if (tab) setRailInitialTab(tab);
   }, []);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
@@ -1620,6 +1631,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781904195051:851691226
+// cache-bust:1781908022111:769324445
 
-// cache-bust:1781904195051:851691226
+// cache-bust:1781908022111:769324445

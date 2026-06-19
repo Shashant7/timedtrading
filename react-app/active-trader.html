@@ -1709,9 +1709,20 @@
           return () => clearInterval(id);
         }, [RailOverlay]);
 
-        const onOpen = useCallback((sym) => {
+        const onOpen = useCallback((sym, initialTab = null) => {
           if (!sym) return;
-          setRailTicker(String(sym).toUpperCase());
+          const ticker = String(sym).toUpperCase();
+          const tab = initialTab ? String(initialTab).toUpperCase() : null;
+          if (typeof window.ttOpenTickerInRail === "function") {
+            window.ttOpenTickerInRail({
+              ticker,
+              initialRailTab: tab,
+              source: "active-trader",
+            });
+            return;
+          }
+          setRailTicker(ticker);
+          if (tab) setRailInitialTab(tab);
         }, []);
                 const applyRailOpen = useCallback((detail) => {
           const p = typeof window.ttConsumeRailOpenForReact === "function"

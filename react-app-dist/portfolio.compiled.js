@@ -850,6 +850,9 @@ function PortfolioApp() {
     };
   }, []);
   const [railTicker, setRailTicker] = useState(null);
+  const [railInitialTab, setRailInitialTab] = useState(null);
+  const [highlightTradeId, setHighlightTradeId] = useState(null);
+  const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
   const railTickerObj = useMemo(() => {
     if (!railTicker) return null;
     const key = String(railTicker).toUpperCase();
@@ -875,34 +878,51 @@ function PortfolioApp() {
     }, 80);
     return () => clearInterval(id);
   }, [RailOverlay]);
-  const onSelectTicker = useCallback(sym => {
+  const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
-    setRailTicker(String(sym).toUpperCase());
+    const ticker = String(sym).toUpperCase();
+    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    if (typeof window.ttOpenTickerInRail === "function") {
+      window.ttOpenTickerInRail({
+        ticker,
+        initialRailTab: tab,
+        source: "portfolio"
+      });
+      return;
+    }
+    setRailTicker(ticker);
+    if (tab) setRailInitialTab(tab);
   }, []);
-  const onCloseRail = useCallback(() => setRailTicker(null), []);
+  const applyRailOpen = useCallback(detail => {
+    const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
+    const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
+    if (!t) return;
+    setRailTicker(t);
+    setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
+    setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
+    setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
+  }, []);
+  const onCloseRail = useCallback(() => {
+    setRailTicker(null);
+    setRailInitialTab(null);
+    setHighlightTradeId(null);
+    setOpenAutopsyForTrade(null);
+    try {
+      window.ttClearRailUrlParams?.();
+    } catch (_) {}
+  }, []);
   useEffect(() => {
     if (!RailOverlay) return;
     const handler = ev => {
-      const t = String(ev?.detail?.ticker || "").toUpperCase();
-      if (!t) return;
-      setRailTicker(t);
+      applyRailOpen(ev?.detail);
       try {
-        if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t);
+        if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ev?.detail?.ticker);
       } catch (_) {}
     };
     window.addEventListener("tt-open-ticker", handler);
-    try {
-      const u = new URL(window.location.href);
-      const t = String(u.searchParams.get("ticker") || "").trim().toUpperCase();
-      if (t) {
-        setRailTicker(t);
-        try {
-          if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(t);
-        } catch (_) {}
-      }
-    } catch (_) {}
+    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
     return () => window.removeEventListener("tt-open-ticker", handler);
-  }, [RailOverlay]);
+  }, [RailOverlay, applyRailOpen]);
   if (error && !eq) {
     return h("main", null, h("div", {
       className: "tt-card tt-card-pad",
@@ -1031,6 +1051,9 @@ function PortfolioApp() {
   }))), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: allData,
+    initialRailTab: railInitialTab,
+    highlightTradeId,
+    openAutopsyForTrade,
     onClose: onCloseRail
   }));
 }
@@ -1042,6 +1065,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781904195051:851691226
+// cache-bust:1781908022111:769324445
 
-// cache-bust:1781904195051:851691226
+// cache-bust:1781908022111:769324445

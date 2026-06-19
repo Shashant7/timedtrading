@@ -4910,8 +4910,18 @@ function TodayApp() {
   }, [RailOverlay]);
   const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
-    setRailTicker(String(sym).toUpperCase());
-    if (initialTab) setRailInitialTab(String(initialTab).toUpperCase());else setRailInitialTab(null);
+    const ticker = String(sym).toUpperCase();
+    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    if (typeof window.ttOpenTickerInRail === "function") {
+      window.ttOpenTickerInRail({
+        ticker,
+        initialRailTab: tab,
+        source: "today"
+      });
+      return;
+    }
+    setRailTicker(ticker);
+    if (tab) setRailInitialTab(tab);else setRailInitialTab(null);
   }, []);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
@@ -5399,6 +5409,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781904195051:851691226
+// cache-bust:1781908022111:769324445
 
-// cache-bust:1781904195051:851691226
+// cache-bust:1781908022111:769324445
