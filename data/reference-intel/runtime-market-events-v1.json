@@ -32389,7 +32389,7 @@
         "event_name": "JBL Earnings",
         "impact": "high",
         "surprise_pct": 0.95,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32398,7 +32398,7 @@
         "event_name": "KMX Earnings",
         "impact": "high",
         "surprise_pct": 35.92,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32497,7 +32497,7 @@
         "event_name": "GMS Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32830,7 +32830,7 @@
         "event_name": "Jun Philly Fed Business Outlook",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32839,7 +32839,7 @@
         "event_name": "ACN Earnings",
         "impact": "high",
         "surprise_pct": 1.43,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32848,7 +32848,7 @@
         "event_name": "KR Earnings",
         "impact": "high",
         "surprise_pct": -3.64,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32857,7 +32857,7 @@
         "event_name": "AIMAU Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32866,7 +32866,7 @@
         "event_name": "CRCW Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32875,7 +32875,7 @@
         "event_name": "CYAN Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32884,7 +32884,7 @@
         "event_name": "DPG Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32893,7 +32893,7 @@
         "event_name": "DTF Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32902,7 +32902,7 @@
         "event_name": "IHT Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32911,7 +32911,7 @@
         "event_name": "MODD Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32920,7 +32920,7 @@
         "event_name": "RTON Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32929,7 +32929,7 @@
         "event_name": "WTER Earnings",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32938,7 +32938,7 @@
         "event_name": "FOMC Meeting",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32947,7 +32947,7 @@
         "event_name": "Jun P S&P Global PMIs (Mfg + Svcs)",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32956,7 +32956,7 @@
         "event_name": "Jun P S&P Srvcs PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32965,7 +32965,7 @@
         "event_name": "Jun P S&P Manu PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32974,7 +32974,7 @@
         "event_name": "1Q T GDP",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       },
       {
@@ -32983,7 +32983,7 @@
         "event_name": "May PCE Deflator",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": -1.25,
+        "spy_reaction_pct": 0.82,
         "sector_reaction_pct": null
       }
     ],
@@ -32994,13 +32994,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 38.2635
+        "sql_duration_ms": 29.002
       },
-      "duration": 38.2635,
+      "duration": 29.002,
       "changes": 0,
-      "last_row_id": 97880,
+      "last_row_id": 110937,
       "changed_db": false,
-      "size_after": 4252913664,
+      "size_after": 5097996288,
       "rows_read": 3665,
       "rows_written": 0,
       "total_attempts": 1
