@@ -798,14 +798,10 @@ export default {
         { dryRun },
       );
       // 2026-06-02 — Reconciler heartbeat for the main worker's
-      // sanity-sweep broker_reconciler_freshness check. Both workers
-      // share the same KV namespace (env.BRIDGE_KV here ≡ env.KV_TIMED
-      // on the main worker) so the main worker can read this key
-      // directly. Best-effort; if KV is unavailable the reconciler
-      // still ran successfully — we just lose the heartbeat for this
-      // tick.
+      // sanity-sweep broker_reconciler_freshness check. Must write to
+      // KV_TIMED (shared with timed-trading-ingest) — NOT BRIDGE_KV alone.
       try {
-        const kv = env?.BRIDGE_KV || env?.KV_TIMED;
+        const kv = env?.KV_TIMED || env?.BRIDGE_KV;
         if (kv) {
           await kv.put("bridge:reconciler:last_run", String(Date.now()), { expirationTtl: 24 * 3600 });
         }
