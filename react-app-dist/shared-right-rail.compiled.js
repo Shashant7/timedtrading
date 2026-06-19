@@ -4150,8 +4150,9 @@
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       const prevLive = Number(prev.livePrice);
       const nextLive = Number(next.livePrice);
-      if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && Math.abs(prevLive - nextLive) > 0.005) return false;
-      if (Number.isFinite(prevLive) !== Number.isFinite(nextLive)) return false;
+      if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && prevLive > 0) {
+        if (Math.abs(prevLive - nextLive) / prevLive > 0.0001) return false;
+      } else if (Number.isFinite(prevLive) !== Number.isFinite(nextLive)) return false;
       const prevSym = prev.ticker?.ticker || "";
       const nextSym = next.ticker?.ticker || "";
       if (prevSym !== nextSym) return false;
@@ -20370,4 +20371,4 @@
   };
 })();
 
-// cache-bust:1781880641465:145180608
+// cache-bust:1781880937179:550374589
