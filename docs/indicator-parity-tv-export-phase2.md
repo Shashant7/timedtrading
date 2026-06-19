@@ -1,72 +1,63 @@
 # Indicator Parity — TradingView Export Phase 2 (2026-06-19)
 
-**Target tickers:** USO, GLD, XLE, NVDA, TSLA, UNH, MSTR (D + W + 60 each)  
+**Source CSVs:** `tradingview/Parity-BATS_{USO,GLD,XLE,NVDA,TSLA,UNH,MSTR}, {1D,1W,60}_*.csv`  
 **Pine script:** `tradingview/TimedTrading_Indicator_Parity_Export.pine` (ST 10, factor 3.0)
 
 ---
 
-## Upload status (2026-06-19)
-
-| Source on `main` | Found |
-|---|---|
-| `tradingview/Parity-BATS_{USO,GLD,...}*.csv` (Phase 1 layout) | **Not on main yet** |
-| `tradingview/{TICKER}.zip` (older bulk export) | Present — 21 CSVs inside |
-
-**Expected upload naming** (matches Phase 1 SPY/QQQ/IWM):
-
-```
-tradingview/Parity-BATS_USO, 1D_<hash>.csv
-tradingview/Parity-BATS_USO, 1W_<hash>.csv
-tradingview/Parity-BATS_USO, 60_<hash>.csv
-… repeat for GLD, XLE, NVDA, TSLA, UNH, MSTR
-```
-
-Use **TimedTrading_Indicator_Parity_Export** on the chart (not the legacy bulk export). Phase 1 files include `td_bull_leadup_count`, `vwap_rolling20`, and Lux prep columns; zip extracts often omit these.
-
----
-
-## Preliminary run (zip fallback)
-
-Processed `tradingview/*.zip` extracts via `scripts/process-tv-parity-phase2.mjs`:
+## Results
 
 | Check | Result |
 |---|---|
-| Files | 21 (7 tickers × 3 TFs) |
-| Parity harness clean | **5 / 21** |
-| Dominant mismatches | `td13_bull`, `td13_bear` (31 rows), `fvg_in_bear` (2) |
+| Parity harness (80 sampled rows × 21 files) | **21 / 21 clean** — zero mismatches |
+| Accepted fixtures committed | `data/indicator-fixtures/v1/accepted/tv-phase2/` |
 
-### Clean files (zip source)
+Combined with Phase 1 (SPY/QQQ/IWM): **30 / 30** TV export fixtures clean.
 
-| Ticker | TF |
-|---|---|
-| MSTR | D, W |
-| TSLA | W |
-| UNH | 60 |
-| XLE | D |
+### Worker fix applied
 
-**Do not promote** zip-sourced fixtures to accepted until full Parity-BATS re-exports pass (Phase 1 bar: **9/9 clean**).
+Initial run was **19 / 21** — two isolated `fvg_in_bear` mismatches on USO D and NVDA 60.
+Root cause: worker `detectFVGs()` filtered gaps smaller than 10% ATR; the Pine export script does not.
+Removed the ATR size filter so worker FVG detection matches the TV benchmark. Phase 1 re-run still **9 / 9**.
+
+### Supersedes zip fallback
+
+An earlier preliminary run against `tradingview/*.zip` extracts was **5 / 21** clean (missing lead-up/VWAP columns). Proper `Parity-BATS_*` uploads on `main` replaced that path; do not promote zip-sourced fixtures.
 
 ---
 
-## Reproduce
+## Reproduce locally
 
 ```bash
-# After Parity-BATS CSVs land in tradingview/
-node scripts/process-tv-parity-phase2.mjs
+mkdir -p "TV Exports/indicator-parity/parity-phase2-jun19"
+cp tradingview/Parity-BATS_{USO,GLD,XLE,NVDA,TSLA,UNH,MSTR}*.csv \
+  "TV Exports/indicator-parity/parity-phase2-jun19/"
 
-# Promote only when ok_count == file_count
-node scripts/process-tv-parity-phase2.mjs --promote
+node scripts/build-indicator-fixtures.mjs \
+  --input="TV Exports/indicator-parity/parity-phase2-jun19" \
+  --out="TV Exports/indicator-parity/generated-fixtures-phase2-jun19" \
+  --report="TV Exports/indicator-parity/parity-report-phase2-jun19.json" \
+  --sample-rows=80 \
+  --supertrend=10,3
 
 node scripts/run-setup-parity-gate.mjs \
   --fixtures data/indicator-fixtures/v1/accepted/tv-phase2
 ```
 
+Optional wrapper (same harness, adds zip fallback when Parity-BATS files are absent):
+
+```bash
+node scripts/process-tv-parity-phase2.mjs
+node scripts/process-tv-parity-phase2.mjs --promote   # only when ok_count == file_count
+```
+
 ---
 
-## Gate impact
+## Promotion gate status
 
-| Gate | Phase 1 | Phase 2 |
-|---|---|---|
-| L1 TV parity | SPY/QQQ/IWM **passed** | Pending proper Parity-BATS uploads |
-| L2 live vs re-derive | In progress | Unchanged |
-| Sequence → signaling | Blocked | Blocked until L1+L2 per ticker |
+| Gate | Status |
+|---|---|
+| L1 indicator parity (Phase 1: SPY/QQQ/IWM) | **Passed** |
+| L1 indicator parity (Phase 2: USO/GLD/XLE/NVDA/TSLA/UNH/MSTR) | **Passed** |
+| L2 live setup_events vs re-derive | In progress (forward cron accumulating) |
+| Sequence promotion to signaling | Blocked until L2 passes per ticker |

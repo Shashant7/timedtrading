@@ -698,9 +698,6 @@ export function detectFVGs(bars, atr) {
 
     // Bullish FVG: current candle's low > two-candles-ago high (gap up)
     if (curr.l > prev2.h) {
-      const gapSize = curr.l - prev2.h;
-      // Auto-threshold: filter out insignificant gaps (< 10% of ATR)
-      if (atr > 0 && gapSize < atr * 0.1) continue;
       fvgs.push({
         type: "bull",
         top: curr.l,
@@ -713,8 +710,6 @@ export function detectFVGs(bars, atr) {
 
     // Bearish FVG: current candle's high < two-candles-ago low (gap down)
     if (curr.h < prev2.l) {
-      const gapSize = prev2.l - curr.h;
-      if (atr > 0 && gapSize < atr * 0.1) continue;
       fvgs.push({
         type: "bear",
         top: prev2.l,

@@ -1,0 +1,147 @@
+{
+  "generated_at": "2026-06-19T00:34:47.238Z",
+  "source": "tradingview_export",
+  "phase": 2,
+  "tickers": [
+    "USO",
+    "GLD",
+    "XLE",
+    "NVDA",
+    "TSLA",
+    "UNH",
+    "MSTR"
+  ],
+  "parity": {
+    "files": 21,
+    "ok": 21,
+    "report": "TV Exports/indicator-parity/parity-report-phase2-jun19.json"
+  },
+  "fixtures": [
+    {
+      "file": "GLD_60_2015-01-02_2026-06-18-tv.json",
+      "ticker": "GLD",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "GLD_D_2004-11-18_2026-06-18-tv.json",
+      "ticker": "GLD",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "GLD_W_2004-11-15_2026-06-15-tv.json",
+      "ticker": "GLD",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "MSTR_60_2013-01-02_2026-06-18-tv.json",
+      "ticker": "MSTR",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "MSTR_D_1998-06-11_2026-06-18-tv.json",
+      "ticker": "MSTR",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "MSTR_W_1998-06-08_2026-06-15-tv.json",
+      "ticker": "MSTR",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "NVDA_60_2015-01-02_2026-06-18-tv.json",
+      "ticker": "NVDA",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "NVDA_D_1999-01-22_2026-06-18-tv.json",
+      "ticker": "NVDA",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "NVDA_W_1999-01-18_2026-06-15-tv.json",
+      "ticker": "NVDA",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "TSLA_60_2015-01-02_2026-06-18-tv.json",
+      "ticker": "TSLA",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "TSLA_D_2010-06-29_2026-06-18-tv.json",
+      "ticker": "TSLA",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "TSLA_W_2010-06-28_2026-06-15-tv.json",
+      "ticker": "TSLA",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "UNH_60_2015-01-02_2026-06-18-tv.json",
+      "ticker": "UNH",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "UNH_D_1984-10-17_2026-06-18-tv.json",
+      "ticker": "UNH",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "UNH_W_1984-10-15_2026-06-15-tv.json",
+      "ticker": "UNH",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "USO_60_2015-01-02_2026-06-18-tv.json",
+      "ticker": "USO",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "USO_D_2006-04-10_2026-06-18-tv.json",
+      "ticker": "USO",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "USO_W_2006-04-10_2026-06-15-tv.json",
+      "ticker": "USO",
+      "tf": "W",
+      "rows": 80
+    },
+    {
+      "file": "XLE_60_2015-01-02_2026-06-18-tv.json",
+      "ticker": "XLE",
+      "tf": "60",
+      "rows": 80
+    },
+    {
+      "file": "XLE_D_1998-12-22_2026-06-18-tv.json",
+      "ticker": "XLE",
+      "tf": "D",
+      "rows": 80
+    },
+    {
+      "file": "XLE_W_1998-12-21_2026-06-15-tv.json",
+      "ticker": "XLE",
+      "tf": "W",
+      "rows": 80
+    }
+  ]
+}
