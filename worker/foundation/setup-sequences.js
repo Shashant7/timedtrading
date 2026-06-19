@@ -150,6 +150,7 @@ export function detectTdPhaseMeanReversionSequence(eventsInput = [], opts = {}) 
       event_id: ok ? ev.event_id : null,
       event_type: ok ? ev.event_type : null,
       event_ts: ok ? ev.event_ts : null,
+      price: ok && Number.isFinite(Number(ev.price)) ? Number(ev.price) : null,
     });
     if (!ok && opts.requireContiguous !== false) break;
   }
