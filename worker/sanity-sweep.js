@@ -35,6 +35,12 @@
 
 import { detectExhaustionWarnings } from "./investor.js";
 import { notifyDiscord } from "./alerts.js";
+import {
+  computeProtectiveStopTighten,
+  resolveEffectiveStopLoss,
+  slDrawdownPct,
+  DEFAULT_MAX_SL_DRAWDOWN_PCT,
+} from "./sanity-stop-heal.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -187,21 +193,41 @@ const checkThesisStageConsistency = timed(async function checkThesisStageConsist
 const checkInvalidationDistance = timed(async function checkInvalidationDistance(env, ctx) {
   const anomalies = [];
   try {
-    // Pull active positions (D1) + match each to current price
     const pricesRaw = await env.KV_TIMED.get("timed:prices");
     const priceMap = pricesRaw ? (JSON.parse(pricesRaw)?.prices || {}) : {};
+    let kvSlByTicker = new Map();
+    try {
+      const kvTradesRaw = await env.KV_TIMED.get("timed:trades:all");
+      const kvTrades = kvTradesRaw ? JSON.parse(kvTradesRaw) : [];
+      for (const t of (Array.isArray(kvTrades) ? kvTrades : [])) {
+        if (!t || (t.status !== "OPEN" && t.status !== "TP_HIT_TRIM")) continue;
+        const sym = String(t.ticker || "").toUpperCase();
+        const sl = Number(t.sl ?? t.stop_loss);
+        if (!sym || !(sl > 0)) continue;
+        const dir = String(t.direction || "LONG").toUpperCase();
+        const prev = kvSlByTicker.get(sym);
+        if (prev == null) kvSlByTicker.set(sym, { sl, direction: dir });
+        else {
+          const merged = resolveEffectiveStopLoss(dir, prev.sl, sl);
+          kvSlByTicker.set(sym, { sl: merged, direction: dir });
+        }
+      }
+    } catch (_) { kvSlByTicker = new Map(); }
     const { results } = await env.DB.prepare(
       "SELECT t.ticker, t.entry_price, t.direction, p.stop_loss FROM trades t LEFT JOIN positions p ON p.position_id = t.trade_id WHERE t.status IN ('OPEN', 'TP_HIT_TRIM') LIMIT 100"
     ).all().catch(() => ({ results: [] }));
     for (const r of (results || [])) {
-      const px = Number(priceMap[r.ticker]?.p) || Number(r.entry_price);
-      const sl = Number(r.stop_loss);
+      const sym = String(r.ticker || "").toUpperCase();
+      const px = Number(priceMap[sym]?.p) || Number(r.entry_price);
+      const dir = String(r.direction || "LONG").toUpperCase();
+      const kvMeta = kvSlByTicker.get(sym);
+      const sl = resolveEffectiveStopLoss(dir, r.stop_loss, kvMeta?.sl);
       if (!(px > 0) || !(sl > 0)) continue;
-      const isLong = String(r.direction || "").toUpperCase() === "LONG";
-      const ddPct = isLong ? ((px - sl) / px) * 100 : ((sl - px) / px) * 100;
+      const ddPct = slDrawdownPct(dir, px, sl);
+      if (ddPct == null) continue;
       if (ddPct > 25) {
         anomalies.push({
-          ticker: r.ticker,
+          ticker: sym,
           detail: `SL at $${sl.toFixed(2)} = ${ddPct.toFixed(1)}% drawdown to trigger (price $${px.toFixed(2)})`,
           severity: ddPct > 40 ? "fail" : "warn",
         });
@@ -214,7 +240,7 @@ const checkInvalidationDistance = timed(async function checkInvalidationDistance
     "invalidation_distance",
     "Active SL distance sanity",
     anomalies,
-    "Any active position with >25% drawdown SL is effectively unprotected. Check the SL-tightening path (exhaustion gates) didn't get bypassed — see worker/index.js [EXHAUSTION_SL] logs.",
+    "Wide stops are auto-tightened by COO self-heal when COO_SELF_HEAL=true. Otherwise tighten via the gain-protection path — see worker/sanity-stop-heal.js.",
     "would have caught: MU's Monthly ST invalidation at \\$393 (62% drawdown to trigger) shown to operator without sanity flag (2026-06-02)"
   );
 });
@@ -706,6 +732,72 @@ export async function runFastSweep(env, ctx = null) {
   return _runSweep(env, ctx, "fast", FAST_CHECKS);
 }
 
+export { computeProtectiveStopTighten, resolveEffectiveStopLoss, slDrawdownPct, DEFAULT_MAX_SL_DRAWDOWN_PCT };
+
+/**
+ * Tighten open-position stops that exceed max drawdown from current price.
+ * Updates D1 positions.stop_loss and KV timed:trades:all when enabled.
+ */
+export async function tightenWideOpenStops(env, opts = {}) {
+  const maxDdPct = Number(opts.maxDrawdownPct) || DEFAULT_MAX_SL_DRAWDOWN_PCT;
+  const dryRun = opts.dryRun !== false;
+  const thresholdPct = Number(opts.thresholdPct) || 25;
+  if (!env?.DB || !env?.KV_TIMED) return { ok: false, error: "missing_bindings" };
+
+  const pricesRaw = await env.KV_TIMED.get("timed:prices");
+  const priceMap = pricesRaw ? (JSON.parse(pricesRaw)?.prices || {}) : {};
+  const { results } = await env.DB.prepare(
+    `SELECT t.trade_id, t.ticker, t.direction, t.entry_price, p.stop_loss
+     FROM trades t
+     LEFT JOIN positions p ON p.position_id = t.trade_id
+     WHERE t.status IN ('OPEN', 'TP_HIT_TRIM') LIMIT 100`,
+  ).all().catch(() => ({ results: [] }));
+
+  let kvTrades = [];
+  try {
+    const raw = await env.KV_TIMED.get("timed:trades:all");
+    kvTrades = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(kvTrades)) kvTrades = [];
+  } catch (_) { kvTrades = []; }
+
+  const tightened = [];
+  for (const r of (results || [])) {
+    const sym = String(r.ticker || "").toUpperCase();
+    const dir = String(r.direction || "LONG").toUpperCase();
+    const px = Number(priceMap[sym]?.p) || Number(r.entry_price);
+    const kvTrade = kvTrades.find((t) => String(t?.ticker || "").toUpperCase() === sym
+      && (t.status === "OPEN" || t.status === "TP_HIT_TRIM"));
+    const oldSl = resolveEffectiveStopLoss(dir, r.stop_loss, kvTrade?.sl ?? kvTrade?.stop_loss);
+    if (!(px > 0) || !(oldSl > 0)) continue;
+    const ddPct = slDrawdownPct(dir, px, oldSl);
+    if (ddPct == null || ddPct <= thresholdPct) continue;
+    const newSl = computeProtectiveStopTighten(dir, px, oldSl, maxDdPct);
+    if (newSl == null || newSl === oldSl) continue;
+    tightened.push({ ticker: sym, direction: dir, price: px, oldSl, newSl, wasDrawdownPct: ddPct });
+    if (!dryRun) {
+      try {
+        await env.DB.prepare(
+          "UPDATE positions SET stop_loss = ?2, updated_at = ?3 WHERE ticker = ?1 AND status = 'OPEN'",
+        ).bind(sym, newSl, Date.now()).run();
+      } catch (_) {}
+      if (kvTrade) {
+        kvTrade.sl = newSl;
+        kvTrade.stop_loss = newSl;
+        kvTrade.sl_protect_reason = "SANITY_SWEEP_TIGHTEN";
+        kvTrade.sl_last_tighten_ts = new Date().toISOString();
+      }
+    }
+  }
+
+  if (!dryRun && tightened.length > 0) {
+    try {
+      await env.KV_TIMED.put("timed:trades:all", JSON.stringify(kvTrades));
+    } catch (_) {}
+  }
+
+  return { ok: true, dryRun, tightened, count: tightened.length };
+}
+
 /**
  * Persist the latest sweep to KV so the MC dashboard can read it without
  * re-running the entire sweep on every page load. Stores under both a
@@ -778,6 +870,17 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
         footer: { text: `Sweep took ${sweep.elapsed_ms}ms · /timed/admin/sanity-sweep` },
       }, "system").catch(e => console.warn("[SANITY_SWEEP] discord send failed:", String(e?.message || e).slice(0, 120)));
       await env.KV_TIMED.put("sanity_sweep:last_alert_fingerprint", fingerprint, { expirationTtl: 24 * 3600 });
+    }
+
+    // Best-effort COO self-heal for known warn/fail checks (ledger repair,
+    // candle backfill, wide-stop tighten). Reads the sweep we just persisted.
+    if (String(env?.COO_SELF_HEAL || "false").toLowerCase() === "true") {
+      try {
+        const { runSelfHealing } = await import("./coo/coo-orchestrator.js");
+        await runSelfHealing(env).catch((e) =>
+          console.warn("[SANITY_SWEEP] self-heal failed:", String(e?.message || e).slice(0, 120)),
+        );
+      } catch (_) {}
     }
 
     return sweep;

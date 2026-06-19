@@ -88,6 +88,11 @@ database_id = "99fae5d6-98df-4e29-bab5-0665cac7a9ff"
 binding = "BRIDGE_KV"
 id = "951f03a0c0464ecfa0d8dad25ebb3361"
 
+# Shared with timed-trading-ingest — reconciler heartbeat for sanity-sweep.
+[[kv_namespaces]]
+binding = "KV_TIMED"
+id = "e48593af3ef74bf986b2592909ed40cb"
+
 # Secrets (must be set via `wrangler secret put` — not in wrangler.toml):
 #   BRIDGE_ENCRYPTION_KEY      AES-256 key (32 bytes b64) for token wrap
 #   BRIDGE_INTERNAL_HMAC_KEY   HMAC for verifying inbound webhooks from TT

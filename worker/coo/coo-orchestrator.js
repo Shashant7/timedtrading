@@ -34,8 +34,9 @@
 //
 // Wired to sanity-sweep failures. When a failing check has a known
 // remediation, the COO auto-runs it (idempotently, with cooldowns):
-//   • portfolio_reconcile FAIL → POST /timed/admin/ledger/repair
-//   • candle_freshness_open FAIL → trigger backfill
+//   • portfolio_reconcile FAIL/WARN → POST /timed/admin/ledger/repair
+//   • candle_freshness_open FAIL/WARN → trigger backfill
+//   • invalidation_distance WARN → tighten wide stops on open positions
 //   • cron_tick_alive WARN (>30min) → log + escalate (can't self-fix)
 //   • position_drift FAIL (1h cooldown bypassed) → bump cooldown +
 //     log, escalate after 2 consecutive
@@ -266,7 +267,14 @@ export async function runSelfHealing(env, options = {}) {
     return { healed, skipped, elapsed_ms: Date.now() - t0 };
   }
 
-  const failing = (sweep.checks || []).filter(c => c.status === "fail");
+  const SELF_HEAL_IDS = new Set([
+    "portfolio_reconcile",
+    "candle_freshness_open",
+    "invalidation_distance",
+  ]);
+  const failing = (sweep.checks || []).filter((c) =>
+    c.status === "fail" || (c.status === "warn" && SELF_HEAL_IDS.has(c.id)),
+  );
   if (failing.length === 0) {
     return { healed, skipped: [{ reason: "no_failures_in_sweep" }], elapsed_ms: Date.now() - t0 };
   }
@@ -300,6 +308,10 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healCandleFreshness(env, baseUrl, adminKey, check)
         : { ok: true, dry_run: true, would_do: "POST /timed/admin/backfill-candles for each stale ticker" };
+    } else if (check.id === "invalidation_distance") {
+      action = enabled
+        ? await _healInvalidationDistance(env)
+        : { ok: true, dry_run: true, would_do: "tightenWideOpenStops(dryRun=false)" };
     } else {
       action = { ok: false, reason: `no_handler_for_${check.id}` };
     }
@@ -372,6 +384,18 @@ async function _healCandleFreshness(env, baseUrl, adminKey, check) {
     }
   }
   return { ok: results.some(r => r.ok), results };
+}
+
+async function _healInvalidationDistance(env) {
+  try {
+    const { tightenWideOpenStops } = await import("../sanity-sweep.js");
+    const r = await tightenWideOpenStops(env, { dryRun: false, thresholdPct: 25, maxDrawdownPct: 20 });
+    return r?.ok
+      ? { ok: true, tightened: r.count, tickers: (r.tightened || []).map((t) => t.ticker) }
+      : { ok: false, error: r?.error || "tighten_failed" };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
 }
 
 // ── Screener auto-promotion ───────────────────────────────────────────
