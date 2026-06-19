@@ -1611,19 +1611,19 @@
               );
             })}
 
-            {/* Quadrant labels — descriptive with subtitles */}
+            {/* Quadrant labels — descriptive with subtitles (raised opacity for new-user readability) */}
             {/* Top-Left: PULLBACK (HTF>0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">PULLBACK</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.15">HTF Bullish, LTF Weak</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">PULLBACK</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bullish, LTF Weak</text>
             {/* Top-Right: BULLISH MOMENTUM (HTF>0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BULLISH MOMENTUM</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.15">All Timeframes Aligned</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BULLISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
             {/* Bottom-Left: BEARISH MOMENTUM (HTF<0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BEARISH MOMENTUM</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.15">All Timeframes Aligned</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BEARISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
             {/* Bottom-Right: BOUNCE / REVERSAL (HTF<0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.18">BOUNCE / REVERSAL</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.15">HTF Bearish, LTF Strong</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BOUNCE / REVERSAL</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bearish, LTF Strong</text>
 
             {/* Corridors — subtle fill with dashed borders and labels */}
             {(() => {
@@ -1633,13 +1633,13 @@
               const shortW = xForLtf(SHORT_CORRIDOR.ltfMax) - shortX;
               return (
                 <>
-                  <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.06)" stroke="rgba(34,197,94,0.25)" strokeWidth="1" strokeDasharray="6 4" />
+                  <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.35)" strokeWidth="1" strokeDasharray="6 4" />
                   {/* V15 P0.7.84: BULL/BEAR vocabulary for setup zones
                       (no active trade); LONG/SHORT reserved for the
                       actual position direction. */}
-                  <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
-                  <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.06)" stroke="rgba(239,68,68,0.25)" strokeWidth="1" strokeDasharray="6 4" />
-                  <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.25)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
+                  <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
+                  <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.35)" strokeWidth="1" strokeDasharray="6 4" />
+                  <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
                 </>
               );
             })()}

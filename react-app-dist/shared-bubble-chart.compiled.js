@@ -1338,14 +1338,14 @@
         fontSize: "11",
         fontWeight: "700",
         textAnchor: "middle",
-        opacity: "0.18"
+        opacity: "0.38"
       }, "PULLBACK"), React.createElement("text", {
         x: offsetX + plotWidth * 0.12,
         y: offsetY + 30,
         fill: "#f59e0b",
         fontSize: "7",
         textAnchor: "middle",
-        opacity: "0.15"
+        opacity: "0.30"
       }, "HTF Bullish, LTF Weak"), React.createElement("text", {
         x: offsetX + plotWidth * 0.88,
         y: offsetY + 18,
@@ -1353,14 +1353,14 @@
         fontSize: "11",
         fontWeight: "700",
         textAnchor: "middle",
-        opacity: "0.18"
+        opacity: "0.38"
       }, "BULLISH MOMENTUM"), React.createElement("text", {
         x: offsetX + plotWidth * 0.88,
         y: offsetY + 30,
         fill: "#22c55e",
         fontSize: "7",
         textAnchor: "middle",
-        opacity: "0.15"
+        opacity: "0.30"
       }, "All Timeframes Aligned"), React.createElement("text", {
         x: offsetX + plotWidth * 0.12,
         y: offsetY + plotHeight - 14,
@@ -1368,14 +1368,14 @@
         fontSize: "11",
         fontWeight: "700",
         textAnchor: "middle",
-        opacity: "0.18"
+        opacity: "0.38"
       }, "BEARISH MOMENTUM"), React.createElement("text", {
         x: offsetX + plotWidth * 0.12,
         y: offsetY + plotHeight - 3,
         fill: "#ef4444",
         fontSize: "7",
         textAnchor: "middle",
-        opacity: "0.15"
+        opacity: "0.30"
       }, "All Timeframes Aligned"), React.createElement("text", {
         x: offsetX + plotWidth * 0.88,
         y: offsetY + plotHeight - 14,
@@ -1383,14 +1383,14 @@
         fontSize: "11",
         fontWeight: "700",
         textAnchor: "middle",
-        opacity: "0.18"
+        opacity: "0.38"
       }, "BOUNCE / REVERSAL"), React.createElement("text", {
         x: offsetX + plotWidth * 0.88,
         y: offsetY + plotHeight - 3,
         fill: "#f59e0b",
         fontSize: "7",
         textAnchor: "middle",
-        opacity: "0.15"
+        opacity: "0.30"
       }, "HTF Bearish, LTF Strong"), (() => {
         const longX = xForLtf(LONG_CORRIDOR.ltfMin);
         const longW = xForLtf(LONG_CORRIDOR.ltfMax) - longX;
@@ -1401,14 +1401,14 @@
           y: offsetY,
           width: longW,
           height: plotHeight / 2,
-          fill: "rgba(34,197,94,0.06)",
-          stroke: "rgba(34,197,94,0.25)",
+          fill: "rgba(34,197,94,0.08)",
+          stroke: "rgba(34,197,94,0.35)",
           strokeWidth: "1",
           strokeDasharray: "6 4"
         }), React.createElement("text", {
           x: longX + longW / 2,
           y: offsetY + plotHeight * 0.25,
-          fill: "rgba(34,197,94,0.25)",
+          fill: "rgba(34,197,94,0.42)",
           fontSize: "10",
           fontWeight: "600",
           textAnchor: "middle",
@@ -1421,14 +1421,14 @@
           y: offsetY + plotHeight / 2,
           width: shortW,
           height: plotHeight / 2,
-          fill: "rgba(239,68,68,0.06)",
-          stroke: "rgba(239,68,68,0.25)",
+          fill: "rgba(239,68,68,0.08)",
+          stroke: "rgba(239,68,68,0.35)",
           strokeWidth: "1",
           strokeDasharray: "6 4"
         }), React.createElement("text", {
           x: shortX + shortW / 2,
           y: offsetY + plotHeight * 0.75,
-          fill: "rgba(239,68,68,0.25)",
+          fill: "rgba(239,68,68,0.42)",
           fontSize: "10",
           fontWeight: "600",
           textAnchor: "middle",
@@ -2646,4 +2646,4 @@
   };
 })();
 
-// cache-bust:1781882864529:302824185
+// cache-bust:1781896326304:646165915
