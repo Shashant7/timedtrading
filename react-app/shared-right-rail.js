@@ -5351,13 +5351,6 @@
             setSetupShadowLoading(false);
             return;
           }
-          const apiKey = String(window._ttApiKey || "").trim();
-          if (!apiKey) {
-            setSetupShadowDiag(null);
-            setSetupShadowError("missing_api_key");
-            setSetupShadowLoading(false);
-            return;
-          }
           const cached = setupShadowCacheRef.current[sym];
           if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
             setSetupShadowDiag(cached.data);
@@ -5370,16 +5363,28 @@
             try {
               setSetupShadowLoading(true);
               setSetupShadowError(null);
+              const apiKey = String(window._ttApiKey || "").trim();
               const qs = new URLSearchParams({
-                key: apiKey,
                 ticker: sym,
-                lookbackHours: "48",
+                lookbackHours: "168",
                 limit: "240",
               });
-              const res = await fetch(`${API_BASE}/timed/admin/setup-diagnostics?${qs.toString()}`, { cache: "no-store" });
+              if (apiKey) qs.set("key", apiKey);
+              const fetchOpts = { credentials: "include", cache: "no-store" };
+              const res = await fetch(`${API_BASE}/timed/admin/setup-diagnostics?${qs.toString()}`, fetchOpts);
               const json = await res.json().catch(() => null);
               if (!res.ok || !json?.ok) {
-                throw new Error(json?.error || `HTTP ${res.status}`);
+                const err = String(json?.error || `HTTP ${res.status}`);
+                // Empty trail window is expected for some tickers — show soft empty state.
+                if (err === "no_snapshots") {
+                  if (!cancelled) {
+                    setupShadowCacheRef.current[sym] = { data: { empty: true, error: err, hint: json?.hint }, ts: Date.now() };
+                    setSetupShadowDiag({ empty: true, error: err, hint: json?.hint, trader_posture: { posture: "Neutral", stage: 0 } });
+                    setSetupShadowError(null);
+                  }
+                  return;
+                }
+                throw new Error(err);
               }
               if (!cancelled) {
                 setupShadowCacheRef.current[sym] = { data: json, ts: Date.now() };
@@ -6207,6 +6212,14 @@
                     }}>
                       Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban.
                     </p>
+                    {setupShadowDiag.empty && (
+                      <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
+                        No trail snapshots in the lookback window yet.
+                        {setupShadowDiag.hint ? ` ${setupShadowDiag.hint}` : " Fresh scoring or backfill will populate this panel."}
+                      </p>
+                    )}
+                    {!setupShadowDiag.empty && (
+                    <>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
                       {ctx.vix_regime && <span className="ds-chip ds-chip--sm ds-chip--solid" title="VIX regime context">VIX {ctx.vix_regime}</span>}
                       {ctx.index_posture && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Index posture context">Index {ctx.index_posture}</span>}
@@ -6255,6 +6268,8 @@
                       <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
                         No active setup sequence in the lookback window.
                       </p>
+                    )}
+                    </>
                     )}
                   </>
                 )}
