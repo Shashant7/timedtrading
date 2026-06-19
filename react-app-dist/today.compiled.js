@@ -149,11 +149,36 @@ function isNyRegularMarketOpen() {
     return false;
   }
 }
+const US_MARKET_HOLIDAY_NAMES = {
+  "2026-06-19": "Juneteenth",
+  "2026-01-01": "New Year's Day",
+  "2026-01-19": "Martin Luther King Jr. Day",
+  "2026-02-16": "Presidents' Day",
+  "2026-04-03": "Good Friday",
+  "2026-05-25": "Memorial Day",
+  "2026-07-03": "Independence Day",
+  "2026-09-07": "Labor Day",
+  "2026-11-26": "Thanksgiving",
+  "2026-12-25": "Christmas"
+};
+function holidayNameForToday(cal) {
+  if (cal?.equity?.holiday_name_today) return cal.equity.holiday_name_today;
+  if (!cal?.equity?.is_holiday_today) return null;
+  try {
+    const ds = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+    return US_MARKET_HOLIDAY_NAMES[ds] || null;
+  } catch (_) {
+    return null;
+  }
+}
 function resolveMarketSession(cal) {
   const equity = cal?.equity || {};
   const sess = cal?.session || {};
   const hasCal = cal?.ok === true;
   const isHoliday = equity.is_holiday_today === true;
+  const holidayName = holidayNameForToday(cal);
   const isEarlyClose = equity.is_early_close_today === true;
   const sessionType = String(sess.session_type || "").toUpperCase();
   let isWeekend = false;
@@ -171,24 +196,25 @@ function resolveMarketSession(cal) {
   let bannerMessage = "";
   if (hasCal && isHoliday) {
     bannerKind = "closed";
-    bannerMessage = "US equity markets are closed today for a scheduled holiday. Intraday game plans and 0DTE options plays are hidden until the next session.";
+    bannerMessage = holidayName ? `Markets are closed today for ${holidayName}.` : "Markets are closed today for a US market holiday.";
   } else if (hasCal && isWeekend) {
     bannerKind = "closed";
-    bannerMessage = "Markets are closed for the weekend. Intraday game plans and 0DTE options plays resume Monday.";
+    bannerMessage = "Markets are closed for the weekend.";
   } else if (hasCal && !rthOpen && sessionType === "PM") {
     bannerKind = "premarket";
-    bannerMessage = "Pre-market session — regular trading opens at 9:30 AM ET. Day-trade plays appear when the session opens.";
+    bannerMessage = "Pre-market — regular session opens at 9:30 AM ET.";
   } else if (hasCal && !rthOpen && sessionType === "AH") {
     bannerKind = "afterhours";
-    bannerMessage = "After-hours session — regular trading closed at 4:00 PM ET. Day-trade plays and 0DTE structures are paused until the next session.";
+    bannerMessage = "After-hours — regular session closed at 4:00 PM ET.";
   } else if (hasCal && !rthOpen) {
     bannerKind = "closed";
-    bannerMessage = "Markets are closed — day-trade game plans and options plays resume at the next regular session.";
+    bannerMessage = "Markets are closed.";
   }
   return {
     rthOpen,
     operatingHours,
     isHoliday,
+    holidayName,
     isEarlyClose,
     isWeekend,
     sessionType,
@@ -320,7 +346,7 @@ function SessionPill({
     label = session.isEarlyClose ? "Market open · Early close 1 PM ET" : "Market open · RTH";
     cls = "up";
   } else if (session.isHoliday) {
-    label = "Holiday · Market closed";
+    label = session.holidayName ? `${session.holidayName} · Markets closed` : "Holiday · Market closed";
     cls = "";
   } else if (session.isWeekend) {
     label = "Weekend · Market closed";
@@ -5360,6 +5386,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781896326304:646165915
+// cache-bust:1781897517473:436005262
 
-// cache-bust:1781896326304:646165915
+// cache-bust:1781897517473:436005262
