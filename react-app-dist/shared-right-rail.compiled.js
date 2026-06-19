@@ -6544,8 +6544,10 @@
           setSetupShadowDiag(null);
           setSetupShadowError(null);
           setSetupShadowLoading(false);
+          setShadowStageTipKey(null);
           return;
         }
+        setShadowStageTipKey(null);
         const cached = setupShadowCacheRef.current[sym];
         if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
           setSetupShadowDiag(cached.data);
@@ -20747,4 +20749,4 @@
   };
 })();
 
-// cache-bust:1781889179821:415927748
+// cache-bust:1781896674507:445711016
