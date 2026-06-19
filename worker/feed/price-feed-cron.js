@@ -27,6 +27,7 @@
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { SECTOR_MAP } from "../sector-mapping.js";
 import { reconcileDailyChange } from "./prev-close-reconcile.js";
+import { loadCalendar, isNyRegularMarketOpen as calIsNyOpen } from "../market-calendar.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
 function feedPollTimestamp(nowMs = Date.now()) {
@@ -41,7 +42,15 @@ function feedPollTimestamp(nowMs = Date.now()) {
 export async function runPriceFeedCron(env, ctx, opts, deps) {
   const { isLightweight, utcMinute } = opts || {};
       const KV = env.KV_TIMED;
-      const _marketOpen = deps.isNyRegularMarketOpen();
+      // Load calendar directly — do not rely on module-level _cronCalendar
+      // (can be null on cold cron isolates → weekday fallback false-opens holidays).
+      let _marketOpen;
+      try {
+        const cal = await loadCalendar(env);
+        _marketOpen = calIsNyOpen(cal);
+      } catch (_) {
+        _marketOpen = deps.isNyRegularMarketOpen();
+      }
       const _marketClosed = !_marketOpen;
       try {
         const userAddedForPriceFeed = await deps.d1GetActiveUserTickersCached(env);
@@ -327,6 +336,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             updated_at: lightUpdateTs,
             ticker_count: Object.keys(existing).length,
             _source: "lightweight_overnight",
+            stale_symbols: _marketOpen ? undefined : [],
+            stale_symbol_count: _marketOpen ? undefined : 0,
+            market_open: _marketOpen,
           });
           ctx.waitUntil(deps.notifyPriceHub(env, {
             type: "prices",
