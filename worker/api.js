@@ -809,6 +809,28 @@ export async function requireKeyOrAdmin(req, env) {
   );
 }
 
+/**
+ * Admin session auth for browser UI: CF Access JWT first, API key second.
+ * Prefer this over requireKeyOrAdmin for endpoints hit from Pages /timed proxy
+ * where the operator is logged in but window._ttApiKey is never set.
+ */
+export async function requireAdminSession(req, env) {
+  const user = await authenticateUser(req, env);
+  if (user && (user.role === "admin" || user.tier === "admin" || user.email === env.ADMIN_EMAIL)) {
+    return null;
+  }
+  const expected = env.TIMED_API_KEY;
+  if (expected) {
+    const keyResult = requireKeyOr401(req, env);
+    if (!keyResult) return null;
+  }
+  return sendJSON(
+    { ok: false, error: "admin_required" },
+    403,
+    corsHeaders(env, req),
+  );
+}
+
 // COST OPTIMIZATION: Fixed-window rate limiting also uses Workers Cache API.
 export async function checkRateLimitFixedWindow(
   KV,
