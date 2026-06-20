@@ -42,15 +42,24 @@ import {
 } from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
+import * as WebullAdapter from "./bridge-webull.js";
+import { webullConnectConfigured } from "./bridge-webull-config.js";
+import {
+  handleWebullOauthStart,
+  handleWebullOauthCallback,
+  handleWebullOauthDisconnect,
+} from "./bridge-webull-auth.js";
+import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
-// field (`"robinhood"` | `"ibkr"`); the router picks the right
+// field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
 // adapter at order-time. Mock mode + hard caps + audit log work
-// identically for both — the only thing that changes is the actual
+// identically for all — the only thing that changes is the actual
 // HTTPS call into the broker's API.
 function brokerAdapterFor(user) {
   const b = String(user?.broker || "robinhood").toLowerCase();
   if (b === "ibkr") return IbkrAdapter;
+  if (b === "webull") return WebullAdapter;
   return RobinhoodAdapter; // default
 }
 // Re-exported tool-call shim for legacy /bridge/test/rh-call path —
@@ -58,6 +67,7 @@ function brokerAdapterFor(user) {
 async function callMcpTool(env, user, toolName, args) {
   const adapter = brokerAdapterFor(user);
   if (typeof adapter.callMcpTool === "function") return adapter.callMcpTool(env, user, toolName, args);
+  if (typeof adapter.callWebullAction === "function") return adapter.callWebullAction(env, user, toolName, args);
   // IBKR doesn't have an MCP tool concept; map a few obvious cases.
   if (toolName === "get_portfolio")        return adapter.getPortfolio(env, user);
   if (toolName === "get_equity_positions") return adapter.getEquityPositions(env, user);
@@ -120,25 +130,21 @@ export default {
           env: env?.BRIDGE_ENV || "unknown",
           mock_mode: String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false",
           kill_switch: ks,
+          webull_connect_configured: webullConnectConfigured(env),
+          webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
           ts: Date.now(),
         });
       }
 
-      // ── Public OAuth callback (RH redirects here) ────────────
+      // ── Public OAuth callbacks ───────────────────────────────
+      if (method === "GET" && path === "/bridge/webull/oauth/callback") {
+        const result = await handleWebullOauthCallback(env, req);
+        return _oauthCallbackHtml(result, "Webull");
+      }
+
       if (method === "GET" && path === "/bridge/oauth/callback") {
         const result = await handleOauthCallback(env, req);
-        // Render a tiny HTML page so the user sees something useful.
-        const status = result.status || (result.ok ? 200 : 400);
-        const heading = result.ok ? "✓ Robinhood Connected" : "Connection Failed";
-        const detail = result.ok
-          ? `Account: ${result.rh_account_number || "(pending)"}. Live trading is disabled until the operator enables it.`
-          : `Error: ${result.error || "unknown"}`;
-        const html = `<!doctype html><html><body style="font-family:system-ui;max-width:560px;margin:64px auto;padding:24px;background:#0e1014;color:#eaecf0">
-<h1 style="margin-top:0">${heading}</h1>
-<p>${detail}</p>
-<p style="opacity:0.6;font-size:13px">You can close this tab.</p>
-</body></html>`;
-        return new Response(html, { status, headers: { "Content-Type": "text/html; charset=utf-8", ...corsHeaders() } });
+        return _oauthCallbackHtml(result, "Robinhood");
       }
 
       // ── Authenticated operator endpoints ─────────────────────
@@ -152,6 +158,17 @@ export default {
       if (method === "POST" && path === "/bridge/oauth/disconnect") {
         if (operatorFail) return operatorFail;
         const result = await handleOauthDisconnect(env, req);
+        return json(result, result.status || 200);
+      }
+
+      if (method === "POST" && path === "/bridge/webull/oauth/start") {
+        if (operatorFail) return operatorFail;
+        const result = await handleWebullOauthStart(env, req);
+        return json(result, result.status || 200);
+      }
+      if (method === "POST" && path === "/bridge/webull/oauth/disconnect") {
+        if (operatorFail) return operatorFail;
+        const result = await handleWebullOauthDisconnect(env, req);
         return json(result, result.status || 200);
       }
 
@@ -233,6 +250,7 @@ export default {
           ok: true,
           mock_mode: String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false",
           kill_switch: ks,
+          webull_connect_configured: webullConnectConfigured(env),
           users: users.map(_redactUserForList),
           users_count: users.length,
           ts: Date.now(),
@@ -288,19 +306,28 @@ export default {
               const r = portfolio.response || portfolio;
               const acct = (Array.isArray(portfolio.accounts) && portfolio.accounts[0]) || portfolio.summary || r;
               const equity = Number(
-                acct?.netliquidation?.amount ?? acct?.NetLiquidation?.amount
+                portfolio.equity
+                ?? acct?.netliquidation?.amount ?? acct?.NetLiquidation?.amount
                 ?? acct?.equitywithloanvalue?.amount
                 ?? acct?.equity?.current ?? acct?.equity ?? acct?.net_liquidation
+                ?? acct?.total_asset ?? acct?.totalAsset
               );
               const cash = Number(
-                acct?.totalcashvalue?.amount ?? acct?.TotalCashValue?.amount
+                portfolio.cash
+                ?? acct?.totalcashvalue?.amount ?? acct?.TotalCashValue?.amount
                 ?? acct?.availablefunds?.amount
                 ?? acct?.cash?.current ?? acct?.cash ?? acct?.total_cash
+                ?? acct?.total_cash ?? acct?.totalCash
               );
               const buyingPower = Number(
-                acct?.buyingpower?.amount ?? acct?.BuyingPower?.amount ?? acct?.buying_power
+                portfolio.buying_power
+                ?? acct?.buyingpower?.amount ?? acct?.BuyingPower?.amount ?? acct?.buying_power
               );
-              const acctId = String(acct?.accountcode?.value || acct?.accountId || acct?.account || "").trim();
+              const acctId = String(
+                u.webull_account_id
+                || u.ibkr_account_id
+                || acct?.accountcode?.value || acct?.accountId || acct?.account || ""
+              ).trim();
               summary.equity_usd = Number.isFinite(equity) ? equity : null;
               summary.cash_usd = Number.isFinite(cash) ? cash : null;
               summary.buying_power_usd = Number.isFinite(buyingPower) ? buyingPower : null;
@@ -705,6 +732,22 @@ export default {
         return json({ ok: true, tool, ...result });
       }
 
+      if (method === "POST" && path === "/bridge/test/webull-call") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const userId = String(body?.user_id || "").trim().toLowerCase();
+        const action = String(body?.action || "get_portfolio").trim();
+        const args = body?.args || {};
+        if (!userId) return json({ ok: false, error: "user_id_required" }, 400);
+        const user = await readUser(env, userId);
+        if (!user) return json({ ok: false, error: "user_not_found" }, 404);
+        if (String(user.broker || "").toLowerCase() !== "webull") {
+          return json({ ok: false, error: "user_broker_not_webull", broker: user.broker || null }, 400);
+        }
+        const result = await WebullAdapter.callWebullAction(env, user, action, args);
+        return json({ ok: true, action, ...result });
+      }
+
       // ── Webhook (HMAC-authenticated) ─────────────────────────
       if (method === "POST" && path === "/bridge/order") {
         const rawBody = await req.text();
@@ -786,6 +829,14 @@ export default {
       }
 
       // ── 5-min reconciler cron (Phase C) ────────────────────────────
+      const refreshSummary = await refreshWebullTokensIfNeeded(env).catch((e) => {
+        console.warn("[WEBULL/REFRESH] cron failed:", String(e?.message || e).slice(0, 200));
+        return null;
+      });
+      if (refreshSummary && refreshSummary.refreshed > 0) {
+        console.log(`[WEBULL/REFRESH] refreshed=${refreshSummary.refreshed} failed=${refreshSummary.failed}`);
+      }
+
       // Operating-hours gate: skip when NY market is closed (we don't
       // expect drift on closed markets). Operator can flip BROKER_
       // RECONCILE_24_7=true if they want continuous sweeps (useful
@@ -1136,23 +1187,47 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
   }, placed?.ok ? 200 : 502);
 }
 
+function _oauthCallbackHtml(result, brokerLabel) {
+  const status = result.status || (result.ok ? 200 : 400);
+  const heading = result.ok ? `✓ ${brokerLabel} Connected` : `${brokerLabel} Connection Failed`;
+  const acct = result.webull_account_id || result.rh_account_number || "(pending)";
+  const detail = result.ok
+    ? `Account: ${acct}. Live trading is disabled until the operator enables it.`
+    : `Error: ${result.error || "unknown"}`;
+  const html = `<!doctype html><html><body style="font-family:system-ui;max-width:560px;margin:64px auto;padding:24px;background:#0e1014;color:#eaecf0">
+<h1 style="margin-top:0">${heading}</h1>
+<p>${detail}</p>
+<p style="opacity:0.6;font-size:13px">You can close this tab.</p>
+</body></html>`;
+  return new Response(html, { status, headers: { "Content-Type": "text/html; charset=utf-8", ...corsHeaders() } });
+}
+
 // ── Redaction helpers — never return token wraps to operator UI ──
 function _redactUser(user) {
   if (!user) return null;
-  const { rh_token_wrap, rh_refresh_wrap, ...safe } = user;
+  const {
+    rh_token_wrap, rh_refresh_wrap,
+    webull_token_wrap, webull_refresh_wrap,
+    ...safe
+  } = user;
   return {
     ...safe,
     has_rh_token: !!rh_token_wrap,
     has_rh_refresh: !!rh_refresh_wrap,
+    has_webull_token: !!webull_token_wrap,
+    has_webull_refresh: !!webull_refresh_wrap,
   };
 }
 function _redactUserForList(user) {
   if (!user) return null;
   return {
     user_id: user.user_id,
+    broker: user.broker || null,
     status: user.status,
     broker_integration_enabled: !!user.broker_integration_enabled,
     rh_account_number: user.rh_account_number || null,
+    webull_account_id: user.webull_account_id || null,
+    ibkr_account_id: user.ibkr_account_id || null,
     connected_at: user.connected_at || null,
     last_order_at: user.last_order_at || null,
     daily_order_count: user.daily_order_count || 0,
