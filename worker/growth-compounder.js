@@ -470,6 +470,51 @@ export function attachCompounderFromLatest(row, latestRow) {
 /**
  * Enrich score rows with compounder data from KV only (read-time, no live TD fetches).
  */
+/**
+ * Backfill missing companyName on holdbook/score rows from timed:context
+ * and optional D1 ticker_metadata (read-time, no live provider calls).
+ */
+export async function enrichHoldbookRowNames(rows, kvGetJSON, opts = {}) {
+  const out = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
+  const syms = [...new Set(
+    out
+      .filter((row) => row?.ticker && !row.companyName)
+      .map((row) => String(row.ticker).toUpperCase()),
+  )];
+  if (!syms.length) return out;
+
+  const nameBySym = {};
+  for (let b = 0; b < syms.length; b += 50) {
+    const batch = syms.slice(b, b + 50);
+    const kvResults = await Promise.all(
+      batch.map((sym) => kvGetJSON(`timed:context:${sym}`)),
+    );
+    for (let i = 0; i < batch.length; i++) {
+      const ctx = kvResults[i];
+      const nm = ctx?.name || ctx?.companyName || ctx?.company_name || null;
+      if (nm) nameBySym[batch[i]] = String(nm);
+    }
+  }
+
+  if (typeof opts.loadMetadataNames === "function") {
+    try {
+      const meta = await opts.loadMetadataNames(syms);
+      if (meta && typeof meta === "object") {
+        for (const [sym, nm] of Object.entries(meta)) {
+          const T = String(sym || "").toUpperCase();
+          if (T && nm && !nameBySym[T]) nameBySym[T] = String(nm);
+        }
+      }
+    } catch (_) { /* best-effort */ }
+  }
+
+  return out.map((row) => {
+    const sym = String(row.ticker || "").toUpperCase();
+    if (row.companyName || !nameBySym[sym]) return row;
+    return { ...row, companyName: nameBySym[sym] };
+  });
+}
+
 export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
   const cap = Number(opts.enrichCap) || 30;
   const latestKeyFn = typeof opts.latestKeyFn === "function" ? opts.latestKeyFn : null;

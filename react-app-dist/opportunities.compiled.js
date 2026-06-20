@@ -78,34 +78,76 @@ function OpportunitiesApp() {
     return () => clearInterval(id);
   }, [RailOverlay]);
   useEffect(() => {
+    const readEntitled = () => !!(window._ttIsPro || window._ttIsAdmin);
+    const readAuthSettled = () => {
+      const v = document.body?.dataset?.isAuthenticated;
+      return v === "true" || v === "false";
+    };
     let cancelled = false;
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 15000);
-    (async () => {
-      try {
-        const r = await fetch(`${API_BASE}/timed/investor/holdbook`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ctrl.signal
-        });
-        const j = await r.json();
-        if (!cancelled) {
-          if (j.error_kind === "tier_required") setErr("Growth Ideas requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          const msg = e?.name === "AbortError" ? "Growth ideas request timed out. Try again in a moment." : String(e.message || e);
-          setErr(msg);
-        }
-      } finally {
-        clearTimeout(timeoutId);
-        if (!cancelled) setLoading(false);
+    let ctrl = new AbortController();
+    let timeoutId = null;
+    const syncAuth = () => {
+      if (cancelled) return;
+      if (!readAuthSettled()) return;
+      if (!readEntitled()) {
+        setErr("Growth Ideas requires a Pro subscription.");
+        setLoading(false);
+        return;
       }
-    })();
+      ctrl.abort();
+      ctrl = new AbortController();
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => ctrl.abort(), 15000);
+      setLoading(true);
+      setErr(null);
+      fetch(`${API_BASE}/timed/investor/holdbook`, {
+        credentials: "include",
+        cache: "no-store",
+        signal: ctrl.signal
+      }).then(r => r.json()).then(j => {
+        if (cancelled) return;
+        if (j.error_kind === "tier_required") {
+          if (readEntitled()) {
+            return new Promise(res => setTimeout(res, 1500)).then(() => {
+              if (cancelled) return;
+              return fetch(`${API_BASE}/timed/investor/holdbook`, {
+                credentials: "include",
+                cache: "no-store"
+              }).then(r2 => r2.json());
+            });
+          }
+          setErr("Growth Ideas requires a Pro subscription.");
+          return null;
+        }
+        if (!j.ok && j.error) {
+          setErr(j.error);
+          return null;
+        }
+        return j;
+      }).then(j => {
+        if (cancelled || !j) return;
+        if (j.error_kind === "tier_required") {
+          setErr("Growth Ideas requires a Pro subscription.");
+        } else if (!j.ok && j.error) {
+          setErr(j.error);
+        } else {
+          setData(j);
+        }
+      }).catch(e => {
+        if (cancelled) return;
+        const msg = e?.name === "AbortError" ? "Growth ideas request timed out. Try again in a moment." : String(e.message || e);
+        setErr(msg);
+      }).finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    };
+    syncAuth();
+    window.addEventListener("tt-auth-bootstrap-updated", syncAuth);
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       ctrl.abort();
+      window.removeEventListener("tt-auth-bootstrap-updated", syncAuth);
     };
   }, []);
   const railTickerObj = useMemo(() => railTicker ? {
@@ -204,6 +246,6 @@ function OpportunitiesApp() {
 }
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(h(OpportunitiesApp));
-// cache-bust:1781911807407:484132943
+// cache-bust:1781967329131:533465942
 
-// cache-bust:1781911807407:484132943
+// cache-bust:1781967329131:533465942

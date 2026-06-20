@@ -688,10 +688,12 @@ export async function requireUser(req, env, opts = {}) {
  */
 export function computeUserDataTier(user, env) {
   if (!user) return "anon";
+  const adminEmail = String(env?.ADMIN_EMAIL || "").toLowerCase().trim();
+  const userEmail = String(user.email || "").toLowerCase().trim();
   if (
     user.role === "admin" ||
     user.tier === "admin" ||
-    (env?.ADMIN_EMAIL && user.email === env.ADMIN_EMAIL)
+    (adminEmail && userEmail === adminEmail)
   ) {
     return "admin";
   }
@@ -709,6 +711,32 @@ export function computeUserDataTier(user, env) {
     subStatus === "canceling" ||
     isPastDueInGrace;
   return isPro ? "pro" : "free";
+}
+
+/**
+ * Resolve caller data tier from API key or CF Access session.
+ * Mirrors /timed/me ADMIN_EMAIL auto-promotion so browser UI and
+ * entitlement gates agree before the me handler runs.
+ */
+export async function resolveRequestDataTier(req, env) {
+  try {
+    if (env?.TIMED_API_KEY) {
+      const keyFail = requireKeyOr401(req, env);
+      if (!keyFail) return "admin";
+    }
+    const user = await authenticateUser(req, env);
+    if (user) {
+      const adminEmail = String(env?.ADMIN_EMAIL || "").toLowerCase().trim();
+      const userEmail = String(user.email || "").toLowerCase().trim();
+      if (adminEmail && userEmail === adminEmail) {
+        user.role = "admin";
+        user.tier = "admin";
+      }
+    }
+    return computeUserDataTier(user, env);
+  } catch (_) {
+    return "anon";
+  }
 }
 
 // Licensed live price fields. Twelve Data licensing forbids redistributing
