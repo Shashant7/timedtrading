@@ -192,24 +192,6 @@ function resolveMarketSession(cal) {
   const rthOpen = hasCal ? sess.is_rth === true : isNyRegularMarketOpen();
   const operatingHours = hasCal ? sess.is_within_operating_hours === true : !isWeekend;
   const showDayTradeSections = hasCal && sess.is_rth === true && !isHoliday && !isWeekend;
-  let bannerKind = null;
-  let bannerMessage = "";
-  if (hasCal && isHoliday) {
-    bannerKind = "closed";
-    bannerMessage = holidayName ? `Markets are closed today for ${holidayName}.` : "Markets are closed today for a US market holiday.";
-  } else if (hasCal && isWeekend) {
-    bannerKind = "closed";
-    bannerMessage = "Markets are closed for the weekend.";
-  } else if (hasCal && !rthOpen && sessionType === "PM") {
-    bannerKind = "premarket";
-    bannerMessage = "Pre-market — regular session opens at 9:30 AM ET.";
-  } else if (hasCal && !rthOpen && sessionType === "AH") {
-    bannerKind = "afterhours";
-    bannerMessage = "After-hours — regular session closed at 4:00 PM ET.";
-  } else if (hasCal && !rthOpen) {
-    bannerKind = "closed";
-    bannerMessage = "Markets are closed.";
-  }
   return {
     rthOpen,
     operatingHours,
@@ -218,9 +200,7 @@ function resolveMarketSession(cal) {
     isEarlyClose,
     isWeekend,
     sessionType,
-    showDayTradeSections,
-    bannerKind,
-    bannerMessage
+    showDayTradeSections
   };
 }
 const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
@@ -366,22 +346,6 @@ function SessionPill({
   }, h("span", {
     className: "dot"
   }), label);
-}
-function MarketStatusBanner({
-  cal
-}) {
-  const session = resolveMarketSession(cal);
-  if (!session.bannerKind || !session.bannerMessage) return null;
-  return h("div", {
-    className: `tt-market-banner tt-market-banner--${session.bannerKind}`,
-    role: "status",
-    "aria-live": "polite"
-  }, h("span", {
-    className: "tt-market-banner-icon",
-    "aria-hidden": true
-  }, session.bannerKind === "closed" ? "◼" : "◷"), h("span", {
-    className: "tt-market-banner-text"
-  }, session.bannerMessage));
 }
 const REGIME_TONE = {
   RISK_ON: "var(--tt-up-soft)",
@@ -2092,7 +2056,8 @@ function TodayHero({
   briefSlot,
   data,
   earnings,
-  onSelectTicker
+  onSelectTicker,
+  cal
 }) {
   return h("div", {
     className: "today-hero",
@@ -2112,7 +2077,8 @@ function TodayHero({
   }) : h(BriefPlaceholder, {
     data,
     earnings,
-    onSelectTicker
+    onSelectTicker,
+    cal
   })), h("div", {
     className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
@@ -5149,14 +5115,13 @@ function TodayApp({
     brief,
     briefSlot,
     data
-  }), h(MarketStatusBanner, {
-    cal
   }), h(TodayHero, {
     brief,
     briefSlot,
     data,
     earnings,
-    onSelectTicker
+    onSelectTicker,
+    cal
   }), h(OpenPositionsPreview, {
     onSelectTicker,
     allTickers
@@ -5235,7 +5200,8 @@ function TodayApp({
 function BriefPlaceholder({
   data,
   earnings,
-  onSelectTicker
+  onSelectTicker,
+  cal
 }) {
   if (!data) {
     return h("section", {
@@ -5279,74 +5245,66 @@ function BriefPlaceholder({
       }
     })));
   }
-  const sessionInfo = (() => {
+  const session = resolveMarketSession(cal);
+  const sessionPhase = session.isHoliday || session.isWeekend ? "closed" : session.rthOpen ? "rth" : session.sessionType === "PM" ? "pre" : session.sessionType === "AH" ? "ah" : "closed";
+  const countdownInfo = (() => {
+    if (sessionPhase === "closed") return null;
     try {
       const f = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York",
         hour12: false,
-        weekday: "short",
         hour: "2-digit",
         minute: "2-digit"
       });
       const parts = f.formatToParts(new Date());
-      const wd = parts.find(p => p.type === "weekday")?.value;
       const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
       const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
       const min = hh * 60 + mm;
       const RTH_OPEN = 9 * 60 + 30;
       const RTH_CLOSE = 16 * 60;
       const AH_CLOSE = 20 * 60;
-      if (wd === "Sat" || wd === "Sun") return {
-        label: "Weekend · Market closed",
-        phase: "closed",
-        countdown: null
-      };
-      if (min < RTH_OPEN) {
+      if (sessionPhase === "pre") {
         const delta = RTH_OPEN - min;
-        return {
-          label: "Pre-market",
-          phase: "pre",
+        return delta > 0 ? {
           countdown: fmtCountdown(delta),
           countdownLabel: "to open"
-        };
+        } : null;
       }
-      if (min < RTH_CLOSE) {
+      if (sessionPhase === "rth") {
         const delta = RTH_CLOSE - min;
-        return {
-          label: "Market open · RTH",
-          phase: "rth",
+        return delta > 0 ? {
           countdown: fmtCountdown(delta),
           countdownLabel: "to close"
-        };
+        } : null;
       }
-      if (min < AH_CLOSE) {
+      if (sessionPhase === "ah") {
         const delta = AH_CLOSE - min;
-        return {
-          label: "After-hours",
-          phase: "ah",
+        return delta > 0 ? {
           countdown: fmtCountdown(delta),
           countdownLabel: "to AH close"
-        };
+        } : null;
       }
-      return {
-        label: "Market closed",
-        phase: "closed",
-        countdown: null
-      };
+      return null;
     } catch {
-      return {
-        label: "Market closed",
-        phase: "closed",
-        countdown: null
-      };
+      return null;
     }
+  })();
+  const marketClosedForBrief = sessionPhase === "closed";
+  const briefLoadingHint = (() => {
+    if (marketClosedForBrief) return null;
+    const mins = nyEtMinutes();
+    if (mins < 9 * 60) return "Morning brief publishes ~9:00 AM ET";
+    if (mins >= 16 * 60) return "Evening brief loading";
+    return h(React.Fragment, null, h("span", {
+      className: "bp-dots"
+    }, h("i", null), h("i", null), h("i", null)), "Daily brief loading");
   })();
   const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
     ticker: String(k).toUpperCase(),
     ...(v || {})
   }).filter(t => t && t.ticker);
   const CRYPTO = new Set(["BTCUSD", "ETHUSD"]);
-  const useExt = sessionInfo.phase === "pre" || sessionInfo.phase === "ah" || sessionInfo.phase === "closed";
+  const useExt = sessionPhase === "pre" || sessionPhase === "ah" || sessionPhase === "closed";
   let signalMode = useExt ? "ext" : "rth";
   let signal = useExt ? arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
     t,
@@ -5385,25 +5343,21 @@ function BriefPlaceholder({
     }
   })();
   const earningsTodayCount = safeArr(earnings?.events).filter(ev => ev?.date === todayIso).length;
-  const phaseTagCls = sessionInfo.phase === "rth" ? "up" : sessionInfo.phase === "pre" || sessionInfo.phase === "ah" ? "accent" : "";
   const signalLabel = signalMode === "ext" ? "Pre/After-hours movers" : "Today's biggest movers";
+  const showBpHead = countdownInfo || briefLoadingHint;
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-card tt-card-pad bp-card"
-  }, h("div", {
+  }, showBpHead && h("div", {
     className: "bp-head"
-  }, h("span", {
-    className: `tt-pill ${phaseTagCls}`
-  }, sessionInfo.label), sessionInfo.countdown && h("span", {
+  }, countdownInfo && h("span", {
     className: "bp-countdown"
-  }, sessionInfo.countdown, h("span", {
+  }, countdownInfo.countdown, h("span", {
     className: "bp-countdown-lbl"
-  }, " " + (sessionInfo.countdownLabel || ""))), h("span", {
+  }, " " + (countdownInfo.countdownLabel || ""))), briefLoadingHint && h("span", {
     className: "bp-loading"
-  }, nyEtMinutes() < 9 * 60 ? "Morning brief publishes ~9:00 AM ET" : nyEtMinutes() >= 16 * 60 ? "Evening brief loading" : h(React.Fragment, null, h("span", {
-    className: "bp-dots"
-  }, h("i", null), h("i", null), h("i", null)), "Daily brief loading"))), h("div", {
+  }, briefLoadingHint)), h("div", {
     className: "bp-section-title"
   }, signalLabel.toUpperCase()), signal.length > 0 ? h("div", {
     className: "bp-signal-list"
@@ -5616,6 +5570,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781975721289:977861871
+// cache-bust:1781976086582:13242453
 
-// cache-bust:1781975721289:977861871
+// cache-bust:1781976086582:13242453
