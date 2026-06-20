@@ -135,7 +135,8 @@ EMAIL_FROM = "notifications@timed-trading.com"
 # on every auto-promote with a 24h undo window via MC.
 COO_ENABLED = "true"
 COO_AUTO_APPLY_TIER1 = "true"          # auto-apply tier-1 calibration deltas
-COO_SELF_HEAL = "true"                 # ledger repair / candle backfill on sanity-sweep fails
+COO_SELF_HEAL = "true"
+UNIVERSE_ONBOARD_HEAL = "true"                 # ledger repair / candle backfill on sanity-sweep fails
 COO_SCREENER_AUTO_PROMOTE = "true"     # auto-approve high-conviction screener candidates
 COO_SCREENER_AUTO_SCORE = "70"         # min total_score to auto-promote
 COO_SCREENER_DAILY_MAX = "3"           # max universe adds per cycle (safety cap)
@@ -342,6 +343,7 @@ EMAIL_FROM = "notifications@timed-trading.com"
 COO_ENABLED = "true"
 COO_AUTO_APPLY_TIER1 = "true"
 COO_SELF_HEAL = "true"
+UNIVERSE_ONBOARD_HEAL = "true"
 COO_SCREENER_AUTO_PROMOTE = "true"
 COO_SCREENER_AUTO_SCORE = "70"
 COO_SCREENER_DAILY_MAX = "3"

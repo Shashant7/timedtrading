@@ -89,6 +89,7 @@ const FORCE_REPLAY = hasFlag("--force-replay");
 const REPLAY_SINCE_RAW = argValue("--replay-since", "") || process.env.TIER_A_REPLAY_SINCE || "";
 const REPLAY_SINCE_MS = REPLAY_SINCE_RAW ? Date.parse(REPLAY_SINCE_RAW) : null;
 const QUALITY_GATE = hasFlag("--quality-gate");
+const AUTO_ONBOARD = !hasFlag("--no-auto-onboard");
 const MIN_PAYLOAD_RATIO = Number(argValue("--min-payload-ratio", "0.85")) || 0.85;
 const MIN_EVENTS_DERIVED = Number(argValue("--min-events", "15")) || 15;
 const INTERVAL_MINUTES = Math.max(1, Number(argValue("--interval-minutes", "5")) || 5);
@@ -297,6 +298,37 @@ async function postBackfillApi(ticker, since, until) {
   return resp.json();
 }
 
+async function countTickerCandles(ticker, tf = "10") {
+  if (!WRANGLER_D1) return 0;
+  const sym = String(ticker || "").toUpperCase().replace(/'/g, "''");
+  const rows = fetchD1Rows(WRANGLER_D1, `SELECT COUNT(*) as cnt FROM ticker_candles WHERE ticker='${sym}' AND tf='${tf}'`);
+  return Number(rows[0]?.cnt || 0);
+}
+
+async function ensureTickerOnboarded(ticker) {
+  if (!AUTO_ONBOARD || !API_KEY || SKIP_REPLAY || DRY_RUN) return { ok: true, skipped: true };
+  const cnt = await countTickerCandles(ticker, "10");
+  if (cnt >= 40) return { ok: true, skipped: true, candles_10m: cnt };
+
+  console.log(`  ensure onboard ${ticker}: only ${cnt} 10m candles — running full pipeline...`);
+  const params = new URLSearchParams({ key: API_KEY, ticker, sinceDays: "730" });
+  const resp = await fetch(`${API_BASE_ARG}/timed/admin/onboard?${params}`, { method: "POST" });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || data.ok === false) {
+    const err = new Error(`onboard failed for ${ticker}: ${data.error || resp.status}`);
+    err.code = "ONBOARD_FAILED";
+    throw err;
+  }
+  const after = await countTickerCandles(ticker, "10");
+  if (after < 10) {
+    const err = new Error(`onboard incomplete for ${ticker}: ${after} 10m candles after pipeline`);
+    err.code = "ONBOARD_INCOMPLETE";
+    throw err;
+  }
+  console.log(`  onboard ${ticker}: ${after} 10m candles ready`);
+  return { ok: true, candles_10m: after, onboard: data };
+}
+
 async function replayMoveWindow(move) {
   const ticker = String(move.ticker || "").toUpperCase();
   const { sessions, startDate, endDate } = moveReplayDateRange(move, { preEntryDays: PRE_ENTRY_DAYS });
@@ -402,6 +434,7 @@ async function processMove(move) {
   };
 
   if (!SKIP_REPLAY) {
+    await ensureTickerOnboarded(ticker);
     item.replay = await replayMoveWindow(move);
   }
 
