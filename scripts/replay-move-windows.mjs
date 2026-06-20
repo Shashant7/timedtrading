@@ -318,6 +318,14 @@ async function replayMoveWindow(move) {
   return { ticker, startDate, endDate, sessions: sessions.length, dayResults };
 }
 
+function minEventsThreshold(item) {
+  const trailRows = Number(item.trail_rows) || 0;
+  const sessions = Number(item.replay?.sessions) || 0;
+  if (trailRows <= 400 || sessions <= 8) return 8;
+  if (trailRows <= 900 || sessions <= 12) return 12;
+  return MIN_EVENTS_DERIVED;
+}
+
 function validateMoveQuality(item) {
   if (!QUALITY_GATE || REPLAY_ONLY || SKIP_REPLAY || DRY_RUN) return;
 
@@ -345,15 +353,16 @@ function validateMoveQuality(item) {
     throw err;
   }
 
-  if (trailRows > 200 && (Number(item.events_derived) || 0) < MIN_EVENTS_DERIVED) {
+  const minEvents = minEventsThreshold(item);
+  if (trailRows > 200 && (Number(item.events_derived) || 0) < minEvents) {
     const err = new Error(
-      `quality_gate: events_derived ${item.events_derived} < ${MIN_EVENTS_DERIVED} for ${item.ticker} (${trailRows} trail rows)`,
+      `quality_gate: events_derived ${item.events_derived} < ${minEvents} for ${item.ticker} (${trailRows} trail rows, ${item.replay?.sessions || "?"} sessions)`,
     );
     err.code = "QUALITY_GATE";
     throw err;
   }
 
-  console.log(`  quality_gate pass: payload ${payloadRows}/${trailRows} (${(ratio * 100).toFixed(1)}%), events=${item.events_derived}, sequence=${item.mining?.sequence?.sequence_type || "none"}`);
+  console.log(`  quality_gate pass: payload ${payloadRows}/${trailRows} (${(ratio * 100).toFixed(1)}%), events=${item.events_derived} (min=${minEvents}), sequence=${item.mining?.sequence?.sequence_type || "none"}`);
 }
 
 async function processMove(move) {
