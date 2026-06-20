@@ -10,6 +10,7 @@ import {
   computeCompounderScoreBoost,
   extractGrowthCompounderSignal,
   buildInvestorHoldbook,
+  enrichHoldbookRowNames,
   attachCompounderFromSnapshot,
   attachCompounderFromLatest,
   normalizeRevenueEstimates,
@@ -105,6 +106,20 @@ describe("buildHoldThesisBullets", () => {
     const traj = buildRevenueTrajectory(snap);
     const bullets = buildHoldThesisBullets(snap, fv, traj, "growth_elite");
     expect(bullets.some((b) => /Compounding core/i.test(b))).toBe(true);
+  });
+});
+
+describe("enrichHoldbookRowNames", () => {
+  it("fills companyName from timed:context KV", async () => {
+    const kv = {
+      "timed:context:MOD": { name: "Modine Manufacturing Company" },
+    };
+    const rows = await enrichHoldbookRowNames(
+      [{ ticker: "MOD" }, { ticker: "MU", companyName: "Micron" }],
+      (key) => Promise.resolve(kv[key] || null),
+    );
+    expect(rows[0].companyName).toBe("Modine Manufacturing Company");
+    expect(rows[1].companyName).toBe("Micron");
   });
 });
 

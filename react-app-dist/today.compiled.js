@@ -2616,17 +2616,45 @@ function GrowthIdeasStrip({
 }) {
   const [rows, setRows] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
+  const readEntitled = () => !!(window._ttIsPro || window._ttIsAdmin);
+  const readAuthSettled = () => {
+    const v = document.body?.dataset?.isAuthenticated;
+    return v === "true" || v === "false";
+  };
+  const [entitled, setEntitled] = useState(readEntitled);
+  const [authSettled, setAuthSettled] = useState(readAuthSettled);
+  const [fetchGen, setFetchGen] = useState(0);
   useEffect(() => {
+    const syncAuth = () => {
+      setEntitled(readEntitled());
+      setAuthSettled(readAuthSettled());
+      setFetchGen(g => g + 1);
+    };
+    syncAuth();
+    window.addEventListener("tt-auth-bootstrap-updated", syncAuth);
+    return () => window.removeEventListener("tt-auth-bootstrap-updated", syncAuth);
+  }, []);
+  useEffect(() => {
+    if (!authSettled) return;
+    if (!entitled) {
+      setRows([]);
+      return;
+    }
     let cancelled = false;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 12000);
-    fetch(`${API_BASE}/timed/investor/holdbook`, {
+    const loadHoldbook = retryOnTier => fetch(`${API_BASE}/timed/investor/holdbook`, {
       credentials: "include",
       cache: "no-store",
       signal: ctrl.signal
-    }).then(r => r.json()).then(j => {
+    }).then(r => r.json()).then(async j => {
       if (cancelled) return;
       if (j.error_kind === "tier_required") {
+        if (retryOnTier && readEntitled()) {
+          await new Promise(res => setTimeout(res, 1500));
+          if (cancelled) return;
+          return loadHoldbook(false);
+        }
         setRows([]);
         return;
       }
@@ -2645,12 +2673,13 @@ function GrowthIdeasStrip({
     }).finally(() => {
       clearTimeout(t);
     });
+    loadHoldbook(true);
     return () => {
       cancelled = true;
       clearTimeout(t);
       ctrl.abort();
     };
-  }, []);
+  }, [authSettled, entitled, fetchGen]);
   if (rows === null) {
     return h("section", {
       id: "opportunities",
@@ -5555,6 +5584,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781912784939:529221598
+// cache-bust:1781967329131:533465942
 
-// cache-bust:1781912784939:529221598
+// cache-bust:1781967329131:533465942
