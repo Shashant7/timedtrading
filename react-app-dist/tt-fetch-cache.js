@@ -173,7 +173,13 @@
     } catch (_) {}
   }
 
-  window.TTFetchCache = { get, peek, subscribe, invalidate, clear };
+  function put(url, body, status) {
+    const entry = writeEntry(url, body, status);
+    if (entry) notify(url, body);
+    return entry;
+  }
+
+  window.TTFetchCache = { get, peek, put, subscribe, invalidate, clear };
 })();
 
-// cache-bust:1781968603785:28660007
+// cache-bust:1781972816438:997350391
