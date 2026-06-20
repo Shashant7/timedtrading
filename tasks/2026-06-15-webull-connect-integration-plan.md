@@ -28,9 +28,25 @@ is the correct path for a hosted platform executing trades server-side on behalf
 | `bridge-webull.js` — adapter (`reviewOrder`, `placeOrder`, …) | Done (mock + live paths) |
 | `bridge-webull-auth.js` — OAuth start/callback/disconnect | Done |
 | `bridge-webull-tokens.js` — proactive token refresh cron | Done |
+| `bridge-brokers.js` — capability registry | Done |
 | `bridge-index.js` routing + `/bridge/test/webull-call` | Done |
+| Main worker proxies (`/timed/admin/broker-bridge/webull/*`) | Done |
+| Mission Control Connect Brokers panel | Done |
+| `account-brokers.html` + `broker-connect-shared.js` | Done |
+| `scripts/test-webull-sign.mjs` signing smoke test | Done |
 | `wrangler.toml` vars + secrets checklist | Done |
 | `skills/broker-bridge.md` runbook section | Done |
+
+### Pre-credential validation (no Webull account needed)
+
+1. Set `BROKER_BRIDGE_MOCK=true` on bridge worker (local or staging).
+2. Mission Control → Broker Bridge → **Connect Webull** with operator email.
+3. Confirm user row: `broker=webull`, `status=connected`, `mock_mode=true`.
+4. **Test portfolio** → mock balance response.
+5. Enable live trading toggle → fire a tiny mirror order in shadow/log mode.
+6. Check `/bridge/audit` for preview/place rows.
+
+When Connect credentials arrive, flip `BROKER_BRIDGE_MOCK=false`, set secrets, repeat with real OAuth URL.
 
 **Blocked on external input:**
 

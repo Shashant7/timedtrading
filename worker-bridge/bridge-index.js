@@ -50,6 +50,7 @@ import {
   handleWebullOauthDisconnect,
 } from "./bridge-webull-auth.js";
 import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
+import { listBrokers } from "./bridge-brokers.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
 // field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
@@ -132,6 +133,7 @@ export default {
           kill_switch: ks,
           webull_connect_configured: webullConnectConfigured(env),
           webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
+          supported_brokers: listBrokers().map((b) => ({ id: b.id, label: b.label, status: b.status })),
           ts: Date.now(),
         });
       }
