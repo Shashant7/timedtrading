@@ -713,27 +713,34 @@ export function computeUserDataTier(user, env) {
   return isPro ? "pro" : "free";
 }
 
+/** Mirror /timed/me — promote operator email to admin before tier checks. */
+export function promoteAdminEmailUser(user, env) {
+  if (!user) return user;
+  const adminEmail = String(env?.ADMIN_EMAIL || "").toLowerCase().trim();
+  const userEmail = String(user.email || "").toLowerCase().trim();
+  if (adminEmail && userEmail === adminEmail) {
+    user.role = "admin";
+    user.tier = "admin";
+  }
+  return user;
+}
+
 /**
  * Resolve caller data tier from API key or CF Access session.
- * Mirrors /timed/me ADMIN_EMAIL auto-promotion so browser UI and
- * entitlement gates agree before the me handler runs.
+ * Session is checked first so browser UI never loses to a missing API key.
  */
 export async function resolveRequestDataTier(req, env) {
   try {
+    const user = await authenticateUser(req, env);
+    if (user) {
+      promoteAdminEmailUser(user, env);
+      return computeUserDataTier(user, env);
+    }
     if (env?.TIMED_API_KEY) {
       const keyFail = requireKeyOr401(req, env);
       if (!keyFail) return "admin";
     }
-    const user = await authenticateUser(req, env);
-    if (user) {
-      const adminEmail = String(env?.ADMIN_EMAIL || "").toLowerCase().trim();
-      const userEmail = String(user.email || "").toLowerCase().trim();
-      if (adminEmail && userEmail === adminEmail) {
-        user.role = "admin";
-        user.tier = "admin";
-      }
-    }
-    return computeUserDataTier(user, env);
+    return "anon";
   } catch (_) {
     return "anon";
   }

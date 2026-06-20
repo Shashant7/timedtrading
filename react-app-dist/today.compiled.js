@@ -2611,75 +2611,69 @@ function MacroStrip({
     }
   }, "Rotation to mind: "), themeCallout, ".")));
 }
+function isHoldbookEntitledUser(user) {
+  if (!user) return false;
+  if (user.role === "admin" || user.tier === "admin") return true;
+  const subStatus = user.subscription_status;
+  const isPastDueInGrace = subStatus === "past_due" && Number.isFinite(Number(user.expires_at)) && Number(user.expires_at) > Date.now();
+  return user.tier === "pro" || user.tier === "vip" || subStatus === "active" || subStatus === "trialing" || subStatus === "manual" || subStatus === "canceling" || isPastDueInGrace;
+}
 function GrowthIdeasStrip({
-  onSelectTicker
+  onSelectTicker,
+  user
 }) {
   const [rows, setRows] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
-  const readEntitled = () => !!(window._ttIsPro || window._ttIsAdmin);
-  const readAuthSettled = () => {
-    const v = document.body?.dataset?.isAuthenticated;
-    return v === "true" || v === "false";
-  };
-  const [entitled, setEntitled] = useState(readEntitled);
-  const [authSettled, setAuthSettled] = useState(readAuthSettled);
-  const [fetchGen, setFetchGen] = useState(0);
   useEffect(() => {
-    const syncAuth = () => {
-      setEntitled(readEntitled());
-      setAuthSettled(readAuthSettled());
-      setFetchGen(g => g + 1);
-    };
-    syncAuth();
-    window.addEventListener("tt-auth-bootstrap-updated", syncAuth);
-    return () => window.removeEventListener("tt-auth-bootstrap-updated", syncAuth);
-  }, []);
-  useEffect(() => {
-    if (!authSettled) return;
-    if (!entitled) {
+    if (!isHoldbookEntitledUser(user)) {
       setRows([]);
       return;
     }
     let cancelled = false;
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12000);
-    const loadHoldbook = retryOnTier => fetch(`${API_BASE}/timed/investor/holdbook`, {
-      credentials: "include",
-      cache: "no-store",
-      signal: ctrl.signal
-    }).then(r => r.json()).then(async j => {
-      if (cancelled) return;
-      if (j.error_kind === "tier_required") {
-        if (retryOnTier && readEntitled()) {
-          await new Promise(res => setTimeout(res, 1500));
-          if (cancelled) return;
-          return loadHoldbook(false);
+    let attempt = 0;
+    const maxAttempts = 3;
+    const loadHoldbook = () => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 15000);
+      return fetch(`${API_BASE}/timed/investor/holdbook?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store",
+        signal: ctrl.signal
+      }).then(r => r.json()).then(async j => {
+        if (cancelled) return;
+        if (j.error_kind === "tier_required" && attempt < maxAttempts - 1) {
+          attempt += 1;
+          await new Promise(res => setTimeout(res, 800 * attempt));
+          if (!cancelled) return loadHoldbook();
+          return;
         }
-        setRows([]);
-        return;
-      }
-      if (!j.ok && j.error) {
-        setLoadErr(j.error);
-        setRows([]);
-        return;
-      }
-      const list = Array.isArray(j.holdings) ? j.holdings : [];
-      setRows(list.slice(0, 16));
-    }).catch(e => {
-      if (!cancelled) {
-        setLoadErr(e?.name === "AbortError" ? null : String(e.message || e));
-        setRows([]);
-      }
-    }).finally(() => {
-      clearTimeout(t);
-    });
-    loadHoldbook(true);
+        if (j.error_kind === "tier_required") {
+          setLoadErr("Growth Ideas requires a Pro or Admin subscription.");
+          setRows([]);
+          return;
+        }
+        if (!j.ok && j.error) {
+          setLoadErr(j.error);
+          setRows([]);
+          return;
+        }
+        const list = Array.isArray(j.holdings) ? j.holdings : [];
+        setLoadErr(null);
+        setRows(list.slice(0, 16));
+      }).catch(e => {
+        if (!cancelled) {
+          setLoadErr(e?.name === "AbortError" ? "Growth ideas request timed out." : String(e.message || e));
+          setRows([]);
+        }
+      }).finally(() => {
+        clearTimeout(t);
+      });
+    };
+    loadHoldbook();
     return () => {
       cancelled = true;
-      clearTimeout(t);
-      ctrl.abort();
     };
-  }, [authSettled, entitled, fetchGen]);
+  }, [user?.email, user?.role, user?.tier, user?.subscription_status, user?.expires_at]);
   if (rows === null) {
     return h("section", {
       id: "opportunities",
@@ -2690,7 +2684,16 @@ function GrowthIdeasStrip({
       className: "tt-sec-h"
     }, "Loading growth watchlist…"));
   }
-  if (!rows.length) return null;
+  if (!rows.length) {
+    return h("section", {
+      id: "opportunities",
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "GROWTH IDEAS"), h("div", {
+      className: "tt-sec-h"
+    }, loadErr || "No growth ideas matched the current compounder filters."));
+  }
   const fmtPctOpp = n => {
     if (!Number.isFinite(Number(n))) return null;
     const v = Number(n);
@@ -4924,7 +4927,9 @@ function Disclosure({
     className: "tt-disclose-body"
   }, children) : null);
 }
-function TodayApp() {
+function TodayApp({
+  user
+}) {
   const [data, setData] = useState(null);
   const [brief, setBrief] = useState(null);
   const [briefSlot, setBriefSlot] = useState(null);
@@ -5157,7 +5162,8 @@ function TodayApp() {
     onSelectTicker,
     allTickers
   }), h(GrowthIdeasStrip, {
-    onSelectTicker
+    onSelectTicker,
+    user
   }), data ? h(MarketState, {
     data,
     onSelectTicker
@@ -5584,6 +5590,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781967329131:533465942
+// cache-bust:1781968146769:895116687
 
-// cache-bust:1781967329131:533465942
+// cache-bust:1781968146769:895116687
