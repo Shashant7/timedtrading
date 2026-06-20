@@ -7,7 +7,10 @@ import {
   selectTopN,
   loadPhaseCConfig,
 } from "./pipeline/entry-selector.js";
-import { serializeSequenceTrailSnapshot } from "./foundation/sequence-snapshot.js";
+import {
+  serializeSequenceTrailSnapshot,
+  sequenceTrailSnapshotEnabled,
+} from "./foundation/sequence-snapshot.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -1173,7 +1176,8 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
           // payload when explicitly requested (trailForensics=1). Drops D1
           // growth per backtest from ~1.5-2 GB to ~50 MB. Slim fields below
           // still flow. See tasks/d1-storage-reduction-plan-2026-04-22.md
-          const payloadJson = sequenceSnapshot
+          const writeSequenceSnapshot = sequenceSnapshot || sequenceTrailSnapshotEnabled(env);
+          const payloadJson = writeSequenceSnapshot
             ? serializeSequenceTrailSnapshot(r, env, 32768, { force: true })
             : trailForensics
               ? (() => {

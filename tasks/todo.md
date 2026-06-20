@@ -22,6 +22,14 @@
 
 ### Active
 
+- [x] **Setup-mining Tier A sequence yield (2026-06-20).** Root cause: preprod
+      `timed_trail` rows had `flags_json` only (0/3318 `payload_json` for KLAC).
+      Fix: auto-write `sequence_trail` snapshots when `SETUP_TRAIL_SNAPSHOT=1`
+      (preprod wrangler var), richer `snapshotFromTrailScalars`, `--force-replay`
+      + payload warnings in replay script. Deploy preprod; KLAC smoke: 4→51 events,
+      sequence detected with 1 day of payload backfill. Full Tier A re-run needs
+      `--force-replay` on `replay-move-windows.mjs`.
+
 - [x] **Investor compliance + model voice (2026-06-15, PR #733).** Model-voice
       copy; structural reduce bypass; sticky invalidation. Merged + deployed.
 

@@ -26,7 +26,9 @@ const OUT_DIR = process.argv.includes("--out-dir")
 function loadJoinedRows(dir) {
   const rows = [];
   const moveIds = new Set();
-  for (const f of fs.readdirSync(dir).filter((x) => x.startsWith("summary-") && x.endsWith(".json"))) {
+  for (const f of fs.readdirSync(dir)
+    .filter((x) => x.startsWith("summary-") && x.endsWith(".json"))
+    .sort((a, b) => b.localeCompare(a))) {
     const j = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
     for (const it of j.summary?.items || j.items || []) {
       if (!it?.mining?.ticker || moveIds.has(it.move_id)) continue;

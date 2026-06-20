@@ -177,6 +177,26 @@ export function snapshotFromTrailScalars(row, ticker) {
   const pdzD = flags.pdz_zone_D || null;
   const pdz4h = flags.pdz_zone_4h || flags.pdz_zone_h4 || null;
   const pdz1h = flags.pdz_zone_1h || flags.pdz_zone_h1 || pdz4h;
+  const phasePct = Number(row.phase_pct);
+  const numOrNull = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const stDirFromRegime = (regime) => {
+    const r = Number(regime);
+    if (r >= 2) return 1;
+    if (r <= -2) return -1;
+    return numOrNull(regime) != null ? 0 : null;
+  };
+  const buildTf = (tf, pdzZone, emaRegime) => ({
+    pdz: { zone: pdzZone, pct: numOrNull(flags[`pdz_pct_${tf}`] ?? flags[`pdz_pct_${String(tf).toLowerCase()}`]) },
+    fvg: {
+      ib: flags.fvg_in_bull_D || flags[`fvg_in_bull_${tf}`] ? 1 : 0,
+      ibr: flags.fvg_in_bear_D || flags[`fvg_in_bear_${tf}`] ? 1 : 0,
+    },
+    stDir: stDirFromRegime(emaRegime),
+    sq: { r: flags.sq30_on || flags.sq30_release ? 1 : 0 },
+  });
 
   return {
     ticker: sym,
@@ -185,21 +205,18 @@ export function snapshotFromTrailScalars(row, ticker) {
     price: Number(row.price) || null,
     state: row.state || null,
     kanban_stage: row.kanban_stage || null,
+    phase_pct: Number.isFinite(phasePct) ? phasePct : null,
+    htf_score: numOrNull(row.htf_score),
+    ltf_score: numOrNull(row.ltf_score),
     flags,
     pdz_zone_D: pdzD,
     pdz_zone_4h: pdz4h,
     tf_tech: {
-      D: {
-        pdz: { zone: pdzD },
-        fvg: {
-          ib: (flags.fvg_in_bull_D || flags.fvg_bull_D || Number(row.fvg_bull_count) > 0) ? 1 : 0,
-          ibr: (flags.fvg_in_bear_D || flags.fvg_bear_D || Number(row.fvg_bear_count) > 0) ? 1 : 0,
-        },
-      },
-      "4H": { pdz: { zone: pdz4h } },
-      240: { pdz: { zone: pdz4h } },
-      60: { pdz: { zone: pdz1h } },
-      "1H": { pdz: { zone: pdz1h } },
+      D: buildTf("D", pdzD, flags.ema_regime_D),
+      "4H": buildTf("4H", pdz4h, flags.ema_regime_4H ?? flags.ema_regime_4h),
+      240: buildTf("240", pdz4h, flags.ema_regime_4H ?? flags.ema_regime_4h),
+      60: buildTf("60", pdz1h, flags.ema_regime_1H ?? flags.ema_regime_1h),
+      "1H": buildTf("1H", pdz1h, flags.ema_regime_1H ?? flags.ema_regime_1h),
     },
     _snapshot_source: "trail_scalars",
   };

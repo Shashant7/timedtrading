@@ -113,11 +113,21 @@ describe("setup diagnostics route helpers", () => {
     const snap = snapshotFromTrailScalars({
       ts: 2000,
       price: 101,
+      phase_pct: 42,
       state: "HTF_BEAR_LTF_BEAR",
-      flags_json: JSON.stringify({ pdz_zone_D: "discount", pdz_zone_4h: "discount_approach" }),
+      flags_json: JSON.stringify({
+        pdz_zone_D: "discount",
+        pdz_zone_4h: "discount_approach",
+        ema_regime_D: 2,
+        fvg_in_bull_D: 1,
+        sq30_on: true,
+      }),
     }, "USO");
     expect(snap._snapshot_source).toBe("trail_scalars");
     expect(snap.tf_tech.D.pdz.zone).toBe("discount");
+    expect(snap.tf_tech.D.stDir).toBe(1);
+    expect(snap.tf_tech.D.fvg.ib).toBe(1);
+    expect(snap.phase_pct).toBe(42);
   });
 
   it("runs shadow diagnostics over a snapshot window", () => {
