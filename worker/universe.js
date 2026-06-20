@@ -19,6 +19,7 @@
  *
  * The registry set =
  *   SECTOR_MAP keys  ∪  active user_tickers  ∪  KV `timed:tickers`
+ *   ∪  D1 `ticker_index`
  *   − KV `timed:removed`
  *
  * MARKET_PULSE_SYMS (futures/crypto/proxy ETFs) are NOT registry tickers —
@@ -38,7 +39,8 @@ const _up = (s) => String(s || "").trim().toUpperCase();
  * @param {object} opts
  * @param {string[]} [opts.sectorMapKeys]
  * @param {string[]} [opts.userTickers]
- * @param {string[]} [opts.kvTickers]   KV `timed:tickers`
+ * @param {string[]} [opts.kvTickers]       KV `timed:tickers`
+ * @param {string[]} [opts.d1IndexTickers]  D1 `ticker_index` (watchlist / admin adds)
  * @param {string[]} [opts.marketPulse] MARKET_PULSE_SYMS (context only)
  * @param {string[]|Set<string>} [opts.removed] KV `timed:removed`
  * @returns {string[]} sorted, uppercased, deduped, blocklist-filtered
@@ -47,6 +49,7 @@ export function mergeTickerUniverse({
   sectorMapKeys = [],
   userTickers = [],
   kvTickers = [],
+  d1IndexTickers = [],
   marketPulse = [],
   removed = [],
 } = {}) {
@@ -54,7 +57,7 @@ export function mergeTickerUniverse({
     ? new Set([...removed].map(_up))
     : new Set((removed || []).map(_up));
   const out = new Set();
-  for (const list of [sectorMapKeys, userTickers, kvTickers, marketPulse]) {
+  for (const list of [sectorMapKeys, userTickers, kvTickers, d1IndexTickers, marketPulse]) {
     if (!list) continue;
     for (const t of list) {
       const u = _up(t);
@@ -72,9 +75,10 @@ export function resolveScoringUniverse({
   sectorMapKeys = [],
   userTickers = [],
   kvTickers = [],
+  d1IndexTickers = [],
   removed = [],
 } = {}) {
-  return mergeTickerUniverse({ sectorMapKeys, userTickers, kvTickers, removed });
+  return mergeTickerUniverse({ sectorMapKeys, userTickers, kvTickers, d1IndexTickers, removed });
 }
 
 /**
@@ -86,6 +90,7 @@ export function resolveScoringUniverse({
  *   - sectorMapKeys: string[]            (Object.keys(SECTOR_MAP))
  *   - getKvTickers:  () => Promise<string[]>  (KV `timed:tickers`)
  *   - getUserTickers:() => Promise<string[]>  (active user slots)
+ *   - getD1IndexTickers: () => Promise<string[]>  (D1 `ticker_index`)
  *   - getRemoved:    () => Promise<string[]>  (KV `timed:removed`)
  * @returns {Promise<string[]>}
  */
@@ -94,17 +99,20 @@ export async function loadScoringUniverse(env, deps = {}) {
     sectorMapKeys = [],
     getKvTickers = async () => [],
     getUserTickers = async () => [],
+    getD1IndexTickers = async () => [],
     getRemoved = async () => [],
   } = deps;
-  const [kvTickers, userTickers, removed] = await Promise.all([
+  const [kvTickers, userTickers, d1IndexTickers, removed] = await Promise.all([
     getKvTickers().catch(() => []),
     getUserTickers().catch(() => []),
+    getD1IndexTickers().catch(() => []),
     getRemoved().catch(() => []),
   ]);
   return resolveScoringUniverse({
     sectorMapKeys,
     userTickers: userTickers || [],
     kvTickers: kvTickers || [],
+    d1IndexTickers: d1IndexTickers || [],
     removed: removed || [],
   });
 }

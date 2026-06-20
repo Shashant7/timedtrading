@@ -55,6 +55,15 @@ describe("resolveScoringUniverse — the orphan-closing union", () => {
     expect(out).toContain("SMCI");
     expect(out).toEqual(["AAPL", "MSFT", "NVDA", "SMCI"]);
   });
+
+  it("includes D1 ticker_index entries not in SECTOR_MAP or KV", () => {
+    const out = resolveScoringUniverse({
+      sectorMapKeys: ["AAPL"],
+      kvTickers: [],
+      d1IndexTickers: ["FTNT"],
+    });
+    expect(out).toEqual(["AAPL", "FTNT"]);
+  });
 });
 
 describe("loadScoringUniverse", () => {
