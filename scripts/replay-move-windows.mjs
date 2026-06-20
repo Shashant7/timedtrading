@@ -28,6 +28,7 @@
  *   --interval-minutes N    replay bar interval (default 5)
  *   --resume                skip move_ids already in out-dir summary-*.json
  *   --force-replay          ignore --resume completed move_ids (re-derive trail)
+ *   --quality-gate          exit 2 if post-replay payload/events below thresholds
  */
 
 import fs from "node:fs";
@@ -84,6 +85,9 @@ const SKIP_REPLAY = hasFlag("--skip-replay");
 const DRY_RUN = hasFlag("--dry-run");
 const RESUME = hasFlag("--resume");
 const FORCE_REPLAY = hasFlag("--force-replay");
+const QUALITY_GATE = hasFlag("--quality-gate");
+const MIN_PAYLOAD_RATIO = Number(argValue("--min-payload-ratio", "0.85")) || 0.85;
+const MIN_EVENTS_DERIVED = Number(argValue("--min-events", "15")) || 15;
 const INTERVAL_MINUTES = Math.max(1, Number(argValue("--interval-minutes", "5")) || 5);
 const PRE_ENTRY_MS = PRE_ENTRY_DAYS * 86400000;
 
@@ -302,6 +306,44 @@ async function replayMoveWindow(move) {
   return { ticker, startDate, endDate, sessions: sessions.length, dayResults };
 }
 
+function validateMoveQuality(item) {
+  if (!QUALITY_GATE || REPLAY_ONLY || SKIP_REPLAY || DRY_RUN) return;
+
+  const payloadRows = Number(item.payload_rows) || 0;
+  const trailRows = Number(item.trail_rows) || 0;
+  const ratio = trailRows > 0 ? payloadRows / trailRows : 0;
+
+  if (item.replay?.dayResults?.length) {
+    const zeroDays = item.replay.dayResults.filter((d) => !Number(d.trail_written));
+    if (zeroDays.length === item.replay.dayResults.length) {
+      const err = new Error(`quality_gate: all ${item.replay.sessions} sessions wrote 0 trail for ${item.ticker}`);
+      err.code = "QUALITY_GATE";
+      throw err;
+    }
+    if (zeroDays.length > 0) {
+      console.warn(`  WARNING: ${zeroDays.length}/${item.replay.dayResults.length} sessions wrote 0 trail for ${item.ticker}`);
+    }
+  }
+
+  if (trailRows > 100 && ratio < MIN_PAYLOAD_RATIO) {
+    const err = new Error(
+      `quality_gate: payload_ratio ${ratio.toFixed(3)} < ${MIN_PAYLOAD_RATIO} for ${item.ticker} (${payloadRows}/${trailRows} rows)`,
+    );
+    err.code = "QUALITY_GATE";
+    throw err;
+  }
+
+  if (trailRows > 200 && (Number(item.events_derived) || 0) < MIN_EVENTS_DERIVED) {
+    const err = new Error(
+      `quality_gate: events_derived ${item.events_derived} < ${MIN_EVENTS_DERIVED} for ${item.ticker} (${trailRows} trail rows)`,
+    );
+    err.code = "QUALITY_GATE";
+    throw err;
+  }
+
+  console.log(`  quality_gate pass: payload ${payloadRows}/${trailRows} (${(ratio * 100).toFixed(1)}%), events=${item.events_derived}, sequence=${item.mining?.sequence?.sequence_type || "none"}`);
+}
+
 async function processMove(move) {
   const ticker = String(move.ticker || "").toUpperCase();
   const anchorTs = discoveryMoveAnchorTs(move);
@@ -335,6 +377,8 @@ async function processMove(move) {
     const rows = fetchSequenceTrailRows(ticker, since, until, WRANGLER_D1);
     item.trail_rows = rows.length;
     const payloadRows = rows.filter((r) => r?.payload_json).length;
+    item.payload_rows = payloadRows;
+    item.payload_ratio = rows.length > 0 ? payloadRows / rows.length : 0;
     if (rows.length > 0 && payloadRows === 0) {
       console.warn(`  WARNING: 0/${rows.length} trail rows have payload_json for ${ticker} — sequence mining will be sparse until candle-replay writes sequence_trail snapshots (deploy preprod + re-replay).`);
     } else if (rows.length > 0 && payloadRows < rows.length * 0.5) {
@@ -357,6 +401,7 @@ async function processMove(move) {
       analysis_mode: "sequence_trail_replay",
       derivationOpts: { tdTfs: ["D", "W", "60"], signalTfs: ["D", "60", "30"] },
     });
+    validateMoveQuality(item);
     return item;
   }
 
@@ -450,5 +495,5 @@ async function main() {
 
 main().catch((e) => {
   console.error(e);
-  process.exit(1);
+  process.exit(e?.code === "QUALITY_GATE" ? 2 : 1);
 });
