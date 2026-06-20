@@ -468,9 +468,6 @@ export function attachCompounderFromLatest(row, latestRow) {
 }
 
 /**
- * Enrich score rows with compounder data from KV only (read-time, no live TD fetches).
- */
-/**
  * Backfill missing companyName on holdbook/score rows from timed:context
  * and optional D1 ticker_metadata (read-time, no live provider calls).
  */
@@ -515,8 +512,17 @@ export async function enrichHoldbookRowNames(rows, kvGetJSON, opts = {}) {
   });
 }
 
+function holdbookEnrichSort(a, b) {
+  const aCand = isHoldbookCandidateRow(a) ? 1 : 0;
+  const bCand = isHoldbookCandidateRow(b) ? 1 : 0;
+  if (bCand !== aCand) return bCand - aCand;
+  return (Number(b.score) || 0) - (Number(a.score) || 0);
+}
+
 export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
   const cap = Number(opts.enrichCap) || 150;
+  const liveFetchCap = Number(opts.liveFetchCap) || 15;
+  const fetchSnapshot = typeof opts.fetchSnapshot === "function" ? opts.fetchSnapshot : null;
   const latestKeyFn = typeof opts.latestKeyFn === "function" ? opts.latestKeyFn : null;
   const out = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
 
@@ -524,7 +530,7 @@ export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {
   // candidates — compounder classification can qualify a row after enrichment).
   const needEnrich = out
     .filter((row) => !row?.compounder?.tier)
-    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+    .sort(holdbookEnrichSort)
     .slice(0, cap);
 
   for (let b = 0; b < needEnrich.length; b += 20) {
@@ -545,6 +551,26 @@ export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {
         out[idx] = next;
       } catch (_) { /* best-effort */ }
     }));
+  }
+
+  // Cold KV fallback: live-fetch fundamentals for top holdbook candidates.
+  if (fetchSnapshot && liveFetchCap > 0) {
+    const stillNeed = out
+      .filter((row) => !row?.compounder?.tier)
+      .sort(holdbookEnrichSort)
+      .slice(0, liveFetchCap);
+    for (let b = 0; b < stillNeed.length; b += 5) {
+      const batch = stillNeed.slice(b, b + 5);
+      await Promise.all(batch.map(async (row) => {
+        const idx = out.findIndex((r) => r.ticker === row.ticker);
+        if (idx < 0 || out[idx]?.compounder?.tier) return;
+        try {
+          const res = await fetchSnapshot(row.ticker);
+          const snap = res?.snapshot || null;
+          if (snap) out[idx] = attachCompounderFromSnapshot(out[idx], snap);
+        } catch (_) { /* best-effort */ }
+      }));
+    }
   }
 
   return out;
@@ -617,4 +643,53 @@ export function buildInvestorHoldbook(scoreRows, opts = {}) {
     groups,
     holdings: sorted,
   };
+}
+
+/** Overlay live timed:prices onto a cached holdbook payload (read-time only). */
+export function overlayHoldbookPrices(holdbook, priceMap = {}) {
+  if (!holdbook || typeof holdbook !== "object") return holdbook;
+  const overlay = (row) => {
+    if (!row?.ticker) return row;
+    const pf = priceMap[String(row.ticker).toUpperCase()];
+    if (!pf) return row;
+    return {
+      ...row,
+      price: pf.p != null ? Number(pf.p) : (row.price ?? null),
+      dailyChgPct: pf.dp != null ? Number(pf.dp) : (row.dailyChgPct ?? null),
+    };
+  };
+  const groups = holdbook.groups || {};
+  return {
+    ...holdbook,
+    holdings: (holdbook.holdings || []).map(overlay),
+    groups: {
+      in_book: (groups.in_book || []).map(overlay),
+      building: (groups.building || []).map(overlay),
+      on_radar: (groups.on_radar || []).map(overlay),
+    },
+  };
+}
+
+/**
+ * Build the Growth Ideas / holdbook list for KV persistence.
+ * Called from POST /timed/investor/compute — not on every GET.
+ */
+export async function buildInvestorHoldbookCache(scoreRows, deps, opts = {}) {
+  const minTier = opts.minTier || "growth_watch";
+  let rows = (Array.isArray(scoreRows) ? scoreRows : []).map((row) => ({ ...row }));
+  rows = await enrichHoldbookScoreRows(
+    rows,
+    deps.kvGetJSON,
+    deps.kvKeyFn,
+    {
+      enrichCap: opts.enrichCap || 150,
+      liveFetchCap: Number(opts.liveFetchCap) || 0,
+      latestKeyFn: deps.latestKeyFn,
+      fetchSnapshot: deps.fetchSnapshot,
+    },
+  );
+  rows = await enrichHoldbookRowNames(rows, deps.kvGetJSON, {
+    loadMetadataNames: deps.loadMetadataNames,
+  });
+  return buildInvestorHoldbook(rows, { minTier });
 }
