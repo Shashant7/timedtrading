@@ -1,3 +1,5 @@
+import { serializeSequenceTrailSnapshot, sequenceTrailSnapshotEnabled } from "./foundation/sequence-snapshot.js";
+
 export function createIntervalReplayStep(deps = {}) {
   const {
     sendJSON,
@@ -58,6 +60,9 @@ export function createIntervalReplayStep(deps = {}) {
       if (!KV) return sendJSON({ ok: false, error: "no_kv_binding" }, 500, corsHeaders(env, req));
 
       const dateParam = url.searchParams.get("date");
+      const sequenceSnapshot = url.searchParams.get("sequenceSnapshot") === "1"
+        || url.searchParams.get("sequenceTrail") === "1";
+      const writeSequenceSnapshot = sequenceSnapshot || sequenceTrailSnapshotEnabled(env);
       if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
         return sendJSON({ ok: false, error: "date param required (YYYY-MM-DD)" }, 400, corsHeaders(env, req));
       }
@@ -433,6 +438,9 @@ export function createIntervalReplayStep(deps = {}) {
             const ts = Number(r?.ts);
             if (!Number.isFinite(ts)) return null;
             const flagsJson = r?.flags ? JSON.stringify(r.flags) : null;
+            const payloadJson = writeSequenceSnapshot
+              ? serializeSequenceTrailSnapshot(r, env, 32768, { force: true })
+              : null;
             return db.prepare(
               `INSERT OR REPLACE INTO timed_trail (ticker, ts, price, htf_score, ltf_score, completion, phase_pct, state, rank, flags_json, trigger_reason, trigger_dir, kanban_stage, payload_json)
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
@@ -450,7 +458,7 @@ export function createIntervalReplayStep(deps = {}) {
               r?.trigger_reason ?? null,
               r?.trigger_dir ?? null,
               r?.kanban_stage ?? null,
-              null,
+              payloadJson,
             );
           }).filter(Boolean);
           const D1_BATCH_MAX = 100;

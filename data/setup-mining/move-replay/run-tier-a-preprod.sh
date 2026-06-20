@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # Tier A only — all remaining move_atr >= 8 missed windows on PREPROD D1.
 # Skips move_ids already in out-dir summary-*.json (--resume).
+#
+# Prerequisite: preprod worker deployed with SETUP_TRAIL_SNAPSHOT=1 (writes
+# sequence_trail payload_json on candle-replay). Without payload_json, event
+# derivation falls back to sparse flags_json (~4 events/move vs hundreds).
+# Re-derive after a deploy fix: pass --force-replay to replay-move-windows.mjs
+# or delete prior summary-*.json for affected move_ids.
 set -euo pipefail
 cd /workspace
 export TIMED_API_KEY="${TIMED_API_KEY:-${TIMED_TRADING_API_KEY:-}}"

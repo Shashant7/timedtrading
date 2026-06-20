@@ -27,6 +27,7 @@
  *   --dry-run               print plan only
  *   --interval-minutes N    replay bar interval (default 5)
  *   --resume                skip move_ids already in out-dir summary-*.json
+ *   --force-replay          ignore --resume completed move_ids (re-derive trail)
  */
 
 import fs from "node:fs";
@@ -82,6 +83,7 @@ const REPLAY_ONLY = hasFlag("--replay-only");
 const SKIP_REPLAY = hasFlag("--skip-replay");
 const DRY_RUN = hasFlag("--dry-run");
 const RESUME = hasFlag("--resume");
+const FORCE_REPLAY = hasFlag("--force-replay");
 const INTERVAL_MINUTES = Math.max(1, Number(argValue("--interval-minutes", "5")) || 5);
 const PRE_ENTRY_MS = PRE_ENTRY_DAYS * 86400000;
 
@@ -149,7 +151,7 @@ function loadMoves() {
   }
   const raw = JSON.parse(fs.readFileSync(DISCOVERY_FILE, "utf8"));
   const moves = Array.isArray(raw?.moves) ? raw.moves : [];
-  const completed = RESUME ? loadCompletedMoveIds(OUT_DIR) : new Set();
+  const completed = RESUME && !FORCE_REPLAY ? loadCompletedMoveIds(OUT_DIR) : new Set();
   let filtered = filterMissedDiscoveryMoves(moves)
     .filter((m) => Number(m.move_atr || 0) >= MIN_ATR)
     .filter((m) => !completed.has(String(m.move_id || "")))
@@ -224,7 +226,7 @@ function fetchSequenceTrailRows(ticker, since, until, wranglerEnv) {
   const all = [];
   let offset = 0;
   while (true) {
-    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(since)} AND ts <= ${Number(until)} AND (payload_json IS NOT NULL OR flags_json IS NOT NULL) ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
+    const sql = `SELECT ts, price, state, kanban_stage, phase_pct, htf_score, ltf_score, flags_json, payload_json FROM timed_trail WHERE ticker='${sym}' AND ts >= ${Number(since)} AND ts <= ${Number(until)} AND (payload_json IS NOT NULL OR flags_json IS NOT NULL) ORDER BY ts ASC LIMIT ${pageSize} OFFSET ${offset}`;
     const batch = fetchD1Rows(wranglerEnv, sql);
     all.push(...batch);
     if (batch.length < pageSize) break;
@@ -332,6 +334,12 @@ async function processMove(move) {
   if (WRANGLER_D1) {
     const rows = fetchSequenceTrailRows(ticker, since, until, WRANGLER_D1);
     item.trail_rows = rows.length;
+    const payloadRows = rows.filter((r) => r?.payload_json).length;
+    if (rows.length > 0 && payloadRows === 0) {
+      console.warn(`  WARNING: 0/${rows.length} trail rows have payload_json for ${ticker} — sequence mining will be sparse until candle-replay writes sequence_trail snapshots (deploy preprod + re-replay).`);
+    } else if (rows.length > 0 && payloadRows < rows.length * 0.5) {
+      console.warn(`  WARNING: only ${payloadRows}/${rows.length} trail rows have payload_json for ${ticker} — mixed scalar/snapshot window; consider --force-replay after preprod deploy.`);
+    }
     const derived = deriveEventsFromTrailRows(ticker, rows);
     item.snapshots = derived.snapshots;
     item.events_derived = derived.events.length;
@@ -363,7 +371,7 @@ async function processMove(move) {
 }
 
 async function main() {
-  const completed = RESUME ? loadCompletedMoveIds(OUT_DIR) : new Set();
+  const completed = RESUME && !FORCE_REPLAY ? loadCompletedMoveIds(OUT_DIR) : new Set();
   const moves = loadMoves();
   if (!moves.length) {
     if (RESUME && completed.size > 0) {
