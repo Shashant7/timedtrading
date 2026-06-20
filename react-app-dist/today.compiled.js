@@ -2611,13 +2611,6 @@ function MacroStrip({
     }
   }, "Rotation to mind: "), themeCallout, ".")));
 }
-function isHoldbookEntitledUser(user) {
-  if (!user) return false;
-  if (user.role === "admin" || user.tier === "admin") return true;
-  const subStatus = user.subscription_status;
-  const isPastDueInGrace = subStatus === "past_due" && Number.isFinite(Number(user.expires_at)) && Number(user.expires_at) > Date.now();
-  return user.tier === "pro" || user.tier === "vip" || subStatus === "active" || subStatus === "trialing" || subStatus === "manual" || subStatus === "canceling" || isPastDueInGrace;
-}
 function GrowthIdeasStrip({
   onSelectTicker,
   user
@@ -2625,16 +2618,12 @@ function GrowthIdeasStrip({
   const [rows, setRows] = useState(null);
   const [loadErr, setLoadErr] = useState(null);
   useEffect(() => {
-    if (!isHoldbookEntitledUser(user)) {
-      setRows([]);
-      return;
-    }
     let cancelled = false;
     let attempt = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 4;
     const loadHoldbook = () => {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 15000);
+      const t = setTimeout(() => ctrl.abort(), 20000);
       return fetch(`${API_BASE}/timed/investor/holdbook?_t=${Date.now()}`, {
         credentials: "include",
         cache: "no-store",
@@ -2643,7 +2632,7 @@ function GrowthIdeasStrip({
         if (cancelled) return;
         if (j.error_kind === "tier_required" && attempt < maxAttempts - 1) {
           attempt += 1;
-          await new Promise(res => setTimeout(res, 800 * attempt));
+          await new Promise(res => setTimeout(res, 600 * attempt));
           if (!cancelled) return loadHoldbook();
           return;
         }
@@ -5590,6 +5579,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781968146769:895116687
+// cache-bust:1781968603785:28660007
 
-// cache-bust:1781968146769:895116687
+// cache-bust:1781968603785:28660007
