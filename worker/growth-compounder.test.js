@@ -10,7 +10,10 @@ import {
   computeCompounderScoreBoost,
   extractGrowthCompounderSignal,
   buildInvestorHoldbook,
+  buildInvestorHoldbookCache,
+  overlayHoldbookPrices,
   enrichHoldbookRowNames,
+  enrichHoldbookScoreRows,
   attachCompounderFromSnapshot,
   attachCompounderFromLatest,
   normalizeRevenueEstimates,
@@ -106,6 +109,86 @@ describe("buildHoldThesisBullets", () => {
     const traj = buildRevenueTrajectory(snap);
     const bullets = buildHoldThesisBullets(snap, fv, traj, "growth_elite");
     expect(bullets.some((b) => /Compounding core/i.test(b))).toBe(true);
+  });
+});
+
+describe("overlayHoldbookPrices", () => {
+  it("overlays timed:prices onto cached holdings", () => {
+    const out = overlayHoldbookPrices(
+      {
+        ok: true,
+        count: 1,
+        holdings: [{ ticker: "MU", price: null, dailyChgPct: null }],
+        groups: { in_book: [], building: [], on_radar: [{ ticker: "MU" }] },
+      },
+      { MU: { p: 120, dp: 2.5 } },
+    );
+    expect(out.holdings[0].price).toBe(120);
+    expect(out.holdings[0].dailyChgPct).toBe(2.5);
+    expect(out.groups.on_radar[0].price).toBe(120);
+  });
+});
+
+describe("buildInvestorHoldbookCache", () => {
+  it("builds a persistable holdbook payload from score rows", async () => {
+    const snap = muLikeSnapshot();
+    const book = await buildInvestorHoldbookCache(
+      [{
+        ticker: "MU",
+        stage: "watch",
+        score: 72,
+        rsRank: 90,
+        compounder: extractGrowthCompounderSignal(snap),
+      }],
+      {
+        kvGetJSON: () => Promise.resolve(null),
+        kvKeyFn: (t) => `timed:fundamentals_v5:${t}`,
+      },
+    );
+    expect(book.count).toBe(1);
+    expect(book.holdings[0].ticker).toBe("MU");
+  });
+});
+
+describe("enrichHoldbookScoreRows", () => {
+  it("live-fetches fundamentals when KV snapshot is missing", async () => {
+    const snap = muLikeSnapshot();
+    const fetched = [];
+    const rows = await enrichHoldbookScoreRows(
+      [{ ticker: "MU", stage: "watch", score: 72 }],
+      () => Promise.resolve(null),
+      () => "timed:fundamentals_v5:MU",
+      {
+        fetchSnapshot: async (ticker) => {
+          fetched.push(ticker);
+          return { ok: true, snapshot: { ...snap, compounder: extractGrowthCompounderSignal(snap) } };
+        },
+        liveFetchCap: 5,
+      },
+    );
+    expect(fetched).toEqual(["MU"]);
+    expect(rows[0].compounder?.tier).toBe("growth_elite");
+  });
+
+  it("prioritizes holdbook candidate stages for live fetch", async () => {
+    const snap = muLikeSnapshot();
+    const fetched = [];
+    await enrichHoldbookScoreRows(
+      [
+        { ticker: "ZZ", stage: "avoid", score: 99 },
+        { ticker: "MU", stage: "watch", score: 60 },
+      ],
+      () => Promise.resolve(null),
+      (t) => `timed:fundamentals_v5:${t}`,
+      {
+        fetchSnapshot: async (ticker) => {
+          fetched.push(ticker);
+          return { ok: true, snapshot: snap };
+        },
+        liveFetchCap: 1,
+      },
+    );
+    expect(fetched).toEqual(["MU"]);
   });
 });
 
