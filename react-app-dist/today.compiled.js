@@ -5433,7 +5433,34 @@ function BriefPlaceholder({
     className: "bp-empty"
   }, "No standout moves yet — waiting for the open."), h("div", {
     className: "bp-meta"
-  }, h("span", null, arr.length.toLocaleString() + " tickers scored"), earningsTodayCount > 0 && h("span", null, "·"), earningsTodayCount > 0 && h("span", null, h("strong", null, earningsTodayCount), " earnings today"))));
+  }, h("span", null, arr.length.toLocaleString() + " tickers scored"), earningsTodayCount > 0 && h("span", null, "·"), earningsTodayCount > 0 && h("span", null, h("strong", null, earningsTodayCount), " earnings today")), h("div", {
+    className: "brief-actions",
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginTop: 14
+    }
+  }, h("a", {
+    href: "/daily-brief.html#archive",
+    className: "brief-link"
+  }, "Browse past briefs", h("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, h("line", {
+    x1: 5,
+    y1: 12,
+    x2: 19,
+    y2: 12
+  }), h("polyline", {
+    points: "12 5 19 12 12 19"
+  }))))));
 }
 function fmtCountdown(mins) {
   const m = Math.max(0, Math.floor(mins));
@@ -5589,6 +5616,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781972816438:997350391
+// cache-bust:1781975721289:977861871
 
-// cache-bust:1781972816438:997350391
+// cache-bust:1781975721289:977861871
