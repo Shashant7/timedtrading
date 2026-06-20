@@ -30,6 +30,7 @@
     { href: "/investor.html", label: "Investor" },
     { href: "/portfolio.html", label: "Portfolio" },
     { href: "/insights.html", label: "Insights" },
+    { href: "/daily-brief.html", label: "Daily Brief", accent: "brief", accentOnSelfOnly: true },
     { href: "/faq.html", label: "FAQ", accent: "faq" },
     { href: "/learn.html", label: "Learn", accent: "learn" },
   ];
@@ -87,4 +88,4 @@
   mount();
 })();
 
-// cache-bust:1781968603785:28660007
+// cache-bust:1781975121188:514837869

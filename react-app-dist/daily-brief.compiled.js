@@ -2394,7 +2394,6 @@ function BriefBubbleMap({
 function App({
   user
 }) {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isAdmin = user?.role === "admin" || user?.tier === "admin";
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -2558,6 +2557,16 @@ function App({
     const intradayRefresh = setInterval(fetchIntraday, 5 * 60 * 1000);
     return () => clearInterval(intradayRefresh);
   }, [fetchBrief, fetchIntraday, fetchArchive, fetchAllScores, fetchOpenPositionTickers]);
+  useEffect(() => {
+    if (String(window.location.hash || "") !== "#archive") return;
+    const t = setTimeout(() => {
+      document.getElementById("daily-brief-archive")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [loading]);
   const etNow = useMemo(() => {
     const d = new Date();
     const et = d.toLocaleString("en-US", {
@@ -2586,212 +2595,7 @@ function App({
     style: {
       background: "var(--tt-bg-base)"
     }
-  }, React.createElement("nav", {
-    className: "topnav sticky top-0 z-50 border-b border-white/[0.06]",
-    style: {
-      background: "rgba(11,20,16,0.95)",
-      backdropFilter: "blur(12px)"
-    }
   }, React.createElement("div", {
-    className: "nav-row flex items-center justify-between px-4 py-2.5"
-  }, React.createElement("a", {
-    href: "/today.html",
-    className: "nav-brand flex items-center gap-2 no-underline shrink-0"
-  }, React.createElement("svg", {
-    width: "28",
-    height: "28",
-    viewBox: "0 0 48 48",
-    fill: "none"
-  }, React.createElement("defs", null, React.createElement("linearGradient", {
-    id: "tt-ring",
-    x1: "6",
-    y1: "42",
-    x2: "42",
-    y2: "6"
-  }, React.createElement("stop", {
-    offset: "0%",
-    stopColor: "#34d399"
-  }), React.createElement("stop", {
-    offset: "100%",
-    stopColor: "#67e8f9"
-  }))), React.createElement("rect", {
-    width: "48",
-    height: "48",
-    rx: "11",
-    fill: "#000"
-  }), React.createElement("circle", {
-    cx: "24",
-    cy: "24",
-    r: "17",
-    stroke: "url(#tt-ring)",
-    strokeWidth: "2.5",
-    fill: "none"
-  }), React.createElement("line", {
-    x1: "19",
-    y1: "18.5",
-    x2: "16",
-    y2: "15.5",
-    stroke: "#636366",
-    strokeWidth: "1.2",
-    strokeLinecap: "round"
-  }), React.createElement("line", {
-    x1: "24",
-    y1: "24",
-    x2: "19",
-    y2: "18.5",
-    stroke: "#636366",
-    strokeWidth: "3.5",
-    strokeLinecap: "round"
-  }), React.createElement("line", {
-    x1: "29.5",
-    y1: "16.5",
-    x2: "32",
-    y2: "12.9",
-    stroke: "#30d158",
-    strokeWidth: "1.2",
-    strokeLinecap: "round"
-  }), React.createElement("line", {
-    x1: "24",
-    y1: "24",
-    x2: "29.5",
-    y2: "16.5",
-    stroke: "#30d158",
-    strokeWidth: "4",
-    strokeLinecap: "round"
-  }), React.createElement("circle", {
-    cx: "24",
-    cy: "24",
-    r: "3.2",
-    fill: "#30d158"
-  }), React.createElement("circle", {
-    cx: "24",
-    cy: "24",
-    r: "1.3",
-    fill: "#000"
-  })), React.createElement("span", {
-    className: "text-[14px] md:text-[15px] font-bold text-white hidden sm:inline",
-    style: {
-      letterSpacing: "-0.03em"
-    }
-  }, "Timed Trading")), React.createElement("div", {
-    className: "nav-links hidden md:flex items-center gap-1.5"
-  }, React.createElement("a", {
-    href: "/today.html",
-    className: "nav-link"
-  }, "Today"), React.createElement("a", {
-    href: "/active-trader.html",
-    className: "nav-link"
-  }, "Active Trader"), React.createElement("a", {
-    href: "/investor.html",
-    className: "nav-link"
-  }, "Investor"), React.createElement("a", {
-    href: "/portfolio.html",
-    className: "nav-link"
-  }, "Portfolio"), React.createElement("a", {
-    href: "/insights.html",
-    className: "nav-link"
-  }, "Insights"), React.createElement("a", {
-    href: "/daily-brief.html",
-    id: "nav-daily-brief",
-    className: "nav-link",
-    style: {
-      color: "#f59e0b",
-      background: "rgba(245,158,11,0.08)",
-      borderColor: "rgba(245,158,11,0.20)"
-    }
-  }, "Daily Brief"), React.createElement("a", {
-    href: "/faq.html",
-    className: "nav-link faq"
-  }, "FAQ")), React.createElement("div", {
-    className: "flex items-center gap-1.5 md:gap-2 shrink-0"
-  }, window.TimedNotificationCenter && React.createElement(window.TimedNotificationCenter, {
-    apiBase: ""
-  }), window.TimedUserBadge && React.createElement(window.TimedUserBadge, {
-    user: window.TimedAuthHelpers?.getStoredSession(),
-    compact: true
-  }), React.createElement("button", {
-    onClick: () => setMobileMenuOpen(v => !v),
-    className: "md:hidden p-1.5 rounded-md text-[#6E867D] hover:text-white hover:bg-white/[0.06] transition-all",
-    "aria-label": "Toggle menu"
-  }, mobileMenuOpen ? React.createElement("svg", {
-    width: "20",
-    height: "20",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("line", {
-    x1: "18",
-    y1: "6",
-    x2: "6",
-    y2: "18"
-  }), React.createElement("line", {
-    x1: "6",
-    y1: "6",
-    x2: "18",
-    y2: "18"
-  })) : React.createElement("svg", {
-    width: "20",
-    height: "20",
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: "2",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  }, React.createElement("line", {
-    x1: "3",
-    y1: "6",
-    x2: "21",
-    y2: "6"
-  }), React.createElement("line", {
-    x1: "3",
-    y1: "12",
-    x2: "21",
-    y2: "12"
-  }), React.createElement("line", {
-    x1: "3",
-    y1: "18",
-    x2: "21",
-    y2: "18"
-  }))))), mobileMenuOpen && React.createElement("div", {
-    className: "md:hidden border-t border-white/[0.06] px-4 py-2 flex flex-col gap-0.5",
-    style: {
-      background: "rgba(11,20,16,0.98)"
-    }
-  }, React.createElement("a", {
-    href: "/today.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Today"), React.createElement("a", {
-    href: "/active-trader.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Active Trader"), React.createElement("a", {
-    href: "/investor.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Investor"), React.createElement("a", {
-    href: "/portfolio.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Portfolio"), React.createElement("a", {
-    href: "/insights.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Insights"), React.createElement("a", {
-    href: "/daily-brief.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#f59e0b] bg-[#f59e0b]/[0.08] font-medium",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Daily Brief"), React.createElement("a", {
-    href: "/faq.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#8AA39A] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "FAQ"))), React.createElement("div", {
-    "data-tt-activity-strip": true
-  }), React.createElement("div", {
     className: "max-w-[1100px] mx-auto px-6 py-8"
   }, React.createElement("div", {
     className: "flex items-center justify-between mb-6"
@@ -2911,7 +2715,8 @@ function App({
   })() : React.createElement("div", {
     className: "text-[13px] text-[#51635A]"
   }, "Brief not found.")), React.createElement("div", {
-    className: "mt-10"
+    className: "mt-10",
+    id: "daily-brief-archive"
   }, React.createElement("div", {
     className: "flex items-baseline gap-3 mb-4"
   }, React.createElement("span", {
@@ -2952,6 +2757,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1781968603785:28660007
+// cache-bust:1781975121188:514837869
 
-// cache-bust:1781968603785:28660007
+// cache-bust:1781975121188:514837869
