@@ -2369,6 +2369,15 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2025-10-12",
+        "event_type": "earnings",
+        "event_name": "ACN Earnings",
+        "impact": "high",
+        "surprise_pct": -3.33,
+        "spy_reaction_pct": null,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2025-10-14",
         "event_type": "macro",
         "event_name": "PPI (Sep 2025)",
@@ -4619,6 +4628,15 @@
         "sector_reaction_pct": 0.41500000000000004
       },
       {
+        "date": "2025-12-03",
+        "event_type": "earnings",
+        "event_name": "ACN Earnings",
+        "impact": "high",
+        "surprise_pct": 66.67,
+        "spy_reaction_pct": null,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2025-12-04",
         "event_type": "earnings",
         "event_name": "ULTA Earnings",
@@ -4896,6 +4914,15 @@
         "surprise_pct": 5.91,
         "spy_reaction_pct": 0.76,
         "sector_reaction_pct": 0.695
+      },
+      {
+        "date": "2025-12-18",
+        "event_type": "earnings",
+        "event_name": "ACN Earnings",
+        "impact": "high",
+        "surprise_pct": 5.91,
+        "spy_reaction_pct": null,
+        "sector_reaction_pct": null
       },
       {
         "date": "2025-12-20",
@@ -8424,6 +8451,15 @@
         "surprise_pct": -35.19,
         "spy_reaction_pct": -1.4,
         "sector_reaction_pct": -1.5299999999999998
+      },
+      {
+        "date": "2026-03-19",
+        "event_type": "earnings",
+        "event_name": "ACN Earnings",
+        "impact": "high",
+        "surprise_pct": 3.53,
+        "spy_reaction_pct": null,
+        "sector_reaction_pct": null
       },
       {
         "date": "2026-03-19",
@@ -17945,6 +17981,15 @@
         "impact": "high",
         "surprise_pct": null,
         "spy_reaction_pct": 0.16,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-04-27",
+        "event_type": "earnings",
+        "event_name": "ACN Earnings",
+        "impact": "high",
+        "surprise_pct": 16.67,
+        "spy_reaction_pct": null,
         "sector_reaction_pct": null
       },
       {
@@ -33057,14 +33102,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 32.6726
+        "sql_duration_ms": 31.395
       },
-      "duration": 32.6726,
+      "duration": 31.395,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 5986734080,
-      "rows_read": 3672,
+      "size_after": 4043849728,
+      "rows_read": 3677,
       "rows_written": 0,
       "total_attempts": 1
     }
