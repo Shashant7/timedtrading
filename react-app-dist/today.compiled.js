@@ -2611,20 +2611,31 @@ function MacroStrip({
     }
   }, "Rotation to mind: "), themeCallout, ".")));
 }
+const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
 function GrowthIdeasStrip({
   onSelectTicker,
   user
 }) {
-  const [rows, setRows] = useState(null);
+  const [rows, setRows] = useState(() => {
+    const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
+    const list = Array.isArray(cached?.holdings) ? cached.holdings : [];
+    return list.length ? list.slice(0, 16) : null;
+  });
   const [loadErr, setLoadErr] = useState(null);
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
     const maxAttempts = 4;
+    const applyHoldbook = j => {
+      const list = Array.isArray(j?.holdings) ? j.holdings : [];
+      setLoadErr(null);
+      setRows(list.slice(0, 16));
+      if (CACHE && j?.ok) CACHE.put(HOLDBOOK_CACHE_URL, j);
+    };
     const loadHoldbook = () => {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 20000);
-      return fetch(`${API_BASE}/timed/investor/holdbook?_t=${Date.now()}`, {
+      return fetch(`${HOLDBOOK_CACHE_URL}?_t=${Date.now()}`, {
         credentials: "include",
         cache: "no-store",
         signal: ctrl.signal
@@ -2646,11 +2657,10 @@ function GrowthIdeasStrip({
           setRows([]);
           return;
         }
-        const list = Array.isArray(j.holdings) ? j.holdings : [];
-        setLoadErr(null);
-        setRows(list.slice(0, 16));
+        applyHoldbook(j);
       }).catch(e => {
         if (!cancelled) {
+          if (CACHE?.peek(HOLDBOOK_CACHE_URL)?.holdings?.length) return;
           setLoadErr(e?.name === "AbortError" ? "Growth ideas request timed out." : String(e.message || e));
           setRows([]);
         }
@@ -5579,6 +5589,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781968603785:28660007
+// cache-bust:1781972816438:997350391
 
-// cache-bust:1781968603785:28660007
+// cache-bust:1781972816438:997350391
