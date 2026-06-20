@@ -7,7 +7,8 @@
 #
 # Env:
 #   FORCE_REPLAY=1       default — re-process all moves (ignore pre-session summaries)
-#   SKIP_PREFLIGHT=1     skip one-day probe (not recommended)
+#   TIER_A_REPLAY_SINCE     preset to resume a prior session (skips already-summarized moves)
+#   SKIP_PREFLIGHT=1     skip one-day probe (ok when resuming a validated session)
 #   SKIP_EARLY_AUDIT=1   skip batch 1–5 session audits (not recommended)
 #   BATCH_SIZE=1         moves per batch (default 1 for checkpointing)
 set -euo pipefail
@@ -31,7 +32,32 @@ fi
 LOG="$OUT_DIR/run-tier-a-preprod-$(date -u +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
 
-export TIER_A_REPLAY_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+if [ -z "${TIER_A_REPLAY_SINCE:-}" ]; then
+  export TIER_A_REPLAY_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  SESSION_MOVES_AT_START=0
+else
+  SESSION_MOVES_AT_START="$(TIER_A_REPLAY_SINCE="$TIER_A_REPLAY_SINCE" OUT_DIR="$OUT_DIR" node --input-type=module <<'NODE'
+import fs from "node:fs";
+const since = Date.parse(process.env.TIER_A_REPLAY_SINCE || "");
+const dir = process.env.OUT_DIR || "data/setup-mining/move-replay";
+const ids = new Set();
+if (Number.isFinite(since)) {
+  for (const f of fs.readdirSync(dir).filter((x) => x.startsWith("summary-") && x.endsWith(".json"))) {
+    try {
+      const j = JSON.parse(fs.readFileSync(`${dir}/${f}`, "utf8"));
+      const gen = Date.parse(j.summary?.generated_at || "");
+      if (!Number.isFinite(gen) || gen < since) continue;
+      for (const it of j.summary?.items || []) {
+        if (it?.move_id) ids.add(String(it.move_id));
+      }
+    } catch (_) {}
+  }
+}
+process.stdout.write(String(ids.size));
+NODE
+)"
+  echo "resuming session since=$TIER_A_REPLAY_SINCE ($SESSION_MOVES_AT_START move(s) already done)"
+fi
 
 REPLAY_EXTRA=()
 if [ "$FORCE_REPLAY" = "1" ]; then
@@ -89,7 +115,7 @@ run_phase() {
       continue
     fi
     if [ "$SKIP_EARLY_AUDIT" != "1" ] && [ "$batch" -le "$EARLY_AUDIT_MAX_BATCH" ]; then
-      audit_session "$batch" || exit 3
+      audit_session "$((batch + SESSION_MOVES_AT_START))" || exit 3
     fi
     sleep 5
   done
