@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Tier A only — all remaining move_atr >= 8 missed windows on PREPROD D1.
 #
-# Re-run (2026-06-20): uses --force-replay to refresh all moves with
-# sequence_trail payload_json. Preflight + per-move quality gates abort
-# early if mining would be sparse again.
+# Re-run uses --force-replay + --replay-since session checkpoint so each batch
+# advances to the next move. Preflight + per-move quality gates + early session
+# audits (batches 1–5) catch scheduling loops within minutes, not hours.
 #
 # Env:
-#   FORCE_REPLAY=1       default — re-process all moves (ignore prior summaries)
+#   FORCE_REPLAY=1       default — re-process all moves (ignore pre-session summaries)
 #   SKIP_PREFLIGHT=1     skip one-day probe (not recommended)
+#   SKIP_EARLY_AUDIT=1   skip batch 1–5 session audits (not recommended)
 #   BATCH_SIZE=1         moves per batch (default 1 for checkpointing)
 set -euo pipefail
 cd /workspace
@@ -18,6 +19,8 @@ BATCH_SIZE="${BATCH_SIZE:-1}"
 WRANGLER_ENV="${WRANGLER_ENV:-preprod}"
 FORCE_REPLAY="${FORCE_REPLAY:-1}"
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-0}"
+SKIP_EARLY_AUDIT="${SKIP_EARLY_AUDIT:-0}"
+EARLY_AUDIT_MAX_BATCH="${EARLY_AUDIT_MAX_BATCH:-5}"
 mkdir -p "$OUT_DIR"
 
 if [ ! -x "node_modules/.bin/wrangler" ]; then
@@ -28,11 +31,23 @@ fi
 LOG="$OUT_DIR/run-tier-a-preprod-$(date -u +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$LOG") 2>&1
 
+export TIER_A_REPLAY_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 REPLAY_EXTRA=()
 if [ "$FORCE_REPLAY" = "1" ]; then
   REPLAY_EXTRA+=(--force-replay)
 fi
-REPLAY_EXTRA+=(--quality-gate)
+REPLAY_EXTRA+=(--quality-gate --replay-since "$TIER_A_REPLAY_SINCE")
+
+audit_session() {
+  local expected="$1"
+  echo ""
+  echo "=== Session audit (expect $expected distinct move(s), since $TIER_A_REPLAY_SINCE) ==="
+  node scripts/audit-tier-a-session.mjs \
+    --since "$TIER_A_REPLAY_SINCE" \
+    --out-dir "$OUT_DIR" \
+    --expected-moves "$expected"
+}
 
 run_phase() {
   local phase="Tier-A-high-atr"
@@ -73,16 +88,16 @@ run_phase() {
       sleep 60
       continue
     fi
+    if [ "$SKIP_EARLY_AUDIT" != "1" ] && [ "$batch" -le "$EARLY_AUDIT_MAX_BATCH" ]; then
+      audit_session "$batch" || exit 3
+    fi
     sleep 5
   done
 }
 
 echo "=== Tier A preprod replay $(date -u -Iseconds) ==="
 echo "batch_size=$BATCH_SIZE out_dir=$OUT_DIR log=$LOG api=$TIMED_API_BASE force_replay=$FORCE_REPLAY"
-
-export TIER_A_REPLAY_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "replay_since=$TIER_A_REPLAY_SINCE (force-replay session checkpoint)"
-REPLAY_EXTRA+=(--replay-since "$TIER_A_REPLAY_SINCE")
 
 if [ "$SKIP_PREFLIGHT" != "1" ]; then
   echo "=== Preflight probe (sequence_trail payload) ==="
