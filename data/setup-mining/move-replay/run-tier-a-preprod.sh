@@ -80,6 +80,10 @@ run_phase() {
 echo "=== Tier A preprod replay $(date -u -Iseconds) ==="
 echo "batch_size=$BATCH_SIZE out_dir=$OUT_DIR log=$LOG api=$TIMED_API_BASE force_replay=$FORCE_REPLAY"
 
+export TIER_A_REPLAY_SINCE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "replay_since=$TIER_A_REPLAY_SINCE (force-replay session checkpoint)"
+REPLAY_EXTRA+=(--replay-since "$TIER_A_REPLAY_SINCE")
+
 if [ "$SKIP_PREFLIGHT" != "1" ]; then
   echo "=== Preflight probe (sequence_trail payload) ==="
   node scripts/preflight-tier-a-replay.mjs

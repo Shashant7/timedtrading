@@ -28,6 +28,7 @@
  *   --interval-minutes N    replay bar interval (default 5)
  *   --resume                skip move_ids already in out-dir summary-*.json
  *   --force-replay          ignore --resume completed move_ids (re-derive trail)
+ *   --replay-since ISO      with --force-replay, only skip moves summarized since this time
  *   --quality-gate          exit 2 if post-replay payload/events below thresholds
  */
 
@@ -85,6 +86,8 @@ const SKIP_REPLAY = hasFlag("--skip-replay");
 const DRY_RUN = hasFlag("--dry-run");
 const RESUME = hasFlag("--resume");
 const FORCE_REPLAY = hasFlag("--force-replay");
+const REPLAY_SINCE_RAW = argValue("--replay-since", "") || process.env.TIER_A_REPLAY_SINCE || "";
+const REPLAY_SINCE_MS = REPLAY_SINCE_RAW ? Date.parse(REPLAY_SINCE_RAW) : null;
 const QUALITY_GATE = hasFlag("--quality-gate");
 const MIN_PAYLOAD_RATIO = Number(argValue("--min-payload-ratio", "0.85")) || 0.85;
 const MIN_EVENTS_DERIVED = Number(argValue("--min-events", "15")) || 15;
@@ -133,14 +136,20 @@ function fetchD1Rows(wranglerEnv, sql, opts = {}) {
   throw lastErr || new Error("d1_fetch_failed");
 }
 
-function loadCompletedMoveIds(outDir) {
+function loadCompletedMoveIds(outDir, opts = {}) {
   const ids = new Set();
+  const sinceMs = Number.isFinite(Number(opts.sinceMs)) ? Number(opts.sinceMs) : null;
   if (!outDir || !fs.existsSync(outDir)) return ids;
   for (const f of fs.readdirSync(outDir)) {
     if (!f.startsWith("summary-") || !f.endsWith(".json")) continue;
     try {
       const j = JSON.parse(fs.readFileSync(path.join(outDir, f), "utf8"));
-      for (const it of j.summary?.items || j.items || []) {
+      const summary = j.summary || {};
+      if (sinceMs != null) {
+        const gen = Date.parse(summary.generated_at || j.generated_at || "");
+        if (!Number.isFinite(gen) || gen < sinceMs) continue;
+      }
+      for (const it of summary.items || j.items || []) {
         if (it?.move_id) ids.add(String(it.move_id));
       }
     } catch (_) { /* skip corrupt summaries */ }
@@ -155,7 +164,10 @@ function loadMoves() {
   }
   const raw = JSON.parse(fs.readFileSync(DISCOVERY_FILE, "utf8"));
   const moves = Array.isArray(raw?.moves) ? raw.moves : [];
-  const completed = RESUME && !FORCE_REPLAY ? loadCompletedMoveIds(OUT_DIR) : new Set();
+  const completedSinceMs = FORCE_REPLAY && REPLAY_SINCE_MS ? REPLAY_SINCE_MS : null;
+  const completed = RESUME
+    ? loadCompletedMoveIds(OUT_DIR, { sinceMs: completedSinceMs })
+    : new Set();
   let filtered = filterMissedDiscoveryMoves(moves)
     .filter((m) => Number(m.move_atr || 0) >= MIN_ATR)
     .filter((m) => !completed.has(String(m.move_id || "")))
@@ -416,7 +428,10 @@ async function processMove(move) {
 }
 
 async function main() {
-  const completed = RESUME && !FORCE_REPLAY ? loadCompletedMoveIds(OUT_DIR) : new Set();
+  const completedSinceMs = FORCE_REPLAY && REPLAY_SINCE_MS ? REPLAY_SINCE_MS : null;
+  const completed = RESUME
+    ? loadCompletedMoveIds(OUT_DIR, { sinceMs: completedSinceMs })
+    : new Set();
   const moves = loadMoves();
   if (!moves.length) {
     if (RESUME && completed.size > 0) {
