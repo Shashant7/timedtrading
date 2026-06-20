@@ -3610,8 +3610,14 @@
       // Fundamentally growing universe names worth watching for pullbacks.
       // Same feed as /timed/investor/holdbook — surfaced on Today as ideas
       // the model tracks for dip-buy entry (not a core-hold ledger).
+      const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
+
       function GrowthIdeasStrip({ onSelectTicker, user }) {
-        const [rows, setRows] = useState(null);
+        const [rows, setRows] = useState(() => {
+          const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
+          const list = Array.isArray(cached?.holdings) ? cached.holdings : [];
+          return list.length ? list.slice(0, 16) : null;
+        });
         const [loadErr, setLoadErr] = useState(null);
 
         useEffect(() => {
@@ -3619,10 +3625,17 @@
           let attempt = 0;
           const maxAttempts = 4;
 
+          const applyHoldbook = (j) => {
+            const list = Array.isArray(j?.holdings) ? j.holdings : [];
+            setLoadErr(null);
+            setRows(list.slice(0, 16));
+            if (CACHE && j?.ok) CACHE.put(HOLDBOOK_CACHE_URL, j);
+          };
+
           const loadHoldbook = () => {
             const ctrl = new AbortController();
             const t = setTimeout(() => ctrl.abort(), 20000);
-            return fetch(`${API_BASE}/timed/investor/holdbook?_t=${Date.now()}`, {
+            return fetch(`${HOLDBOOK_CACHE_URL}?_t=${Date.now()}`, {
               credentials: "include",
               cache: "no-store",
               signal: ctrl.signal,
@@ -3642,12 +3655,11 @@
                   return;
                 }
                 if (!j.ok && j.error) { setLoadErr(j.error); setRows([]); return; }
-                const list = Array.isArray(j.holdings) ? j.holdings : [];
-                setLoadErr(null);
-                setRows(list.slice(0, 16));
+                applyHoldbook(j);
               })
               .catch((e) => {
                 if (!cancelled) {
+                  if (CACHE?.peek(HOLDBOOK_CACHE_URL)?.holdings?.length) return;
                   setLoadErr(e?.name === "AbortError" ? "Growth ideas request timed out." : String(e.message || e));
                   setRows([]);
                 }
