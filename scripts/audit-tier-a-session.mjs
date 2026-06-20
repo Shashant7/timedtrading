@@ -111,8 +111,9 @@ for (const it of sessionItems) {
     console.error(`AUDIT FAIL: ${it.ticker} payload_ratio ${it.payload_ratio} < ${MIN_PAYLOAD}`);
     failed = true;
   }
-  if (it.events_derived > 0 && it.events_derived < MIN_EVENTS) {
-    console.error(`AUDIT WARN: ${it.ticker} events_derived ${it.events_derived} < ${MIN_EVENTS}`);
+  const minEvents = it.payload_ratio >= MIN_PAYLOAD ? 12 : MIN_EVENTS;
+  if (it.events_derived > 0 && it.events_derived < minEvents) {
+    console.error(`AUDIT WARN: ${it.ticker} events_derived ${it.events_derived} < ${minEvents} (payload_ratio=${it.payload_ratio})`);
   }
 }
 

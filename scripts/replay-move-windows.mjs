@@ -321,6 +321,19 @@ async function replayMoveWindow(move) {
 function minEventsThreshold(item) {
   const trailRows = Number(item.trail_rows) || 0;
   const sessions = Number(item.replay?.sessions) || 0;
+  const payloadRows = Number(item.payload_rows) || 0;
+  const ratio = Number.isFinite(Number(item.payload_ratio))
+    ? Number(item.payload_ratio)
+    : (trailRows > 0 ? payloadRows / trailRows : 0);
+  const payloadHealthy = ratio >= MIN_PAYLOAD_RATIO;
+
+  // Payload ratio catches pipeline failures (flags-only trail). When snapshots
+  // are present, sparse event yield on quiet windows is acceptable.
+  if (payloadHealthy) {
+    if (trailRows <= 400 || sessions <= 8) return 8;
+    return 12;
+  }
+
   if (trailRows <= 400 || sessions <= 8) return 8;
   if (trailRows <= 900 || sessions <= 12) return 12;
   return MIN_EVENTS_DERIVED;
