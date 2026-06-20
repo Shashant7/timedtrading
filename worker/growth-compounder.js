@@ -516,31 +516,36 @@ export async function enrichHoldbookRowNames(rows, kvGetJSON, opts = {}) {
 }
 
 export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
-  const cap = Number(opts.enrichCap) || 30;
+  const cap = Number(opts.enrichCap) || 150;
   const latestKeyFn = typeof opts.latestKeyFn === "function" ? opts.latestKeyFn : null;
   const out = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
 
+  // Enrich any score row missing compounder tier (not only current holdbook
+  // candidates — compounder classification can qualify a row after enrichment).
   const needEnrich = out
-    .filter((row) => !row?.compounder?.tier && isHoldbookCandidateRow(row))
+    .filter((row) => !row?.compounder?.tier)
     .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
     .slice(0, cap);
 
-  await Promise.all(needEnrich.map(async (row) => {
-    const idx = out.findIndex((r) => r.ticker === row.ticker);
-    if (idx < 0) return;
-    try {
-      let next = out[idx];
-      if (latestKeyFn) {
-        const latest = await kvGetJSON(latestKeyFn(row.ticker));
-        next = attachCompounderFromLatest(next, latest);
-      }
-      if (!next.compounder?.tier) {
-        const snap = await kvGetJSON(kvKeyFn(row.ticker));
-        next = attachCompounderFromSnapshot(next, snap);
-      }
-      out[idx] = next;
-    } catch (_) { /* best-effort */ }
-  }));
+  for (let b = 0; b < needEnrich.length; b += 20) {
+    const batch = needEnrich.slice(b, b + 20);
+    await Promise.all(batch.map(async (row) => {
+      const idx = out.findIndex((r) => r.ticker === row.ticker);
+      if (idx < 0) return;
+      try {
+        let next = out[idx];
+        if (latestKeyFn) {
+          const latest = await kvGetJSON(latestKeyFn(row.ticker));
+          next = attachCompounderFromLatest(next, latest);
+        }
+        if (!next.compounder?.tier) {
+          const snap = await kvGetJSON(kvKeyFn(row.ticker));
+          next = attachCompounderFromSnapshot(next, snap);
+        }
+        out[idx] = next;
+      } catch (_) { /* best-effort */ }
+    }));
+  }
 
   return out;
 }
