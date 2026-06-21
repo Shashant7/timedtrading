@@ -9267,7 +9267,30 @@
           const f = ticker?._freshness;
           if (!f || f.grade === "FRESH" || f.enforced === false) return null;
           const isStale = f.grade === "STALE";
+          const sr = f.session_ref;
           const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
+          const lastDay = sr?.last_trading_day;
+          const fmtDay = ds => {
+            if (!ds) return null;
+            try {
+              const d = new Date(`${ds}T12:00:00`);
+              return d.toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric"
+              });
+            } catch (_) {
+              return ds;
+            }
+          };
+          let msg;
+          if (isStale) {
+            msg = "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land.";
+          } else if (!f.market_open && lastDay) {
+            msg = `Market closed — levels reflect the ${fmtDay(lastDay) || lastDay} session. The engine will refresh at the next open.`;
+          } else {
+            msg = "Some chart data is catching up — figures may lag a few minutes.";
+          }
           return React.createElement("div", {
             style: {
               display: "flex",
@@ -9289,7 +9312,7 @@
               flexShrink: 0,
               background: isStale ? "#f87171" : "#fbbf24"
             }
-          }), React.createElement("span", null, isStale ? "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land." : "Some chart data is catching up — figures may lag a few minutes.", window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""));
+          }), React.createElement("span", null, msg, window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""));
         })(), (() => {
           const ladder = ticker?._trim_ladder;
           const me = ticker?._move_ending;
@@ -20862,4 +20885,4 @@
   };
 })();
 
-// cache-bust:1781989221511:235006129
+// cache-bust:1782058417571:726226076

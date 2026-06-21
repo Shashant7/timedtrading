@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   isTradingDay, isHoliday, isHalfDay, sessionBoundsUtc,
   etWallToUtcMs, etDateStr, expectedIntradayBuckets, tradingDaysInRange,
-  expectedBuckets, addDays, tradingDateUtcMs,
+  expectedBuckets, addDays, tradingDateUtcMs, computeMarketSessionReference,
 } from "./trading-calendar.js";
 
 describe("trading-calendar: trading days", () => {
@@ -66,5 +66,16 @@ describe("trading-calendar: expected grids", () => {
     const grid = expectedBuckets({ tf: "D", startMs: start, endMs: end });
     expect(grid.length).toBe(5);
     expect(grid[0]).toBe(Date.UTC(2026, 5, 15)); // 00:00 UTC, not the 13:30 open
+  });
+});
+
+describe("trading-calendar: session reference", () => {
+  it("lastCompletedTradingDay skips Juneteenth and returns Thursday", () => {
+    const sat = Date.UTC(2026, 5, 20, 15, 0, 0);
+    const ref = computeMarketSessionReference(sat);
+    expect(ref.last_trading_day).toBe("2026-06-18");
+    expect(ref.next_trading_day).toBe("2026-06-22");
+    expect(ref.market_open).toBe(false);
+    expect(ref.session_phase).toBe("closed");
   });
 });

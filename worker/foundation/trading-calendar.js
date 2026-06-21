@@ -195,3 +195,81 @@ export function expectedBuckets({ tf, startMs, endMs }) {
 
   return [];
 }
+
+/** True when NY RTH is open at `nowMs` (calendar-aware: holidays + early close). */
+export function isNyRthOpenAt(nowMs = Date.now()) {
+  const dateStr = etDateStr(nowMs);
+  if (!isTradingDay(dateStr)) return false;
+  const b = sessionBoundsUtc(dateStr);
+  if (!b) return false;
+  return nowMs >= b.openMs && nowMs < b.closeMs;
+}
+
+/**
+ * Most recent trading day whose RTH session has fully ended relative to `nowMs`.
+ * Skips weekends and holidays (e.g. Juneteenth Fri 2026-06-19 → returns Thu 2026-06-18).
+ */
+export function lastCompletedTradingDay(nowMs = Date.now()) {
+  let cur = etDateStr(nowMs);
+  for (let i = 0; i < 25; i++) {
+    if (isTradingDay(cur)) {
+      const b = sessionBoundsUtc(cur);
+      if (b && nowMs >= b.closeMs) return cur;
+    }
+    cur = addDays(cur, -1);
+  }
+  return null;
+}
+
+/** Next trading session whose RTH open is still in the future. */
+export function nextTradingSession(nowMs = Date.now()) {
+  let cur = etDateStr(nowMs);
+  for (let i = 0; i < 25; i++) {
+    if (isTradingDay(cur)) {
+      const b = sessionBoundsUtc(cur);
+      if (b && nowMs < b.openMs) {
+        return { date: cur, openMs: b.openMs, closeMs: b.closeMs };
+      }
+    }
+    cur = addDays(cur, 1);
+  }
+  return null;
+}
+
+/**
+ * Canonical market-session reference for freshness grading and health surfaces.
+ * Answers: "When did the market last trade?" and "When does it open next?"
+ */
+export function computeMarketSessionReference(nowMs = Date.now()) {
+  const ms = Number(nowMs) > 0 ? Number(nowMs) : Date.now();
+  const etDate = etDateStr(ms);
+  const marketOpen = isNyRthOpenAt(ms);
+  const lastDay = lastCompletedTradingDay(ms);
+  const lastBounds = lastDay ? sessionBoundsUtc(lastDay) : null;
+  const nextSession = nextTradingSession(ms);
+
+  let sessionPhase = "closed";
+  if (marketOpen) {
+    sessionPhase = "rth";
+  } else if (isTradingDay(etDate)) {
+    const b = sessionBoundsUtc(etDate);
+    if (b) {
+      if (ms < b.openMs) sessionPhase = "premarket";
+      else if (ms >= b.closeMs) sessionPhase = "afterhours";
+    }
+  }
+
+  return {
+    v: 1,
+    computed_at: ms,
+    et_date: etDate,
+    market_open: marketOpen,
+    session_phase: sessionPhase,
+    last_trading_day: lastDay,
+    last_rth_open_ms: lastBounds?.openMs ?? null,
+    last_rth_close_ms: lastBounds?.closeMs ?? null,
+    last_daily_bar_ms: lastDay ? tradingDateUtcMs(lastDay) : null,
+    next_trading_day: nextSession?.date ?? null,
+    next_rth_open_ms: nextSession?.openMs ?? null,
+  };
+}
