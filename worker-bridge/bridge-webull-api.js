@@ -369,4 +369,4 @@ export async function finalizeWebullTokens(env, userId, user, tokenResp) {
   };
 }
 
-export { webullConnectScope, webullConnectConfigured, webullLiveEnabled, buildWebullAuthorizeUrl, finalizeWebullTokens };
+export { webullConnectScope, webullConnectConfigured, webullLiveEnabled };
