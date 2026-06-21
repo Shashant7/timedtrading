@@ -101,6 +101,14 @@ node scripts/compare-captured-vs-missed.mjs \
   --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
   --wrangler-d1 production --live --limit 75 --trail-source 5m --analysis-mode combined
 
+# Objective pattern census (all event types + MR ladder stages)
+node scripts/census-setup-patterns.mjs \
+  --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
+  --wrangler-d1 preprod --limit 211 --pre-entry-hours 120
+node scripts/census-setup-patterns.mjs \
+  --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
+  --wrangler-d1 production --enrich-captured --limit 75
+
 # L2 backfill + gate
 node scripts/backfill-setup-events.mjs --cohort fixtures --wrangler-d1 production --limit 30
 TIMED_API_KEY=... node scripts/run-setup-parity-gate.mjs --live
