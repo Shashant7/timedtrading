@@ -22,6 +22,14 @@
 
 ### Active
 
+- [ ] **Setup sequence shadow awakening (2026-06-21).** Tier A+B replay
+      complete (211 moves, 96% sequence yield). Verdict:
+      `docs/setup-mining-tier-ab-verdict-2026-06-21.md`. Shipped:
+      alignment section in aggregate report, `SETUP_SHADOW_STAMP` on scoring
+      payload (`setup_sequences` + `setup_shadow_posture`), right-rail inline
+      shadow read. L2 live gate pending trail pair depth on prod fixtures.
+      **No `SEQUENCE_ENTRY_GATE` until forward shadow validates aligned capture.**
+
 - [x] **Setup-mining Tier A sequence yield (2026-06-20).** Root cause: preprod
       `timed_trail` rows had `flags_json` only (0/3318 `payload_json` for KLAC).
       Fix: auto-write `sequence_trail` snapshots when `SETUP_TRAIL_SNAPSHOT=1`

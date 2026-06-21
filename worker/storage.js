@@ -221,6 +221,9 @@ const D1_MINIMAL_KEYS = [
   // 2026-05-22 Phase B — Markov dwell exhaustion advisory + run-length
   // counters. Tiny.
   "regime_exhausted", "_regime_run_length", "_regime_run_started_at",
+  // Setup sequence shadow (read-only; does not gate entry)
+  "setup_shadow", "setup_sequences", "setup_shadow_posture",
+  "setup_shadow_event_count", "setup_shadow_as_of_ts",
 ];
 
 export function minimalPayloadForD1(obj) {

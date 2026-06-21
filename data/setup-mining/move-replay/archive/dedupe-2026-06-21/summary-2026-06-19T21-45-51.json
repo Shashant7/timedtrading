@@ -1,0 +1,406 @@
+{
+  "summary": {
+    "generated_at": "2026-06-19T21:41:36.550Z",
+    "discovery_file": "data/move-discovery-live.json",
+    "limit": 1,
+    "pre_entry_days": 5,
+    "wrangler_d1": "preprod",
+    "replay_only": false,
+    "skip_replay": false,
+    "moves_processed": 1,
+    "total_trail_rows": 2911,
+    "total_events_derived": 4,
+    "total_events_persisted": 2,
+    "items": [
+      {
+        "move_id": "AGYS:1776868200000",
+        "ticker": "AGYS",
+        "move_atr": 11.41,
+        "move_pct": 30.08,
+        "start_date": "2026-04-22",
+        "end_date": "2026-06-08",
+        "replay": {
+          "ticker": "AGYS",
+          "startDate": "2026-04-17",
+          "endDate": "2026-06-08",
+          "sessions": 37,
+          "dayResults": [
+            {
+              "date": "2026-04-17",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-20",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-21",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-22",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-23",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-24",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-27",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-28",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-29",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-30",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-01",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-04",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-05",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-06",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-07",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-08",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-11",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-12",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-13",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-14",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-15",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-18",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-19",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-20",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-21",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-22",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-25",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-26",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-27",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-28",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-29",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-01",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-02",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-03",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-04",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-05",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-08",
+              "trail_written": 79,
+              "scored": 79
+            }
+          ]
+        },
+        "trail_rows": 2911,
+        "snapshots": 2911,
+        "events_derived": 4,
+        "events_persisted": 2,
+        "sequences": 0,
+        "mining": {
+          "cohort": "discovery_missed",
+          "move_id": "AGYS:1776868200000",
+          "ticker": "AGYS",
+          "direction": "LONG",
+          "capture": "MISSED",
+          "start_ts": 1776868200000,
+          "end_ts": 1780948800000,
+          "move_pct": 30.08,
+          "move_atr": 11.41,
+          "move_alignment": {
+            "outcome": "none",
+            "move_dir": "UP",
+            "move_pct": 30.08,
+            "move_atr": 11.41
+          },
+          "outcome": "none",
+          "analysis_mode": "sequence_trail_replay",
+          "promotion_safe": false,
+          "diagnostics_ok": true,
+          "diagnostics_reason": null,
+          "snapshot_count": 238,
+          "sequence": null,
+          "event_count": 4
+        }
+      }
+    ],
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "AGYS",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ]
+    }
+  },
+  "report": {
+    "generated_at": "2026-06-19T21:45:51.590Z",
+    "shadow": true,
+    "meta": {
+      "cohort": "discovery_replay",
+      "analysis_mode": "sequence_trail_replay",
+      "discovery_file": "data/move-discovery-live.json"
+    },
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "AGYS",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 30.08,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 30.08
+        }
+      ]
+    },
+    "trades": [
+      {
+        "cohort": "discovery_missed",
+        "move_id": "AGYS:1776868200000",
+        "ticker": "AGYS",
+        "direction": "LONG",
+        "capture": "MISSED",
+        "start_ts": 1776868200000,
+        "end_ts": 1780948800000,
+        "move_pct": 30.08,
+        "move_atr": 11.41,
+        "move_alignment": {
+          "outcome": "none",
+          "move_dir": "UP",
+          "move_pct": 30.08,
+          "move_atr": 11.41
+        },
+        "outcome": "none",
+        "analysis_mode": "sequence_trail_replay",
+        "promotion_safe": false,
+        "diagnostics_ok": true,
+        "diagnostics_reason": null,
+        "snapshot_count": 238,
+        "sequence": null,
+        "event_count": 4
+      }
+    ]
+  }
+}

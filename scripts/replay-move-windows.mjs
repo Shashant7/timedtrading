@@ -360,11 +360,8 @@ function minEventsThreshold(item) {
   const payloadHealthy = ratio >= MIN_PAYLOAD_RATIO;
 
   // Payload ratio catches pipeline failures (flags-only trail). When snapshots
-  // are present, sparse event yield on quiet windows is acceptable.
-  if (payloadHealthy) {
-    if (trailRows <= 400 || sessions <= 8) return 8;
-    return 12;
-  }
+  // are present, sparse event yield on quiet windows is acceptable (min 8).
+  if (payloadHealthy) return 8;
 
   if (trailRows <= 400 || sessions <= 8) return 8;
   if (trailRows <= 900 || sessions <= 12) return 12;

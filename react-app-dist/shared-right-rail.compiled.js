@@ -6548,9 +6548,35 @@
           return;
         }
         setShadowStageTipKey(null);
+        const buildInlineShadowDiag = () => {
+          const src = ticker || {};
+          const seqs = Array.isArray(src.setup_sequences) ? src.setup_sequences : [];
+          const posture = src.setup_shadow_posture || null;
+          if (!src.setup_shadow && !seqs.length && !posture) return null;
+          const active = seqs.filter(s => Number(s?.stage) > 0 && s?.status !== "invalidated");
+          return {
+            ok: true,
+            shadow: true,
+            inline_from_payload: true,
+            snapshot_source: "scoring_payload",
+            snapshot_count: Number(src.setup_shadow_event_count) || active.length,
+            sequences: seqs,
+            active_sequences: active,
+            trader_posture: posture || {
+              posture: "Neutral",
+              stage: 0
+            },
+            events: []
+          };
+        };
+        const inline = buildInlineShadowDiag();
+        if (inline) {
+          setSetupShadowDiag(inline);
+          setSetupShadowError(null);
+        }
         const cached = setupShadowCacheRef.current[sym];
         if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
-          setSetupShadowDiag(cached.data);
+          if (!inline) setSetupShadowDiag(cached.data);
           setSetupShadowError(null);
           setSetupShadowLoading(false);
           return;
@@ -6633,7 +6659,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, railTab, API_BASE]);
+      }, [tickerSymbol, railTab, API_BASE, ticker?.setup_shadow, ticker?.setup_sequences, ticker?.setup_shadow_as_of_ts]);
       useEffect(() => {
         setChartVisibleCount(80);
         setChartEndOffset(0);
@@ -7709,7 +7735,7 @@
               fontSize: 9
             },
             title: "Trail snapshot source"
-          }, setupShadowDiag.snapshot_count || 0, " snaps \xB7 ", setupShadowDiag.snapshot_source)), active.length > 0 ? React.createElement("div", {
+          }, setupShadowDiag.snapshot_count || 0, " snaps \xB7 ", setupShadowDiag.snapshot_source, setupShadowDiag.inline_from_payload ? " · live payload" : "")), active.length > 0 ? React.createElement("div", {
             style: {
               display: "flex",
               flexDirection: "column",
@@ -20885,4 +20911,4 @@
   };
 })();
 
-// cache-bust:1782058417571:726226076
+// cache-bust:1782079761099:856918269

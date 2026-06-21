@@ -1,0 +1,276 @@
+{
+  "summary": {
+    "generated_at": "2026-06-19T21:04:56.773Z",
+    "discovery_file": "data/move-discovery-live.json",
+    "limit": 1,
+    "pre_entry_days": 5,
+    "wrangler_d1": "preprod",
+    "replay_only": false,
+    "skip_replay": false,
+    "moves_processed": 1,
+    "total_trail_rows": 0,
+    "total_events_derived": 0,
+    "total_events_persisted": 0,
+    "items": [
+      {
+        "move_id": "SNOW:1779460200000",
+        "ticker": "SNOW",
+        "move_atr": 13.22,
+        "move_pct": 62.69,
+        "start_date": "2026-05-22",
+        "end_date": "2026-06-01",
+        "replay": {
+          "ticker": "SNOW",
+          "startDate": "2026-05-17",
+          "endDate": "2026-06-01",
+          "sessions": 11,
+          "dayResults": [
+            {
+              "date": "2026-05-18",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-19",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-20",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-21",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-22",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-25",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-26",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-27",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-28",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-05-29",
+              "trail_written": 0,
+              "scored": 0
+            },
+            {
+              "date": "2026-06-01",
+              "trail_written": 0,
+              "scored": 0
+            }
+          ]
+        },
+        "trail_rows": 0,
+        "snapshots": 0,
+        "events_derived": 0,
+        "events_persisted": 0,
+        "sequences": 0,
+        "mining": {
+          "cohort": "discovery_missed",
+          "move_id": "SNOW:1779460200000",
+          "ticker": "SNOW",
+          "direction": "LONG",
+          "capture": "MISSED",
+          "start_ts": 1779460200000,
+          "end_ts": 1780344000000,
+          "move_pct": 62.69,
+          "move_atr": 13.22,
+          "move_alignment": {
+            "outcome": "none",
+            "move_dir": "UP",
+            "move_pct": 62.69,
+            "move_atr": 13.22
+          },
+          "outcome": "none",
+          "analysis_mode": "sequence_trail_replay",
+          "promotion_safe": false,
+          "diagnostics_ok": false,
+          "diagnostics_reason": "no_snapshots_before_entry",
+          "snapshot_count": 0,
+          "sequence": null,
+          "event_count": 0
+        }
+      }
+    ],
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 0,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "SNOW",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ]
+    }
+  },
+  "report": {
+    "generated_at": "2026-06-19T21:06:21.232Z",
+    "shadow": true,
+    "meta": {
+      "cohort": "discovery_replay",
+      "analysis_mode": "sequence_trail_replay",
+      "discovery_file": "data/move-discovery-live.json"
+    },
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 0,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "SNOW",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 62.69,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 62.69
+        }
+      ]
+    },
+    "trades": [
+      {
+        "cohort": "discovery_missed",
+        "move_id": "SNOW:1779460200000",
+        "ticker": "SNOW",
+        "direction": "LONG",
+        "capture": "MISSED",
+        "start_ts": 1779460200000,
+        "end_ts": 1780344000000,
+        "move_pct": 62.69,
+        "move_atr": 13.22,
+        "move_alignment": {
+          "outcome": "none",
+          "move_dir": "UP",
+          "move_pct": 62.69,
+          "move_atr": 13.22
+        },
+        "outcome": "none",
+        "analysis_mode": "sequence_trail_replay",
+        "promotion_safe": false,
+        "diagnostics_ok": false,
+        "diagnostics_reason": "no_snapshots_before_entry",
+        "snapshot_count": 0,
+        "sequence": null,
+        "event_count": 0
+      }
+    ]
+  }
+}

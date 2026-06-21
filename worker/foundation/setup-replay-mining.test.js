@@ -8,6 +8,8 @@ import {
   joinTradeWithSequenceDiagnostics,
   snapshotsBeforeEntry,
   snapshotsFromTrailRows,
+  classifyMoveAlignment,
+  aggregateMoveAlignment,
   stageBucket,
 } from "./setup-replay-mining.js";
 
@@ -190,5 +192,37 @@ describe("setup replay mining", () => {
     ], 2000, { derivationOpts: { tdTfs: ["D"], signalTfs: ["D"] } });
     expect(diag.ok).toBe(true);
     expect(diag.sequences.length).toBeGreaterThan(0);
+  });
+
+  it("aggregates move-direction alignment buckets", () => {
+    const rows = [
+      {
+        ticker: "NVDA",
+        move_id: "NVDA:1",
+        move_atr: 10,
+        sequence: { sequence_type: "td_phase_mean_reversion_long", direction: "LONG", stage_bucket: "1_4_forming" },
+        move_alignment: classifyMoveAlignment({ move_pct: -12 }, { direction: "LONG" }),
+      },
+      {
+        ticker: "SPY",
+        move_id: "SPY:1",
+        move_atr: 3,
+        sequence: { sequence_type: "td_phase_mean_reversion_long", direction: "LONG", stage_bucket: "1_4_forming" },
+        move_alignment: classifyMoveAlignment({ move_pct: 5 }, { direction: "LONG" }),
+      },
+      {
+        ticker: "ALLY",
+        move_id: "ALLY:1",
+        move_atr: 5,
+        sequence: null,
+        move_alignment: classifyMoveAlignment({ move_pct: 8 }, null),
+      },
+    ];
+    const align = aggregateMoveAlignment(rows);
+    expect(align.total).toBe(3);
+    expect(align.opposed).toBe(1);
+    expect(align.aligned).toBe(1);
+    expect(align.none).toBe(1);
+    expect(align.by_move_atr_tier.high_atr.opposed).toBe(1);
   });
 });

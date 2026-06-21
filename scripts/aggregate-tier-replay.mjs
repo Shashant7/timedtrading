@@ -70,5 +70,6 @@ console.log(JSON.stringify({
   unique_moves: moveIds.size,
   json: jsonPath,
   md: mdPath,
+  alignment: report.alignment || null,
   reliability_keys: Object.keys(report.reliability || {}),
 }, null, 2));

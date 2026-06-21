@@ -358,6 +358,72 @@ function finalizeBucket(bucket) {
   };
 }
 
+export function aggregateMoveAlignment(joinedRows = []) {
+  const stats = {
+    total: 0,
+    with_sequence: 0,
+    aligned: 0,
+    opposed: 0,
+    none: 0,
+    unknown: 0,
+    by_stage: {},
+    by_move_atr_tier: {
+      high_atr: { label: "move_atr >= 8 (Tier A)", total: 0, aligned: 0, opposed: 0, none: 0 },
+      breadth: { label: "move_atr < 8 (Tier B)", total: 0, aligned: 0, opposed: 0, none: 0 },
+    },
+    no_sequence_moves: [],
+  };
+
+  for (const row of Array.isArray(joinedRows) ? joinedRows : []) {
+    stats.total += 1;
+    const tierKey = Number(row.move_atr) >= 8 ? "high_atr" : "breadth";
+    stats.by_move_atr_tier[tierKey].total += 1;
+
+    const stage = row.sequence?.stage_bucket || "0_none";
+    if (!stats.by_stage[stage]) {
+      stats.by_stage[stage] = { total: 0, aligned: 0, opposed: 0, none: 0 };
+    }
+    stats.by_stage[stage].total += 1;
+
+    const outcome = row.move_alignment?.outcome || row.outcome;
+    if (!row.sequence?.sequence_type) {
+      stats.none += 1;
+      stats.by_move_atr_tier[tierKey].none += 1;
+      stats.by_stage[stage].none += 1;
+      stats.no_sequence_moves.push({
+        ticker: row.ticker,
+        move_id: row.move_id,
+        move_atr: row.move_atr ?? null,
+        move_pct: row.move_pct ?? null,
+      });
+      continue;
+    }
+
+    stats.with_sequence += 1;
+    if (outcome === "aligned") {
+      stats.aligned += 1;
+      stats.by_move_atr_tier[tierKey].aligned += 1;
+      stats.by_stage[stage].aligned += 1;
+    } else if (outcome === "opposed") {
+      stats.opposed += 1;
+      stats.by_move_atr_tier[tierKey].opposed += 1;
+      stats.by_stage[stage].opposed += 1;
+    } else {
+      stats.unknown += 1;
+    }
+  }
+
+  const decided = stats.aligned + stats.opposed;
+  stats.alignment_rate = decided > 0
+    ? Math.round((stats.aligned / decided) * 1000) / 1000
+    : null;
+  stats.opposed_rate = decided > 0
+    ? Math.round((stats.opposed / decided) * 1000) / 1000
+    : null;
+
+  return stats;
+}
+
 export function aggregateSequenceReliability(joinedRows = []) {
   const bySequence = new Map();
   const byStageBucket = new Map();
@@ -400,10 +466,12 @@ export function aggregateSequenceReliability(joinedRows = []) {
 }
 
 export function buildReliabilityReport(joinedRows = [], meta = {}) {
+  const alignment = aggregateMoveAlignment(joinedRows);
   return {
     generated_at: new Date().toISOString(),
     shadow: true,
     meta,
+    alignment,
     reliability: aggregateSequenceReliability(joinedRows),
     trades: joinedRows,
   };
@@ -412,6 +480,7 @@ export function buildReliabilityReport(joinedRows = [], meta = {}) {
 export function formatReliabilityMarkdown(report = {}) {
   const rel = report.reliability || {};
   const meta = report.meta || {};
+  const align = report.alignment || {};
   const lines = [
     "# Setup Sequence Reliability (shadow mining)",
     "",
@@ -421,16 +490,51 @@ export function formatReliabilityMarkdown(report = {}) {
     "",
     `- Total trades analyzed: ${rel.total_trades ?? 0}`,
     `- Trades with diagnostics window: ${rel.with_diagnostics ?? 0}`,
-    `- Trades with active sequence at entry: ${rel.with_sequence ?? 0}`,
-    meta.cohort === "discovery" ? `- Moves with sequence aligned to move direction: ${rel.by_sequence?.find?.((r) => r.key !== "none:NA:0_none") ? "see tables" : "0"}` : "",
+    `- Trades with active sequence at anchor: ${rel.with_sequence ?? 0}`,
     meta.analysis_mode ? `- Analysis mode: ${meta.analysis_mode}` : "",
     meta.cohort ? `- Cohort: ${meta.cohort}` : "",
+    "",
+  ];
+
+  if (align.total > 0) {
+    lines.push(
+      "## Move-direction alignment (missed-move cohort)",
+      "",
+      "Sequence direction vs realized move direction at the move anchor.",
+      "",
+      `- With sequence: ${align.with_sequence ?? 0}`,
+      `- Aligned with move: ${align.aligned ?? 0} (${align.alignment_rate != null ? `${Math.round(align.alignment_rate * 100)}%` : "—"})`,
+      `- Opposed to move: ${align.opposed ?? 0} (${align.opposed_rate != null ? `${Math.round(align.opposed_rate * 100)}%` : "—"})`,
+      `- No sequence: ${align.none ?? 0}`,
+      "",
+      "### By move ATR tier",
+      "",
+      "| Tier | N | Aligned | Opposed | No sequence |",
+      "|---|---:|---:|---:|---:|",
+    );
+    for (const bucket of Object.values(align.by_move_atr_tier || {})) {
+      lines.push(`| ${bucket.label} | ${bucket.total} | ${bucket.aligned} | ${bucket.opposed} | ${bucket.none} |`);
+    }
+    lines.push("", "### By stage bucket", "", "| Stage | N | Aligned | Opposed | No sequence |", "|---|---:|---:|---:|---:|");
+    for (const [stage, bucket] of Object.entries(align.by_stage || {}).sort((a, b) => String(a[0]).localeCompare(String(b[0])))) {
+      lines.push(`| ${stage} | ${bucket.total} | ${bucket.aligned} | ${bucket.opposed} | ${bucket.none} |`);
+    }
+    if ((align.no_sequence_moves || []).length) {
+      lines.push("", "### No-sequence moves", "", "| Ticker | move_id | move_atr | move_pct |", "|---|---|---:|---:|");
+      for (const row of align.no_sequence_moves) {
+        lines.push(`| ${row.ticker} | ${row.move_id} | ${row.move_atr ?? "—"} | ${row.move_pct ?? "—"} |`);
+      }
+    }
+    lines.push("");
+  }
+
+  lines.push(
     "",
     "## By sequence (type:direction:stage_bucket)",
     "",
     "| Key | N | Win rate | Avg PnL % | Wins | Losses |",
     "|---|---:|---:|---:|---:|---:|",
-  ];
+  );
 
   for (const row of rel.by_sequence || []) {
     lines.push(`| ${row.key} | ${row.n} | ${row.win_rate ?? "—"} | ${row.avg_pnl_pct ?? "—"} | ${row.wins} | ${row.losses} |`);

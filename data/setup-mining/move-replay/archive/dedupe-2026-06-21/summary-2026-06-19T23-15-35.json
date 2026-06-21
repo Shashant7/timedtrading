@@ -1,0 +1,301 @@
+{
+  "summary": {
+    "generated_at": "2026-06-19T23:13:47.248Z",
+    "discovery_file": "data/move-discovery-live.json",
+    "limit": 1,
+    "pre_entry_days": 5,
+    "wrangler_d1": "preprod",
+    "replay_only": false,
+    "skip_replay": false,
+    "moves_processed": 1,
+    "total_trail_rows": 1252,
+    "total_events_derived": 3,
+    "total_events_persisted": 2,
+    "items": [
+      {
+        "move_id": "RKLB:1777386600000",
+        "ticker": "RKLB",
+        "move_atr": 8.34,
+        "move_pct": 68.66,
+        "start_date": "2026-04-28",
+        "end_date": "2026-05-14",
+        "replay": {
+          "ticker": "RKLB",
+          "startDate": "2026-04-23",
+          "endDate": "2026-05-14",
+          "sessions": 16,
+          "dayResults": [
+            {
+              "date": "2026-04-23",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-24",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-27",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-28",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-29",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-04-30",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-01",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-04",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-05",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-06",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-07",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-08",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-11",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-12",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-13",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-14",
+              "trail_written": 79,
+              "scored": 79
+            }
+          ]
+        },
+        "trail_rows": 1252,
+        "snapshots": 1252,
+        "events_derived": 3,
+        "events_persisted": 2,
+        "sequences": 0,
+        "mining": {
+          "cohort": "discovery_missed",
+          "move_id": "RKLB:1777386600000",
+          "ticker": "RKLB",
+          "direction": "LONG",
+          "capture": "MISSED",
+          "start_ts": 1777386600000,
+          "end_ts": 1778788800000,
+          "move_pct": 68.66,
+          "move_atr": 8.34,
+          "move_alignment": {
+            "outcome": "none",
+            "move_dir": "UP",
+            "move_pct": 68.66,
+            "move_atr": 8.34
+          },
+          "outcome": "none",
+          "analysis_mode": "sequence_trail_replay",
+          "promotion_safe": false,
+          "diagnostics_ok": true,
+          "diagnostics_reason": null,
+          "snapshot_count": 238,
+          "sequence": null,
+          "event_count": 3
+        }
+      }
+    ],
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "RKLB",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ]
+    }
+  },
+  "report": {
+    "generated_at": "2026-06-19T23:15:35.217Z",
+    "shadow": true,
+    "meta": {
+      "cohort": "discovery_replay",
+      "analysis_mode": "sequence_trail_replay",
+      "discovery_file": "data/move-discovery-live.json"
+    },
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "RKLB",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 68.66,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 68.66
+        }
+      ]
+    },
+    "trades": [
+      {
+        "cohort": "discovery_missed",
+        "move_id": "RKLB:1777386600000",
+        "ticker": "RKLB",
+        "direction": "LONG",
+        "capture": "MISSED",
+        "start_ts": 1777386600000,
+        "end_ts": 1778788800000,
+        "move_pct": 68.66,
+        "move_atr": 8.34,
+        "move_alignment": {
+          "outcome": "none",
+          "move_dir": "UP",
+          "move_pct": 68.66,
+          "move_atr": 8.34
+        },
+        "outcome": "none",
+        "analysis_mode": "sequence_trail_replay",
+        "promotion_safe": false,
+        "diagnostics_ok": true,
+        "diagnostics_reason": null,
+        "snapshot_count": 238,
+        "sequence": null,
+        "event_count": 3
+      }
+    ]
+  }
+}
