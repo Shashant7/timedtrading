@@ -32,6 +32,11 @@ carries a graded `_freshness` block and downstream consumers act on it.
   thresholds): RTH 10m≤30min / 30m≤45min / 60m≤2h / D≤48h-weekday;
   out-of-session intraday TFs relax to 96h (overnight + weekend +
   Monday-holiday gaps are NOT staleness — see tasks/lessons.md).
+- **v2 calendar anchor (2026-06-21):** ages are measured against
+  `computeMarketSessionReference()` from `worker/foundation/trading-calendar.js`
+  — `last_trading_day`, `last_rth_close_ms`, `next_trading_day`. A Thursday
+  close stays FRESH through Juneteenth + weekend. Exposed on every
+  `_freshness.session_ref` block and `GET /timed/health` → `market_session`.
 
 ## What quarantine (live STALE) does
 

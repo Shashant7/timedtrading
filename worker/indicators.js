@@ -11,7 +11,7 @@ import {
 } from "./profile-resolution.js";
 import { resolveRegimeVocabulary } from "./regime-vocabulary.js";
 import { recordAdaptiveLineageFact } from "./adaptive-lineage.js";
-import { computeFreshnessBlock } from "./freshness.js";
+import { computeFreshnessBlock, computeMarketSessionReference } from "./freshness.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -6756,10 +6756,13 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   // (asOfTs present) stamps a diagnostic-only block (enforced: false).
   try {
     const _asOfTs = Number(opts?.asOfTs) || 0;
+    const _freshNowMs = _asOfTs > 0 ? _asOfTs : Date.now();
+    const _sessionRef = _asOfTs > 0 ? null : computeMarketSessionReference(_freshNowMs);
     tickerData._freshness = computeFreshnessBlock(tfNewestTs, {
-      nowMs: _asOfTs > 0 ? _asOfTs : Date.now(),
+      nowMs: _freshNowMs,
       mode: _asOfTs > 0 ? "replay" : "live",
       marketOpen: typeof opts?.marketOpen === "boolean" ? opts.marketOpen : undefined,
+      sessionRef: _sessionRef,
     });
     // Live-STALE activates the existing trade-management quarantine flag
     // (processTradeSimulation refuses entries/exits/trims on it) so every
