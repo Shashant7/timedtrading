@@ -4,6 +4,10 @@
 //
 //  PRINCIPLE: a stale input can never silently become a fresh-looking output.
 //
+//  v2 (2026-06-21): ages are measured against the trading calendar — the last
+//  completed RTH session and expected daily bar anchor — not raw wall clock
+//  alone. A Thursday close stays FRESH through a Juneteenth + weekend gap.
+//
 //  Every scored payload carries a `_freshness` block stamped at compute time
 //  (see computeServerSideScores in worker/indicators.js). Downstream
 //  consumers — computeRank, qualifiesForEnter, the investor compute,
@@ -13,32 +17,15 @@
 //  This module is intentionally a LEAF: no imports from worker/index.js or
 //  worker/indicators.js, so it can be consumed anywhere (including tests)
 //  without circular-dependency risk.
-//
-//  SLO philosophy (hard-won — see tasks/lessons.md "Open-position candle
-//  freshness"): the market does NOT emit new bars between RTH close and the
-//  next open. The freshest possible candle during the overnight/weekend gap
-//  IS the last RTH bar — that is correct state, not staleness. So out-of-
-//  session SLOs relax to cover the natural gap (96h covers weekend +
-//  Monday-holiday + Thanksgiving), while in-session SLOs are tight.
-//
-//  Grades:
-//    FRESH — every critical TF within SLO.
-//    AGING — a critical TF breached its SLO (soft), or a non-critical TF
-//            breached hard. Payload still usable; heal should be running.
-//    STALE — a critical TF breached HARD (2x SLO) or D/60 missing entirely.
-//            Payload is quarantined: capped rank, no new entries, excluded
-//            from investor zone computes, UI shows refreshing state.
-//
-//  Modes:
-//    live   — ages measured against wall clock; grade is enforced.
-//    replay — ages measured against asOfTs; block is stamped for diagnostics
-//             but `enforced: false` so historical replays keep parity with
-//             validated backtests (replay candle getters already slice to
-//             asOf — a "gap" there is a data-coverage question, not a
-//             quarantine trigger).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const FRESHNESS_SLO_VERSION = 1;
+import {
+  computeMarketSessionReference,
+  etDateStr,
+  isNyRthOpenAt,
+} from "./foundation/trading-calendar.js";
+
+export const FRESHNESS_SLO_VERSION = 2;
 
 export const GRADE_FRESH = "FRESH";
 export const GRADE_AGING = "AGING";
@@ -63,21 +50,12 @@ const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-// Hard (quarantine) threshold = SLO x HARD_MULT. The buffer band between
-// SLO and hard absorbs one transient missed bar / aggregation lag without
-// quarantining (same reasoning as the 5m 15min→20min retune on 2026-06-01).
 const HARD_MULT = 2;
 
-// TFs whose hard breach drives the STALE grade. D + 60 are the structural
-// backbone (cloud bias, trend, ATR targets all derive from them); 30 and the
-// leading LTF (10) matter only while the market is emitting intraday bars.
 const CRITICAL_ALWAYS = new Set(["D", "60"]);
 const CRITICAL_RTH = new Set(["30", "10"]);
-
-// Missing entirely (no candles at all) is graded harder than aging but we
-// only let D/60 missing force STALE — a thin new listing without 10m bars
-// should be AGING (visible, deprioritized, heal queued), not black-holed.
 const MISSING_FORCES_STALE = new Set(["D", "60"]);
+const INTRADAY_TFS = new Set(["1", "5", "10", "15", "30", "60", "240"]);
 
 function isWeekendUtcApprox(nowMs) {
   const dow = new Date(nowMs).getUTCDay();
@@ -105,9 +83,9 @@ export function approxNyRegularMarketOpen(nowMs = Date.now()) {
     const wd = String(map.weekday || "").toLowerCase();
     if (wd.startsWith("sat") || wd.startsWith("sun")) return false;
     const mins = (Number(map.hour) || 0) * 60 + (Number(map.minute) || 0);
-    return mins >= 570 && mins < 960; // 9:30 AM - 4:00 PM ET
+    return mins >= 570 && mins < 960;
   } catch {
-    return true; // fail strict: treat as open so SLOs stay tight
+    return true;
   }
 }
 
@@ -120,11 +98,11 @@ export function freshnessSloMs(tf, marketOpen, nowMs = Date.now()) {
   if (marketOpen) {
     switch (key) {
       case "1": return 10 * MIN;
-      case "5": return 20 * MIN;   // matches OPEN_POS_STALE_5M_RTH_MS
+      case "5": return 20 * MIN;
       case "10": return 30 * MIN;
       case "15": return 45 * MIN;
-      case "30": return 45 * MIN;  // matches OPEN_POS_STALE_30M_RTH_MS
-      case "60": return 2 * HOUR;  // matches OPEN_POS_STALE_60M_RTH_MS
+      case "30": return 45 * MIN;
+      case "60": return 2 * HOUR;
       case "240": return 6 * HOUR;
       case "D": return isWeekendUtcApprox(nowMs) ? 96 * HOUR : 48 * HOUR;
       case "W": return 9 * DAY;
@@ -132,8 +110,6 @@ export function freshnessSloMs(tf, marketOpen, nowMs = Date.now()) {
       default: return null;
     }
   }
-  // Out of session: intraday TFs relax to the natural-gap ceiling (96h
-  // covers overnight, weekend, Monday-holiday, Thanksgiving — see header).
   switch (key) {
     case "1":
     case "5":
@@ -142,7 +118,7 @@ export function freshnessSloMs(tf, marketOpen, nowMs = Date.now()) {
     case "30":
     case "60":
     case "240":
-      return 96 * HOUR; // matches OPEN_POS_STALE_60M_OOH_MS
+      return 96 * HOUR;
     case "D": return isWeekendUtcApprox(nowMs) ? 96 * HOUR : 48 * HOUR;
     case "W": return 9 * DAY;
     case "M": return 40 * DAY;
@@ -151,22 +127,67 @@ export function freshnessSloMs(tf, marketOpen, nowMs = Date.now()) {
 }
 
 /**
+ * Calendar-aware effective age: how far behind the last completed session
+ * (or expected daily bar) a candle timestamp is. Returns 0 when current.
+ */
+export function effectiveCandleAgeMs(tf, ts, nowMs, marketOpen, sessionRef) {
+  const candleTs = Number(ts) || 0;
+  if (candleTs <= 0) return null;
+
+  if (!sessionRef?.last_trading_day) {
+    return Math.max(0, nowMs - candleTs);
+  }
+
+  const lastDay = sessionRef.last_trading_day;
+  const lastDailyMs = Number(sessionRef.last_daily_bar_ms) || 0;
+  const openMs = Number(sessionRef.last_rth_open_ms) || 0;
+  const closeMs = Number(sessionRef.last_rth_close_ms) || 0;
+
+  if (String(tf) === "D") {
+    const barDay = etDateStr(candleTs);
+    if (barDay >= lastDay) return 0;
+    if (lastDailyMs > 0 && candleTs >= lastDailyMs) return 0;
+    return lastDailyMs > 0 ? Math.max(0, lastDailyMs - candleTs) : Math.max(0, nowMs - candleTs);
+  }
+
+  if (!marketOpen && INTRADAY_TFS.has(String(tf)) && openMs > 0 && closeMs > 0) {
+    if (candleTs >= openMs && candleTs <= closeMs + 15 * MIN) return 0;
+    if (etDateStr(candleTs) >= lastDay && candleTs >= openMs) return 0;
+    if (candleTs <= closeMs) return Math.max(0, closeMs - candleTs);
+  }
+
+  return Math.max(0, nowMs - candleTs);
+}
+
+function compactSessionRef(sessionRef) {
+  if (!sessionRef) return null;
+  return {
+    last_trading_day: sessionRef.last_trading_day,
+    last_rth_close_ms: sessionRef.last_rth_close_ms,
+    next_trading_day: sessionRef.next_trading_day,
+    session_phase: sessionRef.session_phase,
+  };
+}
+
+/**
  * Compute the `_freshness` block for a scored payload.
  *
  * @param {Object} tfNewestTs - map of tf -> newest candle ts (epoch ms).
- *   A falsy/zero/absent entry means "no candles for this TF".
  * @param {Object} [opts]
  * @param {number}  [opts.nowMs]      - "now" reference (replay passes asOfTs).
- * @param {boolean} [opts.marketOpen] - calendar-aware market-open answer;
- *                                      defaults to the approximation.
+ * @param {boolean} [opts.marketOpen] - calendar-aware market-open answer.
+ * @param {Object}  [opts.sessionRef] - output of computeMarketSessionReference().
  * @param {string}  [opts.mode]       - "live" (default) | "replay".
- * @returns {Object} freshness block (see header).
  */
 export function computeFreshnessBlock(tfNewestTs, opts = {}) {
   const nowMs = Number(opts.nowMs) > 0 ? Number(opts.nowMs) : Date.now();
   const mode = opts.mode === "replay" ? "replay" : "live";
-  const marketOpen =
-    typeof opts.marketOpen === "boolean" ? opts.marketOpen : approxNyRegularMarketOpen(nowMs);
+  const sessionRef = opts.sessionRef && typeof opts.sessionRef === "object"
+    ? opts.sessionRef
+    : (mode === "live" ? computeMarketSessionReference(nowMs) : null);
+  const marketOpen = typeof opts.marketOpen === "boolean"
+    ? opts.marketOpen
+    : (sessionRef ? sessionRef.market_open : approxNyRegularMarketOpen(nowMs));
 
   const perTf = {};
   const staleTfs = [];
@@ -177,17 +198,33 @@ export function computeFreshnessBlock(tfNewestTs, opts = {}) {
   const tfs = Object.keys(tfNewestTs || {});
   for (const tf of tfs) {
     const sloMs = freshnessSloMs(tf, marketOpen, nowMs);
-    if (sloMs == null) continue; // unknown TF — not part of the contract
+    if (sloMs == null) continue;
     const ts = Number(tfNewestTs[tf]) || 0;
     const critical = CRITICAL_ALWAYS.has(tf) || (marketOpen && CRITICAL_RTH.has(tf));
 
     if (ts <= 0) {
-      perTf[tf] = { ts: null, age_min: null, slo_min: Math.round(sloMs / MIN), status: "missing", critical };
+      if (!marketOpen && !CRITICAL_ALWAYS.has(tf)) {
+        perTf[tf] = {
+          ts: null,
+          age_min: null,
+          slo_min: Math.round(sloMs / MIN),
+          status: "not_expected",
+          critical: false,
+        };
+        continue;
+      }
+      perTf[tf] = {
+        ts: null,
+        age_min: null,
+        slo_min: Math.round(sloMs / MIN),
+        status: "missing",
+        critical,
+      };
       missingTfs.push(tf);
       continue;
     }
 
-    const ageMs = Math.max(0, nowMs - ts);
+    const ageMs = effectiveCandleAgeMs(tf, ts, nowMs, marketOpen, sessionRef) ?? Math.max(0, nowMs - ts);
     const hardMs = sloMs * HARD_MULT;
     let status = "fresh";
     if (ageMs > hardMs) status = "stale";
@@ -203,15 +240,12 @@ export function computeFreshnessBlock(tfNewestTs, opts = {}) {
     if (status === "stale") staleTfs.push(tf);
     else if (status === "aging") agingTfs.push(tf);
 
-    // Worst offender by SLO-relative age (4h-old 10m bar is worse than a
-    // 30h-old D bar even though the absolute age is smaller).
     const rel = ageMs / sloMs;
     if (!worst || rel > worst._rel) {
       worst = { tf, age_min: Math.round(ageMs / MIN), slo_min: Math.round(sloMs / MIN), _rel: rel };
     }
   }
 
-  // Grade.
   let grade = GRADE_FRESH;
   const criticalStale = staleTfs.some(
     (tf) => CRITICAL_ALWAYS.has(tf) || (marketOpen && CRITICAL_RTH.has(tf)),
@@ -233,11 +267,10 @@ export function computeFreshnessBlock(tfNewestTs, opts = {}) {
     v: FRESHNESS_SLO_VERSION,
     grade,
     mode,
-    // Replay blocks are diagnostic-only — quarantine never acts on them, so
-    // validated backtests keep parity.
     enforced: mode === "live",
     market_open: marketOpen,
     checked_at: nowMs,
+    session_ref: compactSessionRef(sessionRef),
     per_tf: perTf,
     stale_tfs: staleTfs,
     aging_tfs: agingTfs,
@@ -252,6 +285,104 @@ export function isQuarantinedByFreshness(payload) {
   if (sym && isFreshnessExemptTicker(sym)) return false;
   const f = payload?._freshness;
   return !!(f && f.enforced && f.grade === GRADE_STALE);
+}
+
+export { computeMarketSessionReference, isNyRthOpenAt };
+
+const OPEN_POS_TFS_RTH = ["D", "60", "30", "5", "240"];
+const OPEN_POS_TFS_OOH = ["D", "60", "240"];
+
+function tfOpenPosLabel(tf) {
+  if (tf === "240") return "4H";
+  if (tf === "D") return "D";
+  return `${tf}m`;
+}
+
+/**
+ * Build newest-ts map from a d1GetCandlesAllTfs-style cache for partial
+ * freshness stamping when full scoring fails.
+ */
+export function buildTfNewestTsFromCandleCache(candleCache, tfs = ["M", "W", "D", "240", "60", "30", "15", "10"]) {
+  const out = {};
+  for (const tf of tfs) {
+    const row = candleCache?.[String(tf)] || candleCache?.[tf];
+    const candles = row?.candles;
+    if (!Array.isArray(candles) || candles.length === 0) {
+      out[tf] = 0;
+      continue;
+    }
+    let newest = 0;
+    for (const c of candles) {
+      const ts = Number(c?.ts) || 0;
+      if (ts > newest) newest = ts;
+    }
+    out[tf] = newest;
+  }
+  return out;
+}
+
+/**
+ * Session-roll rescore classifier — tickers whose `_freshness` block is
+ * from before the last completed session or still on contract v1.
+ */
+export function classifySessionRollRescore(latest, sessionRef) {
+  if (!latest || typeof latest !== "object") return "missing";
+  const f = latest._freshness;
+  if (!f || Number(f.v || 0) < FRESHNESS_SLO_VERSION) return "freshness_contract_stale";
+  const checkedAt = Number(f.checked_at) || 0;
+  const lastClose = Number(sessionRef?.last_rth_close_ms) || 0;
+  // Closed-market STALE first — v1 wall-clock quarantine over holidays/weekends.
+  if (f.grade === GRADE_STALE && sessionRef && !sessionRef.market_open) {
+    return "stale_while_market_closed";
+  }
+  if (checkedAt > 0 && lastClose > 0 && checkedAt < lastClose - 30 * MIN) {
+    return "freshness_predates_last_session";
+  }
+  if (f.grade === GRADE_STALE) return "still_stale";
+  return null;
+}
+
+/**
+ * Calendar-aware open-position candle freshness (mirrors checkOpenPosition
+ * thresholds but uses session reference instead of flat wall-clock gaps).
+ */
+export function evaluateOpenPositionCandleMap(tfMap, opts = {}) {
+  const nowMs = Number(opts.nowMs) > 0 ? Number(opts.nowMs) : Date.now();
+  const sessionRef = opts.sessionRef && typeof opts.sessionRef === "object"
+    ? opts.sessionRef
+    : computeMarketSessionReference(nowMs);
+  const marketOpen = typeof opts.marketOpen === "boolean"
+    ? opts.marketOpen
+    : sessionRef.market_open;
+  const tfList = marketOpen ? OPEN_POS_TFS_RTH : OPEN_POS_TFS_OOH;
+  const reasons = [];
+
+  for (const tf of tfList) {
+    const sloMs = freshnessSloMs(tf, marketOpen, nowMs);
+    if (!sloMs) continue;
+    const ts = Number(tfMap?.[tf]) || 0;
+    const label = tfOpenPosLabel(tf);
+
+    if (ts <= 0) {
+      if (!marketOpen && tf !== "D" && tf !== "60" && tf !== "240") continue;
+      reasons.push(`${label}: missing`);
+      continue;
+    }
+
+    const ageMs = effectiveCandleAgeMs(tf, ts, nowMs, marketOpen, sessionRef) ?? Math.max(0, nowMs - ts);
+    const hardMs = sloMs * HARD_MULT;
+    if (ageMs > hardMs) {
+      const ageStr = ageMs >= HOUR
+        ? `${(ageMs / HOUR).toFixed(1)}h`
+        : `${Math.round(ageMs / MIN)}min`;
+      const threshStr = hardMs >= HOUR
+        ? `${(hardMs / HOUR).toFixed(0)}h`
+        : `${Math.round(hardMs / MIN)}min`;
+      reasons.push(`${label}: ${ageStr} stale (>${threshStr})`);
+    }
+  }
+
+  return { stale: reasons.length > 0, reasons, sessionRef };
 }
 
 /**
@@ -327,5 +458,6 @@ export function buildFreshnessSummary(entries, opts = {}) {
     aging_tickers: agingTickers,
     per_tf_ages: perTfAges,
     worst,
+    market_session: compactSessionRef(computeMarketSessionReference(nowMs)),
   };
 }

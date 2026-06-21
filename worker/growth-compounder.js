@@ -468,34 +468,110 @@ export function attachCompounderFromLatest(row, latestRow) {
 }
 
 /**
- * Enrich score rows with compounder data from KV only (read-time, no live TD fetches).
+ * Backfill missing companyName on holdbook/score rows from timed:context
+ * and optional D1 ticker_metadata (read-time, no live provider calls).
  */
+export async function enrichHoldbookRowNames(rows, kvGetJSON, opts = {}) {
+  const out = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
+  const syms = [...new Set(
+    out
+      .filter((row) => row?.ticker && !row.companyName)
+      .map((row) => String(row.ticker).toUpperCase()),
+  )];
+  if (!syms.length) return out;
+
+  const nameBySym = {};
+  for (let b = 0; b < syms.length; b += 50) {
+    const batch = syms.slice(b, b + 50);
+    const kvResults = await Promise.all(
+      batch.map((sym) => kvGetJSON(`timed:context:${sym}`)),
+    );
+    for (let i = 0; i < batch.length; i++) {
+      const ctx = kvResults[i];
+      const nm = ctx?.name || ctx?.companyName || ctx?.company_name || null;
+      if (nm) nameBySym[batch[i]] = String(nm);
+    }
+  }
+
+  if (typeof opts.loadMetadataNames === "function") {
+    try {
+      const meta = await opts.loadMetadataNames(syms);
+      if (meta && typeof meta === "object") {
+        for (const [sym, nm] of Object.entries(meta)) {
+          const T = String(sym || "").toUpperCase();
+          if (T && nm && !nameBySym[T]) nameBySym[T] = String(nm);
+        }
+      }
+    } catch (_) { /* best-effort */ }
+  }
+
+  return out.map((row) => {
+    const sym = String(row.ticker || "").toUpperCase();
+    if (row.companyName || !nameBySym[sym]) return row;
+    return { ...row, companyName: nameBySym[sym] };
+  });
+}
+
+function holdbookEnrichSort(a, b) {
+  const aCand = isHoldbookCandidateRow(a) ? 1 : 0;
+  const bCand = isHoldbookCandidateRow(b) ? 1 : 0;
+  if (bCand !== aCand) return bCand - aCand;
+  return (Number(b.score) || 0) - (Number(a.score) || 0);
+}
+
 export async function enrichHoldbookScoreRows(rows, kvGetJSON, kvKeyFn, opts = {}) {
-  const cap = Number(opts.enrichCap) || 30;
+  const cap = Number(opts.enrichCap) || 150;
+  const liveFetchCap = Number(opts.liveFetchCap) || 15;
+  const fetchSnapshot = typeof opts.fetchSnapshot === "function" ? opts.fetchSnapshot : null;
   const latestKeyFn = typeof opts.latestKeyFn === "function" ? opts.latestKeyFn : null;
   const out = (Array.isArray(rows) ? rows : []).map((row) => ({ ...row }));
 
+  // Enrich any score row missing compounder tier (not only current holdbook
+  // candidates — compounder classification can qualify a row after enrichment).
   const needEnrich = out
-    .filter((row) => !row?.compounder?.tier && isHoldbookCandidateRow(row))
-    .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+    .filter((row) => !row?.compounder?.tier)
+    .sort(holdbookEnrichSort)
     .slice(0, cap);
 
-  await Promise.all(needEnrich.map(async (row) => {
-    const idx = out.findIndex((r) => r.ticker === row.ticker);
-    if (idx < 0) return;
-    try {
-      let next = out[idx];
-      if (latestKeyFn) {
-        const latest = await kvGetJSON(latestKeyFn(row.ticker));
-        next = attachCompounderFromLatest(next, latest);
-      }
-      if (!next.compounder?.tier) {
-        const snap = await kvGetJSON(kvKeyFn(row.ticker));
-        next = attachCompounderFromSnapshot(next, snap);
-      }
-      out[idx] = next;
-    } catch (_) { /* best-effort */ }
-  }));
+  for (let b = 0; b < needEnrich.length; b += 20) {
+    const batch = needEnrich.slice(b, b + 20);
+    await Promise.all(batch.map(async (row) => {
+      const idx = out.findIndex((r) => r.ticker === row.ticker);
+      if (idx < 0) return;
+      try {
+        let next = out[idx];
+        if (latestKeyFn) {
+          const latest = await kvGetJSON(latestKeyFn(row.ticker));
+          next = attachCompounderFromLatest(next, latest);
+        }
+        if (!next.compounder?.tier) {
+          const snap = await kvGetJSON(kvKeyFn(row.ticker));
+          next = attachCompounderFromSnapshot(next, snap);
+        }
+        out[idx] = next;
+      } catch (_) { /* best-effort */ }
+    }));
+  }
+
+  // Cold KV fallback: live-fetch fundamentals for top holdbook candidates.
+  if (fetchSnapshot && liveFetchCap > 0) {
+    const stillNeed = out
+      .filter((row) => !row?.compounder?.tier)
+      .sort(holdbookEnrichSort)
+      .slice(0, liveFetchCap);
+    for (let b = 0; b < stillNeed.length; b += 5) {
+      const batch = stillNeed.slice(b, b + 5);
+      await Promise.all(batch.map(async (row) => {
+        const idx = out.findIndex((r) => r.ticker === row.ticker);
+        if (idx < 0 || out[idx]?.compounder?.tier) return;
+        try {
+          const res = await fetchSnapshot(row.ticker);
+          const snap = res?.snapshot || null;
+          if (snap) out[idx] = attachCompounderFromSnapshot(out[idx], snap);
+        } catch (_) { /* best-effort */ }
+      }));
+    }
+  }
 
   return out;
 }
@@ -567,4 +643,53 @@ export function buildInvestorHoldbook(scoreRows, opts = {}) {
     groups,
     holdings: sorted,
   };
+}
+
+/** Overlay live timed:prices onto a cached holdbook payload (read-time only). */
+export function overlayHoldbookPrices(holdbook, priceMap = {}) {
+  if (!holdbook || typeof holdbook !== "object") return holdbook;
+  const overlay = (row) => {
+    if (!row?.ticker) return row;
+    const pf = priceMap[String(row.ticker).toUpperCase()];
+    if (!pf) return row;
+    return {
+      ...row,
+      price: pf.p != null ? Number(pf.p) : (row.price ?? null),
+      dailyChgPct: pf.dp != null ? Number(pf.dp) : (row.dailyChgPct ?? null),
+    };
+  };
+  const groups = holdbook.groups || {};
+  return {
+    ...holdbook,
+    holdings: (holdbook.holdings || []).map(overlay),
+    groups: {
+      in_book: (groups.in_book || []).map(overlay),
+      building: (groups.building || []).map(overlay),
+      on_radar: (groups.on_radar || []).map(overlay),
+    },
+  };
+}
+
+/**
+ * Build the Growth Ideas / holdbook list for KV persistence.
+ * Called from POST /timed/investor/compute — not on every GET.
+ */
+export async function buildInvestorHoldbookCache(scoreRows, deps, opts = {}) {
+  const minTier = opts.minTier || "growth_watch";
+  let rows = (Array.isArray(scoreRows) ? scoreRows : []).map((row) => ({ ...row }));
+  rows = await enrichHoldbookScoreRows(
+    rows,
+    deps.kvGetJSON,
+    deps.kvKeyFn,
+    {
+      enrichCap: opts.enrichCap || 150,
+      liveFetchCap: Number(opts.liveFetchCap) || 0,
+      latestKeyFn: deps.latestKeyFn,
+      fetchSnapshot: deps.fetchSnapshot,
+    },
+  );
+  rows = await enrichHoldbookRowNames(rows, deps.kvGetJSON, {
+    loadMetadataNames: deps.loadMetadataNames,
+  });
+  return buildInvestorHoldbook(rows, { minTier });
 }

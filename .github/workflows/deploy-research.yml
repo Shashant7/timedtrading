@@ -19,11 +19,12 @@ on:
       - "scripts/build-frontend.js"
       - "scripts/embed-dashboard.js"
       - "package.json"
+      - "scripts/deploy-wrangler-retry.sh"
       - ".github/workflows/deploy-research.yml"
   workflow_dispatch:
 
 concurrency:
-  group: deploy-research
+  group: deploy-monolith-bundle
   cancel-in-progress: false
 
 jobs:
@@ -96,13 +97,10 @@ jobs:
 
       - name: Deploy research worker
         if: steps.cfsec.outputs.secrets-ok == 'true'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
-          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.92.0"
-          workingDirectory: worker-research
-          command: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/deploy-wrangler-retry.sh worker-research
 
       - name: Post-deploy smoke
         if: steps.cfsec.outputs.secrets-ok == 'true'

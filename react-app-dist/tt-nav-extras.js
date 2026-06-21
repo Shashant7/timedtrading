@@ -388,15 +388,10 @@
       "/investor",
       "/portfolio",
       "/insights",
+      "/daily-brief",
+      "/opportunities",
       "/learn",
       "/faq",
-      // 2026-05-26 — Added /daily-brief. PR #299 wired the Daily
-      // Brief page to use the same .nav-links / .nav-link structure
-      // as the other journey pages, so it now ALSO already has all
-      // these links in its HTML — injecting the journey-strip on
-      // top of them produced a duplicate text-only nav row above
-      // the branded nav row (user report 2026-05-26 11:51 PM UTC).
-      "/daily-brief",
       // 2026-05-29 — B3: admin pages render their own full
       // .nav-links container (journey links + admin items via
       // mission-control-style scaffold). Injecting the strip on
@@ -701,4 +696,4 @@
   })();
 })();
 
-// cache-bust:1781911807407:484132943
+// cache-bust:1782058417571:726226076

@@ -3,6 +3,8 @@ import {
   canAccessLivePrices,
   redactTickerSnapshot,
   redactTickerMapForTier,
+  computeUserDataTier,
+  promoteAdminEmailUser,
 } from "./api.js";
 
 describe("canAccessLivePrices", () => {
@@ -15,6 +17,23 @@ describe("canAccessLivePrices", () => {
     expect(canAccessLivePrices("free")).toBe(false); // 'free' tier == a Member
     expect(canAccessLivePrices("anon")).toBe(false);
     expect(canAccessLivePrices(undefined)).toBe(false);
+  });
+});
+
+describe("computeUserDataTier — admin promotion", () => {
+  it("treats ADMIN_EMAIL as admin even when DB role is member", () => {
+    const tier = computeUserDataTier(
+      { email: "Ops@Example.com", role: "member", tier: "free" },
+      { ADMIN_EMAIL: "ops@example.com" },
+    );
+    expect(tier).toBe("admin");
+  });
+
+  it("promoteAdminEmailUser mutates operator row in place", () => {
+    const user = { email: "ops@example.com", role: "member", tier: "free" };
+    promoteAdminEmailUser(user, { ADMIN_EMAIL: "ops@example.com" });
+    expect(user.role).toBe("admin");
+    expect(user.tier).toBe("admin");
   });
 });
 

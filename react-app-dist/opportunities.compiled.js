@@ -60,10 +60,14 @@ function Section({
     key: i
   }, b)))))));
 }
-function OpportunitiesApp() {
-  const [data, setData] = useState(null);
+const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
+const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
+function OpportunitiesApp({
+  user
+}) {
+  const [data, setData] = useState(() => CACHE?.peek(HOLDBOOK_CACHE_URL) || null);
   const [err, setErr] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(() => !CACHE?.peek(HOLDBOOK_CACHE_URL));
   const [railTicker, setRailTicker] = useState(null);
   const [railInitialTab, setRailInitialTab] = useState(null);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
@@ -79,35 +83,59 @@ function OpportunitiesApp() {
   }, [RailOverlay]);
   useEffect(() => {
     let cancelled = false;
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => ctrl.abort(), 15000);
-    (async () => {
-      try {
-        const r = await fetch(`${API_BASE}/timed/investor/holdbook`, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ctrl.signal
-        });
-        const j = await r.json();
-        if (!cancelled) {
-          if (j.error_kind === "tier_required") setErr("Growth Ideas requires a Pro subscription.");else if (!j.ok && j.error) setErr(j.error);else setData(j);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          const msg = e?.name === "AbortError" ? "Growth ideas request timed out. Try again in a moment." : String(e.message || e);
-          setErr(msg);
-        }
-      } finally {
-        clearTimeout(timeoutId);
-        if (!cancelled) setLoading(false);
+    let attempt = 0;
+    const maxAttempts = 4;
+    const applyHoldbook = j => {
+      if (!j || j.error_kind === "tier_required") return false;
+      if (!j.ok && j.error) {
+        if (!data?.count) setErr(j.error);
+        return false;
       }
-    })();
+      setData(j);
+      setErr(null);
+      if (CACHE) CACHE.put(HOLDBOOK_CACHE_URL, j);
+      return true;
+    };
+    const loadHoldbook = () => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 20000);
+      return fetch(`${HOLDBOOK_CACHE_URL}?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store",
+        signal: ctrl.signal
+      }).then(r => r.json()).then(async j => {
+        if (cancelled) return;
+        if (j.error_kind === "tier_required" && attempt < maxAttempts - 1) {
+          attempt += 1;
+          await new Promise(res => setTimeout(res, 600 * attempt));
+          if (!cancelled) return loadHoldbook();
+          return;
+        }
+        if (j.error_kind === "tier_required") {
+          if (!data?.count) {
+            setErr("Growth Ideas requires a Pro or Admin subscription.");
+          }
+          return;
+        }
+        applyHoldbook(j);
+      }).catch(e => {
+        if (cancelled || data?.count) return;
+        setErr(e?.name === "AbortError" ? "Growth ideas request timed out. Try again in a moment." : String(e.message || e));
+      }).finally(() => {
+        clearTimeout(t);
+        if (!cancelled) setRefreshing(false);
+      });
+    };
+    setRefreshing(true);
+    loadHoldbook();
+    const unsub = CACHE ? CACHE.subscribe(HOLDBOOK_CACHE_URL, body => {
+      if (!cancelled) applyHoldbook(body);
+    }) : () => {};
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
-      ctrl.abort();
+      unsub();
     };
-  }, []);
+  }, [user?.email, user?.role, user?.tier, user?.subscription_status, user?.expires_at]);
   const railTickerObj = useMemo(() => railTicker ? {
     ticker: String(railTicker).toUpperCase()
   } : null, [railTicker]);
@@ -150,11 +178,6 @@ function OpportunitiesApp() {
     if (!RailOverlay) return;
     applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
   }, [RailOverlay, applyRailOpen]);
-  if (loading) {
-    return h("main", null, h("div", {
-      className: "hb-loading"
-    }, "Loading growth ideas…"));
-  }
   const hero = h("header", {
     className: "hb-hero"
   }, h("div", {
@@ -167,18 +190,28 @@ function OpportunitiesApp() {
     href: "/investor.html"
   }, "Investor"), "."));
   let body;
-  if (err) {
+  if (err && !data?.count) {
     body = h("div", {
       className: "hb-empty"
     }, `Could not load growth ideas: ${err}`);
+  } else if (!data?.count && refreshing) {
+    body = h("div", {
+      className: "hb-loading"
+    }, "Loading growth ideas…");
   } else if (!data?.count) {
     body = h("div", {
       className: "hb-empty"
-    }, "No growth ideas surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ", "Fundamentals snapshots populate on first Fundamentals tab view or nightly refresh.");
+    }, "No growth ideas surfaced yet. Names need a growth profile plus Watch or Accumulate stage. ", "The list refreshes on the hourly investor compute cadence.");
   } else {
     const g = data.groups || {};
     const labels = data.group_labels || {};
-    body = h(React.Fragment, null, Section({
+    body = h(React.Fragment, null, refreshing && h("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--tt-text-dim)",
+        marginBottom: 10
+      }
+    }, "Refreshing full list…"), Section({
       title: labels.in_book || "In Position",
       subtitle: "Model already holds or rates Core Hold — compounding thesis intact.",
       rows: g.in_book,
@@ -202,8 +235,17 @@ function OpportunitiesApp() {
     onClose: onCloseRail
   }));
 }
+const AuthGate = window.TimedAuthGate;
+const app = AuthGate ? h(AuthGate, {
+  apiBase: API_BASE,
+  requiredTier: "pro"
+}, user => h(OpportunitiesApp, {
+  user
+})) : h(OpportunitiesApp, {
+  user: null
+});
 const root = ReactDOM.createRoot(document.getElementById("root"));
-root.render(h(OpportunitiesApp));
-// cache-bust:1781911807407:484132943
+root.render(app);
+// cache-bust:1782058417571:726226076
 
-// cache-bust:1781911807407:484132943
+// cache-bust:1782058417571:726226076

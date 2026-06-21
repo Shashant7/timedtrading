@@ -192,24 +192,6 @@ function resolveMarketSession(cal) {
   const rthOpen = hasCal ? sess.is_rth === true : isNyRegularMarketOpen();
   const operatingHours = hasCal ? sess.is_within_operating_hours === true : !isWeekend;
   const showDayTradeSections = hasCal && sess.is_rth === true && !isHoliday && !isWeekend;
-  let bannerKind = null;
-  let bannerMessage = "";
-  if (hasCal && isHoliday) {
-    bannerKind = "closed";
-    bannerMessage = holidayName ? `Markets are closed today for ${holidayName}.` : "Markets are closed today for a US market holiday.";
-  } else if (hasCal && isWeekend) {
-    bannerKind = "closed";
-    bannerMessage = "Markets are closed for the weekend.";
-  } else if (hasCal && !rthOpen && sessionType === "PM") {
-    bannerKind = "premarket";
-    bannerMessage = "Pre-market — regular session opens at 9:30 AM ET.";
-  } else if (hasCal && !rthOpen && sessionType === "AH") {
-    bannerKind = "afterhours";
-    bannerMessage = "After-hours — regular session closed at 4:00 PM ET.";
-  } else if (hasCal && !rthOpen) {
-    bannerKind = "closed";
-    bannerMessage = "Markets are closed.";
-  }
   return {
     rthOpen,
     operatingHours,
@@ -218,9 +200,7 @@ function resolveMarketSession(cal) {
     isEarlyClose,
     isWeekend,
     sessionType,
-    showDayTradeSections,
-    bannerKind,
-    bannerMessage
+    showDayTradeSections
   };
 }
 const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
@@ -366,22 +346,6 @@ function SessionPill({
   }, h("span", {
     className: "dot"
   }), label);
-}
-function MarketStatusBanner({
-  cal
-}) {
-  const session = resolveMarketSession(cal);
-  if (!session.bannerKind || !session.bannerMessage) return null;
-  return h("div", {
-    className: `tt-market-banner tt-market-banner--${session.bannerKind}`,
-    role: "status",
-    "aria-live": "polite"
-  }, h("span", {
-    className: "tt-market-banner-icon",
-    "aria-hidden": true
-  }, session.bannerKind === "closed" ? "◼" : "◷"), h("span", {
-    className: "tt-market-banner-text"
-  }, session.bannerMessage));
 }
 const REGIME_TONE = {
   RISK_ON: "var(--tt-up-soft)",
@@ -2092,7 +2056,8 @@ function TodayHero({
   briefSlot,
   data,
   earnings,
-  onSelectTicker
+  onSelectTicker,
+  cal
 }) {
   return h("div", {
     className: "today-hero",
@@ -2112,7 +2077,8 @@ function TodayHero({
   }) : h(BriefPlaceholder, {
     data,
     earnings,
-    onSelectTicker
+    onSelectTicker,
+    cal
   })), h("div", {
     className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
@@ -2611,46 +2577,68 @@ function MacroStrip({
     }
   }, "Rotation to mind: "), themeCallout, ".")));
 }
+const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
 function GrowthIdeasStrip({
-  onSelectTicker
+  onSelectTicker,
+  user
 }) {
-  const [rows, setRows] = useState(null);
+  const [rows, setRows] = useState(() => {
+    const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
+    const list = Array.isArray(cached?.holdings) ? cached.holdings : [];
+    return list.length ? list.slice(0, 16) : null;
+  });
   const [loadErr, setLoadErr] = useState(null);
   useEffect(() => {
     let cancelled = false;
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 12000);
-    fetch(`${API_BASE}/timed/investor/holdbook`, {
-      credentials: "include",
-      cache: "no-store",
-      signal: ctrl.signal
-    }).then(r => r.json()).then(j => {
-      if (cancelled) return;
-      if (j.error_kind === "tier_required") {
-        setRows([]);
-        return;
-      }
-      if (!j.ok && j.error) {
-        setLoadErr(j.error);
-        setRows([]);
-        return;
-      }
-      const list = Array.isArray(j.holdings) ? j.holdings : [];
+    let attempt = 0;
+    const maxAttempts = 4;
+    const applyHoldbook = j => {
+      const list = Array.isArray(j?.holdings) ? j.holdings : [];
+      setLoadErr(null);
       setRows(list.slice(0, 16));
-    }).catch(e => {
-      if (!cancelled) {
-        setLoadErr(e?.name === "AbortError" ? null : String(e.message || e));
-        setRows([]);
-      }
-    }).finally(() => {
-      clearTimeout(t);
-    });
+      if (CACHE && j?.ok) CACHE.put(HOLDBOOK_CACHE_URL, j);
+    };
+    const loadHoldbook = () => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 20000);
+      return fetch(`${HOLDBOOK_CACHE_URL}?_t=${Date.now()}`, {
+        credentials: "include",
+        cache: "no-store",
+        signal: ctrl.signal
+      }).then(r => r.json()).then(async j => {
+        if (cancelled) return;
+        if (j.error_kind === "tier_required" && attempt < maxAttempts - 1) {
+          attempt += 1;
+          await new Promise(res => setTimeout(res, 600 * attempt));
+          if (!cancelled) return loadHoldbook();
+          return;
+        }
+        if (j.error_kind === "tier_required") {
+          setLoadErr("Growth Ideas requires a Pro or Admin subscription.");
+          setRows([]);
+          return;
+        }
+        if (!j.ok && j.error) {
+          setLoadErr(j.error);
+          setRows([]);
+          return;
+        }
+        applyHoldbook(j);
+      }).catch(e => {
+        if (!cancelled) {
+          if (CACHE?.peek(HOLDBOOK_CACHE_URL)?.holdings?.length) return;
+          setLoadErr(e?.name === "AbortError" ? "Growth ideas request timed out." : String(e.message || e));
+          setRows([]);
+        }
+      }).finally(() => {
+        clearTimeout(t);
+      });
+    };
+    loadHoldbook();
     return () => {
       cancelled = true;
-      clearTimeout(t);
-      ctrl.abort();
     };
-  }, []);
+  }, [user?.email, user?.role, user?.tier, user?.subscription_status, user?.expires_at]);
   if (rows === null) {
     return h("section", {
       id: "opportunities",
@@ -2661,7 +2649,16 @@ function GrowthIdeasStrip({
       className: "tt-sec-h"
     }, "Loading growth watchlist…"));
   }
-  if (!rows.length) return null;
+  if (!rows.length) {
+    return h("section", {
+      id: "opportunities",
+      className: "tt-row"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "GROWTH IDEAS"), h("div", {
+      className: "tt-sec-h"
+    }, loadErr || "No growth ideas matched the current compounder filters."));
+  }
   const fmtPctOpp = n => {
     if (!Number.isFinite(Number(n))) return null;
     const v = Number(n);
@@ -4895,7 +4892,9 @@ function Disclosure({
     className: "tt-disclose-body"
   }, children) : null);
 }
-function TodayApp() {
+function TodayApp({
+  user
+}) {
   const [data, setData] = useState(null);
   const [brief, setBrief] = useState(null);
   const [briefSlot, setBriefSlot] = useState(null);
@@ -5116,19 +5115,19 @@ function TodayApp() {
     brief,
     briefSlot,
     data
-  }), h(MarketStatusBanner, {
-    cal
   }), h(TodayHero, {
     brief,
     briefSlot,
     data,
     earnings,
-    onSelectTicker
+    onSelectTicker,
+    cal
   }), h(OpenPositionsPreview, {
     onSelectTicker,
     allTickers
   }), h(GrowthIdeasStrip, {
-    onSelectTicker
+    onSelectTicker,
+    user
   }), data ? h(MarketState, {
     data,
     onSelectTicker
@@ -5201,7 +5200,8 @@ function TodayApp() {
 function BriefPlaceholder({
   data,
   earnings,
-  onSelectTicker
+  onSelectTicker,
+  cal
 }) {
   if (!data) {
     return h("section", {
@@ -5245,74 +5245,66 @@ function BriefPlaceholder({
       }
     })));
   }
-  const sessionInfo = (() => {
+  const session = resolveMarketSession(cal);
+  const sessionPhase = session.isHoliday || session.isWeekend ? "closed" : session.rthOpen ? "rth" : session.sessionType === "PM" ? "pre" : session.sessionType === "AH" ? "ah" : "closed";
+  const countdownInfo = (() => {
+    if (sessionPhase === "closed") return null;
     try {
       const f = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York",
         hour12: false,
-        weekday: "short",
         hour: "2-digit",
         minute: "2-digit"
       });
       const parts = f.formatToParts(new Date());
-      const wd = parts.find(p => p.type === "weekday")?.value;
       const hh = Number(parts.find(p => p.type === "hour")?.value || 0);
       const mm = Number(parts.find(p => p.type === "minute")?.value || 0);
       const min = hh * 60 + mm;
       const RTH_OPEN = 9 * 60 + 30;
       const RTH_CLOSE = 16 * 60;
       const AH_CLOSE = 20 * 60;
-      if (wd === "Sat" || wd === "Sun") return {
-        label: "Weekend · Market closed",
-        phase: "closed",
-        countdown: null
-      };
-      if (min < RTH_OPEN) {
+      if (sessionPhase === "pre") {
         const delta = RTH_OPEN - min;
-        return {
-          label: "Pre-market",
-          phase: "pre",
+        return delta > 0 ? {
           countdown: fmtCountdown(delta),
           countdownLabel: "to open"
-        };
+        } : null;
       }
-      if (min < RTH_CLOSE) {
+      if (sessionPhase === "rth") {
         const delta = RTH_CLOSE - min;
-        return {
-          label: "Market open · RTH",
-          phase: "rth",
+        return delta > 0 ? {
           countdown: fmtCountdown(delta),
           countdownLabel: "to close"
-        };
+        } : null;
       }
-      if (min < AH_CLOSE) {
+      if (sessionPhase === "ah") {
         const delta = AH_CLOSE - min;
-        return {
-          label: "After-hours",
-          phase: "ah",
+        return delta > 0 ? {
           countdown: fmtCountdown(delta),
           countdownLabel: "to AH close"
-        };
+        } : null;
       }
-      return {
-        label: "Market closed",
-        phase: "closed",
-        countdown: null
-      };
+      return null;
     } catch {
-      return {
-        label: "Market closed",
-        phase: "closed",
-        countdown: null
-      };
+      return null;
     }
+  })();
+  const marketClosedForBrief = sessionPhase === "closed";
+  const briefLoadingHint = (() => {
+    if (marketClosedForBrief) return null;
+    const mins = nyEtMinutes();
+    if (mins < 9 * 60) return "Morning brief publishes ~9:00 AM ET";
+    if (mins >= 16 * 60) return "Evening brief loading";
+    return h(React.Fragment, null, h("span", {
+      className: "bp-dots"
+    }, h("i", null), h("i", null), h("i", null)), "Daily brief loading");
   })();
   const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
     ticker: String(k).toUpperCase(),
     ...(v || {})
   }).filter(t => t && t.ticker);
   const CRYPTO = new Set(["BTCUSD", "ETHUSD"]);
-  const useExt = sessionInfo.phase === "pre" || sessionInfo.phase === "ah" || sessionInfo.phase === "closed";
+  const useExt = sessionPhase === "pre" || sessionPhase === "ah" || sessionPhase === "closed";
   let signalMode = useExt ? "ext" : "rth";
   let signal = useExt ? arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
     t,
@@ -5351,25 +5343,21 @@ function BriefPlaceholder({
     }
   })();
   const earningsTodayCount = safeArr(earnings?.events).filter(ev => ev?.date === todayIso).length;
-  const phaseTagCls = sessionInfo.phase === "rth" ? "up" : sessionInfo.phase === "pre" || sessionInfo.phase === "ah" ? "accent" : "";
   const signalLabel = signalMode === "ext" ? "Pre/After-hours movers" : "Today's biggest movers";
+  const showBpHead = countdownInfo || briefLoadingHint;
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-card tt-card-pad bp-card"
-  }, h("div", {
+  }, showBpHead && h("div", {
     className: "bp-head"
-  }, h("span", {
-    className: `tt-pill ${phaseTagCls}`
-  }, sessionInfo.label), sessionInfo.countdown && h("span", {
+  }, countdownInfo && h("span", {
     className: "bp-countdown"
-  }, sessionInfo.countdown, h("span", {
+  }, countdownInfo.countdown, h("span", {
     className: "bp-countdown-lbl"
-  }, " " + (sessionInfo.countdownLabel || ""))), h("span", {
+  }, " " + (countdownInfo.countdownLabel || ""))), briefLoadingHint && h("span", {
     className: "bp-loading"
-  }, nyEtMinutes() < 9 * 60 ? "Morning brief publishes ~9:00 AM ET" : nyEtMinutes() >= 16 * 60 ? "Evening brief loading" : h(React.Fragment, null, h("span", {
-    className: "bp-dots"
-  }, h("i", null), h("i", null), h("i", null)), "Daily brief loading"))), h("div", {
+  }, briefLoadingHint)), h("div", {
     className: "bp-section-title"
   }, signalLabel.toUpperCase()), signal.length > 0 ? h("div", {
     className: "bp-signal-list"
@@ -5399,7 +5387,34 @@ function BriefPlaceholder({
     className: "bp-empty"
   }, "No standout moves yet — waiting for the open."), h("div", {
     className: "bp-meta"
-  }, h("span", null, arr.length.toLocaleString() + " tickers scored"), earningsTodayCount > 0 && h("span", null, "·"), earningsTodayCount > 0 && h("span", null, h("strong", null, earningsTodayCount), " earnings today"))));
+  }, h("span", null, arr.length.toLocaleString() + " tickers scored"), earningsTodayCount > 0 && h("span", null, "·"), earningsTodayCount > 0 && h("span", null, h("strong", null, earningsTodayCount), " earnings today")), h("div", {
+    className: "brief-actions",
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginTop: 14
+    }
+  }, h("a", {
+    href: "/daily-brief.html#archive",
+    className: "brief-link"
+  }, "Browse past briefs", h("svg", {
+    width: 14,
+    height: 14,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, h("line", {
+    x1: 5,
+    y1: 12,
+    x2: 19,
+    y2: 12
+  }), h("polyline", {
+    points: "12 5 19 12 12 19"
+  }))))));
 }
 function fmtCountdown(mins) {
   const m = Math.max(0, Math.floor(mins));
@@ -5555,6 +5570,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1781912784939:529221598
+// cache-bust:1782058417571:726226076
 
-// cache-bust:1781912784939:529221598
+// cache-bust:1782058417571:726226076
