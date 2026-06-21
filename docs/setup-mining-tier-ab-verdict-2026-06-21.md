@@ -109,6 +109,12 @@ node scripts/census-setup-patterns.mjs \
   --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
   --wrangler-d1 production --enrich-captured --limit 75
 
+# Event-combo lift pass (backtest WIN vs LOSS vs missed Tier A)
+node scripts/pattern-lift-pass.mjs \
+  --run-id backtest_2025-07-01_2025-12-31@2026-03-14T03:11:44.033Z \
+  --missed-cache data/setup-mining/pattern-lift/missed-enriched.json \
+  --wrangler-d1 production --backtest-limit 362
+
 # L2 backfill + gate
 node scripts/backfill-setup-events.mjs --cohort fixtures --wrangler-d1 production --limit 30
 TIMED_API_KEY=... node scripts/run-setup-parity-gate.mjs --live

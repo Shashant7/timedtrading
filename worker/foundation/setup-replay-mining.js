@@ -317,6 +317,44 @@ export function extractPatternProfile(diag = {}, opts = {}) {
   };
 }
 
+/** trail_5m_facts booleans often fire when pair-diff derivation does not emit events. */
+export function augmentPatternProfileFromTrailFacts(profile, trailRows = [], trailSource = "5m") {
+  if (!profile || trailSource !== "5m") return profile;
+  const rows = Array.isArray(trailRows) ? trailRows : [];
+  if (!rows.length) return profile;
+  const eventTypes = new Set(profile.event_types || []);
+  let hasStFlip = profile.has_st_flip;
+  let hasSqueeze = profile.has_squeeze_release;
+  let hasEmaCross = false;
+  let hasMomentumElite = false;
+  for (const row of rows) {
+    if (row.had_st_flip) {
+      hasStFlip = true;
+      eventTypes.add("supertrend_flip");
+    }
+    if (row.had_squeeze_release) {
+      hasSqueeze = true;
+      eventTypes.add("squeeze_release");
+    }
+    if (row.had_ema_cross) {
+      hasEmaCross = true;
+      eventTypes.add("ema21_reclaim");
+    }
+    if (row.had_momentum_elite) {
+      hasMomentumElite = true;
+      eventTypes.add("momentum_confirmation");
+    }
+  }
+  return {
+    ...profile,
+    event_types: [...eventTypes].sort(),
+    has_st_flip: hasStFlip,
+    has_squeeze_release: hasSqueeze,
+    has_ema21_reclaim: profile.has_ema21_reclaim || hasEmaCross,
+    has_momentum_confirmation: profile.has_momentum_confirmation || hasMomentumElite,
+  };
+}
+
 function initCensusBucket() {
   return { n: 0, aligned: 0, opposed: 0, wins: 0, losses: 0 };
 }
@@ -497,6 +535,188 @@ export function formatPatternCensusMarkdown(report = {}) {
   for (const row of report.by_path_forecast || []) {
     lines.push(`| ${row.key} | ${row.total_n} | ${row.missed_aligned?.n ?? 0} | ${row.missed_opposed?.n ?? 0} |`);
   }
+
+  return lines.join("\n");
+}
+
+export const EVENT_COMBO_PRESETS = [
+  { key: "exhaustion_forming_only", label: "Exhaustion forming only (stage key)", test: (p) => (p.aligned_matched_stages || []).includes("exhaustion_forming") && !(p.confirmation_events || []).length },
+  { key: "exhaustion_confirmed", label: "Exhaustion confirmed (TD9/TD13 stage)", test: (p) => (p.aligned_matched_stages || []).includes("exhaustion_confirmed") || p.has_td9 || p.has_td13 },
+  { key: "location_valid", label: "Location valid (PDZ/FVG stage)", test: (p) => (p.aligned_matched_stages || []).includes("location_valid") },
+  { key: "mean_reversion_target", label: "MR target reached (EMA21/VWAP stage)", test: (p) => (p.aligned_matched_stages || []).includes("mean_reversion_target") || p.has_mean_reversion_target },
+  { key: "breakthrough_momentum", label: "Breakthrough w/ momentum (stage 6)", test: (p) => (p.aligned_matched_stages || []).includes("breakthrough_with_momentum") || p.has_st_breakthrough || p.has_momentum_confirmation },
+  { key: "pullback_stabilized", label: "Pullback stabilized (hold lane)", test: (p) => (p.aligned_matched_stages || []).includes("pullback_stabilized") || p.has_pullback_stabilized },
+  { key: "confirm_st_flip", label: "SuperTrend flip", test: (p) => p.has_st_flip },
+  { key: "confirm_squeeze", label: "Squeeze release", test: (p) => p.has_squeeze_release },
+  { key: "confirm_ema21_reclaim", label: "EMA21 reclaim", test: (p) => p.has_ema21_reclaim },
+  { key: "confirm_ema21_reject", label: "EMA21 reject", test: (p) => p.has_ema21_reject },
+  { key: "confirm_ema200_reclaim", label: "EMA200 reclaim", test: (p) => p.has_ema200_reclaim },
+  { key: "stack_st+ema21", label: "ST flip + EMA21 reclaim", test: (p) => p.has_st_flip && p.has_ema21_reclaim },
+  { key: "stack_st+squeeze", label: "ST flip + squeeze release", test: (p) => p.has_st_flip && p.has_squeeze_release },
+  { key: "stack_td9+st", label: "TD9 + ST flip", test: (p) => p.has_td9 && p.has_st_flip },
+  { key: "stack_full_confirm", label: "ST flip + squeeze + EMA21 (reclaim or reject)", test: (p) => p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) },
+  { key: "mr_stage5_plus", label: "MR aligned stage >= 5", test: (p) => p.aligned_mr_stage >= 5 },
+  { key: "mr_stage6_plus", label: "MR aligned stage >= 6", test: (p) => p.aligned_mr_stage >= 6 },
+  { key: "invalidated", label: "Sequence invalidated", test: (p) => p.invalidated === true },
+];
+
+export function liftSlice(row = {}) {
+  if (row.cohort === "backtest") {
+    if (row.outcome === "win") return "backtest_win";
+    if (row.outcome === "loss") return "backtest_loss";
+    return "backtest_other";
+  }
+  if (row.cohort === "discovery_missed") {
+    const o = row.move_alignment?.outcome;
+    if (o === "aligned") return "missed_aligned";
+    if (o === "opposed") return "missed_opposed";
+    return "missed_other";
+  }
+  if (row.outcome === "win" || row.trade_outcome === "win") return "captured_win";
+  if (row.outcome === "loss" || row.trade_outcome === "loss") return "captured_loss";
+  return "captured_other";
+}
+
+function initLiftTotals() {
+  return {
+    backtest_win: 0,
+    backtest_loss: 0,
+    missed_aligned: 0,
+    missed_opposed: 0,
+    missed_tier_a: 0,
+    missed_other: 0,
+    backtest_other: 0,
+  };
+}
+
+function initLiftPresence() {
+  return {
+    backtest_win: 0,
+    backtest_loss: 0,
+    missed_aligned: 0,
+    missed_opposed: 0,
+    missed_tier_a: 0,
+  };
+}
+
+function rate(n, d) {
+  if (!d || d <= 0) return null;
+  return Math.round((n / d) * 1000) / 1000;
+}
+
+function liftRow(key, label, kind, presence, totals) {
+  const winR = rate(presence.backtest_win, totals.backtest_win);
+  const lossR = rate(presence.backtest_loss, totals.backtest_loss);
+  const missR = rate(presence.missed_aligned, totals.missed_aligned);
+  const missTierR = rate(presence.missed_tier_a, totals.missed_tier_a);
+  const winLift = winR != null && lossR != null ? Math.round((winR - lossR) * 1000) / 1000 : null;
+  const winRatio = winR != null && lossR != null && lossR > 0 ? Math.round((winR / lossR) * 100) / 100 : null;
+  const captureGap = missTierR != null && winR != null ? Math.round((missTierR - winR) * 1000) / 1000 : null;
+  return {
+    key,
+    label,
+    kind,
+    totals: { ...totals },
+    presence: { ...presence },
+    rates: {
+      backtest_win: winR,
+      backtest_loss: lossR,
+      missed_aligned: missR,
+      missed_tier_a: missTierR,
+    },
+    win_lift: winLift,
+    win_ratio: winRatio,
+    capture_gap_tier_a: captureGap,
+  };
+}
+
+export function buildEventLiftReport(rows = [], opts = {}) {
+  const totals = initLiftTotals();
+  const eventPresence = new Map();
+  const comboPresence = new Map();
+  const tierAThreshold = Number(opts.tier_a_min_atr) || 8;
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const profile = row.pattern_profile;
+    if (!profile) continue;
+    const slice = liftSlice(row);
+    if (slice === "backtest_other" || slice === "missed_other" || slice === "captured_other") continue;
+    totals[slice] += 1;
+    const isTierAMiss = row.cohort === "discovery_missed" && Number(row.move_atr) >= tierAThreshold;
+    if (isTierAMiss) totals.missed_tier_a += 1;
+
+    for (const ev of profile.event_types || []) {
+      if (!eventPresence.has(ev)) eventPresence.set(ev, initLiftPresence());
+      eventPresence.get(ev)[slice] += 1;
+      if (isTierAMiss) eventPresence.get(ev).missed_tier_a += 1;
+    }
+
+    for (const preset of EVENT_COMBO_PRESETS) {
+      if (!preset.test(profile)) continue;
+      if (!comboPresence.has(preset.key)) comboPresence.set(preset.key, initLiftPresence());
+      comboPresence.get(preset.key)[slice] += 1;
+      if (isTierAMiss) comboPresence.get(preset.key).missed_tier_a += 1;
+    }
+  }
+
+  const byEvent = [...eventPresence.entries()]
+    .map(([key, presence]) => liftRow(key, key, "event", presence, totals))
+    .sort((a, b) => (b.win_lift ?? -999) - (a.win_lift ?? -999) || b.presence.backtest_win - a.presence.backtest_win);
+
+  const byCombo = [...comboPresence.entries()]
+    .map(([key, presence]) => {
+      const preset = EVENT_COMBO_PRESETS.find((p) => p.key === key);
+      return liftRow(key, preset?.label || key, "combo", presence, totals);
+    })
+    .sort((a, b) => (b.win_lift ?? -999) - (a.win_lift ?? -999) || b.rates.missed_tier_a - a.rates.backtest_win);
+
+  return {
+    totals,
+    tier_a_min_atr: tierAThreshold,
+    by_event: byEvent,
+    by_combo: byCombo,
+    top_win_lift: byCombo.filter((r) => r.win_lift != null).slice(0, 10),
+    top_capture_signals: byCombo
+      .filter((r) => r.rates.missed_tier_a != null && r.rates.backtest_win != null)
+      .sort((a, b) => (b.capture_gap_tier_a ?? -999) - (a.capture_gap_tier_a ?? -999))
+      .slice(0, 10),
+  };
+}
+
+export function formatEventLiftMarkdown(report = {}) {
+  const t = report.totals || {};
+  const lines = [
+    "# Event-combo lift pass (objective)",
+    "",
+    "Compares pattern presence **before entry/anchor** across cohorts.",
+    "Win lift = P(pattern|backtest WIN) − P(pattern|backtest LOSS).",
+    "Capture gap (Tier A) = P(pattern|missed move) − P(pattern|backtest WIN) — positive means the signal was visible on misses we did not trade.",
+    "",
+    "## Cohort sizes",
+    "",
+    "| Cohort | N |",
+    "|---|---:|",
+    `| Backtest WIN | ${t.backtest_win ?? 0} |`,
+    `| Backtest LOSS | ${t.backtest_loss ?? 0} |`,
+    `| Missed (aligned) | ${t.missed_aligned ?? 0} |`,
+    `| Missed Tier A (move_atr >= ${report.tier_a_min_atr ?? 8}) | ${t.missed_tier_a ?? 0} |`,
+    "",
+    "## Combo presets — win lift (sorted)",
+    "",
+    "| Combo | Win rate | Loss rate | Win lift | Win/loss ratio | Miss Tier A rate | Capture gap |",
+    "|---|---:|---:|---:|---:|---:|---:|",
+  ];
+
+  for (const row of report.by_combo || []) {
+    lines.push(`| ${row.label} | ${row.rates.backtest_win ?? "—"} | ${row.rates.backtest_loss ?? "—"} | ${row.win_lift ?? "—"} | ${row.win_ratio ?? "—"} | ${row.rates.missed_tier_a ?? "—"} | ${row.capture_gap_tier_a ?? "—"} |`);
+  }
+
+  lines.push("", "## Top events by win lift", "", "| Event | Win rate | Loss rate | Win lift | Miss Tier A rate |", "|---|---:|---:|---:|---:|");
+  for (const row of (report.by_event || []).filter((r) => r.win_lift != null).slice(0, 20)) {
+    lines.push(`| ${row.key} | ${row.rates.backtest_win ?? "—"} | ${row.rates.backtest_loss ?? "—"} | ${row.win_lift ?? "—"} | ${row.rates.missed_tier_a ?? "—"} |`);
+  }
+
+  lines.push("", "## Interpretation guardrails", "", "- High **miss Tier A rate** + low **win lift** = ubiquitous noise (e.g. ST flip on all moves).", "- Positive **win lift** + high **miss Tier A rate** = candidate capture stack worth gate simulation.", "- Negative win lift on exhaustion-only = confirms do-not-promote forming MR without confirmation.", "");
 
   return lines.join("\n");
 }
