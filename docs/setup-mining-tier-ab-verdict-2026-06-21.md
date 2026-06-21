@@ -84,7 +84,7 @@ Artifact: `data/setup-mining/captured-vs-missed/compare-2026-06-21T22-27-37.{jso
 | L2 fixture parity | Offline fixtures **pass**. Live gate **pending deploy** — `trail_snapshot_pairs: 0` on prod until `SETUP_SHADOW_STAMP` + */5 scoring ticks; raw trail backfill seeded D1 events locally (`--trail-source raw`) |
 | Shadow payload on scoring | `SETUP_SHADOW_STAMP=1` stamps `setup_sequences` on D1/KV payload |
 | UI Sequence (shadow) panel | Right rail SNAPSHOT + SETUP tabs (admin-gated) |
-| Forward discovery validation | **In progress** — captured vs missed comparison run; backtest harness extension next |
+| Forward discovery validation | **In progress** — pattern census (`census-setup-patterns.mjs`) across all event types |
 | `SEQUENCE_ENTRY_GATE=1` | **Blocked** until L2 + forward pass |
 
 Non-negotiable: no production entry or sizing from sequences until L2 +
@@ -100,6 +100,14 @@ node scripts/aggregate-tier-replay.mjs --out-dir data/setup-mining/tiered-reliab
 node scripts/compare-captured-vs-missed.mjs \
   --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
   --wrangler-d1 production --live --limit 75 --trail-source 5m --analysis-mode combined
+
+# Objective pattern census (all event types + MR ladder stages)
+node scripts/census-setup-patterns.mjs \
+  --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
+  --wrangler-d1 preprod --limit 211 --pre-entry-hours 120
+node scripts/census-setup-patterns.mjs \
+  --missed-file data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json \
+  --wrangler-d1 production --enrich-captured --limit 75
 
 # L2 backfill + gate
 node scripts/backfill-setup-events.mjs --cohort fixtures --wrangler-d1 production --limit 30

@@ -13,6 +13,9 @@ import {
   normalizeMoveDirection,
   compareCapturedVsMissed,
   stageBucket,
+  resolveMoveDirection,
+  extractPatternProfile,
+  buildPatternCensusReport,
 } from "./setup-replay-mining.js";
 
 function ticker(overrides = {}) {
@@ -263,5 +266,50 @@ describe("setup replay mining", () => {
     expect(cmp.missed.n).toBe(1);
     expect(cmp.missed.aligned).toBe(1);
     expect(cmp.captured.aligned).toBe(1);
+  });
+
+  it("resolveMoveDirection prefers move_pct sign over stale direction", () => {
+    expect(resolveMoveDirection({ direction: "LONG", move_pct: -12.5 })).toBe("SHORT");
+    expect(resolveMoveDirection({ direction: "UP", move_pct: 8.2 })).toBe("LONG");
+  });
+
+  it("extractPatternProfile surfaces confirmation events and both MR stages", () => {
+    const diag = {
+      events: [
+        { event_type: "td9_complete", event_ts: 1000 },
+        { event_type: "supertrend_flip", event_ts: 1100 },
+        { event_type: "ema21_stretched", event_ts: 900 },
+      ],
+      sequences: [
+        { direction: "LONG", stage: 6, status: "confirmed", stage_results: [{ key: "exhaustion_forming", matched: true }, { key: "breakthrough_with_momentum", matched: true }] },
+        { direction: "SHORT", stage: 1, status: "forming", stage_results: [{ key: "exhaustion_forming", matched: true }] },
+      ],
+    };
+    const profile = extractPatternProfile(diag, { moveDir: "LONG" });
+    expect(profile.has_td9).toBe(true);
+    expect(profile.has_st_flip).toBe(true);
+    expect(profile.aligned_mr_stage).toBe(6);
+    expect(profile.short_mr_stage).toBe(1);
+    expect(profile.aligned_matched_stages).toContain("breakthrough_with_momentum");
+  });
+
+  it("buildPatternCensusReport splits missed aligned vs opposed by event type", () => {
+    const rows = [
+      {
+        cohort: "discovery_missed",
+        move_alignment: { outcome: "aligned" },
+        pattern_profile: { event_types: ["td9_complete"], aligned_mr_stage: 2, aligned_matched_stages: ["exhaustion_confirmed"], has_td9: true, has_st_flip: false, has_squeeze_release: false, has_ema21_reclaim: false, has_ema200_reclaim: false, invalidated: false, long_mr_stage: 2, short_mr_stage: 0 },
+      },
+      {
+        cohort: "discovery_missed",
+        move_alignment: { outcome: "opposed" },
+        pattern_profile: { event_types: ["ema21_stretched"], aligned_mr_stage: 1, aligned_matched_stages: ["exhaustion_forming"], has_td9: false, has_st_flip: false, has_squeeze_release: false, has_ema21_reclaim: false, has_ema200_reclaim: false, invalidated: false, long_mr_stage: 1, short_mr_stage: 2 },
+      },
+    ];
+    const report = buildPatternCensusReport(rows);
+    expect(report.headline.total).toBe(2);
+    expect(report.headline.missed_aligned).toBe(1);
+    expect(report.headline.missed_opposed).toBe(1);
+    expect(report.by_event_type.find((r) => r.key === "td9_complete")?.missed_aligned?.n).toBe(1);
   });
 });

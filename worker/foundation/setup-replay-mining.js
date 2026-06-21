@@ -234,14 +234,284 @@ export function joinTradeWithEventLedger(trade = {}, events = [], opts = {}) {
   };
 }
 
+function compactSequence(seq) {
+  if (!seq?.sequence_type) return null;
+  return {
+    sequence_id: seq.sequence_id || null,
+    sequence_type: seq.sequence_type,
+    direction: seq.direction,
+    stage: seq.stage,
+    stage_bucket: stageBucket(seq.stage),
+    status: seq.status,
+    posture: seq.posture,
+    confidence: seq.confidence,
+    path_forecast: seq.path_forecast || null,
+    matched_stage_keys: (seq.stage_results || [])
+      .filter((r) => r.matched)
+      .map((r) => r.key),
+    invalidated: seq.status === "invalidated",
+  };
+}
+
+const CONFIRMATION_EVENT_TYPES = [
+  "td9_complete", "td13_complete",
+  "ema21_reclaim", "ema21_reject", "ema200_reclaim", "ema200_reject",
+  "supertrend_flip", "supertrend_breakthrough", "squeeze_release",
+  "momentum_confirmation", "orb_breakout", "orb_reclaim",
+  "mean_reversion_target_reached", "pullback_stabilized", "vwap_reclaim", "vwap_reject",
+];
+
+const EXHAUSTION_EVENT_TYPES = [
+  "td_setup_progress", "phase_entered_extreme", "rsi_extreme_entered",
+  "ema21_stretched", "supertrend_flat_opposing",
+];
+
+export function extractPatternProfile(diag = {}, opts = {}) {
+  const events = Array.isArray(diag.events) ? diag.events : [];
+  const sequences = Array.isArray(diag.sequences) ? diag.sequences : [];
+  const eventTypes = [...new Set(events.map((ev) => ev.event_type).filter(Boolean))].sort();
+  const has = (type) => eventTypes.includes(type);
+
+  const longSeq = sequences.find((s) => s.direction === "LONG" && s.stage > 0) || null;
+  const shortSeq = sequences.find((s) => s.direction === "SHORT" && s.stage > 0) || null;
+  const moveDir = String(opts.moveDir || opts.direction || "").toUpperCase() || null;
+  const alignedSeq = moveDir
+    ? sequences.find((s) => s.direction === moveDir && s.stage > 0) || null
+    : null;
+
+  const confirmationHits = CONFIRMATION_EVENT_TYPES.filter(has);
+  const exhaustionHits = EXHAUSTION_EVENT_TYPES.filter(has);
+
+  return {
+    event_count: events.length,
+    event_types: eventTypes,
+    exhaustion_events: exhaustionHits,
+    confirmation_events: confirmationHits,
+    has_td9: has("td9_complete"),
+    has_td13: has("td13_complete"),
+    has_st_flip: has("supertrend_flip"),
+    has_st_breakthrough: has("supertrend_breakthrough"),
+    has_ema21_reclaim: has("ema21_reclaim"),
+    has_ema21_reject: has("ema21_reject"),
+    has_ema200_reclaim: has("ema200_reclaim"),
+    has_ema200_reject: has("ema200_reject"),
+    has_squeeze_release: has("squeeze_release"),
+    has_momentum_confirmation: has("momentum_confirmation"),
+    has_orb_breakout: has("orb_breakout"),
+    has_mean_reversion_target: has("mean_reversion_target_reached"),
+    has_pullback_stabilized: has("pullback_stabilized"),
+    long_mr_stage: longSeq?.stage ?? 0,
+    short_mr_stage: shortSeq?.stage ?? 0,
+    aligned_mr_stage: alignedSeq?.stage ?? 0,
+    long_mr_status: longSeq?.status ?? "none",
+    short_mr_status: shortSeq?.status ?? "none",
+    aligned_mr_status: alignedSeq?.status ?? "none",
+    long_matched_stages: (longSeq?.stage_results || []).filter((r) => r.matched).map((r) => r.key),
+    short_matched_stages: (shortSeq?.stage_results || []).filter((r) => r.matched).map((r) => r.key),
+    aligned_matched_stages: (alignedSeq?.stage_results || []).filter((r) => r.matched).map((r) => r.key),
+    path_forecast: alignedSeq?.path_forecast?.primary_path
+      || longSeq?.path_forecast?.primary_path
+      || shortSeq?.path_forecast?.primary_path
+      || null,
+    invalidated: alignedSeq?.status === "invalidated" || longSeq?.status === "invalidated" || shortSeq?.status === "invalidated",
+  };
+}
+
+function initCensusBucket() {
+  return { n: 0, aligned: 0, opposed: 0, wins: 0, losses: 0 };
+}
+
+function censusSlice(row) {
+  if (row.cohort === "discovery_missed") {
+    const o = row.move_alignment?.outcome;
+    if (o === "aligned") return "missed_aligned";
+    if (o === "opposed") return "missed_opposed";
+    return "missed_other";
+  }
+  if (row.outcome === "win" || row.trade_outcome === "win") return "captured_win";
+  if (row.outcome === "loss" || row.trade_outcome === "loss") return "captured_loss";
+  return "captured_other";
+}
+
+function touchCensus(map, key, slice) {
+  if (!map.has(key)) {
+    map.set(key, {
+      missed_aligned: initCensusBucket(),
+      missed_opposed: initCensusBucket(),
+      missed_other: initCensusBucket(),
+      captured_win: initCensusBucket(),
+      captured_loss: initCensusBucket(),
+      captured_other: initCensusBucket(),
+    });
+  }
+  const bucket = map.get(key)[slice];
+  bucket.n += 1;
+  if (slice === "missed_aligned") bucket.aligned += 1;
+  if (slice === "missed_opposed") bucket.opposed += 1;
+  if (slice === "captured_win") bucket.wins += 1;
+  if (slice === "captured_loss") bucket.losses += 1;
+}
+
+export function buildPatternCensusReport(rows = []) {
+  const byEventType = new Map();
+  const byConfirmationFlag = new Map();
+  const byMrStage = new Map();
+  const byPathForecast = new Map();
+  const byMatchedStageKey = new Map();
+  const headline = {
+    total: 0,
+    missed_aligned: 0,
+    missed_opposed: 0,
+    captured_win: 0,
+    captured_loss: 0,
+    with_td9: initCensusBucket(),
+    with_st_flip: initCensusBucket(),
+    with_squeeze: initCensusBucket(),
+    with_ema21_reclaim: initCensusBucket(),
+    with_ema200_reclaim: initCensusBucket(),
+    stage6_plus: initCensusBucket(),
+    entry_ready_stage8: initCensusBucket(),
+    invalidated: initCensusBucket(),
+  };
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const profile = row.pattern_profile;
+    if (!profile) continue;
+    headline.total += 1;
+    const slice = censusSlice(row);
+    if (slice === "missed_aligned") headline.missed_aligned += 1;
+    if (slice === "missed_opposed") headline.missed_opposed += 1;
+    if (slice === "captured_win") headline.captured_win += 1;
+    if (slice === "captured_loss") headline.captured_loss += 1;
+
+    const flagPairs = [
+      ["with_td9", profile.has_td9],
+      ["with_st_flip", profile.has_st_flip],
+      ["with_squeeze", profile.has_squeeze_release],
+      ["with_ema21_reclaim", profile.has_ema21_reclaim],
+      ["with_ema200_reclaim", profile.has_ema200_reclaim],
+    ];
+    for (const [headlineKey, on] of flagPairs) {
+      if (!on) continue;
+      headline[headlineKey].n += 1;
+      touchCensus(byConfirmationFlag, headlineKey, slice);
+    }
+
+    if (profile.aligned_mr_stage >= 6) {
+      headline.stage6_plus.n += 1;
+      touchCensus(byConfirmationFlag, "aligned_stage_6_plus", slice);
+    }
+    if (profile.aligned_mr_stage >= 8) {
+      headline.entry_ready_stage8.n += 1;
+      touchCensus(byConfirmationFlag, "aligned_stage_8_entry_ready", slice);
+    }
+    if (profile.invalidated) {
+      headline.invalidated.n += 1;
+      touchCensus(byConfirmationFlag, "invalidated", slice);
+    }
+
+    for (const ev of profile.event_types || []) {
+      touchCensus(byEventType, ev, slice);
+    }
+
+    const stageKey = profile.aligned_mr_stage > 0
+      ? `stage_${profile.aligned_mr_stage}`
+      : (profile.long_mr_stage > 0 || profile.short_mr_stage > 0
+        ? `long_${profile.long_mr_stage}_short_${profile.short_mr_stage}`
+        : "no_mr");
+    touchCensus(byMrStage, stageKey, slice);
+
+    if (profile.path_forecast) touchCensus(byPathForecast, profile.path_forecast, slice);
+
+    for (const key of profile.aligned_matched_stages || []) {
+      touchCensus(byMatchedStageKey, key, slice);
+    }
+  }
+
+  const sortMap = (map) => [...map.entries()]
+    .map(([key, slices]) => ({
+      key,
+      ...slices,
+      total_n: Object.values(slices).reduce((s, b) => s + b.n, 0),
+    }))
+    .sort((a, b) => b.total_n - a.total_n || String(a.key).localeCompare(String(b.key)));
+
+  return {
+    headline,
+    by_event_type: sortMap(byEventType),
+    by_confirmation_flag: sortMap(byConfirmationFlag),
+    by_mr_stage: sortMap(byMrStage),
+    by_path_forecast: sortMap(byPathForecast),
+    by_matched_stage_key: sortMap(byMatchedStageKey),
+  };
+}
+
+export function formatPatternCensusMarkdown(report = {}) {
+  const h = report.headline || {};
+  const lines = [
+    "# Setup pattern census (objective, all event types)",
+    "",
+    "MR forming (stage 1–4) is exhaustion only. Stages 5–7 add location/target confirmation;",
+    "stage 6+ adds EMA reclaim, squeeze release, SuperTrend breakthrough; stage 8 = ST flip / ORB breakout.",
+    "",
+    "## Headline",
+    "",
+    `- Rows with pattern profile: ${h.total ?? 0}`,
+    `- Missed aligned: ${h.missed_aligned ?? 0} | Missed opposed: ${h.missed_opposed ?? 0}`,
+    `- Captured win: ${h.captured_win ?? 0} | Captured loss: ${h.captured_loss ?? 0}`,
+    "",
+    "## Confirmation flags (presence before anchor/entry)",
+    "",
+    "| Flag | N |",
+    "|---|---:|",
+  ];
+  for (const [label, bucket] of [
+    ["TD9 complete", h.with_td9],
+    ["SuperTrend flip", h.with_st_flip],
+    ["Squeeze release", h.with_squeeze],
+    ["EMA21 reclaim", h.with_ema21_reclaim],
+    ["EMA200 reclaim", h.with_ema200_reclaim],
+    ["MR stage 6+ (breakthrough lane)", h.stage6_plus],
+    ["MR stage 8 (entry-ready)", h.entry_ready_stage8],
+    ["Invalidated sequence", h.invalidated],
+  ]) {
+    lines.push(`| ${label} | ${bucket?.n ?? 0} |`);
+  }
+
+  lines.push("", "## By event type (top 25)", "", "| Event | Total | Miss aligned | Miss opposed | Cap win | Cap loss |", "|---|---:|---:|---:|---:|---:|");
+  for (const row of (report.by_event_type || []).slice(0, 25)) {
+    lines.push(`| ${row.key} | ${row.total_n} | ${row.missed_aligned?.n ?? 0} | ${row.missed_opposed?.n ?? 0} | ${row.captured_win?.n ?? 0} | ${row.captured_loss?.n ?? 0} |`);
+  }
+
+  lines.push("", "## By MR stage (move-aligned direction)", "", "| Stage bucket | Total | Miss aligned | Miss opposed | Cap win | Cap loss |", "|---|---:|---:|---:|---:|---:|");
+  for (const row of report.by_mr_stage || []) {
+    lines.push(`| ${row.key} | ${row.total_n} | ${row.missed_aligned?.n ?? 0} | ${row.missed_opposed?.n ?? 0} | ${row.captured_win?.n ?? 0} | ${row.captured_loss?.n ?? 0} |`);
+  }
+
+  lines.push("", "## By matched stage key (ladder progress)", "", "| Stage key | Total | Miss aligned | Miss opposed |", "|---|---:|---:|---:|");
+  for (const row of (report.by_matched_stage_key || []).slice(0, 20)) {
+    lines.push(`| ${row.key} | ${row.total_n} | ${row.missed_aligned?.n ?? 0} | ${row.missed_opposed?.n ?? 0} |`);
+  }
+
+  lines.push("", "## By path forecast", "", "| Path | Total | Miss aligned | Miss opposed |", "|---|---:|---:|---:|");
+  for (const row of report.by_path_forecast || []) {
+    lines.push(`| ${row.key} | ${row.total_n} | ${row.missed_aligned?.n ?? 0} | ${row.missed_opposed?.n ?? 0} |`);
+  }
+
+  return lines.join("\n");
+}
+
 export function joinMissedMoveWithTrailDiagnostics(move = {}, trailRows = [], opts = {}) {
   const ticker = String(move.ticker || "").toUpperCase();
-  const moveDir = normalizeMoveDirection(move.direction, move.move_pct ?? move.movePct) || "LONG";
+  const moveDir = resolveMoveDirection(move) || "LONG";
   const anchorTs = discoveryMoveAnchorTs(move) ?? Number(move.start_ts ?? move.startTs ?? move.entry_ts);
   const snapshots = snapshotsFromTrailRows(trailRows, ticker);
   const diag = diagnosticsForEntryWindow(snapshots, anchorTs, opts);
   const seq = sequenceForDirection(diag.sequences || [], moveDir);
   const moveAlignment = classifyMoveAlignment(move, seq);
+  const patternProfile = opts.enrich_patterns !== false
+    ? extractPatternProfile(diag, { moveDir })
+    : null;
 
   return {
     cohort: "discovery_missed",
@@ -260,14 +530,8 @@ export function joinMissedMoveWithTrailDiagnostics(move = {}, trailRows = [], op
     diagnostics_ok: diag.ok === true,
     diagnostics_reason: diag.reason || null,
     snapshot_count: diag.snapshot_count || 0,
-    sequence: seq ? {
-      sequence_type: seq.sequence_type,
-      direction: seq.direction,
-      stage: seq.stage,
-      stage_bucket: stageBucket(seq.stage),
-      status: seq.status,
-      confidence: seq.confidence,
-    } : null,
+    sequence: compactSequence(seq),
+    pattern_profile: patternProfile,
     event_count: (diag.events || []).length,
   };
 }
@@ -280,6 +544,9 @@ export function joinTradeWithSequenceDiagnostics(trade = {}, trailRows = [], opt
   const diag = diagnosticsForEntryWindow(snapshots, entryTs, opts);
   const seq = sequenceForDirection(diag.sequences || [], direction);
   const outcome = classifyTradeOutcome(trade);
+  const patternProfile = opts.enrich_patterns !== false
+    ? extractPatternProfile(diag, { moveDir: direction })
+    : null;
 
   return {
     trade_id: trade.trade_id || trade.tradeId || null,
@@ -297,17 +564,8 @@ export function joinTradeWithSequenceDiagnostics(trade = {}, trailRows = [], opt
     snapshot_count: diag.snapshot_count || 0,
     analysis_mode: opts.analysis_mode || "trail_window",
     promotion_safe: opts.promotion_safe === true,
-    sequence: seq ? {
-      sequence_id: seq.sequence_id,
-      sequence_type: seq.sequence_type,
-      direction: seq.direction,
-      stage: seq.stage,
-      stage_bucket: stageBucket(seq.stage),
-      status: seq.status,
-      posture: seq.posture,
-      confidence: seq.confidence,
-      path_forecast: seq.path_forecast,
-    } : null,
+    sequence: compactSequence(seq),
+    pattern_profile: patternProfile,
     trader_posture: diag.trader_posture,
     event_count: (diag.events || []).length,
   };
@@ -327,18 +585,21 @@ export function normalizeMoveDirection(rawDir, movePct) {
   return null;
 }
 
+/** Realized move direction — move_pct sign wins over stale stored direction. */
+export function resolveMoveDirection(move = {}) {
+  const movePct = Number(move.move_pct ?? move.movePct);
+  if (Number.isFinite(movePct) && movePct !== 0) {
+    return movePct >= 0 ? "LONG" : "SHORT";
+  }
+  return normalizeMoveDirection(
+    move.direction ?? move.move_dir ?? move.move_alignment?.move_dir,
+    movePct,
+  );
+}
+
 export function classifyMoveAlignment(move = {}, sequence = null) {
   const movePct = Number(move.move_pct ?? move.movePct);
-  // Realized move_pct sign is ground truth for discovery missed moves (stored direction is often stale).
-  let moveDir = null;
-  if (Number.isFinite(movePct) && movePct !== 0) {
-    moveDir = movePct >= 0 ? "LONG" : "SHORT";
-  } else {
-    moveDir = normalizeMoveDirection(
-      move.direction ?? move.move_dir ?? move.move_alignment?.move_dir,
-      movePct,
-    );
-  }
+  const moveDir = resolveMoveDirection(move);
   if (!moveDir) {
     return {
       outcome: "unknown",
