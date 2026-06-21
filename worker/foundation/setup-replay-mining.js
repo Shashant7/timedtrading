@@ -236,18 +236,18 @@ export function joinTradeWithEventLedger(trade = {}, events = [], opts = {}) {
 
 export function joinMissedMoveWithTrailDiagnostics(move = {}, trailRows = [], opts = {}) {
   const ticker = String(move.ticker || "").toUpperCase();
-  const direction = String(move.direction || (Number(move.move_pct) >= 0 ? "LONG" : "SHORT")).toUpperCase();
+  const moveDir = normalizeMoveDirection(move.direction, move.move_pct ?? move.movePct) || "LONG";
   const anchorTs = discoveryMoveAnchorTs(move) ?? Number(move.start_ts ?? move.startTs ?? move.entry_ts);
   const snapshots = snapshotsFromTrailRows(trailRows, ticker);
   const diag = diagnosticsForEntryWindow(snapshots, anchorTs, opts);
-  const seq = sequenceForDirection(diag.sequences || [], direction === "SHORT" ? "SHORT" : "LONG");
+  const seq = sequenceForDirection(diag.sequences || [], moveDir);
   const moveAlignment = classifyMoveAlignment(move, seq);
 
   return {
     cohort: "discovery_missed",
     move_id: move.move_id || `${ticker}:${anchorTs}`,
     ticker,
-    direction: direction === "SHORT" ? "SHORT" : "LONG",
+    direction: moveDir,
     capture: move.capture || "MISSED",
     start_ts: anchorTs,
     end_ts: Number(move.end_ts ?? move.endTs) || null,
@@ -317,21 +317,62 @@ function initBucket() {
   return { n: 0, wins: 0, losses: 0, flat: 0, unknown: 0, pnl_sum: 0, pnl_n: 0 };
 }
 
+/** Discovery exports use UP/DOWN; sequences and trades use LONG/SHORT. */
+export function normalizeMoveDirection(rawDir, movePct) {
+  const d = String(rawDir ?? "").toUpperCase().trim();
+  if (d === "UP" || d === "LONG" || d === "BULLISH") return "LONG";
+  if (d === "DOWN" || d === "SHORT" || d === "BEARISH") return "SHORT";
+  const pct = Number(movePct);
+  if (Number.isFinite(pct)) return pct >= 0 ? "LONG" : "SHORT";
+  return null;
+}
+
 export function classifyMoveAlignment(move = {}, sequence = null) {
   const movePct = Number(move.move_pct ?? move.movePct);
-  const moveDir = String(move.direction || (movePct >= 0 ? "LONG" : "SHORT")).toUpperCase();
+  // Realized move_pct sign is ground truth for discovery missed moves (stored direction is often stale).
+  let moveDir = null;
+  if (Number.isFinite(movePct) && movePct !== 0) {
+    moveDir = movePct >= 0 ? "LONG" : "SHORT";
+  } else {
+    moveDir = normalizeMoveDirection(
+      move.direction ?? move.move_dir ?? move.move_alignment?.move_dir,
+      movePct,
+    );
+  }
+  if (!moveDir) {
+    return {
+      outcome: "unknown",
+      move_dir: null,
+      move_pct: Number.isFinite(movePct) ? movePct : null,
+      move_atr: Number(move.move_atr) || null,
+    };
+  }
   if (!Number.isFinite(movePct)) {
     return { outcome: "unknown", move_dir: moveDir, move_pct: null, move_atr: Number(move.move_atr) || null };
   }
   if (!sequence?.direction) {
     return { outcome: "none", move_dir: moveDir, move_pct: movePct, move_atr: Number(move.move_atr) || null };
   }
-  const aligned = String(sequence.direction).toUpperCase() === moveDir;
+  const seqDir = String(sequence.direction).toUpperCase();
+  const aligned = seqDir === moveDir;
   return {
     outcome: aligned ? "aligned" : "opposed",
     move_dir: moveDir,
     move_pct: movePct,
     move_atr: Number(move.move_atr) || null,
+  };
+}
+
+export function classifyTradeSequenceAlignment(trade = {}, sequence = null) {
+  const tradeDir = normalizeMoveDirection(trade.direction, null);
+  if (!tradeDir || !sequence?.direction) {
+    return { outcome: "none", trade_dir: tradeDir, sequence_dir: sequence?.direction || null };
+  }
+  const seqDir = String(sequence.direction).toUpperCase();
+  return {
+    outcome: seqDir === tradeDir ? "aligned" : "opposed",
+    trade_dir: tradeDir,
+    sequence_dir: seqDir,
   };
 }
 
@@ -424,6 +465,129 @@ export function aggregateMoveAlignment(joinedRows = []) {
   return stats;
 }
 
+function sequenceKey(row) {
+  if (!row?.sequence?.sequence_type) return "none:NA:0_none";
+  const s = row.sequence;
+  return `${s.sequence_type}:${s.direction}:${s.stage_bucket}`;
+}
+
+function initCompareBucket() {
+  return { n: 0, wins: 0, losses: 0, with_sequence: 0, aligned: 0, opposed: 0, none: 0 };
+}
+
+export function compareCapturedVsMissed(capturedRows = [], missedRows = []) {
+  const captured = Array.isArray(capturedRows) ? capturedRows : [];
+  const missed = Array.isArray(missedRows) ? missedRows : [];
+
+  const capSummary = initCompareBucket();
+  const missSummary = initCompareBucket();
+  const bySequence = new Map();
+
+  const touchSeq = (map, key, row, aligned) => {
+    if (!map.has(key)) map.set(key, { captured: initCompareBucket(), missed: initCompareBucket() });
+    const bucket = map.get(key);
+    const side = row.cohort === "discovery_missed" ? bucket.missed : bucket.captured;
+    side.n += 1;
+    if (row.sequence?.sequence_type) {
+      side.with_sequence += 1;
+      if (aligned === true) side.aligned += 1;
+      else if (aligned === false) side.opposed += 1;
+      else side.none += 1;
+    } else {
+      side.none += 1;
+    }
+    const outcome = row.outcome || row.trade_outcome;
+    if (outcome === "win") side.wins += 1;
+    else if (outcome === "loss") side.losses += 1;
+  };
+
+  for (const row of captured) {
+    capSummary.n += 1;
+    const align = classifyTradeSequenceAlignment(row, row.sequence);
+    row.sequence_alignment = align;
+    if (row.sequence?.sequence_type) {
+      capSummary.with_sequence += 1;
+      if (align.outcome === "aligned") capSummary.aligned += 1;
+      else if (align.outcome === "opposed") capSummary.opposed += 1;
+    } else capSummary.none += 1;
+    if (row.outcome === "win") capSummary.wins += 1;
+    else if (row.outcome === "loss") capSummary.losses += 1;
+    touchSeq(bySequence, sequenceKey(row), row, align.outcome === "aligned");
+  }
+
+  for (const row of missed) {
+    missSummary.n += 1;
+    const align = row.move_alignment || classifyMoveAlignment(row, row.sequence);
+    row.move_alignment = align;
+    if (row.sequence?.sequence_type) {
+      missSummary.with_sequence += 1;
+      if (align.outcome === "aligned") missSummary.aligned += 1;
+      else if (align.outcome === "opposed") missSummary.opposed += 1;
+    } else missSummary.none += 1;
+    touchSeq(bySequence, sequenceKey(row), row, align.outcome === "aligned");
+  }
+
+  const decidedCap = capSummary.aligned + capSummary.opposed;
+  const decidedMiss = missSummary.aligned + missSummary.opposed;
+
+  return {
+    captured: {
+      ...capSummary,
+      win_rate: capSummary.wins + capSummary.losses > 0
+        ? Math.round((capSummary.wins / (capSummary.wins + capSummary.losses)) * 1000) / 1000
+        : null,
+      alignment_rate: decidedCap > 0 ? Math.round((capSummary.aligned / decidedCap) * 1000) / 1000 : null,
+    },
+    missed: {
+      ...missSummary,
+      alignment_rate: decidedMiss > 0 ? Math.round((missSummary.aligned / decidedMiss) * 1000) / 1000 : null,
+    },
+    by_sequence: [...bySequence.entries()]
+      .map(([key, v]) => ({ key, ...v }))
+      .sort((a, b) => (b.captured.n + b.missed.n) - (a.captured.n + a.missed.n)),
+  };
+}
+
+export function formatCapturedVsMissedMarkdown(report = {}) {
+  const cap = report.captured || {};
+  const miss = report.missed || {};
+  const lines = [
+    "# Captured trades vs missed moves — sequence comparison",
+    "",
+    "MR = **mean reversion** (TD phase exhaustion + location sequence, e.g. `td_phase_mean_reversion_long`).",
+    "",
+    "## Headline",
+    "",
+    "| Cohort | N | With sequence | Aligned | Opposed | Alignment rate | Win rate |",
+    "|---|---:|---:|---:|---:|---:|---:|",
+    `| Live captured trades | ${cap.n ?? 0} | ${cap.with_sequence ?? 0} | ${cap.aligned ?? 0} | ${cap.opposed ?? 0} | ${cap.alignment_rate ?? "—"} | ${cap.win_rate ?? "—"} |`,
+    `| Discovery missed moves | ${miss.n ?? 0} | ${miss.with_sequence ?? 0} | ${miss.aligned ?? 0} | ${miss.opposed ?? 0} | ${miss.alignment_rate ?? "—"} | — |`,
+    "",
+    "## By sequence (type:direction:stage)",
+    "",
+    "| Key | Cap N | Cap aligned | Cap WR | Miss N | Miss aligned |",
+    "|---|---:|---:|---:|---:|---:|",
+  ];
+  for (const row of report.by_sequence || []) {
+    const c = row.captured || {};
+    const m = row.missed || {};
+    const wr = c.wins + c.losses > 0 ? Math.round((c.wins / (c.wins + c.losses)) * 100) / 100 : null;
+    lines.push(`| ${row.key} | ${c.n} | ${c.aligned} | ${wr ?? "—"} | ${m.n} | ${m.aligned} |`);
+  }
+  lines.push(
+    "",
+    "## Backtest harness note",
+    "",
+    "Use the same read-only mining stack as live backtest validation:",
+    "- `mine-setup-sequences.mjs --cohort trades` for captured/backtest trades",
+    "- `replay-move-windows.mjs` + `--cohort discovery` for missed-move windows",
+    "- Compare with `compare-captured-vs-missed.mjs` (this report)",
+    "- Optional: replay discovery anchors through preprod scoring (`historical_replay`) to test whether entry gates would fire",
+    "",
+  );
+  return lines.join("\n");
+}
+
 export function aggregateSequenceReliability(joinedRows = []) {
   const bySequence = new Map();
   const byStageBucket = new Map();
@@ -465,15 +629,28 @@ export function aggregateSequenceReliability(joinedRows = []) {
   };
 }
 
+export function refreshMoveAlignmentOnRows(rows = []) {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const move_alignment = classifyMoveAlignment(row, row.sequence);
+    return {
+      ...row,
+      move_alignment,
+      outcome: move_alignment.outcome,
+      direction: move_alignment.move_dir || row.direction,
+    };
+  });
+}
+
 export function buildReliabilityReport(joinedRows = [], meta = {}) {
-  const alignment = aggregateMoveAlignment(joinedRows);
+  const rows = refreshMoveAlignmentOnRows(joinedRows);
+  const alignment = aggregateMoveAlignment(rows);
   return {
     generated_at: new Date().toISOString(),
     shadow: true,
     meta,
     alignment,
-    reliability: aggregateSequenceReliability(joinedRows),
-    trades: joinedRows,
+    reliability: aggregateSequenceReliability(rows),
+    trades: rows,
   };
 }
 

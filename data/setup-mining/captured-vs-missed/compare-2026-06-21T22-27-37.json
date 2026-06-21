@@ -1,0 +1,118 @@
+{
+  "generated_at": "2026-06-21T22:27:37.770Z",
+  "missed_file": "data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json",
+  "captured_source": "wrangler-d1:production:live:75",
+  "trail_source": "5m",
+  "analysis_mode": "combined",
+  "comparison": {
+    "captured": {
+      "n": 75,
+      "wins": 30,
+      "losses": 45,
+      "with_sequence": 12,
+      "aligned": 12,
+      "opposed": 0,
+      "none": 63,
+      "win_rate": 0.4,
+      "alignment_rate": 1
+    },
+    "missed": {
+      "n": 211,
+      "wins": 0,
+      "losses": 0,
+      "with_sequence": 202,
+      "aligned": 132,
+      "opposed": 70,
+      "none": 9,
+      "alignment_rate": 0.653
+    },
+    "by_sequence": [
+      {
+        "key": "td_phase_mean_reversion_long:LONG:1_4_forming",
+        "captured": {
+          "n": 9,
+          "wins": 3,
+          "losses": 6,
+          "with_sequence": 9,
+          "aligned": 9,
+          "opposed": 0,
+          "none": 0
+        },
+        "missed": {
+          "n": 195,
+          "wins": 0,
+          "losses": 0,
+          "with_sequence": 195,
+          "aligned": 129,
+          "opposed": 66,
+          "none": 0
+        }
+      },
+      {
+        "key": "none:NA:0_none",
+        "captured": {
+          "n": 63,
+          "wins": 25,
+          "losses": 38,
+          "with_sequence": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "none": 63
+        },
+        "missed": {
+          "n": 9,
+          "wins": 0,
+          "losses": 0,
+          "with_sequence": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "none": 9
+        }
+      },
+      {
+        "key": "td_phase_mean_reversion_long:LONG:5_7_confirmed",
+        "captured": {
+          "n": 2,
+          "wins": 1,
+          "losses": 1,
+          "with_sequence": 2,
+          "aligned": 2,
+          "opposed": 0,
+          "none": 0
+        },
+        "missed": {
+          "n": 7,
+          "wins": 0,
+          "losses": 0,
+          "with_sequence": 7,
+          "aligned": 3,
+          "opposed": 4,
+          "none": 0
+        }
+      },
+      {
+        "key": "td_phase_mean_reversion_short:SHORT:1_4_forming",
+        "captured": {
+          "n": 1,
+          "wins": 1,
+          "losses": 0,
+          "with_sequence": 1,
+          "aligned": 1,
+          "opposed": 0,
+          "none": 0
+        },
+        "missed": {
+          "n": 0,
+          "wins": 0,
+          "losses": 0,
+          "with_sequence": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "none": 0
+        }
+      }
+    ]
+  },
+  "captured_rows": 75,
+  "missed_rows": 211
+}

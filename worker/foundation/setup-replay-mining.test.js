@@ -10,6 +10,8 @@ import {
   snapshotsFromTrailRows,
   classifyMoveAlignment,
   aggregateMoveAlignment,
+  normalizeMoveDirection,
+  compareCapturedVsMissed,
   stageBucket,
 } from "./setup-replay-mining.js";
 
@@ -200,20 +202,25 @@ describe("setup replay mining", () => {
         ticker: "NVDA",
         move_id: "NVDA:1",
         move_atr: 10,
+        move_pct: -12,
+        direction: "DOWN",
         sequence: { sequence_type: "td_phase_mean_reversion_long", direction: "LONG", stage_bucket: "1_4_forming" },
-        move_alignment: classifyMoveAlignment({ move_pct: -12 }, { direction: "LONG" }),
+        move_alignment: classifyMoveAlignment({ move_pct: -12, direction: "DOWN" }, { direction: "LONG" }),
       },
       {
         ticker: "SPY",
         move_id: "SPY:1",
         move_atr: 3,
+        move_pct: 5,
+        direction: "UP",
         sequence: { sequence_type: "td_phase_mean_reversion_long", direction: "LONG", stage_bucket: "1_4_forming" },
-        move_alignment: classifyMoveAlignment({ move_pct: 5 }, { direction: "LONG" }),
+        move_alignment: classifyMoveAlignment({ move_pct: 5, direction: "UP" }, { direction: "LONG" }),
       },
       {
         ticker: "ALLY",
         move_id: "ALLY:1",
         move_atr: 5,
+        move_pct: 8,
         sequence: null,
         move_alignment: classifyMoveAlignment({ move_pct: 8 }, null),
       },
@@ -224,5 +231,37 @@ describe("setup replay mining", () => {
     expect(align.aligned).toBe(1);
     expect(align.none).toBe(1);
     expect(align.by_move_atr_tier.high_atr.opposed).toBe(1);
+  });
+
+  it("normalizes UP/DOWN discovery directions to LONG/SHORT for alignment", () => {
+    expect(normalizeMoveDirection("UP", 5)).toBe("LONG");
+    expect(normalizeMoveDirection("DOWN", -3)).toBe("SHORT");
+    const aligned = classifyMoveAlignment({ direction: "UP", move_pct: 10 }, { direction: "LONG" });
+    expect(aligned.outcome).toBe("aligned");
+    expect(aligned.move_dir).toBe("LONG");
+    const opposed = classifyMoveAlignment({ direction: "LONG", move_pct: -10 }, { direction: "LONG" });
+    expect(opposed.outcome).toBe("opposed");
+    expect(opposed.move_dir).toBe("SHORT");
+  });
+
+  it("compares captured vs missed sequence buckets", () => {
+    const cmp = compareCapturedVsMissed(
+      [{
+        cohort: "live_trades",
+        outcome: "win",
+        direction: "LONG",
+        sequence: { sequence_type: "td_phase_mean_reversion_long", direction: "LONG", stage_bucket: "1_4_forming" },
+      }],
+      [{
+        cohort: "discovery_missed",
+        move_pct: 12,
+        direction: "UP",
+        sequence: { sequence_type: "td_phase_mean_reversion_long", direction: "LONG", stage_bucket: "1_4_forming" },
+      }],
+    );
+    expect(cmp.captured.n).toBe(1);
+    expect(cmp.missed.n).toBe(1);
+    expect(cmp.missed.aligned).toBe(1);
+    expect(cmp.captured.aligned).toBe(1);
   });
 });
