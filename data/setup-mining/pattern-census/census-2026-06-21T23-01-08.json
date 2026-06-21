@@ -1,0 +1,2294 @@
+{
+  "generated_at": "2026-06-21T23:01:08.754Z",
+  "missed_file": "data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json",
+  "wrangler_d1": "production",
+  "trail_source": "raw",
+  "pre_entry_hours": 120,
+  "min_atr": 0,
+  "limit": 75,
+  "missed_enriched": 75,
+  "captured_enriched": 75,
+  "report": {
+    "headline": {
+      "total": 86,
+      "missed_aligned": 73,
+      "missed_opposed": 0,
+      "captured_win": 6,
+      "captured_loss": 7,
+      "with_td9": {
+        "n": 51,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "with_st_flip": {
+        "n": 85,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "with_squeeze": {
+        "n": 78,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "with_ema21_reclaim": {
+        "n": 84,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "with_ema200_reclaim": {
+        "n": 56,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "stage6_plus": {
+        "n": 6,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "entry_ready_stage8": {
+        "n": 0,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      },
+      "invalidated": {
+        "n": 0,
+        "aligned": 0,
+        "opposed": 0,
+        "wins": 0,
+        "losses": 0
+      }
+    },
+    "by_event_type": [
+      {
+        "key": "supertrend_flat_opposing",
+        "missed_aligned": {
+          "n": 73,
+          "aligned": 73,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 86
+      },
+      {
+        "key": "supertrend_flip",
+        "missed_aligned": {
+          "n": 73,
+          "aligned": 73,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 85
+      },
+      {
+        "key": "ema21_reclaim",
+        "missed_aligned": {
+          "n": 72,
+          "aligned": 72,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 84
+      },
+      {
+        "key": "ema21_reject",
+        "missed_aligned": {
+          "n": 72,
+          "aligned": 72,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 84
+      },
+      {
+        "key": "fvg_filled",
+        "missed_aligned": {
+          "n": 71,
+          "aligned": 71,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 84
+      },
+      {
+        "key": "pdz_premium_entered",
+        "missed_aligned": {
+          "n": 72,
+          "aligned": 72,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 84
+      },
+      {
+        "key": "pdz_discount_entered",
+        "missed_aligned": {
+          "n": 70,
+          "aligned": 70,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 83
+      },
+      {
+        "key": "orb_breakout",
+        "missed_aligned": {
+          "n": 68,
+          "aligned": 68,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 81
+      },
+      {
+        "key": "orb_reclaim",
+        "missed_aligned": {
+          "n": 67,
+          "aligned": 67,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 80
+      },
+      {
+        "key": "squeeze_release",
+        "missed_aligned": {
+          "n": 67,
+          "aligned": 67,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 5
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 78
+      },
+      {
+        "key": "td_setup_progress",
+        "missed_aligned": {
+          "n": 65,
+          "aligned": 65,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 78
+      },
+      {
+        "key": "ema21_stretched",
+        "missed_aligned": {
+          "n": 65,
+          "aligned": 65,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 6
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 75
+      },
+      {
+        "key": "phase_entered_extreme",
+        "missed_aligned": {
+          "n": 63,
+          "aligned": 63,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 75
+      },
+      {
+        "key": "pdz_equilibrium_reached",
+        "missed_aligned": {
+          "n": 64,
+          "aligned": 64,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 6
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 74
+      },
+      {
+        "key": "rsi_extreme_entered",
+        "missed_aligned": {
+          "n": 62,
+          "aligned": 62,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 74
+      },
+      {
+        "key": "rsi_divergence_confirmed",
+        "missed_aligned": {
+          "n": 60,
+          "aligned": 60,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 71
+      },
+      {
+        "key": "rsi_extreme_left",
+        "missed_aligned": {
+          "n": 54,
+          "aligned": 54,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 65
+      },
+      {
+        "key": "ema200_reject",
+        "missed_aligned": {
+          "n": 52,
+          "aligned": 52,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 4
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 60
+      },
+      {
+        "key": "ema200_reclaim",
+        "missed_aligned": {
+          "n": 47,
+          "aligned": 47,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 5
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 56
+      },
+      {
+        "key": "td9_complete",
+        "missed_aligned": {
+          "n": 44,
+          "aligned": 44,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 3,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 4
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 51
+      },
+      {
+        "key": "phase_left_accumulation",
+        "missed_aligned": {
+          "n": 37,
+          "aligned": 37,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 6
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 47
+      },
+      {
+        "key": "phase_left_distribution",
+        "missed_aligned": {
+          "n": 39,
+          "aligned": 39,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 3,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 4
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 46
+      },
+      {
+        "key": "vwap_reject",
+        "missed_aligned": {
+          "n": 28,
+          "aligned": 28,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 3,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 31
+      },
+      {
+        "key": "vwap_reclaim",
+        "missed_aligned": {
+          "n": 27,
+          "aligned": 27,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 3,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 30
+      },
+      {
+        "key": "phase_left_extreme",
+        "missed_aligned": {
+          "n": 20,
+          "aligned": 20,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 3,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 3
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 26
+      },
+      {
+        "key": "td13_complete",
+        "missed_aligned": {
+          "n": 19,
+          "aligned": 19,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 3
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 23
+      },
+      {
+        "key": "mean_reversion_target_reached",
+        "missed_aligned": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 1
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 2
+      },
+      {
+        "key": "pullback_stabilized",
+        "missed_aligned": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 1
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 2
+      }
+    ],
+    "by_confirmation_flag": [
+      {
+        "key": "with_st_flip",
+        "missed_aligned": {
+          "n": 73,
+          "aligned": 73,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 85
+      },
+      {
+        "key": "with_ema21_reclaim",
+        "missed_aligned": {
+          "n": 72,
+          "aligned": 72,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 84
+      },
+      {
+        "key": "with_squeeze",
+        "missed_aligned": {
+          "n": 67,
+          "aligned": 67,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 5
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 78
+      },
+      {
+        "key": "with_ema200_reclaim",
+        "missed_aligned": {
+          "n": 47,
+          "aligned": 47,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 5
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 56
+      },
+      {
+        "key": "with_td9",
+        "missed_aligned": {
+          "n": 44,
+          "aligned": 44,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 3,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 4
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 51
+      },
+      {
+        "key": "aligned_stage_6_plus",
+        "missed_aligned": {
+          "n": 3,
+          "aligned": 3,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 2,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 2
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 6
+      }
+    ],
+    "by_mr_stage": [
+      {
+        "key": "stage_1",
+        "missed_aligned": {
+          "n": 39,
+          "aligned": 39,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 4,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 4,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 1
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 44
+      },
+      {
+        "key": "stage_5",
+        "missed_aligned": {
+          "n": 16,
+          "aligned": 16,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 3,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 3
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 19
+      },
+      {
+        "key": "stage_3",
+        "missed_aligned": {
+          "n": 11,
+          "aligned": 11,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 12
+      },
+      {
+        "key": "stage_6",
+        "missed_aligned": {
+          "n": 3,
+          "aligned": 3,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 2,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 2
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 6
+      },
+      {
+        "key": "stage_4",
+        "missed_aligned": {
+          "n": 3,
+          "aligned": 3,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 1
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 4
+      },
+      {
+        "key": "stage_2",
+        "missed_aligned": {
+          "n": 1,
+          "aligned": 1,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 1
+      }
+    ],
+    "by_path_forecast": [
+      {
+        "key": "drift_base",
+        "missed_aligned": {
+          "n": 70,
+          "aligned": 70,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 5,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 5
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 80
+      },
+      {
+        "key": "pullback_then_continue",
+        "missed_aligned": {
+          "n": 3,
+          "aligned": 3,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 2,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 2
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 6
+      }
+    ],
+    "by_matched_stage_key": [
+      {
+        "key": "exhaustion_forming",
+        "missed_aligned": {
+          "n": 73,
+          "aligned": 73,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 6,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 7,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 7
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 86
+      },
+      {
+        "key": "exhaustion_confirmed",
+        "missed_aligned": {
+          "n": 34,
+          "aligned": 34,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 2,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 2,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 6
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 42
+      },
+      {
+        "key": "location_valid",
+        "missed_aligned": {
+          "n": 33,
+          "aligned": 33,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 2,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 2,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 6
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 41
+      },
+      {
+        "key": "phase_left_zone",
+        "missed_aligned": {
+          "n": 22,
+          "aligned": 22,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 6,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 6
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 29
+      },
+      {
+        "key": "mean_reversion_target",
+        "missed_aligned": {
+          "n": 19,
+          "aligned": 19,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 5,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 5
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 25
+      },
+      {
+        "key": "breakthrough_with_momentum",
+        "missed_aligned": {
+          "n": 3,
+          "aligned": 3,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_opposed": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "missed_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "captured_win": {
+          "n": 1,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 1,
+          "losses": 0
+        },
+        "captured_loss": {
+          "n": 2,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 2
+        },
+        "captured_other": {
+          "n": 0,
+          "aligned": 0,
+          "opposed": 0,
+          "wins": 0,
+          "losses": 0
+        },
+        "total_n": 6
+      }
+    ]
+  }
+}
