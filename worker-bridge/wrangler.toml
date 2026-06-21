@@ -79,6 +79,13 @@ DAILY_DIGEST_DRY_RUN = "false"
 # Operator email for audit-log notifications when limits trip.
 OPERATOR_EMAIL = "shashant@gmail.com"
 
+# 2026-06-15 — Webull Connect API (UAT until partner credentials + sign-off).
+# Set WEBULL_ENVIRONMENT=prod after UAT approval.
+WEBULL_ENVIRONMENT = "uat"
+WEBULL_CONNECT_SCOPE = "user:trade:wr"
+# Refresh access tokens this many ms before expiry (default 5 min).
+WEBULL_TOKEN_REFRESH_SKEW_MS = "300000"
+
 [[d1_databases]]
 binding = "BRIDGE_DB"
 database_name = "timed-trading-ledger"
@@ -98,3 +105,8 @@ id = "e48593af3ef74bf986b2592909ed40cb"
 #   BRIDGE_INTERNAL_HMAC_KEY   HMAC for verifying inbound webhooks from TT
 #   ROBINHOOD_OAUTH_CLIENT_ID  RH OAuth client id (once issued by RH)
 #   ROBINHOOD_OAUTH_CLIENT_SECRET
+#   WEBULL_CONNECT_CLIENT_ID   Webull Connect partner client id
+#   WEBULL_CONNECT_CLIENT_SECRET
+#   WEBULL_APP_KEY               Webull OpenAPI app key (request signing)
+#   WEBULL_APP_SECRET
+#   WEBULL_OAUTH_REDIRECT_URI    Optional override (default: .../bridge/webull/oauth/callback)
