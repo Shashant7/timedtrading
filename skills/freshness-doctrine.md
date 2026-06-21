@@ -37,6 +37,9 @@ carries a graded `_freshness` block and downstream consumers act on it.
   — `last_trading_day`, `last_rth_close_ms`, `next_trading_day`. A Thursday
   close stays FRESH through Juneteenth + weekend. Exposed on every
   `_freshness.session_ref` block and `GET /timed/health` → `market_session`.
+- **Hardening (2026-06-21):** `maybeSessionRollRescore()` on session close/open
+  rolls; open-position freshness uses `evaluateOpenPositionCandleMap()`; scoring
+  cache miss falls back to on-demand D1 reads + partial `_freshness` on degrade.
 
 ## What quarantine (live STALE) does
 

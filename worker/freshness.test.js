@@ -12,6 +12,9 @@ import {
   freshnessSloMs,
   isQuarantinedByFreshness,
   isFreshnessExemptTicker,
+  classifySessionRollRescore,
+  evaluateOpenPositionCandleMap,
+  buildTfNewestTsFromCandleCache,
   computeMarketSessionReference,
   effectiveCandleAgeMs,
   GRADE_FRESH,
@@ -234,5 +237,56 @@ describe("buildFreshnessSummary", () => {
     });
     const summary = buildFreshnessSummary([{ ticker: "AAPL", block: freshBlock }]);
     expect(summary.slo_ok).toBe(true);
+  });
+});
+
+describe("classifySessionRollRescore", () => {
+  it("flags v1 freshness and stale-while-closed payloads", () => {
+    const satNow = Date.UTC(2026, 5, 20, 15, 0, 0);
+    const sessionRef = computeMarketSessionReference(satNow);
+    expect(classifySessionRollRescore(null, sessionRef)).toBe("missing");
+    expect(classifySessionRollRescore({}, sessionRef)).toBe("freshness_contract_stale");
+    expect(classifySessionRollRescore({ _freshness: { v: 1, grade: GRADE_STALE } }, sessionRef))
+      .toBe("freshness_contract_stale");
+    expect(classifySessionRollRescore({
+      _freshness: {
+        v: 2,
+        grade: GRADE_STALE,
+        checked_at: Date.UTC(2026, 5, 18, 14, 0, 0),
+      },
+    }, sessionRef)).toBe("stale_while_market_closed");
+    expect(classifySessionRollRescore({
+      _freshness: { v: 2, grade: GRADE_FRESH, checked_at: satNow },
+    }, sessionRef)).toBeNull();
+    const thuMid = Date.UTC(2026, 5, 18, 14, 0, 0);
+    expect(classifySessionRollRescore({
+      _freshness: { v: 2, grade: GRADE_FRESH, checked_at: thuMid },
+    }, sessionRef)).toBe("freshness_predates_last_session");
+  });
+});
+
+describe("evaluateOpenPositionCandleMap", () => {
+  it("treats last-session bars as fresh over Juneteenth weekend", () => {
+    const thuBounds = sessionBoundsUtc("2026-06-18");
+    const satNow = Date.UTC(2026, 5, 20, 15, 0, 0);
+    const sessionRef = computeMarketSessionReference(satNow);
+    const evalResult = evaluateOpenPositionCandleMap({
+      D: tradingDateUtcMs("2026-06-18"),
+      60: thuBounds.closeMs - 30 * 60 * 1000,
+      240: thuBounds.closeMs - 2 * 60 * 60 * 1000,
+    }, { nowMs: satNow, sessionRef, marketOpen: false });
+    expect(evalResult.stale).toBe(false);
+  });
+});
+
+describe("buildTfNewestTsFromCandleCache", () => {
+  it("extracts newest ts per tf from cache rows", () => {
+    const ts = buildTfNewestTsFromCandleCache({
+      D: { candles: [{ ts: 100 }, { ts: 250 }] },
+      60: { candles: [{ ts: 200 }] },
+    });
+    expect(ts.D).toBe(250);
+    expect(ts["60"]).toBe(200);
+    expect(ts["10"]).toBe(0);
   });
 });

@@ -289,6 +289,102 @@ export function isQuarantinedByFreshness(payload) {
 
 export { computeMarketSessionReference, isNyRthOpenAt };
 
+const OPEN_POS_TFS_RTH = ["D", "60", "30", "5", "240"];
+const OPEN_POS_TFS_OOH = ["D", "60", "240"];
+
+function tfOpenPosLabel(tf) {
+  if (tf === "240") return "4H";
+  if (tf === "D") return "D";
+  return `${tf}m`;
+}
+
+/**
+ * Build newest-ts map from a d1GetCandlesAllTfs-style cache for partial
+ * freshness stamping when full scoring fails.
+ */
+export function buildTfNewestTsFromCandleCache(candleCache, tfs = ["M", "W", "D", "240", "60", "30", "15", "10"]) {
+  const out = {};
+  for (const tf of tfs) {
+    const row = candleCache?.[String(tf)] || candleCache?.[tf];
+    const candles = row?.candles;
+    if (!Array.isArray(candles) || candles.length === 0) {
+      out[tf] = 0;
+      continue;
+    }
+    let newest = 0;
+    for (const c of candles) {
+      const ts = Number(c?.ts) || 0;
+      if (ts > newest) newest = ts;
+    }
+    out[tf] = newest;
+  }
+  return out;
+}
+
+/**
+ * Session-roll rescore classifier — tickers whose `_freshness` block is
+ * from before the last completed session or still on contract v1.
+ */
+export function classifySessionRollRescore(latest, sessionRef) {
+  if (!latest || typeof latest !== "object") return "missing";
+  const f = latest._freshness;
+  if (!f || Number(f.v || 0) < FRESHNESS_SLO_VERSION) return "freshness_contract_stale";
+  const checkedAt = Number(f.checked_at) || 0;
+  const lastClose = Number(sessionRef?.last_rth_close_ms) || 0;
+  // Closed-market STALE first — v1 wall-clock quarantine over holidays/weekends.
+  if (f.grade === GRADE_STALE && sessionRef && !sessionRef.market_open) {
+    return "stale_while_market_closed";
+  }
+  if (checkedAt > 0 && lastClose > 0 && checkedAt < lastClose - 30 * MIN) {
+    return "freshness_predates_last_session";
+  }
+  if (f.grade === GRADE_STALE) return "still_stale";
+  return null;
+}
+
+/**
+ * Calendar-aware open-position candle freshness (mirrors checkOpenPosition
+ * thresholds but uses session reference instead of flat wall-clock gaps).
+ */
+export function evaluateOpenPositionCandleMap(tfMap, opts = {}) {
+  const nowMs = Number(opts.nowMs) > 0 ? Number(opts.nowMs) : Date.now();
+  const sessionRef = opts.sessionRef && typeof opts.sessionRef === "object"
+    ? opts.sessionRef
+    : computeMarketSessionReference(nowMs);
+  const marketOpen = typeof opts.marketOpen === "boolean"
+    ? opts.marketOpen
+    : sessionRef.market_open;
+  const tfList = marketOpen ? OPEN_POS_TFS_RTH : OPEN_POS_TFS_OOH;
+  const reasons = [];
+
+  for (const tf of tfList) {
+    const sloMs = freshnessSloMs(tf, marketOpen, nowMs);
+    if (!sloMs) continue;
+    const ts = Number(tfMap?.[tf]) || 0;
+    const label = tfOpenPosLabel(tf);
+
+    if (ts <= 0) {
+      if (!marketOpen && tf !== "D" && tf !== "60" && tf !== "240") continue;
+      reasons.push(`${label}: missing`);
+      continue;
+    }
+
+    const ageMs = effectiveCandleAgeMs(tf, ts, nowMs, marketOpen, sessionRef) ?? Math.max(0, nowMs - ts);
+    const hardMs = sloMs * HARD_MULT;
+    if (ageMs > hardMs) {
+      const ageStr = ageMs >= HOUR
+        ? `${(ageMs / HOUR).toFixed(1)}h`
+        : `${Math.round(ageMs / MIN)}min`;
+      const threshStr = hardMs >= HOUR
+        ? `${(hardMs / HOUR).toFixed(0)}h`
+        : `${Math.round(hardMs / MIN)}min`;
+      reasons.push(`${label}: ${ageStr} stale (>${threshStr})`);
+    }
+  }
+
+  return { stale: reasons.length > 0, reasons, sessionRef };
+}
+
 /**
  * Aggregate per-ticker freshness blocks into the universe summary that the
  * scoring cron writes to KV (`timed:freshness:summary`) and /timed/health
