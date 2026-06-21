@@ -27,11 +27,14 @@ on:
       - "scripts/build-frontend.js"
       - "scripts/embed-dashboard.js"
       - "package.json"
+      - "scripts/deploy-wrangler-retry.sh"
       - ".github/workflows/deploy-worker.yml"
   workflow_dispatch:  # Manual re-deploy from the Actions tab
 
 concurrency:
-  group: deploy-worker
+  # All three workflows deploy the same monolith bundle. Parallel uploads
+  # intermittently hit Cloudflare API 10013; queue them.
+  group: deploy-monolith-bundle
   cancel-in-progress: false
 
 jobs:
@@ -137,23 +140,17 @@ jobs:
       # the empty string, selecting the top-level config.
       - name: Deploy worker — default env
         if: steps.cfsec.outputs.secrets-ok == 'true'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
-          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.92.0"
-          workingDirectory: worker
-          command: deploy --env=
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/deploy-wrangler-retry.sh worker --env=
 
       - name: Deploy worker — production env
         if: steps.cfsec.outputs.secrets-ok == 'true'
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken:        ${{ env.CLOUDFLARE_API_TOKEN }}
-          accountId:       ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.92.0"
-          workingDirectory: worker
-          command: deploy --env production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/deploy-wrangler-retry.sh worker --env production
 
       # Post-deploy smoke: the worker must answer /timed/health with
       # ok:true on both the workers.dev URL and the custom domain.
