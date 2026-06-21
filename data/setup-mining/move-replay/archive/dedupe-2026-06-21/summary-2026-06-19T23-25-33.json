@@ -1,0 +1,261 @@
+{
+  "summary": {
+    "generated_at": "2026-06-19T23:24:43.553Z",
+    "discovery_file": "data/move-discovery-live.json",
+    "limit": 1,
+    "pre_entry_days": 5,
+    "wrangler_d1": "preprod",
+    "replay_only": false,
+    "skip_replay": false,
+    "moves_processed": 1,
+    "total_trail_rows": 620,
+    "total_events_derived": 3,
+    "total_events_persisted": 2,
+    "items": [
+      {
+        "move_id": "DELL:1779892200000",
+        "ticker": "DELL",
+        "move_atr": 8.2,
+        "move_pct": 42.57,
+        "start_date": "2026-05-27",
+        "end_date": "2026-06-02",
+        "replay": {
+          "ticker": "DELL",
+          "startDate": "2026-05-22",
+          "endDate": "2026-06-02",
+          "sessions": 8,
+          "dayResults": [
+            {
+              "date": "2026-05-22",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-25",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-26",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-27",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-28",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-05-29",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-01",
+              "trail_written": 79,
+              "scored": 79
+            },
+            {
+              "date": "2026-06-02",
+              "trail_written": 79,
+              "scored": 79
+            }
+          ]
+        },
+        "trail_rows": 620,
+        "snapshots": 620,
+        "events_derived": 3,
+        "events_persisted": 2,
+        "sequences": 0,
+        "mining": {
+          "cohort": "discovery_missed",
+          "move_id": "DELL:1779892200000",
+          "ticker": "DELL",
+          "direction": "LONG",
+          "capture": "MISSED",
+          "start_ts": 1779892200000,
+          "end_ts": 1780430400000,
+          "move_pct": 42.57,
+          "move_atr": 8.2,
+          "move_alignment": {
+            "outcome": "none",
+            "move_dir": "UP",
+            "move_pct": 42.57,
+            "move_atr": 8.2
+          },
+          "outcome": "none",
+          "analysis_mode": "sequence_trail_replay",
+          "promotion_safe": false,
+          "diagnostics_ok": true,
+          "diagnostics_reason": null,
+          "snapshot_count": 238,
+          "sequence": null,
+          "event_count": 3
+        }
+      }
+    ],
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "DELL",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ]
+    }
+  },
+  "report": {
+    "generated_at": "2026-06-19T23:25:33.684Z",
+    "shadow": true,
+    "meta": {
+      "cohort": "discovery_replay",
+      "analysis_mode": "sequence_trail_replay",
+      "discovery_file": "data/move-discovery-live.json"
+    },
+    "reliability": {
+      "total_trades": 1,
+      "with_sequence": 0,
+      "with_diagnostics": 1,
+      "by_sequence": [
+        {
+          "key": "none:NA:0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ],
+      "by_stage_bucket": [
+        {
+          "key": "0_none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ],
+      "by_ticker": [
+        {
+          "key": "DELL",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ],
+      "by_path_archetype": [
+        {
+          "key": "none",
+          "n": 1,
+          "wins": 0,
+          "losses": 0,
+          "flat": 0,
+          "unknown": 1,
+          "pnl_sum": 42.57,
+          "pnl_n": 1,
+          "win_rate": null,
+          "avg_pnl_pct": 42.57
+        }
+      ]
+    },
+    "trades": [
+      {
+        "cohort": "discovery_missed",
+        "move_id": "DELL:1779892200000",
+        "ticker": "DELL",
+        "direction": "LONG",
+        "capture": "MISSED",
+        "start_ts": 1779892200000,
+        "end_ts": 1780430400000,
+        "move_pct": 42.57,
+        "move_atr": 8.2,
+        "move_alignment": {
+          "outcome": "none",
+          "move_dir": "UP",
+          "move_pct": 42.57,
+          "move_atr": 8.2
+        },
+        "outcome": "none",
+        "analysis_mode": "sequence_trail_replay",
+        "promotion_safe": false,
+        "diagnostics_ok": true,
+        "diagnostics_reason": null,
+        "snapshot_count": 238,
+        "sequence": null,
+        "event_count": 3
+      }
+    ]
+  }
+}
