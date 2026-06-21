@@ -30,6 +30,10 @@ users connect their own broker and auto-mirror runs on their account.
 The architecture supports BYOB. What's missing is mostly user-facing UI
 and the second half of each broker's OAuth flow.
 
+**Update 2026-06-15:** Webull Connect adapter scaffold is shipped on the
+bridge (`bridge-webull*.js`). Blocked only on partner credentials — see
+[`2026-06-15-webull-connect-integration-plan.md`](2026-06-15-webull-connect-integration-plan.md).
+
 ---
 
 ## Roadmap — 4 phases

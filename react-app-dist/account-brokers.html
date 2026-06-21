@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>Connected Brokers — Timed Trading</title>
+    <meta name="description" content="Connect a brokerage account for optional auto-mirror execution." />
+    <link rel="stylesheet" href="tt-tokens.css?v=1782058417571" />
+    <script defer src="/vendor/react.production.min.js?v=1782058417571"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1782058417571"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1782058417571" />
+<script defer src="auth-gate.js?v=1782058417571"></script>
+    <script defer src="broker-connect-shared.js?v=1782058417571"></script>
+    <script src="tt-bottom-nav.js?v=1782058417571" defer></script>
+    <script src="tt-nav-extras.js?v=1782058417571" defer></script>
+    <style>
+      :root {
+        --bg: #0b0e11; --surface: rgba(255,255,255,0.025); --border: rgba(255,255,255,0.06);
+        --text: #e5e7eb; --muted: #9ca3af; --faint: #6b7280;
+        --up: #34d399; --warn: #fbbf24; --accent: #67e8f9;
+      }
+      body { background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; margin: 0; min-height: 100vh; }
+      main { max-width: 960px; margin: 0 auto; padding: 24px 20px 96px; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.04em; }
+      .pill-ok { background: rgba(52,211,153,0.12); color: var(--up); border: 1px solid rgba(52,211,153,0.3); }
+      .pill-warn { background: rgba(251,191,36,0.12); color: var(--warn); border: 1px solid rgba(251,191,36,0.3); }
+      .btn { padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); color: var(--text); }
+      .btn-primary { background: rgba(52,211,153,0.14); color: var(--up); border-color: rgba(52,211,153,0.35); }
+      .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      h1 { font-size: 26px; font-weight: 800; margin: 0 0 8px; }
+      .sub { color: var(--muted); font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script defer src="account-brokers.compiled.js?v=1782058417571"></script>
+  </body>
+</html>
+
+<!-- cache-bust:1782058417571:726226076 -->

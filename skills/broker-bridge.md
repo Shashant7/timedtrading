@@ -1,4 +1,4 @@
-# Broker Bridge (IBKR + Robinhood)
+# Broker Bridge (IBKR + Robinhood + Webull)
 
 **WHEN to use:** Anything involving live order execution, IBKR LST / OAuth,
 the operator audit log, or the `tt-broker-bridge` worker.
@@ -32,12 +32,61 @@ Main worker (timed-trading-ingest)
    ↓ HTTP / Authorization: Bearer <op key>
 Bridge worker (tt-broker-bridge)
    ↓ broker-specific protocol
-IBKR Client Portal / Robinhood Agentic
+IBKR Client Portal / Robinhood Agentic / Webull Connect REST
 ```
 
 The main worker is the **operator + audit layer**. The bridge worker is
 the **broker-specific protocol shim** (OAuth, signing, retries). They're
 deployed as separate Cloudflare Workers.
+
+---
+
+## Webull Connect (scaffold — awaiting partner credentials)
+
+Full plan: [`../tasks/2026-06-15-webull-connect-integration-plan.md`](../tasks/2026-06-15-webull-connect-integration-plan.md)
+
+**Registration (blocking):** email `connect.api@webull-us.com` with company
+name + redirect URL:
+
+```text
+https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oauth/callback
+```
+
+After approval, set bridge secrets:
+
+```bash
+cd worker-bridge
+wrangler secret put WEBULL_CONNECT_CLIENT_ID
+wrangler secret put WEBULL_CONNECT_CLIENT_SECRET
+wrangler secret put WEBULL_APP_KEY
+wrangler secret put WEBULL_APP_SECRET
+wrangler deploy
+```
+
+**Connect flow (operator):**
+
+```bash
+# Start OAuth (returns authorize_url when creds configured)
+curl -s -X POST "https://tt-broker-bridge.../bridge/webull/oauth/start" \
+  -H "Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"operator@email.com"}' | python3 -m json.tool
+
+# Probe read path after connect
+curl -s -X POST ".../bridge/test/webull-call" \
+  -H "Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"operator@email.com","action":"get_portfolio"}' | python3 -m json.tool
+```
+
+**Mock testing without creds:** set `BROKER_BRIDGE_MOCK=true` in
+`worker-bridge/wrangler.toml`, then `POST /bridge/webull/oauth/start`
+finalizes a mock `broker=webull` user instantly.
+
+**Key modules:** `bridge-webull.js`, `bridge-webull-api.js`,
+`bridge-webull-auth.js`, `bridge-webull-sign.js`, `bridge-webull-tokens.js`
+
+Vars: `WEBULL_ENVIRONMENT` (`uat`|`prod`), `WEBULL_CONNECT_SCOPE`
 
 ---
 
@@ -50,6 +99,8 @@ deployed as separate Cloudflare Workers.
 | `worker-bridge/` | Bridge worker source — separate Wrangler project |
 | `worker-bridge/bridge-ibkr.js` | IBKR LST flow (DH + RSA + HMAC) |
 | `worker-bridge/bridge-robinhood.js` | Robinhood Agentic flow |
+| `worker-bridge/bridge-webull.js` | Webull Connect REST adapter |
+| `worker-bridge/bridge-webull-auth.js` | Webull OAuth start/callback/disconnect |
 | `worker-bridge/wrangler.toml` | Bridge worker config (separate from main) |
 | `react-app/bridge-audit.html` | Operator audit UI |
 
@@ -171,6 +222,7 @@ for context.
 ## Source
 
 - `worker-bridge/bridge-ibkr.js` (especially `_extractDHPrimeHex`)
+- `worker-bridge/bridge-webull.js` + `tasks/2026-06-15-webull-connect-integration-plan.md`
 - `worker/options-auto-mirror.js` (dispatch policy)
 - `worker/broker-bridge-client.js` (HTTP client + audit ring)
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → IBKR LST entries

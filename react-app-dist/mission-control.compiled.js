@@ -1686,6 +1686,9 @@ function BridgeSection({
   const mockMode = status?.mock_mode !== false;
   const killOn = status?.kill_switch === "on";
   const users = status?.users || [];
+  const webullConfigured = status?.webull_connect_configured === true;
+  const webullUser = (window.TimedBrokerConnect?.findUserByBroker || ((us, id) => (us || []).find(u => String(u?.broker || "").toLowerCase() === id)))(users, "webull");
+  const BC = window.TimedBrokerConnect;
   const errorKind = status?.error_kind || (status?.error?.includes("URL") ? "url_missing" : status?.error?.includes("OPERATOR_KEY") ? "key_missing" : status?.error ? "unreachable" : null);
   const pillText = errorKind === "url_missing" ? "URL NOT SET" : errorKind === "key_missing" ? "OPERATOR KEY NOT SET" : errorKind === "unreachable" ? "BRIDGE UNREACHABLE" : "NOT LINKED";
   return React.createElement("div", {
@@ -1694,7 +1697,7 @@ function BridgeSection({
     className: "mc-section-title"
   }, React.createElement("span", {
     className: "mc-dot"
-  }), "8. Broker Bridge \u2014 Multi-Broker (IBKR \xB7 Robinhood)", !bridgeConfigured && React.createElement("span", {
+  }), "8. Broker Bridge \u2014 Multi-Broker (IBKR \xB7 Robinhood \xB7 Webull)", !bridgeConfigured && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
   }, pillText), bridgeConfigured && mockMode && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
@@ -1722,7 +1725,7 @@ function BridgeSection({
     className: `mc-kpi-value text-[15px] ${mockMode ? "mc-warn" : "mc-pos"}`
   }, mockMode ? "MOCK" : "LIVE"), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, mockMode ? "Orders logged, NOT sent to RH" : "Real RH MCP calls")), React.createElement("div", {
+  }, mockMode ? "Orders logged, not sent to broker" : "Live broker adapter calls")), React.createElement("div", {
     className: "mc-kpi"
   }, React.createElement("div", {
     className: "mc-kpi-label"
@@ -1786,7 +1789,164 @@ function BridgeSection({
     className: "mc-kpi-value"
   }, recent.length), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, "From main worker \u2192 bridge"))), portfolio?.users?.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+  }, "From main worker \u2192 bridge"))), React.createElement("div", {
+    className: "mb-4",
+    style: {
+      padding: 12,
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.06)",
+      borderRadius: 8
+    }
+  }, React.createElement("div", {
+    className: "flex items-baseline justify-between gap-2 flex-wrap mb-2"
+  }, React.createElement("div", {
+    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
+  }, "Connect Brokers"), React.createElement("div", {
+    className: "flex gap-2 flex-wrap"
+  }, React.createElement("span", {
+    className: `mc-pill ${webullConfigured ? "mc-pill-ok" : "mc-pill-warn"}`,
+    style: {
+      fontSize: 9
+    }
+  }, "Webull Connect ", webullConfigured ? "configured" : "awaiting creds"), status?.webull_environment && React.createElement("span", {
+    className: "mc-pill",
+    style: {
+      fontSize: 9
+    }
+  }, "env: ", status.webull_environment))), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-3"
+  }, React.createElement("div", {
+    style: {
+      padding: 10,
+      border: "1px solid rgba(255,255,255,0.05)",
+      borderRadius: 8
+    }
+  }, React.createElement("div", {
+    className: "text-[12px] font-semibold text-white mb-1"
+  }, "Webull"), React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, "OAuth Connect API \xB7 equity mirror \xB7 mock-ready today"), webullUser ? React.createElement("div", {
+    className: "text-[10px] mb-2 font-mono"
+  }, webullUser.user_id, " \xB7 ", webullUser.webull_account_id || webullUser.status, webullUser.mock_mode && React.createElement("span", {
+    className: "mc-pill mc-pill-warn ml-1",
+    style: {
+      fontSize: 8
+    }
+  }, "MOCK")) : React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, "No Webull user connected"), React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, React.createElement("button", {
+    disabled: busy,
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 10,
+      padding: "4px 10px"
+    },
+    onClick: async () => {
+      if (busy || !BC) return;
+      const uid = prompt("Connect Webull for user_id (email):", webullUser?.user_id || users[0]?.user_id || "");
+      if (!uid) return;
+      setBusy(true);
+      try {
+        const {
+          ok,
+          json
+        } = await BC.connectWebull(apiBase, String(uid).trim().toLowerCase());
+        if (!ok) {
+          alert(`Connect failed: ${json?.error || json?.note || "unknown"}`);
+          return;
+        }
+        if (json?.authorize_url) {
+          window.open(json.authorize_url, "_blank", "noopener,noreferrer");
+          alert("Complete authorization in the Webull window, then refresh this panel.");
+        } else if (json?.mock) {
+          alert(`Mock Webull connected for ${json.user_id || uid}`);
+        }
+        refresh();
+      } catch (e) {
+        alert(String(e?.message || e));
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Connect Webull"), webullUser && React.createElement(React.Fragment, null, React.createElement("button", {
+    disabled: busy,
+    className: "mc-btn",
+    style: {
+      fontSize: 10,
+      padding: "4px 10px"
+    },
+    onClick: async () => {
+      if (busy || !BC) return;
+      if (!confirm(`Disconnect Webull for ${webullUser.user_id}?`)) return;
+      setBusy(true);
+      try {
+        const {
+          ok,
+          json
+        } = await BC.disconnectWebull(apiBase, webullUser.user_id);
+        if (!ok) alert(`Disconnect failed: ${json?.error || "unknown"}`);
+        refresh();
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Disconnect"), React.createElement("button", {
+    disabled: busy,
+    className: "mc-btn",
+    style: {
+      fontSize: 10,
+      padding: "4px 10px"
+    },
+    onClick: async () => {
+      if (busy || !BC) return;
+      setBusy(true);
+      try {
+        const {
+          ok,
+          json
+        } = await BC.testWebull(apiBase, webullUser.user_id, "get_portfolio");
+        alert(ok ? `Portfolio probe OK${json?.mock ? " (mock)" : ""}` : `Probe failed: ${json?.error || "unknown"}`);
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Test portfolio"))), !webullConfigured && React.createElement("div", {
+    className: "text-[10px] text-amber-300/90 mt-2"
+  }, "Email ", React.createElement("code", null, "connect.api@webull-us.com"), " \u2014 see ", React.createElement("code", null, "tasks/2026-06-15-webull-connect-integration-plan.md"))), React.createElement("div", {
+    style: {
+      padding: 10,
+      border: "1px solid rgba(255,255,255,0.05)",
+      borderRadius: 8,
+      opacity: 0.7
+    }
+  }, React.createElement("div", {
+    className: "text-[12px] font-semibold text-white mb-1"
+  }, "Robinhood"), React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, "Agentic MCP \u2014 OAuth URLs still placeholder"), React.createElement("span", {
+    className: "mc-pill mc-pill-warn",
+    style: {
+      fontSize: 9
+    }
+  }, "Coming soon")), React.createElement("div", {
+    style: {
+      padding: 10,
+      border: "1px solid rgba(255,255,255,0.05)",
+      borderRadius: 8,
+      opacity: 0.7
+    }
+  }, React.createElement("div", {
+    className: "text-[12px] font-semibold text-white mb-1"
+  }, "IBKR"), React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, "Use IBKR connect triplet via bridge / MC operator flow"), React.createElement("span", {
+    className: "mc-pill mc-pill-ok",
+    style: {
+      fontSize: 9
+    }
+  }, "Production path")))), portfolio?.users?.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
     className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
   }, "Account Balance, Positions & Controls"), portfolio.users.map(u => {
     const ok = u?.portfolio?.ok;
@@ -3905,6 +4065,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1782049975326:145531323
+// cache-bust:1782058417571:726226076
 
-// cache-bust:1782049975326:145531323
+// cache-bust:1782058417571:726226076
