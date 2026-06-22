@@ -5106,9 +5106,9 @@ async function dispatchDailyBriefNotifications(env, {
   const prefKey = type === "morning" ? "daily_brief_morning" : "daily_brief_evening";
   let _emailReport = { ok: false, recipients: 0, sent: 0, failed: 0, reason: "not_attempted" };
   try {
-    if (!env?.SENDGRID_API_KEY || env?.EMAIL_ENABLED !== "true") {
-      _emailReport.reason = !env?.SENDGRID_API_KEY ? "no_sendgrid_key" : "email_disabled";
-      console.log(`[DAILY BRIEF] ${prefKey} emails skipped — ${_emailReport.reason}`);
+    if (env?.EMAIL_ENABLED !== "true") {
+      _emailReport.reason = "email_disabled";
+      console.log(`[DAILY BRIEF] ${prefKey} emails skipped — email_disabled`);
     } else {
     const optedInUsers = await getEmailOptedInUsers(env, prefKey);
     _emailReport.recipients = optedInUsers.length;

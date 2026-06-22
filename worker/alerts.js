@@ -832,7 +832,8 @@ export function createInvestorAlertEmbed(type, data) {
       emoji: "⚠️",
       title: (d) => `${d.ticker}: Model Thesis Shift`,
       description: (d) => `The TT Investor model no longer sees valid supporting conditions for **${d.ticker}**.`,
-      fields: (d) => d.reasons.map(r => ({ name: "Model invalidation", value: r, inline: false })),
+      fields: (d) => d.reasons.map(r => ({ name: "Model invalidation", value: r, inline: false }))
+        .concat(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
     },
     accumulation_zone: {
       color: 0x10b981,
@@ -865,6 +866,7 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Signals", value: (d.signals || []).map(s => s.replace(/_/g, " ")).join(", ") || "—", inline: false },
         // Make it clear this is informational, not an auto-executed order.
         { name: "Note", value: "TT Investor model signal. The model portfolio tracks this in simulation; live broker mirroring requires Mission Control → Broker Bridge.", inline: false },
+        ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
     rs_breakout: {
@@ -876,6 +878,7 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "RS Rank", value: `${d.rsRank || "—"}th percentile`, inline: true },
         { name: "3M Return vs SPY", value: `${d.rs3m >= 0 ? "+" : ""}${(d.rs3m || 0).toFixed(1)}%`, inline: true },
         { name: "Investor Score", value: `${d.score || "—"}`, inline: true },
+        ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
     rebalancing: {

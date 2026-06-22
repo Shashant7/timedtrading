@@ -374,15 +374,50 @@ export { hmacVerify };
 // Core Send Function
 // ═══════════════════════════════════════════════════════════════════════
 
-export async function sendEmail(env, { to, subject, html, text, category }) {
-  const apiKey = env?.SENDGRID_API_KEY;
-  if (!apiKey) {
-    console.warn("[EMAIL] No SENDGRID_API_KEY configured — skipping send");
-    return { ok: false, error: "no_api_key" };
+/** Relay a single outbound message through the monolith when this worker lacks SendGrid. */
+async function relayEmailViaMonolith(env, { to, subject, html, text, category }) {
+  const base = String(env?.WORKER_URL || "https://timed-trading.com").replace(/\/$/, "");
+  const relayKey = env?.TIMED_API_KEY || env?.API_KEY || env?.ADMIN_KEY;
+  if (!relayKey) {
+    console.warn("[EMAIL] relay skipped — no TIMED_API_KEY/API_KEY for monolith auth");
+    return { ok: false, error: "no_relay_key" };
   }
+  try {
+    const resp = await fetch(`${base}/timed/internal/relay-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": relayKey,
+      },
+      body: JSON.stringify({ to, subject, html, text, category }),
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (resp.ok && body?.ok) {
+      console.log(`[EMAIL] relayed to ${to}: "${subject}"`);
+      return { ok: true, relayed: true };
+    }
+    console.warn(`[EMAIL] relay failed ${resp.status}: ${String(body?.error || resp.statusText).slice(0, 200)}`);
+    return { ok: false, error: body?.error || `relay_${resp.status}`, relayed: true };
+  } catch (e) {
+    console.warn("[EMAIL] relay exception:", String(e?.message || e).slice(0, 200));
+    return { ok: false, error: String(e?.message || e).slice(0, 200), relayed: true };
+  }
+}
+
+export async function sendEmail(env, { to, subject, html, text, category }) {
   if (env?.EMAIL_ENABLED !== "true" && env?.EMAIL_ENABLED !== true) {
     console.log("[EMAIL] EMAIL_ENABLED is not true — skipping send");
     return { ok: false, error: "disabled" };
+  }
+  const apiKey = env?.SENDGRID_API_KEY;
+  if (!apiKey) {
+    // tt-engine / tt-research often carry DISCORD_* but not SENDGRID_*.
+    // Relay through the monolith API worker which owns the SendGrid secret.
+    if (String(env?.EMAIL_RELAY_ENABLED ?? "true").toLowerCase() !== "false") {
+      return relayEmailViaMonolith(env, { to, subject, html, text, category });
+    }
+    console.warn("[EMAIL] No SENDGRID_API_KEY configured — skipping send");
+    return { ok: false, error: "no_api_key" };
   }
   const fromEmail = env?.EMAIL_FROM || FROM_EMAIL;
   const payload = {
@@ -1207,6 +1242,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const isEntry = type === "TRADE_ENTRY";
   const isExit = type === "TRADE_EXIT";
   const isTrim = type === "TRADE_TRIM";
+  const isExitSignal = type === "TRADE_EXIT_SIGNAL";
   // 2026-06-11 — TP-level cross (MU incident): a profit tier was reached;
   // the model may trim, exit, or intentionally hold the runner. The alert
   // carries plan-aware commentary (alert.commentary) plus level/next/stop.
@@ -1215,8 +1251,8 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const dir = String(direction || "").toUpperCase();
   const dirColor = dir === "LONG" ? "#10b981" : dir === "SHORT" ? "#f43f5e" : BRAND.textSecondary;
   const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "";
-  const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : isCross ? "🎯" : "✂️";
-  const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
+  const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : isExitSignal ? "🚪" : isCross ? "🎯" : "✂️";
+  const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isExitSignal ? "Exit Recommended (position open)" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
   const _etTime = _fmtEtClock(action_ts);
 
@@ -1255,6 +1291,17 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       const _color = (Number(pnl ?? pnlPct) >= 0) ? "#10b981" : "#f43f5e";
       posLines.push(`Realized P&amp;L: <strong style="color:${_color}">${_pnl}</strong>`);
     }
+  } else if (isExitSignal) {
+    if (Number.isFinite(Number(entry))) posLines.push(`Entry: <strong style="color:white">$${Number(entry).toFixed(2)}</strong>`);
+    if (Number.isFinite(Number(price))) posLines.push(`Price now: <strong style="color:white">$${Number(price).toFixed(2)}</strong>`);
+    if (Number.isFinite(Number(pnlPct))) {
+      const _color = Number(pnlPct) >= 0 ? "#10b981" : "#f43f5e";
+      posLines.push(`Unrealized P&amp;L: <strong style="color:${_color}">${Number(pnlPct) >= 0 ? "+" : ""}${Number(pnlPct).toFixed(2)}%</strong>`);
+    }
+    if (exitReason) {
+      posLines.push(`Reason: <strong style="color:white">${String(exitReason).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</strong>`);
+    }
+    posLines.push(`<span style="color:${BRAND.textMuted}">Position is still open — the model recommends exiting when ready.</span>`);
   }
   if (isCross) {
     if (Number.isFinite(Number(alert.level))) posLines.push(`Target crossed: <strong style="color:#10b981">$${Number(alert.level).toFixed(2)}</strong>${alert.tier_label ? ` <span style="color:${BRAND.textSecondary}">(${alert.tier_label})</span>` : ""}`);
@@ -1513,6 +1560,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     const _subtitleParts = [];
     if (isEntry) _subtitleParts.push("ENTRY");
     else if (isExit) _subtitleParts.push("EXIT");
+    else if (isExitSignal) _subtitleParts.push("EXIT SIGNAL");
     else if (isTrim) _subtitleParts.push("TRIM");
     if (dir) _subtitleParts.push(dir);
     if (_etTime) _subtitleParts.push(_etTime);
@@ -1903,6 +1951,11 @@ export async function sendInvestorAlertEmails(env, alert) {
 ${chartImgHtml}
 
 <table cellspacing="0" cellpadding="0" style="margin:14px 0 18px">${factsHtml}</table>
+${data.cio_reasoning ? `
+<div style="margin:0 0 16px;padding:14px 16px;border-radius:10px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25)">
+  <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:#a78bfa;text-transform:uppercase;margin-bottom:6px">AI CIO guidance</div>
+  <div style="font-size:13px;line-height:1.55;color:#e5e7eb;white-space:pre-wrap">${String(data.cio_reasoning).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+</div>` : ""}
 <a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
 <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#6b7280;line-height:1.6">
 Informational model signal only — not investment advice. The TT Investor model portfolio tracks this in simulation; live broker mirroring requires the Phase 1 share-mirror config.<br>
@@ -1919,6 +1972,7 @@ You're receiving this because Investor Signal emails are enabled. <a href="https
         text: `[INVESTOR · ${action.verb}] ${meta.headline}: ${data.ticker}\n\n` +
               `TT Model signal — ${action.verb}\n${action.one_liner}\n\n` +
               `${meta.lede.replace(/<[^>]+>/g, "")}\n\n` +
+              (data.cio_reasoning ? `AI CIO guidance:\n${String(data.cio_reasoning).trim()}\n\n` : "") +
               `View: ${tickerUrl}\nChart: ${_chartImgUrl}\n\nManage email preferences at https://timed-trading.com/today.html.`,
       });
       if (r?.ok) sent++; else failed++;
@@ -2237,11 +2291,13 @@ export async function sendInvestorSignalsDigest(env, alerts) {
   const rows = list.map((alert) => {
     const sym = String(alert.data.ticker || "").toUpperCase();
     const action = deriveInvestorAlertAction(alert.type, alert.data);
+    const cio = String(alert.data?.cio_reasoning || "").trim();
     return `<tr>
       <td style="padding:8px 0;border-bottom:1px solid ${BRAND.border};vertical-align:top">
         <div style="font-size:14px;font-weight:700;color:white;margin-bottom:2px">${_esc(sym)}</div>
         <div style="font-size:11px;font-weight:700;letter-spacing:0.08em;color:${action.color};text-transform:uppercase;margin-bottom:4px">${_esc(action.verb)}</div>
         <div style="font-size:12px;line-height:1.45;color:${BRAND.textSecondary}">${_esc(action.one_liner)}</div>
+        ${cio ? `<div style="margin-top:8px;font-size:12px;line-height:1.45;color:${BRAND.editorial}"><strong style="color:#a78bfa">AI CIO:</strong> ${_esc(cio.slice(0, 360))}${cio.length > 360 ? "…" : ""}</div>` : ""}
       </td>
     </tr>`;
   }).join("");

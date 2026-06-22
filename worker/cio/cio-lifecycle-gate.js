@@ -585,6 +585,90 @@ export async function cioReviewInvestorAccumulate(env, {
  * actionable lane (accumulate / reduce). RECORD-ONLY — builds the audit
  * dataset for lane-change quality without blocking classification.
  */
+async function _buildInvestorLaneChangeCioContext(env, {
+  sym, prevStage, newStage, scoreData, tickerData, getTickerProfile, currentPrice,
+}) {
+  const proposal = buildCIOLifecycleProposal(
+    "INVESTOR_LANE_CHANGE",
+    sym,
+    {
+      direction: "LONG",
+      entryPrice: Number(currentPrice) || 0,
+      entry_ts: Date.now(),
+      setupName: `investor_${newStage}`,
+      setupGrade: scoreData?.score ?? null,
+    },
+    tickerData || { ticker: sym },
+    Number(currentPrice) || 0,
+    getTickerProfile || (() => ({ profileKey: "investor", label: "Investor", max_hold_hours: 24 * 365 })),
+  );
+  proposal.engine_action = "LANE_CHANGE";
+  proposal.investor_stage_prev = prevStage || null;
+  proposal.investor_stage_new = newStage || null;
+  proposal.investor_score = scoreData?.score ?? null;
+  proposal.stage_reason = scoreData?.stageReason || null;
+  proposal.accum_zone = scoreData?.accumZone || null;
+  proposal.sim_eligible = scoreData?.simEligible ?? null;
+  proposal.investor_mode = true;
+  const cioMemory = await _resolveInvestorCioMemory(env, sym, tickerData || { ticker: sym }, scoreData, null);
+  return { proposal, cioMemory };
+}
+
+/**
+ * Live CIO consult for Investor scoring alerts (accumulate / reduce / RS).
+ * Returns reasoning suitable for Discord + email surfaces.
+ */
+export async function consultInvestorSignalCio(env, {
+  alertType,
+  sym,
+  scoreData,
+  tickerData,
+  currentPrice,
+  getTickerProfile,
+}) {
+  const cfg = getLifecycleGateConfig(env);
+  if (!cfg.types.investor_lane_change) {
+    return { ok: false, fallback: true, reasoning: null };
+  }
+  const stage = alertType === "thesis_invalidation" ? "reduce"
+    : alertType === "accumulation_zone" ? "accumulate"
+      : "watch";
+  try {
+    const { proposal, cioMemory } = await _buildInvestorLaneChangeCioContext(env, {
+      sym,
+      prevStage: "watch",
+      newStage: stage,
+      scoreData,
+      tickerData,
+      getTickerProfile,
+      currentPrice,
+    });
+    proposal.investor_alert_type = alertType;
+    const gate = await cioLifecycleGate(env, {
+      type: "investor_lane_change",
+      bucket: `alert_${alertType}`,
+      sym,
+      proposal,
+      memory: cioMemory,
+      engineDefaultDecision: "RECORD_ONLY",
+    });
+    if (!gate) {
+      return { ok: false, fallback: true, reasoning: null, decision: null };
+    }
+    const reasoning = String(gate.reasoning || "").trim() || null;
+    return {
+      ok: !!reasoning,
+      fallback: !!gate.fallback,
+      decision: gate.cio_decision || gate.decision || null,
+      edge_score: gate.edge_remaining ?? null,
+      reasoning,
+    };
+  } catch (e) {
+    console.warn("[AI_CIO_GATE] consultInvestorSignalCio failed:", String(e?.message || e).slice(0, 120));
+    return { ok: false, fallback: true, reasoning: null };
+  }
+}
+
 export async function cioRecordInvestorLaneChange(env, {
   sym, prevStage, newStage, scoreData, tickerData, getTickerProfile, currentPrice,
 }) {
@@ -592,31 +676,9 @@ export async function cioRecordInvestorLaneChange(env, {
   if (!cfg.types.investor_lane_change) return;
 
   try {
-    const proposal = buildCIOLifecycleProposal(
-      "INVESTOR_LANE_CHANGE",
-      sym,
-      {
-        direction: "LONG",
-        entryPrice: Number(currentPrice) || 0,
-        entry_ts: Date.now(),
-        setupName: `investor_${newStage}`,
-        setupGrade: scoreData?.score ?? null,
-      },
-      tickerData || { ticker: sym },
-      Number(currentPrice) || 0,
-      getTickerProfile || (() => ({ profileKey: "investor", label: "Investor", max_hold_hours: 24 * 365 })),
-    );
-    proposal.engine_action = "LANE_CHANGE";
-    proposal.investor_stage_prev = prevStage || null;
-    proposal.investor_stage_new = newStage || null;
-    proposal.investor_score = scoreData?.score ?? null;
-    proposal.stage_reason = scoreData?.stageReason || null;
-    proposal.accum_zone = scoreData?.accumZone || null;
-    proposal.sim_eligible = scoreData?.simEligible ?? null;
-    proposal.investor_mode = true;
-
-    const cioMemory = await _resolveInvestorCioMemory(env, sym, tickerData || { ticker: sym }, scoreData, null);
-
+    const { proposal, cioMemory } = await _buildInvestorLaneChangeCioContext(env, {
+      sym, prevStage, newStage, scoreData, tickerData, getTickerProfile, currentPrice,
+    });
     await cioLifecycleGate(env, {
       type: "investor_lane_change",
       bucket: `${prevStage || "?"}_to_${newStage || "?"}`,
