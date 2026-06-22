@@ -1234,7 +1234,11 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
 
   const dir = String(direction || "").toUpperCase();
   const dirColor = dir === "LONG" ? "#10b981" : dir === "SHORT" ? "#f43f5e" : BRAND.textSecondary;
-  const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "";
+  // 2026-06-22 — Label the lane explicitly in trade-alert emails so a reader
+  // can tell Active Trader vs Investor at a glance (matches the Discord
+  // "ACTIVE TRADER ·" / "INVESTOR ·" embed prefix). Operator: the NVDA exit
+  // email didn't say Active Trader.
+  const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "Active Trader ";
   const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : isExitSignal ? "🚪" : isCross ? "🎯" : "✂️";
   const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isExitSignal ? "Exit Recommended (position open)" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
