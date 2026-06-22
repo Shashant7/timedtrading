@@ -5,6 +5,7 @@
 import { kvGetJSON } from "./storage.js";
 import { normalizeTfKey } from "./ingest.js";
 import * as DataProvider from "./data-provider.js";
+import { expectedIntradayBuckets } from "./foundation/trading-calendar.js";
 
 export const CHART_SYMBOL_BLOCKLIST = new Set([
   "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "HG1!", "NG1!",
@@ -167,7 +168,7 @@ function nyWeekKeyFromTs(tsMs) {
 }
 
 /**
- * Append or replace a forming D/W bar using live timed:prices (p, dh, dl, pc).
+ * Append or replace a forming D/W/60 bar using live timed:prices (p, dh, dl, pc).
  * TD-native completed bars are untouched; only the current session bar is synthesized.
  */
 export async function appendFormingChartCandle(env, ticker, tfKey, candles, opts = {}) {
@@ -218,6 +219,39 @@ export async function appendFormingChartCandle(env, ticker, tfKey, candles, opts
     }
     const barTs = lastTs > 0 ? Math.min(nowMs, lastTs + 20 * 3600000) : nowMs;
     out.push({ ts: barTs, o: open, h: high, l: low, c: px, v: null, forming: true });
+    return { candles: out, forming: true };
+  }
+
+  if (tf === "60" && opts.intradayForming === true) {
+    const todayKey = getNyEtParts(nowMs).dateStr;
+    const buckets = expectedIntradayBuckets(todayKey, 60).filter((ts) => ts <= nowMs);
+    const bucketTs = buckets[buckets.length - 1];
+    if (!Number.isFinite(bucketTs) || bucketTs <= 0) {
+      return { candles: out, forming: false };
+    }
+    if (lastTs > bucketTs) return { candles: out, forming: false };
+
+    const sameBucket = lastTs === bucketTs;
+    const open = sameBucket && Number(last?.o) > 0
+      ? Number(last.o)
+      : (Number(last?.c) > 0 ? Number(last.c) : px);
+    const high = Math.max(Number(last?.h) || open, open, px);
+    const low = Math.min(Number(last?.l) || open, open, px);
+    const formingBar = {
+      ...(sameBucket ? last : {}),
+      ts: bucketTs,
+      o: open,
+      h: high,
+      l: low,
+      c: px,
+      v: sameBucket ? (last?.v ?? null) : null,
+      forming: true,
+    };
+    if (sameBucket) {
+      out[out.length - 1] = formingBar;
+    } else {
+      out.push(formingBar);
+    }
     return { candles: out, forming: true };
   }
 
