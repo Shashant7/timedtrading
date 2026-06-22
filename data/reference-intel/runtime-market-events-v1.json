@@ -33050,12 +33050,147 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "CCL Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "BSFC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "CARV Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "CHI Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "EBF Earnings",
+        "impact": "high",
+        "surprise_pct": -0.99,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "FRVO Earnings",
+        "impact": "high",
+        "surprise_pct": -5169.12,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "GELS Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "GURE Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "INTE Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "MDRX Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "MGIH Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "MPU Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "POWW Earnings",
+        "impact": "high",
+        "surprise_pct": -194.12,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "SEGG Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-22",
+        "event_type": "earnings",
+        "event_name": "WINT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-06-23",
         "event_type": "macro",
         "event_name": "Jun P S&P Global PMIs (Mfg + Svcs)",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.78,
+        "spy_reaction_pct": -0.28,
         "sector_reaction_pct": null
       },
       {
@@ -33064,7 +33199,7 @@
         "event_name": "Jun P S&P Srvcs PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.78,
+        "spy_reaction_pct": -0.28,
         "sector_reaction_pct": null
       },
       {
@@ -33073,16 +33208,151 @@
         "event_name": "Jun P S&P Manu PMI",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.78,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "macro",
+        "event_name": "Jun Richmond Fed Manufacturing Survey",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "macro",
+        "event_name": "Jun P S&P Global Services PMI",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "macro",
+        "event_name": "Jun P S&P Global Manufacturing PMI",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "earnings",
+        "event_name": "FDX Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "earnings",
+        "event_name": "GIS Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "earnings",
+        "event_name": "KBH Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-23",
+        "event_type": "earnings",
+        "event_name": "SUNB Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "macro",
+        "event_name": "May New Home Sales",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "JEF Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "MKC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "MU Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "NKE Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "PAYX Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "WBA Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-24",
+        "event_type": "earnings",
+        "event_name": "WS Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
         "sector_reaction_pct": null
       },
       {
         "date": "2026-06-25",
         "event_type": "macro",
         "event_name": "1Q T GDP",
-        "impact": "medium",
+        "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.78,
+        "spy_reaction_pct": -0.28,
         "sector_reaction_pct": null
       },
       {
@@ -33091,7 +33361,79 @@
         "event_name": "May PCE Deflator",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.78,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-25",
+        "event_type": "macro",
+        "event_name": "Jun Kansas City Fed Manufacturing Survey",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-25",
+        "event_type": "macro",
+        "event_name": "May P Durable Goods Orders",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-25",
+        "event_type": "earnings",
+        "event_name": "AYI Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-25",
+        "event_type": "earnings",
+        "event_name": "CMC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-25",
+        "event_type": "earnings",
+        "event_name": "DRI Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-25",
+        "event_type": "earnings",
+        "event_name": "SNX Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-26",
+        "event_type": "macro",
+        "event_name": "Jun F U. Mich. Sentiment and Inflation Expectation",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-06-30",
+        "event_type": "macro",
+        "event_name": "May JOLTS Job Openings",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.28,
         "sector_reaction_pct": null
       }
     ],
@@ -33102,14 +33444,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 39.319
+        "sql_duration_ms": 40.2271
       },
-      "duration": 39.319,
+      "duration": 40.2271,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4029292544,
-      "rows_read": 3677,
+      "size_after": 4208992256,
+      "rows_read": 3715,
       "rows_written": 0,
       "total_attempts": 1
     }
