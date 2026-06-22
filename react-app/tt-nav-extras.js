@@ -183,18 +183,27 @@
   }
 
   // ── Badge helpers ─────────────────────────────────────────────
-  function setBadge(linkText, value, kind) {
+  // 2026-06-22 — Badge consistency fix. The counts were fetched once in
+  // init() and applied immediately, but shared-nav.js mounts the <nav>
+  // markup asynchronously (and admin pages mount it via React). When the
+  // fetch resolved before the nav existed, setBadge found no target and
+  // the badge silently never appeared — so the Investor badge showed on
+  // some page loads but not others. Cache the last-known counts and
+  // RE-APPLY them whenever the nav (re)mounts or auth resolves.
+  const _badgeCounts = Object.create(null);
+
+  function applyBadge(linkText, value, kind) {
     const links = Array.from(document.querySelectorAll(".nav-links .nav-link"));
     const target = links.find((a) => {
       const tx = (a.textContent || "").trim().replace(/\s+/g, " ");
       // Strip any existing badge digits before comparing
       return tx.replace(/\s*\d+$/, "") === linkText;
     });
-    if (!target) return;
+    if (!target) return false;
     let badge = target.querySelector(".nav-badge");
     if (value == null || value <= 0) {
       if (badge) badge.remove();
-      return;
+      return true;
     }
     if (!badge) {
       badge = document.createElement("span");
@@ -203,6 +212,22 @@
     }
     badge.className = "nav-badge" + (kind ? " " + kind : "");
     badge.textContent = String(value);
+    return true;
+  }
+
+  function setBadge(linkText, value, kind) {
+    // Remember the intent so a later nav mount can re-apply it.
+    _badgeCounts[linkText] = { value, kind };
+    applyBadge(linkText, value, kind);
+  }
+
+  // Re-apply every cached badge — called whenever the nav markup may have
+  // (re)appeared (nav poll, auth bootstrap, journey-link injection).
+  function reapplyBadges() {
+    for (const linkText in _badgeCounts) {
+      const c = _badgeCounts[linkText];
+      if (c) applyBadge(linkText, c.value, c.kind);
+    }
   }
 
   // ── Fetchers ──────────────────────────────────────────────────
@@ -602,7 +627,11 @@
     injectJourneyLinks();
     wireBrandLink();
 
-    // Badges — kick off in parallel; render whichever returns.
+    refreshBadges();
+  }
+
+  // Fetch both nav counts and cache+apply them. Safe to call repeatedly.
+  function refreshBadges() {
     fetchOpenTradeCount().then((n) => {
       setBadge("Active Trader", n, "up");
     });
@@ -623,6 +652,9 @@
       if (nav && !nav.querySelector(".tt-journey-strip")) {
         injectJourneyLinks();
       }
+      // The nav markup may have only just mounted (shared-nav.js / React
+      // admin nav). Re-apply any cached badge so it isn't lost to the race.
+      if (nav) reapplyBadges();
       if (tries > 15) clearInterval(id);
     }, 200);
   })();
@@ -644,6 +676,11 @@
     injectAdminMenu();
     injectRightWidgets();
     wireBrandLink();
+    // Re-apply cached badges (nav may have just mounted) AND re-fetch the
+    // counts now that the user/session is known — the actionable Investor
+    // count and open-trade count are user-scoped.
+    reapplyBadges();
+    refreshBadges();
   });
 
   // Also poll briefly during the first ~3s in case the user is
