@@ -26,7 +26,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-monolith-bundle
+  # 2026-06-22 — Per-worker group (was shared deploy-monolith-bundle, which
+  # cancelled the 3rd of the 3 deploy workflows — see deploy-worker.yml).
+  group: deploy-engine-worker
   cancel-in-progress: false
 
 jobs:
