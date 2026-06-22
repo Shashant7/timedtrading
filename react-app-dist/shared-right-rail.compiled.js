@@ -5665,7 +5665,12 @@
         const _pnlPct = _livePnlPct;
         const _grade = mt.setup_grade || mt.setupGrade || "";
         const _riskBudget = mt.risk_budget || mt.riskBudget || "";
-        const _exitReason = mt.exitReason || mt.exit_reason || "";
+        const _exitReasonRaw = mt.exitReason || mt.exit_reason || "";
+        const _exitWasReversed = _exitReasonRaw.startsWith("REVERSED_");
+        const _suppressExit = _isOpenStatus || _exitWasReversed;
+        const _exitReason = _suppressExit ? "" : _exitReasonRaw;
+        const _exitTs = _suppressExit ? null : mt.exit_ts ?? mt.exitTs ?? null;
+        const _exitPx = _suppressExit ? 0 : _exit;
         const _mfe = Number(mt.max_favorable_excursion);
         const _mae = Number(mt.max_adverse_excursion);
         const _entryPath = mt.entry_path || "";
@@ -5730,13 +5735,13 @@
           className: "text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0"
         }, "Entry"), React.createElement("span", {
           className: "text-[13px] font-semibold text-white truncate"
-        }, _formatDate(mt.entry_ts), " @ ", fmtUsd(_entry))), (_exit > 0 || mt.exit_ts) && React.createElement("div", {
+        }, _formatDate(mt.entry_ts), " @ ", fmtUsd(_entry))), !_suppressExit && (_exitPx > 0 || _exitTs) && React.createElement("div", {
           className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30"
         }, React.createElement("span", {
           className: "text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0"
         }, "Exit"), React.createElement("span", {
           className: "text-[13px] font-semibold text-white truncate"
-        }, _formatDate(mt.exit_ts), " @ ", _exit > 0 ? fmtUsd(_exit) : "\u2014")), _isOpenStatus && _liveCurrentPx > 0 && React.createElement("div", {
+        }, _formatDate(_exitTs), " @ ", _exitPx > 0 ? fmtUsd(_exitPx) : "\u2014")), _isOpenStatus && _liveCurrentPx > 0 && React.createElement("div", {
           className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30"
         }, React.createElement("span", {
           className: "text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0"
@@ -6182,9 +6187,9 @@
         }, React.createElement(AutopsyChart, {
           ticker: _ticker,
           entryPrice: _entry,
-          exitPrice: _exit,
+          exitPrice: _exitPx,
           entryTs: mt.entry_ts,
-          exitTs: mt.exit_ts,
+          exitTs: _exitTs,
           trimTs: mt.trim_ts,
           slPrice: mt.sl || mt.stop_loss || mt.sl_price,
           tpPrices: mt.tpArray || mt.tp_array || (mt.tp_price ? [{
@@ -6807,8 +6812,12 @@
             const cacheKey = `${sym}:${tf}`;
             const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
             const cacheTtlMs = rthOpen ? 15000 : 60000;
+            const staleBarMs = tf === "60" ? 4 * 60 * 60 * 1000 : tf === "240" ? 6 * 60 * 60 * 1000 : 0;
             const cached = candleCacheRef.current[cacheKey];
-            const haveCached = cached && Date.now() - cached.ts < cacheTtlMs && Array.isArray(cached.data) && cached.data.length >= 2;
+            const cachedLast = cached?.data?.length ? cached.data[cached.data.length - 1] : null;
+            const cachedLastTs = Number(cachedLast?.ts ?? cachedLast?.t ?? cachedLast?.time);
+            const cacheBarStale = staleBarMs > 0 && Number.isFinite(cachedLastTs) && cachedLastTs > 0 && Date.now() - cachedLastTs > staleBarMs;
+            const haveCached = cached && Date.now() - cached.ts < cacheTtlMs && Array.isArray(cached.data) && cached.data.length >= 2 && !cacheBarStale;
             if (haveCached) {
               const sig = candleArraySig(cached.data);
               if (!cancelled && sig !== chartCandlesSigRef.current) {
@@ -11023,7 +11032,9 @@
           const isLong = dirRaw !== "SHORT";
           const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
           const entry = Number(t.entryPrice ?? t.entry_price);
-          const shares = Number(t.shares || t.qty || t.size);
+          const _entryShares = Number(t.shares || t.qty || t.size);
+          const _trimFrac = Math.min(Math.max(Number(t.trimmedPct ?? t.trimmed_pct ?? 0), 0), 1);
+          const shares = Number.isFinite(_entryShares) ? _entryShares * (1 - _trimFrac) : NaN;
           const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
           const unrealizedPct = entry > 0 && livePx > 0 ? (dirRaw === "SHORT" ? entry - livePx : livePx - entry) / entry * 100 : null;
           const sl = Number(t.sl ?? ticker?.sl);
@@ -21025,4 +21036,4 @@
   };
 })();
 
-// cache-bust:1782146840603:764909659
+// cache-bust:1782147094146:878742158

@@ -4485,7 +4485,18 @@
           const _pnlPct = _livePnlPct;
           const _grade = mt.setup_grade || mt.setupGrade || "";
           const _riskBudget = mt.risk_budget || mt.riskBudget || "";
-          const _exitReason = mt.exitReason || mt.exit_reason || "";
+          const _exitReasonRaw = mt.exitReason || mt.exit_reason || "";
+          // 2026-06-22 — A trade can be OPEN while still carrying a stored
+          // exit_ts/exit_price/exit_reason — either an administratively
+          // REVERSED_ stale exit (e.g. MU stale-premarket print) or a stale
+          // orphan exit on an open row. In both cases the exit is NOT real:
+          // suppress the Exit pill, the Exit-context reason, and the chart's
+          // exit marker so the receipt matches the open-position truth.
+          const _exitWasReversed = _exitReasonRaw.startsWith("REVERSED_");
+          const _suppressExit = _isOpenStatus || _exitWasReversed;
+          const _exitReason = _suppressExit ? "" : _exitReasonRaw;
+          const _exitTs = _suppressExit ? null : (mt.exit_ts ?? mt.exitTs ?? null);
+          const _exitPx = _suppressExit ? 0 : _exit;
           const _mfe = Number(mt.max_favorable_excursion);
           const _mae = Number(mt.max_adverse_excursion);
           const _entryPath = mt.entry_path || "";
@@ -4536,10 +4547,10 @@
                         <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
                         <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.entry_ts)} @ {fmtUsd(_entry)}</span>
                       </div>
-                      {(_exit > 0 || mt.exit_ts) && (
+                      {!_suppressExit && (_exitPx > 0 || _exitTs) && (
                         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
                           <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
-                          <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.exit_ts)} @ {_exit > 0 ? fmtUsd(_exit) : "\u2014"}</span>
+                          <span className="text-[13px] font-semibold text-white truncate">{_formatDate(_exitTs)} @ {_exitPx > 0 ? fmtUsd(_exitPx) : "\u2014"}</span>
                         </div>
                       )}
                       {_isOpenStatus && _liveCurrentPx > 0 && (
@@ -4976,9 +4987,9 @@
                         <AutopsyChart
                           ticker={_ticker}
                           entryPrice={_entry}
-                          exitPrice={_exit}
+                          exitPrice={_exitPx}
                           entryTs={mt.entry_ts}
-                          exitTs={mt.exit_ts}
+                          exitTs={_exitTs}
                           trimTs={mt.trim_ts}
                           slPrice={mt.sl || mt.stop_loss || mt.sl_price}
                           tpPrices={mt.tpArray || mt.tp_array || (mt.tp_price ? [{ price: mt.tp_price, label: "TP" }] : null)}
@@ -9557,7 +9568,16 @@
                         const isLong = dirRaw !== "SHORT";
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
                         const entry = Number(t.entryPrice ?? t.entry_price);
-                        const shares = Number(t.shares || t.qty || t.size);
+                        // 2026-06-22 — SHARES/NOTIONAL must reflect what's STILL
+                        // OPEN, not the original entry size. MU showed 5.56 sh /
+                        // $4,268 notional after a 75% trim (true runner: 1.39 sh).
+                        // Net the entry size down by trimmed_pct so the open
+                        // position card matches the receipt's "held after".
+                        const _entryShares = Number(t.shares || t.qty || t.size);
+                        const _trimFrac = Math.min(Math.max(Number(t.trimmedPct ?? t.trimmed_pct ?? 0), 0), 1);
+                        const shares = Number.isFinite(_entryShares)
+                          ? _entryShares * (1 - _trimFrac)
+                          : NaN;
                         const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
                         const unrealizedPct = (entry > 0 && livePx > 0)
                           ? ((dirRaw === "SHORT" ? (entry - livePx) : (livePx - entry)) / entry) * 100
