@@ -1763,6 +1763,16 @@
     const bellRef = React.useRef(null);
 
     const TRADE_ALERT_TYPES = ["trade_entry", "trade_exit", "trade_trim"];
+    // 2026-06-22 — scope tag (Investor vs Active Trader) so the feed reads
+    // unambiguously. Investor notifications carry an investor_* type or an
+    // investor link; trade_*/kanban are trader-lane; brief/system are neither.
+    const notifScope = (n) => {
+      const t = String(n?.type || "").toLowerCase();
+      const link = String(n?.link || "").toLowerCase();
+      if (t.startsWith("investor") || /investor/.test(link)) return "investor";
+      if (t.startsWith("trade_") || t === "kanban") return "trader";
+      return null;
+    };
     const filteredNotifications = filter === "trade_alerts"
       ? notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
       : notifications;
@@ -2081,6 +2091,21 @@
                     },
                   }),
                   h("div", { style: { flex: 1, minWidth: 0 } },
+                    (() => {
+                      const scope = notifScope(n);
+                      if (!scope) return null;
+                      const isInv = scope === "investor";
+                      return h("span", {
+                        style: {
+                          display: "inline-block", fontSize: "8px", fontWeight: "800",
+                          letterSpacing: "0.06em", textTransform: "uppercase",
+                          padding: "1px 5px", borderRadius: "4px", marginBottom: "3px",
+                          color: isInv ? "#c4b5fd" : "#67e8f9",
+                          background: isInv ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
+                          border: `1px solid ${isInv ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
+                        },
+                      }, isInv ? "Investor" : "Active Trader");
+                    })(),
                     h("div", {
                       style: {
                         fontSize: "12px", fontWeight: n.read_at ? "500" : "600",
@@ -2710,4 +2735,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1782147094146:878742158
+// cache-bust:1782148863164:366373053

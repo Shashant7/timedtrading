@@ -74,6 +74,18 @@
     return "monitor";
   }
 
+  // 2026-06-22 — A position is "freshly signaled" if the model acted on it
+  // (BUY / DCA_BUY / SELL) within the last 72h. Used to surface the card at
+  // the front of its lane + flag it so a just-fired signal is easy to find.
+  const FRESH_SIGNAL_WINDOW_MS = 72 * 60 * 60 * 1000;
+  function hasFreshSignal(t) {
+    const lastTs = Number(t?.position?.last_action_ts) || 0;
+    if (lastTs <= 0) return false;
+    if (Date.now() - lastTs > FRESH_SIGNAL_WINDOW_MS) return false;
+    const lastType = String(t?.position?.last_action_type || "").toUpperCase();
+    return ["BUY", "DCA_BUY", "SELL", "TRIM", "ADD"].includes(lastType);
+  }
+
   function ScoreBar({ score, max }) {
     const pct = Math.max(0, Math.min(100, ((score || 0) / (max || 100)) * 100));
     return React.createElement("div", { className: "w-full h-[3px] bg-white/[0.04] overflow-hidden", style: { borderRadius: "1px" } },
@@ -167,6 +179,7 @@
        can see at a glance that the model's recommendation hasn't
        executed and may need attention.
     */
+    const isFreshSignal = hasFreshSignal(t);
     const STALE_DAYS = 7;
     const isAccumulateOrReduce = stage === "reduce" || stage === "accumulate";
     const isStaleSignal = isOwned
@@ -258,6 +271,12 @@
       } : {}),
       ...(isSelected ? { borderColor: "var(--ds-text-display)", boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.2)" } : {}),
       ...(isTTSel && !isSelected ? { borderColor: "var(--ds-accent-dim)", boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)" } : {}),
+      // 2026-06-22 — Fresh-signal glow. A position the model acted on within
+      // the last 72h gets a cyan ring so a just-fired signal is easy to spot
+      // even in a wide lane (operator: "the card is hard to find").
+      ...(isFreshSignal && !isSelected ? {
+        boxShadow: "inset 0 0 0 1px rgba(103,232,249,0.45), 0 0 0 1px rgba(103,232,249,0.30), 0 0 14px rgba(103,232,249,0.18)",
+      } : {}),
     };
 
     const LC = window.TTLaneCard;
@@ -358,6 +377,18 @@
       },
       isTTSel,
       chipRow: [
+        isFreshSignal && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            color: "rgb(103,232,249)",
+            background: "rgba(103,232,249,0.14)",
+            borderColor: "rgba(103,232,249,0.45)",
+            fontWeight: 800,
+            letterSpacing: "0.05em",
+          },
+          title: "The model acted on this position within the last 72h — fresh signal.",
+        }, "NEW SIGNAL"),
         tierMeta && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
@@ -558,6 +589,13 @@
     // then score DESC so execution-ready names surface in wide lanes.
     for (const s of stages) {
       grouped[s].sort((a, b) => {
+        // 2026-06-22 — Fresh-signal first. Operator: when a signal fires on
+        // a recently opened position, its card was hard to find buried in a
+        // wide lane. A position actioned within the last 72h jumps to the
+        // front of its lane so the just-fired signal is the first card.
+        const aFresh = hasFreshSignal(a);
+        const bFresh = hasFreshSignal(b);
+        if (aFresh !== bFresh) return aFresh ? -1 : 1;
         if (s === "accumulate" || s === "reduce") {
           const aTier = ACTION_TIER_ORDER[deriveActionTier(a)] ?? 9;
           const bTier = ACTION_TIER_ORDER[deriveActionTier(b)] ?? 9;

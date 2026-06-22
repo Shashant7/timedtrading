@@ -83,6 +83,17 @@
         max-width: min(420px, 92vw); text-align: left;
       }
       .tt-activity-pill:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
+      .tt-activity-pill .ev-scope {
+        font-size: 8px; font-weight: 800; letter-spacing: 0.06em;
+        text-transform: uppercase; padding: 1px 4px; border-radius: 4px;
+        border: 1px solid transparent; line-height: 1.3;
+      }
+      .tt-activity-pill .ev-scope--trader {
+        color: #67e8f9; background: rgba(103,232,249,0.10); border-color: rgba(103,232,249,0.28);
+      }
+      .tt-activity-pill .ev-scope--investor {
+        color: #c4b5fd; background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.30);
+      }
       .tt-activity-pill .ev-type { font-weight: 700; font-size: 10px; text-transform: uppercase; }
       .tt-activity-pill .ev-sym { font-weight: 700; color: var(--tt-text, #E8F2EC); }
       .tt-activity-pill .ev-dir { font-size: 9px; font-weight: 600; }
@@ -192,12 +203,27 @@
     return titled.length > 40 ? titled.slice(0, 38) + "…" : titled;
   }
 
+  // 2026-06-22 — scope tag so a reader can instantly tell whether a feed
+  // entry is an Active Trader signal or an Investor signal (operator
+  // request). Investor events carry type INVESTOR_SIGNAL or an
+  // investor_alert_type / mode marker; everything else is trader-lane.
+  function scopeOf(ev, t) {
+    const mode = String(ev?.mode || "").toLowerCase();
+    if (mode === "investor") return "investor";
+    if (mode === "trader") return "trader";
+    if (t === "INVESTOR_SIGNAL" || ev?.investor_alert_type) return "investor";
+    const desk = String(ev?.desk || "").toLowerCase();
+    if (desk === "investor") return "investor";
+    return "trader";
+  }
+
   function classifyEvent(ev) {
     const t = String(ev?.type || ev?.event || "").toUpperCase();
-    if (t === "TRADE_ENTRY") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY" };
-    if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT" };
-    if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM" };
-    if (t === "INVESTOR_SIGNAL") return { cls: "ev-entry", label: String(ev?.action || "INVESTOR").toUpperCase(), evType: "INVESTOR_SIGNAL" };
+    const scope = scopeOf(ev, t);
+    if (t === "TRADE_ENTRY") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
+    if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope };
+    if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
+    if (t === "INVESTOR_SIGNAL") return { cls: "ev-entry", label: String(ev?.action || "INVESTOR").toUpperCase().replace(/^MODEL\s*·\s*/, ""), evType: "INVESTOR_SIGNAL", scope: "investor" };
     // D5 (2026-06-11) — resolution-time grading events from the Signal
     // Outcome Ledger: every published call shows its grade on the strip
     // the night it resolves. Wins read green, losses red, flats neutral.
@@ -207,13 +233,14 @@
         cls: oc === "win" ? "ev-entry" : oc === "loss" ? "ev-exit" : "ev-trim",
         label: `GRADED ${String(ev?.grade || "").toUpperCase()}`.trim(),
         evType: "SIGNAL_GRADED",
+        scope,
       };
     }
-    if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY" };
-    if (t === "ADD" || t === "ADD_ENTRY") return { cls: "ev-entry", label: "ADD", evType: "ADD_ENTRY" };
-    if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM" };
-    if (t === "EXIT" || t === "TP_HIT_EXIT" || t === "SL_HIT") return { cls: "ev-exit", label: "EXIT", evType: "EXIT" };
-    return { cls: "", label: t || "EVENT", evType: t };
+    if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
+    if (t === "ADD" || t === "ADD_ENTRY") return { cls: "ev-entry", label: "ADD", evType: "ADD_ENTRY", scope };
+    if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
+    if (t === "EXIT" || t === "TP_HIT_EXIT" || t === "SL_HIT") return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope };
+    return { cls: "", label: t || "EVENT", evType: t, scope };
   }
 
   function buildPillDetail(ev, meta) {
@@ -357,7 +384,14 @@
       const pill = document.createElement("button");
       pill.type = "button";
       pill.className = `tt-activity-pill ${meta.cls}`;
-      pill.title = [meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      const scopeLabel = meta.scope === "investor" ? "INVESTOR" : "TRADER";
+      pill.title = [scopeLabel, meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+
+      // Scope chip — Investor vs Active Trader at a glance (operator request).
+      const scopeEl = document.createElement("span");
+      scopeEl.className = `ev-scope ev-scope--${meta.scope === "investor" ? "investor" : "trader"}`;
+      scopeEl.textContent = meta.scope === "investor" ? "INV" : "TRADE";
+      pill.appendChild(scopeEl);
 
       const typeEl = document.createElement("span");
       typeEl.className = "ev-type";
@@ -505,4 +539,4 @@
   else mount();
 })();
 
-// cache-bust:1782147094146:878742158
+// cache-bust:1782148863164:366373053
