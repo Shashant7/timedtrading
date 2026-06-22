@@ -78,6 +78,13 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   auto_init_min_score: 65,                             // (c) quality floor on capital deployment
   reduce_trim_min_sessions: 2,                         // (b) consecutive reduce sessions before trimming
   reduce_trim_pct: 0.30,                               // (b) 30% trim per reduce execution (25-33% band)
+  // 2026-06-22 — Long-horizon invalidation discipline. A primary-invalidation
+  // full exit must NOT round-trip a position the same session it opened on a
+  // fleeting intraday tick below the floor. The published rule is "exit if
+  // price CLOSES below $X"; this min-hold defers the exit past entry day so a
+  // confirmed daily close has printed. LITE (2026-06-22) opened 10:00 ET and
+  // was invalidation-exited 11:00 ET at -0.67% on a tick that then rallied.
+  invalidation_min_hold_hours: 18,                     // hours a position must be held before a price-invalidation exit can fire
   auto_dca_on_accumulate: true,                        // (d) enable DCA tranches on new accumulate inits
   auto_dca_amount_pct: 0.02,                           // (d) 2% of capital per DCA tranche
   auto_dca_frequency: "monthly",                       // (d) tranche cadence
@@ -168,6 +175,10 @@ export function loadInvestorConfig(daCfg) {
   const rtPct = Number(daCfg.deep_audit_investor_reduce_trim_pct);
   if (Number.isFinite(rtPct) && rtPct > 0 && rtPct < 1) {
     cfg.reduce_trim_pct = rtPct;
+  }
+  const invMinHold = Number(daCfg.deep_audit_investor_invalidation_min_hold_hours);
+  if (Number.isFinite(invMinHold) && invMinHold >= 0 && invMinHold <= 240) {
+    cfg.invalidation_min_hold_hours = invMinHold;
   }
   const dcaAcc = daCfg.deep_audit_investor_auto_dca_on_accumulate;
   if (dcaAcc === true || dcaAcc === false) cfg.auto_dca_on_accumulate = dcaAcc;
@@ -1720,7 +1731,7 @@ export function generateThesis(tickerData, rsRank = 50) {
  * Prefers the nearest structural floor below live price (Weekly EMA200,
  * Weekly ST, Monthly ST) within a practical drawdown band.
  */
-export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalidationStrings = []) {
+export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalidationStrings = [], opts = {}) {
   const livePx = Number(tickerData?._live_price || tickerData?.price) || 0;
   if (!(livePx > 0)) return null;
 
@@ -1730,16 +1741,33 @@ export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalida
   // Actionable band: prefer a nearer floor the operator can actually defend.
   // Weekly EMA(200) stays in the thesis list but is demoted when >12% below.
   const ACTIONABLE_MAX_DD_PCT = 12;
+  // 2026-06-22 — Minimum invalidation distance for the long-horizon Investor
+  // lane. Previously the model picked the NEAREST floor below price with NO
+  // lower bound, so on LITE it chose a level only ~0.67% below — an ordinary
+  // intraday wiggle breached it and round-tripped a multi-week position
+  // (opened 10:00 ET, invalidation-exited 11:00 ET, then rallied). An
+  // investor invalidation must sit far enough below to represent a real
+  // thesis break, not intraday noise. Floors closer than this are skipped so
+  // the next structural level (or the % fallback) becomes the anchor.
+  // Tunable via deep_audit_investor_invalidation_min_floor_pct.
+  const ACTIONABLE_MIN_DD_PCT = Number.isFinite(Number(opts?.minFloorDdPct))
+    ? Math.max(0, Number(opts.minFloorDdPct))
+    : 4;
   const THESIS_DD_PCT = 25;
   const rnd = (v) => Math.round(v * 100) / 100;
   const ddPctOf = (lvl) => ((livePx - Number(lvl)) / livePx) * 100;
 
   const candidates = [];
+  const tooTight = []; // structural levels below the min-distance — kept for context
   const add = (price, label, tier) => {
     const lvl = Number(price);
     if (!Number.isFinite(lvl) || lvl <= 0 || lvl >= livePx) return;
     const ddPct = ddPctOf(lvl);
     if (ddPct >= ACTIONABLE_MAX_DD_PCT) return;
+    if (ddPct < ACTIONABLE_MIN_DD_PCT) {
+      tooTight.push({ price: rnd(lvl), label, tier, distancePct: rnd(ddPct) });
+      return;
+    }
     candidates.push({ price: rnd(lvl), label, tier, distancePct: rnd(ddPct) });
   };
 
