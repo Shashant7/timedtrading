@@ -30,6 +30,16 @@
       shadow read. L2 live gate pending trail pair depth on prod fixtures.
       **No `SEQUENCE_ENTRY_GATE` until forward shadow validates aligned capture.**
 
+- [x] **Gate simulation + TD9 parity (2026-06-22, PR #775).** TD9 daily
+      transition fix (0%→12% backtest coverage). Expanded gate sim +
+      timing pass + SETUP_GATE_SHADOW on preprod/tt-engine.
+      `docs/setup-mining-gate-timing-shadow-2026-06-22.md`. **Next:**
+      deploy tt-engine with SETUP_GATE_SHADOW; forward shadow validation.
+
+- [x] **D1 billing 80M threshold (2026-06-22).** Investigated + documented.
+      No fix — Jun 18 mining burst + normal RTH; ENGINE_EXTERNAL cutover OK.
+      `docs/d1-billing-investigation-2026-06-22.md`. Re-assess next month.
+
 - [x] **Setup-mining Tier A sequence yield (2026-06-20).** Root cause: preprod
       `timed_trail` rows had `flags_json` only (0/3318 `payload_json` for KLAC).
       Fix: auto-write `sequence_trail` snapshots when `SETUP_TRAIL_SNAPSHOT=1`

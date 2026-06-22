@@ -5397,6 +5397,54 @@
           return () => { cancelled = true; };
         }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
 
+        const countActiveShadowSequences = (diag) => {
+          if (!diag || diag.empty) return 0;
+          if (Array.isArray(diag.active_sequences)) {
+            return diag.active_sequences.filter((s) => Number(s?.stage) > 0 && s?.status !== "invalidated").length;
+          }
+          if (Array.isArray(diag.sequences)) {
+            return diag.sequences.filter((s) => Number(s?.stage) > 0 && s?.status !== "invalidated").length;
+          }
+          return 0;
+        };
+
+        /** Prefer trail/API detail but never drop a richer inline scoring payload. */
+        const mergeSetupShadowDiag = (inline, remote) => {
+          if (!inline && !remote) return null;
+          if (!remote || remote.empty) return inline || remote;
+          if (!inline) return remote;
+
+          const inlineActive = countActiveShadowSequences(inline);
+          const remoteActive = countActiveShadowSequences(remote);
+          const base = remoteActive >= inlineActive ? { ...remote } : {
+            ...remote,
+            ...inline,
+            inline_from_payload: true,
+            snapshot_source: inline.snapshot_source || remote.snapshot_source,
+            snapshot_count: Math.max(Number(inline.snapshot_count) || 0, Number(remote.snapshot_count) || 0),
+            sequences: inline.sequences?.length ? inline.sequences : remote.sequences,
+            active_sequences: inlineActive > remoteActive
+              ? inline.active_sequences
+              : (remote.active_sequences || inline.active_sequences),
+            trader_posture: (inlineActive > remoteActive ? inline.trader_posture : null)
+              || remote.trader_posture
+              || inline.trader_posture,
+          };
+
+          if (Array.isArray(remote.events) && remote.events.length) base.events = remote.events;
+          if (remote.context_used) base.context_used = remote.context_used;
+          if (inline.setup_gates) {
+            base.setup_gates = inline.setup_gates;
+            base.setup_gate_shadow = inline.setup_gate_shadow;
+            base.setup_gate_lookback_hours = inline.setup_gate_lookback_hours;
+          }
+          if (remoteActive >= inlineActive && remote.snapshot_source) {
+            base.snapshot_source = remote.snapshot_source;
+          }
+          base.empty = countActiveShadowSequences(base) === 0 && !base.trader_posture?.posture;
+          return base;
+        };
+
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
           const isShadowTab = railTab === "SNAPSHOT" || railTab === "SETUP";
@@ -5413,7 +5461,8 @@
             const src = ticker || {};
             const seqs = Array.isArray(src.setup_sequences) ? src.setup_sequences : [];
             const posture = src.setup_shadow_posture || null;
-            if (!src.setup_shadow && !seqs.length && !posture) return null;
+            const hasGates = src.setup_gate_shadow === true && src.setup_gates && typeof src.setup_gates === "object";
+            if (!src.setup_shadow && !seqs.length && !posture && !hasGates) return null;
             const active = seqs.filter((s) => Number(s?.stage) > 0 && s?.status !== "invalidated");
             return {
               ok: true,
@@ -5425,22 +5474,29 @@
               active_sequences: active,
               trader_posture: posture || { posture: "Neutral", stage: 0 },
               events: [],
+              setup_gate_shadow: hasGates,
+              setup_gates: hasGates ? src.setup_gates : null,
+              setup_gate_lookback_hours: src.setup_gate_lookback_hours ?? null,
             };
           };
 
           const inline = buildInlineShadowDiag();
+          const cached = setupShadowCacheRef.current[sym];
+          if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
+            const merged = mergeSetupShadowDiag(inline, cached.data);
+            if (merged) {
+              setSetupShadowDiag(merged);
+              setSetupShadowError(null);
+            }
+            setSetupShadowLoading(false);
+            return;
+          }
+
           if (inline) {
             setSetupShadowDiag(inline);
             setSetupShadowError(null);
           }
 
-          const cached = setupShadowCacheRef.current[sym];
-          if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
-            if (!inline) setSetupShadowDiag(cached.data);
-            setSetupShadowError(null);
-            setSetupShadowLoading(false);
-            return;
-          }
           let cancelled = false;
           (async () => {
             try {
@@ -5465,8 +5521,10 @@
                 const err = String(json?.error || `HTTP ${res.status}`);
                 if (err === "no_snapshots") {
                   if (!cancelled) {
-                    setupShadowCacheRef.current[sym] = { data: { empty: true, error: err, hint: json?.hint }, ts: Date.now() };
-                    setSetupShadowDiag({ empty: true, error: err, hint: json?.hint, trader_posture: { posture: "Neutral", stage: 0 } });
+                    const emptyRemote = { empty: true, error: err, hint: json?.hint, trader_posture: { posture: "Neutral", stage: 0 } };
+                    const merged = mergeSetupShadowDiag(inline, emptyRemote) || emptyRemote;
+                    setupShadowCacheRef.current[sym] = { data: merged, ts: Date.now() };
+                    setSetupShadowDiag(merged);
                     setSetupShadowError(null);
                   }
                   return;
@@ -5474,8 +5532,9 @@
                 throw new Error(err === "admin_required" || err === "unauthorized" ? "sign_in_required" : err);
               }
               if (!cancelled) {
-                setupShadowCacheRef.current[sym] = { data: json, ts: Date.now() };
-                setSetupShadowDiag(json);
+                const merged = mergeSetupShadowDiag(inline, json);
+                setupShadowCacheRef.current[sym] = { data: merged, ts: Date.now() };
+                setSetupShadowDiag(merged);
               }
             } catch (e) {
               if (!cancelled) {
@@ -5487,7 +5546,7 @@
             }
           })();
           return () => { cancelled = true; };
-        }, [tickerSymbol, railTab, API_BASE, ticker?.setup_shadow, ticker?.setup_sequences, ticker?.setup_shadow_as_of_ts]);
+        }, [tickerSymbol, railTab, API_BASE, ticker?.setup_shadow, ticker?.setup_sequences, ticker?.setup_shadow_as_of_ts, ticker?.setup_gates, ticker?.setup_gate_shadow]);
 
         // Reset zoom/pan on timeframe change
         useEffect(() => {
@@ -6683,6 +6742,26 @@
                           {setupShadowDiag.snapshot_count || 0} snaps · {setupShadowDiag.snapshot_source}
                           {setupShadowDiag.inline_from_payload ? " · live payload" : ""}
                         </span>
+                      )}
+                      {setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates && (
+                        <>
+                          {setupShadowDiag.setup_gates.stack_full_confirm && (
+                            <span
+                              className={`ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid"}`}
+                              title="Shadow: stack_full_confirm (120h lookback)"
+                            >
+                              Confirm {setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}
+                            </span>
+                          )}
+                          {setupShadowDiag.setup_gates.gate_runway_full && (
+                            <span
+                              className={`ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid"}`}
+                              title="Shadow: TD9 + RSI div + confirm stack (120h lookback)"
+                            >
+                              Runway {setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                     {active.length > 0 ? (

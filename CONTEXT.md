@@ -325,6 +325,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - Batch reads: `db.batch()` max ~500 per call
 - No unbounded `ROW_NUMBER() OVER (PARTITION BY ticker)` on large tables
 - ALTER TABLE: wrap in try/catch (column may exist)
+- **80M rows-written billing alert (2026-06-22):** monthly cumulative, not incident — Jun 18 mining/replay burst + normal RTH crons; live prices = KV `timed:prices`, chart candle sync can lag ~5m; see `docs/d1-billing-investigation-2026-06-22.md`
 
 **Price / Frontend**
 - `getDailyChange(t)` from shared-price-utils.js — never inline daily change

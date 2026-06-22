@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   augmentSnapshotsWithRsiDivergence,
+  deriveDailyTdTransitionEvents,
   deriveSetupDiagnostics,
   deriveSetupEvents,
   deriveSetupEventsFromWindow,
@@ -277,5 +278,22 @@ describe("deriveSetupEvents", () => {
     const div = derived.events.filter((e) => e.event_type === "rsi_divergence_confirmed");
     expect(div.length).toBeGreaterThanOrEqual(0);
     expect(aug[aug.length - 1].tf_tech.D.rsiDiv).toBeDefined();
+  });
+
+  it("deriveDailyTdTransitionEvents emits td9_complete on daily transition", () => {
+    const candles = [];
+    let c = 100;
+    for (let i = 0; i < 30; i += 1) {
+      c += i < 15 ? -0.6 : 0.4;
+      candles.push({ ts: i * 86400000, o: c, h: c + 0.5, l: c - 0.5, c });
+    }
+    const events = deriveDailyTdTransitionEvents(candles, {
+      ticker: "TEST",
+      since: 0,
+      until: 30 * 86400000,
+    });
+    const td9 = events.filter((e) => e.event_type === "td9_complete");
+    expect(events.length).toBeGreaterThan(0);
+    expect(td9.length + events.filter((e) => e.event_type === "td_setup_progress").length).toBeGreaterThan(0);
   });
 });

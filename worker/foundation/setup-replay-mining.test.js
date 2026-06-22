@@ -21,6 +21,7 @@ import {
   analyzeDivergenceRunway,
   buildEventLiftReport,
   buildGateSimulationReport,
+  buildGateTimingComparison,
   computeGateTimingFromEvents,
   evaluateGateOnProfile,
   formatGateSimulationMarkdown,
@@ -404,6 +405,23 @@ describe("setup replay mining", () => {
     expect(g.backtest_win.would_enter).toBe(1);
     expect(g.win_share_when_gate_fires).toBe(1);
     expect(evaluateGateOnProfile(profile, "stack_full_confirm")).toBe(true);
+  });
+
+  it("buildGateTimingComparison summarizes nested timing by gate", () => {
+    const timingByMoveId = {
+      "A:1": {
+        stack_full_confirm: { fires: true, hours_before_anchor: 24 },
+        gate_runway_full: { fires: true, hours_before_anchor: 12 },
+      },
+      "A:2": {
+        stack_full_confirm: { fires: true, hours_before_anchor: 48 },
+        gate_runway_full: { fires: false },
+      },
+    };
+    const cmp = buildGateTimingComparison(timingByMoveId, ["stack_full_confirm", "gate_runway_full"], ["A:1", "A:2"]);
+    expect(cmp[0].tier_a_fires).toBe(2);
+    expect(cmp[0].avg_hours_before_anchor).toBe(36);
+    expect(cmp[1].tier_a_fires).toBe(1);
   });
 
   it("extractPatternProfile flags RSI divergence", () => {

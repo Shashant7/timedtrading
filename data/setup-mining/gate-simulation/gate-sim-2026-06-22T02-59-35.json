@@ -1,0 +1,175 @@
+{
+  "generated_at": "2026-06-22T02:59:35.154Z",
+  "run_id": "backtest_2025-07-01_2025-12-31@2026-03-14T03:11:44.033Z",
+  "missed_cache": "data/setup-mining/pattern-lift/missed-enriched.json",
+  "backtest_cache": "data/setup-mining/pattern-lift/backtest-enriched.json",
+  "pre_entry_hours": 120,
+  "tier_a_min_atr": 8,
+  "primary_gate": "gate_runway_full",
+  "gate_keys": [
+    "stack_full_confirm",
+    "gate_confirm+div",
+    "gate_runway_full",
+    "stack_td9+div+momentum",
+    "stack_exhaust+rsi_div"
+  ],
+  "with_timing": false,
+  "timing_by_move_id": {},
+  "simulation": {
+    "tier_a_min_atr": 8,
+    "pre_entry_hours": 120,
+    "gates": [
+      {
+        "key": "stack_full_confirm",
+        "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 51,
+          "enter_rate": 0.68,
+          "avg_abs_move_pct_when_enter": 57.65,
+          "avg_move_atr_when_enter": 13.67,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 127,
+          "enter_rate": 0.614
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 85,
+          "enter_rate": 0.559
+        },
+        "win_share_when_gate_fires": 0.599,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.066,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      },
+      {
+        "key": "gate_confirm+div",
+        "label": "stack_full_confirm + RSI divergence",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 41,
+          "enter_rate": 0.547,
+          "avg_abs_move_pct_when_enter": 59.27,
+          "avg_move_atr_when_enter": 14.06,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 81,
+          "enter_rate": 0.391
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 57,
+          "enter_rate": 0.375
+        },
+        "win_share_when_gate_fires": 0.587,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.156,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      },
+      {
+        "key": "gate_runway_full",
+        "label": "TD9 + RSI div + stack_full_confirm",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 13,
+          "enter_rate": 0.173,
+          "avg_abs_move_pct_when_enter": 73.59,
+          "avg_move_atr_when_enter": 17.48,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 7,
+          "enter_rate": 0.034
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 3,
+          "enter_rate": 0.02
+        },
+        "win_share_when_gate_fires": 0.7,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.139,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      },
+      {
+        "key": "stack_td9+div+momentum",
+        "label": "TD9 + RSI div + momentum (ST/squeeze/breakthrough)",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 15,
+          "enter_rate": 0.2,
+          "avg_abs_move_pct_when_enter": 73.15,
+          "avg_move_atr_when_enter": 16.63,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 16,
+          "enter_rate": 0.077
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 14,
+          "enter_rate": 0.092
+        },
+        "win_share_when_gate_fires": 0.533,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.123,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      },
+      {
+        "key": "stack_exhaust+rsi_div",
+        "label": "Exhaustion confirmed + RSI divergence",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 24,
+          "enter_rate": 0.32,
+          "avg_abs_move_pct_when_enter": 68.67,
+          "avg_move_atr_when_enter": 16,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 24,
+          "enter_rate": 0.116
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 23,
+          "enter_rate": 0.151
+        },
+        "win_share_when_gate_fires": 0.511,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.204,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      }
+    ],
+    "primary_gate": "gate_runway_full"
+  }
+}

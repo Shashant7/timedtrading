@@ -72,6 +72,7 @@ export function diagnosticsForEntryWindow(snapshots = [], entryTs, opts = {}) {
   const context = buildDiagnosticsContext(latest, opts.env || {});
   const derived = deriveSetupEventsFromWindow(windowSnaps, {
     ...opts.derivationOpts,
+    dailyCandles: opts.dailyCandles || opts.derivationOpts?.dailyCandles || [],
     context,
     bootstrapFirst: opts.bootstrapFirst !== false,
     source: opts.source || "shadow_replay_mining",
@@ -573,6 +574,8 @@ export const EVENT_COMBO_PRESETS = [
   { key: "stack_runway_mr", label: "TD9 + RSI div + phase left zone (MR stage 4)", test: (p) => (p.has_td9 || p.has_td13) && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) && ((p.aligned_matched_stages || []).includes("phase_left_zone") || p.has_phase_left) },
   { key: "stack_td9+div+momentum", label: "TD9 + RSI div + momentum (ST/squeeze/breakthrough)", test: (p) => p.has_td9 && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) && (p.has_st_flip || p.has_squeeze_release || p.has_st_breakthrough || p.has_momentum_confirmation) },
   { key: "stack_full_confirm", label: "ST flip + squeeze + EMA21 (reclaim or reject)", test: (p) => p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) },
+  { key: "gate_runway_full", label: "TD9 + RSI div + stack_full_confirm", test: (p) => p.has_td9 && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) && p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) },
+  { key: "gate_confirm+div", label: "stack_full_confirm + RSI divergence", test: (p) => p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) },
   { key: "mr_stage5_plus", label: "MR aligned stage >= 5", test: (p) => p.aligned_mr_stage >= 5 },
   { key: "mr_stage6_plus", label: "MR aligned stage >= 6", test: (p) => p.aligned_mr_stage >= 6 },
   { key: "invalidated", label: "Sequence invalidated", test: (p) => p.invalidated === true },
@@ -874,6 +877,47 @@ function avg(nums) {
   return Math.round((vals.reduce((s, n) => s + n, 0) / vals.length) * 100) / 100;
 }
 
+/** Resolve timing row for a move — supports flat (legacy) or nested by gate key. */
+export function resolveGateTiming(timingByMoveId, moveId, gateKey) {
+  const entry = timingByMoveId?.[moveId];
+  if (!entry) return null;
+  if (entry.fires !== undefined || entry.first_fire_ts !== undefined) {
+    return entry;
+  }
+  return entry[gateKey] || null;
+}
+
+export function summarizeGateTiming(timingRows = []) {
+  const withHours = timingRows.filter((t) => t?.fires === true && Number.isFinite(t.hours_before_anchor));
+  return {
+    n_with_timing: withHours.length,
+    avg_hours_before_anchor: avg(withHours.map((t) => t.hours_before_anchor)),
+    median_hours_before_anchor: withHours.length
+      ? (() => {
+        const sorted = withHours.map((t) => t.hours_before_anchor).sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[mid] : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
+      })()
+      : null,
+  };
+}
+
+export function buildGateTimingComparison(timingByMoveId = {}, gateKeys = [], tierAMoveIds = []) {
+  return gateKeys.map((gateKey) => {
+    const preset = gatePresetByKey(gateKey);
+    const rows = tierAMoveIds
+      .map((id) => resolveGateTiming(timingByMoveId, id, gateKey))
+      .filter((t) => t?.fires === true && Number.isFinite(t.hours_before_anchor));
+    const summary = summarizeGateTiming(rows);
+    return {
+      key: gateKey,
+      label: preset?.label || gateKey,
+      tier_a_fires: rows.length,
+      ...summary,
+    };
+  });
+}
+
 export function buildGateSimulationReport(rows = [], opts = {}) {
   const gateKeys = opts.gate_keys || ["stack_full_confirm", "stack_st+squeeze", "confirm_st_flip"];
   const tierMin = Number(opts.tier_a_min_atr) || 8;
@@ -900,7 +944,7 @@ export function buildGateSimulationReport(rows = [], opts = {}) {
     const decided = winEnter + lossEnter;
 
     const timingRows = tierEnter
-      .map((r) => timingByMoveId[r.move_id])
+      .map((r) => resolveGateTiming(timingByMoveId, r.move_id, gateKey))
       .filter((t) => t?.fires === true && Number.isFinite(t.hours_before_anchor));
 
     return {
@@ -932,17 +976,7 @@ export function buildGateSimulationReport(rows = [], opts = {}) {
       capture_opportunity: rate(tierEnter.length, tierA.length) != null && rate(winEnter, btWin.length) != null
         ? Math.round((rate(tierEnter.length, tierA.length) - rate(winEnter, btWin.length)) * 1000) / 1000
         : null,
-      timing_tier_a: {
-        n_with_timing: timingRows.length,
-        avg_hours_before_anchor: avg(timingRows.map((t) => t.hours_before_anchor)),
-        median_hours_before_anchor: timingRows.length
-          ? (() => {
-            const sorted = timingRows.map((t) => t.hours_before_anchor).sort((a, b) => a - b);
-            const mid = Math.floor(sorted.length / 2);
-            return sorted.length % 2 ? sorted[mid] : Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 10) / 10;
-          })()
-          : null,
-      },
+      timing_tier_a: summarizeGateTiming(timingRows),
     };
   });
 
@@ -951,6 +985,7 @@ export function buildGateSimulationReport(rows = [], opts = {}) {
     pre_entry_hours: opts.pre_entry_hours ?? null,
     gates,
     primary_gate: opts.primary_gate || "stack_full_confirm",
+    timing_comparison: opts.timing_comparison || null,
   };
 }
 
@@ -999,6 +1034,21 @@ export function formatGateSimulationMarkdown(report = {}) {
       "- **Blocked for live sizing** until forward shadow + L2 parity pass.",
       "",
     );
+  }
+
+  if (Array.isArray(report.timing_comparison) && report.timing_comparison.length) {
+    lines.push(
+      "## Tier A gate timing comparison",
+      "",
+      "Lead time from first gate fire to move anchor (preprod setup_events).",
+      "",
+      "| Gate | Tier A fires | Avg h before anchor | Median h before anchor |",
+      "|---|---:|---:|---:|",
+    );
+    for (const row of report.timing_comparison) {
+      lines.push(`| ${row.label} | ${row.tier_a_fires ?? "—"} | ${row.avg_hours_before_anchor ?? "—"} | ${row.median_hours_before_anchor ?? "—"} |`);
+    }
+    lines.push("");
   }
 
   return lines.join("\n");
