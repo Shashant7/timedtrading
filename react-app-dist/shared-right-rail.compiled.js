@@ -3278,6 +3278,16 @@
                 high: Math.max(Number(prev.high), livePx),
                 low: Math.min(Number(prev.low), livePx)
               };
+            } else if (last && nowSec - last.time >= maxAgeSec) {
+              raw = raw.slice();
+              const bridgeOpen = Number(last.close);
+              raw.push({
+                time: nowSec,
+                open: bridgeOpen,
+                high: Math.max(bridgeOpen, livePx),
+                low: Math.min(bridgeOpen, livePx),
+                close: livePx
+              });
             }
           } else if (tfMinutes === 60) {
             const maxAgeSec = 3 * 3600;
@@ -3291,6 +3301,16 @@
                 high: Math.max(Number(prev.high), livePx),
                 low: Math.min(Number(prev.low), livePx)
               };
+            } else if (last && nowSec - last.time >= maxAgeSec) {
+              raw = raw.slice();
+              const bridgeOpen = Number(last.close);
+              raw.push({
+                time: nowSec,
+                open: bridgeOpen,
+                high: Math.max(bridgeOpen, livePx),
+                low: Math.min(bridgeOpen, livePx),
+                close: livePx
+              });
             }
           } else {
             const tfSec = tfMinutes * 60;
@@ -6547,48 +6567,89 @@
         }
         return 0;
       };
+      const shadowSequenceKey = s => {
+        if (!s) return "";
+        const id = String(s.sequence_id || "").trim();
+        if (id) return id.toLowerCase();
+        const dir = String(s.direction || "").toUpperCase();
+        const typ = String(s.sequence_type || "mr").toLowerCase();
+        return `${dir}:${typ}`;
+      };
+      const unionShadowSequences = (...lists) => {
+        const map = new Map();
+        for (const list of lists) {
+          for (const s of Array.isArray(list) ? list : []) {
+            if (!s) continue;
+            const k = shadowSequenceKey(s);
+            if (!k) continue;
+            const prev = map.get(k);
+            const stage = Number(s?.stage) || 0;
+            const prevStage = Number(prev?.stage) || 0;
+            if (!prev || stage > prevStage) {
+              map.set(k, {
+                ...s
+              });
+            } else if (stage === prevStage) {
+              const prevResults = Array.isArray(prev.stage_results) ? prev.stage_results.length : 0;
+              const nextResults = Array.isArray(s.stage_results) ? s.stage_results.length : 0;
+              map.set(k, nextResults >= prevResults ? {
+                ...prev,
+                ...s
+              } : prev);
+            }
+          }
+        }
+        return Array.from(map.values());
+      };
+      const maxShadowStage = diag => {
+        const seqs = diag?.active_sequences?.length ? diag.active_sequences : diag?.sequences || [];
+        return seqs.reduce((m, s) => Math.max(m, Number(s?.stage) || 0), 0);
+      };
       const mergeSetupShadowDiag = (inline, remote) => {
         if (!inline && !remote) return null;
         if (!remote || remote.empty) return inline || remote;
         if (!inline) return remote;
         const inlineActive = countActiveShadowSequences(inline);
         const remoteActive = countActiveShadowSequences(remote);
-        const base = remoteActive >= inlineActive ? {
-          ...remote
-        } : {
+        const inlineIsScoring = inline.snapshot_source === "scoring_payload" || inline.inline_from_payload;
+        const remoteIsSparse = remote.snapshot_source === "timed_latest" && (Number(remote.snapshot_count) || 0) <= 2;
+        const preferInlineSequences = inlineIsScoring && (inlineActive > remoteActive || inlineActive >= remoteActive && remoteIsSparse || maxShadowStage(inline) > maxShadowStage(remote));
+        const mergedSequences = unionShadowSequences(remote.sequences, inline.sequences, remote.active_sequences, inline.active_sequences);
+        const mergedActive = mergedSequences.filter(s => Number(s?.stage) > 0 && s?.status !== "invalidated");
+        const snapshotSources = [];
+        if (inline.snapshot_source) snapshotSources.push(inline.snapshot_source);
+        if (remote.snapshot_source && remote.snapshot_source !== inline.snapshot_source) {
+          snapshotSources.push(remote.snapshot_source);
+        }
+        const base = {
           ...remote,
           ...inline,
-          inline_from_payload: true,
-          snapshot_source: inline.snapshot_source || remote.snapshot_source,
+          inline_from_payload: inlineIsScoring,
           snapshot_count: Math.max(Number(inline.snapshot_count) || 0, Number(remote.snapshot_count) || 0),
-          sequences: inline.sequences?.length ? inline.sequences : remote.sequences,
-          active_sequences: inlineActive > remoteActive ? inline.active_sequences : remote.active_sequences || inline.active_sequences,
-          trader_posture: (inlineActive > remoteActive ? inline.trader_posture : null) || remote.trader_posture || inline.trader_posture
+          snapshot_source: snapshotSources.length > 1 ? snapshotSources.join(" + ") : (preferInlineSequences ? inline.snapshot_source : remote.snapshot_source) || inline.snapshot_source || remote.snapshot_source,
+          sequences: mergedSequences,
+          active_sequences: mergedActive,
+          trader_posture: (preferInlineSequences ? inline.trader_posture : null) || remote.trader_posture || inline.trader_posture
         };
         if (Array.isArray(remote.events) && remote.events.length) base.events = remote.events;
-        if (remote.context_used) base.context_used = remote.context_used;
+        if (remote.context_used && Object.keys(remote.context_used).length) base.context_used = remote.context_used;
         if (inline.setup_gates) {
           base.setup_gates = inline.setup_gates;
           base.setup_gate_shadow = inline.setup_gate_shadow;
           base.setup_gate_lookback_hours = inline.setup_gate_lookback_hours;
-        }
-        if (remoteActive >= inlineActive && remote.snapshot_source) {
-          base.snapshot_source = remote.snapshot_source;
         }
         base.empty = countActiveShadowSequences(base) === 0 && !base.trader_posture?.posture;
         return base;
       };
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
-        const isShadowTab = railTab === "SNAPSHOT" || railTab === "SETUP";
-        if (!sym || !isShadowTab || typeof window === "undefined" || !window._ttIsAdmin) {
+        if (!sym || typeof window === "undefined" || !window._ttIsAdmin) {
           setSetupShadowDiag(null);
           setSetupShadowError(null);
           setSetupShadowLoading(false);
           setShadowStageTipKey(null);
           return;
         }
-        setShadowStageTipKey(null);
         const buildInlineShadowDiag = () => {
           const src = ticker || {};
           const seqs = Array.isArray(src.setup_sequences) ? src.setup_sequences : [];
@@ -6706,7 +6767,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, railTab, API_BASE, ticker?.setup_shadow, ticker?.setup_sequences, ticker?.setup_shadow_as_of_ts, ticker?.setup_gates, ticker?.setup_gate_shadow]);
+      }, [tickerSymbol, API_BASE, ticker?.setup_shadow, ticker?.setup_sequences, ticker?.setup_shadow_as_of_ts, ticker?.setup_gates, ticker?.setup_gate_shadow]);
       useEffect(() => {
         setChartVisibleCount(80);
         setChartEndOffset(0);
@@ -20964,4 +21025,4 @@
   };
 })();
 
-// cache-bust:1782144314987:888782056
+// cache-bust:1782146840603:764909659
