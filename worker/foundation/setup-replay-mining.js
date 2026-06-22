@@ -72,6 +72,7 @@ export function diagnosticsForEntryWindow(snapshots = [], entryTs, opts = {}) {
   const context = buildDiagnosticsContext(latest, opts.env || {});
   const derived = deriveSetupEventsFromWindow(windowSnaps, {
     ...opts.derivationOpts,
+    dailyCandles: opts.dailyCandles || opts.derivationOpts?.dailyCandles || [],
     context,
     bootstrapFirst: opts.bootstrapFirst !== false,
     source: opts.source || "shadow_replay_mining",
@@ -573,6 +574,8 @@ export const EVENT_COMBO_PRESETS = [
   { key: "stack_runway_mr", label: "TD9 + RSI div + phase left zone (MR stage 4)", test: (p) => (p.has_td9 || p.has_td13) && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) && ((p.aligned_matched_stages || []).includes("phase_left_zone") || p.has_phase_left) },
   { key: "stack_td9+div+momentum", label: "TD9 + RSI div + momentum (ST/squeeze/breakthrough)", test: (p) => p.has_td9 && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) && (p.has_st_flip || p.has_squeeze_release || p.has_st_breakthrough || p.has_momentum_confirmation) },
   { key: "stack_full_confirm", label: "ST flip + squeeze + EMA21 (reclaim or reject)", test: (p) => p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) },
+  { key: "gate_runway_full", label: "TD9 + RSI div + stack_full_confirm", test: (p) => p.has_td9 && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) && p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) },
+  { key: "gate_confirm+div", label: "stack_full_confirm + RSI divergence", test: (p) => p.has_st_flip && p.has_squeeze_release && (p.has_ema21_reclaim || p.has_ema21_reject) && (p.has_rsi_divergence || (p.event_types || []).includes("rsi_divergence_confirmed")) },
   { key: "mr_stage5_plus", label: "MR aligned stage >= 5", test: (p) => p.aligned_mr_stage >= 5 },
   { key: "mr_stage6_plus", label: "MR aligned stage >= 6", test: (p) => p.aligned_mr_stage >= 6 },
   { key: "invalidated", label: "Sequence invalidated", test: (p) => p.invalidated === true },
