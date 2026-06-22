@@ -78,6 +78,13 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   auto_init_min_score: 65,                             // (c) quality floor on capital deployment
   reduce_trim_min_sessions: 2,                         // (b) consecutive reduce sessions before trimming
   reduce_trim_pct: 0.30,                               // (b) 30% trim per reduce execution (25-33% band)
+  // 2026-06-22 — Long-horizon invalidation discipline. A primary-invalidation
+  // full exit must NOT round-trip a position the same session it opened on a
+  // fleeting intraday tick below the floor. The published rule is "exit if
+  // price CLOSES below $X"; this min-hold defers the exit past entry day so a
+  // confirmed daily close has printed. LITE (2026-06-22) opened 10:00 ET and
+  // was invalidation-exited 11:00 ET at -0.67% on a tick that then rallied.
+  invalidation_min_hold_hours: 18,                     // hours a position must be held before a price-invalidation exit can fire
   auto_dca_on_accumulate: true,                        // (d) enable DCA tranches on new accumulate inits
   auto_dca_amount_pct: 0.02,                           // (d) 2% of capital per DCA tranche
   auto_dca_frequency: "monthly",                       // (d) tranche cadence
@@ -168,6 +175,10 @@ export function loadInvestorConfig(daCfg) {
   const rtPct = Number(daCfg.deep_audit_investor_reduce_trim_pct);
   if (Number.isFinite(rtPct) && rtPct > 0 && rtPct < 1) {
     cfg.reduce_trim_pct = rtPct;
+  }
+  const invMinHold = Number(daCfg.deep_audit_investor_invalidation_min_hold_hours);
+  if (Number.isFinite(invMinHold) && invMinHold >= 0 && invMinHold <= 240) {
+    cfg.invalidation_min_hold_hours = invMinHold;
   }
   const dcaAcc = daCfg.deep_audit_investor_auto_dca_on_accumulate;
   if (dcaAcc === true || dcaAcc === false) cfg.auto_dca_on_accumulate = dcaAcc;
