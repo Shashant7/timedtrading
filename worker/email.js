@@ -2,14 +2,41 @@
 // Handles: welcome, daily brief digest, trade alerts, re-engagement, unsubscribe tokens.
 
 import { optionsPlayEmailHtml } from "./options-plays.js";
-// 2026-06-22 — Import as a LOCAL binding. Previously this was a bare
-// `export { stripBriefMarkdownForDisplay as stripBriefMarkdownForEmail }
-// from "./daily-brief-markdown.js"` re-export, which does NOT create a
-// local binding — so sendDailyBriefEmail()'s call to it threw
-// `ReferenceError: stripBriefMarkdownForEmail is not defined` and EVERY
-// daily-brief email (morning + evening) failed to send. Import locally,
-// then re-export below for any external consumer.
-import { stripBriefMarkdownForDisplay as stripBriefMarkdownForEmail } from "./daily-brief-markdown.js";
+
+// 2026-06-22 — Email-specific brief cleanup.
+//
+// The shared `stripBriefMarkdownForDisplay` (web) STRIPS Index Outlook,
+// CRO Desk, Investor Portfolio, and Key Levels out of the narrative because
+// the WEB page re-renders those as separate structured cards. The email used
+// to do the same — narrative MINUS those sections, then re-add structured
+// cards — which both fragmented the read AND duplicated sectors/events/risks
+// between the infographic strip and the narrative (operator: "repeating
+// content/sections"). The email is now a SINGLE top-to-bottom read: keep
+// EVERY content section in the narrative and render just that. This strip
+// only removes the "Today's Three" TOC nav artifact and the [CHART: X]
+// placeholders (email has no inline charts).
+function stripBriefMarkdownForEmail(md) {
+  if (!md || typeof md !== "string") return "";
+  let cleaned = md
+    .replace(/ (#{2,4}) /g, "\n\n$1 ")
+    .replace(/ - \*\*/g, "\n- **")
+    .replace(/ - ([A-Z])/g, "\n- $1");
+  // Drop the "Today's Three" TOC (1./2./3. list near the top) — nav artifact.
+  const stripIdx = cleaned.search(/^\s*1\.\s+(?:\*\*?)?(?:SPY|QQQ|IWM|S&P|ES|NQ|Today)/im);
+  if (stripIdx >= 0 && stripIdx < 800) {
+    const after = cleaned.slice(stripIdx);
+    const m = after.match(/^\s*1\.[\s\S]*?\n\s*2\.[\s\S]*?\n\s*3\.[^\n]*\n/);
+    if (m) cleaned = cleaned.slice(0, stripIdx) + cleaned.slice(stripIdx + m[0].length);
+  }
+  // Remove chart placeholders — email renders no inline charts.
+  cleaned = cleaned
+    .replace(/^\s*\[CHART:[^\]]*\]\s*$/gim, "")
+    .replace(/\[CHART:[^\]]*\]/gi, "");
+  // Collapse the 3+ blank lines the removals can leave behind.
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
+  return cleaned.trim();
+}
+export { stripBriefMarkdownForEmail };
 
 const SENDGRID_API = "https://api.sendgrid.com/v3/mail/send";
 const FROM_EMAIL = "notifications@timed-trading.com";
@@ -860,9 +887,6 @@ export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
 // Daily Brief Email
 // ═══════════════════════════════════════════════════════════════════════
 
-/** Strip markdown sections duplicated by infographic / structured blocks. */
-export { stripBriefMarkdownForEmail };
-
 /** One row per investor holding for brief emails. */
 export function buildEmailInvestorPortfolioBlock(holdings = []) {
   const rows = (Array.isArray(holdings) ? holdings : []).filter((p) => p?.ticker);
@@ -956,60 +980,7 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
 
   const strippedContent = stripBriefMarkdownForEmail(content);
   const briefHtml = markdownToEmailHtml(strippedContent);
-  const investorPortfolioHtml = buildEmailInvestorPortfolioBlock(infographic?.investorHoldings);
   const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
-
-  // Index outlook cards — predictions + live key levels (parity with daily-brief.html).
-  const indexOutlookHtml = (() => {
-    const lvls = Array.isArray(liveKeyLevels) ? liveKeyLevels : [];
-    const preds = [
-      { label: "ES", body: esPrediction },
-      { label: "SPY", body: spyPrediction },
-      { label: "QQQ", body: qqqPrediction },
-      { label: "IWM", body: iwmPrediction },
-    ].filter((p) => p.body);
-    if (!preds.length && !lvls.length) return "";
-    const outlookTitle = type === "evening" ? "Index Outlook &amp; Scorecard" : "Index Outlook &amp; Game Plan";
-    const predRows = preds.map((p) => `
-      <div style="margin:0 0 10px;padding:10px 12px;background:rgba(255,255,255,0.03);border-left:3px solid ${accentColor};border-radius:6px">
-        <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:${accentColor};margin-bottom:4px">${_esc(p.label)} Outlook</div>
-        <div style="font-size:13px;line-height:1.5;color:${BRAND.textSecondary};white-space:pre-line">${_esc(String(p.body || ""))}</div>
-      </div>`).join("");
-    const lvlRows = lvls.map((e) => `
-      <p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:${BRAND.textSecondary}">
-        <strong style="color:white">${_esc(e.sym)}</strong> ${_esc(e.text || "")}
-      </p>`).join("");
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
-      <tr><td style="padding:0 0 8px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">${outlookTitle}</td></tr>
-      <tr><td>${predRows}${lvlRows}</td></tr>
-    </table>`;
-  })();
-  const croDeskHtml = type === "evening" ? buildEmailCRODeskBlock(croNote, accentColor) : "";
-  // Cross-client-safe infographic — matches the web BriefInfographic treatment.
-  // Renders "Today's Three" TOC, headline badges, index cards, macro strip,
-  // events, risks/opportunities, closing line. Empty string if no data.
-  const infographicHtml = buildEmailInfographic(infographic);
-
-  // Evening brief: render a "What Happened Today" summary card if stats are provided
-  let eveningSummaryHtml = "";
-  if (type === "evening" && stats) {
-    const { entries, exits, trims, wins, losses, totalPnl, regime } = stats;
-    const hasTrades = (entries || 0) + (exits || 0) + (trims || 0) > 0;
-    const pnlColor = Number(totalPnl || 0) >= 0 ? "#10b981" : "#f43f5e";
-    if (hasTrades || regime) {
-      eveningSummaryHtml = `<div style="padding:16px;background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:8px;margin:0 0 20px">
-        <p style="margin:0 0 10px;font-size:14px;font-weight:700;color:white">What Happened Today</p>
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          ${entries ? `<tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}">New positions entered</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:#10b981;text-align:right">${entries}</td></tr>` : ""}
-          ${trims ? `<tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}">Positions trimmed</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:#f59e0b;text-align:right">${trims}</td></tr>` : ""}
-          ${exits ? `<tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}">Positions closed</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:#38bdf8;text-align:right">${exits}</td></tr>` : ""}
-          ${wins != null && losses != null ? `<tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}">Today's record</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:white;text-align:right">${wins}W / ${losses}L</td></tr>` : ""}
-          ${totalPnl != null ? `<tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}">Day P&amp;L</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:${pnlColor};text-align:right">${Number(totalPnl) >= 0 ? "+$" : "-$"}${Math.abs(Number(totalPnl)).toFixed(0)}</td></tr>` : ""}
-          ${regime ? `<tr><td style="padding:4px 0;font-size:13px;color:${BRAND.textSecondary}">Market regime</td><td style="padding:4px 0;font-size:13px;font-weight:600;color:${BRAND.textSecondary};text-align:right">${regime}</td></tr>` : ""}
-        </table>
-      </div>`;
-    }
-  }
 
   const longDate = (() => {
     try {
@@ -1017,15 +988,20 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     } catch { return date; }
   })();
 
+  // 2026-06-22 — SINGLE-READ layout. The brief email now renders ONE
+  // coherent narrative (the AI body, top-to-bottom in the spec'd order:
+  // Market Read → Index Outlook → Top Movers → Active Trader Today →
+  // Investor Today → Looking Ahead → On Watch). The old layout stacked the
+  // narrative AGAINST re-rendered structured cards (infographic strip, CRO
+  // desk card, index-outlook card, investor-portfolio block), which both
+  // fragmented the read and duplicated sectors/events/risks/holdings the
+  // narrative already covered (operator: "repeating content/sections").
+  // Those cards are intentionally no longer composed here — the narrative is
+  // the source of truth. (Web keeps the card layout via the shared strip.)
   const html = emailLayout(`
     <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${accentColor};font-family:${EMAIL_FONT_UI};margin:0 0 6px">${label}</div>
     <h1 style="margin:0 0 18px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">${longDate}</h1>
-    ${infographicHtml}
-    ${eveningSummaryHtml}
     ${briefHtml}
-    ${croDeskHtml}
-    ${indexOutlookHtml}
-    ${investorPortfolioHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
         <a href="https://timed-trading.com/daily-brief.html" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">View Full Brief</a>
