@@ -90,6 +90,17 @@ function fetchTrailRows(ticker, since, until, wranglerEnv) {
   return fetchD1Rows(wranglerEnv, sql);
 }
 
+function fetchDailyCandles(ticker, since, until, wranglerEnv) {
+  const sym = String(ticker).toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+  const padSince = since - 120 * 24 * 60 * 60 * 1000;
+  const sql = `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker='${sym}' AND tf='D' AND ts >= ${padSince} AND ts <= ${until} ORDER BY ts ASC LIMIT 500`;
+  try {
+    return fetchD1Rows(wranglerEnv, sql);
+  } catch {
+    return [];
+  }
+}
+
 function fetchBacktestTrades(runId, limit) {
   const rid = escSql(runId);
   const sql = `SELECT trade_id, ticker, direction, entry_ts, exit_ts, pnl_pct, status, entry_path FROM backtest_run_trades WHERE run_id = '${rid}' AND status IN ('WIN','LOSS') ORDER BY entry_ts ASC LIMIT ${limit}`;
@@ -114,9 +125,13 @@ function diagnosticsForAnchor(ticker, anchorTs, preEntryMs, wranglerEnv, cache) 
   if (cache && !cache.has(cacheKey)) {
     const events = fetchSetupEvents(ticker, since, anchorTs, wranglerEnv);
     if (events.length >= 3) {
-      cache.set(cacheKey, { mode: "events", data: events });
+      cache.set(cacheKey, { mode: "events", data: events, dailyCandles: [] });
     } else {
-      cache.set(cacheKey, { mode: "trail", data: fetchTrailRows(ticker, since, anchorTs, wranglerEnv) });
+      cache.set(cacheKey, {
+        mode: "trail",
+        data: fetchTrailRows(ticker, since, anchorTs, wranglerEnv),
+        dailyCandles: fetchDailyCandles(ticker, since, anchorTs, wranglerEnv),
+      });
     }
   }
   if (cache?.has(cacheKey)) {
@@ -128,9 +143,10 @@ function diagnosticsForAnchor(ticker, anchorTs, preEntryMs, wranglerEnv, cache) 
     return {
       ...diagnosticsForEntryWindow(snapshots, anchorTs, {
         preEntryMs,
+        dailyCandles: cached.dailyCandles || [],
         derivationOpts: { tdTfs: ["D", "W", "60"], signalTfs: ["D", "60", "30"] },
       }),
-      source: "trail_window",
+      source: "trail_derived",
       trailRows: cached.data,
     };
   }
@@ -139,13 +155,15 @@ function diagnosticsForAnchor(ticker, anchorTs, preEntryMs, wranglerEnv, cache) 
     return { ...diagnosticsForEventWindow(events, anchorTs, { preEntryMs, ticker }), source: "setup_events" };
   }
   const trailRows = fetchTrailRows(ticker, since, anchorTs, wranglerEnv);
+  const dailyCandles = fetchDailyCandles(ticker, since, anchorTs, wranglerEnv);
   const snapshots = snapshotsFromTrailRows(trailRows, ticker);
   return {
     ...diagnosticsForEntryWindow(snapshots, anchorTs, {
       preEntryMs,
+      dailyCandles,
       derivationOpts: { tdTfs: ["D", "W", "60"], signalTfs: ["D", "60", "30"] },
     }),
-    source: "trail_window",
+    source: "trail_derived",
     trailRows,
   };
 }

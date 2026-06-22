@@ -10,7 +10,7 @@
  * Usage:
  *   node scripts/backfill-setup-events.mjs --cohort fixtures --wrangler-d1 production
  *   node scripts/backfill-setup-events.mjs --cohort trades --wrangler-d1 production --limit 25
- *   node scripts/backfill-setup-events.mjs --cohort discovery --discovery-file data/move-discovery.json --limit 50
+ *   node scripts/backfill-setup-events.mjs --cohort backtest --run-id backtest_... --wrangler-d1 production --limit 362
  *   node scripts/backfill-setup-events.mjs --cohort fixtures --api-base URL --dry-run
  *
  * Writes via POST /timed/admin/setup-events/backfill (requires SETUP_EVENTS_WRITE=1 on worker)
@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { deriveSetupEventsFromWindow } from "../worker/foundation/setup-event-derivation.js";
+import { deriveSetupEventsFromWindow, enrichTrailSnapshotsForDerivation } from "../worker/foundation/setup-event-derivation.js";
 import { parseTrailSnapshotRow } from "../worker/foundation/setup-diagnostics-route.js";
 import { filterMissedDiscoveryMoves } from "../worker/foundation/discovery-move-utils.js";
 import { setupEventToDbBind } from "../worker/foundation/setup-events-store.js";
@@ -45,6 +45,7 @@ function hasFlag(name) {
 }
 
 const COHORT = argValue("--cohort", "fixtures");
+const RUN_ID = argValue("--run-id", "backtest_2025-07-01_2025-12-31@2026-03-14T03:11:44.033Z");
 const WRANGLER_D1 = argValue("--wrangler-d1", "");
 const LIMIT = Math.max(1, Number(argValue("--limit", "25")) || 25);
 const PRE_ENTRY_HOURS = Number(argValue("--pre-entry-hours", "48")) || 48;
@@ -78,16 +79,43 @@ function fetchTrailRows(ticker, since, until, wranglerEnv) {
   return fetchD1Rows(wranglerEnv, sql);
 }
 
+function fetchDailyCandles(ticker, since, until, wranglerEnv) {
+  const sym = String(ticker).toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+  const padSince = since - 120 * 24 * 60 * 60 * 1000;
+  const sql = `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker='${sym}' AND tf='D' AND ts >= ${padSince} AND ts <= ${until} ORDER BY ts ASC LIMIT 500`;
+  try {
+    return fetchD1Rows(wranglerEnv, sql);
+  } catch {
+    return [];
+  }
+}
+
 function deriveEventsForWindow(ticker, since, until, wranglerEnv) {
   const rows = fetchTrailRows(ticker, since, until, wranglerEnv);
-  const snapshots = rows.map((r) => parseTrailSnapshotRow(r, ticker)).filter(Boolean);
+  const snapshotsRaw = rows.map((r) => parseTrailSnapshotRow(r, ticker)).filter(Boolean);
+  const dailyCandles = fetchDailyCandles(ticker, since, until, wranglerEnv);
+  const snapshots = enrichTrailSnapshotsForDerivation(snapshotsRaw, {
+    dailyCandles,
+    tdTfs: ["D", "W", "60"],
+    signalTfs: ["D", "60", "30"],
+  });
   const derived = deriveSetupEventsFromWindow(snapshots, {
     bootstrapFirst: true,
     source: `backfill_${COHORT}`,
     tdTfs: ["D", "W", "60"],
     signalTfs: ["D", "60", "30"],
   });
-  return { rows: rows.length, snapshots: snapshots.length, events: derived.events, sequences: derived.sequences?.length || 0 };
+  const divEvents = derived.events.filter((e) => e.event_type === "rsi_divergence_confirmed").length;
+  const td9Events = derived.events.filter((e) => e.event_type === "td9_complete").length;
+  return {
+    rows: rows.length,
+    snapshots: snapshots.length,
+    daily_candles: dailyCandles.length,
+    events: derived.events,
+    sequences: derived.sequences?.length || 0,
+    rsi_divergence_events: divEvents,
+    td9_events: td9Events,
+  };
 }
 
 async function postBackfillApi(ticker, since, until) {
@@ -110,6 +138,12 @@ function loadDiscoveryMissed() {
   const moves = Array.isArray(raw?.moves) ? raw.moves : [];
   return filterMissedDiscoveryMoves(moves)
     .sort((a, b) => Number(b.move_atr || 0) - Number(a.move_atr || 0));
+}
+
+function loadBacktestAnchors(wranglerEnv, runId, limit) {
+  const rid = String(runId).replace(/'/g, "''");
+  const sql = `SELECT trade_id, ticker, direction, entry_ts FROM backtest_run_trades WHERE run_id = '${rid}' AND status IN ('WIN','LOSS') ORDER BY entry_ts ASC LIMIT ${limit}`;
+  return fetchD1Rows(wranglerEnv, sql);
 }
 
 function loadTradeAnchors(wranglerEnv) {
@@ -163,6 +197,20 @@ async function main() {
         since: start - preMs,
         until: start,
         label: `missed:${m.move_id || start}`,
+      });
+    }
+  } else if (COHORT === "backtest") {
+    if (!WRANGLER_D1) {
+      console.error("--wrangler-d1 required for backtest cohort");
+      process.exit(1);
+    }
+    for (const t of loadBacktestAnchors(WRANGLER_D1, RUN_ID, LIMIT)) {
+      const entry = Number(t.entry_ts);
+      jobs.push({
+        ticker: t.ticker,
+        since: entry - preMs,
+        until: entry,
+        label: `backtest:${t.trade_id}:${entry}`,
       });
     }
   } else {
