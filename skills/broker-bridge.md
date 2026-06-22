@@ -227,6 +227,20 @@ for context.
 - `worker/broker-bridge-client.js` (HTTP client + audit ring)
 - Lessons: [`tasks/lessons.md`](../tasks/lessons.md) → IBKR LST entries
 
+## Webull Connect registration (before credentials)
+
+Partner onboarding mail goes **from and reply-to** `partners@timed-trading.com`.
+Outbound uses SendGrid; **inbound replies** use Cloudflare Email Routing to the
+operator inbox — SendGrid does not receive mail.
+
+Full runbook + send script: [`partners-email.md`](partners-email.md)
+
+```bash
+SENDGRID_API_KEY=... node scripts/send-webull-registration.mjs
+```
+
+---
+
 ## Future: BYOB (Bring Your Own Broker)
 
 The bridge is operator-only today (one connected user — operator's
