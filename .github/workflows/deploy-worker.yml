@@ -32,9 +32,15 @@ on:
   workflow_dispatch:  # Manual re-deploy from the Actions tab
 
 concurrency:
-  # All three workflows deploy the same monolith bundle. Parallel uploads
-  # intermittently hit Cloudflare API 10013; queue them.
-  group: deploy-monolith-bundle
+  # 2026-06-22 — Per-worker group. Previously all three deploy workflows
+  # (worker / engine / research) shared `deploy-monolith-bundle`. GitHub
+  # only keeps ONE pending run per concurrency group, so when all three fire
+  # on the same `worker/**` push, one runs, one pends, and the third is
+  # CANCELLED — consistently "Deploy research worker". That left tt-research
+  # (Daily Brief + investor crons) permanently behind on CI. Each workflow
+  # now serializes against ITSELF only. Concurrent wrangler uploads can hit
+  # Cloudflare API 10013; scripts/deploy-wrangler-retry.sh already retries.
+  group: deploy-worker-monolith
   cancel-in-progress: false
 
 jobs:

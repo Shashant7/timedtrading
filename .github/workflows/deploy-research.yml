@@ -24,7 +24,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-monolith-bundle
+  # 2026-06-22 — Per-worker group. Was shared deploy-monolith-bundle, which
+  # made THIS workflow the consistently-cancelled 3rd run, so tt-research
+  # (Daily Brief + investor crons) never deployed via CI. See deploy-worker.yml.
+  group: deploy-research-worker
   cancel-in-progress: false
 
 jobs:
