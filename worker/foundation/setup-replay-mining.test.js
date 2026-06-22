@@ -17,8 +17,13 @@ import {
   extractPatternProfile,
   buildPatternCensusReport,
   augmentPatternProfileFromTrailFacts,
+  buildDivergenceRunwayReport,
+  analyzeDivergenceRunway,
   buildEventLiftReport,
-  liftSlice,
+  buildGateSimulationReport,
+  computeGateTimingFromEvents,
+  evaluateGateOnProfile,
+  formatGateSimulationMarkdown,
 } from "./setup-replay-mining.js";
 
 function ticker(overrides = {}) {
@@ -366,5 +371,81 @@ describe("setup replay mining", () => {
     expect(aug.has_st_flip).toBe(true);
     expect(aug.has_squeeze_release).toBe(true);
     expect(aug.event_types).toContain("supertrend_flip");
+  });
+
+  it("computeGateTimingFromEvents finds first stack_full_confirm fire", () => {
+    const anchor = 5 * 60 * 60 * 1000;
+    const events = [
+      { event_type: "supertrend_flip", event_ts: 1000 },
+      { event_type: "squeeze_release", event_ts: 2000 },
+      { event_type: "ema21_reclaim", event_ts: anchor - 2 * 60 * 60 * 1000 },
+    ];
+    const t = computeGateTimingFromEvents(events, anchor, "stack_full_confirm", { preEntryMs: 10 * 60 * 60 * 1000 });
+    expect(t.fires).toBe(true);
+    expect(t.first_fire_ts).toBe(anchor - 2 * 60 * 60 * 1000);
+    expect(t.hours_before_anchor).toBe(2);
+  });
+
+  it("buildGateSimulationReport computes enter rates", () => {
+    const profile = {
+      has_st_flip: true,
+      has_squeeze_release: true,
+      has_ema21_reclaim: true,
+      has_ema21_reject: false,
+    };
+    const rows = [
+      { cohort: "discovery_missed", move_atr: 10, move_pct: 15, move_id: "A:1", pattern_profile: profile, move_alignment: { outcome: "aligned" } },
+      { cohort: "backtest", outcome: "win", pattern_profile: profile },
+      { cohort: "backtest", outcome: "loss", pattern_profile: { has_st_flip: true, has_squeeze_release: false, has_ema21_reclaim: false } },
+    ];
+    const sim = buildGateSimulationReport(rows, { gate_keys: ["stack_full_confirm"], tier_a_min_atr: 8 });
+    const g = sim.gates[0];
+    expect(g.tier_a.would_enter).toBe(1);
+    expect(g.backtest_win.would_enter).toBe(1);
+    expect(g.win_share_when_gate_fires).toBe(1);
+    expect(evaluateGateOnProfile(profile, "stack_full_confirm")).toBe(true);
+  });
+
+  it("extractPatternProfile flags RSI divergence", () => {
+    const profile = extractPatternProfile({
+      events: [{ event_type: "rsi_divergence_confirmed", event_ts: 1000 }],
+      sequences: [],
+    }, { moveDir: "LONG" });
+    expect(profile.has_rsi_divergence).toBe(true);
+  });
+
+  it("analyzeDivergenceRunway detects exhaust → div → momentum ordering", () => {
+    const anchor = 10 * 60 * 60 * 1000;
+    const events = [
+      { event_type: "td9_complete", event_ts: 1 * 60 * 60 * 1000, direction: "LONG" },
+      { event_type: "rsi_divergence_confirmed", event_ts: 3 * 60 * 60 * 1000, direction: "LONG" },
+      { event_type: "supertrend_flip", event_ts: 6 * 60 * 60 * 1000, direction: "LONG" },
+    ];
+    const timing = analyzeDivergenceRunway(events, anchor, "LONG", { preEntryMs: anchor });
+    expect(timing.ordering).toBe("exhaust_div_momentum");
+    expect(timing.td9_before_div).toBe(true);
+    expect(timing.div_before_momentum).toBe(true);
+    expect(timing.runway_complete).toBe(true);
+    expect(timing.hours_td9_to_div).toBe(2);
+  });
+
+  it("buildDivergenceRunwayReport aggregates tier A missed runway rates", () => {
+    const anchor = 10 * 60 * 60 * 1000;
+    const events = [
+      { event_type: "td9_complete", event_ts: 1000, direction: "LONG" },
+      { event_type: "rsi_divergence_confirmed", event_ts: 3 * 60 * 60 * 1000, direction: "LONG" },
+      { event_type: "squeeze_release", event_ts: 6 * 60 * 60 * 1000, direction: "LONG" },
+    ];
+    const report = buildDivergenceRunwayReport([{
+      cohort: "discovery_missed",
+      move_atr: 10,
+      move_alignment: { outcome: "aligned" },
+      start_ts: anchor,
+      direction: "LONG",
+      events,
+    }], { preEntryMs: anchor, tier_a_min_atr: 8 });
+    expect(report.cohorts.tier_a_missed.n).toBe(1);
+    expect(report.cohorts.tier_a_missed.with_div_rate).toBe(1);
+    expect(report.cohorts.tier_a_missed.runway_complete_rate).toBe(1);
   });
 });

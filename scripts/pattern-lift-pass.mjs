@@ -258,6 +258,10 @@ function main() {
   fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2));
   fs.writeFileSync(mdPath, formatEventLiftMarkdown(lift));
 
+  const backtestCachePath = path.join(OUT_DIR, "backtest-enriched.json");
+  fs.writeFileSync(backtestCachePath, JSON.stringify(backtest, null, 2));
+  console.error(`  backtest cache: ${backtestCachePath}`);
+
   console.log(JSON.stringify({
     json: jsonPath,
     md: mdPath,
