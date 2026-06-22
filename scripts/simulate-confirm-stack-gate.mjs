@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import {
   augmentPatternProfileFromTrailFacts,
   buildGateSimulationReport,
+  buildGateTimingComparison,
   computeGateTimingFromEvents,
   computeGateTimingFromTrailRows,
   diagnosticsForEntryWindow,
@@ -51,6 +52,10 @@ const PRE_ENTRY_HOURS = Number(argValue("--pre-entry-hours", "120")) || 120;
 const TIER_A_MIN = Number(argValue("--tier-a-min-atr", "8")) || 8;
 const BACKTEST_LIMIT = Math.max(1, Number(argValue("--backtest-limit", "362")) || 362);
 const WITH_TIMING = process.argv.includes("--with-timing");
+const TIMING_GATES = (argValue("--timing-gates", "stack_full_confirm,gate_runway_full") || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 const BUILD_BACKTEST = process.argv.includes("--build-backtest");
 const REBUILD_BACKTEST = process.argv.includes("--rebuild-backtest");
 const PRIMARY_GATE = argValue("--primary-gate", "gate_runway_full");
@@ -206,12 +211,21 @@ function main() {
   const allRows = [...backtest, ...missed];
 
   const timingByMoveId = {};
+  let timingComparison = null;
   if (WITH_TIMING) {
     const tierA = missed.filter((r) => Number(r.move_atr) >= TIER_A_MIN);
-    console.error(`Computing event timing for ${tierA.length} Tier A moves (${PRIMARY_GATE})...`);
+    console.error(`Computing event timing for ${tierA.length} Tier A moves (${TIMING_GATES.join(", ")})...`);
     for (const row of tierA) {
-      timingByMoveId[row.move_id] = tierTimingForMove(row, preEntryMs, PRIMARY_GATE);
+      timingByMoveId[row.move_id] = {};
+      for (const gateKey of TIMING_GATES) {
+        timingByMoveId[row.move_id][gateKey] = tierTimingForMove(row, preEntryMs, gateKey);
+      }
     }
+    timingComparison = buildGateTimingComparison(
+      timingByMoveId,
+      TIMING_GATES,
+      tierA.map((r) => r.move_id),
+    );
   }
 
   const report = buildGateSimulationReport(allRows, {
@@ -220,6 +234,7 @@ function main() {
     pre_entry_hours: PRE_ENTRY_HOURS,
     primary_gate: PRIMARY_GATE,
     timing_by_move_id: timingByMoveId,
+    timing_comparison: timingComparison,
   });
 
   const payload = {
@@ -232,7 +247,9 @@ function main() {
     primary_gate: PRIMARY_GATE,
     gate_keys: GATE_KEYS,
     with_timing: WITH_TIMING,
+    timing_gates: WITH_TIMING ? TIMING_GATES : [],
     timing_by_move_id: timingByMoveId,
+    timing_comparison: timingComparison,
     simulation: report,
   };
 
@@ -248,6 +265,7 @@ function main() {
     json: jsonPath,
     md: mdPath,
     primary_gate: primary,
+    timing_comparison: timingComparison,
     gates: report.gates?.map((g) => ({
       key: g.key,
       tier_a_enter_rate: g.tier_a.enter_rate,
