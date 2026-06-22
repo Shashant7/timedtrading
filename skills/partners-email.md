@@ -51,9 +51,15 @@ dig +short MX timed-trading.com
 Optional Gmail polish — reply from `partners@` in the same thread:
 
 1. Gmail → Settings → **Accounts** → **Send mail as** → Add `partners@timed-trading.com`
-2. Gmail sends a verification message to `partners@` → arrives via Email Routing
+2. When asked how to send, choose **Send through Gmail** (alias) — **NOT** "Send through
+   timed-trading.com SMTP servers"
+3. Gmail sends a verification message to `partners@` → arrives via Email Routing
    → click the link or enter the code
-3. Future replies to Webull can stay on-brand from `partners@`
+4. Future replies to Webull can stay on-brand from `partners@`
+
+> **Do not use Cloudflare MX as SMTP.** `route2.mx.cloudflare.net` is inbound-only.
+> Email Routing has no SMTP username/password. If Gmail prompts for an SMTP password,
+> cancel and re-add the address using **Send through Gmail** instead.
 
 ---
 
@@ -137,6 +143,43 @@ Webull typically returns (UAT first):
 
 Store these **only** on the bridge worker (`cd worker-bridge && wrangler secret put ...`).
 See broker-bridge skill when Webull scaffold is merged.
+
+---
+
+## Troubleshooting
+
+### Bounce: `550 5.1.1 Address does not exist` from `route2.mx.cloudflare.net`
+
+Cloudflare returns this when **no active routing rule** exists for that local part
+at the moment the message arrives.
+
+| Cause | Fix |
+|---|---|
+| Test sent **before** the `partners` rule was created | Create/enable the rule, wait ~1 min, **send a new test** |
+| Rule exists but toggle is off | Enable the rule in **Routing rules** |
+| Typo in address | Must be exactly `partners@timed-trading.com` |
+
+After the rule is **Active**, check **Activity Log** — a good test shows
+**Forwarded**, not **Delivery failed**. An old bounce in the inbox does not mean
+the rule is broken today; retry from a different account (not the forward
+destination if possible).
+
+### Gmail "Send mail as" asks for SMTP password
+
+Wrong path. Cloudflare Email Routing forwards inbound mail only; it does not offer
+outbound SMTP credentials.
+
+**Fix:** Remove the broken `partners@` send-as entry. Re-add it and pick
+**Send through Gmail**. Verification mail lands in the forward inbox (`shashant@gmail.com`
+via the routing rule).
+
+**For the Webull registration email:** Gmail send-as is optional. Use SendGrid
+(Step 2 below) — no Gmail SMTP setup required.
+
+### DMARC report floods to `dmarc-reports@` showing "Delivery failed"
+
+Separate issue — Gmail rate-limits forwarded DMARC XML reports. Does **not** block
+`partners@` or Webull replies. See `tasks/2026-05-28-dmarc-runbook.md`.
 
 ---
 
