@@ -33,6 +33,8 @@ Artifact: `data/setup-mining/pattern-lift/lift-2026-06-22T02-43-11.json`
 3. Adding divergence to confirm stack (`gate_confirm+div`) raises capture opp (+15.6%) but **lowers** win share vs confirm alone — divergence is not a quality filter on backtest.
 4. **Promotion**: shadow-stamp `gate_runway_full` on preprod alongside `stack_full_confirm`; do not live-size until forward shadow pass confirms 70% win share holds with n>30.
 
+See also: `docs/setup-mining-gate-timing-shadow-2026-06-22.md` (timing pass + SETUP_GATE_SHADOW).
+
 ## Commands
 
 ```bash
