@@ -110,6 +110,7 @@ CANDLE_CHAIN_INGEST = "1"
 # Shadow setup_events ledger — */5 scoring tick persists derived events
 SETUP_EVENTS_WRITE = "1"
 SETUP_TRAIL_SNAPSHOT = "1"
+SETUP_SHADOW_STAMP = "1"
 SETUP_GATE_SHADOW = "1"
 # Forward shadow: gate_runway_full + stack_full_confirm on payload (read-only)
 # KEEP IN SYNC: when a var changes there, change it here. The */5 tick
