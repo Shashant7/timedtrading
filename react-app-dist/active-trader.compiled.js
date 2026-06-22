@@ -102,6 +102,43 @@ function useOpenTrades(enabled) {
     tradesLoaded
   };
 }
+const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+function useRecentClosedTrades(enabled) {
+  const [closedByTicker, setClosedByTicker] = useState(() => new Map());
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/timed/trades?source=d1`, {
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const m = new Map();
+      const now = Date.now();
+      if (res?.ok && Array.isArray(res.trades)) {
+        for (const tr of res.trades) {
+          if (!tr || tr._source_mode === "investor") continue;
+          const status = String(tr.status || "").toUpperCase();
+          const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+          const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!exitMs && status !== "OPEN" && status !== "TP_HIT_TRIM";
+          if (!isClosed || !exitMs || now - exitMs >= RECENT_EXIT_WINDOW_MS) continue;
+          if (String(tr.exit_reason || "").startsWith("REVERSED_")) continue;
+          const sym = String(tr.ticker || "").toUpperCase();
+          if (!sym) continue;
+          const existing = m.get(sym);
+          if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) m.set(sym, tr);
+        }
+      }
+      setClosedByTicker(m);
+    } catch (_) {}
+  }, []);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    refresh();
+    const id = setInterval(refresh, 180000);
+    return () => clearInterval(id);
+  }, [enabled, refresh]);
+  return {
+    closedByTicker
+  };
+}
 function useSavedTickers() {
   const [saved, setSaved] = useState(() => {
     const bootstrap = window.TimedAuthHelpers?.getStoredBootstrap?.();
@@ -209,7 +246,7 @@ function computeEffectiveStage(ticker, trade) {
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
 }
-function categorizeKanbanLanes(tickers, tradeByTicker) {
+function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   const setup = [];
   const enter = [];
   const newLane = [];
@@ -227,6 +264,14 @@ function categorizeKanbanLanes(tickers, tradeByTicker) {
     const isOpen = !!trade;
     if (trade && isOpen) {
       if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+    }
+    if (!isOpen && closedByTicker?.get) {
+      const closed = closedByTicker.get(sym);
+      const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+      const newOpportunity = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
+      if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) {
+        stage = "exit";
+      }
     }
     switch (stage) {
       case "setup":
@@ -1160,6 +1205,9 @@ function ActiveTraderApp() {
     tradesLoaded
   } = useOpenTrades(!!data);
   const {
+    closedByTicker
+  } = useRecentClosedTrades(!!data);
+  const {
     saved,
     toggle: toggleSaved
   } = useSavedTickers();
@@ -1212,7 +1260,7 @@ function ActiveTraderApp() {
     });
     return injected.length ? mapped.concat(injected) : mapped;
   }, [data, tradeByTicker]);
-  const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
+  const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
   const laneCounts = useMemo(() => ({
     setup: lanes.setup.length,
     review: lanes.enter.length,
@@ -1631,6 +1679,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782079761099:856918269
+// cache-bust:1782145779635:525811875
 
-// cache-bust:1782079761099:856918269
+// cache-bust:1782145779635:525811875

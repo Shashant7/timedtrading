@@ -674,6 +674,49 @@
         return { tradeByTicker, tradesLoaded };
       }
 
+      // ── useRecentClosedTrades — trader trades CLOSED within the last 24h.
+      //    Powers the Exit-lane sticky behaviour (a stop-out / exit should
+      //    remain visible under Exit for the rest of the session, matching
+      //    index-react.source.html's EarlyMoversPanel categorizer). Keyed by
+      //    ticker → most-recent closed trade.
+      const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+      function useRecentClosedTrades(enabled) {
+        const [closedByTicker, setClosedByTicker] = useState(() => new Map());
+        const refresh = useCallback(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/timed/trades?source=d1`, { cache: "no-store" })
+              .then((r) => (r.ok ? r.json() : null))
+              .catch(() => null);
+            const m = new Map();
+            const now = Date.now();
+            if (res?.ok && Array.isArray(res.trades)) {
+              for (const tr of res.trades) {
+                if (!tr || tr._source_mode === "investor") continue;
+                const status = String(tr.status || "").toUpperCase();
+                const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+                const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT"
+                  || status === "CLOSED" || status === "CANCELED" || (!!exitMs && status !== "OPEN" && status !== "TP_HIT_TRIM");
+                if (!isClosed || !exitMs || (now - exitMs) >= RECENT_EXIT_WINDOW_MS) continue;
+                // Skip administratively reversed exits — those are still open.
+                if (String(tr.exit_reason || "").startsWith("REVERSED_")) continue;
+                const sym = String(tr.ticker || "").toUpperCase();
+                if (!sym) continue;
+                const existing = m.get(sym);
+                if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) m.set(sym, tr);
+              }
+            }
+            setClosedByTicker(m);
+          } catch (_) {}
+        }, []);
+        useEffect(() => {
+          if (!enabled) return undefined;
+          refresh();
+          const id = setInterval(refresh, 180000);
+          return () => clearInterval(id);
+        }, [enabled, refresh]);
+        return { closedByTicker };
+      }
+
       // ── useSavedTickers — port from today.html ─────────────────
       function useSavedTickers() {
         const [saved, setSaved] = useState(() => {
@@ -771,7 +814,7 @@
 
       // ── categorizeKanbanLanes — port of EarlyMoversPanel categorizer
       //    (index-react.source.html line 14951). Returns the 7 lanes.
-      function categorizeKanbanLanes(tickers, tradeByTicker) {
+      function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
         const setup = [];
         const enter = [];
         const newLane = [];
@@ -799,8 +842,20 @@
             else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
           }
 
-          // Closed-trade 24h sticky-exit only applies when a verified open
-          // trade is absent; useOpenTrades stores live positions only.
+          // Closed-trade 24h sticky-exit (port of EarlyMoversPanel categorizer
+          // in index-react.source.html ~line 14373). When there's no live open
+          // trade but THIS ticker closed within the last 24h, keep it in the
+          // Exit lane — unless the scorer is already promoting a fresh setup /
+          // entry (a new opportunity wins over the stale exit marker).
+          if (!isOpen && closedByTicker?.get) {
+            const closed = closedByTicker.get(sym);
+            const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+            const newOpportunity = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
+            if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) {
+              stage = "exit";
+            }
+          }
+
           switch (stage) {
             case "setup": case "setup_watch": case "flip_watch":
               setup.push(t); break;
@@ -1573,6 +1628,7 @@
         }, []);
 
         const { tradeByTicker, tradesLoaded } = useOpenTrades(!!data);
+        const { closedByTicker } = useRecentClosedTrades(!!data);
         const { saved, toggle: toggleSaved } = useSavedTickers();
         const { cache: sparkCache, ensure: ensureSpark } = useSparklineCache();
 
@@ -1626,7 +1682,7 @@
           return injected.length ? mapped.concat(injected) : mapped;
         }, [data, tradeByTicker]);
 
-        const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker), [allTickers, tradeByTicker]);
+        const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
 
         const laneCounts = useMemo(() => ({
           setup: lanes.setup.length,
