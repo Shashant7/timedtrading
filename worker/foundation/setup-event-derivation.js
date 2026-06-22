@@ -477,6 +477,87 @@ function deriveWindowLevelEvents(snapshots, eventHistory, opts = {}) {
   return normalizeSetupEvents(events).events;
 }
 
+function normalizeDailyCandles(candles = []) {
+  return [...candles]
+    .map((c) => ({
+      o: Number(c.o ?? c.open),
+      h: Number(c.h ?? c.high),
+      l: Number(c.l ?? c.low),
+      c: Number(c.c ?? c.close),
+      ts: Number(c.ts),
+    }))
+    .filter((c) => Number.isFinite(c.ts) && Number.isFinite(c.c))
+    .sort((a, b) => a.ts - b.ts);
+}
+
+/** Walk daily candles and emit TD9/TD13/setup-progress on true bar transitions. */
+export function deriveDailyTdTransitionEvents(dailyCandles = [], opts = {}) {
+  const sorted = normalizeDailyCandles(dailyCandles);
+  if (sorted.length < 10) return [];
+
+  const ticker = String(opts.ticker || "UNKNOWN").toUpperCase();
+  const tf = opts.tf || "D";
+  const since = Number(opts.since);
+  const until = Number(opts.until);
+  const source = opts.source || "daily_td_transition";
+  const events = [];
+
+  let prev = computeTDSequential(sorted.slice(0, 10), tf);
+  for (let i = 10; i < sorted.length; i += 1) {
+    const prefix = sorted.slice(0, i + 1);
+    const cur = computeTDSequential(prefix, tf);
+    const ts = sorted[i].ts;
+    const inWindow = (!Number.isFinite(since) || ts >= since) && (!Number.isFinite(until) || ts <= until);
+
+    if (inWindow) {
+      const prevBullPrep = num(prev.bullish_prep_count) || 0;
+      const curBullPrep = num(cur.bullish_prep_count) || 0;
+      const prevBearPrep = num(prev.bearish_prep_count) || 0;
+      const curBearPrep = num(cur.bearish_prep_count) || 0;
+
+      if (curBullPrep >= 7 && curBullPrep > prevBullPrep) {
+        events.push(createSetupEvent({
+          ticker, tf, event_ts: ts, event_type: "td_setup_progress", direction: "LONG",
+          price: sorted[i].c, source, confidence: 1, payload: { count: curBullPrep, side: "bullish_prep" },
+        }));
+      }
+      if (curBearPrep >= 7 && curBearPrep > prevBearPrep) {
+        events.push(createSetupEvent({
+          ticker, tf, event_ts: ts, event_type: "td_setup_progress", direction: "SHORT",
+          price: sorted[i].c, source, confidence: 1, payload: { count: curBearPrep, side: "bearish_prep" },
+        }));
+      }
+      if (!prev.td9_bullish && cur.td9_bullish) {
+        events.push(createSetupEvent({
+          ticker, tf, event_ts: ts, event_type: "td9_complete", direction: "LONG",
+          price: sorted[i].c, source, confidence: 1, payload: { side: "bull" },
+        }));
+      }
+      if (!prev.td9_bearish && cur.td9_bearish) {
+        events.push(createSetupEvent({
+          ticker, tf, event_ts: ts, event_type: "td9_complete", direction: "SHORT",
+          price: sorted[i].c, source, confidence: 1, payload: { side: "bear" },
+        }));
+      }
+      if (!prev.td13_bullish && cur.td13_bullish) {
+        events.push(createSetupEvent({
+          ticker, tf, event_ts: ts, event_type: "td13_complete", direction: "LONG",
+          price: sorted[i].c, source, confidence: 1, payload: { side: "bull" },
+        }));
+      }
+      if (!prev.td13_bearish && cur.td13_bearish) {
+        events.push(createSetupEvent({
+          ticker, tf, event_ts: ts, event_type: "td13_complete", direction: "SHORT",
+          price: sorted[i].c, source, confidence: 1, payload: { side: "bear" },
+        }));
+      }
+    }
+    prev = cur;
+  }
+
+  return normalizeSetupEvents(events).events;
+}
+
 export function deriveSetupEventsFromWindow(snapshots = [], opts = {}) {
   const sorted = sortSnapshots(snapshots);
   if (sorted.length === 0) {
@@ -491,11 +572,22 @@ export function deriveSetupEventsFromWindow(snapshots = [], opts = {}) {
     pairEvents.push(...deriveSetupEvents(sorted[i - 1], sorted[i], { ...opts, bootstrap: false }));
   }
 
-  const withPrior = normalizeSetupEvents([...(opts.priorEvents || []), ...pairEvents]).events;
+  const windowSince = tsOf(sorted[0]);
+  const windowUntil = tsOf(sorted[sorted.length - 1]);
+  const dailyTdEvents = Array.isArray(opts.dailyCandles) && opts.dailyCandles.length
+    ? deriveDailyTdTransitionEvents(opts.dailyCandles, {
+      ticker: tickerOf(sorted[0]),
+      since: windowSince,
+      until: windowUntil,
+      source: opts.dailyTdSource || opts.source || "daily_td_transition",
+    })
+    : [];
+
+  const withPrior = normalizeSetupEvents([...(opts.priorEvents || []), ...pairEvents, ...dailyTdEvents]).events;
   const windowEvents = opts.deriveWindowEvents === false
     ? []
     : deriveWindowLevelEvents(sorted, withPrior, opts);
-  const derived = normalizeSetupEvents([...pairEvents, ...windowEvents]).events;
+  const derived = normalizeSetupEvents([...pairEvents, ...windowEvents, ...dailyTdEvents]).events;
   const history = normalizeSetupEvents([...(opts.priorEvents || []), ...derived]).events;
   const latest = sorted[sorted.length - 1];
   const sequences = detectMeanReversionSequences(history, {
@@ -513,16 +605,7 @@ export function deriveSetupEventsFromWindow(snapshots = [], opts = {}) {
 }
 
 function candlePrefixForTs(dailyCandles = [], ts) {
-  const sorted = [...dailyCandles]
-    .map((c) => ({
-      o: Number(c.o ?? c.open),
-      h: Number(c.h ?? c.high),
-      l: Number(c.l ?? c.low),
-      c: Number(c.c ?? c.close),
-      ts: Number(c.ts),
-    }))
-    .filter((c) => Number.isFinite(c.ts) && Number.isFinite(c.c))
-    .sort((a, b) => a.ts - b.ts);
+  const sorted = normalizeDailyCandles(dailyCandles);
   const anchor = Number(ts);
   if (!Number.isFinite(anchor) || !sorted.length) return [];
   let lastIdx = -1;
