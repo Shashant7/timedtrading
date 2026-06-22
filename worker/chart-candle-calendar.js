@@ -235,8 +235,8 @@ export async function appendFormingChartCandle(env, ticker, tfKey, candles, opts
     const open = sameBucket && Number(last?.o) > 0
       ? Number(last.o)
       : (Number(last?.c) > 0 ? Number(last.c) : px);
-    const high = Math.max(Number(last?.h) || open, open, px);
-    const low = Math.min(Number(last?.l) || open, open, px);
+    const high = sameBucket ? Math.max(Number(last?.h) || open, open, px) : Math.max(open, px);
+    const low = sameBucket ? Math.min(Number(last?.l) || open, open, px) : Math.min(open, px);
     const formingBar = {
       ...(sameBucket ? last : {}),
       ts: bucketTs,
