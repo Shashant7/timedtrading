@@ -16,6 +16,9 @@ import {
   resolveMoveDirection,
   extractPatternProfile,
   buildPatternCensusReport,
+  augmentPatternProfileFromTrailFacts,
+  buildEventLiftReport,
+  liftSlice,
 } from "./setup-replay-mining.js";
 
 function ticker(overrides = {}) {
@@ -311,5 +314,57 @@ describe("setup replay mining", () => {
     expect(report.headline.missed_aligned).toBe(1);
     expect(report.headline.missed_opposed).toBe(1);
     expect(report.by_event_type.find((r) => r.key === "td9_complete")?.missed_aligned?.n).toBe(1);
+  });
+
+  it("buildEventLiftReport computes win lift and capture gap", () => {
+    const mk = (cohort, outcome, flags) => ({
+      cohort,
+      outcome,
+      move_atr: 10,
+      move_alignment: { outcome: "aligned" },
+      pattern_profile: {
+        event_types: flags,
+        aligned_mr_stage: flags.includes("mr6") ? 6 : 1,
+        aligned_matched_stages: ["exhaustion_forming"],
+        has_td9: flags.includes("td9_complete"),
+        has_st_flip: flags.includes("st"),
+        has_squeeze_release: flags.includes("squeeze"),
+        has_ema21_reclaim: flags.includes("ema21"),
+        has_ema21_reject: false,
+        has_ema200_reclaim: false,
+        has_mean_reversion_target: false,
+        has_pullback_stabilized: false,
+        has_st_breakthrough: false,
+        has_momentum_confirmation: false,
+        invalidated: false,
+        confirmation_events: [],
+        exhaustion_events: [],
+        long_mr_stage: 1,
+        short_mr_stage: 0,
+      },
+    });
+    const rows = [
+      mk("backtest", "win", ["st", "squeeze"]),
+      mk("backtest", "win", ["st"]),
+      mk("backtest", "loss", ["st"]),
+      mk("backtest", "loss", []),
+      mk("discovery_missed", "aligned", ["st", "squeeze"]),
+    ];
+    const lift = buildEventLiftReport(rows, { tier_a_min_atr: 8 });
+    expect(lift.totals.backtest_win).toBe(2);
+    expect(lift.totals.backtest_loss).toBe(2);
+    expect(lift.totals.missed_tier_a).toBe(1);
+    const stack = lift.by_combo.find((r) => r.key === "stack_st+squeeze");
+    expect(stack.rates.backtest_win).toBe(0.5);
+    expect(stack.rates.backtest_loss).toBe(0);
+    expect(stack.win_lift).toBe(0.5);
+  });
+
+  it("augmentPatternProfileFromTrailFacts merges trail_5m boolean flags", () => {
+    const base = extractPatternProfile({ events: [], sequences: [] }, { moveDir: "LONG" });
+    const aug = augmentPatternProfileFromTrailFacts(base, [{ had_st_flip: true, had_squeeze_release: true }], "5m");
+    expect(aug.has_st_flip).toBe(true);
+    expect(aug.has_squeeze_release).toBe(true);
+    expect(aug.event_types).toContain("supertrend_flip");
   });
 });

@@ -1,0 +1,1892 @@
+{
+  "generated_at": "2026-06-21T23:49:35.251Z",
+  "run_id": "backtest_2025-07-01_2025-12-31@2026-03-14T03:11:44.033Z",
+  "missed_file": "data/setup-mining/tiered-reliability/aggregate-2026-06-21T22-25-14.json",
+  "wrangler_d1": "production",
+  "missed_wrangler_d1": "preprod",
+  "trail_source": "5m",
+  "pre_entry_hours": 120,
+  "backtest_enriched": 362,
+  "backtest_with_profile": 359,
+  "missed_enriched": 211,
+  "lift": {
+    "totals": {
+      "backtest_win": 207,
+      "backtest_loss": 152,
+      "missed_aligned": 207,
+      "missed_opposed": 0,
+      "missed_tier_a": 74,
+      "missed_other": 0,
+      "backtest_other": 0
+    },
+    "tier_a_min_atr": 8,
+    "by_event": [
+      {
+        "key": "ema21_reclaim",
+        "label": "ema21_reclaim",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 173,
+          "backtest_loss": 119,
+          "missed_aligned": 154,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0.836,
+          "backtest_loss": 0.783,
+          "missed_aligned": 0.744,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0.053,
+        "win_ratio": 1.07,
+        "capture_gap_tier_a": -0.025
+      },
+      {
+        "key": "fvg_filled",
+        "label": "fvg_filled",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 60,
+          "backtest_loss": 40,
+          "missed_aligned": 191,
+          "missed_opposed": 0,
+          "missed_tier_a": 66
+        },
+        "rates": {
+          "backtest_win": 0.29,
+          "backtest_loss": 0.263,
+          "missed_aligned": 0.923,
+          "missed_tier_a": 0.892
+        },
+        "win_lift": 0.027,
+        "win_ratio": 1.1,
+        "capture_gap_tier_a": 0.602
+      },
+      {
+        "key": "squeeze_release",
+        "label": "squeeze_release",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 151,
+          "backtest_loss": 107,
+          "missed_aligned": 134,
+          "missed_opposed": 0,
+          "missed_tier_a": 52
+        },
+        "rates": {
+          "backtest_win": 0.729,
+          "backtest_loss": 0.704,
+          "missed_aligned": 0.647,
+          "missed_tier_a": 0.703
+        },
+        "win_lift": 0.025,
+        "win_ratio": 1.04,
+        "capture_gap_tier_a": -0.026
+      },
+      {
+        "key": "pdz_equilibrium_reached",
+        "label": "pdz_equilibrium_reached",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 17,
+          "backtest_loss": 9,
+          "missed_aligned": 116,
+          "missed_opposed": 0,
+          "missed_tier_a": 41
+        },
+        "rates": {
+          "backtest_win": 0.082,
+          "backtest_loss": 0.059,
+          "missed_aligned": 0.56,
+          "missed_tier_a": 0.554
+        },
+        "win_lift": 0.023,
+        "win_ratio": 1.39,
+        "capture_gap_tier_a": 0.472
+      },
+      {
+        "key": "ema200_reclaim",
+        "label": "ema200_reclaim",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 96,
+          "missed_opposed": 0,
+          "missed_tier_a": 36
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.464,
+          "missed_tier_a": 0.486
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.486
+      },
+      {
+        "key": "ema200_reject",
+        "label": "ema200_reject",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 93,
+          "missed_opposed": 0,
+          "missed_tier_a": 31
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.449,
+          "missed_tier_a": 0.419
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.419
+      },
+      {
+        "key": "ema21_reject",
+        "label": "ema21_reject",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 155,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.749,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.811
+      },
+      {
+        "key": "ema21_stretched",
+        "label": "ema21_stretched",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 195,
+          "missed_opposed": 0,
+          "missed_tier_a": 72
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.942,
+          "missed_tier_a": 0.973
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.973
+      },
+      {
+        "key": "orb_breakout",
+        "label": "orb_breakout",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 154,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.744,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.811
+      },
+      {
+        "key": "orb_reclaim",
+        "label": "orb_reclaim",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 150,
+          "missed_opposed": 0,
+          "missed_tier_a": 58
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.725,
+          "missed_tier_a": 0.784
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.784
+      },
+      {
+        "key": "phase_entered_extreme",
+        "label": "phase_entered_extreme",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 152,
+          "missed_opposed": 0,
+          "missed_tier_a": 57
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.734,
+          "missed_tier_a": 0.77
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.77
+      },
+      {
+        "key": "phase_left_accumulation",
+        "label": "phase_left_accumulation",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 73,
+          "missed_opposed": 0,
+          "missed_tier_a": 26
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.353,
+          "missed_tier_a": 0.351
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.351
+      },
+      {
+        "key": "rsi_divergence_confirmed",
+        "label": "rsi_divergence_confirmed",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 144,
+          "missed_opposed": 0,
+          "missed_tier_a": 54
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.696,
+          "missed_tier_a": 0.73
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.73
+      },
+      {
+        "key": "rsi_extreme_entered",
+        "label": "rsi_extreme_entered",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 134,
+          "missed_opposed": 0,
+          "missed_tier_a": 51
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.647,
+          "missed_tier_a": 0.689
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.689
+      },
+      {
+        "key": "rsi_extreme_left",
+        "label": "rsi_extreme_left",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 115,
+          "missed_opposed": 0,
+          "missed_tier_a": 48
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.556,
+          "missed_tier_a": 0.649
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.649
+      },
+      {
+        "key": "supertrend_flat_opposing",
+        "label": "supertrend_flat_opposing",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 206,
+          "missed_opposed": 0,
+          "missed_tier_a": 74
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.995,
+          "missed_tier_a": 1
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 1
+      },
+      {
+        "key": "td_setup_progress",
+        "label": "td_setup_progress",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 134,
+          "missed_opposed": 0,
+          "missed_tier_a": 56
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.647,
+          "missed_tier_a": 0.757
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.757
+      },
+      {
+        "key": "phase_left_distribution",
+        "label": "phase_left_distribution",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 90,
+          "missed_opposed": 0,
+          "missed_tier_a": 39
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.435,
+          "missed_tier_a": 0.527
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.527
+      },
+      {
+        "key": "td9_complete",
+        "label": "td9_complete",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 45,
+          "missed_opposed": 0,
+          "missed_tier_a": 21
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.217,
+          "missed_tier_a": 0.284
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.284
+      },
+      {
+        "key": "vwap_reclaim",
+        "label": "vwap_reclaim",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 41,
+          "missed_opposed": 0,
+          "missed_tier_a": 11
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.198,
+          "missed_tier_a": 0.149
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.149
+      },
+      {
+        "key": "vwap_reject",
+        "label": "vwap_reject",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 39,
+          "missed_opposed": 0,
+          "missed_tier_a": 10
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.188,
+          "missed_tier_a": 0.135
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.135
+      },
+      {
+        "key": "phase_left_extreme",
+        "label": "phase_left_extreme",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 54,
+          "missed_opposed": 0,
+          "missed_tier_a": 25
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.261,
+          "missed_tier_a": 0.338
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.338
+      },
+      {
+        "key": "td13_complete",
+        "label": "td13_complete",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 29,
+          "missed_opposed": 0,
+          "missed_tier_a": 13
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.14,
+          "missed_tier_a": 0.176
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.176
+      },
+      {
+        "key": "pdz_discount_entered",
+        "label": "pdz_discount_entered",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 26,
+          "backtest_loss": 20,
+          "missed_aligned": 181,
+          "missed_opposed": 0,
+          "missed_tier_a": 62
+        },
+        "rates": {
+          "backtest_win": 0.126,
+          "backtest_loss": 0.132,
+          "missed_aligned": 0.874,
+          "missed_tier_a": 0.838
+        },
+        "win_lift": -0.006,
+        "win_ratio": 0.95,
+        "capture_gap_tier_a": 0.712
+      },
+      {
+        "key": "pdz_premium_entered",
+        "label": "pdz_premium_entered",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 200,
+          "backtest_loss": 148,
+          "missed_aligned": 201,
+          "missed_opposed": 0,
+          "missed_tier_a": 71
+        },
+        "rates": {
+          "backtest_win": 0.966,
+          "backtest_loss": 0.974,
+          "missed_aligned": 0.971,
+          "missed_tier_a": 0.959
+        },
+        "win_lift": -0.008,
+        "win_ratio": 0.99,
+        "capture_gap_tier_a": -0.007
+      },
+      {
+        "key": "supertrend_flip",
+        "label": "supertrend_flip",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 196,
+          "backtest_loss": 149,
+          "missed_aligned": 206,
+          "missed_opposed": 0,
+          "missed_tier_a": 74
+        },
+        "rates": {
+          "backtest_win": 0.947,
+          "backtest_loss": 0.98,
+          "missed_aligned": 0.995,
+          "missed_tier_a": 1
+        },
+        "win_lift": -0.033,
+        "win_ratio": 0.97,
+        "capture_gap_tier_a": 0.053
+      },
+      {
+        "key": "momentum_confirmation",
+        "label": "momentum_confirmation",
+        "kind": "event",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 168,
+          "backtest_loss": 132,
+          "missed_aligned": 0,
+          "missed_opposed": 0,
+          "missed_tier_a": 0
+        },
+        "rates": {
+          "backtest_win": 0.812,
+          "backtest_loss": 0.868,
+          "missed_aligned": 0,
+          "missed_tier_a": 0
+        },
+        "win_lift": -0.056,
+        "win_ratio": 0.94,
+        "capture_gap_tier_a": -0.812
+      }
+    ],
+    "by_combo": [
+      {
+        "key": "stack_full_confirm",
+        "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 127,
+          "backtest_loss": 85,
+          "missed_aligned": 130,
+          "missed_opposed": 0,
+          "missed_tier_a": 51
+        },
+        "rates": {
+          "backtest_win": 0.614,
+          "backtest_loss": 0.559,
+          "missed_aligned": 0.628,
+          "missed_tier_a": 0.689
+        },
+        "win_lift": 0.055,
+        "win_ratio": 1.1,
+        "capture_gap_tier_a": 0.075
+      },
+      {
+        "key": "confirm_ema21_reclaim",
+        "label": "EMA21 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 173,
+          "backtest_loss": 119,
+          "missed_aligned": 154,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0.836,
+          "backtest_loss": 0.783,
+          "missed_aligned": 0.744,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0.053,
+        "win_ratio": 1.07,
+        "capture_gap_tier_a": -0.025
+      },
+      {
+        "key": "confirm_squeeze",
+        "label": "Squeeze release",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 151,
+          "backtest_loss": 107,
+          "missed_aligned": 134,
+          "missed_opposed": 0,
+          "missed_tier_a": 52
+        },
+        "rates": {
+          "backtest_win": 0.729,
+          "backtest_loss": 0.704,
+          "missed_aligned": 0.647,
+          "missed_tier_a": 0.703
+        },
+        "win_lift": 0.025,
+        "win_ratio": 1.04,
+        "capture_gap_tier_a": -0.026
+      },
+      {
+        "key": "stack_st+ema21",
+        "label": "ST flip + EMA21 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 164,
+          "backtest_loss": 118,
+          "missed_aligned": 153,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0.792,
+          "backtest_loss": 0.776,
+          "missed_aligned": 0.739,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0.016,
+        "win_ratio": 1.02,
+        "capture_gap_tier_a": 0.019
+      },
+      {
+        "key": "stack_st+squeeze",
+        "label": "ST flip + squeeze release",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 145,
+          "backtest_loss": 106,
+          "missed_aligned": 133,
+          "missed_opposed": 0,
+          "missed_tier_a": 52
+        },
+        "rates": {
+          "backtest_win": 0.7,
+          "backtest_loss": 0.697,
+          "missed_aligned": 0.643,
+          "missed_tier_a": 0.703
+        },
+        "win_lift": 0.003,
+        "win_ratio": 1,
+        "capture_gap_tier_a": 0.003
+      },
+      {
+        "key": "confirm_ema21_reject",
+        "label": "EMA21 reject",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 155,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.749,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.811
+      },
+      {
+        "key": "confirm_ema200_reclaim",
+        "label": "EMA200 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 96,
+          "missed_opposed": 0,
+          "missed_tier_a": 36
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.464,
+          "missed_tier_a": 0.486
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.486
+      },
+      {
+        "key": "exhaustion_confirmed",
+        "label": "Exhaustion confirmed (TD9/TD13 stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 63,
+          "missed_opposed": 0,
+          "missed_tier_a": 31
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.304,
+          "missed_tier_a": 0.419
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.419
+      },
+      {
+        "key": "location_valid",
+        "label": "Location valid (PDZ/FVG stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 21,
+          "missed_opposed": 0,
+          "missed_tier_a": 4
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.101,
+          "missed_tier_a": 0.054
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.054
+      },
+      {
+        "key": "mean_reversion_target",
+        "label": "MR target reached (EMA21/VWAP stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 11,
+          "missed_opposed": 0,
+          "missed_tier_a": 1
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.053,
+          "missed_tier_a": 0.014
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.014
+      },
+      {
+        "key": "stack_td9+st",
+        "label": "TD9 + ST flip",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 45,
+          "missed_opposed": 0,
+          "missed_tier_a": 21
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.217,
+          "missed_tier_a": 0.284
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.284
+      },
+      {
+        "key": "mr_stage5_plus",
+        "label": "MR aligned stage >= 5",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 11,
+          "missed_opposed": 0,
+          "missed_tier_a": 1
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.053,
+          "missed_tier_a": 0.014
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.014
+      },
+      {
+        "key": "mr_stage6_plus",
+        "label": "MR aligned stage >= 6",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 2,
+          "missed_opposed": 0,
+          "missed_tier_a": 0
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.01,
+          "missed_tier_a": 0
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0
+      },
+      {
+        "key": "confirm_st_flip",
+        "label": "SuperTrend flip",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 196,
+          "backtest_loss": 149,
+          "missed_aligned": 206,
+          "missed_opposed": 0,
+          "missed_tier_a": 74
+        },
+        "rates": {
+          "backtest_win": 0.947,
+          "backtest_loss": 0.98,
+          "missed_aligned": 0.995,
+          "missed_tier_a": 1
+        },
+        "win_lift": -0.033,
+        "win_ratio": 0.97,
+        "capture_gap_tier_a": 0.053
+      },
+      {
+        "key": "breakthrough_momentum",
+        "label": "Breakthrough w/ momentum (stage 6)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 168,
+          "backtest_loss": 132,
+          "missed_aligned": 2,
+          "missed_opposed": 0,
+          "missed_tier_a": 0
+        },
+        "rates": {
+          "backtest_win": 0.812,
+          "backtest_loss": 0.868,
+          "missed_aligned": 0.01,
+          "missed_tier_a": 0
+        },
+        "win_lift": -0.056,
+        "win_ratio": 0.94,
+        "capture_gap_tier_a": -0.812
+      }
+    ],
+    "top_win_lift": [
+      {
+        "key": "stack_full_confirm",
+        "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 127,
+          "backtest_loss": 85,
+          "missed_aligned": 130,
+          "missed_opposed": 0,
+          "missed_tier_a": 51
+        },
+        "rates": {
+          "backtest_win": 0.614,
+          "backtest_loss": 0.559,
+          "missed_aligned": 0.628,
+          "missed_tier_a": 0.689
+        },
+        "win_lift": 0.055,
+        "win_ratio": 1.1,
+        "capture_gap_tier_a": 0.075
+      },
+      {
+        "key": "confirm_ema21_reclaim",
+        "label": "EMA21 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 173,
+          "backtest_loss": 119,
+          "missed_aligned": 154,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0.836,
+          "backtest_loss": 0.783,
+          "missed_aligned": 0.744,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0.053,
+        "win_ratio": 1.07,
+        "capture_gap_tier_a": -0.025
+      },
+      {
+        "key": "confirm_squeeze",
+        "label": "Squeeze release",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 151,
+          "backtest_loss": 107,
+          "missed_aligned": 134,
+          "missed_opposed": 0,
+          "missed_tier_a": 52
+        },
+        "rates": {
+          "backtest_win": 0.729,
+          "backtest_loss": 0.704,
+          "missed_aligned": 0.647,
+          "missed_tier_a": 0.703
+        },
+        "win_lift": 0.025,
+        "win_ratio": 1.04,
+        "capture_gap_tier_a": -0.026
+      },
+      {
+        "key": "stack_st+ema21",
+        "label": "ST flip + EMA21 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 164,
+          "backtest_loss": 118,
+          "missed_aligned": 153,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0.792,
+          "backtest_loss": 0.776,
+          "missed_aligned": 0.739,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0.016,
+        "win_ratio": 1.02,
+        "capture_gap_tier_a": 0.019
+      },
+      {
+        "key": "stack_st+squeeze",
+        "label": "ST flip + squeeze release",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 145,
+          "backtest_loss": 106,
+          "missed_aligned": 133,
+          "missed_opposed": 0,
+          "missed_tier_a": 52
+        },
+        "rates": {
+          "backtest_win": 0.7,
+          "backtest_loss": 0.697,
+          "missed_aligned": 0.643,
+          "missed_tier_a": 0.703
+        },
+        "win_lift": 0.003,
+        "win_ratio": 1,
+        "capture_gap_tier_a": 0.003
+      },
+      {
+        "key": "confirm_ema21_reject",
+        "label": "EMA21 reject",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 155,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.749,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.811
+      },
+      {
+        "key": "confirm_ema200_reclaim",
+        "label": "EMA200 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 96,
+          "missed_opposed": 0,
+          "missed_tier_a": 36
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.464,
+          "missed_tier_a": 0.486
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.486
+      },
+      {
+        "key": "exhaustion_confirmed",
+        "label": "Exhaustion confirmed (TD9/TD13 stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 63,
+          "missed_opposed": 0,
+          "missed_tier_a": 31
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.304,
+          "missed_tier_a": 0.419
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.419
+      },
+      {
+        "key": "location_valid",
+        "label": "Location valid (PDZ/FVG stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 21,
+          "missed_opposed": 0,
+          "missed_tier_a": 4
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.101,
+          "missed_tier_a": 0.054
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.054
+      },
+      {
+        "key": "mean_reversion_target",
+        "label": "MR target reached (EMA21/VWAP stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 11,
+          "missed_opposed": 0,
+          "missed_tier_a": 1
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.053,
+          "missed_tier_a": 0.014
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.014
+      }
+    ],
+    "top_capture_signals": [
+      {
+        "key": "confirm_ema21_reject",
+        "label": "EMA21 reject",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 155,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.749,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.811
+      },
+      {
+        "key": "confirm_ema200_reclaim",
+        "label": "EMA200 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 96,
+          "missed_opposed": 0,
+          "missed_tier_a": 36
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.464,
+          "missed_tier_a": 0.486
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.486
+      },
+      {
+        "key": "exhaustion_confirmed",
+        "label": "Exhaustion confirmed (TD9/TD13 stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 63,
+          "missed_opposed": 0,
+          "missed_tier_a": 31
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.304,
+          "missed_tier_a": 0.419
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.419
+      },
+      {
+        "key": "stack_td9+st",
+        "label": "TD9 + ST flip",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 45,
+          "missed_opposed": 0,
+          "missed_tier_a": 21
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.217,
+          "missed_tier_a": 0.284
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.284
+      },
+      {
+        "key": "stack_full_confirm",
+        "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 127,
+          "backtest_loss": 85,
+          "missed_aligned": 130,
+          "missed_opposed": 0,
+          "missed_tier_a": 51
+        },
+        "rates": {
+          "backtest_win": 0.614,
+          "backtest_loss": 0.559,
+          "missed_aligned": 0.628,
+          "missed_tier_a": 0.689
+        },
+        "win_lift": 0.055,
+        "win_ratio": 1.1,
+        "capture_gap_tier_a": 0.075
+      },
+      {
+        "key": "location_valid",
+        "label": "Location valid (PDZ/FVG stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 21,
+          "missed_opposed": 0,
+          "missed_tier_a": 4
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.101,
+          "missed_tier_a": 0.054
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.054
+      },
+      {
+        "key": "confirm_st_flip",
+        "label": "SuperTrend flip",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 196,
+          "backtest_loss": 149,
+          "missed_aligned": 206,
+          "missed_opposed": 0,
+          "missed_tier_a": 74
+        },
+        "rates": {
+          "backtest_win": 0.947,
+          "backtest_loss": 0.98,
+          "missed_aligned": 0.995,
+          "missed_tier_a": 1
+        },
+        "win_lift": -0.033,
+        "win_ratio": 0.97,
+        "capture_gap_tier_a": 0.053
+      },
+      {
+        "key": "stack_st+ema21",
+        "label": "ST flip + EMA21 reclaim",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 164,
+          "backtest_loss": 118,
+          "missed_aligned": 153,
+          "missed_opposed": 0,
+          "missed_tier_a": 60
+        },
+        "rates": {
+          "backtest_win": 0.792,
+          "backtest_loss": 0.776,
+          "missed_aligned": 0.739,
+          "missed_tier_a": 0.811
+        },
+        "win_lift": 0.016,
+        "win_ratio": 1.02,
+        "capture_gap_tier_a": 0.019
+      },
+      {
+        "key": "mean_reversion_target",
+        "label": "MR target reached (EMA21/VWAP stage)",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 11,
+          "missed_opposed": 0,
+          "missed_tier_a": 1
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.053,
+          "missed_tier_a": 0.014
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.014
+      },
+      {
+        "key": "mr_stage5_plus",
+        "label": "MR aligned stage >= 5",
+        "kind": "combo",
+        "totals": {
+          "backtest_win": 207,
+          "backtest_loss": 152,
+          "missed_aligned": 207,
+          "missed_opposed": 0,
+          "missed_tier_a": 74,
+          "missed_other": 0,
+          "backtest_other": 0
+        },
+        "presence": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 11,
+          "missed_opposed": 0,
+          "missed_tier_a": 1
+        },
+        "rates": {
+          "backtest_win": 0,
+          "backtest_loss": 0,
+          "missed_aligned": 0.053,
+          "missed_tier_a": 0.014
+        },
+        "win_lift": 0,
+        "win_ratio": null,
+        "capture_gap_tier_a": 0.014
+      }
+    ]
+  }
+}
