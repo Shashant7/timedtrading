@@ -7,7 +7,6 @@
 
 import { buildDiagnosticsContext } from "./setup-diagnostics-route.js";
 import {
-  DEFAULT_PRE_ENTRY_MS,
   diagnosticsForEventWindow,
   evaluateGateOnProfile,
   extractPatternProfile,
