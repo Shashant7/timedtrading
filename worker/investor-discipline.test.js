@@ -8,6 +8,7 @@ import {
   resolveStickyPrimaryInvalidation,
   classifyInvestorStage,
   isStructuralInvestorReduce,
+  pickPrimaryInvalidationPrice,
 } from "./investor.js";
 
 describe("investor R6 discipline defaults", () => {
@@ -69,6 +70,37 @@ describe("primary invalidation breach", () => {
     expect(resolvePrimaryInvalidationBreach(257.7, {
       primaryInvalidation: { price: 256.04, label: "Daily ATR support" },
     })).toBeNull();
+  });
+
+  it("rejects a too-tight nearest floor for the long-horizon lane (LITE 2026-06-22)", () => {
+    // Price $840.58 with a daily-ATR support only ~0.67% below ($834.96).
+    // That intraday-noise level must NOT become the investor invalidation;
+    // the model should fall back to a wider structural / % floor.
+    const td = {
+      price: 840.58,
+      atr_levels: {
+        day: { levels_dn: [{ price: 834.96, label: "S1" }] },
+        week: { levels_dn: [] },
+      },
+    };
+    const inv = pickPrimaryInvalidationPrice(td, {}, []);
+    expect(inv).toBeTruthy();
+    // The 0.67%-below daily level is rejected; the floor sits >= 4% below.
+    expect(inv.price).toBeLessThanOrEqual(840.58 * 0.96 + 0.01);
+    expect(inv.distancePct).toBeGreaterThanOrEqual(4);
+  });
+
+  it("honors a configurable minimum floor distance", () => {
+    const td = {
+      price: 100,
+      atr_levels: { day: { levels_dn: [{ price: 97, label: "S1" }] }, week: { levels_dn: [] } },
+    };
+    // Default (4%): the 3%-below level is too tight → fallback (wider).
+    const def = pickPrimaryInvalidationPrice(td, {}, []);
+    expect(def.price).toBeLessThan(97);
+    // Loosen the minimum to 2%: now the 3%-below level qualifies.
+    const tuned = pickPrimaryInvalidationPrice(td, {}, [], { minFloorDdPct: 2 });
+    expect(tuned.price).toBe(97);
   });
 
   it("keeps the published floor sticky after price drops below it", () => {
