@@ -5182,6 +5182,63 @@ async function dispatchDailyBriefNotifications(env, {
   } catch (e) {
     console.warn("[DAILY BRIEF] failed to persist email lastrun snapshot:", String(e?.message || e).slice(0, 120));
   }
+
+  // 2026-06-22 — Surface a SILENT all-failed run. Operator only discovered
+  // today's stripBriefMarkdownForEmail ReferenceError because no email
+  // arrived. Fire a system-lane Discord alert when the brief had real
+  // recipients but zero sends succeeded, so a delivery regression is caught
+  // immediately instead of by a missing-inbox report.
+  try {
+    if (opts.notifyDiscord && _emailReport.recipients > 0 && _emailReport.sent === 0) {
+      const _sample = Array.isArray(_emailReport.failure_samples) && _emailReport.failure_samples[0]
+        ? String(_emailReport.failure_samples[0].error || "").slice(0, 200)
+        : (_emailReport.error || _emailReport.reason || "unknown");
+      await opts.notifyDiscord(env, {
+        title: `🚨 Daily Brief email FAILED — ${type} (${_emailReport.failed}/${_emailReport.recipients} recipients)`,
+        description: `Zero ${type} brief emails sent to ${_emailReport.recipients} opted-in users.\nReason: \`${_emailReport.reason}\`\nFirst error: \`${_sample}\`\n\nResend after a fix: \`POST /timed/admin/resend-brief?type=${type}\``,
+        color: 0xef4444,
+        timestamp: new Date().toISOString(),
+      }, "system").catch(() => {});
+    }
+  } catch (_) { /* alert must never break the dispatch */ }
+}
+
+/**
+ * Re-dispatch the ALREADY-GENERATED brief of a given type (no LLM call).
+ *
+ * 2026-06-22 — Recovery tool. When a brief generated fine but the email send
+ * failed (e.g. today's stripBriefMarkdownForEmail ReferenceError broke all 16
+ * recipients), the operator needs to re-send WITHOUT regenerating content
+ * (the async HTTP regen path can't finish a 60-90s LLM call inside waitUntil;
+ * only the cron has that budget). Loads timed:daily-brief:current[type] and
+ * re-runs dispatch. Defaults to EMAIL-ONLY (no Discord / in-app re-post) since
+ * those channels delivered on the original run — pass opts.notifyDiscord /
+ * opts.d1InsertNotification explicitly to also re-fire them.
+ */
+export async function resendStoredBrief(env, type, opts = {}) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return { ok: false, error: "no_kv" };
+  const t = type === "morning" ? "morning" : "evening";
+  const current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
+  const stored = current[t];
+  if (!stored || !stored.content) {
+    return { ok: false, error: `no_stored_${t}_brief`, hint: "Generate the brief first (cron or POST /timed/daily-brief/generate)." };
+  }
+  await dispatchDailyBriefNotifications(env, {
+    type: t,
+    data: { today: stored.date },
+    content: stored.content,
+    esPrediction: stored.esPrediction,
+    spyPrediction: stored.spyPrediction,
+    qqqPrediction: stored.qqqPrediction,
+    iwmPrediction: stored.iwmPrediction,
+    infographic: stored.infographic,
+    croNote: stored.croNote || null,
+    subjectHook: stored.subjectHook || null,
+    opts,
+  });
+  const lastrun = await kvGetJSON(KV, `timed:email:daily_brief:lastrun:${t}`).catch(() => null);
+  return { ok: true, type: t, date: stored.date, resent: true, email: lastrun };
 }
 
 export async function generateDailyBrief(env, type, opts = {}) {
