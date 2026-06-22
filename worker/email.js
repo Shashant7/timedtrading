@@ -2,6 +2,14 @@
 // Handles: welcome, daily brief digest, trade alerts, re-engagement, unsubscribe tokens.
 
 import { optionsPlayEmailHtml } from "./options-plays.js";
+// 2026-06-22 — Import as a LOCAL binding. Previously this was a bare
+// `export { stripBriefMarkdownForDisplay as stripBriefMarkdownForEmail }
+// from "./daily-brief-markdown.js"` re-export, which does NOT create a
+// local binding — so sendDailyBriefEmail()'s call to it threw
+// `ReferenceError: stripBriefMarkdownForEmail is not defined` and EVERY
+// daily-brief email (morning + evening) failed to send. Import locally,
+// then re-export below for any external consumer.
+import { stripBriefMarkdownForDisplay as stripBriefMarkdownForEmail } from "./daily-brief-markdown.js";
 
 const SENDGRID_API = "https://api.sendgrid.com/v3/mail/send";
 const FROM_EMAIL = "notifications@timed-trading.com";
@@ -853,7 +861,7 @@ export async function sendDiscordWelcomeEmail(env, email, discordUsername) {
 // ═══════════════════════════════════════════════════════════════════════
 
 /** Strip markdown sections duplicated by infographic / structured blocks. */
-export { stripBriefMarkdownForDisplay as stripBriefMarkdownForEmail } from "./daily-brief-markdown.js";
+export { stripBriefMarkdownForEmail };
 
 /** One row per investor holding for brief emails. */
 export function buildEmailInvestorPortfolioBlock(holdings = []) {
