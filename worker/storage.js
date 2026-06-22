@@ -224,6 +224,9 @@ const D1_MINIMAL_KEYS = [
   // Setup sequence shadow (read-only; does not gate entry)
   "setup_shadow", "setup_sequences", "setup_shadow_posture",
   "setup_shadow_event_count", "setup_shadow_as_of_ts",
+  // Setup gate shadow (read-only; does not gate entry)
+  "setup_gate_shadow", "setup_gates", "setup_gate_lookback_hours",
+  "setup_gate_event_count", "setup_gate_as_of_ts",
 ];
 
 export function minimalPayloadForD1(obj) {
