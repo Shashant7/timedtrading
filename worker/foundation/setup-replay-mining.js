@@ -4,7 +4,7 @@
 // join closed trades for read-only reliability tables. No D1/KV writes.
 // -----------------------------------------------------------------------------
 
-import { deriveSetupEventsFromWindow } from "./setup-event-derivation.js";
+import { deriveSetupEventsFromWindow, enrichTrailSnapshotsForDerivation } from "./setup-event-derivation.js";
 import {
   buildDiagnosticsContext,
   parseTrailSnapshotRow,
@@ -48,8 +48,8 @@ export function sequenceForDirection(sequences = [], direction) {
 }
 
 export function diagnosticsForEntryWindow(snapshots = [], entryTs, opts = {}) {
-  const windowSnaps = snapshotsBeforeEntry(snapshots, entryTs, opts);
-  if (!windowSnaps.length) {
+  const windowSnapsRaw = snapshotsBeforeEntry(snapshots, entryTs, opts);
+  if (!windowSnapsRaw.length) {
     return {
       ok: false,
       reason: "no_snapshots_before_entry",
@@ -59,6 +59,14 @@ export function diagnosticsForEntryWindow(snapshots = [], entryTs, opts = {}) {
       trader_posture: summarizeTraderPosture([]),
     };
   }
+
+  const windowSnaps = opts.enrichTrailDerivation === false
+    ? windowSnapsRaw
+    : enrichTrailSnapshotsForDerivation(windowSnapsRaw, {
+      ...(opts.derivationOpts || {}),
+      dailyCandles: opts.dailyCandles || [],
+      signalTfs: opts.derivationOpts?.signalTfs || ["D", "60", "30"],
+    });
 
   const latest = windowSnaps[windowSnaps.length - 1];
   const context = buildDiagnosticsContext(latest, opts.env || {});

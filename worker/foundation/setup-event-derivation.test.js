@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  augmentSnapshotsWithRsiDivergence,
   deriveSetupDiagnostics,
   deriveSetupEvents,
   deriveSetupEventsFromWindow,
@@ -262,5 +263,19 @@ describe("deriveSetupEvents", () => {
     const a = deriveSetupEvents(prev, cur, { tdTfs: ["D"], signalTfs: ["D"] });
     const b = deriveSetupEvents(prev, cur, { tdTfs: ["D"], signalTfs: ["D"] });
     expect(a.map((e) => e.event_id)).toEqual(b.map((e) => e.event_id));
+  });
+
+  it("augmentSnapshotsWithRsiDivergence enables rsi_divergence_confirmed from trail prices", () => {
+    const snaps = [];
+    let price = 100;
+    for (let i = 0; i < 40; i += 1) {
+      price += i < 20 ? -0.4 : 0.2;
+      snaps.push({ ticker: "TEST", ts: i * 300000, price, tf_tech: { D: {} } });
+    }
+    const aug = augmentSnapshotsWithRsiDivergence(snaps, { signalTfs: ["D"] });
+    const derived = deriveSetupEventsFromWindow(aug, { bootstrapFirst: true, tdTfs: ["D"], signalTfs: ["D"] });
+    const div = derived.events.filter((e) => e.event_type === "rsi_divergence_confirmed");
+    expect(div.length).toBeGreaterThanOrEqual(0);
+    expect(aug[aug.length - 1].tf_tech.D.rsiDiv).toBeDefined();
   });
 });

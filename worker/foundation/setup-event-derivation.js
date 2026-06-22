@@ -8,6 +8,7 @@
 
 import { createSetupEvent, normalizeSetupEvents } from "./setup-events.js";
 import { detectMeanReversionSequences } from "./setup-sequences.js";
+import { computeTDSequential, detectRsiDivergence, rsiSeries } from "../indicators.js";
 
 const DEFAULT_TD_TFS = ["D", "W", "60"];
 const DEFAULT_SIGNAL_TFS = ["D", "60", "30"];
@@ -217,8 +218,12 @@ export function deriveSetupEvents(prevTicker = null, currentTicker = null, opts 
     if (curBearPrep >= 7 && (opts.bootstrap || curBearPrep > prevBearPrep)) {
       out.emit(tf, "td_setup_progress", "SHORT", { count: curBearPrep, side: "bearish_prep" });
     }
-    if (out.changedTruthy(prev.td9_bullish, cur.td9_bullish)) out.emit(tf, "td9_complete", "LONG", { side: "bull" });
-    if (out.changedTruthy(prev.td9_bearish, cur.td9_bearish)) out.emit(tf, "td9_complete", "SHORT", { side: "bear" });
+    if (out.changedTruthy(prev.td9_bullish, cur.td9_bullish) || (opts.bootstrap && cur.td9_bullish)) {
+      out.emit(tf, "td9_complete", "LONG", { side: "bull" });
+    }
+    if (out.changedTruthy(prev.td9_bearish, cur.td9_bearish) || (opts.bootstrap && cur.td9_bearish)) {
+      out.emit(tf, "td9_complete", "SHORT", { side: "bear" });
+    }
     if (out.changedTruthy(prev.td13_bullish, cur.td13_bullish)) out.emit(tf, "td13_complete", "LONG", { side: "bull" });
     if (out.changedTruthy(prev.td13_bearish, cur.td13_bearish)) out.emit(tf, "td13_complete", "SHORT", { side: "bear" });
   }
@@ -505,4 +510,185 @@ export function deriveSetupEventsFromWindow(snapshots = [], opts = {}) {
     sequences,
     latest,
   };
+}
+
+function candlePrefixForTs(dailyCandles = [], ts) {
+  const sorted = [...dailyCandles]
+    .map((c) => ({
+      o: Number(c.o ?? c.open),
+      h: Number(c.h ?? c.high),
+      l: Number(c.l ?? c.low),
+      c: Number(c.c ?? c.close),
+      ts: Number(c.ts),
+    }))
+    .filter((c) => Number.isFinite(c.ts) && Number.isFinite(c.c))
+    .sort((a, b) => a.ts - b.ts);
+  const anchor = Number(ts);
+  if (!Number.isFinite(anchor) || !sorted.length) return [];
+  let lastIdx = -1;
+  for (let i = 0; i < sorted.length; i += 1) {
+    if (sorted[i].ts <= anchor) lastIdx = i;
+    else break;
+  }
+  return lastIdx >= 0 ? sorted.slice(0, lastIdx + 1) : [];
+}
+
+/** Stamp daily TD sequential state on each snapshot from D candles (backtest parity). */
+export function augmentSnapshotsWithDailyTd(snapshots = [], dailyCandles = []) {
+  if (!Array.isArray(snapshots) || !snapshots.length || !Array.isArray(dailyCandles) || !dailyCandles.length) {
+    return snapshots;
+  }
+  return snapshots.map((snap) => {
+    const prefix = candlePrefixForTs(dailyCandles, tsOf(snap));
+    if (prefix.length < 10) return snap;
+    const tdD = computeTDSequential(prefix, "D");
+    return {
+      ...snap,
+      td_sequential: {
+        ...(snap.td_sequential || {}),
+        per_tf: {
+          ...((snap.td_sequential || {}).per_tf || {}),
+          D: tdD,
+        },
+      },
+    };
+  });
+}
+
+/** Reconstruct RSI divergence on trail windows using daily OHLC (5m lacks swing structure). */
+export function augmentSnapshotsWithRsiDivergence(snapshots = [], opts = {}) {
+  const sorted = sortSnapshots(snapshots);
+  if (!sorted.length) return sorted;
+
+  const dailyCandles = Array.isArray(opts.dailyCandles) ? opts.dailyCandles : [];
+  if (dailyCandles.length >= 20) {
+    return augmentSnapshotsWithDailyRsiDivergence(sorted, dailyCandles, opts);
+  }
+
+  if (sorted.length < 20) return sorted;
+
+  const closes = sorted.map((s) => Number(s.price ?? s.close ?? s.price_close) || NaN);
+  if (closes.filter(Number.isFinite).length < 20) return sorted;
+
+  const bars = closes.map((c, i) => ({
+    o: c,
+    h: c,
+    l: c,
+    c,
+    ts: tsOf(sorted[i]),
+  }));
+  const rsiArr = rsiSeries(closes, Number(opts.rsiPeriod) || 14);
+  const pivotLookback = Number(opts.pivotLookback) || 5;
+  const maxAge = Number(opts.maxAge) || 96;
+  const tfs = Array.isArray(opts.signalTfs) && opts.signalTfs.length
+    ? opts.signalTfs
+    : ["D", "60", "30"];
+
+  let bullLatched = false;
+  let bearLatched = false;
+
+  return sorted.map((snap, i) => {
+    const prefixBars = bars.slice(0, i + 1);
+    const prefixRsi = rsiArr.slice(0, i + 1);
+    const div = detectRsiDivergence(prefixBars, prefixRsi, pivotLookback, maxAge);
+    if (div.bull?.active) bullLatched = true;
+    if (div.bear?.active) bearLatched = true;
+    return stampRsiDivOnSnapshot(snap, { bullLatched, bearLatched, div, rsiVal: prefixRsi[i], tfs });
+  });
+}
+
+function stampRsiDivOnSnapshot(snap, { bullLatched, bearLatched, div, rsiVal, tfs }) {
+  const rsiDiv = {};
+  if (bullLatched) {
+    rsiDiv.bull = {
+      a: true,
+      strength: div?.bull?.strength ?? null,
+      bs: div?.bull?.barsSince ?? null,
+    };
+  }
+  if (bearLatched) {
+    rsiDiv.bear = {
+      a: true,
+      strength: div?.bear?.strength ?? null,
+      bs: div?.bear?.barsSince ?? null,
+    };
+  }
+  const tfPatch = {};
+  for (const tf of tfs) {
+    tfPatch[tf] = {
+      ...(snap.tf_tech?.[tf] || {}),
+      rsiDiv: { ...(snap.tf_tech?.[tf]?.rsiDiv || {}), ...rsiDiv },
+      rsi: { r5: rsiVal },
+    };
+  }
+  return {
+    ...snap,
+    tf_tech: { ...(snap.tf_tech || {}), ...tfPatch },
+  };
+}
+
+export function augmentSnapshotsWithDailyRsiDivergence(snapshots = [], dailyCandles = [], opts = {}) {
+  const sortedSnaps = sortSnapshots(snapshots);
+  const sortedDaily = [...dailyCandles]
+    .map((c) => ({
+      o: Number(c.o ?? c.open),
+      h: Number(c.h ?? c.high),
+      l: Number(c.l ?? c.low),
+      c: Number(c.c ?? c.close),
+      ts: Number(c.ts),
+    }))
+    .filter((c) => Number.isFinite(c.ts) && Number.isFinite(c.c))
+    .sort((a, b) => a.ts - b.ts);
+  if (!sortedSnaps.length || sortedDaily.length < 20) return sortedSnaps;
+
+  const closes = sortedDaily.map((c) => c.c);
+  const rsiArr = rsiSeries(closes, Number(opts.rsiPeriod) || 14);
+  const pivotLookback = Number(opts.pivotLookback) || 5;
+  const maxAge = Number(opts.maxAge) || 30;
+  const tfs = Array.isArray(opts.signalTfs) && opts.signalTfs.length
+    ? opts.signalTfs
+    : ["D", "60", "30"];
+
+  let bullLatched = false;
+  let bearLatched = false;
+  const divAtDailyTs = [];
+  for (let i = 0; i < sortedDaily.length; i += 1) {
+    const prefixBars = sortedDaily.slice(0, i + 1);
+    const prefixRsi = rsiArr.slice(0, i + 1);
+    const div = detectRsiDivergence(prefixBars, prefixRsi, pivotLookback, maxAge);
+    if (div.bull?.active) bullLatched = true;
+    if (div.bear?.active) bearLatched = true;
+    divAtDailyTs.push({
+      ts: sortedDaily[i].ts,
+      bullLatched,
+      bearLatched,
+      div,
+      rsiVal: prefixRsi[i],
+    });
+  }
+
+  return sortedSnaps.map((snap) => {
+    const ts = tsOf(snap);
+    let row = divAtDailyTs[0];
+    for (const d of divAtDailyTs) {
+      if (d.ts <= ts) row = d;
+      else break;
+    }
+    return stampRsiDivOnSnapshot(snap, {
+      bullLatched: row?.bullLatched === true,
+      bearLatched: row?.bearLatched === true,
+      div: row?.div,
+      rsiVal: row?.rsiVal,
+      tfs,
+    });
+  });
+}
+
+/** Trail replay enrichment: RSI div + optional daily TD before event derivation. */
+export function enrichTrailSnapshotsForDerivation(snapshots = [], opts = {}) {
+  let out = augmentSnapshotsWithRsiDivergence(snapshots, opts);
+  if (Array.isArray(opts.dailyCandles) && opts.dailyCandles.length) {
+    out = augmentSnapshotsWithDailyTd(out, opts.dailyCandles);
+  }
+  return out;
 }
