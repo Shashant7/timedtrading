@@ -2006,6 +2006,32 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf, _briefSessionMktOpen),
     premarketGapContext: buildPremarketGapContext(_pf, mktOpen),
     crossAssetContext: buildCrossAssetContext(_pf, mktOpen),
+    // 2026-06-22 — RTH top movers across the TT universe (gainers/losers),
+    // for the brief's "Today's Top Movers" section. Computed from the
+    // price-feed raw map (same `dp` daily-change source the intraday brief
+    // uses). Index/sector/futures proxies are excluded — these are the
+    // single-name movers a reader scans for.
+    ttUniverseMovers: (() => {
+      try {
+        const skip = new Set(["SPY","QQQ","DIA","IWM","VIX","VX1!","ES1!","NQ1!","CL1!","GC1!","SI1!","XLE","XLK","XLF","XLU","XLP","XLY","XLI","XLV","XLB","XLRE","XLC","GLD","TLT","SLV","USO"]);
+        const movers = [];
+        for (const [ticker, d] of Object.entries(_pf || {})) {
+          if (skip.has(ticker) || !d || typeof d !== "object") continue;
+          const pct = Number(d.dp); const price = Number(d.p);
+          if (Number.isFinite(pct) && Number.isFinite(price) && price > 0 && Math.abs(pct) >= 1.0) {
+            movers.push({ ticker, pct, price });
+          }
+        }
+        if (!movers.length) return null;
+        const fmt = (m) => `${m.ticker} $${m.price.toFixed(2)} (${m.pct >= 0 ? "+" : ""}${m.pct.toFixed(1)}%)`;
+        const gainers = movers.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 6);
+        const losers = movers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 6);
+        const parts = [];
+        if (gainers.length) parts.push(`Top Gainers: ${gainers.map(fmt).join(", ")}`);
+        if (losers.length) parts.push(`Top Losers: ${losers.map(fmt).join(", ")}`);
+        return parts.length ? parts.join("\n") : null;
+      } catch (_) { return null; }
+    })(),
     priceFeedRaw: _pf,
     // 2026-05-30 — Inheritance fix. The Daily Brief now sees the
     // synthesized 8-layer root-strategy verdict per top-conviction
@@ -3658,13 +3684,13 @@ function buildRetailFriendlyOutputSpec(type) {
   // the Daily Brief is the hook to get users to come back in to the
   // site and trust the model."
   const sections = isEvening
-    ? `1. **The Market Read** (~250 words — ONE section only. Merge the CRO Desk day-end wrap, session recap, macro context, and sector themes. OPEN with how today's close validated or challenged the CRO Research Desk verdict — cite specific Desk observations when the tape corroborates or contradicts them. Then cover macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders/laggards with WHY. Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", or "Sector Themes" headings — the Desk synthesis lives here AND in the structured Desk card the app renders separately.)
-2. **Index Outlook & Scorecard** (~350 words — ONE section merging predictions + structural update + key levels. For ES then SPY, QQQ, IWM use ### sub-headings per index. Each sub-block: scorecard (call vs result for evening), narrative sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings.)
-3. **Looking Ahead** (~80 words — tomorrow's macro calendar entries BY NAME with time + consensus where provided)
-4. **On Watch — Entry Radar** (~80 words — from the On Watch data block: per ticker, one line — lane + WHY)
-5. **Risk Factors** (1-2 key risks, ≤20 words each)
-6. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
-7. **Investor Portfolio** — ONE LINE PER HOLDING (bullet list). Format each line: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Do not run holdings together in a paragraph.`
+    ? `1. **The Market Read** (~230 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
+2. **Index Outlook — SPY, QQQ, IWM** (~280 words — how should one view each index next session. Use ### SPY, ### QQQ, ### IWM sub-headings (cover ES briefly only if it adds signal). Each sub-block: scorecard (call vs result), one narrative sentence, bull/bear triggers + targets, Day Gate range, key SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings.)
+3. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing the single names with their % moves. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
+4. **Active Trader Report** (~90 words — FIRST what the Active Trader model DID today: entries / exits / trims-&-defends by name with the reason (from the Entries/Exits/Trims data). THEN how the OPEN positions are doing: per position one line — ticker, today's chg%, open P&L, thesis status, next action. If nothing happened today, say "no new trader actions today" and go straight to open positions.)
+5. **Investor Portfolio** (~90 words — FIRST what the Investor model DID today (accumulate / add / reduce / exit by name with reason, if any). THEN the open holdings — ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
+6. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
+7. **On Watch — Entry Radar** (~70 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **The Market Read** (~250 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
 2. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after prints land, lead with actual vs estimate)
 3. **Index Outlook & Game Plan** (~350 words — ONE section merging predictions + key levels + game plan. For ES then SPY, QQQ, IWM use ### sub-headings per index. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings or a standalone "Key Levels" section.)
@@ -3703,7 +3729,7 @@ ${sections}
   - Range today: $LOW – $HIGH
   - For EVENING: also include "Result: [HIT / MISS / WORKING / NEITHER]" so the scorecard is honest about what happened.
 - **Chart placeholders** inside the Index Outlook section: write \`[CHART: SPY]\` on its own line next to that index's commentary. Same for QQQ, IWM. Interleave — don't batch all charts at the end.
-- **Active Trader / Investor Portfolio** sections must reference the actual open positions list provided in the data. Investor Portfolio: one bullet per holding, never a paragraph.
+- **Active Trader Report / Investor Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
 - **NEVER claim "no macro events today" unless the economic-data section above explicitly listed real sources returning a confirmed-empty calendar.** Missing data ≠ a quiet calendar.
 
@@ -4145,6 +4171,9 @@ ${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
 
+## Today's RTH Top Movers (single names across the TT universe — USE for the "Today's Top Movers" section):
+${data.ttUniverseMovers || "No standout single-name movers in the universe today (all within ±1%)."}
+
 ## This Morning's ES Prediction:
 ${data.morningPrediction || "No morning prediction available."}
 
@@ -4239,9 +4268,9 @@ ${(data.investorPositions || []).length > 0
       }).join("\n")
     : "No investor positions."}
 
-STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~800 words total.
+STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~750 words total. This brief is read top-to-bottom as ONE coherent piece — each section flows into the next, no repetition across sections.
 
-OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly. Do NOT emit separate Session Recap, Sector Themes, per-index Scorecard, or Key Levels headings — merged into The Market Read and Index Outlook & Scorecard.
+OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly, in this order: The Market Read → Index Outlook — SPY, QQQ, IWM → Today's Top Movers → Active Trader Report → Investor Portfolio → Looking Ahead → On Watch — Entry Radar. Do NOT emit separate Session Recap, Sector Themes, per-index Scorecard, CRO Desk, or Key Levels headings — those are merged into The Market Read and Index Outlook.
 
 Inside each ### SPY / ### QQQ / ### IWM block: include **SPY Prediction**: (matching label) plus scorecard result (evening) and trigger levels.
 
