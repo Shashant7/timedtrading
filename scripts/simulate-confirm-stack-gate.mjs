@@ -9,6 +9,10 @@
  *
  *   # Build backtest cache + timing on Tier A (preprod events):
  *   node scripts/simulate-confirm-stack-gate.mjs --with-timing --build-backtest
+ *
+ *   # Expanded runway gates + rebuild backtest cache with TD9 parity:
+ *   node scripts/simulate-confirm-stack-gate.mjs --build-backtest --rebuild-backtest \
+ *     --gates stack_full_confirm,gate_confirm+div,gate_runway_full,stack_td9+div+momentum
  */
 
 import fs from "node:fs";
@@ -17,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import {
   augmentPatternProfileFromTrailFacts,
   buildGateSimulationReport,
+  buildGateTimingComparison,
   computeGateTimingFromEvents,
   computeGateTimingFromTrailRows,
   diagnosticsForEntryWindow,
@@ -47,9 +52,14 @@ const PRE_ENTRY_HOURS = Number(argValue("--pre-entry-hours", "120")) || 120;
 const TIER_A_MIN = Number(argValue("--tier-a-min-atr", "8")) || 8;
 const BACKTEST_LIMIT = Math.max(1, Number(argValue("--backtest-limit", "362")) || 362);
 const WITH_TIMING = process.argv.includes("--with-timing");
+const TIMING_GATES = (argValue("--timing-gates", "stack_full_confirm,gate_runway_full") || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 const BUILD_BACKTEST = process.argv.includes("--build-backtest");
-const PRIMARY_GATE = argValue("--primary-gate", "stack_full_confirm");
-const GATE_KEYS = (argValue("--gates", "stack_full_confirm,stack_st+squeeze,confirm_st_flip") || "")
+const REBUILD_BACKTEST = process.argv.includes("--rebuild-backtest");
+const PRIMARY_GATE = argValue("--primary-gate", "gate_runway_full");
+const GATE_KEYS = (argValue("--gates", "stack_full_confirm,gate_confirm+div,gate_runway_full,stack_td9+div+momentum,stack_exhaust+rsi_div") || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -84,10 +94,21 @@ function fetchSetupEvents(ticker, since, until, wranglerEnv) {
   }
 }
 
-function fetchTrail5m(ticker, since, until, wranglerEnv) {
+function fetchTrailRows(ticker, since, until, wranglerEnv) {
   const sym = String(ticker).toUpperCase().replace(/[^A-Z0-9._-]/g, "");
-  const sql = `SELECT bucket_ts, had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite FROM trail_5m_facts WHERE ticker='${sym}' AND bucket_ts >= ${since} AND bucket_ts <= ${until} ORDER BY bucket_ts ASC LIMIT 2000`;
+  const sql = `SELECT bucket_ts, price_close, state, kanban_stage_end, phase_pct, pdz_zone, pdz_pct, fvg_bull_count, fvg_bear_count, ema_regime_D, had_squeeze_release, had_ema_cross, had_st_flip, had_momentum_elite FROM trail_5m_facts WHERE ticker='${sym}' AND bucket_ts >= ${since} AND bucket_ts <= ${until} ORDER BY bucket_ts ASC LIMIT 2000`;
   return fetchD1Rows(wranglerEnv, sql);
+}
+
+function fetchDailyCandles(ticker, since, until, wranglerEnv) {
+  const sym = String(ticker).toUpperCase().replace(/[^A-Z0-9._-]/g, "");
+  const padSince = since - 120 * 24 * 60 * 60 * 1000;
+  const sql = `SELECT ts, o, h, l, c FROM ticker_candles WHERE ticker='${sym}' AND tf='D' AND ts >= ${padSince} AND ts <= ${until} ORDER BY ts ASC LIMIT 500`;
+  try {
+    return fetchD1Rows(wranglerEnv, sql);
+  } catch {
+    return [];
+  }
 }
 
 function fetchBacktestTrades(runId, limit) {
@@ -104,9 +125,13 @@ function enrichBacktestTrade(trade, preEntryMs, cache) {
   if (!cache.has(cacheKey)) {
     const events = fetchSetupEvents(trade.ticker, since, entryTs, WRANGLER_D1);
     if (events.length >= 3) {
-      cache.set(cacheKey, { mode: "events", data: events });
+      cache.set(cacheKey, { mode: "events", data: events, dailyCandles: [] });
     } else {
-      cache.set(cacheKey, { mode: "trail", data: fetchTrail5m(trade.ticker, since, entryTs, WRANGLER_D1) });
+      cache.set(cacheKey, {
+        mode: "trail",
+        data: fetchTrailRows(trade.ticker, since, entryTs, WRANGLER_D1),
+        dailyCandles: fetchDailyCandles(trade.ticker, since, entryTs, WRANGLER_D1),
+      });
     }
   }
   const cached = cache.get(cacheKey);
@@ -118,6 +143,7 @@ function enrichBacktestTrade(trade, preEntryMs, cache) {
     diag = {
       ...diagnosticsForEntryWindow(snapshots, entryTs, {
         preEntryMs,
+        dailyCandles: cached.dailyCandles || [],
         derivationOpts: { tdTfs: ["D", "W", "60"], signalTfs: ["D", "60", "30"] },
       }),
       trailRows: cached.data,
@@ -148,7 +174,7 @@ function enrichBacktestTrade(trade, preEntryMs, cache) {
 }
 
 function loadOrBuildBacktest(preEntryMs, cache) {
-  if (!BUILD_BACKTEST && fs.existsSync(BACKTEST_CACHE)) {
+  if (!BUILD_BACKTEST && !REBUILD_BACKTEST && fs.existsSync(BACKTEST_CACHE)) {
     return JSON.parse(fs.readFileSync(BACKTEST_CACHE, "utf8"));
   }
   console.error(`Building backtest cache (${BACKTEST_LIMIT} trades)...`);
@@ -165,7 +191,7 @@ function tierTimingForMove(row, preEntryMs, gateKey) {
   const events = fetchSetupEvents(row.ticker, since, anchorTs, MISSED_D1);
   let timing = computeGateTimingFromEvents(events, anchorTs, gateKey, { preEntryMs });
   if (!timing.fires) {
-    const trail = fetchTrail5m(row.ticker, since, anchorTs, MISSED_D1);
+    const trail = fetchTrailRows(row.ticker, since, anchorTs, MISSED_D1);
     const trailTiming = computeGateTimingFromTrailRows(trail, anchorTs, gateKey, { preEntryMs });
     if (trailTiming.fires) timing = trailTiming;
   }
@@ -185,12 +211,21 @@ function main() {
   const allRows = [...backtest, ...missed];
 
   const timingByMoveId = {};
+  let timingComparison = null;
   if (WITH_TIMING) {
     const tierA = missed.filter((r) => Number(r.move_atr) >= TIER_A_MIN);
-    console.error(`Computing event timing for ${tierA.length} Tier A moves (${PRIMARY_GATE})...`);
+    console.error(`Computing event timing for ${tierA.length} Tier A moves (${TIMING_GATES.join(", ")})...`);
     for (const row of tierA) {
-      timingByMoveId[row.move_id] = tierTimingForMove(row, preEntryMs, PRIMARY_GATE);
+      timingByMoveId[row.move_id] = {};
+      for (const gateKey of TIMING_GATES) {
+        timingByMoveId[row.move_id][gateKey] = tierTimingForMove(row, preEntryMs, gateKey);
+      }
     }
+    timingComparison = buildGateTimingComparison(
+      timingByMoveId,
+      TIMING_GATES,
+      tierA.map((r) => r.move_id),
+    );
   }
 
   const report = buildGateSimulationReport(allRows, {
@@ -199,6 +234,7 @@ function main() {
     pre_entry_hours: PRE_ENTRY_HOURS,
     primary_gate: PRIMARY_GATE,
     timing_by_move_id: timingByMoveId,
+    timing_comparison: timingComparison,
   });
 
   const payload = {
@@ -211,7 +247,9 @@ function main() {
     primary_gate: PRIMARY_GATE,
     gate_keys: GATE_KEYS,
     with_timing: WITH_TIMING,
+    timing_gates: WITH_TIMING ? TIMING_GATES : [],
     timing_by_move_id: timingByMoveId,
+    timing_comparison: timingComparison,
     simulation: report,
   };
 
@@ -227,6 +265,7 @@ function main() {
     json: jsonPath,
     md: mdPath,
     primary_gate: primary,
+    timing_comparison: timingComparison,
     gates: report.gates?.map((g) => ({
       key: g.key,
       tier_a_enter_rate: g.tier_a.enter_rate,

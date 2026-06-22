@@ -481,6 +481,7 @@ ENVIRONMENT_LABEL = "preprod"
 SETUP_EVENTS_WRITE = "1"
 SETUP_TRAIL_SNAPSHOT = "1"
 SETUP_SHADOW_STAMP = "1"
+SETUP_GATE_SHADOW = "1"
 
 # Pre-prod has NO scheduled crons. Backtest replays drive all
 # activity. Empty crons array EXPLICITLY overrides the top-level

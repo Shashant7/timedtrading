@@ -8,6 +8,11 @@
 import { detectMeanReversionSequences } from "./setup-sequences.js";
 import { buildDiagnosticsContext, summarizeTraderPosture } from "./setup-diagnostics-route.js";
 import { loadSetupEvents, setupEventsWriteEnabled } from "./setup-events-store.js";
+import {
+  DEFAULT_GATE_LOOKBACK_MS,
+  deriveSetupGateShadowFromEvents,
+  setupGateShadowEnabled,
+} from "./setup-gate-shadow.js";
 
 const DEFAULT_LOOKBACK_MS = 48 * 60 * 60 * 1000;
 
@@ -54,7 +59,9 @@ export function deriveSetupShadowFromEvents(events = [], payload = {}, opts = {}
 }
 
 export async function loadSetupShadowFields(env, ticker, payload = {}, opts = {}) {
-  if (!setupShadowStampEnabled(env)) {
+  const shadowOn = setupShadowStampEnabled(env);
+  const gateOn = setupGateShadowEnabled(env);
+  if (!shadowOn && !gateOn) {
     return { ok: true, skipped: true, reason: "stamp_disabled" };
   }
   const db = env?.DB;
@@ -63,23 +70,49 @@ export async function loadSetupShadowFields(env, ticker, payload = {}, opts = {}
   const sym = String(ticker || payload?.ticker || "").toUpperCase();
   if (!sym) return { ok: false, skipped: true, reason: "no_ticker" };
 
-  const lookbackMs = Number.isFinite(Number(opts.lookbackMs))
+  const gateLookbackMs = Number.isFinite(Number(opts.gateLookbackMs))
+    ? Number(opts.gateLookbackMs)
+    : DEFAULT_GATE_LOOKBACK_MS;
+  const shadowLookbackMs = Number.isFinite(Number(opts.lookbackMs))
     ? Number(opts.lookbackMs)
     : DEFAULT_LOOKBACK_MS;
+  const lookbackMs = Math.max(
+    shadowOn ? shadowLookbackMs : 0,
+    gateOn ? gateLookbackMs : 0,
+  );
   const now = Number(payload?.ts || payload?.ingest_ts || Date.now());
   const events = await loadSetupEvents(db, {
     ticker: sym,
     since: now - lookbackMs,
     until: now + 60000,
-    limit: Math.max(50, Math.min(500, Number(opts.limit) || 500)),
+    limit: Math.max(50, Math.min(5000, Number(opts.limit) || 500)),
   });
 
-  const fields = deriveSetupShadowFromEvents(events, { ...payload, ticker: sym }, {
-    env,
-    ticker: sym,
-    postureOpts: opts.postureOpts,
-  });
-  if (!fields) {
+  const shadowFields = shadowOn
+    ? deriveSetupShadowFromEvents(events, { ...payload, ticker: sym }, {
+      env,
+      ticker: sym,
+      postureOpts: opts.postureOpts,
+    })
+    : null;
+  if (!shadowFields && !gateOn) {
+    return { ok: true, skipped: true, reason: "no_events", event_count: 0 };
+  }
+
+  let fields = shadowFields || {};
+  if (gateOn) {
+    fields = {
+      ...fields,
+      ...deriveSetupGateShadowFromEvents(events, { ...payload, ticker: sym }, {
+        env,
+        ticker: sym,
+        lookbackMs: gateLookbackMs,
+        gateKeys: opts.gateKeys,
+      }),
+    };
+  }
+
+  if (!Object.keys(fields).length) {
     return { ok: true, skipped: true, reason: "no_events", event_count: 0 };
   }
   return { ok: true, fields, event_count: events.length };

@@ -1,0 +1,1266 @@
+{
+  "generated_at": "2026-06-22T14:59:22.729Z",
+  "run_id": "backtest_2025-07-01_2025-12-31@2026-03-14T03:11:44.033Z",
+  "missed_cache": "data/setup-mining/pattern-lift/missed-enriched.json",
+  "backtest_cache": "data/setup-mining/pattern-lift/backtest-enriched.json",
+  "pre_entry_hours": 120,
+  "tier_a_min_atr": 8,
+  "primary_gate": "gate_runway_full",
+  "gate_keys": [
+    "stack_full_confirm",
+    "gate_confirm+div",
+    "gate_runway_full",
+    "stack_td9+div+momentum",
+    "stack_exhaust+rsi_div"
+  ],
+  "with_timing": true,
+  "timing_gates": [
+    "stack_full_confirm",
+    "gate_runway_full"
+  ],
+  "timing_by_move_id": {
+    "AGQ:1778682600000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ETHUSD:1778941800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "GS:1777645800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777305600000,
+        "hours_before_anchor": 94.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "VSXY:1779892200000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "VSXY:1776781800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "DELL:1779892200000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "AGYS:1778855400000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "H:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777406400000,
+        "hours_before_anchor": 18.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "WMT:1778250600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777912200000,
+        "hours_before_anchor": 94,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "RKLB:1777386600000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "BTCUSD:1779373800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "CRWD:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776706200000,
+        "hours_before_anchor": 21,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "IAU:1778682600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778256000000,
+        "hours_before_anchor": 118.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "TEAM:1777559400000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777305600000,
+        "hours_before_anchor": 70.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "SMCI:1779114600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778769000000,
+        "hours_before_anchor": 96,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ETHA:1777386600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777044600000,
+        "hours_before_anchor": 95,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "GOOGL:1776954600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776789000000,
+        "hours_before_anchor": 46,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "BTCUSD:1777213800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ETHUSD:1777818600000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "NBIS:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776434400000,
+        "hours_before_anchor": 96.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "AMD:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777296600000,
+        "hours_before_anchor": 49,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "XLK:1776781800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "RIOT:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777050000000,
+        "hours_before_anchor": 117.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ALAB:1777905000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777475700000,
+        "hours_before_anchor": 119.3,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1777901400000,
+        "hours_before_anchor": 1,
+        "source": "events"
+      }
+    },
+    "UHS:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776362400000,
+        "hours_before_anchor": 116.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1776362400000,
+        "hours_before_anchor": 116.5,
+        "source": "events"
+      }
+    },
+    "LRCX:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777296600000,
+        "hours_before_anchor": 49,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "RBRK:1777645800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777303800000,
+        "hours_before_anchor": 95,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "NEU:1776868200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776438000000,
+        "hours_before_anchor": 119.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "LLY:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777318200000,
+        "hours_before_anchor": 43,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "NBIS:1777559400000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777485600000,
+        "hours_before_anchor": 20.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "MNST:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777060800000,
+        "hours_before_anchor": 114.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ARM:1777473000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "RKLB:1778164200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777914000000,
+        "hours_before_anchor": 69.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "DPZ:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776439800000,
+        "hours_before_anchor": 95,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "IBM:1777905000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777555800000,
+        "hours_before_anchor": 97,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1777649400000,
+        "hours_before_anchor": 71,
+        "source": "events"
+      }
+    },
+    "AGYS:1776868200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776691800000,
+        "hours_before_anchor": 49,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ETHUSD:1777213800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ETHA:1778596200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778261400000,
+        "hours_before_anchor": 93,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "DDOG:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776704400000,
+        "hours_before_anchor": 21.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1776713400000,
+        "hours_before_anchor": 19,
+        "source": "events"
+      }
+    },
+    "VSXY:1777905000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "XLK:1777905000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "CRWD:1778250600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777988700000,
+        "hours_before_anchor": 72.8,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ARM:1778855400000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "SMCI:1777905000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777645800000,
+        "hours_before_anchor": 72,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "CRWD:1777473000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777055400000,
+        "hours_before_anchor": 116,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "STRL:1777905000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777555800000,
+        "hours_before_anchor": 97,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "PANW:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776359400000,
+        "hours_before_anchor": 117.3,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "SNOW:1779460200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1779204600000,
+        "hours_before_anchor": 71,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1779204600000,
+        "hours_before_anchor": 71,
+        "source": "events"
+      }
+    },
+    "SOXL:1777473000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "VSXY:1779201000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ENPH:1778596200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778171400000,
+        "hours_before_anchor": 118,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1778513400000,
+        "hours_before_anchor": 23,
+        "source": "events"
+      }
+    },
+    "SNDK:1777473000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "PANW:1777905000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777555800000,
+        "hours_before_anchor": 97,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "FTNT:1777041000000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776712200000,
+        "hours_before_anchor": 91.3,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "IBM:1779114600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778767200000,
+        "hours_before_anchor": 96.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "SNOW:1778855400000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778520600000,
+        "hours_before_anchor": 93,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ETHA:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776432600000,
+        "hours_before_anchor": 97,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "AMD:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776715200000,
+        "hours_before_anchor": 18.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "DELL:1779373800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1779133500000,
+        "hours_before_anchor": 66.8,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1779294600000,
+        "hours_before_anchor": 22,
+        "source": "events"
+      }
+    },
+    "ON:1776781800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "SNDK:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776439800000,
+        "hours_before_anchor": 95,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "DELL:1778164200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1778005800000,
+        "hours_before_anchor": 44,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1778005800000,
+        "hours_before_anchor": 44,
+        "source": "events"
+      }
+    },
+    "SNOW:1777645800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777300200000,
+        "hours_before_anchor": 96,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "SOXL:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776709800000,
+        "hours_before_anchor": 20,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "ENPH:1777386600000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776963600000,
+        "hours_before_anchor": 117.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1776963600000,
+        "hours_before_anchor": 117.5,
+        "source": "events"
+      }
+    },
+    "DDOG:1777645800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777307400000,
+        "hours_before_anchor": 94,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1777314600000,
+        "hours_before_anchor": 92,
+        "source": "events"
+      }
+    },
+    "STRL:1776868200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776786000000,
+        "hours_before_anchor": 22.8,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "FTNT:1778077800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1777987800000,
+        "hours_before_anchor": 25,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1777987800000,
+        "hours_before_anchor": 25,
+        "source": "events"
+      }
+    },
+    "KLAC:1778769000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "KLAC:1779805800000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "KLAC:1780497000000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "INTC:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776445200000,
+        "hours_before_anchor": 93.5,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1776445200000,
+        "hours_before_anchor": 93.5,
+        "source": "events"
+      }
+    },
+    "ARM:1776781800000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776353400000,
+        "hours_before_anchor": 119,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "DELL:1777559400000": {
+      "stack_full_confirm": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": false,
+        "first_fire_ts": null,
+        "hours_before_anchor": null,
+        "source": "events"
+      }
+    },
+    "KLAC:1776868200000": {
+      "stack_full_confirm": {
+        "fires": true,
+        "first_fire_ts": 1776692100000,
+        "hours_before_anchor": 48.9,
+        "source": "events"
+      },
+      "gate_runway_full": {
+        "fires": true,
+        "first_fire_ts": 1776692100000,
+        "hours_before_anchor": 48.9,
+        "source": "events"
+      }
+    }
+  },
+  "timing_comparison": [
+    {
+      "key": "stack_full_confirm",
+      "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+      "tier_a_fires": 51,
+      "n_with_timing": 51,
+      "avg_hours_before_anchor": 78.81,
+      "median_hours_before_anchor": 94
+    },
+    {
+      "key": "gate_runway_full",
+      "label": "TD9 + RSI div + stack_full_confirm",
+      "tier_a_fires": 13,
+      "n_with_timing": 13,
+      "avg_hours_before_anchor": 57.26,
+      "median_hours_before_anchor": 48.9
+    }
+  ],
+  "simulation": {
+    "tier_a_min_atr": 8,
+    "pre_entry_hours": 120,
+    "gates": [
+      {
+        "key": "stack_full_confirm",
+        "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 51,
+          "enter_rate": 0.68,
+          "avg_abs_move_pct_when_enter": 57.65,
+          "avg_move_atr_when_enter": 13.67,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 127,
+          "enter_rate": 0.614
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 85,
+          "enter_rate": 0.559
+        },
+        "win_share_when_gate_fires": 0.599,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.066,
+        "timing_tier_a": {
+          "n_with_timing": 51,
+          "avg_hours_before_anchor": 78.81,
+          "median_hours_before_anchor": 94
+        }
+      },
+      {
+        "key": "gate_confirm+div",
+        "label": "stack_full_confirm + RSI divergence",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 41,
+          "enter_rate": 0.547,
+          "avg_abs_move_pct_when_enter": 59.27,
+          "avg_move_atr_when_enter": 14.06,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 81,
+          "enter_rate": 0.391
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 57,
+          "enter_rate": 0.375
+        },
+        "win_share_when_gate_fires": 0.587,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.156,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      },
+      {
+        "key": "gate_runway_full",
+        "label": "TD9 + RSI div + stack_full_confirm",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 13,
+          "enter_rate": 0.173,
+          "avg_abs_move_pct_when_enter": 73.59,
+          "avg_move_atr_when_enter": 17.48,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 7,
+          "enter_rate": 0.034
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 3,
+          "enter_rate": 0.02
+        },
+        "win_share_when_gate_fires": 0.7,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.139,
+        "timing_tier_a": {
+          "n_with_timing": 13,
+          "avg_hours_before_anchor": 57.26,
+          "median_hours_before_anchor": 48.9
+        }
+      },
+      {
+        "key": "stack_td9+div+momentum",
+        "label": "TD9 + RSI div + momentum (ST/squeeze/breakthrough)",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 15,
+          "enter_rate": 0.2,
+          "avg_abs_move_pct_when_enter": 73.15,
+          "avg_move_atr_when_enter": 16.63,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 16,
+          "enter_rate": 0.077
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 14,
+          "enter_rate": 0.092
+        },
+        "win_share_when_gate_fires": 0.533,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.123,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      },
+      {
+        "key": "stack_exhaust+rsi_div",
+        "label": "Exhaustion confirmed + RSI divergence",
+        "tier_a": {
+          "n": 75,
+          "would_enter": 24,
+          "enter_rate": 0.32,
+          "avg_abs_move_pct_when_enter": 68.67,
+          "avg_move_atr_when_enter": 16,
+          "aligned_rate_when_enter": 1
+        },
+        "backtest_win": {
+          "n": 207,
+          "would_enter": 24,
+          "enter_rate": 0.116
+        },
+        "backtest_loss": {
+          "n": 152,
+          "would_enter": 23,
+          "enter_rate": 0.151
+        },
+        "win_share_when_gate_fires": 0.511,
+        "baseline_backtest_win_rate": 0.577,
+        "capture_opportunity": 0.204,
+        "timing_tier_a": {
+          "n_with_timing": 0,
+          "avg_hours_before_anchor": null,
+          "median_hours_before_anchor": null
+        }
+      }
+    ],
+    "primary_gate": "gate_runway_full",
+    "timing_comparison": [
+      {
+        "key": "stack_full_confirm",
+        "label": "ST flip + squeeze + EMA21 (reclaim or reject)",
+        "tier_a_fires": 51,
+        "n_with_timing": 51,
+        "avg_hours_before_anchor": 78.81,
+        "median_hours_before_anchor": 94
+      },
+      {
+        "key": "gate_runway_full",
+        "label": "TD9 + RSI div + stack_full_confirm",
+        "tier_a_fires": 13,
+        "n_with_timing": 13,
+        "avg_hours_before_anchor": 57.26,
+        "median_hours_before_anchor": 48.9
+      }
+    ]
+  }
+}
