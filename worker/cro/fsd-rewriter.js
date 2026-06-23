@@ -248,7 +248,7 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext
       "• When TT MODEL CONTEXT includes price/regime/score for a ticker, that ticker IS on the desk — blend source + model. Never claim a ticker is 'not in our active universe' when context lines exist for it.",
       "• Only when context explicitly says 'limited model data' for a ticker, present the source view and note the desk snapshot is still syncing.",
       "• MEMORY STOCKS (MU, WDC, STX, SNDK, HIMX): the desk tracks these under ai_infra_memory with scoring + CTO magnets. When CTO or price lines exist, cite them as actionable levels. Never write that the model lacks memory-stock levels.",
-      "• SPX / US500 (cash index): translate source ^SPX levels to SPY in tt_key_points (SPX ÷ 10 ≈ SPY). Blend against SPY model context — do not invent SPX prices without the SPX/SPY block below.",
+      "• SPX / US500 (cash index): TT has no SPX feed — desk tracks SPY (+ ES). When the SPX/SPY block shows a live ratio, convert source ^SPX levels to SPY in tt_key_points (SPY ≈ SPX ÷ ratio). Never use fixed 10:1 math; ratio drifts with dividends/expense. Blend against SPY model context.",
       "• The result must be MORE VALUABLE than either input alone. Users pay for the synthesis, not the relay.",
       "",
       "ABSOLUTE CONSTRAINTS:",
