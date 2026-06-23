@@ -4948,6 +4948,123 @@
       const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
       const [cioVerdictError, setCioVerdictError] = useState(null);
       const cioVerdictCacheRef = useRef({});
+      const renderCioPositionBlock = (opts = {}) => {
+        const compact = !!opts.compact;
+        if (cioVerdictLoading && !cioVerdict) {
+          return React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              fontStyle: "italic",
+              marginTop: compact ? "var(--ds-space-2)" : 0
+            }
+          }, "Loading AI CIO verdict\u2026");
+        }
+        if (cioVerdictError) {
+          return React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-dn)",
+              marginTop: compact ? "var(--ds-space-2)" : 0
+            }
+          }, "AI CIO unavailable (", cioVerdictError, ")");
+        }
+        if (!cioVerdict) return null;
+        const _decisionIcon = cioVerdict.decision === "APPROVE" ? "✅" : cioVerdict.decision === "ADJUST" ? "⚙️" : "🛑";
+        const _decisionColor = cioVerdict.decision === "APPROVE" ? "#22c55e" : cioVerdict.decision === "ADJUST" ? "#f59e0b" : "#ef4444";
+        return React.createElement("div", {
+          style: {
+            marginTop: "var(--ds-space-2)",
+            paddingTop: compact ? "var(--ds-space-2)" : "var(--ds-space-3)",
+            borderTop: "1px solid var(--ds-stroke)"
+          }
+        }, React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ds-space-2)",
+            marginBottom: "var(--ds-space-2)",
+            flexWrap: "wrap"
+          }
+        }, React.createElement("span", {
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "var(--ds-text-faint)"
+          }
+        }, "AI CIO"), React.createElement("span", {
+          style: {
+            color: _decisionColor,
+            fontWeight: 700,
+            fontSize: "var(--ds-fs-body)"
+          }
+        }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.matched_by === "ticker_lifecycle" && React.createElement("span", {
+          title: "Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)",
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.12em",
+            padding: "1px 6px",
+            borderRadius: 4,
+            background: "rgba(96,165,250,0.12)",
+            color: "var(--ds-text-muted)",
+            border: "1px solid var(--ds-stroke)"
+          }
+        }, "LATEST"), cioVerdict.confidence > 0 && React.createElement("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text-muted)"
+          }
+        }, (cioVerdict.confidence * 100).toFixed(0), "% conf"), cioVerdict.edge_score > 0 && React.createElement("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text-muted)"
+          }
+        }, "edge ", (cioVerdict.edge_score * 100).toFixed(0), "%"), cioVerdict.shadow && React.createElement("span", {
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.12em",
+            padding: "1px 6px",
+            borderRadius: 4,
+            background: "rgba(168,162,158,0.15)",
+            color: "var(--ds-text-muted)",
+            border: "1px solid var(--ds-stroke)"
+          }
+        }, "SHADOW"), cioVerdict.model && React.createElement("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            marginLeft: "auto"
+          }
+        }, cioVerdict.model)), cioVerdict.reasoning && React.createElement("div", {
+          style: {
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text)",
+            lineHeight: 1.55,
+            whiteSpace: "pre-wrap"
+          }
+        }, cioVerdict.reasoning), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
+          style: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 4,
+            marginTop: "var(--ds-space-2)"
+          }
+        }, cioVerdict.risk_flags.map((flag, i) => React.createElement("span", {
+          key: `cio-flag-${i}`,
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.04em",
+            background: "rgba(239,68,68,0.10)",
+            color: "var(--ds-dn)",
+            borderColor: "rgba(239,68,68,0.30)"
+          }
+        }, flag))));
+      };
       const [setupShadowDiag, setSetupShadowDiag] = useState(null);
       const [setupShadowLoading, setSetupShadowLoading] = useState(false);
       const [setupShadowError, setSetupShadowError] = useState(null);
@@ -6497,9 +6614,8 @@
         };
       }, [tickerSymbol]);
       useEffect(() => {
-        if (railTab !== "SETUP") return;
-        const _t = effectiveTrade;
-        if (!_t) {
+        const _t = effectiveTraderTrade;
+        if (!_t || !isTradeOpenSafe(_t)) {
           setCioVerdict(null);
           setCioVerdictError(null);
           setCioVerdictLoading(false);
@@ -6543,7 +6659,7 @@
         return () => {
           cancelled = true;
         };
-      }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
+      }, [effectiveTraderTrade?.trade_id, effectiveTraderTrade?.id]);
       const countActiveShadowSequences = diag => {
         if (!diag || diag.empty) return 0;
         if (Array.isArray(diag.active_sequences)) {
@@ -7336,6 +7452,99 @@
             reason: "fallback"
           };
         })();
+        const v2ModelPosture = (() => {
+          if (predictionContract && railTab !== "INVESTOR") {
+            const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
+            const label = String(predictionContract.posture_label || "").trim();
+            const labelUpper = label.toUpperCase();
+            const dir = String(predictionContract.posture_direction || predictionContract.direction || "").toUpperCase();
+            if (raw === "OPEN_LONG" || labelUpper === "OPEN LONG") return {
+              posture: "OPEN_LONG",
+              label: "Open Long",
+              direction: "LONG",
+              strength: "open",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "OPEN_SHORT" || labelUpper === "OPEN SHORT") return {
+              posture: "OPEN_SHORT",
+              label: "Open Short",
+              direction: "SHORT",
+              strength: "open",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "NEUTRAL" || labelUpper === "NEUTRAL") return {
+              posture: "NEUTRAL",
+              label: "Neutral",
+              direction: "",
+              strength: "neutral",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "LEAN_LONG" || labelUpper === "LEANING BULLISH" || labelUpper === "LEAN LONG") return {
+              posture: "LEAN_LONG",
+              label: "Leaning bullish",
+              direction: "LONG",
+              strength: "lean",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "LEAN_SHORT" || labelUpper === "LEANING BEARISH" || labelUpper === "LEAN SHORT") return {
+              posture: "LEAN_SHORT",
+              label: "Leaning bearish",
+              direction: "SHORT",
+              strength: "lean",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (dir === "LONG" || dir === "SHORT") return {
+              posture: dir,
+              label: dir === "LONG" ? "Bullish" : "Bearish",
+              direction: dir,
+              strength: "confirmed",
+              reason: "contract"
+            };
+          }
+          try {
+            const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
+            if (helper) {
+              return helper({
+                ...ticker,
+                _openTrade: null,
+                has_open_position: false,
+                position_direction: undefined
+              });
+            }
+          } catch (_) {}
+          if (v2Dir === "LONG" || v2Dir === "SHORT") {
+            return {
+              posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+              label: v2Dir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+              direction: v2Dir,
+              strength: "lean",
+              reason: "direction_fallback"
+            };
+          }
+          return {
+            posture: "NEUTRAL",
+            label: "Neutral",
+            direction: "",
+            strength: "neutral",
+            reason: "fallback"
+          };
+        })();
+        const v2PositionConflict = (() => {
+          const openTr = effectiveTraderTrade;
+          if (!isTradeOpenSafe(openTr)) return null;
+          const posDir = String(openTr.direction || "").toUpperCase();
+          const modelDir = String(v2ModelPosture?.direction || "").toUpperCase();
+          if (posDir !== "LONG" && posDir !== "SHORT") return null;
+          if (modelDir !== "LONG" && modelDir !== "SHORT") return null;
+          if (posDir === modelDir) return null;
+          const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+          return {
+            positionDir: posDir,
+            modelDir,
+            modelLabel: String(v2ModelPosture?.label || "").trim() || (modelDir === "SHORT" ? "Leaning bearish" : "Leaning bullish"),
+            awaitingRth: !rthOpen
+          };
+        })();
         const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
         const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
         const v2PostureStrength = String(v2TraderPosture?.strength || "");
@@ -7958,6 +8167,9 @@
           const stage = String(ticker?.kanban_stage || "").toLowerCase();
           const _hdrTrade = effectiveTraderTrade;
           const _hdrTradeIsOpen = isTradeOpenSafe(_hdrTrade);
+          const _hdrPosDir = String(_hdrTrade?.direction || "").toUpperCase();
+          const _hdrPosChipCls = _hdrPosDir === "SHORT" ? "ds-chip--dn" : _hdrPosDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
+          const _hdrPosLabel = _hdrPosDir === "SHORT" ? "Open Short" : _hdrPosDir === "LONG" ? "Open Long" : "Open";
           const _mgmtStage = ["trim", "hold", "active", "just_entered", "defend"].includes(stage);
           const _hdrPosturePending = ledgerTradesLoading && !_hdrTradeIsOpen && (_mgmtStage || !!trade);
           const stageChip = (() => {
@@ -8036,9 +8248,16 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`,
-            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
-          }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrTrade?.direction === "SHORT" || v2Dir === "SHORT" ? "Open Short" : "Open Long" : v2TraderPosture?.label || v2Dir), (() => {
+            className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`,
+            title: _hdrTradeIsOpen ? `Active ${_hdrPosDir || "trader"} position — ledger truth (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
+          }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrPosLabel : v2TraderPosture?.label || v2Dir), v2PositionConflict && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: [`Open ${v2PositionConflict.positionDir} position vs model ${v2PositionConflict.modelLabel}.`, v2PositionConflict.awaitingRth ? "Waiting for regular session open to assess and execute exit." : "Model direction conflicts with the open position — review exit plan."].join(" "),
+            style: {
+              background: "rgba(239,68,68,0.12)",
+              borderColor: "rgba(239,68,68,0.35)"
+            }
+          }, "CONFLICT \xB7 Model ", v2PositionConflict.modelLabel), (() => {
             const invSym = String(tickerSymbol || "").trim().toUpperCase();
             const ctx = buildInvestorDisplayContext({
               investorData,
@@ -9388,15 +9607,12 @@
             tickerSymbol: cardSym
           });
           const ip = investorPrediction;
-          const ipDir = String(ip?.direction || "").toUpperCase();
           const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
           const ipStop = Number(ip?.risk?.stop_loss);
           const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
           const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
           const livePx = Number(v2Price) || Number(ticker?.price);
           const invDisplay = investorInvalidationDisplay(investorData, livePx);
-          const holding = effectiveInvestorTrade;
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
           if (!ctx) {
             return React.createElement("div", {
               style: {
@@ -9475,18 +9691,7 @@
               background: `${ctx.tierMeta.color}18`,
               letterSpacing: "0.05em"
             }
-          }, ctx.tierMeta.label), ipDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: ipColor,
-              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-              letterSpacing: "0.05em",
-              marginLeft: "auto"
-            }
-          }, ipDir)), React.createElement("div", {
+          }, ctx.tierMeta.label)), React.createElement("div", {
             style: {
               display: "flex",
               alignItems: "baseline",
@@ -9669,7 +9874,7 @@
               color: "#93c5fd",
               letterSpacing: "0.02em"
             }
-          }, "HOLDING ", dir)), pnlPct != null && React.createElement("span", {
+          }, "HOLDING")), pnlPct != null && React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: 13,
@@ -10091,9 +10296,8 @@
             if (a.includes("watch") || a.includes("monitor")) return "Monitor — no position change recommended.";
             if (a.includes("avoid")) return "Avoid — investor lane sees no edge here.";
             if (ipAction) return ipAction;
-            return ipDir === "LONG" ? "Constructive — investor lane leans long over weeks/months." : ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker." : "Neutral — investor lane has no strong directional view.";
+            return ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker." : "Constructive — investor lane leans long over weeks/months.";
           })();
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
           return React.createElement("div", {
             style: {
               padding: "12px 14px",
@@ -10125,18 +10329,7 @@
               fontSize: 10,
               color: "var(--ds-text-faint)"
             }
-          }, "long-horizon weeks-to-months view"), ipDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: ipColor,
-              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-              letterSpacing: "0.05em",
-              marginLeft: "auto"
-            }
-          }, ipDir)), React.createElement("div", {
+          }, "long-horizon weeks-to-months view")), React.createElement("div", {
             style: {
               fontSize: 13,
               color: "var(--ds-text-body)",
@@ -10950,11 +11143,11 @@
         })()), snapshotViewMode === "trader" && v2Pos && React.createElement(Panel, {
           title: "Position",
           action: React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${v2DirChip}`,
+            className: `ds-chip ds-chip--sm ${String(v2Pos.trade?.direction || "LONG").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`,
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, v2Pos.trade?.direction || v2Dir)
+          }, v2Pos.trade?.direction || "LONG")
         }, (() => {
           const entry = v2Pos.entry;
           const current = v2Pos.current;
@@ -11067,7 +11260,30 @@
           value: Number(ticker.rr).toFixed(2),
           delta: Number(ticker.rr) >= 2 ? "Strong" : "OK",
           deltaClass: Number(ticker.rr) >= 2 ? "up" : "accent"
-        }))), window.TickerSpiderChartFactory && (() => {
+        })), v2PositionConflict && React.createElement("div", {
+          style: {
+            marginTop: "var(--ds-space-3)",
+            padding: "8px 10px",
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.32)",
+            borderRadius: "var(--ds-radius-xs)",
+            fontSize: "var(--ds-fs-meta)"
+          }
+        }, React.createElement("div", {
+          style: {
+            color: "var(--ds-dn)",
+            fontWeight: 700,
+            marginBottom: 4,
+            letterSpacing: "0.02em"
+          }
+        }, "POSITION CONFLICT \xB7 Open ", v2PositionConflict.positionDir, " vs model ", v2PositionConflict.modelLabel), React.createElement("div", {
+          style: {
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.45
+          }
+        }, v2PositionConflict.awaitingRth ? "The model wants out of this side. Waiting for regular session open to assess and execute." : "The model direction conflicts with this open position. Review the exit plan before the next session.")), renderCioPositionBlock({
+          compact: true
+        })), window.TickerSpiderChartFactory && (() => {
           const SpiderC = window.TickerSpiderChartFactory({
             React
           });
@@ -11343,7 +11559,30 @@
             style: {
               color: "var(--ds-accent)"
             }
-          }, Math.round(_trimPct), "%"))), (() => {
+          }, Math.round(_trimPct), "%"))), v2PositionConflict && React.createElement("div", {
+            style: {
+              marginTop: 10,
+              padding: "8px 10px",
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.32)",
+              borderRadius: "var(--ds-radius-xs)",
+              fontSize: "var(--ds-fs-meta)"
+            }
+          }, React.createElement("div", {
+            style: {
+              color: "#f87171",
+              fontWeight: 700,
+              marginBottom: 4,
+              letterSpacing: "0.02em"
+            }
+          }, "POSITION CONFLICT \xB7 Open ", v2PositionConflict.positionDir, " vs model ", v2PositionConflict.modelLabel), React.createElement("div", {
+            style: {
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.45
+            }
+          }, v2PositionConflict.awaitingRth ? "The model wants out of this side. Waiting for regular session open to assess and execute." : "The model direction conflicts with this open position. Review the exit plan before the next session.")), renderCioPositionBlock({
+            compact: true
+          }), (() => {
             const _exhAZ = ticker?.accumZone || latestTicker?.accumZone;
             const _exhW = Array.isArray(_exhAZ?.exhaustionWarnings) ? _exhAZ.exhaustionWarnings : [];
             if (_exhW.length === 0) return null;
@@ -12358,8 +12597,6 @@
               return null;
             }
           })();
-          const _decisionIcon = cioVerdict ? cioVerdict.decision === "APPROVE" ? "✅" : cioVerdict.decision === "ADJUST" ? "⚙️" : "🛑" : null;
-          const _decisionColor = cioVerdict ? cioVerdict.decision === "APPROVE" ? "#22c55e" : cioVerdict.decision === "ADJUST" ? "#f59e0b" : "#ef4444" : "var(--ds-text-muted)";
           return React.createElement(Panel, {
             title: "Entry Decision",
             action: React.createElement("span", {
@@ -12474,109 +12711,7 @@
               color: "var(--ds-text)",
               fontWeight: 600
             }
-          }, Math.round(_rank)))), cioVerdictLoading && !cioVerdict && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-faint)",
-              fontStyle: "italic"
-            }
-          }, "Loading AI CIO verdict\u2026"), cioVerdictError && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-dn)"
-            }
-          }, "AI CIO unavailable (", cioVerdictError, ")"), cioVerdict && React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              paddingTop: "var(--ds-space-3)",
-              borderTop: "1px solid var(--ds-stroke)"
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--ds-space-2)",
-              marginBottom: "var(--ds-space-2)",
-              flexWrap: "wrap"
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--ds-text-faint)"
-            }
-          }, "AI CIO"), React.createElement("span", {
-            style: {
-              color: _decisionColor,
-              fontWeight: 700,
-              fontSize: "var(--ds-fs-body)"
-            }
-          }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.matched_by === "ticker_lifecycle" && React.createElement("span", {
-            title: "Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)",
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.12em",
-              padding: "1px 6px",
-              borderRadius: 4,
-              background: "rgba(96,165,250,0.12)",
-              color: "var(--ds-text-muted)",
-              border: "1px solid var(--ds-stroke)"
-            }
-          }, "LATEST"), cioVerdict.confidence > 0 && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-muted)"
-            }
-          }, (cioVerdict.confidence * 100).toFixed(0), "% conf"), cioVerdict.edge_score > 0 && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "edge ", (cioVerdict.edge_score * 100).toFixed(0), "%"), cioVerdict.shadow && React.createElement("span", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.12em",
-              padding: "1px 6px",
-              borderRadius: 4,
-              background: "rgba(168,162,158,0.15)",
-              color: "var(--ds-text-muted)",
-              border: "1px solid var(--ds-stroke)"
-            }
-          }, "SHADOW"), cioVerdict.model && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              marginLeft: "auto"
-            }
-          }, cioVerdict.model)), cioVerdict.reasoning && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text)",
-              lineHeight: 1.55,
-              whiteSpace: "pre-wrap"
-            }
-          }, cioVerdict.reasoning), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 4,
-              marginTop: "var(--ds-space-2)"
-            }
-          }, cioVerdict.risk_flags.map((flag, i) => React.createElement("span", {
-            key: `cio-flag-${i}`,
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.04em",
-              background: "rgba(239,68,68,0.10)",
-              color: "var(--ds-dn)",
-              borderColor: "rgba(239,68,68,0.30)"
-            }
-          }, flag)))));
+          }, Math.round(_rank)))), renderCioPositionBlock());
         })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
@@ -21243,4 +21378,4 @@
   };
 })();
 
-// cache-bust:1782189249527:670877885
+// cache-bust:1782190224846:739568061
