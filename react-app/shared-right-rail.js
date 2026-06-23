@@ -1433,137 +1433,25 @@
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", position: "relative" } },
         _loadingOverlay,
 
-        // 1. Combined Options Setup Guidance — mirrors Trader Root Verdict /
-        //    Investor Lane Guidance (WHAT TO DO hero + metrics + WHY).
-        h(Panel, {
-          title: "⏱ Options Setup Guidance",
-          color: _gColor,
-          action: h("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" } },
-            h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: _gColor, background: _gBg, border: `1px solid ${_gBorder}` },
-            }, setupGuidance.label || "SETUP"),
-            h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: modeMeta.color, background: modeMeta.bg, border: `1px solid ${modeMeta.color}66` },
-            }, modeMeta.icon, " ", modeMeta.label),
-          ),
+        // 1. Verdict chip row — compact; Snapshot/Setup carry the full hero.
+        h("div", {
+          style: {
+            display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
+            padding: "10px 12px", borderRadius: 8,
+            background: _gBg, border: `1px solid ${_gBorder}`,
+          },
         },
-          h("div", {
-            style: { padding: "var(--ds-space-2)", background: _gBg, border: `1px solid ${_gBorder}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" },
-          },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
-            h("div", { style: { fontSize: 15, fontWeight: 700, color: _gColor } }, setupGuidance.action || setupGuidance.headline || "—"),
-            h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } }, setupGuidance.desc || ""),
-          ),
-          _callVsLeanConflict && h("div", {
-            style: { marginBottom: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(56,242,161,0.08)", border: "1px solid rgba(56,242,161,0.30)", borderRadius: "var(--ds-radius-md)", fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 },
-          },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.05em", marginBottom: 4 } }, "SIGNAL SPLIT — NOT STALE"),
-            "Trader contract is ", h("strong", { style: { color: _callColor } }, _traderCall),
-            " but layers lean ", h("strong", null, _layerLean), " (", _layerSplitLabel, "). Directional options are gated until timing aligns.",
-          ),
-          h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" } },
-            h("div", { style: { padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }, title: _disp?.fusion_help || "8-layer fusion score — not win probability" }, "FUSION"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "#34d399" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171" } },
-                Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—",
-                h("span", { style: { fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" } }, "/100"),
-              ),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } },
-                _disp?.fusion_label || (Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak"),
-              ),
-            ),
-            h("div", { style: { padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "LAYER SPLIT"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: "var(--ds-text-body)" } }, _layerSplitLabel),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, "Fusion leans ", _layerLean || "—"),
-            ),
-            h("div", { style: { padding: "var(--ds-space-2)", background: _effDir === "SHORT" ? "rgba(248,113,113,0.06)" : _effDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${_effDir === "SHORT" ? "rgba(248,113,113,0.25)" : _effDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "PLAY DIRECTION"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: _effDir === "SHORT" ? "#fb7185" : _effDir === "LONG" ? "#34d399" : "var(--ds-text-muted)" } }, _effDir || "—"),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } },
-                _dirFlipped && _contractDir
-                  ? `Contract ${ _contractDir } · faded to ${ _effDir }`
-                  : ("ST: " + (st.side || "—") + " · " + stFresh),
-              ),
-            ),
-          ),
-          _disp && h("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              marginBottom: "var(--ds-space-2)",
-              padding: "var(--ds-space-2)",
-              background: (_disp.stance_color || "#8AA39A") + "14",
-              border: `1px solid ${(_disp.stance_color || "#8AA39A")}44`,
-              borderRadius: "var(--ds-radius-md)",
-            },
-          },
-            h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 4 } },
-              h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em" } }, "WOULD THE MODEL TAKE THIS?"),
-              h("span", {
-                style: {
-                  fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
-                  padding: "2px 8px", borderRadius: 999,
-                  color: _disp.stance_color || "#8AA39A",
-                  background: (_disp.stance_color || "#8AA39A") + "18",
-                  border: `1px solid ${(_disp.stance_color || "#8AA39A")}55`,
-                },
-              }, _disp.stance_label || "—"),
-            ),
-            h("div", { style: { fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600 } }, _disp.summary || "—"),
-            _disp.detail && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 } }, _disp.detail),
-            (_dirFlipped && _contractDir && _effDir && _contractDir !== _effDir) && h("div", {
-              style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" },
-            }, "Trader contract ", _contractDir, " → play expresses ", _effDir, " (FADE flip)"),
-            _disp.valid_play === false && h("div", {
-              style: { marginTop: 6, fontSize: 10, color: "#f87171", fontWeight: 600 },
-            }, "Not a live entry recommendation — review only."),
-          ),
-          (setupGuidance.why || setupGuidance.body) && h("div", { style: { marginTop: "var(--ds-space-2)", paddingTop: "var(--ds-space-2)", borderTop: "1px solid rgba(255,255,255,0.04)" } },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 } }, "WHY"),
-            h("div", { style: { fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.45 } }, setupGuidance.why || setupGuidance.body),
-          ),
-          (setupGuidance.timing_note || setupGuidance.timing_focus) && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontStyle: "italic", lineHeight: 1.45 } },
-            setupGuidance.timing_note || setupGuidance.timing_focus,
-            setupGuidance.high_volatility && h("span", { style: { color: _gColor, fontWeight: 600, marginLeft: 4 } }, " · High-volatility name."),
-          ),
-          (st.confirmed_tfs && st.confirmed_tfs.length > 0) && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-muted)" } },
-            "SuperTrend sloping on TFs: ", h("strong", { style: { color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" } }, st.confirmed_tfs.join(" · ")),
-          ),
-          h("button", {
-            onClick: () => setShowLayers(!showLayers),
-            style: { marginTop: 8, padding: "4px 10px", fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)", background: "rgba(255,255,255,0.04)", border: "1px solid var(--ds-stroke)", borderRadius: 6, cursor: "pointer" },
-          }, showLayers ? "Hide layer breakdown" : "Show layer breakdown (8 layers)"),
-          showLayers && h("div", { style: { marginTop: 8, display: "flex", flexDirection: "column", gap: 4 } },
-            (verdict.layers || []).map((l) => {
-              const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#8AA39A";
-              const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
-              const LAYER_LABEL = {
-                L1_macro:  "L1 · Macro Regime",
-                L2_newton: "L2 · Rel. Strength + Structure",
-                L3_markov: "L3 · Statistical Prior",
-                L4_ict:    "L4 · Liquidity & Structure",
-                L5_carter: "L5 · Volatility & Momentum",
-                L6_demark: "L6 · Wave Maturity",
-                L7_trend:  "L7 · Trend Health",
-                L8_saty:   "L8 · Day Gate (Phase + ATR)",
-              };
-              const displayLabel = LAYER_LABEL[l.key] || l.key.replace(/_/g, " ").toUpperCase();
-              return h("div", { key: l.key, style: { padding: 6, background: "rgba(255,255,255,0.02)", borderRadius: 4 } },
-                h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 } },
-                  h("span", { style: { fontSize: 11, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-body)" } }, displayLabel),
-                  h("span", { style: { fontSize: 10, fontFamily: "var(--tt-font-mono)", color: sideColor, fontWeight: 700 } }, l.side, " (", l.strength.toFixed(2), ")"),
-                ),
-                h("div", { style: { height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" } },
-                  h("div", { style: { width: strengthBar + "%", height: "100%", background: sideColor, transition: "width 0.3s" } }),
-                ),
-                l.evidence && h("div", { style: { fontSize: 9, color: "var(--ds-text-faint)", marginTop: 2 } }, l.evidence),
-              );
-            }),
-          ),
+          h("span", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em" } }, "OPTIONS VERDICT"),
+          h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: _gColor, background: _gBg, border: `1px solid ${_gBorder}` } }, setupGuidance.label || "SETUP"),
+          h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: modeMeta.color, background: modeMeta.bg, border: `1px solid ${modeMeta.color}66` } }, modeMeta.label),
+          h("span", { style: { fontSize: 10, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-muted)" } }, "Fusion ", Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—", "/100 · ", _layerSplitLabel, " · ", _effDir || "—"),
+          h("span", { style: { fontSize: 11, color: "var(--ds-text-body)", flex: "1 1 200px" } }, setupGuidance.action || setupGuidance.headline || "—"),
         ),
 
-        // 2. Options Preferences — risk profile + horizon in one panel.
-        h(Panel, { title: "⚙ Options Preferences" },
+        // 2. Options Preferences — collapsed by default.
+        h("details", { style: { marginBottom: 4 } },
+          h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Preferences · profile & horizon"),
+          h(Panel, { title: "Options Preferences" },
           h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
           h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
             PROFILE_CHIPS.map((p) => h("button", {
@@ -1606,10 +1494,9 @@
               ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days."
               : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative.",
           ),
+          ),
         ),
 
-        // 3. Options plays — each play is its own panel (like Trader entry cards).
-        _dayTradePanel,
         _emptyPlaysNote,
 
         primary && primary._moonshot_active && h("div", {
@@ -2002,8 +1889,12 @@
           data?.estimated_premium_caveat && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontStyle: "italic" } }, data.estimated_premium_caveat),
         ),
 
-        // 4. Ladder of alternatives
-        ladder.length > 1 && h(Panel, { title: `📊 Strategy Ladder (${ladder.length} plays)` },
+        _dayTradePanel,
+
+        // 4. Ladder of alternatives — collapsed when multiple plays exist.
+        ladder.length > 1 && h("details", { style: { marginTop: 4 } },
+          h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, `Strategy ladder (${ladder.length - 1} alternates)`),
+          h(Panel, { title: `Strategy Ladder (${ladder.length} plays)` },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
             ladder.slice(1).map((play, i) => h("div", {
               key: play.archetype + i,
@@ -2022,6 +1913,7 @@
                 play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)),
               ),
             )),
+          ),
           ),
         ),
 
@@ -3482,6 +3374,7 @@
         openAutopsyForTrade = null,
         highlightTradeId = null,
         modalOnly = false,
+        railOpenSource = null,
         /* V15 P0.7.76 (2026-05-06) — Workspace mode. When "workspace",
            the rail uses CSS Grid to split into two panes:
              - LEFT: persistent chart + key levels (always visible)
@@ -4039,6 +3932,13 @@
         // and Fundamentals doesn't refetch (worker also caches in KV for 6h).
         const [fundamentals, setFundamentals] = useState(null);
         const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+        const [fundamentalsNarrative, setFundamentalsNarrative] = useState(null);
+        const [fundamentalsNarrativeLoading, setFundamentalsNarrativeLoading] = useState(false);
+        const [catalystsNarrative, setCatalystsNarrative] = useState(null);
+        const [catalystsNarrativeLoading, setCatalystsNarrativeLoading] = useState(false);
+        const [snapshotViewMode, setSnapshotViewMode] = useState(() => (
+          String(railOpenSource || "").toLowerCase() === "investor" ? "investor" : "trader"
+        ));
         const [fundamentalsError, setFundamentalsError] = useState(null);
         const fundamentalsCacheRef = useRef(new Map()); // ticker -> { data, ts }
         const fundamentalsSortRef = useRef({ key: "date", dir: "desc" });
@@ -5194,6 +5094,55 @@
           })();
           return () => { cancelled = true; };
         }, [railTab, tickerSymbol]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym || railTab !== "FUNDAMENTALS") return;
+          let cancelled = false;
+          (async () => {
+            try {
+              setFundamentalsNarrativeLoading(true);
+              const apiKey = (typeof window !== "undefined" && window._ttApiKey) ? window._ttApiKey : "";
+              const qs = new URLSearchParams({ ticker: sym });
+              if (apiKey) qs.set("key", apiKey);
+              const res = await fetch(`${API_BASE}/timed/fundamentals/narrative?${qs.toString()}`, { cache: "no-store", credentials: "include" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!cancelled && json?.ok) setFundamentalsNarrative(json.narrative || null);
+            } catch (_) {
+              if (!cancelled && fundamentals) {
+                const fb = window.TimedRailHelpers?.buildFundamentalsHeroNarrative?.(fundamentals);
+                if (fb) setFundamentalsNarrative(fb);
+              }
+            } finally {
+              if (!cancelled) setFundamentalsNarrativeLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol, fundamentals]);
+
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym || railTab !== "CATALYSTS") return;
+          let cancelled = false;
+          (async () => {
+            try {
+              setCatalystsNarrativeLoading(true);
+              const res = await fetch(`${API_BASE}/timed/discovery/catalysts-narrative?ticker=${encodeURIComponent(sym)}`, { cache: "no-store", credentials: "include" });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const json = await res.json();
+              if (!cancelled && json?.ok) setCatalystsNarrative(json.narrative || null);
+            } catch (_) {
+              if (!cancelled && catalysts) {
+                const fb = window.TimedRailHelpers?.buildCatalystsStreetBuzz?.(catalysts);
+                if (fb) setCatalystsNarrative(fb);
+              }
+            } finally {
+              if (!cancelled) setCatalystsNarrativeLoading(false);
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [railTab, tickerSymbol, catalysts]);
 
         // 2026-05-28 — Catalysts tab lazy-fetch. Bundled endpoint returns
         // news + insider + themes + macro + coverage in one round-trip.
@@ -8280,6 +8229,26 @@
                         );
                       })()}
 
+                      {/* Snapshot POV toggle — trader vs investor context */}
+                      <div style={{
+                        display: "flex", gap: 6, marginBottom: "var(--ds-space-3)", flexWrap: "wrap",
+                      }}>
+                        {["trader", "investor"].map((mode) => {
+                          const active = snapshotViewMode === mode;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setSnapshotViewMode(mode)}
+                              className={`ds-chip ds-chip--sm${active ? " ds-chip--accent" : ""}`}
+                              style={{ cursor: "pointer", textTransform: "capitalize" }}
+                            >
+                              {mode === "trader" ? "Trader" : "Investor"}
+                            </button>
+                          );
+                        })}
+                      </div>
+
                       {/* ── D2 (2026-06-11) FRESHNESS STATE ──────────────────
                           The UI face of the Data Age Contract: when the
                           payload says its candles are stale/aging, say so
@@ -8398,7 +8367,7 @@
                           cleanly separated instead of one ambiguous card.
                           Drives off effectiveInvestorTrade which filters
                           to _source_mode === "investor" only. */}
-                      {effectiveInvestorTrade && (() => {
+                      {effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
                         const it = effectiveInvestorTrade;
                         const dir = String(it?.direction || "LONG").toUpperCase();
                         const isLong = dir !== "SHORT";
@@ -8549,7 +8518,7 @@
                           Mirror of Investor Portfolio — shows the active
                           trader-lane position on Snapshot so both holdings
                           are visible without switching tabs. */}
-                      {effectiveTraderTrade && (() => {
+                      {effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
                         const tt = effectiveTraderTrade;
                         const st = String(tt?.status || "").toUpperCase();
                         const isOpen = st === "OPEN" || st === "TP_HIT_TRIM"
@@ -9009,6 +8978,12 @@
                             p_20_bar = 20 bars = 100 minutes (~1.5h)
                           Now rendered as 'Next 5 min', 'Next 25 min', and
                           'Next ~1h 40min' with bar count in the tooltip. */}
+                      <details style={{ marginBottom: "var(--ds-space-3)" }}>
+                        <summary style={{ fontSize: 11, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "6px 0", userSelect: "none" }}>
+                          More detail — model, regime, diagnostics
+                        </summary>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", marginTop: "var(--ds-space-2)" }}>
+
                       {ticker?.regime_forecast?.p_next && (() => {
                         const fc = ticker.regime_forecast;
                         const exh = ticker.regime_exhausted || null;
@@ -9022,136 +8997,105 @@
                         };
                         const CURRENT = PRETTY[fc.state] || { short: fc.state, color: "var(--ds-text-muted)" };
                         const top5 = Object.entries(fc.p_5_bar || {}).sort((a, b) => b[1] - a[1])[0] || ["", 0];
-                        const renderRow = (label, vec, barCount, tooltip) => {
-                          if (!vec) return null;
-                          const entries = Object.entries(vec).sort((a, b) => b[1] - a[1]);
-                          return (
-                            <div key={`fc-${label}`} title={tooltip} style={{ display: "grid", gridTemplateColumns: "92px 1fr 96px", gap: 8, alignItems: "center", padding: "6px 0" }}>
-                              <span style={{ fontSize: 11, color: "var(--ds-text-muted)" }}>{label}</span>
-                              <span style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: "rgba(255,255,255,0.04)" }}>
-                                {entries.map(([s, p]) => (
-                                  <span key={s} title={`${(PRETTY[s] || {}).short || s}: ${(p * 100).toFixed(0)}%`}
-                                    style={{ width: `${Math.max(2, p * 100)}%`, background: (PRETTY[s] || {}).color || "var(--ds-text-muted)", opacity: p < 0.05 ? 0 : 1 }} />
-                                ))}
-                              </span>
-                              <span style={{ fontSize: 11, color: "var(--ds-text)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>
-                                <span style={{ color: (PRETTY[entries[0][0]] || {}).color || "inherit" }}>{(entries[0][1] * 100).toFixed(0)}%</span>
-                                <span style={{ color: "var(--ds-text-muted)", marginLeft: 4 }}>{(PRETTY[entries[0][0]] || {}).short || entries[0][0]}</span>
-                              </span>
-                            </div>
-                          );
-                        };
                         const insight = (() => {
                           if (exh) {
                             return `Stuck in ${CURRENT.short} for ${runLen} bars — ${exh.sigma_above_mean.toFixed(1)}σ above typical (mean ${exh.mean_dwell}). A transition is statistically overdue.`;
                           }
                           if (top5[0] && top5[0] !== fc.state && top5[1] > 0.45) {
                             const target = PRETTY[top5[0]] || { short: top5[0] };
-                            return `Currently ${CURRENT.short}, run length ${runLen}. Model says ${target.short} in the next 25 min (${(top5[1] * 100).toFixed(0)}% probability).`;
+                            return `Currently ${CURRENT.short}, run length ${runLen}. Model leans ${target.short} over the next 25 min (${(top5[1] * 100).toFixed(0)}%).`;
                           }
                           if (top5[0] === fc.state && top5[1] >= 0.65) {
-                            return `Holding ${CURRENT.short} — model says ${(top5[1] * 100).toFixed(0)}% chance it stays for the next 25 min.`;
+                            return `Holding ${CURRENT.short} — ${(top5[1] * 100).toFixed(0)}% chance it stays over the next 25 min.`;
                           }
-                          return `Mixed signal — no single state above 65% probability over the next 25 min.`;
+                          return `Mixed signal — no single state above 65% over the next 25 min.`;
                         })();
+                        const dir = String(v2StructureDir || v2Dir || predictionContract?.direction || "").toUpperCase();
+                        const cols = window.TimedRailHelpers?.buildRegimeTimelineColumns?.(fc, dir) || [];
+                        const fmtAge = window.TimedRailHelpers?.formatAgeShort || ((ms) => `${Math.floor(ms / 3600000)}h ago`);
+                        const forecastLiveMs = Number(ticker?.ingest_ts || ticker?.ts || ticker?.updated_at) ? Date.now() - Number(ticker.ingest_ts || ticker.ts || ticker.updated_at) : null;
+                        const matrixAgeMs = fc.matrix_computed_at ? Date.now() - Number(fc.matrix_computed_at) : null;
                         const LATENT_COLOR = {
                           BULL_TREND: "var(--ds-up, #4ade80)",
                           CHOP: "var(--ds-warn, #fbbf24)",
                           BEAR_TREND: "var(--ds-dn, #f87171)",
                         };
                         const latentChip = latent && latent.state ? (
-                          <span title={`HMM latent regime — decoded from market-wide observations (SPY return, ATR, VIX, breadth, sector dispersion). Posterior: ${Object.entries(latent.posterior || {}).map(([k, v]) => `${k} ${(v*100).toFixed(0)}%`).join(" / ")}`}
+                          <span title={`HMM latent regime posterior`}
                             style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 999, background: `${LATENT_COLOR[latent.state] || "var(--ds-text-muted)"}22`, color: LATENT_COLOR[latent.state] || "var(--ds-text-muted)", fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", fontFamily: "var(--tt-font-mono)" }}>
-                            ● {latent.state}
+                            {latent.state}
                           </span>
                         ) : null;
                         return (
-                          <Panel title="Regime Forecast" action={latentChip}>
-                            <div style={{ marginBottom: "var(--ds-space-2)" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                <span className="ds-chip ds-chip--sm" style={{ background: `${CURRENT.color}22`, color: CURRENT.color, fontWeight: 700, letterSpacing: "0.04em" }}>
-                                  {CURRENT.short.toUpperCase()}
-                                </span>
-                                <span style={{ fontSize: 11, color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>
-                                  run · {runLen} bar{runLen === 1 ? "" : "s"}
-                                </span>
-                                {exh && (
-                                  <span className="ds-chip ds-chip--sm ds-chip--accent" title={`Run length ${exh.run_length} > mean ${exh.mean_dwell} + 2σ (${exh.dwell_std?.toFixed?.(1)})`}>
-                                    EXHAUSTED · {exh.sigma_above_mean.toFixed(1)}σ
+                          <details style={{ marginBottom: 0 }}>
+                            <summary style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: "4px 0", userSelect: "none" }}>
+                              Market context · regime forecast
+                            </summary>
+                            <Panel title="Regime Forecast" action={latentChip}>
+                              <div style={{ marginBottom: "var(--ds-space-2)" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <span className="ds-chip ds-chip--sm" style={{ background: `${CURRENT.color}22`, color: CURRENT.color, fontWeight: 700, letterSpacing: "0.04em" }}>
+                                    {CURRENT.short.toUpperCase()}
                                   </span>
-                                )}
-                                {(() => {
-                                  const _dr = String(ticker?.__defend_reason || "").toLowerCase();
-                                  if (!_dr.startsWith("macro_regime_flip")) return null;
-                                  return (
-                                    <span className="ds-chip ds-chip--sm" title="Engine forced DEFEND: open trade direction is against the decoded macro regime (HMM-driven). See PR #285." style={{ background: "rgba(248,113,113,0.18)", color: "#f87171", fontWeight: 700, letterSpacing: "0.04em" }}>
-                                      MACRO DEFEND
+                                  <span style={{ fontSize: 11, color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>
+                                    run · {runLen} bar{runLen === 1 ? "" : "s"}
+                                  </span>
+                                  {exh && (
+                                    <span className="ds-chip ds-chip--sm ds-chip--accent">
+                                      EXHAUSTED · {exh.sigma_above_mean.toFixed(1)}σ
                                     </span>
-                                  );
-                                })()}
-                              </div>
-                              <p style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", margin: "8px 0 0 0", lineHeight: 1.5 }}>
-                                {insight}
-                              </p>
-                            </div>
-                            <div style={{ borderTop: "1px solid var(--ds-stroke)", paddingTop: "var(--ds-space-2)" }}>
-                              <div style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>
-                                Where it's likely headed · intraday
-                              </div>
-                              {renderRow("Next 5 min",    fc.p_next,   1,  "1 bar ahead — single 5-minute candle from the Markov transition matrix")}
-                              {renderRow("Next 25 min",   fc.p_5_bar,  5,  "5 bars ahead — about half an hour of trading")}
-                              {renderRow("Next 1h 40m",   fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")}
-                            </div>
-
-                            {/* 2026-05-27 (PR #310 — improvement 4) — longer-
-                                horizon block. Same matrix raised to higher
-                                powers (Chapman–Kolmogorov: P^n applied to
-                                current state). As n grows the distribution
-                                converges toward the stationary distribution
-                                π; by 1 week (390 5-min bars) it's essentially
-                                showing the long-run regime baseline. Useful
-                                for investor-mode users + setting the
-                                multi-day context for intraday traders.
-
-                                2026-05-27 (PR #313) — default-OPEN now. User
-                                report 03:59 UTC: "where the 1HR Markov Regime
-                                Forecast in the UI?" The collapsed <details>
-                                summary hid the most-actionable longer-horizon
-                                row entirely; users had no signal it was
-                                clickable. Opening by default makes all 6
-                                horizons visible at once; users can still
-                                collapse it manually if they want a denser
-                                panel. */}
-                            {(fc.p_1h || fc.p_1d || fc.p_1w) && (
-                              <details open style={{ marginTop: "var(--ds-space-2)" }}>
-                                <summary style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", padding: "4px 0", userSelect: "none" }}>
-                                  Longer horizon · multi-day
-                                </summary>
-                                <div style={{ marginTop: 4 }}>
-                                  {renderRow("Next 1 hour",  fc.p_1h, 12,  "12 bars ahead — one trading hour")}
-                                  {renderRow("Next 1 day",   fc.p_1d, 78,  "78 RTH bars ahead — one full trading session")}
-                                  {renderRow("Next 1 week",  fc.p_1w, 390, "390 RTH bars ahead — one trading week. Approaches the long-run baseline regime distribution.")}
+                                  )}
                                 </div>
-                              </details>
-                            )}
-                            {fc.matrix_window_days && (
-                              <p style={{ margin: "10px 0 0 0", fontSize: 9, color: "var(--ds-text-dim)", letterSpacing: "0.04em", opacity: 0.7 }}>
-                                Markov matrix · {fc.matrix_window_days}-day window
-                                {fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : ""}
-                                {" · "}Bars are 5 min
-                              </p>
-                            )}
-                          </Panel>
+                                <p style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", margin: "8px 0 0 0", lineHeight: 1.5 }}>
+                                  {insight}
+                                </p>
+                              </div>
+                              {cols.length > 0 && (
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8, marginTop: 8 }}>
+                                  {cols.map((col) => (
+                                    <div key={col.key} style={{ padding: "8px 6px", borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid var(--ds-stroke)", textAlign: "center" }}>
+                                      <div style={{ fontSize: 9, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>{col.label.toUpperCase()}</div>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: col.holdColor, fontFamily: "var(--tt-font-mono)" }}>{col.holdLabel}</div>
+                                      <div style={{ fontSize: 11, color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)", marginTop: 2 }}>{(col.holdPct * 100).toFixed(0)}% hold</div>
+                                      {col.dirPct != null && (
+                                        <div style={{ fontSize: 9, color: "var(--ds-text-muted)", marginTop: 2 }}>{(col.dirPct * 100).toFixed(0)}% {dir.toLowerCase()}</div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {(fc.p_next || fc.p_5_bar || fc.p_20_bar) && (
+                                <details style={{ marginTop: "var(--ds-space-2)" }}>
+                                  <summary style={{ fontSize: 10, color: "var(--ds-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", padding: "4px 0" }}>
+                                    Intraday · 5m / 25m / 100m
+                                  </summary>
+                                  <div style={{ fontSize: 10, color: "var(--ds-text-muted)", lineHeight: 1.6, marginTop: 4 }}>
+                                    {fc.p_next && <>5 min dominant {(Object.entries(fc.p_next).sort((a,b)=>b[1]-a[1])[0]?.[1] * 100 || 0).toFixed(0)}% · </>}
+                                    {fc.p_5_bar && <>25 min {(Object.entries(fc.p_5_bar).sort((a,b)=>b[1]-a[1])[0]?.[1] * 100 || 0).toFixed(0)}% · </>}
+                                    {fc.p_20_bar && <>~100 min {(Object.entries(fc.p_20_bar).sort((a,b)=>b[1]-a[1])[0]?.[1] * 100 || 0).toFixed(0)}%</>}
+                                  </div>
+                                </details>
+                              )}
+                              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 2 }}>
+                                {forecastLiveMs != null && (
+                                  <p style={{ margin: 0, fontSize: 9, color: "var(--ds-text-dim)" }}>
+                                    Forecast live · scoring payload {fmtAge(forecastLiveMs)}
+                                  </p>
+                                )}
+                                {matrixAgeMs != null && (
+                                  <p style={{ margin: 0, fontSize: 9, color: "var(--ds-text-dim)" }}>
+                                    Model trained · matrix re-fit {fmtAge(matrixAgeMs)}
+                                    {fc.matrix_window_days ? ` · ${fc.matrix_window_days}-day window` : ""}
+                                  </p>
+                                )}
+                              </div>
+                            </Panel>
+                          </details>
                         );
                       })()}
 
-                      {/* Behavior — V2.2 (2026-05-12) — surface the engine's
-                          per-ticker personality + dominant archetype + sample
-                          size right at the top of Snapshot, so a reader can
-                          frame the rest of the rail (Conviction, Setup, Levels)
-                          against "this ticker's typical behavior." Sourced from
-                          the freshly-rebuilt ticker_profiles.learning_json. */}
-                      {(() => {
+                      {/* Behavior moved to Setup tab only (Snapshot dedupe). */}
+                      {null && (() => {
                         const tp = ticker?._ticker_profile;
                         const learn = tp?.learning;
                         if (!learn) return null;
@@ -9334,8 +9278,8 @@
                         );
                       })()}
 
-                      {/* Conviction panel — with tooltips on each metric */}
-                      {(v2Rank || v2Score || v2Conv) && (
+                      {/* Conviction panel deduped — hero footer shows Rank / Conviction */}
+                      {false && (v2Rank || v2Score || v2Conv) && (
                         <Panel title="Conviction">
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "var(--ds-space-2)" }}>
                             {v2Rank != null && (
@@ -9464,6 +9408,8 @@
                           </div>
                         );
                       })()}
+                        </div>
+                      </details>
                     </>
                   )}
 
@@ -9777,6 +9723,7 @@
                       {(() => {
                         const conf = optionsTabData?.confluence_verdict || null;
                         if (!conf || !conf.mode) return null;
+                        return null; /* Snapshot hero covers verdict — Setup dedupe */
                         // Header chip uses Trader posture (confirmed / lean / neutral).
                         // conf.side is the 8-layer fusion lean — can diverge (e.g.
                         // contract SHORT + 4L/1S layer split). Show BOTH honestly.
@@ -11891,6 +11838,27 @@
                         "--ds-space-3": "7px",
                         "--ds-space-4": "9px",
                       }}>
+                        {(() => {
+                          const N = fundamentalsNarrative || window.TimedRailHelpers?.buildFundamentalsHeroNarrative?.(F);
+                          if (!N) return null;
+                          const toneColor = N.tone === "bullish" ? "var(--ds-up)" : N.tone === "cautious" ? "var(--ds-dn)" : "var(--ds-text-muted)";
+                          return (
+                            <Panel title="Fundamentals Brief" action={
+                              fundamentalsNarrativeLoading
+                                ? <span className="ds-chip ds-chip--sm">Loading…</span>
+                                : <span className="ds-chip ds-chip--sm" style={{ color: toneColor }}>{N.quality_chip || "Analyst view"}</span>
+                            }>
+                              <div style={{ fontSize: "var(--ds-fs-emph)", fontWeight: 700, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: 8 }}>
+                                {N.headline}
+                              </div>
+                              <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
+                                {(N.bullets || []).slice(0, 3).map((b, i) => (
+                                  <li key={`fb-${i}`} style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>{b}</li>
+                                ))}
+                              </ul>
+                            </Panel>
+                          );
+                        })()}
                         {/* Header strip — sector / industry / market cap / cash-rich */}
                         <Panel title={prof.name || tickerSymbol} action={
                           <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>
@@ -12350,16 +12318,37 @@
                         WebkitOverflowScrolling: "touch",
                       }}>
 
-                        {/* ── 0. News Catalysts (most timely — shown first) ────────── */}
-                        <Panel title="🔥 News Catalysts" action={C.news?.count > 0 && (
+                        {(() => {
+                          const buzz = catalystsNarrative || window.TimedRailHelpers?.buildCatalystsStreetBuzz?.(C);
+                          if (!buzz) return null;
+                          const vibeColor = buzz.vibe === "bullish" ? "var(--ds-up)" : buzz.vibe === "bearish" ? "var(--ds-dn)" : buzz.vibe === "quiet" ? "var(--ds-text-muted)" : "var(--ds-accent)";
+                          return (
+                            <Panel title="Street Buzz" action={
+                              catalystsNarrativeLoading
+                                ? <span className="ds-chip ds-chip--sm">Loading…</span>
+                                : <span className="ds-chip ds-chip--sm" style={{ color: vibeColor, textTransform: "uppercase" }}>{buzz.vibe}</span>
+                            }>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--ds-text-body)", lineHeight: 1.4, marginBottom: 6 }}>{buzz.headline}</div>
+                              <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>{buzz.summary}</div>
+                              {Array.isArray(buzz.top_drivers) && buzz.top_drivers.length > 0 && (
+                                <div style={{ marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)" }}>
+                                  {buzz.top_drivers.map((d, i) => (
+                                    <div key={`drv-${i}`}>· {d}</div>
+                                  ))}
+                                </div>
+                              )}
+                              {buzz.freshness_note && (
+                                <div style={{ marginTop: 8, fontSize: 9, color: "var(--ds-text-dim)" }}>{buzz.freshness_note}</div>
+                              )}
+                            </Panel>
+                          );
+                        })()}
+
+                        {C.news?.has_data && C.news?.count > 0 && (
+                        <Panel title="News Catalysts" action={
                           <span className="ds-chip ds-chip--sm">{C.news.count} headlines · 5d</span>
-                        )}>
-                          {!C.news?.has_data ? (
-                            <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
-                              No news in the last 5 days.
-                            </div>
-                          ) : (
-                            <>
+                        }>
+                          <>
                               {C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && (
                                 <div style={{
                                   marginBottom: "var(--ds-space-3)",
@@ -12412,8 +12401,8 @@
                                 </div>
                               )}
                             </>
-                          )}
                         </Panel>
+                        )}
 
                         {/* ── 1. FSD Intel (FlashInsights + long-form mentions) ────────── */}
                         {/* 2026-06-03 — Renders TT-voice rewrite when available,

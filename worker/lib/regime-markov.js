@@ -374,7 +374,8 @@ export function nStepForecast(P, currentState, n) {
  *
  *    LONGER HORIZON:
  *      12 bars  ≈  1 hour     ← p_1h        (filled gap between 20-bar
- *                                            and 1-day)
+ *                                            and 4-hour)
+ *      48 bars  ≈  4 hours    ← p_4h        (RTH intraday swing window)
  *      78 bars  ≈  1 RTH day  ← p_1d        (390 RTH min / 5 = 78 bars)
  *     390 bars  ≈  5 RTH days ← p_1w        (one trading week)
  *
@@ -393,6 +394,7 @@ export function forecastBundle(P, currentState) {
     p_20_bar: nStepForecast(P, s, 20),
     // Longer horizons — multi-day investor context (PR #310)
     p_1h:     nStepForecast(P, s, 12),
+    p_4h:     nStepForecast(P, s, 48),
     p_1d:     nStepForecast(P, s, 78),
     p_1w:     nStepForecast(P, s, 390),
   };

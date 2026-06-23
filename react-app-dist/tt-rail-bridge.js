@@ -75,7 +75,8 @@
     const initialRailTab = d.initialRailTab || url.initialRailTab || null;
     const tradeId = d.tradeId || d.trade_id || url.tradeId || null;
     const openAutopsy = d.openAutopsy === true || url.openAutopsy === true;
-    return { ticker, initialRailTab, tradeId, openAutopsy, activityEvent: d.activityEvent || null };
+    const evType = String(d.evType || url.evType || "").trim().toUpperCase() || null;
+    return { ticker, initialRailTab, tradeId, openAutopsy, evType, source: d.source || null };
   };
 
   window.ttClearRailUrlParams = function ttClearRailUrlParams() {
@@ -127,8 +128,9 @@
       initialRailTab,
       highlightTradeId: p.tradeId,
       openAutopsyForTrade,
+      railOpenSource: evDetail?.source || p.source || null,
     };
   };
 })();
 
-// cache-bust:1782148863164:366373053
+// cache-bust:1782177437352:861455465

@@ -2086,380 +2086,71 @@
           gap: "var(--ds-space-3)",
           position: "relative"
         }
-      }, _loadingOverlay, h(Panel, {
-        title: "⏱ Options Setup Guidance",
-        color: _gColor,
-        action: h("div", {
-          style: {
-            display: "flex",
-            gap: 6,
-            flexWrap: "wrap"
-          }
-        }, h("span", {
-          style: {
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            color: _gColor,
-            background: _gBg,
-            border: `1px solid ${_gBorder}`
-          }
-        }, setupGuidance.label || "SETUP"), h("span", {
-          style: {
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            color: modeMeta.color,
-            background: modeMeta.bg,
-            border: `1px solid ${modeMeta.color}66`
-          }
-        }, modeMeta.icon, " ", modeMeta.label))
-      }, h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: _gBg,
-          border: `1px solid ${_gBorder}`,
-          borderRadius: "var(--ds-radius-md)",
-          marginBottom: "var(--ds-space-2)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em",
-          marginBottom: 4
-        }
-      }, "WHAT TO DO"), h("div", {
-        style: {
-          fontSize: 15,
-          fontWeight: 700,
-          color: _gColor
-        }
-      }, setupGuidance.action || setupGuidance.headline || "—"), h("div", {
-        style: {
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-body)",
-          marginTop: 4,
-          lineHeight: 1.4
-        }
-      }, setupGuidance.desc || "")), _callVsLeanConflict && h("div", {
-        style: {
-          marginBottom: "var(--ds-space-2)",
-          padding: "var(--ds-space-2)",
-          background: "rgba(56,242,161,0.08)",
-          border: "1px solid rgba(56,242,161,0.30)",
-          borderRadius: "var(--ds-radius-md)",
-          fontSize: 12,
-          color: "var(--ds-text-body)",
-          lineHeight: 1.45
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: "#38F2A1",
-          letterSpacing: "0.05em",
-          marginBottom: 4
-        }
-      }, "SIGNAL SPLIT — NOT STALE"), "Trader contract is ", h("strong", {
-        style: {
-          color: _callColor
-        }
-      }, _traderCall), " but layers lean ", h("strong", null, _layerLean), " (", _layerSplitLabel, "). Directional options are gated until timing aligns."), h("div", {
-        style: {
-          display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: "var(--ds-space-2)"
-        }
-      }, h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        },
-        title: _disp?.fusion_help || "8-layer fusion score — not win probability"
-      }, "FUSION"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontWeight: 700,
-          marginTop: 2,
-          fontSize: 18,
-          color: Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "#34d399" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171"
-        }
-      }, Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—", h("span", {
-        style: {
-          fontSize: 10,
-          fontWeight: 600,
-          color: "var(--ds-text-muted)"
-        }
-      }, "/100")), h("div", {
-        style: {
-          fontSize: 10,
-          color: "var(--ds-text-muted)",
-          marginTop: 2
-        }
-      }, _disp?.fusion_label || (Number.isFinite(_scoreNum) && _scoreNum >= 65 ? "Strong" : Number.isFinite(_scoreNum) && _scoreNum >= 40 ? "Mixed" : "Weak"))), h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: "rgba(255,255,255,0.03)",
-          border: "1px solid rgba(255,255,255,0.06)",
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "LAYER SPLIT"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontWeight: 700,
-          marginTop: 2,
-          fontSize: 18,
-          color: "var(--ds-text-body)"
-        }
-      }, _layerSplitLabel), h("div", {
-        style: {
-          fontSize: 10,
-          color: "var(--ds-text-muted)",
-          marginTop: 2
-        }
-      }, "Fusion leans ", _layerLean || "—")), h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: _effDir === "SHORT" ? "rgba(248,113,113,0.06)" : _effDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-          border: `1px solid ${_effDir === "SHORT" ? "rgba(248,113,113,0.25)" : _effDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "PLAY DIRECTION"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontWeight: 700,
-          marginTop: 2,
-          fontSize: 18,
-          color: _effDir === "SHORT" ? "#fb7185" : _effDir === "LONG" ? "#34d399" : "var(--ds-text-muted)"
-        }
-      }, _effDir || "—"), h("div", {
-        style: {
-          fontSize: 10,
-          color: "var(--ds-text-muted)",
-          marginTop: 2
-        }
-      }, _dirFlipped && _contractDir ? `Contract ${_contractDir} · faded to ${_effDir}` : "ST: " + (st.side || "—") + " · " + stFresh))), _disp && h("div", {
-        style: {
-          marginTop: "var(--ds-space-2)",
-          marginBottom: "var(--ds-space-2)",
-          padding: "var(--ds-space-2)",
-          background: (_disp.stance_color || "#8AA39A") + "14",
-          border: `1px solid ${_disp.stance_color || "#8AA39A"}44`,
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
+      }, _loadingOverlay, h("div", {
         style: {
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
           flexWrap: "wrap",
-          marginBottom: 4
+          gap: 8,
+          alignItems: "center",
+          padding: "10px 12px",
+          borderRadius: 8,
+          background: _gBg,
+          border: `1px solid ${_gBorder}`
         }
-      }, h("div", {
+      }, h("span", {
         style: {
           fontSize: 10,
           fontWeight: 700,
           color: "var(--ds-text-faint)",
           letterSpacing: "0.06em"
         }
-      }, "WOULD THE MODEL TAKE THIS?"), h("span", {
+      }, "OPTIONS VERDICT"), h("span", {
         style: {
           fontSize: 10,
           fontWeight: 700,
-          letterSpacing: "0.05em",
           padding: "2px 8px",
           borderRadius: 999,
-          color: _disp.stance_color || "#8AA39A",
-          background: (_disp.stance_color || "#8AA39A") + "18",
-          border: `1px solid ${_disp.stance_color || "#8AA39A"}55`
+          color: _gColor,
+          background: _gBg,
+          border: `1px solid ${_gBorder}`
         }
-      }, _disp.stance_label || "—")), h("div", {
-        style: {
-          fontSize: 12,
-          color: "var(--ds-text-body)",
-          lineHeight: 1.45,
-          fontWeight: 600
-        }
-      }, _disp.summary || "—"), _disp.detail && h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.45,
-          marginTop: 6
-        }
-      }, _disp.detail), _dirFlipped && _contractDir && _effDir && _contractDir !== _effDir && h("div", {
-        style: {
-          marginTop: 8,
-          fontSize: 10,
-          color: "var(--ds-text-faint)",
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, "Trader contract ", _contractDir, " → play expresses ", _effDir, " (FADE flip)"), _disp.valid_play === false && h("div", {
-        style: {
-          marginTop: 6,
-          fontSize: 10,
-          color: "#f87171",
-          fontWeight: 600
-        }
-      }, "Not a live entry recommendation — review only.")), (setupGuidance.why || setupGuidance.body) && h("div", {
-        style: {
-          marginTop: "var(--ds-space-2)",
-          paddingTop: "var(--ds-space-2)",
-          borderTop: "1px solid rgba(255,255,255,0.04)"
-        }
-      }, h("div", {
+      }, setupGuidance.label || "SETUP"), h("span", {
         style: {
           fontSize: 10,
           fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.06em",
-          marginBottom: 4
+          padding: "2px 8px",
+          borderRadius: 999,
+          color: modeMeta.color,
+          background: modeMeta.bg,
+          border: `1px solid ${modeMeta.color}66`
         }
-      }, "WHY"), h("div", {
+      }, modeMeta.label), h("span", {
         style: {
-          fontSize: 12,
-          color: "var(--ds-text-body)",
-          lineHeight: 1.45
-        }
-      }, setupGuidance.why || setupGuidance.body)), (setupGuidance.timing_note || setupGuidance.timing_focus) && h("div", {
-        style: {
-          marginTop: 8,
           fontSize: 10,
-          color: "var(--ds-text-faint)",
-          fontStyle: "italic",
-          lineHeight: 1.45
-        }
-      }, setupGuidance.timing_note || setupGuidance.timing_focus, setupGuidance.high_volatility && h("span", {
-        style: {
-          color: _gColor,
-          fontWeight: 600,
-          marginLeft: 4
-        }
-      }, " · High-volatility name.")), st.confirmed_tfs && st.confirmed_tfs.length > 0 && h("div", {
-        style: {
-          marginTop: 8,
-          fontSize: 10,
+          fontFamily: "var(--tt-font-mono)",
           color: "var(--ds-text-muted)"
         }
-      }, "SuperTrend sloping on TFs: ", h("strong", {
+      }, "Fusion ", Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—", "/100 · ", _layerSplitLabel, " · ", _effDir || "—"), h("span", {
         style: {
+          fontSize: 11,
           color: "var(--ds-text-body)",
-          fontFamily: "var(--tt-font-mono)"
+          flex: "1 1 200px"
         }
-      }, st.confirmed_tfs.join(" · "))), h("button", {
-        onClick: () => setShowLayers(!showLayers),
+      }, setupGuidance.action || setupGuidance.headline || "—")), h("details", {
         style: {
-          marginTop: 8,
-          padding: "4px 10px",
+          marginBottom: 4
+        }
+      }, h("summary", {
+        style: {
           fontSize: 10,
-          fontWeight: 600,
+          fontWeight: 700,
           color: "var(--ds-text-muted)",
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid var(--ds-stroke)",
-          borderRadius: 6,
-          cursor: "pointer"
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          padding: "4px 0"
         }
-      }, showLayers ? "Hide layer breakdown" : "Show layer breakdown (8 layers)"), showLayers && h("div", {
-        style: {
-          marginTop: 8,
-          display: "flex",
-          flexDirection: "column",
-          gap: 4
-        }
-      }, (verdict.layers || []).map(l => {
-        const sideColor = l.side === "LONG" ? "#34d399" : l.side === "SHORT" ? "#f87171" : "#8AA39A";
-        const strengthBar = Math.min(100, (Number(l.strength) || 0) * 100);
-        const LAYER_LABEL = {
-          L1_macro: "L1 · Macro Regime",
-          L2_newton: "L2 · Rel. Strength + Structure",
-          L3_markov: "L3 · Statistical Prior",
-          L4_ict: "L4 · Liquidity & Structure",
-          L5_carter: "L5 · Volatility & Momentum",
-          L6_demark: "L6 · Wave Maturity",
-          L7_trend: "L7 · Trend Health",
-          L8_saty: "L8 · Day Gate (Phase + ATR)"
-        };
-        const displayLabel = LAYER_LABEL[l.key] || l.key.replace(/_/g, " ").toUpperCase();
-        return h("div", {
-          key: l.key,
-          style: {
-            padding: 6,
-            background: "rgba(255,255,255,0.02)",
-            borderRadius: 4
-          }
-        }, h("div", {
-          style: {
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "baseline",
-            marginBottom: 2
-          }
-        }, h("span", {
-          style: {
-            fontSize: 11,
-            fontFamily: "var(--tt-font-mono)",
-            color: "var(--ds-text-body)"
-          }
-        }, displayLabel), h("span", {
-          style: {
-            fontSize: 10,
-            fontFamily: "var(--tt-font-mono)",
-            color: sideColor,
-            fontWeight: 700
-          }
-        }, l.side, " (", l.strength.toFixed(2), ")")), h("div", {
-          style: {
-            height: 3,
-            background: "rgba(255,255,255,0.06)",
-            borderRadius: 2,
-            overflow: "hidden"
-          }
-        }, h("div", {
-          style: {
-            width: strengthBar + "%",
-            height: "100%",
-            background: sideColor,
-            transition: "width 0.3s"
-          }
-        })), l.evidence && h("div", {
-          style: {
-            fontSize: 9,
-            color: "var(--ds-text-faint)",
-            marginTop: 2
-          }
-        }, l.evidence));
-      }))), h(Panel, {
-        title: "⚙ Options Preferences"
+      }, "Preferences · profile & horizon"), h(Panel, {
+        title: "Options Preferences"
       }, h("div", {
         style: {
           fontSize: 9,
@@ -2537,7 +2228,7 @@
           color: "var(--ds-text-muted)",
           fontStyle: "italic"
         }
-      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days." : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative.")), _dayTradePanel, _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
+      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days." : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative."))), _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
         style: {
           background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(56,242,161,0.12))",
           border: "2px solid rgba(56,242,161,0.50)",
@@ -3143,8 +2834,21 @@
           color: "var(--ds-text-faint)",
           fontStyle: "italic"
         }
-      }, data.estimated_premium_caveat)), ladder.length > 1 && h(Panel, {
-        title: `📊 Strategy Ladder (${ladder.length} plays)`
+      }, data.estimated_premium_caveat)), _dayTradePanel, ladder.length > 1 && h("details", {
+        style: {
+          marginTop: 4
+        }
+      }, h("summary", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--ds-text-muted)",
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          padding: "4px 0"
+        }
+      }, `Strategy ladder (${ladder.length - 1} alternates)`), h(Panel, {
+        title: `Strategy Ladder (${ladder.length} plays)`
       }, h("div", {
         style: {
           display: "flex",
@@ -3200,7 +2904,7 @@
         style: {
           color: "#34d399"
         }
-      }, fmtUsd(play.max_gain_usd))), play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2))))))), h("div", {
+      }, fmtUsd(play.max_gain_usd))), play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)))))))), h("div", {
         style: {
           fontSize: 10,
           color: "var(--ds-text-faint)",
@@ -4892,6 +4596,7 @@
       openAutopsyForTrade = null,
       highlightTradeId = null,
       modalOnly = false,
+      railOpenSource = null,
       layoutMode = "modal"
     }) {
       const tickerSymbol = ticker?.ticker ? String(ticker.ticker) : "";
@@ -5347,6 +5052,11 @@
       }, [railTab, tradeplanPriceLines, investorPriceLines, optionsPriceLines, investorData, optionsTabData]);
       const [fundamentals, setFundamentals] = useState(null);
       const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
+      const [fundamentalsNarrative, setFundamentalsNarrative] = useState(null);
+      const [fundamentalsNarrativeLoading, setFundamentalsNarrativeLoading] = useState(false);
+      const [catalystsNarrative, setCatalystsNarrative] = useState(null);
+      const [catalystsNarrativeLoading, setCatalystsNarrativeLoading] = useState(false);
+      const [snapshotViewMode, setSnapshotViewMode] = useState(() => String(railOpenSource || "").toLowerCase() === "investor" ? "investor" : "trader");
       const [fundamentalsError, setFundamentalsError] = useState(null);
       const fundamentalsCacheRef = useRef(new Map());
       const fundamentalsSortRef = useRef({
@@ -6339,6 +6049,65 @@
           cancelled = true;
         };
       }, [railTab, tickerSymbol]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym || railTab !== "FUNDAMENTALS") return;
+        let cancelled = false;
+        (async () => {
+          try {
+            setFundamentalsNarrativeLoading(true);
+            const apiKey = typeof window !== "undefined" && window._ttApiKey ? window._ttApiKey : "";
+            const qs = new URLSearchParams({
+              ticker: sym
+            });
+            if (apiKey) qs.set("key", apiKey);
+            const res = await fetch(`${API_BASE}/timed/fundamentals/narrative?${qs.toString()}`, {
+              cache: "no-store",
+              credentials: "include"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!cancelled && json?.ok) setFundamentalsNarrative(json.narrative || null);
+          } catch (_) {
+            if (!cancelled && fundamentals) {
+              const fb = window.TimedRailHelpers?.buildFundamentalsHeroNarrative?.(fundamentals);
+              if (fb) setFundamentalsNarrative(fb);
+            }
+          } finally {
+            if (!cancelled) setFundamentalsNarrativeLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol, fundamentals]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym || railTab !== "CATALYSTS") return;
+        let cancelled = false;
+        (async () => {
+          try {
+            setCatalystsNarrativeLoading(true);
+            const res = await fetch(`${API_BASE}/timed/discovery/catalysts-narrative?ticker=${encodeURIComponent(sym)}`, {
+              cache: "no-store",
+              credentials: "include"
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const json = await res.json();
+            if (!cancelled && json?.ok) setCatalystsNarrative(json.narrative || null);
+          } catch (_) {
+            if (!cancelled && catalysts) {
+              const fb = window.TimedRailHelpers?.buildCatalystsStreetBuzz?.(catalysts);
+              if (fb) setCatalystsNarrative(fb);
+            }
+          } finally {
+            if (!cancelled) setCatalystsNarrativeLoading(false);
+          }
+        })();
+        return () => {
+          cancelled = true;
+        };
+      }, [railTab, tickerSymbol, catalysts]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -9412,7 +9181,26 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, Math.round(v2Conv), "/100"))));
-        })(), (() => {
+        })(), React.createElement("div", {
+          style: {
+            display: "flex",
+            gap: 6,
+            marginBottom: "var(--ds-space-3)",
+            flexWrap: "wrap"
+          }
+        }, ["trader", "investor"].map(mode => {
+          const active = snapshotViewMode === mode;
+          return React.createElement("button", {
+            key: mode,
+            type: "button",
+            onClick: () => setSnapshotViewMode(mode),
+            className: `ds-chip ds-chip--sm${active ? " ds-chip--accent" : ""}`,
+            style: {
+              cursor: "pointer",
+              textTransform: "capitalize"
+            }
+          }, mode === "trader" ? "Trader" : "Investor");
+        })), (() => {
           const f = ticker?._freshness;
           if (!f || f.grade === "FRESH" || f.enforced === false) return null;
           const isStale = f.grade === "STALE";
@@ -9566,7 +9354,7 @@
               lineHeight: 1.5
             }
           }, "\xB7 ", String(ev).replace(/ \(\+\d+\)$/, "")))));
-        })(), effectiveInvestorTrade && (() => {
+        })(), effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
           const it = effectiveInvestorTrade;
           const dir = String(it?.direction || "LONG").toUpperCase();
           const isLong = dir !== "SHORT";
@@ -9789,7 +9577,7 @@
               color: "var(--ds-text-faint)"
             }
           }, "The Trader model below is independent of this holding. It may suggest a SHORT scalp while this LONG position keeps running."));
-        })(), effectiveTraderTrade && (() => {
+        })(), effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
           const tt = effectiveTraderTrade;
           const st = String(tt?.status || "").toUpperCase();
           const isOpen = st === "OPEN" || st === "TP_HIT_TRIM" || !(tt?.exit_ts ?? tt?.exitTs) && st !== "WIN" && st !== "LOSS" && st !== "FLAT" && st !== "ARCHIVED";
@@ -10306,7 +10094,28 @@
               lineHeight: 1.45
             }
           }, "Hit % comes from ~2 years of this ticker's daily bars. Distance and Hit/Faded tags update with live quotes since that daily close. Published magnets are logged for forward grading."));
-        })(), ticker?.regime_forecast?.p_next && (() => {
+        })(), React.createElement("details", {
+          style: {
+            marginBottom: "var(--ds-space-3)"
+          }
+        }, React.createElement("summary", {
+          style: {
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--ds-text-muted)",
+            letterSpacing: "0.06em",
+            cursor: "pointer",
+            padding: "6px 0",
+            userSelect: "none"
+          }
+        }, "More detail \u2014 model, regime, diagnostics"), React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-3)",
+            marginTop: "var(--ds-space-2)"
+          }
+        }, ticker?.regime_forecast?.p_next && (() => {
           const fc = ticker.regime_forecast;
           const exh = ticker.regime_exhausted || null;
           const runLen = Number(ticker._regime_run_length) || 0;
@@ -10334,58 +10143,6 @@
             color: "var(--ds-text-muted)"
           };
           const top5 = Object.entries(fc.p_5_bar || {}).sort((a, b) => b[1] - a[1])[0] || ["", 0];
-          const renderRow = (label, vec, barCount, tooltip) => {
-            if (!vec) return null;
-            const entries = Object.entries(vec).sort((a, b) => b[1] - a[1]);
-            return React.createElement("div", {
-              key: `fc-${label}`,
-              title: tooltip,
-              style: {
-                display: "grid",
-                gridTemplateColumns: "92px 1fr 96px",
-                gap: 8,
-                alignItems: "center",
-                padding: "6px 0"
-              }
-            }, React.createElement("span", {
-              style: {
-                fontSize: 11,
-                color: "var(--ds-text-muted)"
-              }
-            }, label), React.createElement("span", {
-              style: {
-                display: "flex",
-                height: 8,
-                borderRadius: 4,
-                overflow: "hidden",
-                background: "rgba(255,255,255,0.04)"
-              }
-            }, entries.map(([s, p]) => React.createElement("span", {
-              key: s,
-              title: `${(PRETTY[s] || {}).short || s}: ${(p * 100).toFixed(0)}%`,
-              style: {
-                width: `${Math.max(2, p * 100)}%`,
-                background: (PRETTY[s] || {}).color || "var(--ds-text-muted)",
-                opacity: p < 0.05 ? 0 : 1
-              }
-            }))), React.createElement("span", {
-              style: {
-                fontSize: 11,
-                color: "var(--ds-text)",
-                fontFamily: "var(--tt-font-mono)",
-                textAlign: "right"
-              }
-            }, React.createElement("span", {
-              style: {
-                color: (PRETTY[entries[0][0]] || {}).color || "inherit"
-              }
-            }, (entries[0][1] * 100).toFixed(0), "%"), React.createElement("span", {
-              style: {
-                color: "var(--ds-text-muted)",
-                marginLeft: 4
-              }
-            }, (PRETTY[entries[0][0]] || {}).short || entries[0][0])));
-          };
           const insight = (() => {
             if (exh) {
               return `Stuck in ${CURRENT.short} for ${runLen} bars — ${exh.sigma_above_mean.toFixed(1)}σ above typical (mean ${exh.mean_dwell}). A transition is statistically overdue.`;
@@ -10394,20 +10151,25 @@
               const target = PRETTY[top5[0]] || {
                 short: top5[0]
               };
-              return `Currently ${CURRENT.short}, run length ${runLen}. Model says ${target.short} in the next 25 min (${(top5[1] * 100).toFixed(0)}% probability).`;
+              return `Currently ${CURRENT.short}, run length ${runLen}. Model leans ${target.short} over the next 25 min (${(top5[1] * 100).toFixed(0)}%).`;
             }
             if (top5[0] === fc.state && top5[1] >= 0.65) {
-              return `Holding ${CURRENT.short} — model says ${(top5[1] * 100).toFixed(0)}% chance it stays for the next 25 min.`;
+              return `Holding ${CURRENT.short} — ${(top5[1] * 100).toFixed(0)}% chance it stays over the next 25 min.`;
             }
-            return `Mixed signal — no single state above 65% probability over the next 25 min.`;
+            return `Mixed signal — no single state above 65% over the next 25 min.`;
           })();
+          const dir = String(v2StructureDir || v2Dir || predictionContract?.direction || "").toUpperCase();
+          const cols = window.TimedRailHelpers?.buildRegimeTimelineColumns?.(fc, dir) || [];
+          const fmtAge = window.TimedRailHelpers?.formatAgeShort || (ms => `${Math.floor(ms / 3600000)}h ago`);
+          const forecastLiveMs = Number(ticker?.ingest_ts || ticker?.ts || ticker?.updated_at) ? Date.now() - Number(ticker.ingest_ts || ticker.ts || ticker.updated_at) : null;
+          const matrixAgeMs = fc.matrix_computed_at ? Date.now() - Number(fc.matrix_computed_at) : null;
           const LATENT_COLOR = {
             BULL_TREND: "var(--ds-up, #4ade80)",
             CHOP: "var(--ds-warn, #fbbf24)",
             BEAR_TREND: "var(--ds-dn, #f87171)"
           };
           const latentChip = latent && latent.state ? React.createElement("span", {
-            title: `HMM latent regime — decoded from market-wide observations (SPY return, ATR, VIX, breadth, sector dispersion). Posterior: ${Object.entries(latent.posterior || {}).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" / ")}`,
+            title: `HMM latent regime posterior`,
             style: {
               display: "inline-flex",
               alignItems: "center",
@@ -10421,8 +10183,22 @@
               letterSpacing: "0.05em",
               fontFamily: "var(--tt-font-mono)"
             }
-          }, "\u25CF ", latent.state) : null;
-          return React.createElement(Panel, {
+          }, latent.state) : null;
+          return React.createElement("details", {
+            style: {
+              marginBottom: 0
+            }
+          }, React.createElement("summary", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-dim)",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+              padding: "4px 0",
+              userSelect: "none"
+            }
+          }, "Market context \xB7 regime forecast"), React.createElement(Panel, {
             title: "Regime Forecast",
             action: latentChip
           }, React.createElement("div", {
@@ -10451,43 +10227,58 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, "run \xB7 ", runLen, " bar", runLen === 1 ? "" : "s"), exh && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--accent",
-            title: `Run length ${exh.run_length} > mean ${exh.mean_dwell} + 2σ (${exh.dwell_std?.toFixed?.(1)})`
-          }, "EXHAUSTED \xB7 ", exh.sigma_above_mean.toFixed(1), "\u03C3"), (() => {
-            const _dr = String(ticker?.__defend_reason || "").toLowerCase();
-            if (!_dr.startsWith("macro_regime_flip")) return null;
-            return React.createElement("span", {
-              className: "ds-chip ds-chip--sm",
-              title: "Engine forced DEFEND: open trade direction is against the decoded macro regime (HMM-driven). See PR #285.",
-              style: {
-                background: "rgba(248,113,113,0.18)",
-                color: "#f87171",
-                fontWeight: 700,
-                letterSpacing: "0.04em"
-              }
-            }, "MACRO DEFEND");
-          })()), React.createElement("p", {
+            className: "ds-chip ds-chip--sm ds-chip--accent"
+          }, "EXHAUSTED \xB7 ", exh.sigma_above_mean.toFixed(1), "\u03C3")), React.createElement("p", {
             style: {
               fontSize: "var(--ds-fs-meta)",
               color: "var(--ds-text-muted)",
               margin: "8px 0 0 0",
               lineHeight: 1.5
             }
-          }, insight)), React.createElement("div", {
+          }, insight)), cols.length > 0 && React.createElement("div", {
             style: {
-              borderTop: "1px solid var(--ds-stroke)",
-              paddingTop: "var(--ds-space-2)"
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+              gap: 8,
+              marginTop: 8
+            }
+          }, cols.map(col => React.createElement("div", {
+            key: col.key,
+            style: {
+              padding: "8px 6px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid var(--ds-stroke)",
+              textAlign: "center"
             }
           }, React.createElement("div", {
             style: {
-              fontSize: 10,
-              color: "var(--ds-text-dim)",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
               marginBottom: 4
             }
-          }, "Where it's likely headed \xB7 intraday"), renderRow("Next 5 min", fc.p_next, 1, "1 bar ahead — single 5-minute candle from the Markov transition matrix"), renderRow("Next 25 min", fc.p_5_bar, 5, "5 bars ahead — about half an hour of trading"), renderRow("Next 1h 40m", fc.p_20_bar, 20, "20 bars ahead — roughly the rest of a 2-hour window")), (fc.p_1h || fc.p_1d || fc.p_1w) && React.createElement("details", {
-            open: true,
+          }, col.label.toUpperCase()), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              fontWeight: 700,
+              color: col.holdColor,
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, col.holdLabel), React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-body)",
+              fontFamily: "var(--tt-font-mono)",
+              marginTop: 2
+            }
+          }, (col.holdPct * 100).toFixed(0), "% hold"), col.dirPct != null && React.createElement("div", {
+            style: {
+              fontSize: 9,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, (col.dirPct * 100).toFixed(0), "% ", dir.toLowerCase())))), (fc.p_next || fc.p_5_bar || fc.p_20_bar) && React.createElement("details", {
             style: {
               marginTop: "var(--ds-space-2)"
             }
@@ -10495,26 +10286,39 @@
             style: {
               fontSize: 10,
               color: "var(--ds-text-dim)",
-              letterSpacing: "0.1em",
+              letterSpacing: "0.08em",
               textTransform: "uppercase",
               cursor: "pointer",
-              padding: "4px 0",
-              userSelect: "none"
+              padding: "4px 0"
             }
-          }, "Longer horizon \xB7 multi-day"), React.createElement("div", {
+          }, "Intraday \xB7 5m / 25m / 100m"), React.createElement("div", {
             style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.6,
               marginTop: 4
             }
-          }, renderRow("Next 1 hour", fc.p_1h, 12, "12 bars ahead — one trading hour"), renderRow("Next 1 day", fc.p_1d, 78, "78 RTH bars ahead — one full trading session"), renderRow("Next 1 week", fc.p_1w, 390, "390 RTH bars ahead — one trading week. Approaches the long-run baseline regime distribution."))), fc.matrix_window_days && React.createElement("p", {
+          }, fc.p_next && React.createElement(React.Fragment, null, "5 min dominant ", (Object.entries(fc.p_next).sort((a, b) => b[1] - a[1])[0]?.[1] * 100 || 0).toFixed(0), "% \xB7 "), fc.p_5_bar && React.createElement(React.Fragment, null, "25 min ", (Object.entries(fc.p_5_bar).sort((a, b) => b[1] - a[1])[0]?.[1] * 100 || 0).toFixed(0), "% \xB7 "), fc.p_20_bar && React.createElement(React.Fragment, null, "~100 min ", (Object.entries(fc.p_20_bar).sort((a, b) => b[1] - a[1])[0]?.[1] * 100 || 0).toFixed(0), "%"))), React.createElement("div", {
             style: {
-              margin: "10px 0 0 0",
-              fontSize: 9,
-              color: "var(--ds-text-dim)",
-              letterSpacing: "0.04em",
-              opacity: 0.7
+              marginTop: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2
             }
-          }, "Markov matrix \xB7 ", fc.matrix_window_days, "-day window", fc.matrix_computed_at ? ` · refreshed ${Math.max(0, Math.floor((Date.now() - fc.matrix_computed_at) / 3600000))}h ago` : "", " · ", "Bars are 5 min"));
-        })(), (() => {
+          }, forecastLiveMs != null && React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: 9,
+              color: "var(--ds-text-dim)"
+            }
+          }, "Forecast live \xB7 scoring payload ", fmtAge(forecastLiveMs)), matrixAgeMs != null && React.createElement("p", {
+            style: {
+              margin: 0,
+              fontSize: 9,
+              color: "var(--ds-text-dim)"
+            }
+          }, "Model trained \xB7 matrix re-fit ", fmtAge(matrixAgeMs), fc.matrix_window_days ? ` · ${fc.matrix_window_days}-day window` : ""))));
+        })(), null && (() => {
           const tp = ticker?._ticker_profile;
           const learn = tp?.learning;
           if (!learn) return null;
@@ -10741,7 +10545,7 @@
             className: "ds-chip ds-chip--sm ds-chip--dn",
             title: "If this happens the bias is broken"
           }, "\u2717 ", s))))));
-        })(), (v2Rank || v2Score || v2Conv) && React.createElement(Panel, {
+        })(), false && (v2Rank || v2Score || v2Conv) && React.createElement(Panel, {
           title: "Conviction"
         }, React.createElement("div", {
           style: {
@@ -10946,7 +10750,7 @@
             size: 240,
             showLegend: true
           }));
-        })()), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, renderSequenceShadowPanel(), (() => {
+        })()))), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, renderSequenceShadowPanel(), (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
             const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && (() => {
@@ -11268,6 +11072,7 @@
             (() => {
               const conf = optionsTabData?.confluence_verdict || null;
               if (!conf || !conf.mode) return null;
+              return null;
               const traderCall = String(predictionContract?.posture_label || v2TraderPosture?.label || predictionContract?.direction || optionsTabData?.contract?.direction || "").trim();
               const traderPostureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
               const layerLean = String(conf.side || "").toUpperCase();
@@ -14309,7 +14114,45 @@
               "--ds-space-3": "7px",
               "--ds-space-4": "9px"
             }
-          }, React.createElement(Panel, {
+          }, (() => {
+            const N = fundamentalsNarrative || window.TimedRailHelpers?.buildFundamentalsHeroNarrative?.(F);
+            if (!N) return null;
+            const toneColor = N.tone === "bullish" ? "var(--ds-up)" : N.tone === "cautious" ? "var(--ds-dn)" : "var(--ds-text-muted)";
+            return React.createElement(Panel, {
+              title: "Fundamentals Brief",
+              action: fundamentalsNarrativeLoading ? React.createElement("span", {
+                className: "ds-chip ds-chip--sm"
+              }, "Loading\u2026") : React.createElement("span", {
+                className: "ds-chip ds-chip--sm",
+                style: {
+                  color: toneColor
+                }
+              }, N.quality_chip || "Analyst view")
+            }, React.createElement("div", {
+              style: {
+                fontSize: "var(--ds-fs-emph)",
+                fontWeight: 700,
+                color: "var(--ds-text-body)",
+                lineHeight: 1.45,
+                marginBottom: 8
+              }
+            }, N.headline), React.createElement("ul", {
+              style: {
+                margin: 0,
+                paddingLeft: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4
+              }
+            }, (N.bullets || []).slice(0, 3).map((b, i) => React.createElement("li", {
+              key: `fb-${i}`,
+              style: {
+                fontSize: "var(--ds-fs-meta)",
+                color: "var(--ds-text-muted)",
+                lineHeight: 1.45
+              }
+            }, b))));
+          })(), React.createElement(Panel, {
             title: prof.name || tickerSymbol,
             action: React.createElement("span", {
               className: "ds-chip ds-chip--sm",
@@ -15006,17 +14849,56 @@
                 overflowY: "visible",
                 WebkitOverflowScrolling: "touch"
               }
-            }, React.createElement(Panel, {
-              title: "\uD83D\uDD25 News Catalysts",
-              action: C.news?.count > 0 && React.createElement("span", {
+            }, (() => {
+              const buzz = catalystsNarrative || window.TimedRailHelpers?.buildCatalystsStreetBuzz?.(C);
+              if (!buzz) return null;
+              const vibeColor = buzz.vibe === "bullish" ? "var(--ds-up)" : buzz.vibe === "bearish" ? "var(--ds-dn)" : buzz.vibe === "quiet" ? "var(--ds-text-muted)" : "var(--ds-accent)";
+              return React.createElement(Panel, {
+                title: "Street Buzz",
+                action: catalystsNarrativeLoading ? React.createElement("span", {
+                  className: "ds-chip ds-chip--sm"
+                }, "Loading\u2026") : React.createElement("span", {
+                  className: "ds-chip ds-chip--sm",
+                  style: {
+                    color: vibeColor,
+                    textTransform: "uppercase"
+                  }
+                }, buzz.vibe)
+              }, React.createElement("div", {
+                style: {
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: "var(--ds-text-body)",
+                  lineHeight: 1.4,
+                  marginBottom: 6
+                }
+              }, buzz.headline), React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-body)",
+                  color: "var(--ds-text-muted)",
+                  lineHeight: 1.5
+                }
+              }, buzz.summary), Array.isArray(buzz.top_drivers) && buzz.top_drivers.length > 0 && React.createElement("div", {
+                style: {
+                  marginTop: 8,
+                  fontSize: 10,
+                  color: "var(--ds-text-faint)"
+                }
+              }, buzz.top_drivers.map((d, i) => React.createElement("div", {
+                key: `drv-${i}`
+              }, "\xB7 ", d))), buzz.freshness_note && React.createElement("div", {
+                style: {
+                  marginTop: 8,
+                  fontSize: 9,
+                  color: "var(--ds-text-dim)"
+                }
+              }, buzz.freshness_note));
+            })(), C.news?.has_data && C.news?.count > 0 && React.createElement(Panel, {
+              title: "News Catalysts",
+              action: React.createElement("span", {
                 className: "ds-chip ds-chip--sm"
               }, C.news.count, " headlines \xB7 5d")
-            }, !C.news?.has_data ? React.createElement("div", {
-              style: {
-                fontSize: "var(--ds-fs-body)",
-                color: "var(--ds-text-muted)"
-              }
-            }, "No news in the last 5 days.") : React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
+            }, React.createElement(React.Fragment, null, C.news.top_catalyst && C.news.top_catalyst.catalyst_strength >= 5 && React.createElement("div", {
               style: {
                 marginBottom: "var(--ds-space-3)",
                 padding: "var(--ds-space-2)",
@@ -21036,4 +20918,4 @@
   };
 })();
 
-// cache-bust:1782148863164:366373053
+// cache-bust:1782177437352:861455465

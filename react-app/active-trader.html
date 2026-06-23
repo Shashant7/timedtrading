@@ -1737,6 +1737,7 @@
         // a ticker without leaving the Active Trader board.
         const [railTicker, setRailTicker] = useState(null);
         const [railInitialTab, setRailInitialTab] = useState(null);
+        const [railOpenSource, setRailOpenSource] = useState(null);
         const [highlightTradeId, setHighlightTradeId] = useState(null);
         const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
 
@@ -1788,6 +1789,7 @@
           if (!t) return;
           setRailTicker(t);
           setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
+          setRailOpenSource(p?.railOpenSource || detail?.source || null);
           setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
           setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
         }, []);
@@ -1795,6 +1797,7 @@
         const onCloseRail = useCallback(() => {
           setRailTicker(null);
           setRailInitialTab(null);
+          setRailOpenSource(null);
           setHighlightTradeId(null);
           setOpenAutopsyForTrade(null);
           try { window.ttClearRailUrlParams?.(); } catch (_) {}
@@ -1961,6 +1964,7 @@
             allLoadedData: data,
             onClose: onCloseRail,
             initialRailTab: railInitialTab,
+            railOpenSource,
             openAutopsyForTrade,
             highlightTradeId,
           }),
