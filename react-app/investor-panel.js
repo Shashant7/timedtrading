@@ -677,11 +677,11 @@
     };
     return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
       React.createElement(InvestorKanbanBandHeader, {
-        band: "watching",
-        label: "WATCHING",
-        hint: "Monitoring — no action expected yet",
+        band: "doing",
+        label: "DOING",
+        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
       }),
-      ...visibleStages.filter((s) => stageMeta[s]?.band === "watching").map(stage =>
+      ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
         React.createElement(InvestorKanbanColumn, {
           key: stage,
           laneKey: stage,
@@ -698,11 +698,11 @@
         }),
       ),
       React.createElement(InvestorKanbanBandHeader, {
-        band: "doing",
-        label: "DOING",
-        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
+        band: "watching",
+        label: "WATCHING",
+        hint: "Monitoring — no action expected yet",
       }),
-      ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
+      ...visibleStages.filter((s) => stageMeta[s]?.band === "watching").map(stage =>
         React.createElement(InvestorKanbanColumn, {
           key: stage,
           laneKey: stage,
