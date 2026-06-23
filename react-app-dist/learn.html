@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="tt-tokens.css?v=1782221426497" />
+  <link rel="stylesheet" href="tt-tokens.css?v=1782228635884" />
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -813,8 +813,8 @@
     footer a { color: var(--text-muted); text-decoration: underline; }
     footer .disc { max-width: 800px; margin: 12px auto 0; line-height: 1.6; font-size: 11px; color: var(--text-dim); }
   </style>
-  <script src="tt-bottom-nav.js?v=1782221426497" defer></script>
-  <script src="tt-global-search.js?v=1782221426497" defer></script>
+  <script src="tt-bottom-nav.js?v=1782228635884" defer></script>
+  <script src="tt-global-search.js?v=1782228635884" defer></script>
 </head>
 <body class="vf-page">
 
@@ -866,10 +866,11 @@
           <li><a href="#universe" data-section="universe">3. The TT Universe</a></li>
           <li><a href="#brief" data-section="brief">4. The Daily Brief</a></li>
           <li><a href="#modes" data-section="modes">5. Active Trader vs Investor</a></li>
-          <li><a href="#active-lanes" data-section="active-lanes">6. Active Trader lanes</a></li>
-          <li><a href="#investor-lanes" data-section="investor-lanes">7. Investor lanes</a></li>
-          <li><a href="#card-anatomy" data-section="card-anatomy">8. Anatomy of a card</a></li>
-          <li><a href="#scoring" data-section="scoring">9. How we keep score</a></li>
+          <li><a href="#signal-grammar" data-section="signal-grammar">6. Watching vs Doing grammar</a></li>
+          <li><a href="#active-lanes" data-section="active-lanes">7. Active Trader lanes</a></li>
+          <li><a href="#investor-lanes" data-section="investor-lanes">8. Investor lanes</a></li>
+          <li><a href="#card-anatomy" data-section="card-anatomy">9. Anatomy of a card</a></li>
+          <li><a href="#scoring" data-section="scoring">10. How we keep score</a></li>
         </ul>
       </aside>
 
@@ -1079,9 +1080,52 @@
           </div>
         </section>
 
-        <!-- ── 6. Active Trader lanes ────────────────────────── -->
-        <section id="active-lanes" class="chapter">
+        <!-- ── 6. Unified signal grammar ───────────────────── -->
+        <section id="signal-grammar" class="chapter">
           <span class="chapter-num">6</span>
+          <h2 class="chapter-title">Watching vs Doing &mdash; the two-axis grammar on every signal</h2>
+          <p class="chapter-subtitle">
+            Every alert, kanban card, activity-strip pill, email subject, and Discord title on Timed
+            Trading speaks the same compact language. Two axes tell the whole story at a glance.
+          </p>
+
+          <div class="mode-grid">
+            <div class="mode-card active-trader">
+              <span class="mode-tag">Axis 1 &mdash; Horizon</span>
+              <h4>TRADER vs INVESTOR</h4>
+              <p><strong>TRADER</strong> = short-term swing logic (days). <strong>INVESTOR</strong> =
+              long-term positioning (weeks to months). The two engines never merge &mdash; each board
+              keeps its own horizon, but both use the same chip vocabulary.</p>
+            </div>
+            <div class="mode-card investor">
+              <span class="mode-tag">Axis 2 &mdash; Mode</span>
+              <h4>WATCHING vs DOING</h4>
+              <p><strong>WATCHING</strong> = the model is monitoring; nothing is expected of the trader
+              yet (setups forming, zones, quiet holds). <strong>DOING</strong> = the model opened,
+              trimmed, exited, or recommends one of those on a live position.</p>
+            </div>
+          </div>
+
+          <h3>DOING has a sub-state: RECOMMENDED &rarr; DONE</h3>
+          <p>
+            When the model recommends an exit but the position is still open, the signal reads
+            <strong>DOING &middot; RECOMMENDED</strong> (for example, &ldquo;Exit Recommended&rdquo; on
+            Discord while the trade is still live). After the fill, the same lifecycle becomes
+            <strong>DOING &middot; DONE</strong> (for example, &ldquo;Winner Closed&rdquo;). That
+            distinction is what prevents a trimmed runner from reading like a fresh partial trim.
+          </p>
+
+          <div class="callout">
+            <strong>Where you'll see it:</strong> kanban boards split into <em>WATCHING</em> and
+            <em>DOING</em> bands; cards carry TRADER/INVESTOR + WATCHING/DOING chips; the activity
+            strip uses solid pills for DOING and outlined pills for WATCHING; emails use subjects like
+            <code>[TRADER · DOING] Exit MU LONG +42.97%</code>.
+          </div>
+        </section>
+
+        <!-- ── 7. Active Trader lanes ────────────────────────── -->
+        <section id="active-lanes" class="chapter">
+          <span class="chapter-num">7</span>
           <h2 class="chapter-title">Active Trader kanban lanes &mdash; what each one means and how to act</h2>
           <p class="chapter-subtitle">
             Every ticker in Active Trader mode sits in exactly one lane at a time. The lane tells you
@@ -1187,9 +1231,9 @@
           </div>
         </section>
 
-        <!-- ── 7. Investor lanes ─────────────────────────────── -->
+        <!-- ── 8. Investor lanes ─────────────────────────────── -->
         <section id="investor-lanes" class="chapter">
-          <span class="chapter-num">7</span>
+          <span class="chapter-num">8</span>
           <h2 class="chapter-title">Investor kanban lanes &mdash; the long-game equivalent</h2>
           <p class="chapter-subtitle">
             Investor mode uses different lanes because the time horizon is fundamentally different.
@@ -1291,9 +1335,9 @@
           </div>
         </section>
 
-        <!-- ── 8. Anatomy of a Kanban Card ─────────────────────── -->
+        <!-- ── 9. Anatomy of a Kanban Card ─────────────────────── -->
         <section id="card-anatomy" class="chapter">
-          <span class="chapter-num">8</span>
+          <span class="chapter-num">9</span>
           <h2 class="chapter-title">Anatomy of a kanban card &mdash; reading every element</h2>
           <p class="chapter-subtitle">
             Each kanban card packs a lot of information into a small space. Here&rsquo;s every element,
@@ -1511,9 +1555,9 @@
 
         </section>
 
-        <!-- ── 9. How we keep score ──────────────────────────── -->
+        <!-- ── 10. How we keep score ──────────────────────────── -->
         <section id="scoring" class="chapter">
-          <span class="chapter-num">9</span>
+          <span class="chapter-num">10</span>
           <h2 class="chapter-title">How we keep score &mdash; transparency, self-learning, AI CIO</h2>
           <p class="chapter-subtitle">
             Every trade the model takes is recorded, scored, and reviewed. Win or loss. There&rsquo;s no
@@ -1649,4 +1693,4 @@
 </body>
 </html>
 
-<!-- cache-bust:1782221426497:588731737 -->
+<!-- cache-bust:1782228635884:629033231 -->
