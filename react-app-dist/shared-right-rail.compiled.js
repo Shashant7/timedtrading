@@ -9607,15 +9607,12 @@
             tickerSymbol: cardSym
           });
           const ip = investorPrediction;
-          const ipDir = String(ip?.direction || "").toUpperCase();
           const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
           const ipStop = Number(ip?.risk?.stop_loss);
           const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
           const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
           const livePx = Number(v2Price) || Number(ticker?.price);
           const invDisplay = investorInvalidationDisplay(investorData, livePx);
-          const holding = effectiveInvestorTrade;
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
           if (!ctx) {
             return React.createElement("div", {
               style: {
@@ -9694,18 +9691,7 @@
               background: `${ctx.tierMeta.color}18`,
               letterSpacing: "0.05em"
             }
-          }, ctx.tierMeta.label), ipDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: ipColor,
-              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-              letterSpacing: "0.05em",
-              marginLeft: "auto"
-            }
-          }, ipDir)), React.createElement("div", {
+          }, ctx.tierMeta.label)), React.createElement("div", {
             style: {
               display: "flex",
               alignItems: "baseline",
@@ -9888,7 +9874,7 @@
               color: "#93c5fd",
               letterSpacing: "0.02em"
             }
-          }, "HOLDING ", dir)), pnlPct != null && React.createElement("span", {
+          }, "HOLDING")), pnlPct != null && React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: 13,
@@ -10310,9 +10296,8 @@
             if (a.includes("watch") || a.includes("monitor")) return "Monitor — no position change recommended.";
             if (a.includes("avoid")) return "Avoid — investor lane sees no edge here.";
             if (ipAction) return ipAction;
-            return ipDir === "LONG" ? "Constructive — investor lane leans long over weeks/months." : ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker." : "Neutral — investor lane has no strong directional view.";
+            return ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker." : "Constructive — investor lane leans long over weeks/months.";
           })();
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
           return React.createElement("div", {
             style: {
               padding: "12px 14px",
@@ -10344,18 +10329,7 @@
               fontSize: 10,
               color: "var(--ds-text-faint)"
             }
-          }, "long-horizon weeks-to-months view"), ipDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: ipColor,
-              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-              letterSpacing: "0.05em",
-              marginLeft: "auto"
-            }
-          }, ipDir)), React.createElement("div", {
+          }, "long-horizon weeks-to-months view")), React.createElement("div", {
             style: {
               fontSize: 13,
               color: "var(--ds-text-body)",
@@ -21404,4 +21378,4 @@
   };
 })();
 
-// cache-bust:1782190040784:700241210
+// cache-bust:1782190224846:739568061
