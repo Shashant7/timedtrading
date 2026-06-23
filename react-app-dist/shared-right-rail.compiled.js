@@ -9463,6 +9463,35 @@
               lineHeight: 1
             }
           }, verdict.word), (() => {
+            if (tradeOpen) {
+              const posDir = String(traderTrade?.direction || "").toUpperCase();
+              if (posDir !== "LONG" && posDir !== "SHORT") return null;
+              const chipLabel = posDir === "SHORT" ? "Open Short" : "Open Long";
+              return React.createElement(React.Fragment, null, React.createElement("span", {
+                style: {
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  color: posDir === "SHORT" ? "#fb7185" : "#34d399",
+                  background: posDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                  letterSpacing: "0.05em"
+                },
+                title: "Open trader position \u2014 ledger truth"
+              }, chipLabel), v2PositionConflict && React.createElement("span", {
+                style: {
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  color: "#f87171",
+                  background: "rgba(239,68,68,0.12)",
+                  border: "1px solid rgba(239,68,68,0.35)",
+                  letterSpacing: "0.05em"
+                },
+                title: `Open ${v2PositionConflict.positionDir} vs model ${v2PositionConflict.modelLabel}`
+              }, "Model ", v2PositionConflict.modelLabel));
+            }
             if (v2PostureStrength === "lean") return null;
             const chipLabel = v2PostureStrength === "open" ? postureDir === "SHORT" ? "Open Short" : "Open Long" : postureLabel || (postureDir === "SHORT" ? "Bearish" : postureDir === "LONG" ? "Bullish" : "");
             if (!chipLabel || !postureDir) return null;
@@ -21378,4 +21407,4 @@
   };
 })();
 
-// cache-bust:1782190224846:739568061
+// cache-bust:1782191196872:832407047
