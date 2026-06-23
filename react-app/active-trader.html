@@ -1727,7 +1727,7 @@
                 kanban_stage: "exit",
                 _closedTrade: closed,
                 _stickyExit: true,
-                price: out.price ?? Number(closed?.exit_price ?? closed?.exitPrice) || null,
+                price: out.price || Number(closed?.exit_price ?? closed?.exitPrice) || null,
               };
             }
             return out;

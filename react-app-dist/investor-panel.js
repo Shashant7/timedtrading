@@ -22,6 +22,15 @@
     return tier === "act_now" || tier === "ready";
   }
 
+  /** Model has an investor lot from a prior rebalance (ate its own dog food). */
+  function isAccumulateEntered(t) {
+    const pos = t?.position;
+    if (!pos?.owned || !(Number(pos.shares) > 0)) return false;
+    const lastType = String(pos.last_action_type || "").toUpperCase();
+    if (["BUY", "DCA_BUY", "ADD"].includes(lastType)) return true;
+    return (Number(pos.first_entry_ts) || 0) > 0;
+  }
+
   function investorRsFields(t) {
     const rs1m = t?.rs?.rs1m ?? t?.rs1m;
     const rs3m = t?.rs?.rs3m ?? t?.rs3m;
@@ -44,6 +53,8 @@
     }
     if (stage === "accumulate" && !isExecuteReady(t)) {
       stage = owned ? "watch" : "research_on_watch";
+    } else if (stage === "accumulate" && isExecuteReady(t)) {
+      stage = isAccumulateEntered(t) ? "accumulate_entered" : "accumulate_queued";
     }
     return stage;
   }
@@ -369,37 +380,45 @@
     );
 
     const displayStage = resolveKanbanStage(t);
-    const SG = (typeof window !== "undefined") ? window.TimedSignalGrammar : null;
-    const invLaneMeta = SG?.investorLaneMeta ? SG.investorLaneMeta(displayStage) : null;
-    const signalChipEls = (() => {
-      if (!SG?.renderSignalChips) return [];
-      const action = displayStage === "accumulate" ? "accumulate"
-        : displayStage === "reduce" ? "reduce"
-        : displayStage === "core_hold" ? "core_hold"
-        : "watch";
-      const rebalanceReady = actionTier === "act_now" || actionTier === "ready";
-      return SG.renderSignalChips({
-        engine: "investor",
-        mode: invLaneMeta?.band === "doing" ? "doing" : "watching",
-        execState: rebalanceReady && displayStage === "accumulate" ? "recommended" : "watching",
-        action,
-      }).map((chip, i) => React.createElement("span", {
-        key: `sg-${i}`,
-        className: "ds-chip ds-chip--sm",
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: 8,
-          fontWeight: 800,
-          letterSpacing: "0.05em",
-          color: chip.kind === "engine" ? "#c4b5fd"
-            : chip.text === "DOING" ? "#fdba74"
-            : chip.text === "RECOMMENDED" ? "#fde68a"
-            : "#8AA39A",
-          background: chip.text === "DOING" ? "rgba(251,146,60,0.12)" : "transparent",
-          borderColor: chip.text === "DOING" ? "rgba(251,146,60,0.35)" : "rgba(255,255,255,0.12)",
-        },
-        title: chip.text,
-      }, chip.text));
+    const recentlyExited = t.recentlyExited && typeof t.recentlyExited === "object" ? t.recentlyExited : null;
+    const cardStatusChip = (() => {
+      if (_entryPaused) {
+        return {
+          label: `PAUSED · ${entryPosture.eventKey || "EVENT"}`,
+          color: "#f59e0b",
+          title: entryPosture.guidance || "The model is holding new entries ahead of a macro event.",
+        };
+      }
+      if (recentlyExited) {
+        const closedTs = Number(recentlyExited.closed_at) || 0;
+        const hrs = closedTs > 0 ? Math.max(1, Math.round((Date.now() - closedTs) / 3600000)) : null;
+        return {
+          label: hrs != null ? `EXITED ${hrs}h` : "EXITED",
+          color: "#fb923c",
+          title: "The model closed this position recently — held on Radar through a cooldown before it can re-enter the Accumulate lane (avoids exit→buy whipsaw).",
+        };
+      }
+      if (isStaleSignal) {
+        return { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" };
+      }
+      if (displayStage === "accumulate_queued") {
+        return {
+          label: "QUEUED",
+          color: "#94a3b8",
+          title: "Flagged accumulate — pending the next rebalance. The model has not entered yet.",
+        };
+      }
+      if (displayStage === "accumulate_entered") {
+        return {
+          label: "ENTERED",
+          color: "#22c55e",
+          title: "Model opened or added this position on a prior rebalance.",
+        };
+      }
+      if (displayStage === "reduce" && tierMeta) {
+        return { label: tierMeta.label, color: tierMeta.color, title: tierMeta.title };
+      }
+      return null;
     })();
 
     return LC.create({
@@ -411,72 +430,24 @@
       },
       isTTSel,
       chipRow: [
-        ...signalChipEls,
-        isFreshSignal && React.createElement("span", {
+        cardStatusChip && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
             fontFamily: "var(--tt-font-mono)",
-            color: "rgb(103,232,249)",
-            background: "rgba(103,232,249,0.14)",
-            borderColor: "rgba(103,232,249,0.45)",
-            fontWeight: 800,
-            letterSpacing: "0.05em",
-          },
-          title: "The model acted on this position within the last 72h — fresh signal.",
-        }, "NEW SIGNAL"),
-        tierMeta && React.createElement("span", {
-          className: "ds-chip ds-chip--sm",
-          style: {
-            fontFamily: "var(--tt-font-mono)",
-            color: tierMeta.color,
-            background: `${tierMeta.color}18`,
-            borderColor: `${tierMeta.color}55`,
+            color: cardStatusChip.color,
+            background: `${cardStatusChip.color}18`,
+            borderColor: `${cardStatusChip.color}55`,
             fontWeight: 700,
             letterSpacing: "0.04em",
           },
-          title: tierMeta.title,
-        }, tierMeta.label),
-        isOwned && React.createElement("span", {
-          className: "ds-chip ds-chip--sm",
-          style: {
-            fontFamily: "var(--tt-font-mono)",
-            color: "rgb(196,181,253)",
-            background: "rgba(167,139,250,0.15)",
-            borderColor: "rgba(167,139,250,0.45)",
-          },
-          title: posShares > 0 && posAvg > 0
-            ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} shares @ avg $${posAvg.toFixed(2)}`
-            : "Open investor position",
-        }, "OWNED"),
-        (() => {
-          const firstTs = isOwned ? Number(pos?.first_entry_ts) || 0 : 0;
-          if (!firstTs) return null;
-          const ageMs = Date.now() - firstTs;
-          if (ageMs < 0 || ageMs > 30 * 60 * 1000) return null;
-          const ageMin = Math.max(1, Math.floor(ageMs / 60000));
-          return React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              color: "rgb(134,239,172)",
-              background: "rgba(34,197,94,0.18)",
-              borderColor: "rgba(34,197,94,0.55)",
-              animation: "tt-pulse 1.8s ease-in-out infinite",
-            },
-            title: `Position opened ${ageMin} min ago — matches the Discord entry alert`,
-          }, "JUST OPENED");
-        })(),
+          title: cardStatusChip.title,
+        }, cardStatusChip.label),
         t.rs?.rsNewHigh3m && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "Relative strength made a new 3-month high",
         }, "RS HI"),
-        earnLabel && React.createElement("span", {
-          className: "ds-chip ds-chip--sm ds-chip--accent",
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
-        }, `EPS ${earnLabel}`),
-      ],
+      ].filter(Boolean),
       quote: { price, dayPct, dayChg, dir, extLine },
       midBody: (isOwned || (watchingLabel || lastActionAgoLabel)) ? midBody : null,
       sparkSvg,
@@ -489,32 +460,8 @@
         t.rsRank != null && React.createElement("span", {
           className: `ds-chip ds-chip--sm ${Number(t.rsRank) >= 80 ? "ds-chip--up" : Number(t.rsRank) >= 50 ? "" : "ds-chip--solid"}`,
           style: { fontFamily: "var(--tt-font-mono)" },
-          title: "Relative strength percentile (vs universe)",
+          title: `Relative strength percentile${rsFields.rs1m != null ? ` · 1M ${Number(rsFields.rs1m) >= 0 ? "+" : ""}${Number(rsFields.rs1m).toFixed(1)}%` : ""}${rsFields.rs3m != null ? ` · 3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%` : ""}`,
         }, `RS ${t.rsRank}`),
-        rsFields.rs1m != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(rsFields.rs1m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: "1-month return vs SPY",
-        }, `1M ${Number(rsFields.rs1m) >= 0 ? "+" : ""}${Number(rsFields.rs1m).toFixed(1)}%`),
-        rsFields.rs3m != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(rsFields.rs3m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: "3-month return vs SPY",
-        }, `3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%`),
-        liveStagePending && (() => {
-          const _friendly = {
-            research_avoid: "Avoid", research_low: "Low Conviction",
-            research_on_watch: "On Radar", accumulate: "Accumulate",
-            core_hold: "Core Hold", watch: "Hold & Watch", reduce: "Reduce",
-          };
-          const _ps = String(liveStagePending.stage || "");
-          const _label = _friendly[_ps] || _ps.replace(/^research_/, "").replace(/_/g, " ");
-          return React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--solid",
-            style: { fontFamily: "var(--tt-font-mono)", color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)" },
-            title: `Heads up: the latest live score (S${Math.round(Number(liveStagePending.score) || 0)}) reclassifies this as "${_label}". The lane shown is the last committed classification — it moves to ${_label} on the next investor refresh.`,
-          }, `NEXT → ${_label.toUpperCase()}`);
-        })(),
       ],
       isSaved,
       onToggleSaved: toggleSavedTicker,
@@ -598,8 +545,10 @@
               items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "w-[280px] shrink-0 kanban-card" }, renderCard(t))),
             )
           : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" },
-              laneKey === "accumulate"
-                ? "No execution-ready names — monitor-tier accumulate signals appear in On Radar or Hold & Watch"
+              laneKey === "accumulate_queued"
+                ? "No queued accumulate names — monitor-tier signals sit in On Radar or Hold & Watch"
+                : laneKey === "accumulate_entered"
+                ? "No entered accumulate positions yet this cycle"
                 : "No tickers"),
       ),
     );
@@ -617,7 +566,7 @@
        through "I own it and the model is managing it" through "the
        model has cooled off on this".
     */
-    const stages = ["research_on_watch", "accumulate", "core_hold", "watch", "reduce", "research_low", "research_avoid"];
+    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_low", "research_avoid"];
     /* V15 P0.7.144/.152 — lane labels + per-lane action chip.
        The action chip ("BUY NOW" / "HOLDING" / etc.) sits next to
        the lane title so a new user can answer "what should I do
@@ -625,7 +574,8 @@
     */
     const stageMeta = {
       research_on_watch: { label: "On Radar", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
-      accumulate:        { label: "Accumulating", band: "doing", action: "MODEL · REBALANCE", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. The model portfolio adds here at the next rebalance if still qualified. Lane moves when the score or zone changes." },
+      accumulate_queued: { label: "Queued", band: "doing", action: "NEXT REBAL", actionColor: "#94a3b8", title: "Execution-ready accumulate — model has not entered yet. Waits for the next rebalance if still qualified." },
+      accumulate_entered: { label: "Entered", band: "doing", action: "HELD", actionColor: "#22c55e", title: "Model opened or added this position on a prior rebalance." },
       core_hold:         { label: "Core Hold", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
       watch:             { label: "Hold & Watch", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
       reduce:            { label: "Reducing", band: "doing", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
@@ -651,7 +601,7 @@
         const aFresh = hasFreshSignal(a);
         const bFresh = hasFreshSignal(b);
         if (aFresh !== bFresh) return aFresh ? -1 : 1;
-        if (s === "accumulate" || s === "reduce") {
+        if (s === "accumulate_queued" || s === "accumulate_entered" || s === "reduce") {
           const aTier = ACTION_TIER_ORDER[deriveActionTier(a)] ?? 9;
           const bTier = ACTION_TIER_ORDER[deriveActionTier(b)] ?? 9;
           if (aTier !== bTier) return aTier - bTier;
@@ -669,7 +619,7 @@
        focuses on the actionable rows. Always-show core_hold + accumulate
        + reduce + watch (the "decision-making" lanes); collapse the
        research_* lanes when empty. */
-    const ALWAYS_SHOW = new Set(["accumulate", "core_hold", "watch", "reduce"]);
+    const ALWAYS_SHOW = new Set(["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce"]);
     const visibleStages = stages.filter(s => ALWAYS_SHOW.has(s) || grouped[s].length > 0);
 
     /* 2026-06-01 — owned-aware lane counts.
@@ -683,7 +633,7 @@
     const HOLDING_LANES = new Set(["core_hold", "watch", "reduce"]);
     const laneCount = (stage) => {
       const items = grouped[stage] || [];
-      if (stage === "accumulate" || stage === "reduce") {
+      if (stage === "accumulate_queued" || stage === "accumulate_entered" || stage === "reduce") {
         const act = items.filter((t) => {
           const tier = deriveActionTier(t);
           return tier === "act_now" || tier === "ready";
@@ -708,9 +658,9 @@
           key: stage,
           laneKey: stage,
           title: stageMeta[stage].label,
-          hint: (stage === "accumulate" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          action: (stage === "accumulate" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
           count: laneCount(stage),
@@ -729,9 +679,9 @@
           key: stage,
           laneKey: stage,
           title: stageMeta[stage].label,
-          hint: (stage === "accumulate" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          action: (stage === "accumulate" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
           count: laneCount(stage),
@@ -1090,7 +1040,7 @@
 
     const actionCount = useMemo(() => allTickers.filter((t) => {
       const s = resolveKanbanStage(t);
-      return s === "accumulate" || s === "reduce" || s === "core_hold" || s === "watch";
+      return s === "accumulate_queued" || s === "accumulate_entered" || s === "reduce" || s === "core_hold" || s === "watch";
     }).length, [allTickers]);
 
     /* V2.1 round 5 (2026-05-01) — Investor narrative.
@@ -1108,7 +1058,7 @@
        off at narrow widths). */
     const narrative = useMemo(() => {
       if (!allTickers.length) return null;
-      const counts = { accumulate: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
+      const counts = { accumulate_queued: 0, accumulate_entered: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
       const buyZone = [];
       const rsHigh = [];
       const recentActions = [];
@@ -1126,7 +1076,7 @@
         // positions — model handles adds via auto-rebalance, suggesting
         // them as fresh buys is misleading.
         const _isOwned = !!t.position?.owned;
-        if (s === "accumulate" && isExecuteReady(t) && t.accumZone?.inZone && !_isOwned) {
+        if (s === "accumulate_queued" && isExecuteReady(t) && t.accumZone?.inZone && !_isOwned) {
           buyZone.push(t.ticker);
         }
         // RS-new-high stays as-is (pure technical watchlist signal,
@@ -1151,9 +1101,10 @@
       const breadthPct = Number(health?.breadth?.pctAboveD200);
       const marketLine = `Market is ${regimeWord}${Number.isFinite(score) ? ` (Health ${Math.round(score)}/100)` : ""}` +
         `${Number.isFinite(breadthPct) ? `, with ${Math.round(breadthPct)}% of stocks above their 200-day MA` : ""}.`;
-      const actionable = counts.accumulate + counts.reduce;
+      const accumulateTotal = counts.accumulate_queued + counts.accumulate_entered;
+      const actionable = accumulateTotal + counts.reduce;
       const actionLine = actionable > 0
-        ? `${actionable} ${actionable === 1 ? "name is" : "names are"} actionable — ${counts.accumulate} in Buy Zone, ${counts.reduce} flagged for Reduce. ${counts.core_hold} core hold${counts.core_hold === 1 ? "" : "s"}.`
+        ? `${actionable} ${actionable === 1 ? "name is" : "names are"} actionable — ${counts.accumulate_queued} queued for rebalance, ${counts.accumulate_entered} entered, ${counts.reduce} flagged for Reduce. ${counts.core_hold} core hold${counts.core_hold === 1 ? "" : "s"}.`
         : `No actionable Buy Zone or Reduce signals right now — model is letting current positions run.`;
       const formatAgo = (ms) => {
         const d = Math.floor(ms / 86400000);
@@ -1314,8 +1265,8 @@
   }
 
   window.InvestorPanel = InvestorPanel;
-  window.TTInvestorLane = { deriveActionTier, isExecuteReady, resolveKanbanStage, countInvestorNavBadge };
+  window.TTInvestorLane = { deriveActionTier, isExecuteReady, isAccumulateEntered, resolveKanbanStage, countInvestorNavBadge };
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782230917064:358213409
+// cache-bust:1782235608792:943770061

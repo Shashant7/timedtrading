@@ -380,12 +380,22 @@
     );
 
     const displayStage = resolveKanbanStage(t);
+    const recentlyExited = t.recentlyExited && typeof t.recentlyExited === "object" ? t.recentlyExited : null;
     const cardStatusChip = (() => {
       if (_entryPaused) {
         return {
           label: `PAUSED · ${entryPosture.eventKey || "EVENT"}`,
           color: "#f59e0b",
           title: entryPosture.guidance || "The model is holding new entries ahead of a macro event.",
+        };
+      }
+      if (recentlyExited) {
+        const closedTs = Number(recentlyExited.closed_at) || 0;
+        const hrs = closedTs > 0 ? Math.max(1, Math.round((Date.now() - closedTs) / 3600000)) : null;
+        return {
+          label: hrs != null ? `EXITED ${hrs}h` : "EXITED",
+          color: "#fb923c",
+          title: "The model closed this position recently — held on Radar through a cooldown before it can re-enter the Accumulate lane (avoids exit→buy whipsaw).",
         };
       }
       if (isStaleSignal) {
