@@ -6130,8 +6130,11 @@
         if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (raw === "NOW") tab = "SNAPSHOT";else if (raw === "TRADE") tab = "SETUP";else if (raw === "INVEST") tab = "INVESTOR";else if (raw === "CONTEXT") tab = "TECHNICALS";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
           tab = "SNAPSHOT";
         }
+        if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY") {
+          tab = "CATALYSTS";
+        }
         setRailTab(tab);
-      }, [tickerSymbol, initialRailTab]);
+      }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse]);
       useEffect(() => {
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
         if (isHistoryTab && ledgerTrades.length > 0 && !tradeChartSelection) {
@@ -7100,6 +7103,18 @@
       const safeTicker = ticker && typeof ticker === "object" ? ticker : null;
       const patternFlags = safeTicker?.flags || {};
       const detectedPatterns = React.useMemo(() => detectPatterns(bubbleJourney, patternFlags || {}), [bubbleJourney, patternFlags]);
+      const isOutsideScoredUniverse = React.useMemo(() => {
+        if (ticker?._outsideUniverse) return true;
+        if (!tickerSymbol) return false;
+        const row = allLoadedData && allLoadedData[tickerSymbol] || ticker;
+        const scored = Number.isFinite(Number(row?.score)) || !!row?.state || !!row?.kanban_stage || Number.isFinite(Number(row?.htf_score));
+        if (scored) return false;
+        if (latestTickerLoading) return false;
+        if (latestTicker && (latestTicker.state || Number.isFinite(Number(latestTicker.score)))) {
+          return false;
+        }
+        return !!(latestTickerError || !latestTicker && !latestTickerLoading);
+      }, [ticker, tickerSymbol, allLoadedData, latestTicker, latestTickerLoading, latestTickerError]);
       if (!safeTicker || !tickerSymbol) return null;
       const resolvedDir = (() => {
         if (predictionContract?.direction) {
@@ -8313,7 +8328,22 @@
               },
               title: "Behavior personality (engine classification)"
             }, String(personality).replace(/_/g, " "))));
-          })(), React.createElement("div", {
+          })(), isOutsideScoredUniverse && React.createElement("div", {
+            style: {
+              margin: "0 var(--ds-space-3) var(--ds-space-2)",
+              padding: "10px 12px",
+              borderRadius: "var(--ds-radius-md)",
+              border: "1px solid rgba(245,158,11,0.35)",
+              background: "rgba(245,158,11,0.08)",
+              fontSize: 11,
+              lineHeight: 1.55,
+              color: "var(--ds-text-body)"
+            }
+          }, React.createElement("strong", {
+            style: {
+              color: "#fcd34d"
+            }
+          }, tickerSymbol), " ", "is outside the Timed Trading scored universe. Model scores, trade plans, and investor lanes are unavailable here \u2014 use the Catalysts tab for earnings context."), React.createElement("div", {
             className: "ds-tab tt-rail-tabs tt-rail-area-tabnav",
             role: "tablist",
             style: {
@@ -21213,4 +21243,4 @@
   };
 })();
 
-// cache-bust:1782187900461:127570542
+// cache-bust:1782189249527:670877885
