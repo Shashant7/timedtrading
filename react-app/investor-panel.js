@@ -545,7 +545,10 @@
           ? React.createElement("div", { className: "flex gap-1.5" },
               items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "w-[280px] shrink-0 kanban-card" }, renderCard(t))),
             )
-          : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" }, "No tickers"),
+          : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" },
+              laneKey === "accumulate"
+                ? "No execution-ready names — monitor-tier accumulate signals appear in On Radar or Hold & Watch"
+                : "No tickers"),
       ),
     );
   }
