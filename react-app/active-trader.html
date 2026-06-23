@@ -24,6 +24,7 @@
     <script src="tt-rail-bridge.js?v=20260528b" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
     <script src="shared-price-utils.js?v=20260615a"></script>
+    <script src="shared-signal-grammar.js?v=20260623a"></script>
     <script src="shared-lane-card.js?v=20260616a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
@@ -473,6 +474,70 @@
       .lane.defend           { --lane-accent: #fb923c; }
       .lane.trim             { --lane-accent: #facc15; }
       .lane.exit             { --lane-accent: var(--tt-dn-soft); }
+      .lane.exiting          { --lane-accent: #f97316; }
+
+      /* Watching vs Doing band headers */
+      .at-kanban-band {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 18px 0 8px;
+        padding: 0 4px;
+      }
+      .at-kanban-band:first-of-type { margin-top: 8px; }
+      .at-kanban-band__label {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      .at-kanban-band--watching .at-kanban-band__label {
+        color: var(--tt-text-dim);
+      }
+      .at-kanban-band--doing .at-kanban-band__label {
+        color: #fdba74;
+      }
+      .at-kanban-band__hint {
+        font-size: 11px;
+        color: var(--tt-text-faint);
+      }
+      .tt-signal-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 8px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        font-family: var(--tt-font-mono);
+        border: 1px solid transparent;
+      }
+      .tt-signal-chip--engine-trader {
+        color: #67e8f9;
+        background: rgba(103,232,249,0.10);
+        border-color: rgba(103,232,249,0.28);
+      }
+      .tt-signal-chip--engine-investor {
+        color: #c4b5fd;
+        background: rgba(167,139,250,0.12);
+        border-color: rgba(167,139,250,0.30);
+      }
+      .tt-signal-chip--mode-watching {
+        color: var(--tt-text-dim);
+        background: transparent;
+        border-color: rgba(255,255,255,0.12);
+      }
+      .tt-signal-chip--mode-doing {
+        color: #fdba74;
+        background: rgba(251,146,60,0.14);
+        border-color: rgba(251,146,60,0.35);
+      }
+      .tt-signal-chip--exec {
+        color: #fde68a;
+        background: rgba(250,204,21,0.12);
+        border-color: rgba(250,204,21,0.30);
+      }
 
       /* Right rail overlay CSS lives in tt-tokens.css (shared). */
 
@@ -805,7 +870,7 @@
           !tradeIsClosed &&
           (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
         if (!tradeIsOpen) return rawStage;
-        if (rawStage === "exit") return "defend";
+        if (rawStage === "exit") return "exiting";
         if (rawStage === "defend") return "defend";
         if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
         if (!["trim","hold","active","just_entered"].includes(rawStage)) return "hold";
@@ -821,34 +886,34 @@
         const hold = [];
         const defend = [];
         const trim = [];
+        const exiting = [];
         const exit = [];
         for (const t of tickers) {
-          if (!t || t.kanban_stage === null) continue;
+          if (!t) continue;
+          if (t.kanban_stage === null && !t._stickyExit) continue;
           let stage = String(t?.kanban_stage || "").toLowerCase();
           const sym = String(t?.ticker || "").toUpperCase();
-          const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
+          const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || t?._openTrade || null);
           const status = trade ? String(trade.status || "").toUpperCase() : "";
           const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-          const isOpen = !!trade;
+          const isOpen = !!trade && (status === "OPEN" || status === "TP_HIT_TRIM" || (!status && !t?._stickyExit));
 
           // Open-trade override (priority order matches AT exactly):
-          //   exit → DEFEND, defend → DEFEND, TP_HIT_TRIM → TRIM,
+          //   exit → EXITING (advisory), defend → DEFEND, TP_HIT_TRIM → TRIM,
           //   trimmed_pct > 0 → TRIM, anything else → HOLD.
           if (trade && isOpen) {
-            if (stage === "exit") stage = "defend";
+            if (stage === "exit") stage = "exiting";
             else if (stage === "defend") { /* keep */ }
             else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
             else if (stage === "trim") { /* keep */ }
             else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
           }
 
-          // Closed-trade 24h sticky-exit (port of EarlyMoversPanel categorizer
-          // in index-react.source.html ~line 14373). When there's no live open
-          // trade but THIS ticker closed within the last 24h, keep it in the
-          // Exit lane — unless the scorer is already promoting a fresh setup /
-          // entry (a new opportunity wins over the stale exit marker).
+          // Closed-trade 24h sticky-exit — driven purely off the closed row
+          // so a just-closed winner cannot vanish when /timed/all drops the
+          // ticker or the scorer resets stage to watch.
           if (!isOpen && closedByTicker?.get) {
-            const closed = closedByTicker.get(sym);
+            const closed = closedByTicker.get(sym) || t?._closedTrade || null;
             const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
             const newOpportunity = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
             if (exitMs > 0 && (Date.now() - exitMs) < 24 * 60 * 60 * 1000 && !newOpportunity) {
@@ -867,6 +932,7 @@
               hold.push(t); break;
             case "defend": defend.push(t); break;
             case "trim":   trim.push(t);   break;
+            case "exiting": exiting.push(t); break;
             case "exit":   exit.push(t);   break;
             default: /* watch / unrecognized → not shown */ break;
           }
@@ -881,8 +947,8 @@
         const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
         setup.sort(byScore); enter.sort(byScore);
         newLane.sort(byAlpha); hold.sort(byAlpha);
-        defend.sort(byAlpha); trim.sort(byAlpha); exit.sort(byAlpha);
-        return { setup, enter, new: newLane, hold, defend, trim, exit };
+        defend.sort(byAlpha); trim.sort(byAlpha); exiting.sort(byAlpha); exit.sort(byAlpha);
+        return { setup, enter, new: newLane, hold, defend, trim, exiting, exit };
       }
 
       // ── ActiveTraderCard — DS card (port of today.html ViewportCard).
@@ -956,7 +1022,8 @@
         const stageChip = (() => {
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
-          if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
+          if (stage === "exiting") return { label: "Exiting", cls: "ds-chip--dn" };
+          if (stage === "exit") return { label: "Closed", cls: "ds-chip--dn" };
           if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "Enter", cls: "ds-chip--accent" };
           if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
           if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "Setup", cls: "" };
@@ -1138,6 +1205,33 @@
           );
         })();
 
+        const SG = window.TimedSignalGrammar;
+        const laneMeta = SG?.traderLaneMeta ? SG.traderLaneMeta(stage) : null;
+        const signalChipEls = (() => {
+          if (!SG?.renderSignalChips) return [];
+          const execState = stage === "exiting" ? "recommended" : (stage === "exit" ? "done" : "watching");
+          const action = stage === "trim" ? "trim"
+            : (stage === "exiting" || stage === "exit") ? "exit"
+            : (stage === "defend") ? "defend"
+            : (stage === "just_entered" || stage === "enter_now") ? "enter"
+            : (stage === "hold" || stage === "active") ? "hold"
+            : "watch";
+          return SG.renderSignalChips({
+            engine: "trader",
+            mode: laneMeta?.band === "doing" ? "doing" : "watching",
+            execState: laneMeta?.band === "doing" ? execState : "watching",
+            action,
+          }).map((chip, i) => h("span", {
+            key: `sg-${i}`,
+            className: `tt-signal-chip ${
+              chip.kind === "engine" ? "tt-signal-chip--engine-trader"
+                : chip.kind === "mode" ? `tt-signal-chip--mode-${chip.text.toLowerCase()}`
+                : "tt-signal-chip--exec"
+            }`,
+            title: chip.text,
+          }, chip.text));
+        })();
+
         return LC.create({
           sym,
           button: {
@@ -1147,6 +1241,7 @@
           },
           isTTSel,
           chipRow: [
+            ...signalChipEls,
             h("span", {
               className: `ds-chip ds-chip--sm ${biasChipCls}`,
               style: { fontFamily: "var(--tt-font-mono)" },
@@ -1189,6 +1284,14 @@
           isSaved,
           onToggleSaved,
         });
+      }
+
+      // ── KanbanBandHeader — Watching vs Doing visual band.
+      function KanbanBandHeader({ band, label, hint }) {
+        return h("div", { className: `at-kanban-band at-kanban-band--${band}` },
+          h("span", { className: "at-kanban-band__label" }, label),
+          hint && h("span", { className: "at-kanban-band__hint" }, hint),
+        );
       }
 
       // ── KanbanLane — one row of the board.
@@ -1679,8 +1782,22 @@
               _injectedOpenTrade: true,
             });
           });
+          closedByTicker.forEach((closed, sym) => {
+            if (!sym || known.has(sym)) return;
+            const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+            if (!exitMs || (Date.now() - exitMs) >= RECENT_EXIT_WINDOW_MS) return;
+            if (String(closed?.exit_reason || "").startsWith("REVERSED_")) return;
+            injected.push({
+              ticker: sym,
+              kanban_stage: "exit",
+              price: Number(closed?.exit_price ?? closed?.exitPrice ?? closed?.mark_price) || null,
+              _closedTrade: closed,
+              _stickyExit: true,
+              pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? null,
+            });
+          });
           return injected.length ? mapped.concat(injected) : mapped;
-        }, [data, tradeByTicker]);
+        }, [data, tradeByTicker, closedByTicker]);
 
         const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
 
@@ -1690,6 +1807,7 @@
           hold: lanes.hold.length,
           defend: lanes.defend.length,
           trim: lanes.trim.length,
+          exiting: lanes.exiting.length,
           exit: lanes.exit.length,
         }), [lanes]);
 
@@ -1706,15 +1824,17 @@
             hold: match(lanes.hold),
             defend: match(lanes.defend),
             trim: match(lanes.trim),
+            exiting: match(lanes.exiting),
             exit: match(lanes.exit),
           };
           if (!filterLane) return base;
-          const empty = { setup: [], enter: [], new: [], hold: [], defend: [], trim: [], exit: [] };
+          const empty = { setup: [], enter: [], new: [], hold: [], defend: [], trim: [], exiting: [], exit: [] };
           if (filterLane === "setup") return { ...empty, setup: base.setup };
           if (filterLane === "review") return { ...empty, enter: base.enter };
           if (filterLane === "hold") return { ...empty, hold: base.hold };
           if (filterLane === "defend") return { ...empty, defend: base.defend };
           if (filterLane === "trim") return { ...empty, trim: base.trim };
+          if (filterLane === "exiting") return { ...empty, exiting: base.exiting };
           if (filterLane === "exit") return { ...empty, exit: base.exit };
           return base;
         }, [lanes, searchQuery, filterLane]);
@@ -1899,7 +2019,7 @@
                   onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
                   disabled: laneCounts.review === 0,
                   title: "Tickers signaling entry — under operator review",
-                }, `In Review${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`),
+                }, `Trigger Ready${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`),
                 h("button", {
                   className: "at-chip" + (filterLane === "hold" ? " active" : ""),
                   onClick: () => setFilterLane(filterLane === "hold" ? null : "hold"),
@@ -1919,11 +2039,17 @@
                   title: "Open positions hitting a take-profit level",
                 }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`),
                 h("button", {
+                  className: "at-chip" + (filterLane === "exiting" ? " active" : ""),
+                  onClick: () => setFilterLane(filterLane === "exiting" ? null : "exiting"),
+                  disabled: laneCounts.exiting === 0,
+                  title: "Open positions where the model recommends exiting",
+                }, `Exiting${laneCounts.exiting > 0 ? ` (${laneCounts.exiting})` : ""}`),
+                h("button", {
                   className: "at-chip" + (filterLane === "exit" ? " active" : ""),
                   onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
                   disabled: laneCounts.exit === 0,
-                  title: "Positions the model wants closed now",
-                }, `Exit${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`),
+                  title: "Recently closed positions (visible 24h)",
+                }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`),
               ),
             ),
             loading
@@ -1941,13 +2067,16 @@
                   ),
                 )
               : [
-                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Setup",             accentClass: "setup",     tickers: displayLanes.setup,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
-                  h(KanbanLane, { key: "review",    id: "review",    title: "In Review",         accentClass: "review",    tickers: displayLanes.enter,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
-                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Position Initiated", accentClass: "initiated", tickers: displayLanes.new,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
-                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Hold",              accentClass: "hold",      tickers: displayLanes.hold,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
-                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defend",            accentClass: "defend",    tickers: displayLanes.defend, sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
-                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trim",              accentClass: "trim",      tickers: displayLanes.trim,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
-                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Exit",              accentClass: "exit",      tickers: displayLanes.exit,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanBandHeader, { key: "band-w", band: "watching", label: "WATCHING", hint: "Monitoring — no action expected yet" }),
+                  h(KanbanLane, { key: "setup",     id: "setup",     title: "Watchlist",         accentClass: "setup",     tickers: displayLanes.setup,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "review",    id: "review",    title: "Trigger Ready",     accentClass: "review",    tickers: displayLanes.enter,    sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanBandHeader, { key: "band-d", band: "doing", label: "DOING", hint: "Model acted or is acting on a live position" }),
+                  h(KanbanLane, { key: "initiated", id: "initiated", title: "Just Entered",      accentClass: "initiated", tickers: displayLanes.new,      sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "hold",      id: "hold",      title: "Holding",           accentClass: "hold",      tickers: displayLanes.hold,     sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "defend",    id: "defend",    title: "Defending",         accentClass: "defend",    tickers: displayLanes.defend,   sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "trim",      id: "trim",      title: "Trimming",          accentClass: "trim",      tickers: displayLanes.trim,     sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "exiting",   id: "exiting",   title: "Exiting",           accentClass: "exiting",   tickers: displayLanes.exiting,  sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
+                  h(KanbanLane, { key: "exit",      id: "exit",      title: "Closed",            accentClass: "exit",      tickers: displayLanes.exit,     sparkCache, savedSet: saved, onToggleSaved: toggleSaved, onOpen, tradeByTicker, tradesLoaded }),
                 ],
             // Bubble map of the AT board's tickers ONLY (the union of
             // all 7 kanban lanes — Setup → In Review → Position

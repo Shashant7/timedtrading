@@ -2,6 +2,7 @@
 // Handles: welcome, daily brief digest, trade alerts, re-engagement, unsubscribe tokens.
 
 import { optionsPlayEmailHtml } from "./options-plays.js";
+import { buildSignal, renderEmailSubject } from "./signal-grammar.js";
 
 // 2026-06-22 — Email-specific brief cleanup.
 //
@@ -1653,7 +1654,20 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   _txtParts.push("", "View: " + ctaUrl);
   const text = _txtParts.join("\n");
 
-  return sendEmail(env, { to: userEmail, subject: `${typeIcon} ${typeLabel}: ${ticker} ${dir}${cio ? ` — CIO ${cio.decision}` : ""}`, html, text, category: "trade_alert" });
+  const sig = buildSignal({
+    engine: String(mode || "").toLowerCase() === "investor" ? "investor" : "trader",
+    mode: "doing",
+    execState: isExitSignal ? "recommended" : (isEntry || isExit || isTrim || isCross) ? "done" : "watching",
+    action: isEntry ? "enter" : (isExit || isExitSignal) ? "exit" : isTrim || isCross ? "trim" : "hold",
+    ticker,
+    direction: dir,
+    price: Number(price) || Number(fillPrice) || Number(exitPx) || null,
+    pnlPct: Number.isFinite(Number(pnlPct)) ? Number(pnlPct) : null,
+  });
+  const threadLabel = isExitSignal ? "open position" : isExit ? "filled" : null;
+  const subject = renderEmailSubject(sig, { threadLabel });
+
+  return sendEmail(env, { to: userEmail, subject, html, text, category: "trade_alert" });
 }
 
 // ═══════════════════════════════════════════════════════════════════════

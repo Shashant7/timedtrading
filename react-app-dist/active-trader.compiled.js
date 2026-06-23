@@ -240,7 +240,7 @@ function computeEffectiveStage(ticker, trade) {
   const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(openTr?.exit_ts ?? openTr?.exitTs) || trimmedPct >= 0.9999;
   const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
   if (!tradeIsOpen) return rawStage;
-  if (rawStage === "exit") return "defend";
+  if (rawStage === "exit") return "exiting";
   if (rawStage === "defend") return "defend";
   if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
@@ -253,20 +253,22 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   const hold = [];
   const defend = [];
   const trim = [];
+  const exiting = [];
   const exit = [];
   for (const t of tickers) {
-    if (!t || t.kanban_stage === null) continue;
+    if (!t) continue;
+    if (t.kanban_stage === null && !t._stickyExit) continue;
     let stage = String(t?.kanban_stage || "").toLowerCase();
     const sym = String(t?.ticker || "").toUpperCase();
-    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
+    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || t?._openTrade || null);
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const isOpen = !!trade;
+    const isOpen = !!trade && (status === "OPEN" || status === "TP_HIT_TRIM" || !status && !t?._stickyExit);
     if (trade && isOpen) {
-      if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+      if (stage === "exit") stage = "exiting";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
     if (!isOpen && closedByTicker?.get) {
-      const closed = closedByTicker.get(sym);
+      const closed = closedByTicker.get(sym) || t?._closedTrade || null;
       const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
       const newOpportunity = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
       if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) {
@@ -298,6 +300,9 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
       case "trim":
         trim.push(t);
         break;
+      case "exiting":
+        exiting.push(t);
+        break;
       case "exit":
         exit.push(t);
         break;
@@ -318,6 +323,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   hold.sort(byAlpha);
   defend.sort(byAlpha);
   trim.sort(byAlpha);
+  exiting.sort(byAlpha);
   exit.sort(byAlpha);
   return {
     setup,
@@ -326,6 +332,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     hold,
     defend,
     trim,
+    exiting,
     exit
   };
 }
@@ -402,8 +409,12 @@ function ATCard({
       label: "Defend",
       cls: "ds-chip--dn"
     };
+    if (stage === "exiting") return {
+      label: "Exiting",
+      cls: "ds-chip--dn"
+    };
     if (stage === "exit") return {
-      label: "Exit",
+      label: "Closed",
       cls: "ds-chip--dn"
     };
     if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
@@ -635,6 +646,23 @@ function ATCard({
       }
     }, tick.label))));
   })();
+  const SG = window.TimedSignalGrammar;
+  const laneMeta = SG?.traderLaneMeta ? SG.traderLaneMeta(stage) : null;
+  const signalChipEls = (() => {
+    if (!SG?.renderSignalChips) return [];
+    const execState = stage === "exiting" ? "recommended" : stage === "exit" ? "done" : "watching";
+    const action = stage === "trim" ? "trim" : stage === "exiting" || stage === "exit" ? "exit" : stage === "defend" ? "defend" : stage === "just_entered" || stage === "enter_now" ? "enter" : stage === "hold" || stage === "active" ? "hold" : "watch";
+    return SG.renderSignalChips({
+      engine: "trader",
+      mode: laneMeta?.band === "doing" ? "doing" : "watching",
+      execState: laneMeta?.band === "doing" ? execState : "watching",
+      action
+    }).map((chip, i) => h("span", {
+      key: `sg-${i}`,
+      className: `tt-signal-chip ${chip.kind === "engine" ? "tt-signal-chip--engine-trader" : chip.kind === "mode" ? `tt-signal-chip--mode-${chip.text.toLowerCase()}` : "tt-signal-chip--exec"}`,
+      title: chip.text
+    }, chip.text));
+  })();
   return LC.create({
     sym,
     button: {
@@ -643,7 +671,7 @@ function ATCard({
       title: `Open ${sym} in Active Trader detail`
     },
     isTTSel,
-    chipRow: [h("span", {
+    chipRow: [...signalChipEls, h("span", {
       className: `ds-chip ds-chip--sm ${biasChipCls}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
@@ -695,6 +723,19 @@ function ATCard({
     isSaved,
     onToggleSaved
   });
+}
+function KanbanBandHeader({
+  band,
+  label,
+  hint
+}) {
+  return h("div", {
+    className: `at-kanban-band at-kanban-band--${band}`
+  }, h("span", {
+    className: "at-kanban-band__label"
+  }, label), hint && h("span", {
+    className: "at-kanban-band__hint"
+  }, hint));
 }
 function KanbanLane({
   id,
@@ -1258,8 +1299,22 @@ function ActiveTraderApp() {
         _injectedOpenTrade: true
       });
     });
+    closedByTicker.forEach((closed, sym) => {
+      if (!sym || known.has(sym)) return;
+      const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+      if (!exitMs || Date.now() - exitMs >= RECENT_EXIT_WINDOW_MS) return;
+      if (String(closed?.exit_reason || "").startsWith("REVERSED_")) return;
+      injected.push({
+        ticker: sym,
+        kanban_stage: "exit",
+        price: Number(closed?.exit_price ?? closed?.exitPrice ?? closed?.mark_price) || null,
+        _closedTrade: closed,
+        _stickyExit: true,
+        pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? null
+      });
+    });
     return injected.length ? mapped.concat(injected) : mapped;
-  }, [data, tradeByTicker]);
+  }, [data, tradeByTicker, closedByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
   const laneCounts = useMemo(() => ({
     setup: lanes.setup.length,
@@ -1267,6 +1322,7 @@ function ActiveTraderApp() {
     hold: lanes.hold.length,
     defend: lanes.defend.length,
     trim: lanes.trim.length,
+    exiting: lanes.exiting.length,
     exit: lanes.exit.length
   }), [lanes]);
   const displayLanes = useMemo(() => {
@@ -1282,6 +1338,7 @@ function ActiveTraderApp() {
       hold: match(lanes.hold),
       defend: match(lanes.defend),
       trim: match(lanes.trim),
+      exiting: match(lanes.exiting),
       exit: match(lanes.exit)
     };
     if (!filterLane) return base;
@@ -1292,6 +1349,7 @@ function ActiveTraderApp() {
       hold: [],
       defend: [],
       trim: [],
+      exiting: [],
       exit: []
     };
     if (filterLane === "setup") return {
@@ -1313,6 +1371,10 @@ function ActiveTraderApp() {
     if (filterLane === "trim") return {
       ...empty,
       trim: base.trim
+    };
+    if (filterLane === "exiting") return {
+      ...empty,
+      exiting: base.exiting
     };
     if (filterLane === "exit") return {
       ...empty,
@@ -1528,7 +1590,7 @@ function ActiveTraderApp() {
     onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
     disabled: laneCounts.review === 0,
     title: "Tickers signaling entry — under operator review"
-  }, `In Review${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`), h("button", {
+  }, `Trigger Ready${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "hold" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "hold" ? null : "hold"),
     disabled: laneCounts.hold === 0,
@@ -1544,11 +1606,16 @@ function ActiveTraderApp() {
     disabled: laneCounts.trim === 0,
     title: "Open positions hitting a take-profit level"
   }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "exiting" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "exiting" ? null : "exiting"),
+    disabled: laneCounts.exiting === 0,
+    title: "Open positions where the model recommends exiting"
+  }, `Exiting${laneCounts.exiting > 0 ? ` (${laneCounts.exiting})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
     disabled: laneCounts.exit === 0,
-    title: "Positions the model wants closed now"
-  }, `Exit${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
+    title: "Recently closed positions (visible 24h)"
+  }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
   }, h("div", {
@@ -1576,10 +1643,15 @@ function ActiveTraderApp() {
     style: {
       width: 280
     }
-  })))))) : [h(KanbanLane, {
+  })))))) : [h(KanbanBandHeader, {
+    key: "band-w",
+    band: "watching",
+    label: "WATCHING",
+    hint: "Monitoring — no action expected yet"
+  }), h(KanbanLane, {
     key: "setup",
     id: "setup",
-    title: "Setup",
+    title: "Watchlist",
     accentClass: "setup",
     tickers: displayLanes.setup,
     sparkCache,
@@ -1591,7 +1663,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "review",
     id: "review",
-    title: "In Review",
+    title: "Trigger Ready",
     accentClass: "review",
     tickers: displayLanes.enter,
     sparkCache,
@@ -1600,10 +1672,15 @@ function ActiveTraderApp() {
     onOpen,
     tradeByTicker,
     tradesLoaded
+  }), h(KanbanBandHeader, {
+    key: "band-d",
+    band: "doing",
+    label: "DOING",
+    hint: "Model acted or is acting on a live position"
   }), h(KanbanLane, {
     key: "initiated",
     id: "initiated",
-    title: "Position Initiated",
+    title: "Just Entered",
     accentClass: "initiated",
     tickers: displayLanes.new,
     sparkCache,
@@ -1615,7 +1692,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "hold",
     id: "hold",
-    title: "Hold",
+    title: "Holding",
     accentClass: "hold",
     tickers: displayLanes.hold,
     sparkCache,
@@ -1627,7 +1704,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "defend",
     id: "defend",
-    title: "Defend",
+    title: "Defending",
     accentClass: "defend",
     tickers: displayLanes.defend,
     sparkCache,
@@ -1639,7 +1716,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "trim",
     id: "trim",
-    title: "Trim",
+    title: "Trimming",
     accentClass: "trim",
     tickers: displayLanes.trim,
     sparkCache,
@@ -1649,9 +1726,21 @@ function ActiveTraderApp() {
     tradeByTicker,
     tradesLoaded
   }), h(KanbanLane, {
+    key: "exiting",
+    id: "exiting",
+    title: "Exiting",
+    accentClass: "exiting",
+    tickers: displayLanes.exiting,
+    sparkCache,
+    savedSet: saved,
+    onToggleSaved: toggleSaved,
+    onOpen,
+    tradeByTicker,
+    tradesLoaded
+  }), h(KanbanLane, {
     key: "exit",
     id: "exit",
-    title: "Exit",
+    title: "Closed",
     accentClass: "exit",
     tickers: displayLanes.exit,
     sparkCache,
@@ -1683,6 +1772,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782221426497:588731737
+// cache-bust:1782228635884:629033231
 
-// cache-bust:1782221426497:588731737
+// cache-bust:1782228635884:629033231
