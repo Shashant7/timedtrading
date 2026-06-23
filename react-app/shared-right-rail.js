@@ -984,6 +984,42 @@
           }
         : null;
 
+      const laneColor = stageInfo.color;
+      const tradeOpen = (() => {
+        try { return window.TimedPriceUtils?.isTradeOpen?.(effectiveTrade) ?? false; }
+        catch (_) { return false; }
+      })();
+      const holdingTrade = tradeOpen ? effectiveTrade : null;
+      const hasHolding = !!(pos?.owned || invCtx?.owned || holdingTrade);
+      const thesisText = String(thesis || "").trim();
+      const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? pos?.avg_entry);
+      const liveForPos = Number.isFinite(livePx) && livePx > 0 ? livePx : null;
+      const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? pos?.shares);
+      const costBasis = Number(pos?.cost_basis);
+      const pnlPct = (() => {
+        if (Number.isFinite(Number(pos?.unrealized_pct))) return Number(pos.unrealized_pct);
+        if (!(entryPx > 0) || !(liveForPos > 0)) return null;
+        return ((liveForPos - entryPx) / entryPx) * 100;
+      })();
+      const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+      const entryWhen = (() => {
+        const t = Number(holdingTrade?.entry_ts ?? pos?.last_action_ts);
+        if (!Number.isFinite(t)) return null;
+        try {
+          return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        } catch (_) { return null; }
+      })();
+      const keyLevels = [];
+      if (invDisplay) {
+        keyLevels.push(`Invalidation: close below ${fmtUsd(invDisplay.price)} (${invDisplay.label}).`);
+        if (invDisplay.thesisLevel) {
+          keyLevels.push(`Thesis floor: ${fmtUsd(invDisplay.thesisLevel.price)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""}).`);
+        }
+      }
+      if (invalidation && !invDisplay) {
+        keyLevels.push(String(invalidation));
+      }
+
       return h("div", { style: railTabBodyWrapStyle },
 
         (invCtx || stage !== "—") && h("div", {
@@ -995,19 +1031,81 @@
             borderRadius: "var(--ds-radius-lg, 12px)",
           },
         },
-          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
-            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } }, laneHeaderText),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 } },
+            h("span", { style: { fontSize: 11, fontWeight: 700, color: laneColor, letterSpacing: "0.02em" } }, laneHeaderText),
+            hasHolding && h("span", {
+              style: { fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, color: laneColor, background: `${laneColor}18`, border: `1px solid ${laneColor}44`, letterSpacing: "0.05em" },
+            }, "HOLDING"),
             invCtx?.tierMeta && h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 7px", borderRadius: 4, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
             }, invCtx.tierMeta.label),
           ),
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" } },
+            h("span", { style: { fontSize: 18, fontWeight: 800, color: laneColor, letterSpacing: "0.02em", lineHeight: 1 } }, stageInfo.label),
+            liveForPos && h("span", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 } }, fmtUsd(liveForPos)),
+          ),
+
+          thesisText && h("div", {
+            style: {
+              marginBottom: 10,
+              padding: "10px 12px",
+              borderLeft: `3px solid ${laneColor}`,
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: "0 8px 8px 0",
+            },
+          },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em", marginBottom: 4 } }, "THESIS"),
+            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5 } }, thesisText.slice(0, 600)),
+          ),
+
+          hasHolding && h("div", {
+            style: {
+              marginBottom: 10,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.05)",
+              border: `1px solid ${laneColor}33`,
+            },
+          },
+            h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" } },
+              h("span", { style: { fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em" } }, "OPEN POSITION"),
+              pnlPct != null && h("span", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor } },
+                `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
+              ),
+            ),
+            (entryPx > 0 || liveForPos > 0) && h("div", { style: { fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: (Number.isFinite(shares) || costBasis > 0) ? 8 : 0 } },
+              entryPx > 0 ? `Entry ${fmtUsd(entryPx)}` : null,
+              liveForPos > 0 ? ` → ${fmtUsd(liveForPos)}` : null,
+              entryWhen && h("span", { style: { color: "var(--ds-text-faint)" } }, ` · entered ${entryWhen}`),
+            ),
+            (Number.isFinite(shares) || costBasis > 0) && h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } },
+              Number.isFinite(shares) && h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 } }, shares.toFixed(2)),
+              ),
+              entryPx > 0 && h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(entryPx)),
+              ),
+              costBasis > 0 && h("div", null,
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(costBasis)),
+              ),
+            ),
+            pos?.last_action_type && pos?.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)" } },
+              "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
+              pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
+              " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            ),
+          ),
+
           h("div", {
             style: {
               padding: "10px 12px",
               borderRadius: 8,
               background: "rgba(255,255,255,0.04)",
               border: "1px solid rgba(255,255,255,0.06)",
-              marginBottom: invCtx?.signalNote || Number.isFinite(score) ? 8 : 0,
+              marginBottom: invCtx?.signalNote || keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0),
             },
           },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 } }, "WHAT TO DO"),
@@ -1016,12 +1114,18 @@
             ),
             h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 } },
               invCtx?.statusLine || stageInfo.desc,
-              invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold")
-                ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`
-                : "",
             ),
           ),
-          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: 8 } }, invCtx.signalNote),
+          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0) } }, invCtx.signalNote),
+          keyLevels.length > 0 && h("div", { style: { marginBottom: Number.isFinite(score) ? 8 : 0 } },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 5 } }, "KEY LEVELS"),
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+              keyLevels.map((line, i) => h("div", { key: `inv-kl-${i}`, style: { display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 } },
+                h("span", { style: { color: "var(--ds-text-muted)", flexShrink: 0, marginTop: 1 } }, "·"),
+                h("span", { style: { color: "var(--ds-text-body)" } }, line),
+              )),
+            ),
+          ),
           Number.isFinite(score) && h("div", { style: { display: "flex", gap: "var(--ds-space-2)" } },
             h("div", { style: { flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "INVESTOR SCORE"),
@@ -1034,29 +1138,6 @@
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "BUY ZONE"),
               h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: accumZone.inZone ? "#34d399" : "var(--ds-text-muted)" } }, accumZone.inZone ? "ACTIVE" : "—"),
               h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone"),
-            ),
-          ),
-          invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
-            style: {
-              marginTop: 8,
-              padding: "10px 12px",
-              background: "rgba(248,113,113,0.06)",
-              border: "1px solid rgba(248,113,113,0.22)",
-              borderRadius: "var(--ds-radius-md)",
-            },
-          },
-            h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em", marginBottom: 4 } }, "INVALIDATION LEVEL"),
-            h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-text-0)" } },
-              `$${invDisplay.price.toFixed(2)}`,
-              h("span", { style: { fontSize: 11, fontWeight: 500, color: "var(--ds-text-muted)", marginLeft: 8 } },
-                invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "",
-              ),
-            ),
-            h("div", { style: { fontSize: 11, color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.45 } }, invDisplay.condition),
-            invDisplay.thesisLevel && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45 } },
-              h("span", { style: { fontWeight: 700, color: "var(--ds-text-faint)" } }, "THESIS FLOOR "),
-              `$${invDisplay.thesisLevel.price.toFixed(2)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})`,
-              invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : "",
             ),
           ),
         ),
@@ -1142,35 +1223,6 @@
           ),
         ),
 
-        // 5. Position
-        pos && h(Panel, { title: "Your Position" },
-          h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, Number(pos.shares || 0).toFixed(2)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.avg_entry) || 0)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.cost_basis) || 0)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171" } },
-                pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—",
-              ),
-            ),
-          ),
-          pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
-            "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
-            pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
-            " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          ),
-        ),
-
         // 6. RS + Sector
         (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "Strength + Sector Context" },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
@@ -1190,15 +1242,6 @@
             sector && h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
               "Sector: ", h("strong", { style: { color: "var(--ds-text-body)" } }, sector),
             ),
-          ),
-        ),
-
-        // 7. Thesis + invalidation
-        thesis && h(Panel, { title: "Thesis" },
-          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, String(thesis).slice(0, 600)),
-          invalidation && h("div", { style: { marginTop: 10, padding: 10, background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.20)", borderRadius: 6, fontSize: "var(--ds-fs-meta)" } },
-            h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.05em", marginBottom: 4 } }, "INVALIDATION"),
-            h("div", { style: { color: "var(--ds-text-body)", lineHeight: 1.4 } }, String(invalidation)),
           ),
         ),
 
@@ -8617,7 +8660,7 @@
                         );
                       })()}
 
-                      {/* ── HERO VERDICT CARD — investor POV ── */}
+                      {/* ── HERO VERDICT CARD — investor POV (lane + thesis + position) ── */}
                       {snapshotViewMode === "investor" && (() => {
                         const formatPx = (n) => {
                           const x = Number(n);
@@ -8634,11 +8677,18 @@
                         });
                         const ip = investorPrediction;
                         const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
+                        const ipReason = String(ip?.why_now || "").trim();
+                        const detailThesis = String(investorData?.thesis || "").trim();
+                        const thesisText = ipThesis || detailThesis;
                         const ipStop = Number(ip?.risk?.stop_loss);
                         const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
                         const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
                         const livePx = Number(v2Price) || Number(ticker?.price);
                         const invDisplay = investorInvalidationDisplay(investorData, livePx);
+                        const invPos = investorData?.position?.owned ? investorData.position : null;
+                        const holdingTrade = effectiveInvestorTrade && isTradeOpenSafe(effectiveInvestorTrade)
+                          ? effectiveInvestorTrade : null;
+                        const hasHolding = !!(holdingTrade || invPos?.owned || ctx?.owned);
 
                         if (!ctx) {
                           return (
@@ -8671,8 +8721,26 @@
                           urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context",
                         };
 
+                        const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? invPos?.avg_entry);
+                        const liveForPos = livePx || Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? invPos?.shares);
+                        const costBasis = Number(invPos?.cost_basis);
+                        const pnlPct = (() => {
+                          if (Number.isFinite(Number(invPos?.unrealized_pct))) return Number(invPos.unrealized_pct);
+                          if (!(entryPx > 0) || !(liveForPos > 0)) return null;
+                          return ((liveForPos - entryPx) / entryPx) * 100;
+                        })();
+                        const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+                        const entryWhen = (() => {
+                          const t = Number(holdingTrade?.entry_ts);
+                          if (!Number.isFinite(t)) return null;
+                          try {
+                            return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                          } catch (_) { return null; }
+                        })();
+
                         const triggers = [];
-                        if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
+                        if (invDisplay) {
                           triggers.push({ tone: "neutral", text: `Invalidation: close below ${formatPx(invDisplay.price)} (${invDisplay.label}).` });
                         }
                         if (ipTp1 && livePx) {
@@ -8696,6 +8764,15 @@
                                 color: laneColor,
                                 letterSpacing: "0.02em",
                               }}>{ctx.headerChipText || `Investor – ${ctx.laneLabel}`}</span>
+                              {hasHolding && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: laneColor,
+                                  background: `${laneColor}18`,
+                                  border: `1px solid ${laneColor}44`,
+                                  letterSpacing: "0.05em",
+                                }}>HOLDING</span>
+                              )}
                               {ctx.tierMeta && (
                                 <span style={{
                                   fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
@@ -8710,16 +8787,89 @@
                                 fontSize: 18, fontWeight: 800, color: verdict.color,
                                 letterSpacing: "0.02em", lineHeight: 1,
                               }}>{verdict.word}</span>
-                              {livePx && (
+                              {livePx > 0 && (
                                 <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
                                   ${livePx.toFixed(2)}
                                 </span>
                               )}
                             </div>
+
+                            {thesisText && (
+                              <div style={{
+                                marginBottom: 10,
+                                padding: "10px 12px",
+                                borderLeft: `3px solid ${laneColor}`,
+                                background: "rgba(255,255,255,0.04)",
+                                borderRadius: "0 8px 8px 0",
+                              }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em", marginBottom: 4 }}>
+                                  THESIS
+                                </div>
+                                <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5 }}>
+                                  {thesisText}
+                                </div>
+                                {ipReason && (
+                                  <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 }}>
+                                    <span style={{ fontWeight: 700, color: "var(--ds-text-faint)" }}>Why now:</span> {ipReason}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {hasHolding && (
+                              <div style={{
+                                marginBottom: 10,
+                                padding: "10px 12px",
+                                borderRadius: 8,
+                                background: "rgba(255,255,255,0.05)",
+                                border: `1px solid ${laneColor}33`,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em" }}>
+                                    OPEN POSITION
+                                  </span>
+                                  {pnlPct != null && (
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor }}>
+                                      {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                    </span>
+                                  )}
+                                </div>
+                                {(entryPx > 0 || liveForPos > 0) && (
+                                  <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: (Number.isFinite(shares) || costBasis > 0) ? 8 : 0 }}>
+                                    {entryPx > 0 ? <>Entry {formatPx(entryPx)}</> : null}
+                                    {liveForPos > 0 ? <> → <span style={{ color: pnlColor }}>{formatPx(liveForPos)}</span></> : null}
+                                    {entryWhen && <span style={{ color: "var(--ds-text-faint)" }}> · entered {entryWhen}</span>}
+                                  </div>
+                                )}
+                                {(Number.isFinite(shares) || costBasis > 0) && (
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                                    {Number.isFinite(shares) && (
+                                      <div>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 }}>{shares.toFixed(2)}</div>
+                                      </div>
+                                    )}
+                                    {entryPx > 0 && (
+                                      <div>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>AVG ENTRY</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 }}>{formatPx(entryPx)}</div>
+                                      </div>
+                                    )}
+                                    {costBasis > 0 && (
+                                      <div>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>COST BASIS</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 }}>{formatPx(costBasis)}</div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             <div style={{
                               padding: "10px 12px", borderRadius: 8,
                               background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
-                              marginBottom: ctx.signalNote || triggers.length > 0 || ipThesis ? 8 : 0,
+                              marginBottom: ctx.signalNote || triggers.length > 0 ? 8 : 0,
                             }}>
                               <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
                                 WHAT TO DO
@@ -8734,11 +8884,6 @@
                             {ctx.signalNote && (
                               <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0 }}>
                                 {ctx.signalNote}
-                              </div>
-                            )}
-                            {ipThesis && (
-                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginTop: 8, marginBottom: triggers.length > 0 ? 8 : 0 }}>
-                                {ipThesis}
                               </div>
                             )}
                             {triggers.length > 0 && (
@@ -8757,124 +8902,6 @@
                                 </div>
                               </div>
                             )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* Position strip — active holding for the selected POV */}
-                      {effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
-                        const it = effectiveInvestorTrade;
-                        const dir = String(it?.direction || "LONG").toUpperCase();
-                        const isLong = dir !== "SHORT";
-                        const entry = Number(it?.entryPrice ?? it?.entry_price);
-                        const live = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
-                        const pnlPct = (entry > 0 && live > 0)
-                          ? ((isLong ? (live - entry) : (entry - live)) / entry) * 100
-                          : null;
-                        const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
-                        const entryWhen = (() => {
-                          const t = Number(it?.entry_ts);
-                          if (!Number.isFinite(t)) return null;
-                          try {
-                            return new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                          } catch (_) { return null; }
-                        })();
-                        const setupRaw = String(it?.setupName || it?.setup_name || "").trim();
-                        const entryAction = investorEntryActionFromSetup(setupRaw);
-                        const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-                        const liveStage = (investorData?.ticker === cardSym)
-                          ? String(investorData?.stage || "").toLowerCase()
-                          : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-                        const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
-                        const currentAction = liveGuide?.actionLine || entryAction;
-                        const invDisplay = investorInvalidationDisplay(investorData, live);
-                        const doNow = (() => {
-                          const base = liveGuide?.doNow || null;
-                          if (!base) return null;
-                          if (invDisplay && (liveStage === "reduce" || liveStage === "watch" || liveStage === "core_hold")) {
-                            return `${base} Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`;
-                          }
-                          return base;
-                        })();
-                        const stageMoved = !!(liveStage && setupRaw && !setupRaw.toLowerCase().includes(liveStage));
-                        return (
-                          <div style={{
-                            padding: "14px 14px 12px",
-                            marginBottom: "var(--ds-space-3)",
-                            background: "rgba(59,130,246,0.06)",
-                            border: "1px solid rgba(59,130,246,0.30)",
-                            borderRadius: 12,
-                          }}>
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                                <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                  color: "#93c5fd", background: "rgba(59,130,246,0.12)",
-                                  letterSpacing: "0.06em",
-                                }}>INVESTOR PORTFOLIO</span>
-                                <span style={{
-                                  fontSize: 13, fontWeight: 800, color: "#93c5fd",
-                                  letterSpacing: "0.02em",
-                                }}>HOLDING</span>
-                              </div>
-                              {pnlPct != null && (
-                                <span style={{
-                                  fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor,
-                                }}>{pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%</span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8 }}>
-                              Entry {entry > 0 ? `$${entry.toFixed(2)}` : "—"}
-                              {live > 0 ? <> → <span style={{ color: pnlColor }}>${live.toFixed(2)}</span></> : null}
-                              {entryWhen && <span style={{ color: "var(--ds-text-faint)" }}> · entered {entryWhen}</span>}
-                            </div>
-                            {doNow && (
-                              <div style={{
-                                marginTop: 8, padding: "10px 12px",
-                                background: "rgba(255,255,255,0.04)",
-                                borderRadius: 8,
-                                border: "1px solid rgba(255,255,255,0.06)",
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
-                                  WHAT TO DO NOW
-                                </div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ds-text-0)", lineHeight: 1.45 }}>
-                                  {doNow}
-                                </div>
-                                {liveGuide?.laneLabel && (
-                                  <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginTop: 6 }}>
-                                    Current lane: {liveGuide.laneLabel}
-                                    {stageMoved && entryWhen ? ` · entered ${entryWhen} under ${entryAction}` : ""}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {invDisplay && (
-                              <div style={{
-                                marginTop: 8, padding: "10px 12px",
-                                background: "rgba(248,113,113,0.06)",
-                                borderRadius: 8,
-                                border: "1px solid rgba(248,113,113,0.22)",
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em", marginBottom: 4 }}>
-                                  INVALIDATION LEVEL
-                                </div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ds-text-0)", fontFamily: "var(--tt-font-mono)" }}>
-                                  ${invDisplay.price.toFixed(2)}
-                                  <span style={{ fontSize: 11, fontWeight: 500, color: "var(--ds-text-muted)", marginLeft: 8 }}>
-                                    {invDisplay.label}{invDisplay.distText ? ` · ${invDisplay.distText}` : ""}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                            <div style={{ marginTop: 8 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>
-                                INVESTOR ACTION
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.4 }}>
-                                {currentAction}
-                              </div>
-                            </div>
                           </div>
                         );
                       })()}
@@ -9058,105 +9085,6 @@
                                     · {String(ev).replace(/ \(\+\d+\)$/, "")}
                                   </div>
                                 ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* ── INVESTOR MODEL CARD (2026-06-03) ─────────────────
-                          The investor lane's MODEL guidance for this
-                          ticker (separate from the actual investor
-                          portfolio holding card above — that card is
-                          about what we OWN; this card is about what the
-                          model SAYS regardless of ownership).
-
-                          Sourced from the parallel investorPrediction
-                          contract (fetched on ticker change). When the
-                          investor contract is unavailable (cold start /
-                          API error / no model output), this card is
-                          silently omitted. */}
-                      {snapshotViewMode === "investor" && (() => {
-                        const ip = investorPrediction;
-                        const ipDir = String(ip?.direction || "").toUpperCase();
-                        const ipAction = String(ip?.action_label || "").toUpperCase();
-                        const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
-                        const ipStop = Number(ip?.risk?.stop_loss);
-                        const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
-                        const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
-                        const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
-                        const ipReason = String(ip?.why_now || "").trim();
-                        const ipLaneCtx = buildInvestorDisplayContext({
-                          investorData,
-                          ticker,
-                          latestTicker,
-                          effectiveInvestorTrade,
-                          tickerSymbol,
-                        });
-                        if (!ipLaneCtx && !ip) return null;
-                        const ipActionLine = ipLaneCtx?.statusLine || (() => {
-                          const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-                          const liveStage = (investorData?.ticker === cardSym)
-                            ? String(investorData?.stage || "").toLowerCase()
-                            : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-                          if (liveStage) {
-                            const g = investorGuidanceForStage(liveStage);
-                            if (g?.actionLine) return g.actionLine;
-                          }
-                          const a = ipAction.toLowerCase();
-                          if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
-                          if (a.includes("buy") && a.includes("reduc")) return "Accumulate on dips, trim into strength.";
-                          if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return "Accumulate — add to position on weakness.";
-                          if (a.includes("trim") || a.includes("reduc")) return "Reduce on strength — taking profits.";
-                          if (a.includes("sell") || a.includes("exit") || a.includes("close")) return "Exit recommended — close or trim aggressively.";
-                          if (a.includes("watch") || a.includes("monitor")) return "Monitor — no position change recommended.";
-                          if (a.includes("avoid")) return "Avoid — investor lane sees no edge here.";
-                          if (ipAction) return ipAction;
-                          return ipDir === "SHORT"
-                            ? "Cautious — investor lane leans defensive on this ticker."
-                            : "Constructive — investor lane leans long over weeks/months.";
-                        })();
-                        return (
-                          <div style={{
-                            padding: "12px 14px",
-                            marginBottom: "var(--ds-space-3)",
-                            background: "rgba(99,102,241,0.05)",
-                            border: "1px solid rgba(99,102,241,0.25)",
-                            borderRadius: 12,
-                          }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
-                                letterSpacing: "0.06em",
-                              }}>{ipLaneCtx?.headerChipText || "Investor model detail"}</span>
-                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>long-horizon weeks-to-months view</span>
-                            </div>
-                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8, fontWeight: 600 }}>
-                              {ipActionLine}
-                            </div>
-                            {ipThesis && (
-                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginBottom: ipReason || ipTp1 || ipStop ? 8 : 0 }}>
-                                {ipThesis}
-                              </div>
-                            )}
-                            {ipReason && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: ipTp1 || ipStop ? 8 : 0 }}>
-                                <span style={{ color: "var(--ds-text-faint)", fontWeight: 700 }}>Why now:</span> {ipReason}
-                              </div>
-                            )}
-                            {(ipTp1 || ipStop) && (
-                              <div style={{
-                                display: "flex", gap: 12, flexWrap: "wrap",
-                                paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.04)",
-                                fontSize: 11, color: "var(--ds-text-muted)",
-                              }}>
-                                {ipTp1 && (
-                                  <span>{ipTp1Label}: <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>${ipTp1.toFixed(2)}</strong></span>
-                                )}
-                                {ipStop && (
-                                  <span>Invalidates: <strong style={{ color: "#fb7185", fontFamily: "var(--tt-font-mono)" }}>${ipStop.toFixed(2)}</strong></span>
-                                )}
                               </div>
                             )}
                           </div>
