@@ -1863,18 +1863,17 @@ export async function sendInvestorAlertEmails(env, alert) {
 
      deriveInvestorAlertAction lives in worker/alerts.js so the Discord
      embed and email stay in lockstep. */
-  const { deriveInvestorAlertAction } = await import("./alerts.js");
+  const { deriveInvestorAlertAction, deriveInvestorAccumulationAlertCopy } = await import("./alerts.js");
   const action = deriveInvestorAlertAction(type, data);
+  const _accumCopy = type === "accumulation_zone"
+    ? deriveInvestorAccumulationAlertCopy(data, action)
+    : null;
 
   const TYPE_META = {
-    accumulation_zone: {
-      subjectBase: data.zoneType === "momentum_runner"
-        ? `${data.ticker} — Momentum-Runner Zone Confirmed`
-        : `${data.ticker} — Entered Accumulation Zone`,
-      headline: data.zoneType === "momentum_runner" ? "Momentum-Runner Zone Confirmed" : "Entered Accumulation Zone",
-      lede: data.zoneType === "momentum_runner"
-        ? `<strong>${data.ticker}</strong> is in a confirmed momentum-runner zone — trend is healthy and intact, signals support adding on minor pullbacks.`
-        : `<strong>${data.ticker}</strong> entered an accumulation zone in the TT Investor model — pullback context with monthly trend intact.`,
+    accumulation_zone: _accumCopy || {
+      subjectBase: `${data.ticker} — Investor Zone Signal`,
+      headline: "Investor Zone Signal",
+      lede: `<strong>${data.ticker}</strong> logged an investor zone signal.`,
     },
     rs_breakout: {
       subjectBase: `${data.ticker} — RS Breakout (${data.period || "3-month"})`,

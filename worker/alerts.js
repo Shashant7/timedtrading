@@ -828,6 +828,36 @@ export function deriveInvestorAlertAction(type, data = {}) {
   return { verb: "MODEL · INFO", color: "#9ca3af", tone: "info", one_liner: "TT Investor model signal — informational only." };
 }
 
+/** Email/Discord masthead copy for accumulation-zone alerts — keyed off action tier. */
+export function deriveInvestorAccumulationAlertCopy(data = {}, action = null) {
+  const act = action || deriveInvestorAlertAction("accumulation_zone", data);
+  const sym = String(data?.ticker || "ticker").toUpperCase();
+  const score = Number(data?.score) || 0;
+  const z = String(data?.zoneType || "").toLowerCase().replace(/_/g, " ");
+  if (act.verb === "MODEL · ACCUMULATE") {
+    return {
+      subjectBase: `${sym} — Execution-Ready Accumulate`,
+      headline: "Execution-Ready Accumulate",
+      lede: `<strong>${sym}</strong> is rebalance-ready in the Accumulate lane (score ${score}/100). The model portfolio may add on the next hourly rebalance pass if still qualified.`,
+      ledePlain: `**${sym}** is rebalance-ready in the Accumulate lane (score ${score}/100). The model portfolio may add on the next hourly rebalance pass if still qualified.`,
+    };
+  }
+  if (z.includes("momentum runner") || z.includes("exhaustion")) {
+    return {
+      subjectBase: `${sym} — On Radar (${z})`,
+      headline: "On Radar — Zone Detected",
+      lede: `<strong>${sym}</strong> logged a ${z} condition. On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
+      ledePlain: `**${sym}** logged a ${z} condition. On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
+    };
+  }
+  return {
+    subjectBase: `${sym} — On Radar (Buy Zone Detected)`,
+    headline: "On Radar — Buy Zone Detected",
+    lede: `<strong>${sym}</strong> entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
+    ledePlain: `**${sym}** entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
+  };
+}
+
 /**
  * Create investor threshold alert embeds.
  *
@@ -855,26 +885,11 @@ export function createInvestorAlertEmbed(type, data) {
     accumulation_zone: {
       color: 0x10b981,
       emoji: "🎯",
-      // 2026-05-30 — Differentiate title + description by zoneType.
-      // The "Accumulation Zone" label was being applied to BOTH true
-      // pullback setups (oversold-bounce branch) AND momentum-runner
-      // continuation conditions (line 752 of worker/investor.js), which
-      // are very different signals. CDNS / ITT / AMZN all fired the
-      // momentum_runner branch while at all-time highs — labeling those
-      // as "accumulation" misleads users into thinking a pullback has
-      // occurred. zoneType is now surfaced explicitly: 'Momentum-Runner
-      // Zone' for trend-continuation; 'Accumulation Zone' for the
-      // oversold-bounce / near-support cases.
       title: (d) => {
-        if (d.zoneType === "momentum_runner") return `${d.ticker}: Momentum-Runner Zone Confirmed`;
-        return `${d.ticker}: Entered Accumulation Zone`;
+        const copy = deriveInvestorAccumulationAlertCopy(d, _action);
+        return `${d.ticker}: ${copy.headline}`;
       },
-      description: (d) => {
-        if (d.zoneType === "momentum_runner") {
-          return `**${d.ticker}** is in a confirmed *momentum-runner* zone — trend is healthy and intact, signals support adding on minor pullbacks. ⚠ Not a fresh-entry "buy the dip" signal; price may already be extended from a low.`;
-        }
-        return `**${d.ticker}** has entered an accumulation zone in the TT model — pullback context with monthly trend intact, or price near major support. Informational only.`;
-      },
+      description: (d) => deriveInvestorAccumulationAlertCopy(d, _action).ledePlain,
       fields: (d) => [
         { name: "Investor Score", value: `${d.score || "—"} / 100`, inline: true },
         { name: "Confidence", value: `${d.confidence || "—"}%`, inline: true },
@@ -979,7 +994,9 @@ export function createInvestorAlertEmbed(type, data) {
   return {
     title: _actionTitle,
     description: config.description(data),
-    color: config.color,
+    color: type === "accumulation_zone"
+      ? (_action.tone === "buy" ? 0x10b981 : _action.tone === "watch" ? 0xf5c25c : config.color)
+      : config.color,
     fields: _fields,
     footer: { text: "Timed Trading — Investor Intelligence • Not financial advice" },
     timestamp: new Date().toISOString(),
