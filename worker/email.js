@@ -2189,6 +2189,65 @@ function _reasonGroupLabel(item) {
   return r ? r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Risk management";
 }
 
+function _rebalanceThesisLine(item, actionKind) {
+  const reason = _reasonGroupLabel(item);
+  const stage = String(item?.stage || "").replace(/_/g, " ");
+  const score = Number(item?.score);
+  const bits = [reason];
+  if (stage) bits.push(`Stage: ${stage}`);
+  if (Number.isFinite(score)) bits.push(`Score ${Math.round(score)}/100`);
+  if (actionKind === "add") bits.push("Model added to an existing position during the hourly rebalance.");
+  else if (actionKind === "open") bits.push("Model opened a new starter position during the hourly rebalance.");
+  else if (actionKind === "trim") bits.push("Model trimmed part of the position — thesis still active but size reduced.");
+  else if (actionKind === "close") bits.push("Model closed the position — no longer held.");
+  return bits.filter(Boolean).join(" · ");
+}
+
+function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
+  const sym = String(item?.ticker || "").toUpperCase();
+  if (!sym) return "";
+  const price = Number(item?.price);
+  const shares = Number(item?.shares);
+  const totalAfter = Number(item?.total_shares_after ?? item?.remaining ?? item?.total_shares);
+  const value = Number(item?.value);
+  const pnl = Number(item?.pnl);
+  const workerUrl = baseUrl || "https://timed-trading.com";
+  const chartUrl = `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=60&bars=48`;
+  const actionLabel = actionKind === "add" ? "ADD"
+    : actionKind === "open" ? "NEW ENTRY"
+    : actionKind === "close" ? "FULL EXIT"
+    : "TRIM / REDUCE";
+  const actionColor = actionKind === "close" ? (BRAND.danger || "#ef4444")
+    : actionKind === "trim" ? (BRAND.warning || "#f59e0b")
+    : BRAND.green;
+  const shareLine = Number.isFinite(shares) && shares > 0
+    ? `${actionKind === "add" || actionKind === "open" ? "Bought" : "Sold"} ${shares.toFixed(shares >= 10 ? 1 : 2)} sh${Number.isFinite(price) ? ` @ $${price.toFixed(2)}` : ""}`
+    : null;
+  const totalLine = Number.isFinite(totalAfter) && totalAfter >= 0
+    ? (actionKind === "close" ? "Position closed — 0 sh remaining"
+      : `Total after action: ${totalAfter.toFixed(totalAfter >= 10 ? 1 : 2)} sh`)
+    : null;
+  const cio = String(item?.cio_reasoning || "").trim();
+  const thesis = _rebalanceThesisLine(item, actionKind);
+  return `<div style="margin:0 0 20px;padding:14px 16px;border:1px solid ${BRAND.border};border-radius:12px;background:${BRAND.cardBg}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:${BRAND.textPrimary};letter-spacing:0.02em">${_esc(sym)}</div>
+        <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;color:${actionColor};margin-top:2px">${_esc(actionLabel)}</div>
+      </div>
+      ${Number.isFinite(price) ? `<div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;color:${BRAND.textPrimary}">$${price.toFixed(2)}</div>` : ""}
+    </div>
+    ${shareLine ? `<div style="font-size:13px;color:${BRAND.textSecondary};margin-bottom:4px">${_esc(shareLine)}${Number.isFinite(value) ? ` · $${Math.round(value).toLocaleString()} notional` : ""}${Number.isFinite(pnl) ? ` · P&L ${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl).toFixed(2)}` : ""}</div>` : ""}
+    ${totalLine ? `<div style="font-size:12px;color:${BRAND.textMuted};margin-bottom:8px">${_esc(totalLine)}</div>` : ""}
+    <div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:${BRAND.textMuted};font-weight:700">Thesis:</span> ${_esc(thesis)}</div>
+    ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:#a78bfa;font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
+    <div style="margin:10px 0 4px;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
+      <img src="${chartUrl}" alt="${_esc(sym)} 1H chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
+    </div>
+    <div style="font-size:10px;color:${BRAND.textMuted}">1H chart · last ~2 trading days</div>
+  </div>`;
+}
+
 export async function sendInvestorRebalanceDigest(env, summary) {
   const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
   const allTrims = Array.isArray(summary?.trims) ? summary.trims : [];
@@ -2204,81 +2263,17 @@ export async function sendInvestorRebalanceDigest(env, summary) {
   if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
 
   const nowLabel = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const chip = (sym) => `<span style="display:inline-block;margin:0 6px 6px 0;padding:4px 10px;border:1px solid ${BRAND.border};border-radius:999px;background:${BRAND.cardBg};font-weight:700;font-size:12px">${_esc(String(sym || "").toUpperCase())}</span>`;
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const section = (title, color, inner) =>
     `<div style="margin:16px 0">
       <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${color};margin-bottom:8px">${_esc(title)}</div>
       ${inner}
     </div>`;
 
-  const fmtUsd = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : null;
-  const fmtPnl = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : "-"}$${Math.abs(Number(n)).toFixed(2)}` : null;
-  // Group trims by reason (so "ahead of FOMC" names cluster), and within each
-  // group show one row per ticker WITH its AI CIO reasoning — parity with the
-  // per-ticker Discord embed (operator: include CIO guidance per ticker).
-  const trimGroups = new Map();
-  for (const t of trims) {
-    const key = _reasonGroupLabel(t);
-    if (!trimGroups.has(key)) trimGroups.set(key, []);
-    trimGroups.get(key).push(t);
-  }
-  const trimRow = (t) => {
-    const sym = String(t?.ticker || "").toUpperCase();
-    const closed = !!t?.closed;
-    const detail = [
-      closed ? "position closed" : (Number.isFinite(Number(t?.shares)) ? `trimmed ${Number(t.shares).toFixed(2)} sh` : "trimmed"),
-      fmtUsd(t?.price) ? `@ ${fmtUsd(t.price)}` : null,
-      fmtPnl(t?.pnl) ? `· P&L ${fmtPnl(t.pnl)}` : null,
-    ].filter(Boolean).join(" ");
-    const cio = String(t?.cio_reasoning || "").trim();
-    return `<div style="margin:0 0 8px;padding:0 0 8px;border-bottom:1px solid ${BRAND.border}">
-      <div><span style="font-weight:800;font-size:13px">${_esc(sym)}</span> <span style="color:${BRAND.textMuted};font-size:11px">${_esc(detail)}</span></div>
-      ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};margin-top:3px;line-height:1.45"><span style="color:${BRAND.textMuted};font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
-    </div>`;
-  };
-  const trimInner = [...trimGroups.entries()].map(([reason, items]) =>
-    `<div style="margin-bottom:12px">
-       <div style="font-size:12px;font-weight:700;color:${BRAND.textPrimary};margin-bottom:6px">${_esc(reason)} <span style="color:${BRAND.textMuted};font-weight:400">(${items.length})</span></div>
-       ${items.map(trimRow).join("")}
-     </div>`).join("");
-
-  // EXITS — full closes get their own prominent (red) section with P&L per name.
-  const closeGroups = new Map();
-  for (const c of closes) {
-    const key = _reasonGroupLabel(c);
-    if (!closeGroups.has(key)) closeGroups.set(key, []);
-    closeGroups.get(key).push(c);
-  }
-  const closeRow = (c) => {
-    const sym = String(c?.ticker || "").toUpperCase();
-    const detail = [
-      "position closed",
-      fmtUsd(c?.price) ? `@ ${fmtUsd(c.price)}` : null,
-      fmtPnl(c?.pnl) ? `· realized ${fmtPnl(c.pnl)}` : null,
-    ].filter(Boolean).join(" ");
-    const cio = String(c?.cio_reasoning || "").trim();
-    return `<div style="margin:0 0 8px;padding:0 0 8px;border-bottom:1px solid ${BRAND.border}">
-      <div><span style="font-weight:800;font-size:13px">${_esc(sym)}</span> <span style="color:${BRAND.textMuted};font-size:11px">${_esc(detail)}</span></div>
-      ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};margin-top:3px;line-height:1.45"><span style="color:${BRAND.textMuted};font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
-    </div>`;
-  };
-  const closeInner = [...closeGroups.entries()].map(([reason, items]) =>
-    `<div style="margin-bottom:12px">
-       <div style="font-size:12px;font-weight:700;color:${BRAND.textPrimary};margin-bottom:6px">${_esc(reason)} <span style="color:${BRAND.textMuted};font-weight:400">(${items.length})</span></div>
-       ${items.map(closeRow).join("")}
-     </div>`).join("");
-
-  const addedSyms = added.map((x) => String(x?.ticker || "").toUpperCase());
-  const fmtUsd0 = (n) => Number.isFinite(Number(n)) ? `$${Math.round(Number(n)).toLocaleString()}` : null;
-  const entryRow = (x) => {
-    const sym = String(x?.ticker || "").toUpperCase();
-    const detail = [
-      fmtUsd(x?.price) ? `@ ${fmtUsd(x.price)}` : null,
-      fmtUsd0(x?.value) ? `· ${fmtUsd0(x.value)}` : null,
-    ].filter(Boolean).join(" ");
-    return `<div style="margin:0 0 6px"><span style="font-weight:800;font-size:13px">${_esc(sym)}</span> <span style="color:${BRAND.textMuted};font-size:11px">${_esc(detail)}</span></div>`;
-  };
-  const openedInner = opened.map(entryRow).join("");
+  const closeInner = closes.map((c) => _buildRebalanceTickerCard(c, "close", baseUrl)).join("");
+  const trimInner = trims.map((t) => _buildRebalanceTickerCard(t, "trim", baseUrl)).join("");
+  const addedInner = added.map((x) => _buildRebalanceTickerCard(x, "add", baseUrl)).join("");
+  const openedInner = opened.map((x) => _buildRebalanceTickerCard(x, "open", baseUrl)).join("");
 
   const headlineBits = [];
   if (closes.length) headlineBits.push(`${closes.length} exited`);
@@ -2288,16 +2283,15 @@ export async function sendInvestorRebalanceDigest(env, summary) {
 
   const bodyHtml = `
     <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Investor Rebalance — ${_esc(nowLabel)} ET</h2>
-    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">The model's long-horizon portfolio cycle ran: ${_esc(headlineBits.join(" · "))}. One summary, grouped by action — no per-ticker blast.</p>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">The model's long-horizon portfolio cycle ran: ${_esc(headlineBits.join(" · "))}. Full detail per ticker below — price, 1H chart, thesis, AI CIO guidance, and shares.</p>
     ${closes.length ? section("EXITED — FULL CLOSE", BRAND.danger || "#ef4444", closeInner) : ""}
     ${trims.length ? section("TRIMMED / REDUCED", BRAND.warning || "#f59e0b", trimInner) : ""}
-    ${added.length ? section("ADDED TO EXISTING", BRAND.green, `<div>${addedSyms.map(chip).join("")}</div>`) : ""}
+    ${added.length ? section("ADDED TO EXISTING", BRAND.green, addedInner) : ""}
     ${opened.length ? section("NEW STARTER POSITIONS", BRAND.green, openedInner) : ""}
     <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Long-horizon portfolio actions — not short-term trade signals. The model phases in and out gradually.</p>
     <p style="margin:10px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
   `;
 
-  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   let sent = 0;
   for (const user of opted) {
     try {

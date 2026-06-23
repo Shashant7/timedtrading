@@ -80,7 +80,7 @@
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
         color: var(--tt-text-muted, #8AA39A); white-space: nowrap; cursor: pointer;
-        max-width: min(420px, 92vw); text-align: left;
+        max-width: min(560px, 96vw); text-align: left; flex-shrink: 0;
       }
       .tt-activity-pill:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
       .tt-activity-pill .ev-scope {
@@ -259,14 +259,29 @@
     return "trader";
   }
 
+  function resolveEvType(ev, c) {
+    if (c && c.evType) return c.evType;
+    const SG = window.TimedSignalGrammar;
+    if (SG && typeof SG.investorEvType === "function") {
+      const inv = SG.investorEvType(ev);
+      if (inv) return inv;
+    }
+    const invT = String(ev?.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") return "ADD";
+    if (invT === "position_trim") return "TRIM";
+    if (invT === "position_close") return "EXIT";
+    return String(ev?.type || ev?.event || "").toUpperCase() || "EVENT";
+  }
+
   function classifyEvent(ev) {
     const SG = window.TimedSignalGrammar;
     if (SG && typeof SG.classifyActivityEvent === "function") {
       const c = SG.classifyActivityEvent(ev);
+      const evType = resolveEvType(ev, c);
       return {
         cls: c.cls || "",
-        label: c.label || "UPDATE",
-        evType: c.evType || String(ev?.type || "").toUpperCase(),
+        label: c.label || evType || "UPDATE",
+        evType,
         scope: c.scope || scopeOf(ev, String(ev?.type || "").toUpperCase()),
         mode: c.mode || "doing",
         execState: c.execState || "done",
@@ -303,32 +318,34 @@
   function buildPillDetail(ev, meta) {
     const price = Number(ev?.price);
     const qty = Number(ev?.qty);
+    const shares = Number(ev?.shares);
     const parts = [];
     const t = meta.evType;
-    if (Number.isFinite(price) && price > 0) {
-      if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD") {
-        const q = t === "ADD" ? Number(ev?.shares) : qty;
-        parts.push(q > 0 ? `${q % 1 === 0 ? q : q.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
-      } else {
-        parts.push(`@ ${fmtUsd(price)}`);
+    const shareN = Number.isFinite(shares) && shares > 0 ? shares : qty;
+    if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD") {
+      if (Number.isFinite(price) && price > 0) {
+        parts.push(shareN > 0 ? `${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
+      } else if (shareN > 0) {
+        parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
       }
-    }
-    if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD")) parts.push(String(ev.setup_grade));
-    const reason = shortReason(ev?.reason);
-    if (reason && (t === "EXIT" || t === "TRIM")) parts.push(reason);
-    if (t === "ADD") {
+      const reason = shortReason(ev?.reason);
       if (reason) parts.push(reason);
+      if (ev?.setup_grade) parts.push(String(ev.setup_grade));
       return parts.join(" · ");
     }
-    if (t === "INVESTOR_SIGNAL") {
-      const shares = Number(ev?.shares);
-      if (Number.isFinite(shares) && shares > 0) {
-        parts.push(`${shares % 1 === 0 ? shares : shares.toFixed(1)} sh`);
-      }
+    if (t === "EXIT" || t === "TRIM") {
+      if (shareN > 0) parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
       if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
+      const remain = Number(ev?.remaining ?? ev?.remaining_shares ?? ev?.total_shares);
+      if (Number.isFinite(remain) && remain >= 0 && t === "TRIM") parts.push(`${remain % 1 === 0 ? remain : remain.toFixed(1)} sh left`);
+      const reason = shortReason(ev?.reason);
       if (reason) parts.push(reason);
       return parts.join(" · ");
     }
+    if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
+    if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY")) parts.push(String(ev.setup_grade));
+    const reason = shortReason(ev?.reason);
+    if (reason) parts.push(reason);
     return parts.join(" · ");
   }
 
@@ -641,4 +658,4 @@
   else mount();
 })();
 
-// cache-bust:1782236698510:431131679
+// cache-bust:1782238642836:598381627

@@ -22,11 +22,12 @@
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
-    <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
+    <script src="shared-signal-grammar.js?v=20260623b"></script>
+    <script src="tt-activity-strip.js?v=20260623b" defer></script>
     <script src="shared-price-utils.js?v=20260615a"></script>
     <script src="shared-lane-card.js?v=20260616a"></script>
     <script src="ds-components.js?v=20260501a"></script>
-    <script src="investor-panel.js?v=20260623a"></script>
+    <script src="investor-panel.js?v=20260623b"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
@@ -1162,45 +1163,9 @@
         }, [RailOverlay, applyRailOpen]);
 
 
-        // Search + filter — Investor mode now shows the entire universe
-        // so a search bar narrows down to a specific ticker, and quick
-        // filter chips toggle the "Actionable only" view (Accumulate +
-        // Reduce) or the "Saved" set the user has starred.
+        // Search + filter state — rendered inside InvestorPanel above kanban.
         const [searchQuery, setSearchQuery] = useState("");
         const [filterGroup, setFilterGroup] = useState(null);
-
-        // 2026-06-01 — Pre-compute filter-chip counts from the same
-        // /timed/investor/scores payload the panel consumes, so the
-        // chip labels always match what each filter would surface
-        // BEFORE the operator clicks it. simEligible bucketing:
-        //   true  → counted as eligible (gate passed)
-        //   false → not counted (gate explicitly failed)
-        //   null  → counted as unknown (cron hasn't repopulated since
-        //           the field was added 2026-06-01; run /compute)
-        const chipCounts = useMemo(() => {
-          let actionable = 0, simEligible = 0, simUnknown = 0, executeReady = 0;
-          const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
-          const countNav = window.TTCountInvestorNavBadge;
-          if (typeof countNav === "function") {
-            actionable = countNav(list);
-          }
-          for (const row of list) {
-            const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
-            if (stage !== "accumulate" && stage !== "reduce") continue;
-            if (typeof countNav !== "function") {
-              if (stage === "reduce") actionable++;
-              else if (stage === "accumulate") {
-                const tier = String(row?.actionTier || "").toLowerCase();
-                if (tier === "act_now" || tier === "ready") actionable++;
-              }
-            }
-            const tier = row?.actionTier;
-            if (tier === "act_now" || tier === "ready") executeReady++;
-            if (row?.simEligible === true) simEligible++;
-            else if (row?.simEligible == null) simUnknown++;
-          }
-          return { actionable, simEligible, simUnknown, executeReady };
-        }, [investorScores]);
 
         return h(React.Fragment, null,
           !panelMounted && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Investor" }),
@@ -1221,66 +1186,6 @@
               ),
             ),
             h(HowToReadCard, null),
-            // Search + filter row — narrows the panel below.
-            h("section", { className: "tt-row inv-controls" },
-              h("div", { className: "inv-search-wrap" },
-                h("svg", {
-                  width: 14, height: 14, viewBox: "0 0 24 24", fill: "none",
-                  stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
-                  className: "inv-search-icon",
-                },
-                  h("circle", { cx: 11, cy: 11, r: 8 }),
-                  h("line", { x1: 21, y1: 21, x2: 16.65, y2: 16.65 }),
-                ),
-                h("input", {
-                  type: "text",
-                  className: "inv-search",
-                  placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
-                  value: searchQuery,
-                  onChange: (e) => setSearchQuery(e.target.value),
-                  "aria-label": "Search Investor tickers",
-                }),
-                searchQuery && h("button", {
-                  className: "inv-search-clear",
-                  onClick: () => setSearchQuery(""),
-                  "aria-label": "Clear search",
-                  title: "Clear",
-                }, "×"),
-              ),
-              h("div", { className: "inv-filter-chips" },
-                h("button", {
-                  className: "inv-chip" + (filterGroup === null ? " active" : ""),
-                  onClick: () => setFilterGroup(null),
-                }, "All"),
-                h("button", {
-                  className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
-                  onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
-                  title: "Tickers in Accumulate or Reduce — the model has an active recommendation",
-                }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`),
-                // 2026-06-01 — "Sim-eligible" narrows Actionable further to
-                // the subset the Investor simulator would actually act on:
-                // Monthly SuperTrend bullish AND ≥2/3 of (D, W, M) bullish
-                // (matches worker/index.js:36692-36698 exactly). Chip
-                // label format: "Sim-eligible (N+M?)" where N = strictly
-                // eligible, M = unknown (cron hasn't repopulated yet).
-                h("button", {
-                  className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
-                  onClick: () => setFilterGroup("EXECUTE_READY"),
-                  title: "Accumulate/Reduce names the model would prioritize — ACT NOW (buy zone + trend) or READY (alignment / in-zone)",
-                }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`),
-                h("button", {
-                  className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
-                  onClick: () => setFilterGroup("SIM_ELIGIBLE"),
-                  title: `Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish${chipCounts.simUnknown > 0 ? `. ${chipCounts.simUnknown} ticker(s) have unknown SuperTrend state (run POST /timed/investor/compute to refresh)` : ""}`,
-                }, `Sim-eligible${(chipCounts.simEligible + chipCounts.simUnknown) > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`),
-                h("button", {
-                  className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
-                  onClick: () => setFilterGroup("SAVED"),
-                  title: "Your saved tickers (star icon on any card)",
-                  disabled: !saved || saved.size === 0,
-                }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`),
-              ),
-            ),
             h(AccountStrip, null),
             panelMounted
               ? h(window.InvestorPanel, {
@@ -1291,6 +1196,8 @@
                   selectedTicker: null,
                   searchQuery,
                   filterGroup,
+                  onSearchQueryChange: setSearchQuery,
+                  onFilterGroupChange: setFilterGroup,
                   // 2026-06-01 — Pass `data` (from /timed/all) as
                   // tickerData so the Sim-eligible filter has structural
                   // fallback fields (tf_tech.D.stDir, tf_tech.W.stDir,
