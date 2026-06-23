@@ -483,15 +483,10 @@
       return;
     }
     setHostVisible(host, true);
-    const adminEndpoint = "/timed/admin/activity-feed";
-    const publicEndpoint = "/timed/activity";
-    let endpoint = isAdmin() ? adminEndpoint : publicEndpoint;
+    const endpoint = "/timed/activity";
+    const fetchLimit = 50;
     try {
-      let r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, { cache: "no-store", credentials: "include" });
-      if (isAdmin() && (r.status === 401 || r.status === 403)) {
-        endpoint = publicEndpoint;
-        r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, { cache: "no-store", credentials: "include" });
-      }
+      const r = await fetch(`${API_BASE}${endpoint}?limit=${fetchLimit}&_t=${Date.now()}`, { cache: "no-store", credentials: "include" });
       if (r.ok) {
         const j = await r.json();
         if (j?.ok && Array.isArray(j.events)) _events = j.events;
@@ -549,4 +544,4 @@
   else mount();
 })();
 
-// cache-bust:1782187063990:935143682
+// cache-bust:1782187900461:127570542
