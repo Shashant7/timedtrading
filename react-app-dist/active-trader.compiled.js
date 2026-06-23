@@ -58,35 +58,86 @@ async function fetchAll() {
     ok: false
   };
 }
-function resolveOpenTrade(tr) {
-  if (!tr) return null;
-  try {
-    return window.TimedPriceUtils?.isTradeOpen?.(tr) ? tr : null;
-  } catch (_) {
-    return null;
+function traderBookIsOpen(tr) {
+  if (!tr || typeof tr !== "object") return false;
+  const status = String(tr.status || "").toUpperCase();
+  const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+  const trimmedPct = Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0);
+  const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
+  const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !isOpenStatus && exitTs > 0 || trimmedPct >= 0.9999;
+  return isOpenStatus && !isClosed;
+}
+function traderBookIsClosed(tr) {
+  if (!tr || typeof tr !== "object") return false;
+  const status = String(tr.status || "").toUpperCase();
+  const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+  const trimmedPct = Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0);
+  const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
+  return status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !isOpenStatus && exitTs > 0 || trimmedPct >= 0.9999;
+}
+function mergeOpenTradeIntoMap(map, tr) {
+  if (!traderBookIsOpen(tr)) return;
+  const sym = String(tr?.ticker || "").toUpperCase();
+  if (!sym) return;
+  const existing = map.get(sym);
+  const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+  const entryTs = Number(tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0);
+  if (!existing) {
+    map.set(sym, tr);
+    return;
+  }
+  const exExit = Number(existing.exit_ts ?? existing.exitTs ?? 0);
+  const exEntry = Number(existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0);
+  const trOpen = !exitTs;
+  const exOpen = !exExit;
+  if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+    map.set(sym, tr);
   }
 }
-function useOpenTrades(enabled) {
+function resolveOpenTrade(tr) {
+  if (!tr) return null;
+  return traderBookIsOpen(tr) ? tr : null;
+}
+const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+  const [closedByTicker, setClosedByTicker] = useState(() => new Map());
   const [tradesLoaded, setTradesLoaded] = useState(false);
   const refresh = useCallback(async () => {
     try {
-      const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, {
+      const [posRes, d1Res] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
         cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      const m = new Map();
-      const accept = tr => {
-        if (!resolveOpenTrade(tr)) return;
-        const sym = String(tr?.ticker || "").toUpperCase();
-        if (!sym) return;
-        const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
-        const existing = m.get(sym);
-        if (!existing || entryTs > Number(existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0)) {
-          m.set(sym, tr);
+      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=d1`, {
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      const openMap = new Map();
+      if (posRes?.ok && Array.isArray(posRes.trades)) {
+        posRes.trades.forEach(tr => mergeOpenTradeIntoMap(openMap, tr));
+      }
+      if (d1Res?.ok && Array.isArray(d1Res.trades)) {
+        d1Res.trades.forEach(tr => {
+          if (tr?._source_mode === "investor") return;
+          mergeOpenTradeIntoMap(openMap, tr);
+        });
+      }
+      const closedMap = new Map();
+      const now = Date.now();
+      if (d1Res?.ok && Array.isArray(d1Res.trades)) {
+        for (const tr of d1Res.trades) {
+          if (!tr || tr._source_mode === "investor") continue;
+          const sym = String(tr.ticker || "").toUpperCase();
+          if (!sym || openMap.has(sym)) continue;
+          const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+          if (!traderBookIsClosed(tr) || !exitMs || now - exitMs >= RECENT_EXIT_WINDOW_MS) continue;
+          if (String(tr.exit_reason || "").startsWith("REVERSED_")) continue;
+          const existing = closedMap.get(sym);
+          if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) {
+            closedMap.set(sym, tr);
+          }
         }
-      };
-      if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
-      setTradeByTicker(m);
+      }
+      setTradeByTicker(openMap);
+      setClosedByTicker(closedMap);
     } catch (_) {} finally {
       setTradesLoaded(true);
     }
@@ -99,44 +150,8 @@ function useOpenTrades(enabled) {
   }, [enabled, refresh]);
   return {
     tradeByTicker,
+    closedByTicker,
     tradesLoaded
-  };
-}
-const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
-function useRecentClosedTrades(enabled) {
-  const [closedByTicker, setClosedByTicker] = useState(() => new Map());
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/timed/trades?source=d1`, {
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      const m = new Map();
-      const now = Date.now();
-      if (res?.ok && Array.isArray(res.trades)) {
-        for (const tr of res.trades) {
-          if (!tr || tr._source_mode === "investor") continue;
-          const status = String(tr.status || "").toUpperCase();
-          const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
-          const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!exitMs && status !== "OPEN" && status !== "TP_HIT_TRIM";
-          if (!isClosed || !exitMs || now - exitMs >= RECENT_EXIT_WINDOW_MS) continue;
-          if (String(tr.exit_reason || "").startsWith("REVERSED_")) continue;
-          const sym = String(tr.ticker || "").toUpperCase();
-          if (!sym) continue;
-          const existing = m.get(sym);
-          if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) m.set(sym, tr);
-        }
-      }
-      setClosedByTicker(m);
-    } catch (_) {}
-  }, []);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    refresh();
-    const id = setInterval(refresh, 180000);
-    return () => clearInterval(id);
-  }, [enabled, refresh]);
-  return {
-    closedByTicker
   };
 }
 function useSavedTickers() {
@@ -261,8 +276,8 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || t?._openTrade || null);
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const isOpen = !!trade && (status === "OPEN" || status === "TP_HIT_TRIM" || !status && !t?._stickyExit);
-    if (t.kanban_stage === null && !t._stickyExit && !isOpen) continue;
+    const isOpen = traderBookIsOpen(trade);
+    if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen) continue;
     let stage = String(t?.kanban_stage || "").toLowerCase();
     if (!stage && isOpen) {
       if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else stage = "hold";
@@ -276,7 +291,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
       const exitAgeMs = exitMs > 0 ? Date.now() - exitMs : Infinity;
       const forceRecentExit = exitMs > 0 && exitAgeMs < 6 * 60 * 60 * 1000;
       const newOpportunity = !forceRecentExit && ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
-      if (exitMs > 0 && exitAgeMs < 24 * 60 * 60 * 1000 && !newOpportunity) {
+      if (exitMs > 0 && exitAgeMs < RECENT_EXIT_WINDOW_MS && !newOpportunity) {
         stage = "exit";
       }
     }
@@ -1213,11 +1228,9 @@ function ActiveTraderApp() {
   }, []);
   const {
     tradeByTicker,
+    closedByTicker,
     tradesLoaded
-  } = useOpenTrades(!!data);
-  const {
-    closedByTicker
-  } = useRecentClosedTrades(!!data);
+  } = useTraderBook(!!data);
   const {
     saved,
     toggle: toggleSaved
@@ -1247,7 +1260,7 @@ function ActiveTraderApp() {
         } : {})
       };
       const out = window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
-      if ((out.kanban_stage == null || out.kanban_stage === undefined) && closedByTicker?.has?.(sym)) {
+      if ((out.kanban_stage == null || out.kanban_stage === undefined) && closedByTicker?.has?.(sym) && !trade) {
         const closed = closedByTicker.get(sym);
         return {
           ...out,
@@ -1255,6 +1268,18 @@ function ActiveTraderApp() {
           _closedTrade: closed,
           _stickyExit: true,
           price: out.price || Number(closed?.exit_price ?? closed?.exitPrice) || null
+        };
+      }
+      if (trade && (out._stickyExit || String(out.kanban_stage || "").toLowerCase() === "exit")) {
+        return {
+          ...out,
+          _stickyExit: false,
+          _closedTrade: null,
+          _openTrade: trade,
+          kanban_stage: eff,
+          _effectiveKanbanStage: eff,
+          has_open_position: true,
+          position_direction: trade.direction || out.position_direction
         };
       }
       return out;
@@ -1281,7 +1306,7 @@ function ActiveTraderApp() {
       });
     });
     closedByTicker.forEach((closed, sym) => {
-      if (!sym || known.has(sym)) return;
+      if (!sym || known.has(sym) || tradeByTicker.has(sym)) return;
       const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
       if (!exitMs || Date.now() - exitMs >= RECENT_EXIT_WINDOW_MS) return;
       if (String(closed?.exit_reason || "").startsWith("REVERSED_")) return;
@@ -1754,6 +1779,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782239283062:285719618
+// cache-bust:1782241044118:117555128
 
-// cache-bust:1782239283062:285719618
+// cache-bust:1782241044118:117555128
