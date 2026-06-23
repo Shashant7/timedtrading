@@ -98,6 +98,33 @@ function resolveOpenTrade(tr) {
   if (!tr) return null;
   return traderBookIsOpen(tr) ? tr : null;
 }
+function tsToMs(ts) {
+  if (ts == null || ts === "") return null;
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n < 1e12 ? n * 1000 : n;
+}
+function getLocalDayBoundsMs() {
+  const d = new Date();
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const start = new Date(`${key}T00:00:00`).getTime();
+  return {
+    start,
+    end: start + 86400000
+  };
+}
+function tradeTrimmedToday(tr) {
+  if (!tr) return false;
+  const trimmedPct = Number(tr?.trimmed_pct ?? tr?.trimmedPct ?? 0);
+  if (!(trimmedPct > 0)) return false;
+  const trimMs = tsToMs(tr?.trim_ts ?? tr?.trimTs);
+  if (!trimMs) return false;
+  const {
+    start,
+    end
+  } = getLocalDayBoundsMs();
+  return trimMs >= start && trimMs < end;
+}
 const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
@@ -259,7 +286,8 @@ function computeEffectiveStage(ticker, trade) {
   if (rawStage === "exit") return "defend";
   if (rawStage === "defend") return "defend";
   if (rawStage === "exiting") return "defend";
-  if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
+  if (tradeTrimmedToday(openTr)) return "trim";
+  if (rawStage === "trim") return "hold";
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
 }
@@ -281,10 +309,10 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen) continue;
     let stage = String(t?.kanban_stage || "").toLowerCase();
     if (!stage && isOpen) {
-      if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else stage = "hold";
+      stage = tradeTrimmedToday(trade) ? "trim" : "hold";
     }
     if (trade && isOpen) {
-      if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (stage === "exiting") stage = "defend";else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+      if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (stage === "exiting") stage = "defend";else if (tradeTrimmedToday(trade)) stage = "trim";else if (stage === "trim") stage = "hold";else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
     if (!isOpen && closedByTicker?.get) {
       const closed = closedByTicker.get(sym) || t?._closedTrade || null;
@@ -1664,7 +1692,7 @@ function ActiveTraderApp() {
     className: "at-chip" + (filterLane === "trim" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "trim" ? null : "trim"),
     disabled: laneCounts.trim === 0,
-    title: "Open positions hitting a take-profit level"
+    title: "Open positions where the model trimmed today"
   }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
@@ -1815,6 +1843,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782247880873:765650161
+// cache-bust:1782249283665:975673098
 
-// cache-bust:1782247880873:765650161
+// cache-bust:1782249283665:975673098
