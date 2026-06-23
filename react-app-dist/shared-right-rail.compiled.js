@@ -5057,6 +5057,9 @@
       const [catalystsNarrative, setCatalystsNarrative] = useState(null);
       const [catalystsNarrativeLoading, setCatalystsNarrativeLoading] = useState(false);
       const [snapshotViewMode, setSnapshotViewMode] = useState(() => String(railOpenSource || "").toLowerCase() === "investor" ? "investor" : "trader");
+      useEffect(() => {
+        setSnapshotViewMode(String(railOpenSource || "").toLowerCase() === "investor" ? "investor" : "trader");
+      }, [tickerSymbol, railOpenSource]);
       const [fundamentalsError, setFundamentalsError] = useState(null);
       const fundamentalsCacheRef = useRef(new Map());
       const fundamentalsSortRef = useRef({
@@ -8794,7 +8797,37 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, (() => {
+        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, React.createElement("div", {
+          style: {
+            display: "flex",
+            gap: 0,
+            marginBottom: "var(--ds-space-3)",
+            borderRadius: 10,
+            border: "1px solid var(--ds-stroke)",
+            overflow: "hidden",
+            background: "rgba(255,255,255,0.03)"
+          }
+        }, ["trader", "investor"].map(mode => {
+          const active = snapshotViewMode === mode;
+          return React.createElement("button", {
+            key: mode,
+            type: "button",
+            onClick: () => setSnapshotViewMode(mode),
+            style: {
+              flex: 1,
+              padding: "8px 12px",
+              border: 0,
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: active ? "var(--ds-text-body)" : "var(--ds-text-faint)",
+              background: active ? "rgba(56,242,161,0.12)" : "transparent",
+              borderBottom: active ? "2px solid var(--ds-accent)" : "2px solid transparent"
+            }
+          }, mode === "trader" ? "Trader" : "Investor");
+        })), snapshotViewMode === "trader" && (() => {
           const formatPx = n => {
             const x = Number(n);
             if (!Number.isFinite(x)) return "—";
@@ -9181,179 +9214,269 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, Math.round(v2Conv), "/100"))));
-        })(), React.createElement("div", {
-          style: {
-            display: "flex",
-            gap: 6,
-            marginBottom: "var(--ds-space-3)",
-            flexWrap: "wrap"
-          }
-        }, ["trader", "investor"].map(mode => {
-          const active = snapshotViewMode === mode;
-          return React.createElement("button", {
-            key: mode,
-            type: "button",
-            onClick: () => setSnapshotViewMode(mode),
-            className: `ds-chip ds-chip--sm${active ? " ds-chip--accent" : ""}`,
-            style: {
-              cursor: "pointer",
-              textTransform: "capitalize"
-            }
-          }, mode === "trader" ? "Trader" : "Investor");
-        })), (() => {
-          const f = ticker?._freshness;
-          if (!f || f.grade === "FRESH" || f.enforced === false) return null;
-          const isStale = f.grade === "STALE";
-          const sr = f.session_ref;
-          const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
-          const lastDay = sr?.last_trading_day;
-          const fmtDay = ds => {
-            if (!ds) return null;
-            try {
-              const d = new Date(`${ds}T12:00:00`);
-              return d.toLocaleDateString("en-US", {
-                weekday: "short",
-                month: "short",
-                day: "numeric"
-              });
-            } catch (_) {
-              return ds;
-            }
+        })(), snapshotViewMode === "investor" && (() => {
+          const formatPx = n => {
+            const x = Number(n);
+            if (!Number.isFinite(x)) return "—";
+            return `$${x.toFixed(2)}`;
           };
-          let msg;
-          if (isStale) {
-            msg = "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land.";
-          } else if (!f.market_open && lastDay) {
-            msg = `Market closed — levels reflect the ${fmtDay(lastDay) || lastDay} session. The engine will refresh at the next open.`;
-          } else {
-            msg = "Some chart data is catching up — figures may lag a few minutes.";
+          const cardSym = String(tickerSymbol || "").trim().toUpperCase();
+          const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+          const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
+          const ip = investorPrediction;
+          const ipDir = String(ip?.direction || "").toUpperCase();
+          const ipAction = String(ip?.action_label || "").toUpperCase();
+          const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
+          const ipStop = Number(ip?.risk?.stop_loss);
+          const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
+          const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
+          const livePx = Number(v2Price) || Number(ticker?.price);
+          const invDisplay = investorInvalidationDisplay(investorData, livePx);
+          const holding = effectiveInvestorTrade;
+          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
+          const verdict = (() => {
+            if (holding) {
+              if (liveStage === "reduce") return {
+                word: "REDUCE",
+                color: "#f59e0b",
+                bg: "rgba(245,158,11,0.10)",
+                line: liveGuide?.doNow || "Reduce on strength — taking profits per the investor lane.",
+                urgency: "now"
+              };
+              if (liveStage === "watch") return {
+                word: "WATCH",
+                color: "#fbbf24",
+                bg: "rgba(251,191,36,0.08)",
+                line: liveGuide?.doNow || "Monitor closely — no add until the thesis re-confirms.",
+                urgency: "watch"
+              };
+              if (liveStage === "avoid") return {
+                word: "AVOID",
+                color: "#f87171",
+                bg: "rgba(248,113,113,0.08)",
+                line: liveGuide?.doNow || "The investor lane skips this name.",
+                urgency: "none"
+              };
+              return {
+                word: "HOLDING",
+                color: "#93c5fd",
+                bg: "rgba(59,130,246,0.08)",
+                line: liveGuide?.doNow || "Investor position is active. Follow lane guidance and invalidation below.",
+                urgency: "monitor"
+              };
+            }
+            if (liveGuide?.laneLabel) {
+              const lane = String(liveGuide.laneLabel).toUpperCase();
+              const color = liveStage === "avoid" ? "#f87171" : liveStage === "reduce" ? "#f59e0b" : ipColor;
+              return {
+                word: lane,
+                color,
+                bg: `${color}14`,
+                line: liveGuide.doNow || liveGuide.actionLine || "Investor lane guidance for this ticker.",
+                urgency: liveStage === "accumulate" ? "watch" : "context"
+              };
+            }
+            const a = ipAction.toLowerCase();
+            if (a.includes("hold")) return {
+              word: "HOLD",
+              color: "#93c5fd",
+              bg: "rgba(59,130,246,0.08)",
+              line: "Hold — no add, no trim. Let the thesis play out.",
+              urgency: "monitor"
+            };
+            if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return {
+              word: "ACCUMULATE",
+              color: "#34d399",
+              bg: "rgba(52,211,153,0.10)",
+              line: "Accumulate — add to position on weakness.",
+              urgency: "watch"
+            };
+            if (a.includes("trim") || a.includes("reduc") || a.includes("sell")) return {
+              word: "REDUCE",
+              color: "#f59e0b",
+              bg: "rgba(245,158,11,0.10)",
+              line: "Reduce on strength — taking profits.",
+              urgency: "now"
+            };
+            if (a.includes("watch") || a.includes("monitor")) return {
+              word: "WATCH",
+              color: "#fbbf24",
+              bg: "rgba(251,191,36,0.08)",
+              line: "Monitor — no position change recommended.",
+              urgency: "watch"
+            };
+            if (a.includes("avoid")) return {
+              word: "AVOID",
+              color: "#f87171",
+              bg: "rgba(248,113,113,0.08)",
+              line: "Avoid — investor lane sees no edge here.",
+              urgency: "none"
+            };
+            if (ipDir === "LONG") return {
+              word: "CONSTRUCTIVE",
+              color: "#34d399",
+              bg: "rgba(52,211,153,0.06)",
+              line: ipThesis || "Investor lane leans long over weeks to months.",
+              urgency: "context"
+            };
+            if (ipDir === "SHORT") return {
+              word: "CAUTIOUS",
+              color: "#fb7185",
+              bg: "rgba(244,63,94,0.06)",
+              line: ipThesis || "Investor lane leans defensive on this ticker.",
+              urgency: "context"
+            };
+            return {
+              word: "NEUTRAL",
+              color: "#8AA39A",
+              bg: "rgba(255,255,255,0.04)",
+              line: ipThesis || "No strong investor-lane view on this ticker yet.",
+              urgency: "none"
+            };
+          })();
+          const triggers = [];
+          if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
+            triggers.push({
+              tone: "neutral",
+              text: `Invalidation: close below ${formatPx(invDisplay.price)} (${invDisplay.label}).`
+            });
+          }
+          if (ipTp1 && livePx) {
+            triggers.push({
+              tone: "neutral",
+              text: `Thesis target: ${formatPx(ipTp1)}${ipTargets[0]?.label ? ` (${ipTargets[0].label})` : ""}.`
+            });
+          }
+          if (ipStop && livePx && !invDisplay) {
+            triggers.push({
+              tone: "neutral",
+              text: `Invalidates below ${formatPx(ipStop)}.`
+            });
           }
           return React.createElement("div", {
             style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "8px 12px",
-              marginBottom: 10,
-              borderRadius: 10,
-              background: isStale ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.07)",
-              border: `1px solid ${isStale ? "rgba(248,113,113,0.25)" : "rgba(251,191,36,0.2)"}`,
-              fontSize: 11,
-              color: "var(--ds-text-muted)"
-            }
-          }, React.createElement("span", {
-            style: {
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              flexShrink: 0,
-              background: isStale ? "#f87171" : "#fbbf24"
-            }
-          }), React.createElement("span", null, msg, window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""));
-        })(), (() => {
-          const ladder = ticker?._trim_ladder;
-          const me = ticker?._move_ending;
-          if (!ladder && !me) return null;
-          const meColor = me?.level === "EXIT" ? "#f87171" : me?.level === "TRIM" ? "#f59e0b" : me?.level === "WATCH" ? "#fbbf24" : "#34d399";
-          const fmtP = n => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
-          return React.createElement("div", {
-            style: {
-              background: "var(--ds-bg-elevated, rgba(255,255,255,0.03))",
-              border: "1px solid var(--ds-border, rgba(255,255,255,0.08))",
-              borderRadius: 12,
-              padding: "12px 14px",
-              marginBottom: 10
+              padding: "14px 14px 12px",
+              marginBottom: "var(--ds-space-3)",
+              background: verdict.bg,
+              border: `1px solid ${verdict.color}55`,
+              borderRadius: 12
             }
           }, React.createElement("div", {
             style: {
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.1em",
-              color: "var(--ds-text-muted)",
-              marginBottom: 8
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginBottom: 6
             }
-          }, "POSITION GUIDANCE \xB7 THE PLAN"), ladder && Array.isArray(ladder.levels) && React.createElement("div", {
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: "#a5b4fc",
+              background: "rgba(99,102,241,0.12)",
+              letterSpacing: "0.06em"
+            }
+          }, "INVESTOR MODEL"), React.createElement("span", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)"
+            }
+          }, "weeks-to-months view"), ipDir && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: ipColor,
+              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
+              letterSpacing: "0.05em",
+              marginLeft: "auto"
+            }
+          }, ipDir)), React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 18,
+              fontWeight: 800,
+              color: verdict.color,
+              letterSpacing: "0.02em",
+              lineHeight: 1
+            }
+          }, verdict.word), livePx && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              fontWeight: 600
+            }
+          }, "$", livePx.toFixed(2))), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.45,
+              marginBottom: triggers.length > 0 ? 10 : 0
+            }
+          }, verdict.line), ipThesis && verdict.line !== ipThesis && React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.5,
+              marginBottom: triggers.length > 0 ? 8 : 0
+            }
+          }, ipThesis), triggers.length > 0 && React.createElement("div", {
+            style: {
+              marginTop: 4
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
+              marginBottom: 5
+            }
+          }, "KEY LEVELS"), React.createElement("div", {
             style: {
               display: "flex",
               flexDirection: "column",
-              gap: 5,
-              marginBottom: me ? 10 : 0
+              gap: 4
             }
-          }, ladder.levels.map(l => React.createElement("div", {
-            key: l.name,
+          }, triggers.map((tr, i) => React.createElement("div", {
+            key: `inv-tr-${i}`,
             style: {
               display: "flex",
-              alignItems: "center",
               gap: 8,
-              fontSize: 12
+              fontSize: 12,
+              lineHeight: 1.45
             }
           }, React.createElement("span", {
             style: {
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
+              color: "var(--ds-text-muted)",
               flexShrink: 0,
-              background: l.status === "reached" ? "#34d399" : "var(--ds-border, rgba(255,255,255,0.15))"
+              marginTop: 1
             }
-          }), React.createElement("span", {
+          }, "\xB7"), React.createElement("span", {
             style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontWeight: 700,
-              minWidth: 58
+              color: "var(--ds-text-body)"
             }
-          }, l.name.replace("_", " ")), React.createElement("span", {
+          }, tr.text))))), liveGuide?.actionLine && React.createElement("div", {
             style: {
-              fontFamily: "var(--tt-font-mono)",
-              color: l.status === "reached" ? "#34d399" : "var(--ds-text-body)"
-            }
-          }, fmtP(l.price)), React.createElement("span", {
-            style: {
-              fontSize: 10,
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: "1px solid rgba(255,255,255,0.04)",
+              fontSize: 11,
               color: "var(--ds-text-muted)"
             }
-          }, l.status === "reached" ? "reached" : `trim ${l.trim_pct}% · ${l.basis}`))), React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: 14,
-              fontSize: 10,
-              color: "var(--ds-text-muted)",
-              marginTop: 3,
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, ladder.sl != null && React.createElement("span", null, "Invalidation ", fmtP(ladder.sl)), ladder.trimmed_pct > 0 && React.createElement("span", null, ladder.trimmed_pct, "% trimmed"), ladder.next && React.createElement("span", null, "Next: ", ladder.next.name.replace("_", " "), " ", ladder.next.distance_pct != null ? `(${ladder.next.distance_pct > 0 ? "+" : ""}${ladder.next.distance_pct}%)` : ""))), me && React.createElement("div", {
-            style: {
-              borderTop: ladder ? "1px solid var(--ds-border, rgba(255,255,255,0.06))" : "none",
-              paddingTop: ladder ? 8 : 0
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              marginBottom: me.level !== "NONE" ? 5 : 0
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.1em",
-              color: "var(--ds-text-muted)"
-            }
-          }, "MOVE-ENDING SIGNAL"), React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 11,
-              fontWeight: 700,
-              color: meColor
-            }
-          }, me.level, " \xB7 ", me.score, "/100")), me.level !== "NONE" && (me.evidence || []).slice(0, 3).map((ev, i) => React.createElement("div", {
-            key: i,
-            style: {
-              fontSize: 11,
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.5
-            }
-          }, "\xB7 ", String(ev).replace(/ \(\+\d+\)$/, "")))));
+          }, "Lane action: ", liveGuide.actionLine));
         })(), effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
           const it = effectiveInvestorTrade;
           const dir = String(it?.direction || "LONG").toUpperCase();
@@ -9424,7 +9547,7 @@
               background: "rgba(59,130,246,0.12)",
               letterSpacing: "0.06em"
             }
-          }, "\uD83D\uDCC2 INVESTOR PORTFOLIO"), React.createElement("span", {
+          }, "INVESTOR PORTFOLIO"), React.createElement("span", {
             style: {
               fontSize: 13,
               fontWeight: 800,
@@ -9512,38 +9635,7 @@
               color: "var(--ds-text-muted)",
               marginLeft: 8
             }
-          }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "")), React.createElement("div", {
-            style: {
-              fontSize: 11,
-              color: "var(--ds-text-body)",
-              marginTop: 4,
-              lineHeight: 1.45
-            }
-          }, invDisplay.condition), invDisplay.thesisLevel && React.createElement("div", {
-            style: {
-              marginTop: 8,
-              paddingTop: 8,
-              borderTop: "1px solid rgba(255,255,255,0.06)",
-              fontSize: 11,
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.45
-            }
-          }, React.createElement("span", {
-            style: {
-              fontWeight: 700,
-              color: "var(--ds-text-faint)"
-            }
-          }, "THESIS FLOOR "), "$", invDisplay.thesisLevel.price.toFixed(2), " (", invDisplay.thesisLevel.label, invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : "", ")", invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""), invDisplay.lines.length > 0 && React.createElement("ul", {
-            style: {
-              margin: "6px 0 0",
-              paddingLeft: 16,
-              fontSize: 10,
-              color: "var(--ds-text-faint)",
-              lineHeight: 1.4
-            }
-          }, invDisplay.lines.slice(0, 2).map((line, i) => React.createElement("li", {
-            key: i
-          }, line)))), React.createElement("div", {
+          }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : ""))), React.createElement("div", {
             style: {
               marginTop: 8
             }
@@ -9561,22 +9653,7 @@
               color: "var(--ds-text-body)",
               lineHeight: 1.4
             }
-          }, currentAction), stageMoved && React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-faint)",
-              marginTop: 4,
-              lineHeight: 1.4
-            }
-          }, "Entry thesis was ", entryAction, ". The model has since moved this name to ", liveGuide?.laneLabel || liveStage, " \u2014 follow current lane guidance above.")), React.createElement("div", {
-            style: {
-              marginTop: 10,
-              paddingTop: 8,
-              borderTop: "1px solid rgba(255,255,255,0.04)",
-              fontSize: 10,
-              color: "var(--ds-text-faint)"
-            }
-          }, "The Trader model below is independent of this holding. It may suggest a SHORT scalp while this LONG position keeps running."));
+          }, currentAction)));
         })(), effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
           const tt = effectiveTraderTrade;
           const st = String(tt?.status || "").toUpperCase();
@@ -9690,29 +9767,183 @@
               color: "var(--ds-text-0)",
               lineHeight: 1.45
             }
-          }, stageWord, sl > 0 && React.createElement(React.Fragment, null, " \xB7 Stop $", sl.toFixed(2)))), React.createElement("div", {
+          }, stageWord, sl > 0 && React.createElement(React.Fragment, null, " \xB7 Stop $", sl.toFixed(2)))));
+        })(), React.createElement("details", {
+          style: {
+            marginBottom: "var(--ds-space-3)"
+          }
+        }, React.createElement("summary", {
+          style: {
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--ds-text-muted)",
+            letterSpacing: "0.06em",
+            cursor: "pointer",
+            padding: "6px 0",
+            userSelect: "none"
+          }
+        }, "More detail \u2014 model, regime, diagnostics"), React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-3)",
+            marginTop: "var(--ds-space-2)"
+          }
+        }, (() => {
+          const f = ticker?._freshness;
+          if (!f || f.grade === "FRESH" || f.enforced === false) return null;
+          const isStale = f.grade === "STALE";
+          const sr = f.session_ref;
+          const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
+          const lastDay = sr?.last_trading_day;
+          const fmtDay = ds => {
+            if (!ds) return null;
+            try {
+              const d = new Date(`${ds}T12:00:00`);
+              return d.toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric"
+              });
+            } catch (_) {
+              return ds;
+            }
+          };
+          let msg;
+          if (isStale) {
+            msg = "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land.";
+          } else if (!f.market_open && lastDay) {
+            msg = `Market closed — levels reflect the ${fmtDay(lastDay) || lastDay} session. The engine will refresh at the next open.`;
+          } else {
+            msg = "Some chart data is catching up — figures may lag a few minutes.";
+          }
+          return React.createElement("div", {
             style: {
-              marginTop: 10,
-              paddingTop: 8,
-              borderTop: "1px solid rgba(255,255,255,0.04)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 12px",
+              marginBottom: 10,
+              borderRadius: 10,
+              background: isStale ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.07)",
+              border: `1px solid ${isStale ? "rgba(248,113,113,0.25)" : "rgba(251,191,36,0.2)"}`,
+              fontSize: 11,
+              color: "var(--ds-text-muted)"
+            }
+          }, React.createElement("span", {
+            style: {
+              width: 7,
+              height: 7,
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: isStale ? "#f87171" : "#fbbf24"
+            }
+          }), React.createElement("span", null, msg, window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""));
+        })(), snapshotViewMode === "trader" && (() => {
+          const ladder = ticker?._trim_ladder;
+          const me = ticker?._move_ending;
+          if (!ladder && !me) return null;
+          const meColor = me?.level === "EXIT" ? "#f87171" : me?.level === "TRIM" ? "#f59e0b" : me?.level === "WATCH" ? "#fbbf24" : "#34d399";
+          const fmtP = n => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
+          return React.createElement("div", {
+            style: {
+              background: "var(--ds-bg-elevated, rgba(255,255,255,0.03))",
+              border: "1px solid var(--ds-border, rgba(255,255,255,0.08))",
+              borderRadius: 12,
+              padding: "12px 14px",
+              marginBottom: 10
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: "var(--ds-text-muted)",
+              marginBottom: 8
+            }
+          }, "POSITION GUIDANCE \xB7 THE PLAN"), ladder && Array.isArray(ladder.levels) && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: 5,
+              marginBottom: me ? 10 : 0
+            }
+          }, ladder.levels.map(l => React.createElement("div", {
+            key: l.name,
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12
+            }
+          }, React.createElement("span", {
+            style: {
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              flexShrink: 0,
+              background: l.status === "reached" ? "#34d399" : "var(--ds-border, rgba(255,255,255,0.15))"
+            }
+          }), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              minWidth: 58
+            }
+          }, l.name.replace("_", " ")), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              color: l.status === "reached" ? "#34d399" : "var(--ds-text-body)"
+            }
+          }, fmtP(l.price)), React.createElement("span", {
+            style: {
               fontSize: 10,
-              color: "var(--ds-text-faint)"
+              color: "var(--ds-text-muted)"
             }
-          }, "Switch to the ", React.createElement("button", {
-            type: "button",
-            onClick: () => setRailTab("SETUP"),
+          }, l.status === "reached" ? "reached" : `trim ${l.trim_pct}% · ${l.basis}`))), React.createElement("div", {
             style: {
-              display: "inline",
-              background: "transparent",
-              border: 0,
-              padding: 0,
-              color: "#6ee7b7",
-              cursor: "pointer",
-              textDecoration: "underline",
-              fontSize: 10
+              display: "flex",
+              gap: 14,
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 3,
+              fontFamily: "var(--tt-font-mono)"
             }
-          }, "Trader tab"), " for the full trade plan and timing signals."));
-        })(), investorPrediction && (() => {
+          }, ladder.sl != null && React.createElement("span", null, "Invalidation ", fmtP(ladder.sl)), ladder.trimmed_pct > 0 && React.createElement("span", null, ladder.trimmed_pct, "% trimmed"), ladder.next && React.createElement("span", null, "Next: ", ladder.next.name.replace("_", " "), " ", ladder.next.distance_pct != null ? `(${ladder.next.distance_pct > 0 ? "+" : ""}${ladder.next.distance_pct}%)` : ""))), me && React.createElement("div", {
+            style: {
+              borderTop: ladder ? "1px solid var(--ds-border, rgba(255,255,255,0.06))" : "none",
+              paddingTop: ladder ? 8 : 0
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: me.level !== "NONE" ? 5 : 0
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: "0.1em",
+              color: "var(--ds-text-muted)"
+            }
+          }, "MOVE-ENDING SIGNAL"), React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 11,
+              fontWeight: 700,
+              color: meColor
+            }
+          }, me.level, " \xB7 ", me.score, "/100")), me.level !== "NONE" && (me.evidence || []).slice(0, 3).map((ev, i) => React.createElement("div", {
+            key: i,
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.5
+            }
+          }, "\xB7 ", String(ev).replace(/ \(\+\d+\)$/, "")))));
+        })(), snapshotViewMode === "investor" && investorPrediction && (() => {
           const ip = investorPrediction;
           const ipDir = String(ip?.direction || "").toUpperCase();
           const ipAction = String(ip?.action_label || "").toUpperCase();
@@ -10094,28 +10325,7 @@
               lineHeight: 1.45
             }
           }, "Hit % comes from ~2 years of this ticker's daily bars. Distance and Hit/Faded tags update with live quotes since that daily close. Published magnets are logged for forward grading."));
-        })(), React.createElement("details", {
-          style: {
-            marginBottom: "var(--ds-space-3)"
-          }
-        }, React.createElement("summary", {
-          style: {
-            fontSize: 11,
-            fontWeight: 700,
-            color: "var(--ds-text-muted)",
-            letterSpacing: "0.06em",
-            cursor: "pointer",
-            padding: "6px 0",
-            userSelect: "none"
-          }
-        }, "More detail \u2014 model, regime, diagnostics"), React.createElement("div", {
-          style: {
-            display: "flex",
-            flexDirection: "column",
-            gap: "var(--ds-space-3)",
-            marginTop: "var(--ds-space-2)"
-          }
-        }, ticker?.regime_forecast?.p_next && (() => {
+        })(), ticker?.regime_forecast?.p_next && (() => {
           const fc = ticker.regime_forecast;
           const exh = ticker.regime_exhausted || null;
           const runLen = Number(ticker._regime_run_length) || 0;
@@ -10395,7 +10605,7 @@
               lineHeight: 1.5
             }
           }, copy));
-        })(), renderSequenceShadowPanel(), predictionContract && (() => {
+        })(), renderSequenceShadowPanel(), snapshotViewMode === "trader" && predictionContract && (() => {
           const pcDirRaw = String(predictionContract?.direction || "").toUpperCase();
           const pcDir = pcDirRaw === "LONG" || pcDirRaw === "SHORT" ? pcDirRaw : null;
           const postureLabel = String(predictionContract?.posture_label || v2TraderPosture?.label || "").trim();
@@ -10615,7 +10825,7 @@
           } catch (_) {
             return null;
           }
-        })()), v2Pos && React.createElement(Panel, {
+        })()), snapshotViewMode === "trader" && v2Pos && React.createElement(Panel, {
           title: "Position",
           action: React.createElement("span", {
             className: `ds-chip ds-chip--sm ${v2DirChip}`,
@@ -20918,4 +21128,4 @@
   };
 })();
 
-// cache-bust:1782177437352:861455465
+// cache-bust:1782178836733:241214365
