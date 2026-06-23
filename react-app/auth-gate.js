@@ -1879,10 +1879,13 @@
 
     const handleClick = async (n) => {
       await markSingleRead(n);
-      // Always open the detail modal — never navigate away on click.
-      // If the notification has a link, it's shown as a button inside the modal.
-      setSelectedNotification(n);
       setOpen(false);
+      setSelectedNotification(null);
+      if (typeof window.ttOpenNotificationInRail === "function") {
+        await window.ttOpenNotificationInRail(n, { scope: notifScope(n) });
+        return;
+      }
+      setSelectedNotification(n);
     };
 
     const formatTime = (ts) => {
@@ -1962,9 +1965,20 @@
           },
         },
           selectedNotification.link
-            ? h("a", {
-                href: selectedNotification.link,
-                style: { fontSize: "12px", color: "#00c853", textDecoration: "none", fontWeight: "500" },
+            ? h("button", {
+                type: "button",
+                onClick: async () => {
+                  if (typeof window.ttOpenNotificationInRail === "function") {
+                    await window.ttOpenNotificationInRail(selectedNotification, { scope: notifScope(selectedNotification) });
+                    setSelectedNotification(null);
+                    return;
+                  }
+                  window.location.href = selectedNotification.link;
+                },
+                style: {
+                  fontSize: "12px", color: "#00c853", background: "none", border: "none",
+                  cursor: "pointer", fontWeight: "500", padding: 0, fontFamily: "inherit",
+                },
               }, "View Details \u2192")
             : h("span"),
           h("button", {

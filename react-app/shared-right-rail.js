@@ -5120,8 +5120,11 @@
           else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
             tab = "SNAPSHOT";
           }
+          if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY") {
+            tab = "CATALYSTS";
+          }
           setRailTab(tab);
-        }, [tickerSymbol, initialRailTab]);
+        }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse]);
 
         // Trade History: default chart selection to first trade when trades load
         useEffect(() => {
@@ -6172,6 +6175,29 @@
           () => detectPatterns(bubbleJourney, patternFlags || {}),
           [bubbleJourney, patternFlags],
         );
+
+        const isOutsideScoredUniverse = React.useMemo(() => {
+          if (ticker?._outsideUniverse) return true;
+          if (!tickerSymbol) return false;
+          const row = (allLoadedData && allLoadedData[tickerSymbol]) || ticker;
+          const scored = Number.isFinite(Number(row?.score))
+            || !!row?.state
+            || !!row?.kanban_stage
+            || Number.isFinite(Number(row?.htf_score));
+          if (scored) return false;
+          if (latestTickerLoading) return false;
+          if (latestTicker && (latestTicker.state || Number.isFinite(Number(latestTicker.score)))) {
+            return false;
+          }
+          return !!(latestTickerError || (!latestTicker && !latestTickerLoading));
+        }, [
+          ticker,
+          tickerSymbol,
+          allLoadedData,
+          latestTicker,
+          latestTickerLoading,
+          latestTickerError,
+        ]);
 
         if (!safeTicker || !tickerSymbol) return null;
 
@@ -7463,6 +7489,24 @@
                       </div>
                     );
                   })()}
+                  {isOutsideScoredUniverse && (
+                    <div
+                      style={{
+                        margin: "0 var(--ds-space-3) var(--ds-space-2)",
+                        padding: "10px 12px",
+                        borderRadius: "var(--ds-radius-md)",
+                        border: "1px solid rgba(245,158,11,0.35)",
+                        background: "rgba(245,158,11,0.08)",
+                        fontSize: 11,
+                        lineHeight: 1.55,
+                        color: "var(--ds-text-body)",
+                      }}
+                    >
+                      <strong style={{ color: "#fcd34d" }}>{tickerSymbol}</strong>
+                      {" "}
+                      is outside the Timed Trading scored universe. Model scores, trade plans, and investor lanes are unavailable here — use the Catalysts tab for earnings context.
+                    </div>
+                  )}
                   {/* Tab nav — 2026-05-28 IA fix.
                       Old behavior: overflow-x: auto. On mobile this clipped
                       the leftmost tab ("Snapshot" → "...not" in user's

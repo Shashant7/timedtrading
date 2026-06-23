@@ -107,6 +107,14 @@
       .tt-activity-pill.ev-entry .ev-type { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill.ev-trim .ev-type { color: #fbbf24; }
       .tt-activity-pill.ev-exit .ev-type { color: var(--tt-dn-soft, #fb7185); }
+      .tt-activity-pill[data-scope="investor"] {
+        border-color: rgba(167,139,250,0.28);
+        background: rgba(167,139,250,0.06);
+      }
+      .tt-activity-pill[data-scope="trader"] {
+        border-color: rgba(103,232,249,0.22);
+        background: rgba(103,232,249,0.04);
+      }
       .tt-activity-strip__empty { font-size: 11.5px; color: var(--tt-text-faint); font-style: italic; }
     `;
     document.head.appendChild(el);
@@ -223,19 +231,21 @@
     if (t === "TRADE_ENTRY") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
     if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope };
     if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
-    if (t === "INVESTOR_SIGNAL") return { cls: "ev-entry", label: String(ev?.action || "INVESTOR").toUpperCase().replace(/^MODEL\s*·\s*/, ""), evType: "INVESTOR_SIGNAL", scope: "investor" };
-    // D5 (2026-06-11) — resolution-time grading events from the Signal
-    // Outcome Ledger: every published call shows its grade on the strip
-    // the night it resolves. Wins read green, losses red, flats neutral.
-    if (t === "SIGNAL_GRADED") {
-      const oc = String(ev?.outcome || "").toLowerCase();
-      return {
-        cls: oc === "win" ? "ev-entry" : oc === "loss" ? "ev-exit" : "ev-trim",
-        label: `GRADED ${String(ev?.grade || "").toUpperCase()}`.trim(),
-        evType: "SIGNAL_GRADED",
-        scope,
-      };
+    if (t === "INVESTOR_SIGNAL") {
+      const invT = String(ev?.investor_alert_type || "").toLowerCase();
+      if (invT === "position_close") {
+        return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope: "investor" };
+      }
+      if (invT === "position_trim") {
+        return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope: "investor" };
+      }
+      if (invT === "position_add") {
+        return { cls: "ev-entry", label: "ADD", evType: "ADD", scope: "investor" };
+      }
+      const verb = String(ev?.action || "INVESTOR").toUpperCase().replace(/^MODEL\s*·\s*/, "");
+      return { cls: "ev-entry", label: verb || "INVESTOR", evType: "INVESTOR_SIGNAL", scope: "investor" };
     }
+    // D5 (2026-06-11) — resolution-time grading events belong on /alerts.html only.
     if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
     if (t === "ADD" || t === "ADD_ENTRY") return { cls: "ev-entry", label: "ADD", evType: "ADD_ENTRY", scope };
     if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
@@ -249,70 +259,73 @@
     const parts = [];
     const t = meta.evType;
     if (Number.isFinite(price) && price > 0) {
-      if (t === "ENTRY" || t === "ADD_ENTRY") {
-        parts.push(qty > 0 ? `${qty % 1 === 0 ? qty : qty.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
+      if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD") {
+        const q = t === "ADD" ? Number(ev?.shares) : qty;
+        parts.push(q > 0 ? `${q % 1 === 0 ? q : q.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
       } else {
         parts.push(`@ ${fmtUsd(price)}`);
       }
     }
-    if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY")) parts.push(String(ev.setup_grade));
+    if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD")) parts.push(String(ev.setup_grade));
     const reason = shortReason(ev?.reason);
     if (reason && (t === "EXIT" || t === "TRIM")) parts.push(reason);
-    if (t === "SIGNAL_GRADED") {
-      const pct = Number(ev?.outcome_pct);
-      if (Number.isFinite(pct)) parts.push(`${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`);
-      if (ev?.source) parts.push(String(ev.source).replace(/_/g, " "));
+    if (t === "ADD") {
+      if (reason) parts.push(reason);
+      return parts.join(" · ");
     }
     if (t === "INVESTOR_SIGNAL") {
       const shares = Number(ev?.shares);
-      const price = Number(ev?.price);
       if (Number.isFinite(shares) && shares > 0) {
         parts.push(`${shares % 1 === 0 ? shares : shares.toFixed(1)} sh`);
       }
       if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
-      const reason = shortReason(ev?.reason);
       if (reason) parts.push(reason);
+      return parts.join(" · ");
     }
     return parts.join(" · ");
   }
 
-  function isJourneyRailPage() {
-    try {
-      const p = String(window.location.pathname || "").toLowerCase();
-      return p.includes("active-trader") || p.includes("today") || p.includes("investor") || p.includes("portfolio");
-    } catch (_) { return false; }
+  function isExecutionActivityEvent(ev) {
+    const sym = String(ev?.ticker || ev?.symbol || "").toUpperCase();
+    if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
+    const t = String(ev?.type || ev?.event || "").toUpperCase();
+    if (t === "SIGNAL_GRADED") return false;
+    if (t === "INVESTOR_SIGNAL") return true;
+    const traderTypes = new Set([
+      "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM",
+      "EXIT", "TP_HIT_EXIT", "SL_HIT",
+      "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT",
+    ]);
+    return traderTypes.has(t);
   }
 
   function openActivityEvent(ev, sym, meta) {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
     const tradeId = ev?.trade_id || ev?.tradeId || null;
-    const evType = meta.evType || "";
-    const openAutopsy = evType === "EXIT" || evType === "TRIM";
-
-    try {
-      if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ticker);
-      else window._ttGlobalSearchLastHandled = ticker;
-    } catch (_) {}
-
+    const payload = {
+      ticker,
+      tradeId,
+      evType: meta.evType,
+      scope: meta.scope,
+      activityEvent: ev,
+      source: "activity-strip",
+    };
+    if (typeof window.ttOpenActivityInRail === "function") {
+      window.ttOpenActivityInRail(payload);
+      return;
+    }
+    const initialRailTab = typeof window.ttResolveActivityRailTab === "function"
+      ? window.ttResolveActivityRailTab(ev, { scope: meta.scope, evType: meta.evType })
+      : "HISTORY";
     if (typeof window.ttOpenTickerInRail === "function") {
-      window.ttOpenTickerInRail({ ticker, initialRailTab: "HISTORY", tradeId, evType, openAutopsy, activityEvent: ev, source: "activity-strip" });
+      window.ttOpenTickerInRail({ ...payload, initialRailTab });
     } else {
       window.dispatchEvent(new CustomEvent("tt-open-ticker", {
-        detail: { ticker, initialRailTab: "HISTORY", tradeId, openAutopsy, activityEvent: ev, source: "activity-strip" },
+        detail: { ...payload, initialRailTab, openAutopsy: initialRailTab === "HISTORY" },
         bubbles: true,
       }));
     }
-
-    setTimeout(() => {
-      if (window._ttGlobalSearchLastHandled === ticker) return;
-      if (isJourneyRailPage()) return;
-      const q = new URLSearchParams({ ticker, railTab: "HISTORY" });
-      if (tradeId) q.set("trade_id", tradeId);
-      if (openAutopsy) q.set("autopsy", "1");
-      if (evType) q.set("ev", evType);
-      window.location.href = `/active-trader.html?${q.toString()}`;
-    }, 400);
   }
 
   // 2026-05-31 — Tracks the live nav height as a CSS variable so the
@@ -346,7 +359,9 @@
   }
 
   function render(host, events) {
-    const arr = (Array.isArray(events) ? events : []).slice();
+    const arr = (Array.isArray(events) ? events : [])
+      .filter(isExecutionActivityEvent)
+      .slice();
     arr.sort((a, b) => {
       const norm = (x) => { const n = Number(x?.ts ?? x?.timestamp ?? 0); return n > 1e12 ? n : n * 1000; };
       return norm(b) - norm(a);
@@ -361,7 +376,7 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Click → History";
+      hint.textContent = "Trader · Investor · opens Now or History";
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
@@ -394,6 +409,7 @@
       const pill = document.createElement("button");
       pill.type = "button";
       pill.className = `tt-activity-pill ${meta.cls}`;
+      pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
       const scopeLabel = meta.scope === "investor" ? "INVESTOR" : "TRADER";
       pill.title = [scopeLabel, meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
 

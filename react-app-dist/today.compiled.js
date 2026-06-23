@@ -64,6 +64,43 @@ function getDailyChange(t) {
 function safeArr(v) {
   return Array.isArray(v) ? v : [];
 }
+function isTickerScoredInUniverse(data, sym) {
+  const key = String(sym || "").toUpperCase();
+  const row = data?.[key];
+  if (!row || typeof row !== "object") return false;
+  return Number.isFinite(Number(row.score)) || !!row.state || !!row.kanban_stage || Number.isFinite(Number(row.htf_score));
+}
+function buildEarningsMap(events) {
+  const map = {};
+  const list = safeArr(events);
+  if (!list.length) return map;
+  let todayNy = "";
+  try {
+    todayNy = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+  } catch (_) {
+    return map;
+  }
+  const todayParts = todayNy.split("-").map(Number);
+  if (todayParts.length < 3) return map;
+  const todayDayNum = todayParts[0] * 10000 + todayParts[1] * 100 + todayParts[2];
+  for (const e of list) {
+    const sym = String(e?.symbol || "").toUpperCase();
+    if (!sym || !e?.date) continue;
+    const eParts = String(e.date).split("-").map(Number);
+    if (eParts.length < 3) continue;
+    const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
+    const calDays = eDayNum - todayDayNum;
+    if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
+      map[sym] = {
+        ...e,
+        _daysAway: calDays
+      };
+    }
+  }
+  return map;
+}
 function nyFmtDate() {
   try {
     return new Date().toLocaleDateString("en-US", {
@@ -3133,6 +3170,7 @@ function MacroEventsStrip() {
 function EarningsStrip({
   earnings,
   universe,
+  data,
   onSelectTicker,
   strip
 }) {
@@ -3172,6 +3210,13 @@ function EarningsStrip({
   };
   if (strip) {
     const chips = events.slice(0, 24);
+    const openEarningsTicker = ev => {
+      if (!onSelectTicker) return;
+      const sym = String(ev?.symbol || "").toUpperCase();
+      if (!sym) return;
+      const uni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
+      if (uni) onSelectTicker(sym);else onSelectTicker(sym, "CATALYSTS");
+    };
     return h("section", {
       className: "tt-row"
     }, h("div", {
@@ -3180,15 +3225,17 @@ function EarningsStrip({
       className: "tt-strip-scroll"
     }, chips.map((ev, i) => {
       const sym = String(ev?.symbol || "").toUpperCase();
-      const uni = uniSet.has(sym);
+      const uni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
       return h("button", {
         key: `${sym}-${i}`,
-        onClick: () => onSelectTicker && onSelectTicker(sym),
+        onClick: () => openEarningsTicker(ev),
         className: "tt-strip-chip",
-        title: `${sym} \u00b7 ${ev?.date || ""} ${ev?.hour || ""}`,
+        title: uni ? `${sym} · in TT universe · open ticker` : `${sym} · not in TT universe · earnings watch (Catalysts tab)`,
         style: uni ? {
           borderColor: "rgba(52,211,153,0.4)"
-        } : undefined
+        } : {
+          opacity: 0.88
+        }
       }, h(TickerLogo, {
         sym,
         size: 18
@@ -3237,19 +3284,20 @@ function EarningsStrip({
       const eps = Number(rawEps);
       const hasEps = Number.isFinite(eps) && eps !== 0;
       const sym = String(ev?.symbol || "").toUpperCase();
-      const isUni = uniSet.has(sym);
+      const isUni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
       const hcls = hourClass(ev?.hour);
       const hourLabel = (ev?.hour || "—").toUpperCase();
       const onClick = e => {
         e.preventDefault();
-        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+        if (typeof onSelectTicker !== "function") return;
+        if (isUni) onSelectTicker(sym);else onSelectTicker(sym, "CATALYSTS");
       };
       return h("button", {
         type: "button",
         key: `${sym}-${i}`,
         className: "tt-earn-row" + (isUni ? " is-universe" : ""),
         onClick,
-        title: isUni ? `Open ${sym} in the right rail \u00b7 in our universe` : `Open ${sym} in the right rail`
+        title: isUni ? `Open ${sym} in the right rail · in our universe` : `${sym} · not in TT universe · opens earnings context on Catalysts tab`
       }, h(TickerLogo, {
         sym
       }), h("span", {
@@ -5035,6 +5083,14 @@ function TodayApp({
     const t = setTimeout(scrollToOpp, 600);
     return () => clearTimeout(t);
   }, [data]);
+  const earningsMap = useMemo(() => buildEarningsMap(earnings?.events), [earnings]);
+  useEffect(() => {
+    window._ttEarningsMap = earningsMap;
+    return () => {
+      if (window._ttEarningsMap === earningsMap) window._ttEarningsMap = null;
+    };
+  }, [earningsMap]);
+  const universeSet = useMemo(() => data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : new Set(), [data]);
   const isAdmin = !!window._ttIsAdmin;
   const tradeByTicker = useOpenTrades(!!data);
   const {
@@ -5102,13 +5158,18 @@ function TodayApp({
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
     if (found) return found;
     if (data && typeof data === "object" && data[key]) {
-      return data[key].ticker ? data[key] : {
+      const row = data[key].ticker ? data[key] : {
         ...data[key],
         ticker: key
       };
+      return isTickerScoredInUniverse(data, key) ? row : {
+        ...row,
+        _outsideUniverse: true
+      };
     }
     return {
-      ticker: key
+      ticker: key,
+      _outsideUniverse: true
     };
   }, [railTicker, allTickers, data]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
@@ -5125,7 +5186,10 @@ function TodayApp({
   const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
     const ticker = String(sym).toUpperCase();
-    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    let tab = initialTab ? String(initialTab).toUpperCase() : null;
+    if (!isTickerScoredInUniverse(data, ticker)) {
+      if (!tab || tab === "SNAPSHOT" || tab === "NOW" || tab === "ANALYSIS") tab = "CATALYSTS";
+    }
     if (typeof window.ttOpenTickerInRail === "function") {
       window.ttOpenTickerInRail({
         ticker,
@@ -5135,8 +5199,8 @@ function TodayApp({
       return;
     }
     setRailTicker(ticker);
-    if (tab) setRailInitialTab(tab);else setRailInitialTab(null);
-  }, []);
+    setRailInitialTab(tab);
+  }, [data]);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
     const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
@@ -5209,9 +5273,10 @@ function TodayApp({
     data
   }), h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
     earnings,
+    data,
     onSelectTicker,
     strip: true,
-    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
+    universe: universeSet
   }), data && h(FocusRail, {
     data,
     onSelectTicker
@@ -5264,6 +5329,7 @@ function TodayApp({
     ticker: railTickerObj,
     trade: railTickerObj._openTrade || null,
     allLoadedData: data,
+    earningsMap,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
     railOpenSource,
@@ -5644,6 +5710,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782187900461:127570542
+// cache-bust:1782189249527:670877885
 
-// cache-bust:1782187900461:127570542
+// cache-bust:1782189249527:670877885
