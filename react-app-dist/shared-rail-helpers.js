@@ -1119,15 +1119,15 @@
       return stage;
     },
     INVESTOR_LANE_CHIP_META: {
-      accumulate:        { label: "ACCUMULATE", chip: "ds-chip--up",     title: "Investor board: execution-ready — buy zone + trend alignment." },
-      core_hold:         { label: "CORE HOLD",  chip: "ds-chip--solid", title: "Investor board: hold the core; add on meaningful pullbacks.", style: { color: "#60a5fa", borderColor: "rgba(96,165,250,0.30)", background: "rgba(96,165,250,0.10)" } },
-      watch:             { label: "HOLD & WATCH", chip: "ds-chip--solid", title: "Investor board: owned — hold flat until the next signal.", style: { color: "#38F2A1", borderColor: "rgba(56,242,161,0.30)", background: "rgba(56,242,161,0.10)" } },
-      reduce:            { label: "REDUCE",     chip: "ds-chip--dn",    title: "Investor board: trim on rebalance or invalidation." },
-      research_on_watch: { label: "ON RADAR",   chip: "ds-chip--solid", title: "Investor board: tracking — not execution-ready yet.", style: { color: "#a78bfa", borderColor: "rgba(167,139,250,0.30)", background: "rgba(167,139,250,0.10)" } },
-      research_low:      { label: "LOW CONV.",  chip: "ds-chip--solid", title: "Investor board: low conviction — pass for now.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
-      research_avoid:    { label: "AVOID",      chip: "ds-chip--dn",    title: "Investor board: multiple red flags — skip." },
-      research:          { label: "RESEARCH",   chip: "ds-chip--solid", title: "Investor board: under evaluation.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
-      exited:            { label: "EXITED",     chip: "ds-chip--solid", title: "Investor board: position closed; monitor for re-entry.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
+      accumulate:        { label: "Accumulate",     chip: "ds-chip--up",     title: "Investor lane: execution-ready — buy zone + trend alignment." },
+      core_hold:         { label: "Core Hold",      chip: "ds-chip--solid", title: "Investor lane: hold the core; add on meaningful pullbacks.", style: { color: "#60a5fa", borderColor: "rgba(96,165,250,0.30)", background: "rgba(96,165,250,0.10)" } },
+      watch:             { label: "Hold & Watch",   chip: "ds-chip--solid", title: "Investor lane: owned — hold flat until the next signal.", style: { color: "#38F2A1", borderColor: "rgba(56,242,161,0.30)", background: "rgba(56,242,161,0.10)" } },
+      reduce:            { label: "Reduce",         chip: "ds-chip--dn",    title: "Investor lane: trim on rebalance or invalidation." },
+      research_on_watch: { label: "On Radar",       chip: "ds-chip--solid", title: "Investor lane: tracking — not execution-ready yet.", style: { color: "#a78bfa", borderColor: "rgba(167,139,250,0.30)", background: "rgba(167,139,250,0.10)" } },
+      research_low:      { label: "Low Conviction", chip: "ds-chip--solid", title: "Investor lane: low conviction — pass for now.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+      research_avoid:    { label: "Avoid",          chip: "ds-chip--dn",    title: "Investor lane: multiple red flags — skip." },
+      research:          { label: "Research",       chip: "ds-chip--solid", title: "Investor lane: under evaluation.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+      exited:            { label: "Exited",         chip: "ds-chip--solid", title: "Investor lane: position closed; monitor for re-entry.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
     },
     INVESTOR_TIER_CHIP_META: {
       act_now: { label: "ACT NOW", color: "#22c55e", title: "Execution-ready — model would open or add on the next rebalance." },
@@ -1207,6 +1207,7 @@
         return displayGuide.doNow;
       })();
 
+      const laneLabel = displayGuide.laneLabel;
       return {
         sym,
         rawStage,
@@ -1220,8 +1221,9 @@
         statusLine,
         inBuyZone,
         owned,
-        laneLabel: displayGuide.laneLabel,
-        displayLabel: laneMeta.label,
+        laneLabel,
+        displayLabel: laneLabel,
+        headerChipText: `Investor – ${laneLabel}`,
       };
     },
     buildTraderLaneCardProps(ticker, opts) {
@@ -1248,4 +1250,4 @@
   };
 })();
 
-// cache-bust:1782180418635:173835171
+// cache-bust:1782181309533:635345750
