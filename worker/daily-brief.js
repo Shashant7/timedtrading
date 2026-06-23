@@ -3428,8 +3428,8 @@ CRITICAL: The model data tells the REAL story. When the data says bearish on 4H/
 ## Cross-Asset Correlation (CRITICAL)
 ALWAYS connect the dots across asset classes. Don't just describe equity price action in isolation — show the web of causation:
 
-- **Crude Oil (CL1!) → Equities**: Crude spikes → XLE rallies, but inflation fears pressure tech. Crude drops → potential relief for rate-sensitive growth. If crude is making a notable move (>1.5%), LEAD with it and explain the equity impact.
-- **Gold (GC1!, GLD) → Risk Sentiment**: Gold rallying = risk-off flows. "Gold pushing toward $2,350 suggests the market is seeking safety — not a great environment for aggressive equity longs." If gold is dropping, it signals risk appetite returning.
+- **Crude Oil (USO) → Equities**: Crude spikes → XLE rallies, but inflation fears pressure tech. Crude drops → potential relief for rate-sensitive growth. If crude is making a notable move (>1.5%), LEAD with it and explain the equity impact.
+- **Gold (GLD) → Risk Sentiment**: Gold rallying = risk-off flows. "Gold pushing toward $2,350 suggests the market is seeking safety — not a great environment for aggressive equity longs." If gold is dropping, it signals risk appetite returning.
 - **Treasury Yields (TLT proxy) → Tech/Growth**: TLT rallying = yields falling = good for growth/tech. TLT selling off = yields rising = pressure on long-duration assets. Always note the direction and equity implication.
 - **VIX → Position Sizing**: Always reference VIX as it contextualizes EVERYTHING. A breakout with VIX at 14 is a very different trade than a breakout with VIX at 28.
 - **US Dollar**: Stronger dollar = headwind for multinationals and commodities. Weaker dollar = tailwind for EM-exposed names and commodity plays.
@@ -5570,10 +5570,10 @@ First-person, authoritative, direct. You have a view and you own it.
 
 ## Cross-Asset Storytelling (CRITICAL — this is what separates you)
 ALWAYS connect the dots. Every equity move has a cause — find it:
-- **Crude Oil (CL1!)**: If crude is moving >1%, LEAD with it. "WTI crude's peak last Sunday looks to extend down to $89-90 this week before stabilizing and pushing back to $105-115 over the next few weeks. The next 2-3 days look bearish for crude, and should coincide with equities pushing even higher by end of week."
-- **Gold (GC1!)**: Risk barometer. "Gold breaking above $2,350 tells me the market is seeking safety — not the time for aggressive equity longs."
+- **Crude Oil (USO)**: If crude is moving >1%, LEAD with it. "WTI crude's peak last Sunday looks to extend down to $89-90 this week before stabilizing and pushing back to $105-115 over the next few weeks. The next 2-3 days look bearish for crude, and should coincide with equities pushing even higher by end of week."
+- **Gold (GLD)**: Risk barometer. "Gold breaking above $2,350 tells me the market is seeking safety — not the time for aggressive equity longs."
 - **Treasury Yields / TLT**: Rate narrative. "Yields falling with TLT rallying = tailwind for growth/tech. If TLT is moving, explain why and what it means for SPY/QQQ."
-- **VIX (VX1!)**: ALWAYS referenced. "VIX at 22 and declining says the fear is dissipating — supportive of further equity gains near-term."
+- **VIX**: ALWAYS referenced. "VIX at 22 and declining says the fear is dissipating — supportive of further equity gains near-term."
 - **Dollar**: "Both the US Dollar and Treasury yields are lower — that's a setup for risk assets to push higher."
 - **Sector breadth**: "10 of 11 sectors higher, only Industrials lagging due to JBHT, RTX weakness. That's broad-based buying."
 
