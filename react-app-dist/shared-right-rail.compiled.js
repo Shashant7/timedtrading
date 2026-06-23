@@ -135,10 +135,128 @@
       return INVESTOR_STAGE_GUIDANCE[key] || INVESTOR_STAGE_GUIDANCE.watch;
     }
     function buildInvestorDisplayContext(opts) {
-      if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
-        return window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+      try {
+        if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
+          const ctx = window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+          if (ctx) return ctx;
+        }
+      } catch (_) {}
+      opts = opts || {};
+      const sym = String(opts.tickerSymbol || opts.ticker?.ticker || opts.latestTicker?.ticker || "").trim().toUpperCase();
+      const invRaw = opts.investorData;
+      const investorData = invRaw && String(invRaw.ticker || sym || "").toUpperCase() === sym ? invRaw : null;
+      const rawStage = String(investorData?.stage || opts.ticker?.investor_stage || opts.latestTicker?.investor_stage || "").toLowerCase();
+      if (!rawStage || rawStage === "—") return null;
+      const H = window.TimedRailHelpers || {};
+      const owned = !!(opts.effectiveInvestorTrade || investorData?.position?.owned);
+      const row = {
+        stage: rawStage,
+        score: Number(investorData?.score ?? opts.ticker?.investor_score ?? opts.latestTicker?.investor_score) || 0,
+        actionTier: investorData?.actionTier || null,
+        simEligible: investorData?.simEligible === true,
+        accumZone: investorData?.accumZone || null,
+        position: {
+          ...(investorData?.position || {}),
+          owned,
+          last_action_ts: investorData?.position?.last_action_ts,
+          last_action_type: investorData?.position?.last_action_type
+        }
+      };
+      const resolveKanban = H.resolveInvestorKanbanStage || function (r) {
+        let stage = String(r?.stage || "research_avoid");
+        if (stage === "research") stage = "research_avoid";
+        const o = !!r?.position?.owned;
+        if (!o) {
+          if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";else if (stage === "reduce") stage = "research_low";
+        }
+        const tier = H.deriveInvestorActionTier ? H.deriveInvestorActionTier(r) : null;
+        const execReady = tier === "act_now" || tier === "ready";
+        if (stage === "accumulate" && !execReady) stage = o ? "watch" : "research_on_watch";
+        return stage;
+      };
+      const deriveTier = H.deriveInvestorActionTier || function () {
+        return null;
+      };
+      const displayStage = resolveKanban(row);
+      const actionTier = row.actionTier || deriveTier(row);
+      const executeReady = actionTier === "act_now" || actionTier === "ready";
+      const laneMeta = H.INVESTOR_LANE_CHIP_META && H.INVESTOR_LANE_CHIP_META[displayStage] || {
+        label: "On Radar",
+        chip: "ds-chip--solid",
+        title: "Investor lane",
+        style: {
+          color: "#a78bfa"
+        }
+      };
+      const tierMeta = actionTier && H.INVESTOR_TIER_CHIP_META ? H.INVESTOR_TIER_CHIP_META[actionTier] : null;
+      const LANE_GUIDANCE = {
+        accumulate: {
+          laneLabel: "Accumulate",
+          doNow: "The model scales in over 2–3 tranches inside the buy zone; no chasing extended moves."
+        },
+        core_hold: {
+          laneLabel: "Core Hold",
+          doNow: "The model holds the core; adds only on meaningful pullbacks if the buy zone triggers again."
+        },
+        watch: {
+          laneLabel: "Hold & Watch",
+          doNow: "The model holds flat and monitors signals; invalidation floor stays visible on the chart."
+        },
+        reduce: {
+          laneLabel: "Reduce",
+          doNow: "The model trims ~30% per reduce cycle (or exits fully on invalidation breach)."
+        },
+        research_on_watch: {
+          laneLabel: "On Radar",
+          doNow: "The model tracks the name; no capital deployment until execution-ready."
+        },
+        research_low: {
+          laneLabel: "Low Conviction",
+          doNow: "The model passes — better setups elsewhere in the universe."
+        },
+        research_avoid: {
+          laneLabel: "Avoid",
+          doNow: "The model skips — multiple red flags; no initiate or add."
+        },
+        exited: {
+          laneLabel: "Exited",
+          doNow: "The model monitors for a fresh Accumulate signal before re-entry."
+        }
+      };
+      const displayGuide = LANE_GUIDANCE[displayStage] || LANE_GUIDANCE.watch;
+      const inBuyZone = !!investorData?.accumZone?.inZone;
+      let signalNote = null;
+      if (rawStage === "accumulate" && displayStage !== "accumulate") {
+        signalNote = owned ? "Accumulate thesis — owned but not execution-ready; shown in Hold & Watch until the buy zone triggers." : "Accumulate thesis — tracking on On Radar until price enters the buy zone with trend alignment.";
       }
-      return null;
+      const statusLine = (() => {
+        if (!owned && rawStage === "accumulate" && !executeReady) {
+          if (inBuyZone) return "In buy zone but not fully aligned — model is monitoring, not buying yet.";
+          return "Waiting for buy zone entry — no model position opened yet.";
+        }
+        if (owned && rawStage === "accumulate" && !executeReady) {
+          return "Owned — accumulate signal active but model is not adding until the next trigger.";
+        }
+        return displayGuide.doNow;
+      })();
+      const laneLabel = displayGuide.laneLabel;
+      return {
+        sym,
+        rawStage,
+        displayStage,
+        displayGuide,
+        actionTier,
+        executeReady,
+        laneMeta,
+        tierMeta,
+        signalNote,
+        statusLine,
+        inBuyZone,
+        owned,
+        laneLabel,
+        displayLabel: laneLabel,
+        headerChipText: `Investor – ${laneLabel}`
+      };
     }
     function investorInvalidationDisplay(investorData, livePx) {
       const inv = investorData?.primaryInvalidation;
@@ -1135,7 +1253,7 @@
       } : null;
       return h("div", {
         style: railTabBodyWrapStyle
-      }, invCtx && h("div", {
+      }, (invCtx || stage !== "—") && h("div", {
         style: {
           padding: "var(--ds-space-3)",
           marginBottom: "var(--ds-space-3)",
@@ -1158,7 +1276,7 @@
           fontWeight: 700,
           color: stageInfo.color
         }
-      }, laneHeaderText), invCtx.tierMeta && h("span", {
+      }, laneHeaderText), invCtx?.tierMeta && h("span", {
         style: {
           fontSize: 10,
           fontWeight: 700,
@@ -1176,7 +1294,7 @@
           lineHeight: 1.5,
           fontWeight: 600
         }
-      }, invCtx.statusLine), invCtx.signalNote && h("div", {
+      }, invCtx?.statusLine || stageInfo.desc), invCtx?.signalNote && h("div", {
         style: {
           fontSize: 11,
           color: "var(--ds-text-muted)",
@@ -6065,6 +6183,17 @@
           setInvestorLoading(false);
           return;
         }
+        const seedStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+        const seedScore = Number(ticker?.investor_score ?? latestTicker?.investor_score);
+        if (seedStage && seedStage !== "—") {
+          setInvestorData({
+            ticker: sym,
+            stage: seedStage,
+            score: seedScore
+          });
+        } else {
+          setInvestorData(null);
+        }
         let cancelled = false;
         const fetchInvestor = async () => {
           const showLoading = railTab === "INVESTOR";
@@ -6088,7 +6217,15 @@
             });
           } catch (e) {
             if (!cancelled) {
-              if (showLoading) setInvestorData(null);
+              if (seedStage && seedStage !== "—") {
+                setInvestorData({
+                  ticker: sym,
+                  stage: seedStage,
+                  score: seedScore
+                });
+              } else if (showLoading) {
+                setInvestorData(null);
+              }
               if (showLoading) setInvestorError(String(e?.message || e));
             }
           } finally {
@@ -6099,7 +6236,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, API_BASE]);
+      }, [tickerSymbol, API_BASE, ticker?.investor_stage, ticker?.investor_score, latestTicker?.investor_stage, latestTicker?.investor_score]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -9927,7 +10064,7 @@
               lineHeight: 1.5
             }
           }, "\xB7 ", String(ev).replace(/ \(\+\d+\)$/, "")))));
-        })(), snapshotViewMode === "investor" && investorPrediction && (() => {
+        })(), snapshotViewMode === "investor" && (() => {
           const ip = investorPrediction;
           const ipDir = String(ip?.direction || "").toUpperCase();
           const ipAction = String(ip?.action_label || "").toUpperCase();
@@ -9944,6 +10081,7 @@
             effectiveInvestorTrade,
             tickerSymbol
           });
+          if (!ipLaneCtx && !ip) return null;
           const ipActionLine = ipLaneCtx?.statusLine || (() => {
             const cardSym = String(tickerSymbol || "").trim().toUpperCase();
             const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
@@ -21119,4 +21257,4 @@
   };
 })();
 
-// cache-bust:1782182007235:393995260
+// cache-bust:1782182998929:602765018
