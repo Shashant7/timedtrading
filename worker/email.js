@@ -56,6 +56,7 @@ const BRAND = {
   // Editorial accent — matches web --tt-editorial (purple)
   editorial: "#a78bfa",
   warning: "#f59e0b",
+  danger: "#ef4444",
 };
 
 // Email-safe font stacks (webfonts are unreliable in Gmail/Outlook/Apple Mail,
@@ -2268,7 +2269,16 @@ export async function sendInvestorRebalanceDigest(env, summary) {
      </div>`).join("");
 
   const addedSyms = added.map((x) => String(x?.ticker || "").toUpperCase());
-  const openedSyms = opened.map((x) => String(x?.ticker || "").toUpperCase());
+  const fmtUsd0 = (n) => Number.isFinite(Number(n)) ? `$${Math.round(Number(n)).toLocaleString()}` : null;
+  const entryRow = (x) => {
+    const sym = String(x?.ticker || "").toUpperCase();
+    const detail = [
+      fmtUsd(x?.price) ? `@ ${fmtUsd(x.price)}` : null,
+      fmtUsd0(x?.value) ? `· ${fmtUsd0(x.value)}` : null,
+    ].filter(Boolean).join(" ");
+    return `<div style="margin:0 0 6px"><span style="font-weight:800;font-size:13px">${_esc(sym)}</span> <span style="color:${BRAND.textMuted};font-size:11px">${_esc(detail)}</span></div>`;
+  };
+  const openedInner = opened.map(entryRow).join("");
 
   const headlineBits = [];
   if (closes.length) headlineBits.push(`${closes.length} exited`);
@@ -2282,7 +2292,7 @@ export async function sendInvestorRebalanceDigest(env, summary) {
     ${closes.length ? section("EXITED — FULL CLOSE", BRAND.danger || "#ef4444", closeInner) : ""}
     ${trims.length ? section("TRIMMED / REDUCED", BRAND.warning || "#f59e0b", trimInner) : ""}
     ${added.length ? section("ADDED TO EXISTING", BRAND.green, `<div>${addedSyms.map(chip).join("")}</div>`) : ""}
-    ${opened.length ? section("NEW STARTER POSITIONS", BRAND.green, `<div>${openedSyms.map(chip).join("")}</div>`) : ""}
+    ${opened.length ? section("NEW STARTER POSITIONS", BRAND.green, openedInner) : ""}
     <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Long-horizon portfolio actions — not short-term trade signals. The model phases in and out gradually.</p>
     <p style="margin:10px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
   `;
@@ -2423,13 +2433,25 @@ export function buildInvestorRebalanceDiscordEmbed(summary) {
   if (added.length) {
     fields.push({
       name: `➕ Added (${added.length})`,
-      value: added.map((x) => `• **${String(x?.ticker || "").toUpperCase()}**`).join("\n").slice(0, 1020) || "—",
+      value: added.map((x) => {
+        const sym = String(x?.ticker || "").toUpperCase();
+        const px = Number(x?.price);
+        return `• **${sym}**${Number.isFinite(px) ? ` @ $${px.toFixed(2)}` : ""}`;
+      }).join("\n").slice(0, 1020) || "—",
     });
   }
   if (opened.length) {
     fields.push({
       name: `🟢 New positions (${opened.length})`,
-      value: opened.map((x) => `• **${String(x?.ticker || "").toUpperCase()}**`).join("\n").slice(0, 1020) || "—",
+      value: opened.map((x) => {
+        const sym = String(x?.ticker || "").toUpperCase();
+        const px = Number(x?.price);
+        const val = Number(x?.value);
+        const bits = [`• **${sym}**`];
+        if (Number.isFinite(px)) bits.push(`@ $${px.toFixed(2)}`);
+        if (Number.isFinite(val)) bits.push(`· $${Math.round(val).toLocaleString()}`);
+        return bits.join(" ");
+      }).join("\n").slice(0, 1020) || "—",
     });
   }
   const _headline = [];
