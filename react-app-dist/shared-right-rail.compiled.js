@@ -12213,6 +12213,9 @@
           const optionsTraderDir = String(optionsTabData?.contract?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
           const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
+          const hasPositionConflict = !!v2PositionConflict && tradeIsOpen;
+          const showModelPlanPanel = hasPositionConflict;
+          const panelTitle = showModelPlanPanel ? "Model Plan" : tradeIsOpen ? "Position Plan" : "Trade Plan";
           const resolveTraderCallDir = raw => {
             const d = String(raw || "").toUpperCase();
             return d === "LONG" || d === "SHORT" ? d : "";
@@ -12226,6 +12229,9 @@
             return pcSL > px ? "SHORT" : "LONG";
           };
           const traderCallDir = (() => {
+            if (showModelPlanPanel) {
+              return resolveTraderCallDir(v2ModelPosture?.direction) || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+            }
             if (tradeIsOpen) {
               return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
             }
@@ -12234,7 +12240,7 @@
           if (!traderCallDir) {
             if (predictionContractLoading) {
               return React.createElement(Panel, {
-                title: "Trade Plan"
+                title: panelTitle
               }, React.createElement("p", {
                 style: {
                   margin: 0,
@@ -12249,6 +12255,10 @@
           const dir = traderCallDir;
           const isLong = dir === "LONG";
           const sl = (() => {
+            if (showModelPlanPanel) {
+              if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+              return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+            }
             if (tradeIsOpen) {
               const tSl = Number(trade?.sl);
               if (Number.isFinite(tSl) && tSl > 0) return tSl;
@@ -12256,9 +12266,21 @@
             if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
             return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
           })();
-          const entry = tradeIsOpen ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
+          const entry = tradeIsOpen && !showModelPlanPanel ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
           const tps = (() => {
             const list = [];
+            if (showModelPlanPanel && pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const tpPx = Number(tp?.price);
+                if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                list.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px: tpPx
+                });
+              });
+              return list;
+            }
             if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
               trade.tpArray.forEach((tp, i) => {
                 const tpPx = Number(tp?.price ?? tp);
@@ -12324,9 +12346,9 @@
           }
           above.sort((a, b) => a.px - b.px);
           below.sort((a, b) => b.px - a.px);
-          const tradeIsProposed = !tradeIsOpen;
-          const eyebrow = tradeIsProposed ? "PROPOSED" : "ACTIVE";
-          const eyebrowColor = tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
+          const tradeIsProposed = !tradeIsOpen || showModelPlanPanel;
+          const eyebrow = showModelPlanPanel ? "MODEL" : tradeIsProposed ? "PROPOSED" : "ACTIVE";
+          const eyebrowColor = showModelPlanPanel ? "var(--ds-dn)" : tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
           const labelOfTp = (label, desc) => `${label} · ${desc}`;
           const TpRow = ({
             row,
@@ -12413,10 +12435,10 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             },
-            title: tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"
+            title: showModelPlanPanel ? "Model reward-to-risk (conflicts with open position)" : tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"
           }, "R:R ", _rr.toFixed(2)) : null;
           return React.createElement(Panel, {
-            title: "Trade Plan",
+            title: panelTitle,
             action: React.createElement("span", {
               style: {
                 display: "flex",
@@ -12428,8 +12450,11 @@
               }
             }, React.createElement("span", {
               className: `ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
-              title: "Trader call"
-            }, dir), _rrChip, React.createElement("span", {
+              title: showModelPlanPanel ? "Model call (conflicts with open position)" : "Trader call"
+            }, dir), _rrChip, showModelPlanPanel && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--dn",
+              title: `Open ${v2PositionConflict?.positionDir || ""} position vs model ${v2PositionConflict?.modelLabel || dir}`
+            }, "CONFLICT"), React.createElement("span", {
               style: {
                 color: eyebrowColor,
                 fontWeight: 700
@@ -12546,7 +12571,7 @@
               lineHeight: 1.5,
               fontStyle: "italic"
             }
-          }, tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
+          }, showModelPlanPanel ? `Model ${dir} plan while holding an open ${String(v2PositionConflict?.positionDir || "").toUpperCase()} position — rare conflict. Position SL/TP are in Current Open Position above. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE." : "Targets sit ABOVE price; stop sits BELOW."}` : tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} position plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
         })(), (() => {
           const _t = effectiveTraderTrade;
           if (!_t) return null;
@@ -12690,7 +12715,7 @@
               color: "var(--ds-text)",
               fontWeight: 600
             }
-          }, Math.round(_rank)))), renderCioPositionBlock());
+          }, Math.round(_rank)))));
         })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
@@ -21357,4 +21382,4 @@
   };
 })();
 
-// cache-bust:1782239283062:285719618
+// cache-bust:1782242208088:756907999
