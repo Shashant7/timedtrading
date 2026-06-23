@@ -270,8 +270,10 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     if (!isOpen && closedByTicker?.get) {
       const closed = closedByTicker.get(sym) || t?._closedTrade || null;
       const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
-      const newOpportunity = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
-      if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) {
+      const exitAgeMs = exitMs > 0 ? Date.now() - exitMs : Infinity;
+      const forceRecentExit = exitMs > 0 && exitAgeMs < 6 * 60 * 60 * 1000;
+      const newOpportunity = !forceRecentExit && ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
+      if (exitMs > 0 && exitAgeMs < 24 * 60 * 60 * 1000 && !newOpportunity) {
         stage = "exit";
       }
     }
@@ -646,23 +648,6 @@ function ATCard({
       }
     }, tick.label))));
   })();
-  const SG = window.TimedSignalGrammar;
-  const laneMeta = SG?.traderLaneMeta ? SG.traderLaneMeta(stage) : null;
-  const signalChipEls = (() => {
-    if (!SG?.renderSignalChips) return [];
-    const execState = stage === "exiting" ? "recommended" : stage === "exit" ? "done" : "watching";
-    const action = stage === "trim" ? "trim" : stage === "exiting" || stage === "exit" ? "exit" : stage === "defend" ? "defend" : stage === "just_entered" || stage === "enter_now" ? "enter" : stage === "hold" || stage === "active" ? "hold" : "watch";
-    return SG.renderSignalChips({
-      engine: "trader",
-      mode: laneMeta?.band === "doing" ? "doing" : "watching",
-      execState: laneMeta?.band === "doing" ? execState : "watching",
-      action
-    }).map((chip, i) => h("span", {
-      key: `sg-${i}`,
-      className: `tt-signal-chip ${chip.kind === "engine" ? "tt-signal-chip--engine-trader" : chip.kind === "mode" ? `tt-signal-chip--mode-${chip.text.toLowerCase()}` : "tt-signal-chip--exec"}`,
-      title: chip.text
-    }, chip.text));
-  })();
   return LC.create({
     sym,
     button: {
@@ -671,7 +656,7 @@ function ATCard({
       title: `Open ${sym} in Active Trader detail`
     },
     isTTSel,
-    chipRow: [...signalChipEls, h("span", {
+    chipRow: [h("span", {
       className: `ds-chip ds-chip--sm ${biasChipCls}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
@@ -700,26 +685,8 @@ function ATCard({
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: `Score: ${Math.round(score)}`
-    }, `S${Math.round(score)}`), conv != null && h("span", {
-      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Conviction tier · focus score"
-    }, `${tier || "C"}·${Math.round(conv)}`), rr != null && h("span", {
-      className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Risk:Reward"
-    }, `${rr.toFixed(1)}R`), sqChipInfo && h("span", {
-      className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`
-    }, sqChipInfo.label)],
+      title: `Score: ${Math.round(score)}${conv != null ? ` · ${tier || "C"}·${Math.round(conv)} conv` : ""}${rr != null ? ` · ${rr.toFixed(1)}R` : ""}`
+    }, `S${Math.round(score)}`)],
     isSaved,
     onToggleSaved
   });
@@ -1276,7 +1243,18 @@ function ActiveTraderApp() {
           position_direction: trade.direction || t.position_direction
         } : {})
       };
-      return window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
+      const out = window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
+      if ((out.kanban_stage == null || out.kanban_stage === undefined) && closedByTicker?.has?.(sym)) {
+        const closed = closedByTicker.get(sym);
+        return {
+          ...out,
+          kanban_stage: "exit",
+          _closedTrade: closed,
+          _stickyExit: true,
+          price: out.price || Number(closed?.exit_price ?? closed?.exitPrice) || null
+        };
+      }
+      return out;
     });
     const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
     const injected = [];
@@ -1312,6 +1290,7 @@ function ActiveTraderApp() {
         _stickyExit: true,
         pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? null
       });
+      known.add(sym);
     });
     return injected.length ? mapped.concat(injected) : mapped;
   }, [data, tradeByTicker, closedByTicker]);
@@ -1772,6 +1751,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782229857059:898238777
+// cache-bust:1782235608792:943770061
 
-// cache-bust:1782229857059:898238777
+// cache-bust:1782235608792:943770061

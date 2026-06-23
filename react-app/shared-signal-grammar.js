@@ -43,6 +43,8 @@
     research_low: { band: "watching", label: "Low Conviction", action: "WAIT" },
     research_avoid: { band: "watching", label: "Avoid", action: "SKIP" },
     accumulate: { band: "doing", label: "Accumulating", action: "BUY" },
+    accumulate_queued: { band: "doing", label: "Queued", action: "NEXT REBAL" },
+    accumulate_entered: { band: "doing", label: "Entered", action: "HELD" },
     core_hold: { band: "doing", label: "Core Hold", action: "HOLD" },
     watch: { band: "doing", label: "Hold & Watch", action: "HOLD" },
     reduce: { band: "doing", label: "Reducing", action: "TRIM" },
