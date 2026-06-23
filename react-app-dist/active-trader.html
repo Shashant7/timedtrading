@@ -10,33 +10,32 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="auth-gate.js?v=20260601-nav-inject"></script>
-    <script src="tt-fetch-cache.js?v=20260517a"></script>
-    <script src="tt-live-data.js?v=20260618a"></script>
-    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
-    <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
-    <script src="tt-global-search.js?v=20260610-verda3" defer></script>
-    <script src="tt-rail-bridge.js?v=20260528b" defer></script>
-    <script src="tt-activity-strip.js?v=20260623d" defer></script>
-    <script src="shared-price-utils.js?v=20260615a"></script>
-    <script src="shared-signal-grammar.js?v=20260623d"></script>
-    <script src="shared-lane-card.js?v=20260616a"></script>
-    <script src="ds-components.js?v=20260501a"></script>
-    <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1782247880873" />
+    <script defer src="/vendor/react.production.min.js?v=1782247880873"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1782247880873"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1782247880873" />
+<script defer src="auth-gate.js?v=1782247880873"></script>
+    <script defer src="tt-fetch-cache.js?v=1782247880873"></script>
+    <script defer src="tt-live-data.js?v=1782247880873"></script>
+    <script src="tt-bottom-nav.js?v=1782247880873" defer></script>
+    <script src="tt-nav-extras.js?v=1782247880873" defer></script>
+    <script src="tt-global-search.js?v=1782247880873" defer></script>
+    <script src="tt-rail-bridge.js?v=1782247880873" defer></script>
+    <script src="tt-activity-strip.js?v=1782247880873" defer></script>
+    <script defer src="shared-price-utils.js?v=1782247880873"></script>
+    <script defer src="shared-signal-grammar.js?v=1782247880873"></script>
+    <script defer src="shared-lane-card.js?v=1782247880873"></script>
+    <script defer src="ds-components.js?v=1782247880873"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1782247880873"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-rail-helpers.js?v=20260610-verda3"></script>
-    <script src="shared-right-rail.compiled.js?v=20260623f"></script>
-    <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260610-verda3"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1782247880873"></script>
+    <script defer src="shared-rail-helpers.js?v=1782247880873"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1782247880873"></script>
+    <script defer src="ticker-spider-chart.js?v=1782247880873"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1782247880873"></script>
     <style>
       :root {
         /* 2026-06-10 — VERDA MIGRATION (matches today.html exactly).
@@ -618,7 +617,7 @@
   </head>
   <body class="vf-page">
     <div id="global-nav-root"></div>
-    <script src="shared-nav.js?v=20260611a"></script>
+    <script defer src="shared-nav.js?v=1782247880873"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. See same block in
          today.html — auto-mount via querySelector("nav.topnav") was
@@ -631,10 +630,12 @@
       </main>
     </div>
 
-    <script defer src="active-trader.compiled.js?v=1782246098468"></script>
+    <script defer src="active-trader.compiled.js?v=1782247880873"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
     </footer>
   </body>
 </html>
+
+<!-- cache-bust:1782247880873:765650161 -->
