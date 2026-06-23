@@ -97,6 +97,22 @@
     return ["BUY", "DCA_BUY", "SELL", "TRIM", "ADD"].includes(lastType);
   }
 
+  // 2026-06-23 — "entered today" = position opened during the current ET
+  // session. Surfaces a TODAY chip so a same-day entry is obvious at a glance
+  // (operator: "add a chip for anything entered on the present day").
+  function _etDateKey(ts) {
+    if (!Number.isFinite(ts) || ts <= 0) return null;
+    try {
+      return new Date(ts).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+    } catch (_) { return null; }
+  }
+  function isEnteredToday(t) {
+    const firstTs = Number(t?.position?.first_entry_ts) || 0;
+    if (firstTs <= 0) return false;
+    const today = _etDateKey(Date.now());
+    return !!today && _etDateKey(firstTs) === today;
+  }
+
   function ScoreBar({ score, max }) {
     const pct = Math.max(0, Math.min(100, ((score || 0) / (max || 100)) * 100));
     return React.createElement("div", { className: "w-full h-[3px] bg-white/[0.04] overflow-hidden", style: { borderRadius: "1px" } },
@@ -405,7 +421,7 @@
         return {
           label: "QUEUED",
           color: "#94a3b8",
-          title: "Flagged accumulate — pending the next rebalance. The model has not entered yet.",
+          title: "Execution-ready accumulate — the model has not entered yet. It opens on the next rebalance if still qualified. New entries are tranched (max 3 new positions per day), so a queued name may wait for the next session.",
         };
       }
       if (displayStage === "accumulate_entered") {
@@ -442,6 +458,18 @@
           },
           title: cardStatusChip.title,
         }, cardStatusChip.label),
+        isOwned && isEnteredToday(t) && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            color: "rgb(134,239,172)",
+            background: "rgba(34,197,94,0.16)",
+            borderColor: "rgba(34,197,94,0.5)",
+            fontWeight: 800,
+            letterSpacing: "0.05em",
+          },
+          title: "The model opened this position today.",
+        }, "TODAY"),
         t.rs?.rsNewHigh3m && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           style: { fontFamily: "var(--tt-font-mono)" },
