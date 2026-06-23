@@ -77,7 +77,7 @@
       if (typeof document === "undefined") return;
       if (document.querySelector('script[src*="shared-signal-grammar.js"]')) return;
       const s = document.createElement("script");
-      s.src = "shared-signal-grammar.js?v=20260623a";
+      s.src = "shared-signal-grammar.js?v=20260623c";
       s.async = true;
       s.dataset.injectedBy = "auth-gate-bootstrap";
       (document.head || document.documentElement).appendChild(s);

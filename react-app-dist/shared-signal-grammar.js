@@ -69,6 +69,16 @@
   }
 
   function classifyActivityEvent(ev) {
+    var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "ADD", evType: "ADD", scope: "investor", cls: "ev-entry ev-doing" };
+    }
+    if (invT === "position_trim") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "TRIM", evType: "TRIM", scope: "investor", cls: "ev-trim ev-doing" };
+    }
+    if (invT === "position_close") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "EXIT", evType: "EXIT", scope: "investor", cls: "ev-exit ev-doing" };
+    }
     var t = String(ev && (ev.type || ev.event) || "").toUpperCase();
     var modeRaw = String(ev && (ev.mode || ev.alert_class) || "").toLowerCase();
     var engine = String(ev && ev.engine || "").toLowerCase() === "investor"
@@ -129,4 +139,4 @@
   };
 })();
 
-// cache-bust:1782238642836:598381627
+// cache-bust:1782239283062:285719618

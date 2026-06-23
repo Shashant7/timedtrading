@@ -259,6 +259,35 @@
     return "trader";
   }
 
+  function classifyInvestorExecution(ev) {
+    const invT = String(ev?.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") {
+      return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (invT === "position_trim") {
+      return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (invT === "position_close") {
+      return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
+    }
+    // Belt-and-braces: D1 lots always set action verb — parse when alert_type
+    // is missing but mode/engine marks this as an executed investor lot.
+    const modeRaw = String(ev?.mode || ev?.alert_class || ev?.engine || "").toLowerCase();
+    const isInvLane = modeRaw === "investor" || modeRaw === "doing" || !!ev?.lot_id || ev?.source === "d1_lots";
+    if (!isInvLane) return null;
+    const act = String(ev?.action || "").toUpperCase();
+    if (act.includes("EXIT")) {
+      return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (act.includes("TRIM")) {
+      return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (act.includes("ADD") && (Number(ev?.shares) > 0 || Number(ev?.qty) > 0)) {
+      return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
+    }
+    return null;
+  }
+
   function resolveEvType(ev, c) {
     if (c && c.evType) return c.evType;
     const SG = window.TimedSignalGrammar;
@@ -274,17 +303,24 @@
   }
 
   function classifyEvent(ev) {
+    const invExec = classifyInvestorExecution(ev);
+    if (invExec) return invExec;
     const SG = window.TimedSignalGrammar;
     if (SG && typeof SG.classifyActivityEvent === "function") {
       const c = SG.classifyActivityEvent(ev);
       const evType = resolveEvType(ev, c);
+      const invOverride = classifyInvestorExecution(ev);
+      if (invOverride) return invOverride;
+      const label = (c.label && c.label !== "UPDATE" && c.label !== "WATCH")
+        ? c.label
+        : (evType === "ADD" || evType === "TRIM" || evType === "EXIT" ? evType : (c.label || evType || "UPDATE"));
       return {
         cls: c.cls || "",
-        label: c.label || evType || "UPDATE",
+        label,
         evType,
         scope: c.scope || scopeOf(ev, String(ev?.type || "").toUpperCase()),
-        mode: c.mode || "doing",
-        execState: c.execState || "done",
+        mode: (c.mode === "doing" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "doing" : (c.mode || "doing"),
+        execState: (c.execState === "done" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "done" : (c.execState || "done"),
       };
     }
     const t = String(ev?.type || ev?.event || "").toUpperCase();
@@ -296,16 +332,16 @@
     if (t === "INVESTOR_SIGNAL") {
       const invT = String(ev?.investor_alert_type || "").toLowerCase();
       if (invT === "position_close") {
-        return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope: "investor" };
+        return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
       }
       if (invT === "position_trim") {
-        return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope: "investor" };
+        return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
       }
       if (invT === "position_add") {
-        return { cls: "ev-entry", label: "ADD", evType: "ADD", scope: "investor" };
+        return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
       }
       const verb = String(ev?.action || "INVESTOR").toUpperCase().replace(/^MODEL\s*·\s*/, "");
-      return { cls: "ev-entry", label: verb || "INVESTOR", evType: "INVESTOR_SIGNAL", scope: "investor" };
+      return { cls: "ev-entry", label: verb || "INVESTOR", evType: "INVESTOR_SIGNAL", scope: "investor", mode: "watching", execState: "watching" };
     }
     // D5 (2026-06-11) — resolution-time grading events belong on /alerts.html only.
     if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
@@ -649,6 +685,15 @@
     ensureMobileSpacer(host);
     refresh(host);
     window.addEventListener("tt-auth-bootstrap-updated", () => refresh(host));
+    // Re-render once signal grammar loads (auth-gate injects it async).
+    let _grammarPoll = 0;
+    const grammarPoll = setInterval(() => {
+      if (window.TimedSignalGrammar && host) {
+        clearInterval(grammarPoll);
+        refresh(host);
+      }
+      if (++_grammarPoll > 60) clearInterval(grammarPoll);
+    }, 100);
     setInterval(() => { if (document.visibilityState !== "hidden") refresh(host); }, 60000);
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(host); });
     return host;
