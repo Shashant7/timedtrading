@@ -240,18 +240,25 @@ export function classifyActivityEvent(ev) {
   else if (t.includes("TRIM") || t === "TP_HIT_TRIM") { action = "trim"; label = "TRIM"; cls = "ev-trim"; }
   else if (t.includes("EXIT") || t === "SL_HIT") { action = "exit"; label = "EXIT"; cls = "ev-exit"; }
 
+  let invExecDone = false;
   if (t === "INVESTOR_SIGNAL") {
     const invT = String(ev?.investor_alert_type || "").toLowerCase();
-    if (invT === "position_add") { action = "add"; label = "ADD"; cls = "ev-entry"; }
-    else if (invT === "position_trim") { action = "trim"; label = "TRIM"; cls = "ev-trim"; }
-    else if (invT === "position_close") { action = "exit"; label = "EXIT"; cls = "ev-exit"; }
-    else { action = "accumulate"; label = "WATCH"; cls = "ev-watching"; }
+    if (invT === "position_add") {
+      action = "add"; label = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true;
+    } else if (invT === "position_trim") {
+      action = "trim"; label = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true;
+    } else if (invT === "position_close") {
+      action = "exit"; label = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true;
+    } else {
+      action = "accumulate"; label = "WATCH"; cls = "ev-watching";
+    }
   }
 
+  const mode = invExecDone || isDoing ? "doing" : "watching";
   return {
     engine,
-    mode: isDoing ? "doing" : "watching",
-    execState: isDoing ? "done" : "watching",
+    mode,
+    execState: invExecDone || isDoing ? "done" : "watching",
     action,
     evType: t,
     label,

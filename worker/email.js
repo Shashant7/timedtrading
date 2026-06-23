@@ -1863,18 +1863,17 @@ export async function sendInvestorAlertEmails(env, alert) {
 
      deriveInvestorAlertAction lives in worker/alerts.js so the Discord
      embed and email stay in lockstep. */
-  const { deriveInvestorAlertAction } = await import("./alerts.js");
+  const { deriveInvestorAlertAction, deriveInvestorAccumulationAlertCopy } = await import("./alerts.js");
   const action = deriveInvestorAlertAction(type, data);
+  const _accumCopy = type === "accumulation_zone"
+    ? deriveInvestorAccumulationAlertCopy(data, action)
+    : null;
 
   const TYPE_META = {
-    accumulation_zone: {
-      subjectBase: data.zoneType === "momentum_runner"
-        ? `${data.ticker} — Momentum-Runner Zone Confirmed`
-        : `${data.ticker} — Entered Accumulation Zone`,
-      headline: data.zoneType === "momentum_runner" ? "Momentum-Runner Zone Confirmed" : "Entered Accumulation Zone",
-      lede: data.zoneType === "momentum_runner"
-        ? `<strong>${data.ticker}</strong> is in a confirmed momentum-runner zone — trend is healthy and intact, signals support adding on minor pullbacks.`
-        : `<strong>${data.ticker}</strong> entered an accumulation zone in the TT Investor model — pullback context with monthly trend intact.`,
+    accumulation_zone: _accumCopy || {
+      subjectBase: `${data.ticker} — Investor Zone Signal`,
+      headline: "Investor Zone Signal",
+      lede: `<strong>${data.ticker}</strong> logged an investor zone signal.`,
     },
     rs_breakout: {
       subjectBase: `${data.ticker} — RS Breakout (${data.period || "3-month"})`,
@@ -2353,7 +2352,10 @@ export function buildInvestorRebalanceDiscordEmbed(summary) {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(String(t?.ticker || "").toUpperCase());
     }
-    const overview = [...groups.entries()].map(([r, syms]) => `**${r}** (${syms.length}): ${syms.join(", ")}`).join("\n").slice(0, 1020);
+    const overview = [...groups.entries()].map(([r, syms]) => {
+      const bullets = syms.map((s) => `• **${s}**`).join("\n");
+      return `**${r}** (${syms.length})\n${bullets}`;
+    }).join("\n\n").slice(0, 1020);
     fields.push({ name: `🔻 Trimmed / Reduced (${trims.length})`, value: overview || "—" });
     // Per-ticker AI CIO guidance (Discord embed = max 25 fields / ~6000 chars,
     // so cap and point overflow to the email digest which carries them all).
@@ -2367,8 +2369,18 @@ export function buildInvestorRebalanceDiscordEmbed(summary) {
       fields.push({ name: "…", value: `+${withCio.length - CAP} more with AI CIO notes — see the email digest.` });
     }
   }
-  if (added.length) fields.push({ name: `➕ Added (${added.length})`, value: added.map((x) => String(x?.ticker || "").toUpperCase()).join(", ").slice(0, 1020) || "—" });
-  if (opened.length) fields.push({ name: `🟢 New positions (${opened.length})`, value: opened.map((x) => String(x?.ticker || "").toUpperCase()).join(", ").slice(0, 1020) || "—" });
+  if (added.length) {
+    fields.push({
+      name: `➕ Added (${added.length})`,
+      value: added.map((x) => `• **${String(x?.ticker || "").toUpperCase()}**`).join("\n").slice(0, 1020) || "—",
+    });
+  }
+  if (opened.length) {
+    fields.push({
+      name: `🟢 New positions (${opened.length})`,
+      value: opened.map((x) => `• **${String(x?.ticker || "").toUpperCase()}**`).join("\n").slice(0, 1020) || "—",
+    });
+  }
   return {
     title: "Investor Rebalance — portfolio cycle",
     description: "Long-horizon portfolio actions, grouped by reason — with AI CIO guidance per name. One summary per cycle.",

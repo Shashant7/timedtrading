@@ -54,6 +54,29 @@ describe("classifyActivityEvent", () => {
     expect(c.mode).toBe("doing");
     expect(c.execState).toBe("done");
   });
+
+  it("classifies investor rebalance add as done doing", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "CRDO",
+      investor_alert_type: "position_add",
+      shares: 25.1,
+      price: 279.05,
+    });
+    expect(c.label).toBe("ADD");
+    expect(c.mode).toBe("doing");
+    expect(c.execState).toBe("done");
+  });
+
+  it("classifies investor zone alert as watching", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SOFI",
+      investor_alert_type: "accumulation_zone",
+    });
+    expect(c.label).toBe("WATCH");
+    expect(c.mode).toBe("watching");
+  });
 });
 
 describe("lane meta bands", () => {
