@@ -75,7 +75,7 @@ export function liveDayChgFromPriceFeedRow(row, marketOpen = true) {
 function buildPremarketGapContext(pf, marketOpen) {
   if (marketOpen || !pf || typeof pf !== "object") return null;
   const lines = [];
-  for (const sym of ["SPY", "QQQ", "IWM", "ES1!", "NQ1!", "DIA"]) {
+  for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
     const row = pf[sym];
     const pc = Number(row?.pc);
     const spot = liveSpotFromPriceFeedRow(row, false);
@@ -148,7 +148,7 @@ export async function d1EnsureBriefSchema(env) {
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN iwm_score REAL`).run(); } catch {}
     try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN evaluated_at INTEGER`).run(); } catch {}
     // 2026-06-05 — Extend grading to ES + DIA (5-index Day-Trade Predictions).
-    // ES levels come from esTechnical's game plan; DIA from diaScenario
+    // SPY levels come from spyTechnical's game plan; DIA from diaScenario
     // (canonical buildTickerScenario — same source as /timed/day-trade-predictions).
     for (const _k of ["es", "dia"]) {
       try { await db.prepare(`ALTER TABLE daily_briefs ADD COLUMN ${_k}_bull_trigger REAL`).run(); } catch {}
@@ -259,8 +259,8 @@ export async function persistDailyMarketSnapshot(env, data, priceFeed, esPredict
   const num = (sym, field) => Number(pf[sym]?.[field]) || 0;
 
   const vixClose = num("VIX", "p") || Number(data.market?.VIX?.price) || 0;
-  const oilPct = num("CL1!", "dp");
-  const goldPct = num("GC1!", "dp");
+  const oilPct = num("USO", "dp") || num("XLE", "dp");
+  const goldPct = num("GLD", "dp") || num("SLV", "dp");
   const tltPct = num("TLT", "dp");
   const spyPct = num("SPY", "dp") || Number(data.market?.SPY?.day_change_pct) || 0;
   const qqqPct = num("QQQ", "dp") || Number(data.market?.QQQ?.day_change_pct) || 0;
@@ -1221,7 +1221,7 @@ function getWeekRange(dateStr) {
 // Market Data Aggregation
 // ═══════════════════════════════════════════════════════════════════════
 
-const MARKET_PULSE_SYMS = ["ES1!", "NQ1!", "SPY", "QQQ", "IWM", "VX1!"];
+const MARKET_PULSE_SYMS = ["SPY", "QQQ", "IWM", "VIX"];
 const SECTOR_ETFS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 
 /**
@@ -1256,20 +1256,14 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // session state so it reports the pre-market gap.
   const _briefSessionMktOpen = String(type || "").toLowerCase() === "evening" ? true : mktOpen;
 
-  // Parallel data fetching
+  // Parallel data fetching (ETF indices only — no continuous futures)
   let [
-    esData, nqData, vixData, spyData, qqqData, iwmData,
+    vixData, spyData, qqqData, iwmData,
     sectorDataArr,
     tradesRaw,
     earningsWeek,
     econWeekRaw,
     morningBrief,
-    esCandles,
-    esCandlesH1,
-    esCandlesM5,
-    nqCandles,
-    nqCandlesH1,
-    nqCandlesM5,
     spyCandles,
     spyCandlesH1,
     spyCandlesM5,
@@ -1283,70 +1277,29 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     finnhubTopHeadlines,
     ffToday,
     ffYesterday,
-    esCandlesH4,
-    nqCandlesH4,
     spyCandlesH4,
     qqqCandlesH4,
     iwmCandlesH4,
-    esCandlesW,
     spyCandlesW,
     qqqCandlesW,
     iwmCandlesW,
-    nqCandlesW,
     priceFeedRaw,
   ] = await Promise.all([
-    // Market pulse tickers
-    kvGetJSON(KV, "timed:latest:ES1!").catch(() => null),
-    kvGetJSON(KV, "timed:latest:NQ1!").catch(() => null),
     kvGetJSON(KV, "timed:latest:VIX").catch(() => null),
     kvGetJSON(KV, "timed:latest:SPY").catch(() => null),
     kvGetJSON(KV, "timed:latest:QQQ").catch(() => null),
     kvGetJSON(KV, "timed:latest:IWM").catch(() => null),
-    // Sector ETFs
     Promise.all(SECTOR_ETFS.map(async (sym) => {
       const d = await kvGetJSON(KV, `timed:latest:${sym}`).catch(() => null);
       return { sym, data: d };
     })),
-    // Open trades (Active Trader)
     kvGetJSON(KV, "timed:trades:all").catch(() => []),
-    // Finnhub earnings (this week)
     fetchFinnhubEarnings(env, weekStart, weekEnd),
-    // Finnhub economic calendar (this week)
     fetchFinnhubEconomicCalendar(env, weekStart, weekEnd),
-    // Prior brief — evening reflects on the same-day morning; the
-    // morning builds on YESTERDAY'S EVENING (2026-06-10: continuity +
-    // anti-repetition — the operator flagged briefs reading "generic
-    // and repetitive"; the model now sees what it told readers last
-    // time and is instructed to advance the story, not re-tell it).
     db
       ? db.prepare("SELECT es_prediction, content FROM daily_briefs WHERE id = ?1")
           .bind(type === "evening" ? `${today}-morning` : `${yesterday}-evening`).first().catch(() => null)
       : Promise.resolve(null),
-    // ES daily candles (last 20 days)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "ES1!", "D", 20).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // ES hourly candles (last 50)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "ES1!", "60", 50).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // ES 5-min candles (last 100 for overnight/premarket range)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "ES1!", "5", 100).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // NQ daily candles (last 20 days)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "NQ1!", "D", 20).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // NQ hourly candles (last 50)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "NQ1!", "60", 50).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // NQ 5-min candles (last 100)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "NQ1!", "5", 100).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // SPY candles (daily, hourly, 5m) — day trader levels alongside ES
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "SPY", "D", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
@@ -1356,7 +1309,6 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "SPY", "5", 100).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
-    // QQQ candles (daily, hourly, 5m) — day trader levels alongside NQ
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "QQQ", "D", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
@@ -1366,7 +1318,6 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "QQQ", "5", 100).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
-    // IWM candles (daily, hourly, 5m) — Russell 2000 Day Trader levels
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "IWM", "D", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
@@ -1376,24 +1327,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "IWM", "5", 100).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
-    // Finnhub economic/macro news (today + yesterday)
     fetchFinnhubMarketNews(env, yesterday, today),
-    // 2026-05-22 — Top general headlines (broad market stories, no
-    // econ keyword filter). Renders under "Top Headlines" in the
-    // brief infographic + email; also injected into the prompt as
-    // editorial context.
     fetchFinnhubTopHeadlines(env, Math.floor(Date.now() / 1000) - 18 * 3600),
-    // ForexFactory economic calendar (today)
     fetchForexFactoryCalendar(env, today),
-    // ForexFactory economic calendar (yesterday)
     fetchForexFactoryCalendar(env, yesterday),
-    // 4H candles for SMC/ICT analysis (BSL, SSL, FVGs)
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "ES1!", "240", 40).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "NQ1!", "240", 40).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "SPY", "240", 40).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
@@ -1402,15 +1339,6 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       : Promise.resolve({ candles: [] }),
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "IWM", "240", 40).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // Weekly candles for higher-timeframe SMC levels + Saty Multi-Day ATR.
-    // P0.7.135 (2026-05-12) — added QQQ/IWM/NQ weekly fetches so the
-    // Saty Multi-Day Mode anchor (prior weekly close) and weekly ATR(14)
-    // can be computed for every index card. Prior to this, only ES + SPY
-    // had weekly bars and QQQ/IWM/NQ silently fell back to the
-    // dailyATR·√5 path, which was acceptable but loses precision.
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "ES1!", "W", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "SPY", "W", 20).catch(() => ({ candles: [] }))
@@ -1421,18 +1349,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     db && opts.d1GetCandles
       ? opts.d1GetCandles(env, "IWM", "W", 20).catch(() => ({ candles: [] }))
       : Promise.resolve({ candles: [] }),
-    db && opts.d1GetCandles
-      ? opts.d1GetCandles(env, "NQ1!", "W", 20).catch(() => ({ candles: [] }))
-      : Promise.resolve({ candles: [] }),
-    // Reliable price feed data (TwelveData via cron) for cross-referencing
     kvGetJSON(KV, "timed:prices").catch(() => null),
   ]);
 
-  // Cross-reference: use timed:prices (cron-updated) to validate/supplement ES/NQ data
+  // Cross-reference: use timed:prices (cron-updated) to validate/supplement index ETF data
   const _pf = (priceFeedRaw?.prices || priceFeedRaw) || {};
 
   // Validate market data — if scoring payload has stale or absurd data, fix using price feed.
-  // ES≠SPY and NQ≠QQQ in price scale, but daily change % IS comparable.
   function validateMarketData(data, ticker, proxyTicker, pf, sameScale, marketOpen) {
     if (!data) return data;
     const price = Number(data.price) || 0;
@@ -1488,30 +1411,20 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       }
 
       if (pfData === pfExact || sameScale) {
-        // SPY→SPY, QQQ→QQQ: price scales match, copy live/pre-market spot.
         if (Number.isFinite(liveSpot) && liveSpot > 0) {
           data.price = liveSpot;
           data.day_change = proxyChg;
         }
-      } else if (pfData === pfExact && Number.isFinite(liveSpot) && liveSpot > 0) {
-        // ES1!/NQ1!: own scale but exact futures row — use live/pre-market spot.
+      } else if (price > 0) {
+        data.day_change = +(price * proxyPct / 100).toFixed(2);
+      } else if (Number.isFinite(liveSpot) && liveSpot > 0) {
         data.price = liveSpot;
         data.day_change = proxyChg;
-      } else {
-        // ES→SPY proxy fallback: keep original price if >0, estimate dollar change from %
-        if (price > 0) {
-          data.day_change = +(price * proxyPct / 100).toFixed(2);
-        } else if (Number.isFinite(liveSpot) && liveSpot > 0) {
-          data.price = liveSpot;
-          data.day_change = proxyChg;
-        }
       }
     }
     return data;
   }
 
-  esData  = validateMarketData(esData,  "ES1!", "SPY", _pf, false, _briefSessionMktOpen);
-  nqData  = validateMarketData(nqData,  "NQ1!", "QQQ", _pf, false, _briefSessionMktOpen);
   spyData = validateMarketData(spyData, "SPY",  "SPY", _pf, true, _briefSessionMktOpen);
   qqqData = validateMarketData(qqqData, "QQQ",  "QQQ", _pf, true, _briefSessionMktOpen);
   // 2026-05-27 (PR #320) — IWM was MISSING from the validate list.
@@ -1798,18 +1711,6 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     }
   }
 
-  const esTechnical = summarizeTechnical(
-    esCandles?.candles || [], esCandlesH1?.candles || [],
-    esCandlesM5?.candles || [], esData, esCandlesH4?.candles || [],
-    esCandlesW?.candles || []
-  );
-
-  const nqTechnical = summarizeTechnical(
-    nqCandles?.candles || [], nqCandlesH1?.candles || [],
-    nqCandlesM5?.candles || [], nqData, nqCandlesH4?.candles || [],
-    nqCandlesW?.candles || []
-  );
-
   const spyTechnical = summarizeTechnical(
     spyCandles?.candles || [], spyCandlesH1?.candles || [],
     spyCandlesM5?.candles || [], spyData, spyCandlesH4?.candles || [],
@@ -1830,7 +1731,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
   // 2026-06-05 — DIA (Dow ETF) added as the 5th day-trade index so it gets a
   // game plan + post-close grade. Fetched separately (daily candles + latest)
-  // to avoid threading the large parallel block; ES already has esTechnical.
+  // Fetched separately (daily candles + latest) to avoid threading the large parallel block.
   let diaData = null, diaCandles = { candles: [] }, diaCandlesM5 = { candles: [] };
   try { diaData = await kvGetJSON(KV, "timed:latest:DIA").catch(() => null); } catch (_) {}
   try {
@@ -1885,10 +1786,6 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     tf_tech: d.tf_tech || null,
   } : null;
 
-  const extractedEs = extract(esData);
-  const esSessionClose = type === "evening"
-    ? pickCanonicalSessionClose(today, esCandles?.candles || [], esCandlesM5?.candles || [], "ES1!")
-    : { price: null, source: null };
   const spySessionClose = type === "evening"
     ? pickCanonicalSessionClose(today, spyCandles?.candles || [], spyCandlesM5?.candles || [], "SPY")
     : { price: null, source: null };
@@ -1905,21 +1802,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       marketOpen: mktOpen,
     },
     market: {
-      ES: extractedEs ? {
-        ...extractedEs,
-        sessionClose: esSessionClose.price,
-        sessionCloseSource: esSessionClose.source,
-      } : null,
-      NQ: extract(nqData),
       VIX: extract(vixData),
-      SPY: { ...extract(spyData), sessionClose: spySessionClose.price },
+      SPY: { ...extract(spyData), sessionClose: spySessionClose.price, sessionCloseSource: spySessionClose.source },
       QQQ: extract(qqqData),
       IWM: extract(iwmData),
       DIA: extract(diaData),
     },
-    esTechnical,
     diaTechnical,
-    nqTechnical,
     spyTechnical,
     qqqTechnical,
     iwmTechnical,
@@ -2013,7 +1902,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     // single-name movers a reader scans for.
     ttUniverseMovers: (() => {
       try {
-        const skip = new Set(["SPY","QQQ","DIA","IWM","VIX","VX1!","ES1!","NQ1!","CL1!","GC1!","SI1!","XLE","XLK","XLF","XLU","XLP","XLY","XLI","XLV","XLB","XLRE","XLC","GLD","TLT","SLV","USO"]);
+        const skip = new Set(["SPY","QQQ","DIA","IWM","VIX","XLE","XLK","XLF","XLU","XLP","XLY","XLI","XLV","XLB","XLRE","XLC","GLD","TLT","SLV","USO"]);
         const movers = [];
         for (const [ticker, d] of Object.entries(_pf || {})) {
           if (skip.has(ticker) || !d || typeof d !== "object") continue;
@@ -2042,13 +1931,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     indexQuartetSummary: (() => {
       try {
         const md = {
-          ES: _pf?.["ES1!"], NQ: _pf?.["NQ1!"],
-          YM: _pf?.["YM1!"], RTY: _pf?.["RTY1!"],
           SPY: _pf?.SPY, QQQ: _pf?.QQQ, DIA: _pf?.DIA, IWM: _pf?.IWM,
-          VIX: _pf?.["VX1!"] || _pf?.VIX,
+          VIX: _pf?.VIX,
         };
-        // Map { p, dp } → { price, dayChangePct, prev_close } shape the
-        // futures-pairs module expects.
         const norm = {};
         for (const k of Object.keys(md)) {
           const v = md[k];
@@ -2061,10 +1946,6 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
             open: Number(v.op) || null,
           };
         }
-        if (!norm.ES?.price && norm.SPY?.price) norm.ES = norm.SPY;
-        if (!norm.NQ?.price && norm.QQQ?.price) norm.NQ = norm.QQQ;
-        if (!norm.YM?.price && norm.DIA?.price) norm.YM = norm.DIA;
-        if (!norm.RTY?.price && norm.IWM?.price) norm.RTY = norm.IWM;
         const state = computeFuturesPairsState(norm);
         return state.ok ? summarizeFuturesPairs(state) : null;
       } catch (_) { return null; }
@@ -2085,7 +1966,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
 
 function buildPriceFeedCrossRef(pf, marketOpen = true) {
   if (!pf || typeof pf !== "object") return "Price feed unavailable.";
-  const tickers = ["SPY", "RSP", "QQQ", "VX1!", "ES1!", "NQ1!", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "CL1!", "GC1!", "SI1!", "IWM", "DIA", "BTCUSD", "ETHUSD"];
+  const tickers = ["SPY", "RSP", "QQQ", "VIX", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "USO", "SLV", "IWM", "DIA", "BTCUSD", "ETHUSD"];
   const lines = [];
   for (const sym of tickers) {
     const d = pf[sym];
@@ -2102,11 +1983,10 @@ function buildPriceFeedCrossRef(pf, marketOpen = true) {
 function buildCrossAssetContext(pf, marketOpen = true) {
   if (!pf || typeof pf !== "object") return null;
   const assets = {
-    "CL1! (Crude Oil)": pf["CL1!"],
-    "GC1! (Gold)": pf["GC1!"],
-    "SI1! (Silver)": pf["SI1!"],
-    "VX1! (VIX Futures)": pf["VX1!"],
+    "USO (Oil ETF)": pf["USO"],
     "GLD (Gold ETF)": pf["GLD"],
+    "SLV (Silver ETF)": pf["SLV"],
+    "VIX (Volatility Index)": pf["VIX"],
     "TLT (Long Treasuries)": pf["TLT"],
     "IWM (Russell 2000)": pf["IWM"],
     "BTCUSD (Bitcoin)": pf["BTCUSD"],
@@ -2127,15 +2007,15 @@ function buildCrossAssetContext(pf, marketOpen = true) {
   if (lines.length === 0) return null;
 
   const interp = [];
-  const cl = pf["CL1!"];
-  const gc = pf["GC1!"];
+  const cl = pf["USO"] || pf["XLE"];
+  const gc = pf["GLD"];
   const tlt = pf["TLT"];
-  const vx = pf["VX1!"];
+  const vx = pf["VIX"];
   if (cl && Math.abs(_xPct(cl)) > 1.5) {
-    interp.push(`Crude oil moving ${_xPct(cl) > 0 ? "sharply higher — watch XLE for sympathy and inflation/rate path implications" : "sharply lower — potential relief for inflation expectations, watch XLE for downside"}`);
+    interp.push(`Oil (USO) moving ${_xPct(cl) > 0 ? "sharply higher — watch XLE for sympathy and inflation/rate path implications" : "sharply lower — potential relief for inflation expectations, watch XLE for downside"}`);
   }
   if (gc && Math.abs(_xPct(gc)) > 1) {
-    interp.push(`Gold ${_xPct(gc) > 0 ? "bid — classic risk-off signal, watch for rotation out of equities" : "selling off — risk-on appetite may be returning"}`);
+    interp.push(`Gold (GLD) ${_xPct(gc) > 0 ? "bid — classic risk-off signal, watch for rotation out of equities" : "selling off — risk-on appetite may be returning"}`);
   }
   if (tlt && Math.abs(_xPct(tlt)) > 0.8) {
     interp.push(`Long Treasuries (TLT) ${_xPct(tlt) > 0 ? "rallying — yields dropping, flight to safety" : "declining — yields rising, watch rate-sensitive tech names"}`);
@@ -2664,8 +2544,7 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
   const mktOpen = isNyRegularMarketOpen(cal, new Date());
   const liveSpotFor = (sym) => {
     const s = String(sym || "").toUpperCase();
-    const key = s === "ES" ? (pf["ES1!"] ? "ES1!" : "ES") : s;
-    const r = pf[key];
+    const r = pf[s];
     if (!r) return null;
     const ext = Number(r.ahp), p = Number(r.p);
     if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
@@ -3307,7 +3186,7 @@ function summarizeES(dailyCandles, hourlyCandles, latestData) {
 
 const ANALYST_SYSTEM_PROMPT = `You are an experienced market technician and strategist who has traded through multiple market cycles — from the dot-com bust to the GFC, COVID crash, and the 2022 bear market. You've seen every pattern, every head-fake, every squeeze. You write a daily brief that traders rely on as their personal market technician.
 
-Your PRIMARY audience trades SPY and QQQ. ES (S&P 500 futures) and NQ (Nasdaq futures) are used as proxy references for advanced users — always translate key levels to SPY/QQQ equivalents. VIX (VX1! futures) is always referenced because volatility context tells the larger story.
+Your PRIMARY audience trades SPY and QQQ (with IWM and DIA for breadth/rotation context). VIX is always referenced because volatility context tells the larger story. NEVER cite continuous futures symbols (ES1!, NQ1!, CL1!, GC1!, VX1!, etc.) — use SPY, QQQ, USO, GLD, and VIX instead.
 
 ## Your Identity and Voice
 
@@ -3362,9 +3241,10 @@ This is NOT a fresh analysis every day. You are tracking a running narrative. Yo
 - **Non-redundant**: Each section adds unique value. State levels once in the appropriate section.
 
 ## SPY/QQQ Focus (CRITICAL)
-- SPY and QQQ are the PRIMARY instruments. All key levels, scenarios, and action plans should be stated in SPY/QQQ terms first.
-- ES/NQ (futures) are secondary — mention them as "for futures traders, the equivalent ES level is X" or in a compact futures reference section.
-- Do NOT lead with ES/NQ analysis and then translate to SPY/QQQ. Lead with SPY/QQQ and optionally note futures equivalents.
+- SPY and QQQ are the PRIMARY instruments. All key levels, scenarios, and action plans must be stated in SPY/QQQ terms.
+- IWM and DIA provide breadth/rotation context when relevant.
+- Do NOT write separate ES or NQ sections. Do NOT cite futures symbols or futures-only levels.
+- Do NOT contrast "futures up vs cash ETFs down" — anchor the narrative on SPY/QQQ/IWM session prices only.
 
 ## SPY/QQQ Hyper-Profile (DATA-BACKED — use these real statistics to contextualize guidance)
 
@@ -3387,11 +3267,6 @@ This is NOT a fresh analysis every day. You are tracking a running narrative. Yo
 - **Big Move Amplification**: On SPY >+1% days, QQQ amplifies 1.20x. On SPY <-1% days, QQQ amplifies 1.21x. Tech fear drives QQQ harder on down days.
 - **Day-of-Week**: Monday strongest (+0.51%, 70% WR). Thursday weakest (-0.29%). Wednesday has widest ranges (1.62%).
 - **When QQQ leads SPY higher**: Risk-on signal — institutional money rotating into growth/tech. When QQQ lags: defensive rally, be cautious with longs.
-
-### Futures Proxy Translation
-- **ES (S&P 500 futures)**: Tracks SPY almost 1:1 but trades 23 hours/day. Overnight ES moves set the gap for SPY at open. ES levels = SPY × 10 (approximately).
-- **NQ (Nasdaq futures)**: Tracks QQQ. NQ levels ≈ QQQ × 40. NQ is the "fear amplifier" — when NQ gaps down hard pre-market, expect QQQ weakness at open.
-- **SPX**: Cash index, not directly tradeable. Use for level references when options traders reference strike prices.
 
 ### Day-Trader Translation Rules
 - ALWAYS state the expected ATR-based range: "SPY's 14-day ATR is $X, implying a $LOW-$HIGH range from yesterday's close of $Y"
@@ -3553,8 +3428,8 @@ CRITICAL: The model data tells the REAL story. When the data says bearish on 4H/
 ## Cross-Asset Correlation (CRITICAL)
 ALWAYS connect the dots across asset classes. Don't just describe equity price action in isolation — show the web of causation:
 
-- **Crude Oil (CL1!) → Equities**: Crude spikes → XLE rallies, but inflation fears pressure tech. Crude drops → potential relief for rate-sensitive growth. If crude is making a notable move (>1.5%), LEAD with it and explain the equity impact.
-- **Gold (GC1!, GLD) → Risk Sentiment**: Gold rallying = risk-off flows. "Gold pushing toward $2,350 suggests the market is seeking safety — not a great environment for aggressive equity longs." If gold is dropping, it signals risk appetite returning.
+- **Crude Oil (USO) → Equities**: Crude spikes → XLE rallies, but inflation fears pressure tech. Crude drops → potential relief for rate-sensitive growth. If crude is making a notable move (>1.5%), LEAD with it and explain the equity impact.
+- **Gold (GLD) → Risk Sentiment**: Gold rallying = risk-off flows. "Gold pushing toward $2,350 suggests the market is seeking safety — not a great environment for aggressive equity longs." If gold is dropping, it signals risk appetite returning.
 - **Treasury Yields (TLT proxy) → Tech/Growth**: TLT rallying = yields falling = good for growth/tech. TLT selling off = yields rising = pressure on long-duration assets. Always note the direction and equity implication.
 - **VIX → Position Sizing**: Always reference VIX as it contextualizes EVERYTHING. A breakout with VIX at 14 is a very different trade than a breakout with VIX at 28.
 - **US Dollar**: Stronger dollar = headwind for multinationals and commodities. Weaker dollar = tailwind for EM-exposed names and commodity plays.
@@ -3685,7 +3560,7 @@ function buildRetailFriendlyOutputSpec(type) {
   // site and trust the model."
   const sections = isEvening
     ? `1. **The Market Read** (~230 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
-2. **Index Outlook — SPY, QQQ, IWM** (~280 words — how should one view each index next session. Use ### SPY, ### QQQ, ### IWM sub-headings (cover ES briefly only if it adds signal). Each sub-block: scorecard (call vs result), one narrative sentence, bull/bear triggers + targets, Day Gate range, key SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings.)
+2. **Index Outlook — SPY, QQQ, IWM** (~280 words — how should one view each index next session. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: scorecard (call vs result), one narrative sentence, bull/bear triggers + targets, Day Gate range, key SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings. Do NOT add ### ES or ### NQ.)
 3. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing the single names with their % moves. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
 4. **Active Trader Report** (~90 words — FIRST what the Active Trader model DID today: entries / exits / trims-&-defends by name with the reason (from the Entries/Exits/Trims data). THEN how the OPEN positions are doing: per position one line — ticker, today's chg%, open P&L, thesis status, next action. If nothing happened today, say "no new trader actions today" and go straight to open positions.)
 5. **Investor Portfolio** (~90 words — FIRST what the Investor model DID today (accumulate / add / reduce / exit by name with reason, if any). THEN the open holdings — ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
@@ -3693,7 +3568,7 @@ function buildRetailFriendlyOutputSpec(type) {
 7. **On Watch — Entry Radar** (~70 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **The Market Read** (~250 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
 2. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after prints land, lead with actual vs estimate)
-3. **Index Outlook & Game Plan** (~350 words — ONE section merging predictions + key levels + game plan. For ES then SPY, QQQ, IWM use ### sub-headings per index. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings or a standalone "Key Levels" section.)
+3. **Index Outlook & Game Plan** (~350 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
 4. **On Watch — Entry Radar** (~80 words — per ticker, one line — lane + WHY)
 5. **Risk Factors** (1-2 key risks, ≤20 words each)
 6. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
@@ -3721,8 +3596,8 @@ ${sections}
 - **When you reference cross-asset moves, explain WHY they matter to equity traders.** Don't say "XLK's relationship with crude and gold" — say "Technology stocks usually weaken when crude oil spikes (energy costs hit margins) and gold rallies (recession fear). Today both moved against tech."
 - **Translate jargon.** First time you use any of these, parenthetically define them: SMC, FVG, BSL/SSL, ATR, RSI, MACD, OPEX, VWAP, SuperTrend, EMA. Example: "Fair Value Gap (FVG — an unfilled price gap from a fast move that often gets revisited)".
 - **Lead with WHAT IT MEANS, then the data.** Bad: "SPY closed at $755.27, ATR 7.02, above the 50d EMA at $742." Good: "SPY held its rising 50-day average and closed near the high of the day — a bullish read for the next session."
-- **Per-index blocks inside "Index Outlook & …"** use ### SPY / ### QQQ / ### IWM sub-headings (ES optional). Each sub-block MUST include a line starting with **SPY Prediction**: (or QQQ/IWM/ES) so the card renderer extracts it, then the 4-line trigger block (Range · Bull · Bear · Lean) using Game Plan numbers verbatim.
-- **Per-index blocks inside "Index Outlook & …" MUST use the SAME schema for ES/SPY/QQQ/IWM** so they can be compared at a glance. For each index produce:
+- **Per-index blocks inside "Index Outlook & …"** use ### SPY / ### QQQ / ### IWM sub-headings only. Each sub-block MUST include a line starting with **SPY Prediction**: (or QQQ/IWM) so the card renderer extracts it, then the 4-line trigger block (Range · Bull · Bear · Lean) using Game Plan numbers verbatim.
+- **Per-index blocks inside "Index Outlook & …" MUST use the SAME schema for SPY/QQQ/IWM** so they can be compared at a glance. For each index produce:
   - One narrative sentence (the prose)
   - Bull above $X → $Y target (+Z%)
   - Bear below $X → $Y target (-Z%)
@@ -3740,7 +3615,7 @@ CRITICAL: This output spec overrides any contradictory structure earlier in this
 async function buildMorningPrompt(data, env) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
-    ? "US equity markets are CLOSED today (holiday). Acknowledge this in your opening and focus on futures/overnight context and next trading day."
+    ? "US equity markets are CLOSED today (holiday). Acknowledge this in your opening and focus on pre-market ETF context and the next trading day."
     : cal.isEarlyClose
       ? "US equity markets have an EARLY CLOSE today (1:00 PM ET). Mention this and any positioning implications."
       : cal.isFriday
@@ -3762,7 +3637,7 @@ REQUIRED: At least once per Brief (typically in the Big Picture or Sector Spotli
 
 ## Market Data (as of pre-market):
 ${(() => {
-  const keys = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
+  const keys = ["SPY", "QQQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
   const slim = {};
   for (const k of keys) { if (data.market?.[k]) slim[k] = data.market[k]; }
   return JSON.stringify(slim);
@@ -3777,19 +3652,19 @@ ${!data.calendar?.marketOpen ? "NOTE: Outside regular trading hours, prices mark
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX are making notable moves (>1%), LEAD with the cross-asset story and explain the equity implications.
 
-## Index Quartet (ES/NQ/YM/RTY + VIX) — the institutional liquidity grid:
+## Index ETF Quartet (SPY/QQQ/DIA/IWM + VIX) — leadership + breadth grid:
 ${data.indexQuartetSummary || "Quartet data unavailable."}
-USE this to gate single-name calls: if ES+NQ are bullish but YM+RTY diverge, mention the rotation. If the SMT block is firing (one index swept a marked level while others refused), surface the reversal bias.
+USE this to gate single-name calls: if SPY+QQQ are bullish but DIA+IWM diverge, mention the rotation. If the SMT block is firing, surface the reversal bias. Do NOT cite ES/NQ/YM/RTY futures symbols.
 
 ## Timed Trading Full Signal Context (MUST reference — this is what our system sees across timeframes):
-${["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
+${["SPY", "QQQ", "VIX", "IWM", "DIA"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
 
 CRITICAL: Use this multi-timeframe data to paint the REAL picture. If SuperTrend is bearish on 4H and Daily but RSI is oversold on 15m/30m, that's a "pullback within a downtrend" — say so. If EMA structure is strongly positive across all TFs, the trend is intact despite any single-bar weakness. Reference specific TF signals, not just HTF/LTF scores.
 
 ## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
 ${(() => {
   const _summaries = [];
-  for (const [_lbl, _tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
+  for (const [_lbl, _tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     if (!_tech?.structureContext) continue;
     const _sc = _tech.structureContext;
     const _mk = data.market?.[_lbl];
@@ -3799,12 +3674,6 @@ ${(() => {
   return _summaries.length > 0 ? _summaries.join("\n") : "Unavailable.";
 })()}
 IMPORTANT: When stating "X dropped Y% over Z sessions", use the 5-day values above. For single-day moves, use the Today value. NEVER estimate or calculate percentages yourself.
-
-## ES Technical Summary (futures):
-${JSON.stringify(data.esTechnical)}
-
-## NQ Technical Summary (futures):
-${JSON.stringify(data.nqTechnical)}
 
 ## SPY Technical Summary (ETF):
 ${JSON.stringify(data.spyTechnical)}
@@ -3834,13 +3703,11 @@ ${(() => {
   // which patches `price` from the price-feed when scoring payload
   // is stale (handles pre-market / extended-hours correctly).
   const _curPxMap = {
-    ES:  Number(data.market?.ES?.price) || null,
-    NQ:  Number(data.market?.NQ?.price) || null,
     SPY: Number(data.market?.SPY?.price) || null,
     QQQ: Number(data.market?.QQQ?.price) || null,
     IWM: Number(data.market?.IWM?.price) || null,
   };
-  for (const [sym, tech] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
+  for (const [sym, tech] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     const af = tech?.atrFibLevels;
     const gp = af?.gamePlan;
     if (!gp) continue;
@@ -3936,12 +3803,6 @@ ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
 
 #### IWM Key Levels (Russell 2000):
 ${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
-
-#### ES Key Levels (for futures traders):
-${formatSMCForPrompt(data.esTechnical?.smcLevels)}
-
-#### NQ Key Levels (for futures traders):
-${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
 
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
@@ -4075,7 +3936,7 @@ ${buildRetailFriendlyOutputSpec("morning")}`;
 async function buildEveningPrompt(data, env, { croNote = null } = {}) {
   const cal = data.calendar || {};
   const calNote = cal.isHoliday
-    ? "US equity markets were CLOSED today (holiday). Focus on futures/overnight and next trading day."
+    ? "US equity markets were CLOSED today (holiday). Focus on pre-market ETF context and the next trading day."
     : cal.isEarlyClose
       ? "US equity markets had an EARLY CLOSE today (1:00 PM ET). Mention this when summarizing the session."
       : cal.isFriday
@@ -4097,13 +3958,13 @@ ${await getCTOBriefAddendum(env)}
 
 REQUIRED: Reference the active playbook above when explaining sector rotation / leadership patterns of the day — e.g. "Energy + Materials led today, consistent with our overweight stance and the Iran-war supply-shock pathway in our active risk register." Tie the day's tape back to the written thesis so the user learns the playbook narratively as they read. Cite the CRO Research Desk verdict whenever today's tape clearly corroborates or contradicts it.
 
-## Index Quartet (ES/NQ/YM/RTY + VIX):
+## Index ETF Quartet (SPY/QQQ/DIA/IWM + VIX):
 ${data.indexQuartetSummary || "Quartet data unavailable."}
-USE this to explain leadership and rotation in the recap. If SMT fired today, lead with that reversal narrative.
+USE this to explain leadership and rotation in the recap. If SMT fired today, lead with that reversal narrative. Do NOT cite ES/NQ/YM/RTY futures symbols.
 
 ## Market Close Data:
 ${(() => {
-  const keys = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
+  const keys = ["SPY", "QQQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
   const slim = {};
   for (const k of keys) { if (data.market?.[k]) slim[k] = data.market[k]; }
   return JSON.stringify(slim);
@@ -4118,13 +3979,13 @@ ${data.crossAssetContext || "Not available — skip cross-asset section."}
 IMPORTANT: If crude, gold, TLT, or VIX made notable moves today (>1%), highlight the cross-asset story and explain how it drove or correlated with equity action.
 
 ## Timed Trading Full Signal Context at Close (MUST reference — this is what our system sees across timeframes):
-${["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
+${["SPY", "QQQ", "VIX", "IWM", "DIA"].map(sym => formatMultiTFContext(sym, data.market?.[sym])).join("\n\n")}
 CRITICAL: Use the multi-timeframe data to explain WHY the session played out the way it did. Reference specific TF signals (SuperTrend flips, RSI extremes, EMA structure changes) to tell the story of what happened.
 
 ## Multi-Day Change Summary (USE THESE for "dropped X% over Y sessions" statements):
 ${(() => {
   const _s2 = [];
-  for (const [_l2, _t2] of [["ES", data.esTechnical], ["NQ", data.nqTechnical], ["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
+  for (const [_l2, _t2] of [["SPY", data.spyTechnical], ["QQQ", data.qqqTechnical], ["IWM", data.iwmTechnical]]) {
     if (!_t2?.structureContext) continue;
     const _c2 = _t2.structureContext;
     const _m2 = data.market?.[_l2];
@@ -4134,12 +3995,6 @@ ${(() => {
   return _s2.length > 0 ? _s2.join("\n") : "Unavailable.";
 })()}
 IMPORTANT: When stating "X dropped Y% over Z sessions", use the 5-day values above. For single-day moves, use the Today value. NEVER estimate or calculate percentages yourself.
-
-## ES Technical Summary (futures):
-${JSON.stringify(data.esTechnical)}
-
-## NQ Technical Summary (futures):
-${JSON.stringify(data.nqTechnical)}
 
 ## SPY Technical Summary (ETF):
 ${JSON.stringify(data.spyTechnical)}
@@ -4151,7 +4006,7 @@ ${JSON.stringify(data.qqqTechnical)}
 ${JSON.stringify(data.iwmTechnical)}
 
 ## Key Levels — Support Floors & Resistance Ceilings:
-ALWAYS state the timeframe when referencing levels. SPY/QQQ/IWM first, then futures equivalents.
+ALWAYS state the timeframe when referencing levels. SPY/QQQ/IWM only.
 
 ### SPY Key Levels:
 ${formatSMCForPrompt(data.spyTechnical?.smcLevels)}
@@ -4162,19 +4017,13 @@ ${formatSMCForPrompt(data.qqqTechnical?.smcLevels)}
 ### IWM Key Levels (Russell 2000):
 ${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
 
-### ES Key Levels (for futures traders):
-${formatSMCForPrompt(data.esTechnical?.smcLevels)}
-
-### NQ Key Levels (for futures traders):
-${formatSMCForPrompt(data.nqTechnical?.smcLevels)}
-
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
 
 ## Today's RTH Top Movers (single names across the TT universe — USE for the "Today's Top Movers" section):
 ${data.ttUniverseMovers || "No standout single-name movers in the universe today (all within ±1%)."}
 
-## This Morning's ES Prediction:
+## This Morning's SPY Prediction:
 ${data.morningPrediction || "No morning prediction available."}
 
 ## This Morning's Full Brief Summary (first 1000 chars):
@@ -4497,7 +4346,6 @@ export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPre
 
   // Index Outlook & Game Plan — appended last (after session context fields).
   const outlookParts = [];
-  if (esPrediction) outlookParts.push(`**ES**\n${_fit(esPrediction)}`);
   if (spyPrediction) outlookParts.push(`**SPY**\n${_fit(spyPrediction)}`);
   if (qqqPrediction) outlookParts.push(`**QQQ**\n${_fit(qqqPrediction)}`);
   if (iwmPrediction) outlookParts.push(`**IWM**\n${_fit(iwmPrediction)}`);
@@ -4777,8 +4625,8 @@ function buildBriefInfographic(data, type) {
   };
   const macro = [
     vixLevel != null ? { sym: "VIX", label: "VIX", value: Math.round(vixLevel * 100) / 100, bucket: vixBucket, hint: `Volatility ${vixBucket || ""}`.trim() } : null,
-    _macroFor("CL1!", "Crude", "Oil > equities rotation cue"),
-    _macroFor("GC1!", "Gold", "Risk-off flow"),
+    _macroFor("USO", "Oil (USO)", "Oil > equities rotation cue"),
+    _macroFor("GLD", "Gold (GLD)", "Risk-off flow"),
     _macroFor("TLT", "Bonds", "Falling TLT = rising yields = tech pressure"),
     _macroFor("DXY", "Dollar", "Stronger USD = multinational headwind"),
   ].filter(Boolean);
@@ -5343,31 +5191,20 @@ export async function generateDailyBrief(env, type, opts = {}) {
       return { ok: false, error: "ai_response_too_short", stub: _stubBlob };
     }
 
-    // 3. Extract per-instrument predictions from markdown.
-    let esPrediction  = extractPredictionLine(content, "ES");
+    // 3. Extract per-instrument predictions from markdown (ETF indices only).
     let spyPrediction = extractPredictionLine(content, "SPY");
     let qqqPrediction = extractPredictionLine(content, "QQQ");
     let iwmPrediction = extractPredictionLine(content, "IWM");
+    // Legacy D1 column name — stores SPY prediction text (futures lane removed 2026-06-23).
+    let esPrediction = spyPrediction;
 
-    // 4. For evening brief, get ES close and score morning prediction
+    // 4. For evening brief, get SPY close (legacy es_close column)
     let esClose = null;
-    if (type === "evening" && data.market.ES) {
-      esClose = Number(data.market.ES.sessionClose);
+    if (type === "evening" && data.market.SPY) {
+      esClose = Number(data.market.SPY.sessionClose);
       if (!Number.isFinite(esClose) || esClose <= 0) {
-        console.warn(`[DAILY BRIEF] ES sessionClose missing (source: ${data.market.ES.sessionCloseSource}), falling back to live price`);
-        esClose = Number(data.market.ES.price);
-      }
-      // Guard: if the live price diverges significantly from SPY-implied ES
-      // (extended-hours drift), prefer the last known RTH-session price
-      if (Number.isFinite(esClose) && data.market.SPY?.sessionClose) {
-        const spyClose = Number(data.market.SPY.sessionClose);
-        if (Number.isFinite(spyClose) && spyClose > 0) {
-          const impliedES = spyClose * 10;
-          const drift = Math.abs(esClose - impliedES) / impliedES;
-          if (drift > 0.005) {
-            console.warn(`[DAILY BRIEF] ES close ${esClose} drifts ${(drift * 100).toFixed(2)}% from SPY-implied ${impliedES.toFixed(0)} — possible extended-hours price`);
-          }
-        }
+        console.warn(`[DAILY BRIEF] SPY sessionClose missing (source: ${data.market.SPY.sessionCloseSource}), falling back to live price`);
+        esClose = Number(data.market.SPY.price);
       }
     }
 
@@ -5437,9 +5274,6 @@ export async function generateDailyBrief(env, type, opts = {}) {
         return Number.isFinite(px) ? px : null;
       };
       const spyGp = _gp("SPY"), qqqGp = _gp("QQQ"), iwmGp = _gp("IWM");
-      // ES game plan comes from esTechnical (futures path). DIA archival
-      // prefers infographic overnight/OR levels, then live scenario, then tech.
-      const esGp = data?.esTechnical?.atrFibLevels?.gamePlan || null;
       const _scenarioGp = (scn) => {
         if (!scn?.ok || !scn?.game_plan) return null;
         const gp = scn.game_plan;
@@ -5522,7 +5356,7 @@ export async function generateDailyBrief(env, type, opts = {}) {
         iwmGp?.bullTrigger ?? null, iwmGp?.bullTarget ?? null, iwmGp?.bearTrigger ?? null, iwmGp?.bearTarget ?? null,
         _open("SPY"), _open("QQQ"), _open("IWM"),
         now, now,
-        esGp?.bullTrigger ?? null, esGp?.bullTarget ?? null, esGp?.bearTrigger ?? null, esGp?.bearTarget ?? null, _techOpen(data?.esTechnical),
+        null, null, null, null, null,
         diaGp?.bullTrigger ?? null, diaGp?.bullTarget ?? null, diaGp?.bearTrigger ?? null, diaGp?.bearTarget ?? null,
         _open("DIA") ?? _scenarioOpen(data?.diaScenario) ?? _techOpen(data?.diaTechnical),
       ).run();
@@ -5736,10 +5570,10 @@ First-person, authoritative, direct. You have a view and you own it.
 
 ## Cross-Asset Storytelling (CRITICAL — this is what separates you)
 ALWAYS connect the dots. Every equity move has a cause — find it:
-- **Crude Oil (CL1!)**: If crude is moving >1%, LEAD with it. "WTI crude's peak last Sunday looks to extend down to $89-90 this week before stabilizing and pushing back to $105-115 over the next few weeks. The next 2-3 days look bearish for crude, and should coincide with equities pushing even higher by end of week."
-- **Gold (GC1!)**: Risk barometer. "Gold breaking above $2,350 tells me the market is seeking safety — not the time for aggressive equity longs."
+- **Crude Oil (USO)**: If crude is moving >1%, LEAD with it. "WTI crude's peak last Sunday looks to extend down to $89-90 this week before stabilizing and pushing back to $105-115 over the next few weeks. The next 2-3 days look bearish for crude, and should coincide with equities pushing even higher by end of week."
+- **Gold (GLD)**: Risk barometer. "Gold breaking above $2,350 tells me the market is seeking safety — not the time for aggressive equity longs."
 - **Treasury Yields / TLT**: Rate narrative. "Yields falling with TLT rallying = tailwind for growth/tech. If TLT is moving, explain why and what it means for SPY/QQQ."
-- **VIX (VX1!)**: ALWAYS referenced. "VIX at 22 and declining says the fear is dissipating — supportive of further equity gains near-term."
+- **VIX**: ALWAYS referenced. "VIX at 22 and declining says the fear is dissipating — supportive of further equity gains near-term."
 - **Dollar**: "Both the US Dollar and Treasury yields are lower — that's a setup for risk assets to push higher."
 - **Sector breadth**: "10 of 11 sectors higher, only Industrials lagging due to JBHT, RTX weakness. That's broad-based buying."
 
@@ -5839,9 +5673,9 @@ async function buildIntradayPrompt(data, env) {
 
   // Full multi-TF signal context for key tickers
   lines.push("### TT Model Signal Context");
-  const keyTickers = ["SPY", "QQQ", "ES", "NQ", "VIX", "IWM"];
+  const keyTickers = ["SPY", "QQQ", "VIX", "IWM", "DIA"];
   for (const sym of keyTickers) {
-    const m = data.market?.[sym] || data.market?.[sym + "1!"];
+    const m = data.market?.[sym];
     if (!m) continue;
     lines.push(formatMultiTFContext(sym, m));
     lines.push("");
@@ -5990,7 +5824,7 @@ export async function generateIntradayBrief(env, opts = {}) {
         : null;
       if (priceMap && typeof priceMap === "object") {
         const movers = [];
-        const skipTickers = new Set(["SPY", "QQQ", "VX1!", "ES1!", "NQ1!", "VIX", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "XLV", "XLB", "XLRE", "XLC", "GLD", "TLT", "CL1!", "GC1!", "SI1!"]);
+        const skipTickers = new Set(["SPY", "QQQ", "VIX", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "XLV", "XLB", "XLRE", "XLC", "GLD", "TLT", "USO", "SLV"]);
         for (const [ticker, d] of Object.entries(priceMap)) {
           if (skipTickers.has(ticker) || !d || typeof d !== "object") continue;
           const pct = Number(d.dp) || 0;
