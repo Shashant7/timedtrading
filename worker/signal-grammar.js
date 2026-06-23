@@ -204,6 +204,84 @@ export function investorLaneMeta(stage) {
   return INVESTOR_LANE_META[key] || { band: "watching", label: key || "—", action: "—", title: "" };
 }
 
+/** Passive investor verbs — no push, bell, or activity strip. */
+export const INVESTOR_PASSIVE_ALERT_VERBS = Object.freeze([
+  "MODEL · ON RADAR",
+  "MODEL · WATCH",
+  "MODEL · INFO",
+]);
+
+/** Actionable investor verbs — executed, trigger-ready, or queued-by-policy. */
+export const INVESTOR_ACTIONABLE_ALERT_VERBS = Object.freeze([
+  "MODEL · ACCUMULATE",
+  "MODEL · REDUCE",
+  "MODEL · TRIMMED",
+  "MODEL · EXITED",
+  "MODEL · REVIEW",
+  "MODEL · ADD",
+  "ACCUMULATE",
+  "ADD ON PULLBACK",
+  "REDUCE / EXIT",
+  "TRIM / REDUCE",
+  "REVIEW PORTFOLIO",
+]);
+
+const _INVESTOR_PASSIVE_SET = new Set(INVESTOR_PASSIVE_ALERT_VERBS);
+const _INVESTOR_ACTIONABLE_SET = new Set(INVESTOR_ACTIONABLE_ALERT_VERBS);
+
+const TRADER_EXEC_FEED_TYPES = new Set([
+  "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT",
+  "ENTRY", "ENTER", "ADD", "ADD_ENTRY",
+  "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT",
+]);
+
+const INVESTOR_EXEC_ALERT_TYPES = new Set([
+  "position_add", "position_trim", "position_close",
+]);
+
+/** Kanban stages that are trigger-ready or post-entry — not passive watch. */
+export const ACTIONABLE_KANBAN_STAGES = Object.freeze([
+  "in_review", "enter", "enter_now", "just_flipped", "just_entered",
+  "hold", "active", "defend", "trim", "exiting", "exit",
+]);
+
+const _ACTIONABLE_KANBAN_SET = new Set(ACTIONABLE_KANBAN_STAGES);
+
+function normalizeInvestorVerb(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return "";
+  if (v.startsWith("MODEL ·")) return v;
+  const upper = v.toUpperCase();
+  if (upper.startsWith("ACCUMULATE")) return "MODEL · ACCUMULATE";
+  if (upper.startsWith("REDUCE")) return "MODEL · REDUCE";
+  if (upper.startsWith("ADD")) return "MODEL · ADD";
+  if (upper.includes("TRIM")) return "MODEL · TRIMMED";
+  if (upper.includes("EXIT")) return "MODEL · EXITED";
+  if (upper.includes("REVIEW")) return "MODEL · REVIEW";
+  return v;
+}
+
+function investorVerbFromNotification(n) {
+  const title = String(n?.title || "");
+  const m = title.match(/^(?:INVESTOR|MODEL)\s*·\s*([^:]+)/i);
+  if (m) return normalizeInvestorVerb(`MODEL · ${m[1].trim()}`);
+  return normalizeInvestorVerb(title);
+}
+
+function kanbanStageFromNotification(n) {
+  const body = String(n?.body || "").toLowerCase();
+  const m = body.match(/moved to ([a-z_]+)/i);
+  if (m) return String(m[1]).toLowerCase();
+  const title = String(n?.title || "").toLowerCase();
+  if (title.includes("under review")) return "in_review";
+  if (title.includes("position initiated")) return "just_entered";
+  if (title.includes("holding")) return "hold";
+  if (title.includes("defending")) return "defend";
+  if (title.includes("exit signal")) return "exit";
+  if (title.includes("setup")) return "setup";
+  return "";
+}
+
 /** Map raw activity / alert event to unified classification. */
 export function classifyActivityEvent(ev) {
   const invT = String(ev?.investor_alert_type || "").toLowerCase();
@@ -241,7 +319,7 @@ export function classifyActivityEvent(ev) {
     "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "ENTRY", "ENTER", "ADD", "ADD_ENTRY",
     "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT",
   ]);
-  const isDoing = doingTypes.has(t) || modeRaw === "doing" || modeRaw === "done";
+  let isDoing = doingTypes.has(t) || modeRaw === "doing" || modeRaw === "done";
 
   let action = "hold";
   let label = "UPDATE";
@@ -260,15 +338,31 @@ export function classifyActivityEvent(ev) {
     } else if (invT === "position_close") {
       action = "exit"; label = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true;
     } else {
-      action = "accumulate"; label = "WATCH"; cls = "ev-watching";
+      const verb = normalizeInvestorVerb(ev?.action);
+      if (verb === "MODEL · ACCUMULATE") {
+        action = "accumulate"; label = "ACCUM"; cls = "ev-recommended ev-doing";
+        isDoing = true;
+      } else if (verb === "MODEL · REDUCE") {
+        action = "reduce"; label = "REDUCE"; cls = "ev-trim ev-recommended ev-doing";
+        isDoing = true;
+      } else if (verb === "MODEL · REVIEW") {
+        action = "review"; label = "REVIEW"; cls = "ev-recommended ev-doing";
+        isDoing = true;
+      } else {
+        action = "accumulate"; label = "WATCH"; cls = "ev-watching";
+      }
     }
   }
 
   const mode = invExecDone || isDoing ? "doing" : "watching";
+  let execStateOut = invExecDone || isDoing ? "done" : "watching";
+  if (t === "INVESTOR_SIGNAL" && (label === "ACCUM" || label === "REDUCE" || label === "REVIEW")) {
+    execStateOut = "recommended";
+  }
   return {
     engine,
     mode,
-    execState: invExecDone || isDoing ? "done" : "watching",
+    execState: execStateOut,
     action,
     evType: t,
     label,
@@ -285,4 +379,64 @@ export function notificationMetaFromSignal(signal) {
     engine: s.engine,
     exec_state: s.execState,
   };
+}
+
+/**
+ * Activity strip / merged feed — exclude passive watch; include done,
+ * trigger-ready (TRADE_EXIT_SIGNAL), and queued investor accumulate.
+ */
+export function isActionableFeedEvent(ev, meta) {
+  if (!ev) return false;
+  const sym = String(ev.ticker || ev.symbol || "").toUpperCase();
+  if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
+
+  const t = String(ev.type || ev.event || "").toUpperCase();
+  if (t === "SIGNAL_GRADED") return false;
+  if (t === "TRADE_EXIT_SIGNAL") return true;
+  if (TRADER_EXEC_FEED_TYPES.has(t)) return true;
+
+  const invType = String(ev.investor_alert_type || "").toLowerCase();
+  if (INVESTOR_EXEC_ALERT_TYPES.has(invType)) return true;
+
+  if (t === "INVESTOR_SIGNAL") {
+    const verb = normalizeInvestorVerb(ev.action);
+    if (_INVESTOR_PASSIVE_SET.has(verb)) return false;
+    if (_INVESTOR_ACTIONABLE_SET.has(verb)) return true;
+    if (invType === "thesis_invalidation") return true;
+    if (meta) {
+      if (meta.execState === "recommended") return true;
+      if (meta.mode === "doing" && meta.execState === "done") return true;
+      if (meta.label === "WATCH" || meta.label === "UPDATE") return false;
+    }
+    return false;
+  }
+
+  return false;
+}
+
+/** Notification bell — same policy as activity strip for trade/investor/kanban. */
+export function isActionableNotification(n) {
+  if (!n) return false;
+  const t = String(n.type || "").toLowerCase();
+  if (t === "trade_entry" || t === "trade_exit" || t === "trade_trim") return true;
+
+  if (t === "investor_signal") {
+    const verb = investorVerbFromNotification(n);
+    if (_INVESTOR_PASSIVE_SET.has(verb)) return false;
+    if (_INVESTOR_ACTIONABLE_SET.has(verb)) return true;
+    const exec = String(n.exec_state || "").toLowerCase();
+    const cls = String(n.alert_class || n.mode || "").toLowerCase();
+    if (exec === "recommended" || exec === "done" || cls === "doing") return true;
+    return false;
+  }
+
+  if (t === "kanban") {
+    const stage = kanbanStageFromNotification(n);
+    if (stage && !_ACTIONABLE_KANBAN_SET.has(stage)) return false;
+    const title = String(n.title || "").toUpperCase();
+    if (title.startsWith("SETUP:")) return false;
+    return true;
+  }
+
+  return false;
 }

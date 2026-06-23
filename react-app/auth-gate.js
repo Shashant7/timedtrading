@@ -77,7 +77,7 @@
       if (typeof document === "undefined") return;
       if (document.querySelector('script[src*="shared-signal-grammar.js"]')) return;
       const s = document.createElement("script");
-      s.src = "shared-signal-grammar.js?v=20260623c";
+      s.src = "shared-signal-grammar.js?v=20260623d";
       s.async = true;
       s.dataset.injectedBy = "auth-gate-bootstrap";
       (document.head || document.documentElement).appendChild(s);
@@ -1774,8 +1774,27 @@
     const [loading, setLoading] = React.useState(false);
     const [selectedNotification, setSelectedNotification] = React.useState(null); // modal
     const [filter, setFilter] = React.useState("all"); // "all" | "trade_alerts" | "investor_alerts"
-    const [modeFilter, setModeFilter] = React.useState("all"); // "all" | "doing" | "watching"
     const bellRef = React.useRef(null);
+
+    const isActionableNotif = React.useCallback((n) => {
+      const SG = window.TimedSignalGrammar;
+      if (SG && typeof SG.isActionableNotification === "function") {
+        return SG.isActionableNotification(n);
+      }
+      const t = String(n?.type || "").toLowerCase();
+      if (t === "trade_entry" || t === "trade_exit" || t === "trade_trim") return true;
+      if (t === "investor_signal") {
+        const title = String(n?.title || "").toUpperCase();
+        if (title.includes("ON RADAR") || title.includes("WATCH") || title.includes("INFO")) return false;
+        return true;
+      }
+      if (t === "kanban") {
+        const title = String(n?.title || "").toUpperCase();
+        if (title.startsWith("SETUP:")) return false;
+        return true;
+      }
+      return false;
+    }, []);
 
     const TRADE_ALERT_TYPES = ["trade_entry", "trade_exit", "trade_trim"];
     const INVESTOR_ALERT_TYPES = ["investor_signal"];
@@ -1799,16 +1818,15 @@
       if (t === "kanban") return "watching";
       return null;
     };
+    const actionableNotifications = notifications.filter(isActionableNotif);
     const scopeFiltered = filter === "trade_alerts"
-      ? notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
+      ? actionableNotifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
       : filter === "investor_alerts"
-        ? notifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type))
-        : notifications;
-    const filteredNotifications = modeFilter === "all"
-      ? scopeFiltered
-      : scopeFiltered.filter((n) => notifMode(n) === modeFilter);
-    const tradeAlertsCount = notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
-    const investorAlertsCount = notifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type)).length;
+        ? actionableNotifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type))
+        : actionableNotifications;
+    const filteredNotifications = scopeFiltered;
+    const tradeAlertsCount = actionableNotifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
+    const investorAlertsCount = actionableNotifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type)).length;
 
     React.useEffect(() => {
       const handler = (event) => {
@@ -2118,33 +2136,6 @@
               border: "none", cursor: "pointer",
             },
           }, "Investor" + (investorAlertsCount > 0 ? " (" + investorAlertsCount + ")" : "")),
-          h("button", {
-            onClick: () => setModeFilter("all"),
-            style: {
-              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
-              background: modeFilter === "all" ? "rgba(255,255,255,0.08)" : "transparent",
-              color: modeFilter === "all" ? "#e5e7eb" : "#6b7280",
-              border: "none", cursor: "pointer",
-            },
-          }, "All modes"),
-          h("button", {
-            onClick: () => setModeFilter("doing"),
-            style: {
-              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
-              background: modeFilter === "doing" ? "rgba(251,146,60,0.12)" : "transparent",
-              color: modeFilter === "doing" ? "#fdba74" : "#6b7280",
-              border: "none", cursor: "pointer",
-            },
-          }, "Doing"),
-          h("button", {
-            onClick: () => setModeFilter("watching"),
-            style: {
-              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
-              background: modeFilter === "watching" ? "rgba(255,255,255,0.06)" : "transparent",
-              color: modeFilter === "watching" ? "#9ca3af" : "#6b7280",
-              border: "none", cursor: "pointer", borderStyle: modeFilter === "watching" ? "dashed" : "none",
-            },
-          }, "Watching"),
         ),
         // List
         h("div", { style: { overflowY: "auto", maxHeight: "360px" } },
@@ -2153,7 +2144,7 @@
                 h("p", { style: { fontSize: "13px", color: "#4b5563" } },
                   filter === "trade_alerts" ? "No trader alerts"
                     : filter === "investor_alerts" ? "No investor signals"
-                    : "No notifications yet"),
+                    : "No model actions yet"),
               )
             : filteredNotifications.map(n =>
                 h("div", {

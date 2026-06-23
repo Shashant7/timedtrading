@@ -385,18 +385,32 @@
     return parts.join(" · ");
   }
 
-  function isExecutionActivityEvent(ev) {
+  function isActionableActivityEvent(ev) {
+    const SG = window.TimedSignalGrammar;
+    const meta = classifyEvent(ev);
+    if (SG && typeof SG.isActionableFeedEvent === "function") {
+      return SG.isActionableFeedEvent(ev, meta);
+    }
     const sym = String(ev?.ticker || ev?.symbol || "").toUpperCase();
     if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
     const t = String(ev?.type || ev?.event || "").toUpperCase();
     if (t === "SIGNAL_GRADED") return false;
-    if (t === "INVESTOR_SIGNAL") return true;
+    if (t === "TRADE_EXIT_SIGNAL") return true;
     const traderTypes = new Set([
       "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM",
       "EXIT", "TP_HIT_EXIT", "SL_HIT",
-      "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "TRADE_EXIT_SIGNAL",
+      "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT",
     ]);
-    return traderTypes.has(t);
+    if (traderTypes.has(t)) return true;
+    const invT = String(ev?.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add" || invT === "position_trim" || invT === "position_close") return true;
+    if (t === "INVESTOR_SIGNAL") {
+      const act = String(ev?.action || "").toUpperCase();
+      if (act.includes("ON RADAR") || act.includes("WATCH") || act.includes("INFO")) return false;
+      if (act.includes("ACCUMULATE") || act.includes("REDUCE") || act.includes("REVIEW")) return true;
+      return meta.mode === "doing" && meta.label !== "WATCH";
+    }
+    return false;
   }
 
   function openActivityEvent(ev, sym, meta) {
@@ -459,8 +473,8 @@
   }
 
   function render(host, events) {
-    const arr = applyModeFilter(Array.isArray(events) ? events : [])
-      .filter(isExecutionActivityEvent)
+    const arr = (Array.isArray(events) ? events : [])
+      .filter(isActionableActivityEvent)
       .slice();
     arr.sort((a, b) => {
       const norm = (x) => { const n = Number(x?.ts ?? x?.timestamp ?? 0); return n > 1e12 ? n : n * 1000; };
@@ -476,30 +490,13 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Did · Watching · opens Now or History";
-      const filters = document.createElement("div");
-      filters.className = "tt-activity-strip__filters";
-      ["all", "doing", "watching"].forEach((mode) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "tt-activity-strip__filter" + (_modeFilter === mode ? " is-active" : "");
-        btn.textContent = mode === "all" ? "All" : mode === "doing" ? "Did" : "Watching";
-        btn.addEventListener("click", (e) => {
-          e.preventDefault();
-          _modeFilter = mode;
-          host.querySelectorAll(".tt-activity-strip__filter").forEach((el) => {
-            el.classList.toggle("is-active", el.textContent.toLowerCase() === mode || (mode === "all" && el.textContent === "All") || (mode === "doing" && el.textContent === "Did"));
-          });
-          render(host, _events);
-        });
-        filters.appendChild(btn);
-      });
+      hint.textContent = "Did · Ready · Queued — opens Now or History";
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
       row.className = "tt-activity-strip__row";
       scroll.appendChild(row);
-      inner.append(label, hint, filters, scroll);
+      inner.append(label, hint, scroll);
       host.appendChild(inner);
       host._row = row;
     }
@@ -509,7 +506,7 @@
     if (!visible.length) {
       const empty = document.createElement("span");
       empty.className = "tt-activity-strip__empty";
-      empty.textContent = "No recent system events.";
+      empty.textContent = "No recent model actions.";
       row.appendChild(empty);
       return;
     }
@@ -528,11 +525,13 @@
       pill.className = `tt-activity-pill ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
       pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
       const scopeLabel = meta.scope === "investor" ? "INVESTOR" : "TRADER";
-      pill.title = [scopeLabel, meta.mode === "doing" ? "DOING" : "WATCHING", meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      pill.title = [scopeLabel, meta.execState === "recommended" ? "READY" : "DID", meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
 
       const modeEl = document.createElement("span");
       modeEl.className = "ev-mode";
-      modeEl.textContent = meta.execState === "recommended" ? "REC" : (meta.mode === "doing" ? "DID" : "WATCH");
+      modeEl.textContent = meta.execState === "recommended"
+        ? (meta.label === "ACCUM" ? "QUEUE" : "READY")
+        : "DID";
       pill.appendChild(modeEl);
 
       // Scope chip — Investor vs Active Trader at a glance (operator request).
@@ -580,18 +579,7 @@
   }
 
   let _events = [];
-  let _modeFilter = "all"; // all | doing | watching
 
-  function applyModeFilter(events) {
-    const arr = Array.isArray(events) ? events : [];
-    if (_modeFilter === "all") return arr;
-    return arr.filter((ev) => {
-      const meta = classifyEvent(ev);
-      const mode = String(ev?.mode || ev?.alert_class || meta.mode || "").toLowerCase();
-      if (_modeFilter === "doing") return mode === "doing" || meta.execState === "done" || meta.execState === "recommended";
-      return mode === "watching" || meta.mode === "watching";
-    });
-  }
   function isAdmin() {
     return window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
   }
@@ -703,4 +691,4 @@
   else mount();
 })();
 
-// cache-bust:1782239283062:285719618
+// cache-bust:1782240066945:313569128

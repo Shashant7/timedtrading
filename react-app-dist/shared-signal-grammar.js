@@ -68,6 +68,36 @@
     return null;
   }
 
+  var INVESTOR_PASSIVE_ALERT_VERBS = ["MODEL · ON RADAR", "MODEL · WATCH", "MODEL · INFO"];
+  var INVESTOR_ACTIONABLE_ALERT_VERBS = [
+    "MODEL · ACCUMULATE", "MODEL · REDUCE", "MODEL · TRIMMED", "MODEL · EXITED",
+    "MODEL · REVIEW", "MODEL · ADD", "ACCUMULATE", "ADD ON PULLBACK",
+    "REDUCE / EXIT", "TRIM / REDUCE", "REVIEW PORTFOLIO",
+  ];
+  var TRADER_EXEC_FEED_TYPES = [
+    "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "ENTRY", "ENTER", "ADD", "ADD_ENTRY",
+    "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT",
+  ];
+  var INVESTOR_EXEC_ALERT_TYPES = ["position_add", "position_trim", "position_close"];
+  var ACTIONABLE_KANBAN_STAGES = [
+    "in_review", "enter", "enter_now", "just_flipped", "just_entered",
+    "hold", "active", "defend", "trim", "exiting", "exit",
+  ];
+
+  function normalizeInvestorVerb(raw) {
+    var v = String(raw || "").trim();
+    if (!v) return "";
+    if (v.indexOf("MODEL ·") === 0) return v;
+    var upper = v.toUpperCase();
+    if (upper.indexOf("ACCUMULATE") === 0) return "MODEL · ACCUMULATE";
+    if (upper.indexOf("REDUCE") === 0) return "MODEL · REDUCE";
+    if (upper.indexOf("ADD") === 0) return "MODEL · ADD";
+    if (upper.indexOf("TRIM") >= 0) return "MODEL · TRIMMED";
+    if (upper.indexOf("EXIT") >= 0) return "MODEL · EXITED";
+    if (upper.indexOf("REVIEW") >= 0) return "MODEL · REVIEW";
+    return v;
+  }
+
   function classifyActivityEvent(ev) {
     var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
     if (invT === "position_add") {
@@ -97,24 +127,125 @@
     var cls = "";
     var invExecDone = false;
     if (t === "INVESTOR_SIGNAL") {
-      var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
-      if (invT === "position_add") { action = "add"; label = "ADD"; evType = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
-      else if (invT === "position_trim") { action = "trim"; label = "TRIM"; evType = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true; }
-      else if (invT === "position_close") { action = "exit"; label = "EXIT"; evType = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true; }
-      else { action = "accumulate"; label = "WATCH"; evType = "INVESTOR_SIGNAL"; cls = "ev-watching"; }
+      var invT2 = String(ev && ev.investor_alert_type || "").toLowerCase();
+      if (invT2 === "position_add") { action = "add"; label = "ADD"; evType = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
+      else if (invT2 === "position_trim") { action = "trim"; label = "TRIM"; evType = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true; }
+      else if (invT2 === "position_close") { action = "exit"; label = "EXIT"; evType = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true; }
+      else {
+        var verb = normalizeInvestorVerb(ev && ev.action);
+        if (verb === "MODEL · ACCUMULATE") {
+          action = "accumulate"; label = "ACCUM"; evType = "INVESTOR_SIGNAL"; cls = "ev-recommended ev-doing";
+          isDoing = true;
+        } else if (verb === "MODEL · REDUCE") {
+          action = "reduce"; label = "REDUCE"; evType = "INVESTOR_SIGNAL"; cls = "ev-trim ev-recommended ev-doing";
+          isDoing = true;
+        } else if (verb === "MODEL · REVIEW") {
+          action = "review"; label = "REVIEW"; evType = "INVESTOR_SIGNAL"; cls = "ev-recommended ev-doing";
+          isDoing = true;
+        } else {
+          action = "accumulate"; label = "WATCH"; evType = "INVESTOR_SIGNAL"; cls = "ev-watching";
+        }
+      }
     } else if (t.indexOf("TRIM") >= 0 || t === "TP_HIT_TRIM") { label = "TRIM"; evType = "TRIM"; cls = "ev-trim"; }
     else if (t.indexOf("EXIT") >= 0 || t === "SL_HIT") { label = "EXIT"; evType = "EXIT"; cls = "ev-exit"; }
     else if (t.indexOf("ENTRY") >= 0 || t === "ENTER" || t === "ADD") { label = t.indexOf("ADD") >= 0 || t === "ADD" ? "ADD" : "ENTER"; evType = label; cls = "ev-entry"; }
     var mode = invExecDone || isDoing ? "doing" : "watching";
+    var execStateOut = invExecDone || isDoing ? "done" : "watching";
+    if (t === "INVESTOR_SIGNAL" && (label === "ACCUM" || label === "REDUCE" || label === "REVIEW")) {
+      execStateOut = "recommended";
+    }
     return {
       engine: engine,
       mode: mode,
-      execState: invExecDone || isDoing ? "done" : "watching",
+      execState: execStateOut,
       label: label,
       evType: evType,
       scope: engine,
       cls: cls || (mode === "doing" ? "ev-doing" : "ev-watching"),
     };
+  }
+
+  function investorVerbFromNotification(n) {
+    var title = String(n && n.title || "");
+    var m = title.match(/^(?:INVESTOR|MODEL)\s*·\s*([^:]+)/i);
+    if (m) return normalizeInvestorVerb("MODEL · " + m[1].trim());
+    return normalizeInvestorVerb(title);
+  }
+
+  function kanbanStageFromNotification(n) {
+    var body = String(n && n.body || "").toLowerCase();
+    var m = body.match(/moved to ([a-z_]+)/i);
+    if (m) return String(m[1]).toLowerCase();
+    var title = String(n && n.title || "").toLowerCase();
+    if (title.indexOf("under review") >= 0) return "in_review";
+    if (title.indexOf("position initiated") >= 0) return "just_entered";
+    if (title.indexOf("holding") >= 0) return "hold";
+    if (title.indexOf("defending") >= 0) return "defend";
+    if (title.indexOf("exit signal") >= 0) return "exit";
+    if (title.indexOf("setup") >= 0) return "setup";
+    return "";
+  }
+
+  function verbInSet(verb, list) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] === verb) return true;
+    }
+    return false;
+  }
+
+  function stageActionable(stage) {
+    for (var i = 0; i < ACTIONABLE_KANBAN_STAGES.length; i++) {
+      if (ACTIONABLE_KANBAN_STAGES[i] === stage) return true;
+    }
+    return false;
+  }
+
+  function isActionableFeedEvent(ev, meta) {
+    if (!ev) return false;
+    var sym = String(ev.ticker || ev.symbol || "").toUpperCase();
+    if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
+    var t = String(ev.type || ev.event || "").toUpperCase();
+    if (t === "SIGNAL_GRADED") return false;
+    if (t === "TRADE_EXIT_SIGNAL") return true;
+    if (TRADER_EXEC_FEED_TYPES.indexOf(t) >= 0) return true;
+    var invType = String(ev.investor_alert_type || "").toLowerCase();
+    if (INVESTOR_EXEC_ALERT_TYPES.indexOf(invType) >= 0) return true;
+    if (t === "INVESTOR_SIGNAL") {
+      var verb = normalizeInvestorVerb(ev.action);
+      if (verbInSet(verb, INVESTOR_PASSIVE_ALERT_VERBS)) return false;
+      if (verbInSet(verb, INVESTOR_ACTIONABLE_ALERT_VERBS)) return true;
+      if (invType === "thesis_invalidation") return true;
+      if (meta) {
+        if (meta.execState === "recommended") return true;
+        if (meta.mode === "doing" && meta.execState === "done") return true;
+        if (meta.label === "WATCH" || meta.label === "UPDATE") return false;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  function isActionableNotification(n) {
+    if (!n) return false;
+    var t = String(n.type || "").toLowerCase();
+    if (t === "trade_entry" || t === "trade_exit" || t === "trade_trim") return true;
+    if (t === "investor_signal") {
+      var verb = investorVerbFromNotification(n);
+      if (verbInSet(verb, INVESTOR_PASSIVE_ALERT_VERBS)) return false;
+      if (verbInSet(verb, INVESTOR_ACTIONABLE_ALERT_VERBS)) return true;
+      var exec = String(n.exec_state || "").toLowerCase();
+      var cls = String(n.alert_class || n.mode || "").toLowerCase();
+      if (exec === "recommended" || exec === "done" || cls === "doing") return true;
+      return false;
+    }
+    if (t === "kanban") {
+      var stage = kanbanStageFromNotification(n);
+      if (stage && !stageActionable(stage)) return false;
+      var title = String(n.title || "").toUpperCase();
+      if (title.indexOf("SETUP:") === 0) return false;
+      return true;
+    }
+    return false;
   }
 
   function renderSignalChips(signal) {
@@ -133,10 +264,12 @@
     investorLaneMeta: investorLaneMeta,
     classifyActivityEvent: classifyActivityEvent,
     investorEvType: investorEvType,
+    isActionableFeedEvent: isActionableFeedEvent,
+    isActionableNotification: isActionableNotification,
     renderSignalChips: renderSignalChips,
     TRADER_LANE_META: TRADER_LANE_META,
     INVESTOR_LANE_META: INVESTOR_LANE_META,
   };
 })();
 
-// cache-bust:1782239283062:285719618
+// cache-bust:1782240066945:313569128

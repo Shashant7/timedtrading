@@ -8,6 +8,8 @@ import {
   classifyActivityEvent,
   traderLaneMeta,
   investorLaneMeta,
+  isActionableFeedEvent,
+  isActionableNotification,
 } from "./signal-grammar.js";
 
 describe("buildSignal", () => {
@@ -73,9 +75,80 @@ describe("classifyActivityEvent", () => {
       type: "INVESTOR_SIGNAL",
       ticker: "SOFI",
       investor_alert_type: "accumulation_zone",
+      action: "MODEL · ON RADAR",
     });
     expect(c.label).toBe("WATCH");
     expect(c.mode).toBe("watching");
+  });
+
+  it("classifies investor accumulate-ready as recommended doing", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SOFI",
+      investor_alert_type: "accumulation_zone",
+      action: "MODEL · ACCUMULATE",
+    });
+    expect(c.label).toBe("ACCUM");
+    expect(c.execState).toBe("recommended");
+    expect(c.mode).toBe("doing");
+  });
+});
+
+describe("isActionableFeedEvent", () => {
+  it("includes trader exit signal and lot fills", () => {
+    expect(isActionableFeedEvent({ type: "TRADE_EXIT_SIGNAL", ticker: "MU" })).toBe(true);
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "CRDO",
+      investor_alert_type: "position_add",
+    })).toBe(true);
+  });
+
+  it("excludes passive on-radar investor alerts", () => {
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "FSLR",
+      action: "MODEL · ON RADAR",
+      investor_alert_type: "accumulation_zone",
+    })).toBe(false);
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "NVDA",
+      action: "MODEL · WATCH",
+      investor_alert_type: "rs_breakout",
+    })).toBe(false);
+  });
+
+  it("includes execution-ready accumulate", () => {
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SOFI",
+      action: "MODEL · ACCUMULATE",
+      investor_alert_type: "accumulation_zone",
+    })).toBe(true);
+  });
+});
+
+describe("isActionableNotification", () => {
+  it("excludes passive investor and setup kanban", () => {
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "INVESTOR · ON RADAR: FSLR",
+    })).toBe(false);
+    expect(isActionableNotification({
+      type: "kanban",
+      title: "Setup: AAPL",
+      body: "AAPL moved to setup (from new)",
+    })).toBe(false);
+  });
+
+  it("includes trade alerts and under-review kanban", () => {
+    expect(isActionableNotification({ type: "trade_entry", title: "Enter MU" })).toBe(true);
+    expect(isActionableNotification({
+      type: "kanban",
+      title: "Under Review: MU",
+      body: "MU moved to in_review (from enter)",
+    })).toBe(true);
   });
 });
 
