@@ -1081,7 +1081,7 @@
           ),
         ),
 
-        h("details", { style: { marginBottom: "var(--ds-space-3)" } },
+        h("details", { open: true, style: { marginBottom: "var(--ds-space-3)" } },
           h("summary", {
             style: {
               fontSize: 11,
@@ -3534,6 +3534,11 @@
         const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
         const [ledgerTradesError, setLedgerTradesError] = useState(null);
 
+        const isTradeOpenSafe = (tr) => {
+          try { return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false; }
+          catch (_) { return false; }
+        };
+
         // ─────────────────────────────────────────────────────────────
         // 2026-05-28 — Resolve `trade` from ledgerTrades when the caller
         // did not pass one explicitly.
@@ -3554,19 +3559,14 @@
         // (e.g. simulation-dashboard's trade-detail entrypoint).
         // ─────────────────────────────────────────────────────────────
         const effectiveTrade = useMemo(() => {
-          if (trade) return trade;
+          if (trade && isTradeOpenSafe(trade)) return trade;
           if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
           const symUp = tickerSymbol.toUpperCase();
           if (!symUp) return null;
-          // Prefer an explicitly OPEN row; otherwise any non-WIN/non-LOSS
-          // row (TP_HIT_TRIM intermediate state, or rows where status
-          // hasn't been written yet but exit_ts is unset).
           let candidate = null;
           for (const t of ledgerTrades) {
             if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
-            const st = String(t?.status || "").toUpperCase();
-            if (st === "WIN" || st === "LOSS") continue;
-            // Newest entry wins
+            if (!isTradeOpenSafe(t)) continue;
             if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
               candidate = t;
             }
@@ -3591,12 +3591,8 @@
         // that pass `trade` as a prop still get exactly that trade
         // via `effectiveTrade` for back-compat.
         const effectiveTraderTrade = useMemo(() => {
-          const isOpen = (tr) => {
-            try { return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false; }
-            catch (_) { return false; }
-          };
-          if (trade && trade._source_mode !== "investor" && isOpen(trade)) return trade;
-          if (ticker?._openTrade && isOpen(ticker._openTrade)) return ticker._openTrade;
+          if (trade && trade._source_mode !== "investor" && isTradeOpenSafe(trade)) return trade;
+          if (ticker?._openTrade && isTradeOpenSafe(ticker._openTrade)) return ticker._openTrade;
           if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
           const symUp = tickerSymbol.toUpperCase();
           if (!symUp) return null;
@@ -3604,7 +3600,7 @@
           for (const t of ledgerTrades) {
             if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
             if (t?._source_mode === "investor") continue;
-            if (!isOpen(t)) continue;
+            if (!isTradeOpenSafe(t)) continue;
             if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
               candidate = t;
             }
@@ -3612,7 +3608,7 @@
           return candidate;
         }, [trade, ticker?._openTrade, ledgerTrades, tickerSymbol]);
         const effectiveInvestorTrade = useMemo(() => {
-          if (trade && trade._source_mode === "investor") return trade;
+          if (trade && trade._source_mode === "investor" && isTradeOpenSafe(trade)) return trade;
           if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
           const symUp = tickerSymbol.toUpperCase();
           if (!symUp) return null;
@@ -3620,8 +3616,7 @@
           for (const t of ledgerTrades) {
             if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
             if (t?._source_mode !== "investor") continue;
-            const st = String(t?.status || "").toUpperCase();
-            if (st === "WIN" || st === "LOSS") continue;
+            if (!isTradeOpenSafe(t)) continue;
             if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
               candidate = t;
             }
@@ -6188,20 +6183,15 @@
             const pcDir = String(predictionContract.direction).toUpperCase();
             if (pcDir === "LONG" || pcDir === "SHORT") return pcDir;
           }
-          // 2. Server-provided position direction
-          const posDirStr = String(ticker?.position_direction || "").toUpperCase();
-          if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
-          // 3. Open trade direction (fallback when no prediction available)
-          // 2026-05-28 — use effectiveTrade so pages that don't pass `trade`
-          // explicitly (today / portfolio / active-trader) still benefit.
+          // 2. Verified open trader trade direction
+          if (isTradeOpenSafe(effectiveTraderTrade)) {
+            const tradeDirStr = String(effectiveTraderTrade?.direction || "").toUpperCase();
+            if (tradeDirStr === "LONG" || tradeDirStr === "SHORT") return tradeDirStr;
+          }
+          // 3. Open trade direction (legacy prop path)
           const trade = effectiveTrade;
           const tradeDirStr = String(trade?.direction || "").toUpperCase();
-          const tradeStatus = String(trade?.status || "").toUpperCase();
-          const tradeIsOpen = trade && (
-            tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
-            (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
-          );
-          if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
+          if (isTradeOpenSafe(trade) && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
           // 4. HTF state (primary trend)
           const state = String(ticker?.state || "");
           if (state.startsWith("HTF_BULL")) return "LONG";
@@ -6378,7 +6368,7 @@
               if (d === "LONG" || d === "SHORT") return d;
             }
             const posDir = String(ticker?.position_direction || "").toUpperCase();
-            if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+            if (isTradeOpenSafe(effectiveTraderTrade) && (posDir === "LONG" || posDir === "SHORT")) return posDir;
             try {
               const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection
                 ? window.TimedPriceUtils.inferModelDirection(ticker)
@@ -6392,12 +6382,8 @@
           })();
           const v2Dir = v2BiasDirection;
           const v2TraderPosture = (() => {
-            const isOpen = (tr) => {
-              try { return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false; }
-              catch (_) { return false; }
-            };
-            const openTr = effectiveTraderTrade || ticker?._openTrade;
-            if (isOpen(openTr)) {
+            const openTr = effectiveTraderTrade;
+            if (isTradeOpenSafe(openTr)) {
               const odir = String(openTr.direction || "").toUpperCase();
               if (odir === "LONG" || odir === "SHORT") {
                 return {
@@ -6426,9 +6412,9 @@
               if (helper) {
                 return helper({
                   ...ticker,
-                  _openTrade: effectiveTraderTrade || ticker?._openTrade,
-                  has_open_position: !!(effectiveTraderTrade || ticker?.has_open_position),
-                  position_direction: effectiveTraderTrade?.direction || ticker?.position_direction,
+                  _openTrade: effectiveTraderTrade || null,
+                  has_open_position: isTradeOpenSafe(effectiveTraderTrade),
+                  position_direction: effectiveTraderTrade?.direction || undefined,
                 });
               }
             } catch (_) {}
@@ -7038,13 +7024,14 @@
           const v2Tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
           // ── Position values ────────────────────────────────────────
           const v2Pos = (() => {
-            if (!trade) return null;
-            const ep = Number(trade.entry_price ?? trade.entryPrice) || null;
+            const tr = effectiveTraderTrade;
+            if (!isTradeOpenSafe(tr)) return null;
+            const ep = Number(tr.entry_price ?? tr.entryPrice) || null;
             if (!ep) return null;
             const cur = v2Price || ep;
-            const isLong = String(trade.direction || "LONG").toUpperCase() === "LONG";
+            const isLong = String(tr.direction || "LONG").toUpperCase() === "LONG";
             const pnlPct = isLong ? ((cur - ep) / ep * 100) : ((ep - cur) / ep * 100);
-            return { entry: ep, current: cur, pnlPct, sl: Number(trade.sl) || null, tp: Number(trade.tp) || null };
+            return { entry: ep, current: cur, pnlPct, sl: Number(tr.sl) || null, tp: Number(tr.tp) || null, trade: tr };
           })();
           // ── Sparkline SVG ──────────────────────────────────────────
           const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
@@ -7083,11 +7070,11 @@
                   // a trade and the level is just a planning anchor). Resolve trade
                   // status here so we can pick the right phrase.
                   const _hdrTrade = effectiveTraderTrade;
-                  const _hdrTradeIsOpen = !!(window.TimedPriceUtils?.isTradeOpen?.(_hdrTrade));
+                  const _hdrTradeIsOpen = isTradeOpenSafe(_hdrTrade);
                   const _mgmtStage = ["trim", "hold", "active", "just_entered", "defend"].includes(stage);
                   const _hdrPosturePending = ledgerTradesLoading
                     && !_hdrTradeIsOpen
-                    && (_mgmtStage || !!(ticker?._openTrade || ticker?.has_open_position || trade));
+                    && (_mgmtStage || !!trade);
                   const stageChip = (() => {
                     if (stage === "trim") return { label: "TRIM", cls: "ds-chip--accent" };
                     if (stage === "defend") return { label: "DEFEND", cls: "ds-chip--dn" };
@@ -8156,11 +8143,7 @@
                         // produced the "HOLDING [SHORT]" nonsense the
                         // operator reported.
                         const traderTrade = effectiveTraderTrade;
-                        const tradeOpen = !!(traderTrade && (() => {
-                          const s = String(traderTrade?.status || "").toUpperCase();
-                          return s === "OPEN" || s === "TP_HIT_TRIM"
-                            || (!(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                        })());
+                        const tradeOpen = isTradeOpenSafe(traderTrade);
 
                         // VERDICT resolution. Order matters — most actionable wins.
                         // 2026-06-03 — Trade-management verdicts (HOLDING / TRIM
@@ -8682,10 +8665,8 @@
 
                       {effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
                         const tt = effectiveTraderTrade;
+                        if (!isTradeOpenSafe(tt)) return null;
                         const st = String(tt?.status || "").toUpperCase();
-                        const isOpen = st === "OPEN" || st === "TP_HIT_TRIM"
-                          || (!(tt?.exit_ts ?? tt?.exitTs) && st !== "WIN" && st !== "LOSS" && st !== "FLAT" && st !== "ARCHIVED");
-                        if (!isOpen) return null;
                         const dir = String(tt?.direction || "LONG").toUpperCase();
                         const isLong = dir !== "SHORT";
                         const entry = Number(tt?.entryPrice ?? tt?.entry_price);
@@ -9591,7 +9572,7 @@
 
                       {/* Position panel — only when open trade exists; with vertical price-level viz */}
                       {snapshotViewMode === "trader" && v2Pos && (
-                        <Panel title="Position" action={<span className={`ds-chip ds-chip--sm ${v2DirChip}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{trade?.direction || v2Dir}</span>}>
+                        <Panel title="Position" action={<span className={`ds-chip ds-chip--sm ${v2DirChip}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{v2Pos.trade?.direction || v2Dir}</span>}>
                           {/* Vertical price ladder: SL ─ Entry ─ Current ─ TP */}
                           {(() => {
                             const entry = v2Pos.entry;
@@ -9599,7 +9580,7 @@
                             const sl = v2Pos.sl;
                             const tp = v2Pos.tp;
                             if (!entry) return null;
-                            const isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+                            const isLong = String(v2Pos.trade?.direction || "LONG").toUpperCase() === "LONG";
                             // Build levels with relative position 0..100
                             const allPx = [entry, current, sl, tp].filter(p => Number.isFinite(p) && p > 0);
                             if (allPx.length < 2) return null;
@@ -9708,22 +9689,14 @@
                           const traderOpen = arr.filter((x) =>
                             String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase()
                             && (x?._source_mode === "trader" || !x?._source_mode)
-                            && (() => {
-                              const s = String(x?.status || "").toUpperCase();
-                              return s === "OPEN" || s === "TP_HIT_TRIM"
-                                || (!(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                            })()
+                            && isTradeOpenSafe(x)
                           );
                           if (traderOpen.length > 0) return { kind: "trader", t: traderOpen[0] };
                           // No trader open — is there an investor holding?
                           const investorOpen = arr.find((x) =>
                             String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase()
                             && x?._source_mode === "investor"
-                            && (() => {
-                              const s = String(x?.status || "").toUpperCase();
-                              return s === "OPEN" || s === "TP_HIT_TRIM"
-                                || (!(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                            })()
+                            && isTradeOpenSafe(x)
                           );
                           if (investorOpen) return { kind: "investor", t: investorOpen };
                           // Fall back to the prop trade ONLY if it's not an
@@ -9769,11 +9742,8 @@
                           );
                         }
                         const t = candidates.t;
+                        if (!isTradeOpenSafe(t)) return null;
                         const _trStatus = String(t.status || "").toUpperCase();
-                        const _isOpen = _trStatus === "OPEN"
-                          || _trStatus === "TP_HIT_TRIM"
-                          || (!(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED");
-                        if (!_isOpen) return null;
                         const dirRaw = String(t.direction || "").toUpperCase();
                         const isLong = dirRaw !== "SHORT";
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
@@ -13259,7 +13229,7 @@
                     <InvestorTabPanel
                       ticker={ticker}
                       latestTicker={latestTicker}
-                      effectiveTrade={effectiveTrade}
+                      effectiveTrade={effectiveInvestorTrade}
                       tickerSymbol={tickerSymbol}
                       API_BASE={API_BASE}
                     />
@@ -13369,7 +13339,7 @@
                         ) : ledgerTrades.length === 0 ? (
                           <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
                             No prior trades on this ticker.
-                            {(ticker?.has_open_position || latestTicker?.has_open_position) && (
+                            {isTradeOpenSafe(effectiveTraderTrade) && (
                               <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(56,242,161,0.08)", border: "1px solid rgba(56,242,161,0.25)", borderRadius: "var(--ds-radius-xs)", color: "var(--ds-accent)", fontSize: "var(--ds-fs-caption)" }}>
                                 ⚠ This ticker shows an open position but no trade row was found in the ledger.
                                 The trade row may not have been written yet (entry signal stamped but execution didn't persist).
@@ -13929,7 +13899,7 @@
                     <InvestorTabPanel
                       ticker={ticker}
                       latestTicker={latestTicker}
-                      effectiveTrade={effectiveTrade}
+                      effectiveTrade={effectiveInvestorTrade}
                       tickerSymbol={tickerSymbol}
                       API_BASE={API_BASE}
                     />
