@@ -600,7 +600,7 @@ function ATCard({
       color: "var(--ds-text-faint)",
       lineHeight: 1.4
     }
-  }, "Timed Trading model exited this runner — not a live broker fill.")) : null;
+  }, "Timed Trading model exited this runner.")) : null;
   const progressMid = progressBarData && (() => {
     const {
       xPct,
@@ -1846,6 +1846,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782245701908:156933603
+// cache-bust:1782245778752:185400246
 
-// cache-bust:1782245701908:156933603
+// cache-bust:1782245778752:185400246
