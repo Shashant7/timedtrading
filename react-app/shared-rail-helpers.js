@@ -1067,8 +1067,162 @@
         accumulate: "Accumulate",
         core_hold: "Core Hold",
         reduce: "Reduce",
+        research_on_watch: "On Radar",
+        research_low: "Low Conviction",
+        research_avoid: "Avoid",
       };
       return map[s] || String(stage || "").replace(/_/g, " ") || "—";
+    },
+    /** Matches investor-panel.js — keep in sync with TTInvestorLane. */
+    deriveInvestorActionTier(row) {
+      if (window.TTInvestorLane?.deriveActionTier) return window.TTInvestorLane.deriveActionTier(row);
+      const stage = String(row?.stage || "");
+      if (stage !== "accumulate" && stage !== "reduce") return null;
+      const owned = !!(row?.position?.owned);
+      const simEligible = row?.simEligible === true;
+      const inZone = !!(row?.accumZone?.inZone);
+      const score = Number(row?.score) || 0;
+      const lastTs = Number(row?.position?.last_action_ts) || 0;
+      const lastType = String(row?.position?.last_action_type || "");
+      const agoMs = lastTs > 0 ? Date.now() - lastTs : 0;
+      const stale = owned && lastTs > 0 && agoMs > 7 * 86400000 && (
+        (stage === "reduce" && lastType !== "SELL") ||
+        (stage === "accumulate" && !["BUY", "DCA_BUY"].includes(lastType))
+      );
+      if (stale) return "stale";
+      if (stage === "accumulate") {
+        if (inZone && simEligible) return "act_now";
+        if (simEligible || (inZone && score >= 65)) return "ready";
+        return "monitor";
+      }
+      if (simEligible) return "act_now";
+      if (owned) return "ready";
+      return "monitor";
+    },
+    isInvestorExecuteReady(row) {
+      if (window.TTInvestorLane?.isExecuteReady) return window.TTInvestorLane.isExecuteReady(row);
+      const tier = window.TimedRailHelpers?.deriveInvestorActionTier?.(row);
+      return tier === "act_now" || tier === "ready";
+    },
+    resolveInvestorKanbanStage(row) {
+      if (window.TTInvestorLane?.resolveKanbanStage) return window.TTInvestorLane.resolveKanbanStage(row);
+      let stage = String(row?.stage || "research_avoid");
+      if (stage === "research") stage = "research_avoid";
+      const owned = !!(row?.position?.owned);
+      if (!owned) {
+        if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
+        else if (stage === "reduce") stage = "research_low";
+      }
+      if (stage === "accumulate" && !window.TimedRailHelpers.isInvestorExecuteReady(row)) {
+        stage = owned ? "watch" : "research_on_watch";
+      }
+      return stage;
+    },
+    INVESTOR_LANE_CHIP_META: {
+      accumulate:        { label: "ACCUMULATE", chip: "ds-chip--up",     title: "Investor board: execution-ready — buy zone + trend alignment." },
+      core_hold:         { label: "CORE HOLD",  chip: "ds-chip--solid", title: "Investor board: hold the core; add on meaningful pullbacks.", style: { color: "#60a5fa", borderColor: "rgba(96,165,250,0.30)", background: "rgba(96,165,250,0.10)" } },
+      watch:             { label: "HOLD & WATCH", chip: "ds-chip--solid", title: "Investor board: owned — hold flat until the next signal.", style: { color: "#38F2A1", borderColor: "rgba(56,242,161,0.30)", background: "rgba(56,242,161,0.10)" } },
+      reduce:            { label: "REDUCE",     chip: "ds-chip--dn",    title: "Investor board: trim on rebalance or invalidation." },
+      research_on_watch: { label: "ON RADAR",   chip: "ds-chip--solid", title: "Investor board: tracking — not execution-ready yet.", style: { color: "#a78bfa", borderColor: "rgba(167,139,250,0.30)", background: "rgba(167,139,250,0.10)" } },
+      research_low:      { label: "LOW CONV.",  chip: "ds-chip--solid", title: "Investor board: low conviction — pass for now.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+      research_avoid:    { label: "AVOID",      chip: "ds-chip--dn",    title: "Investor board: multiple red flags — skip." },
+      research:          { label: "RESEARCH",   chip: "ds-chip--solid", title: "Investor board: under evaluation.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
+      exited:            { label: "EXITED",     chip: "ds-chip--solid", title: "Investor board: position closed; monitor for re-entry.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
+    },
+    INVESTOR_TIER_CHIP_META: {
+      act_now: { label: "ACT NOW", color: "#22c55e", title: "Execution-ready — model would open or add on the next rebalance." },
+      ready:   { label: "READY",   color: "#4ade80", title: "Structural alignment — rebalance candidate." },
+      monitor: { label: "MONITOR", color: "#6E867D", title: "Thesis signal only — not buying until the buy zone / trigger fires." },
+      stale:   { label: "STALE",   color: "#f59e0b", title: "Signal active >7 days without a matching lot action." },
+    },
+    /**
+     * Single source for rail header + Snapshot investor POV.
+     * displayStage = kanban lane (execution-aware); rawStage = classifier output.
+     */
+    buildInvestorDisplayContext(opts) {
+      opts = opts || {};
+      const sym = String(opts.tickerSymbol || opts.ticker?.ticker || opts.latestTicker?.ticker || "").trim().toUpperCase();
+      const investorData = opts.investorData && String(opts.investorData.ticker || "").toUpperCase() === sym
+        ? opts.investorData : null;
+      const rawStage = String(
+        investorData?.stage
+        || opts.ticker?.investor_stage
+        || opts.latestTicker?.investor_stage
+        || ""
+      ).toLowerCase();
+      if (!rawStage || rawStage === "—") return null;
+
+      const owned = !!(opts.effectiveInvestorTrade || investorData?.position?.owned);
+      const row = {
+        stage: rawStage,
+        score: Number(investorData?.score ?? opts.ticker?.investor_score ?? opts.latestTicker?.investor_score) || 0,
+        actionTier: investorData?.actionTier || null,
+        simEligible: investorData?.simEligible === true,
+        accumZone: investorData?.accumZone || null,
+        position: {
+          ...(investorData?.position || {}),
+          owned,
+          last_action_ts: investorData?.position?.last_action_ts,
+          last_action_type: investorData?.position?.last_action_type,
+        },
+      };
+
+      const H = window.TimedRailHelpers;
+      const displayStage = H.resolveInvestorKanbanStage(row);
+      const actionTier = row.actionTier || H.deriveInvestorActionTier(row);
+      const executeReady = H.isInvestorExecuteReady(row);
+      const laneMeta = H.INVESTOR_LANE_CHIP_META[displayStage] || H.INVESTOR_LANE_CHIP_META.watch;
+      const tierMeta = actionTier ? H.INVESTOR_TIER_CHIP_META[actionTier] : null;
+      const inBuyZone = !!(investorData?.accumZone?.inZone);
+
+      const LANE_GUIDANCE = {
+        accumulate: { laneLabel: "Accumulate", doNow: "The model scales in over 2–3 tranches inside the buy zone; no chasing extended moves." },
+        core_hold: { laneLabel: "Core Hold", doNow: "The model holds the core; adds only on meaningful pullbacks if the buy zone triggers again." },
+        watch: { laneLabel: "Hold & Watch", doNow: "The model holds flat and monitors signals; invalidation floor stays visible on the chart." },
+        reduce: { laneLabel: "Reduce", doNow: "The model trims ~30% per reduce cycle (or exits fully on invalidation breach)." },
+        research_on_watch: { laneLabel: "On Radar", doNow: "The model tracks the name; no capital deployment until execution-ready." },
+        research_low: { laneLabel: "Low Conviction", doNow: "The model passes — better setups elsewhere in the universe." },
+        research_avoid: { laneLabel: "Avoid", doNow: "The model skips — multiple red flags; no initiate or add." },
+        exited: { laneLabel: "Exited", doNow: "The model monitors for a fresh Accumulate signal before re-entry." },
+      };
+      const displayGuide = LANE_GUIDANCE[displayStage] || LANE_GUIDANCE.watch;
+
+      let signalNote = null;
+      if (rawStage === "accumulate" && displayStage !== "accumulate") {
+        signalNote = owned
+          ? "Accumulate thesis — owned but not execution-ready; shown in Hold & Watch until the buy zone triggers."
+          : "Accumulate thesis — tracking on On Radar until price enters the buy zone with trend alignment.";
+      } else if (rawStage === "reduce" && displayStage !== "reduce") {
+        signalNote = "Reduce thesis — not execution-ready on the Reduce lane yet.";
+      }
+
+      const statusLine = (() => {
+        if (!owned && rawStage === "accumulate" && !executeReady) {
+          if (inBuyZone) return "In buy zone but not fully aligned — model is monitoring, not buying yet.";
+          return "Waiting for buy zone entry — no model position opened yet.";
+        }
+        if (owned && rawStage === "accumulate" && !executeReady) {
+          return "Owned — accumulate signal active but model is not adding until the next trigger.";
+        }
+        return displayGuide.doNow;
+      })();
+
+      return {
+        sym,
+        rawStage,
+        displayStage,
+        displayGuide,
+        actionTier,
+        executeReady,
+        laneMeta,
+        tierMeta,
+        signalNote,
+        statusLine,
+        inBuyZone,
+        owned,
+        laneLabel: displayGuide.laneLabel,
+        displayLabel: laneMeta.label,
+      };
     },
     buildTraderLaneCardProps(ticker, opts) {
       opts = opts || {};

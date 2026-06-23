@@ -152,6 +152,13 @@
       return INVESTOR_STAGE_GUIDANCE[key] || INVESTOR_STAGE_GUIDANCE.watch;
     }
 
+    function buildInvestorDisplayContext(opts) {
+      if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
+        return window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+      }
+      return null;
+    }
+
     function investorInvalidationDisplay(investorData, livePx) {
       const inv = investorData?.primaryInvalidation;
       const price = Number(inv?.price ?? investorData?.thesisInvalidationPrice);
@@ -766,6 +773,14 @@
 
       const stage = String(detail?.stage || fallbackStage || "—").toLowerCase();
       const score = Number(detail?.score ?? fallbackScore);
+      const invCtx = buildInvestorDisplayContext({
+        investorData: detail ? { ticker: sym, ...detail } : (stage !== "—" ? { ticker: sym, stage, score } : null),
+        ticker,
+        latestTicker,
+        effectiveInvestorTrade: effectiveTrade,
+        tickerSymbol: sym,
+      });
+      const displayStage = invCtx?.displayStage || stage;
       const stageReason = detail?.stageReason || null;
       const components = detail?.components || null;
       const accumZone = detail?.accumZone || null;
@@ -788,7 +803,7 @@
         research_avoid: { label: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Skip", desc: "Multiple red flags. Avoid until the picture changes materially." },
         exited:     { label: "EXITED",     color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
       };
-      const stageInfo = STAGE_LABEL[stage] || STAGE_LABEL.watch;
+      const stageInfo = STAGE_LABEL[displayStage] || STAGE_LABEL[stage] || STAGE_LABEL.watch;
 
       const REASON_TRANSLATIONS = {
         score_declining:           "Score has trended down over recent weeks — the underlying setup is weakening.",
@@ -906,14 +921,24 @@
 
         // 1. Lane Guidance
         h(Panel, {
-          title: "📍 Investor Lane Guidance",
-          action: h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, stageInfo.label),
+          title: "Investor Lane Guidance",
+          action: h("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
+            invCtx?.tierMeta && h("span", {
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
+            }, invCtx.tierMeta.label),
+            h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, stageInfo.label),
+          ),
         },
+          invCtx?.signalNote && h("div", {
+            style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: "var(--ds-space-2)", padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" },
+          }, invCtx.signalNote),
           h("div", { style: { padding: "var(--ds-space-2)", background: stageInfo.bg, border: `1px solid ${stageInfo.border}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" } },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
-            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } }, stageInfo.action),
+            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } },
+              invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : (invCtx?.statusLine || stageInfo.action),
+            ),
             h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } },
-              stageInfo.desc,
+              invCtx?.statusLine || stageInfo.desc,
               invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold")
                 ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`
                 : "",
@@ -6990,30 +7015,32 @@
                           we want to surface). */}
                       {(() => {
                         const invSym = String(tickerSymbol || "").trim().toUpperCase();
-                        const liveInvStage = (investorData?.ticker === invSym) ? investorData?.stage : null;
-                        const invStage = String(
-                          liveInvStage || ticker?.investor_stage || latestTicker?.investor_stage || ""
-                        ).toLowerCase();
-                        if (!invStage || invStage === "—") return null;
-                        const INV_LANE_META = {
-                          accumulate:        { label: "ACCUMULATE", chip: "ds-chip--up",     title: "Investor: Strong setup + favorable entry. Build a starter position." },
-                          core_hold:         { label: "CORE HOLD",  chip: "ds-chip--solid", title: "Investor: Hold the core; add on meaningful pullbacks.", style: { color: "#60a5fa", borderColor: "rgba(96,165,250,0.30)", background: "rgba(96,165,250,0.10)" } },
-                          watch:             { label: "WATCH",      chip: "ds-chip--solid", title: "Investor: Mixed signals — hold; don't add.", style: { color: "#38F2A1", borderColor: "rgba(56,242,161,0.30)", background: "rgba(56,242,161,0.10)" } },
-                          reduce:            { label: "REDUCE",     chip: "ds-chip--dn",    title: "Investor: Thesis weakening — trim into strength." },
-                          research_on_watch: { label: "ON WATCH",   chip: "ds-chip--solid", title: "Investor: On the radar — not actionable yet.", style: { color: "#a78bfa", borderColor: "rgba(167,139,250,0.30)", background: "rgba(167,139,250,0.10)" } },
-                          research_low:      { label: "LOW CONV.",  chip: "ds-chip--solid", title: "Investor: Low conviction — pass for now.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
-                          research_avoid:    { label: "AVOID",      chip: "ds-chip--dn",    title: "Investor: Multiple red flags — skip." },
-                          research:          { label: "RESEARCH",   chip: "ds-chip--solid", title: "Investor: Under evaluation.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.30)", background: "rgba(156,163,175,0.10)" } },
-                          exited:            { label: "EXITED",     chip: "ds-chip--solid", title: "Investor: Position closed; monitor for re-entry.", style: { color: "#8AA39A", borderColor: "rgba(156,163,175,0.20)", background: "rgba(156,163,175,0.08)" } },
-                        };
-                        const meta = INV_LANE_META[invStage] || INV_LANE_META.watch;
+                        const ctx = buildInvestorDisplayContext({
+                          investorData,
+                          ticker,
+                          latestTicker,
+                          effectiveInvestorTrade,
+                          tickerSymbol: invSym,
+                        });
+                        if (!ctx) return null;
+                        const chipTitle = [
+                          ctx.laneMeta.title,
+                          ctx.tierMeta?.title,
+                          ctx.signalNote,
+                          ctx.rawStage !== ctx.displayStage
+                            ? `Classifier: ${String(ctx.rawStage).replace(/_/g, " ")}`
+                            : null,
+                        ].filter(Boolean).join(" · ");
                         return (
                           <span
-                            className={`ds-chip ds-chip--sm ${meta.chip}`}
-                            style={meta.style}
-                            title={meta.title}
+                            className={`ds-chip ds-chip--sm ${ctx.laneMeta.chip}`}
+                            style={ctx.laneMeta.style}
+                            title={chipTitle}
                           >
-                            INVESTOR · {meta.label}
+                            INVESTOR · {ctx.displayLabel}
+                            {ctx.tierMeta && (ctx.rawStage === "accumulate" || ctx.rawStage === "reduce")
+                              ? <> · <span style={{ color: ctx.tierMeta.color }}>{ctx.tierMeta.label}</span></>
+                              : null}
                           </span>
                         );
                       })()}
@@ -8263,13 +8290,15 @@
                           return `$${x.toFixed(2)}`;
                         };
                         const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-                        const liveStage = (investorData?.ticker === cardSym)
-                          ? String(investorData?.stage || "").toLowerCase()
-                          : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-                        const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
+                        const ctx = buildInvestorDisplayContext({
+                          investorData,
+                          ticker,
+                          latestTicker,
+                          effectiveInvestorTrade,
+                          tickerSymbol: cardSym,
+                        });
                         const ip = investorPrediction;
                         const ipDir = String(ip?.direction || "").toUpperCase();
-                        const ipAction = String(ip?.action_label || "").toUpperCase();
                         const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
                         const ipStop = Number(ip?.risk?.stop_loss);
                         const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
@@ -8279,27 +8308,44 @@
                         const holding = effectiveInvestorTrade;
                         const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
 
+                        if (!ctx) {
+                          return (
+                            <div style={{
+                              padding: "14px 14px 12px", marginBottom: "var(--ds-space-3)",
+                              background: "rgba(255,255,255,0.04)", border: "1px solid var(--ds-stroke)", borderRadius: 12,
+                            }}>
+                              <div style={{ fontSize: 13, color: "var(--ds-text-muted)" }}>No investor lane data for this ticker yet.</div>
+                            </div>
+                          );
+                        }
+
+                        const laneColor = ctx.laneMeta.style?.color
+                          || (ctx.displayStage === "accumulate" ? "#34d399"
+                          : ctx.displayStage === "reduce" ? "#f87171"
+                          : ctx.displayStage === "research_on_watch" ? "#a78bfa"
+                          : "#8AA39A");
+                        const laneBg = ctx.laneMeta.style?.background
+                          || (ctx.displayStage === "accumulate" ? "rgba(52,211,153,0.10)"
+                          : "rgba(255,255,255,0.04)");
+
                         const verdict = (() => {
                           if (holding) {
-                            if (liveStage === "reduce") return { word: "REDUCE", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: liveGuide?.doNow || "Reduce on strength — taking profits per the investor lane.", urgency: "now" };
-                            if (liveStage === "watch") return { word: "WATCH", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", line: liveGuide?.doNow || "Monitor closely — no add until the thesis re-confirms.", urgency: "watch" };
-                            if (liveStage === "avoid") return { word: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.08)", line: liveGuide?.doNow || "The investor lane skips this name.", urgency: "none" };
-                            return { word: "HOLDING", color: "#93c5fd", bg: "rgba(59,130,246,0.08)", line: liveGuide?.doNow || "Investor position is active. Follow lane guidance and invalidation below.", urgency: "monitor" };
+                            const word = ctx.displayLabel;
+                            return {
+                              word,
+                              color: laneColor,
+                              bg: laneBg,
+                              line: ctx.statusLine,
+                              urgency: ctx.displayStage === "reduce" ? "now" : "monitor",
+                            };
                           }
-                          if (liveGuide?.laneLabel) {
-                            const lane = String(liveGuide.laneLabel).toUpperCase();
-                            const color = liveStage === "avoid" ? "#f87171" : liveStage === "reduce" ? "#f59e0b" : ipColor;
-                            return { word: lane, color, bg: `${color}14`, line: liveGuide.doNow || liveGuide.actionLine || "Investor lane guidance for this ticker.", urgency: liveStage === "accumulate" ? "watch" : "context" };
-                          }
-                          const a = ipAction.toLowerCase();
-                          if (a.includes("hold")) return { word: "HOLD", color: "#93c5fd", bg: "rgba(59,130,246,0.08)", line: "Hold — no add, no trim. Let the thesis play out.", urgency: "monitor" };
-                          if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return { word: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", line: "Accumulate — add to position on weakness.", urgency: "watch" };
-                          if (a.includes("trim") || a.includes("reduc") || a.includes("sell")) return { word: "REDUCE", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Reduce on strength — taking profits.", urgency: "now" };
-                          if (a.includes("watch") || a.includes("monitor")) return { word: "WATCH", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", line: "Monitor — no position change recommended.", urgency: "watch" };
-                          if (a.includes("avoid")) return { word: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.08)", line: "Avoid — investor lane sees no edge here.", urgency: "none" };
-                          if (ipDir === "LONG") return { word: "CONSTRUCTIVE", color: "#34d399", bg: "rgba(52,211,153,0.06)", line: ipThesis || "Investor lane leans long over weeks to months.", urgency: "context" };
-                          if (ipDir === "SHORT") return { word: "CAUTIOUS", color: "#fb7185", bg: "rgba(244,63,94,0.06)", line: ipThesis || "Investor lane leans defensive on this ticker.", urgency: "context" };
-                          return { word: "NEUTRAL", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: ipThesis || "No strong investor-lane view on this ticker yet.", urgency: "none" };
+                          return {
+                            word: ctx.displayLabel,
+                            color: laneColor,
+                            bg: laneBg,
+                            line: ctx.statusLine,
+                            urgency: ctx.executeReady ? "watch" : "context",
+                          };
                         })();
 
                         const triggers = [];
@@ -8318,16 +8364,23 @@
                             padding: "14px 14px 12px",
                             marginBottom: "var(--ds-space-3)",
                             background: verdict.bg,
-                            border: `1px solid ${verdict.color}55`,
+                            border: `1px solid ${laneColor}55`,
                             borderRadius: 12,
                           }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
                               <span style={{
                                 fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
                                 color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
                                 letterSpacing: "0.06em",
-                              }}>INVESTOR MODEL</span>
-                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>weeks-to-months view</span>
+                              }}>INVESTOR · {ctx.laneLabel.toUpperCase()} LANE</span>
+                              {ctx.tierMeta && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: ctx.tierMeta.color,
+                                  background: `${ctx.tierMeta.color}18`,
+                                  letterSpacing: "0.05em",
+                                }}>{ctx.tierMeta.label}</span>
+                              )}
                               {ipDir && (
                                 <span style={{
                                   fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
@@ -8349,11 +8402,25 @@
                                 </span>
                               )}
                             </div>
-                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 10 : 0 }}>
+                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: ctx.signalNote || triggers.length > 0 ? 8 : 0 }}>
                               {verdict.line}
                             </div>
-                            {ipThesis && verdict.line !== ipThesis && (
-                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginBottom: triggers.length > 0 ? 8 : 0 }}>
+                            {ctx.signalNote && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0 }}>
+                                {ctx.signalNote}
+                              </div>
+                            )}
+                            {!holding && ctx.rawStage === "accumulate" && !ctx.executeReady && (
+                              <div style={{
+                                marginTop: 4, padding: "8px 10px", borderRadius: 8,
+                                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
+                                fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45,
+                              }}>
+                                No model position on this ticker. On the Investor board this name sits in the <strong style={{ color: "var(--ds-text-body)" }}>{ctx.laneLabel}</strong> lane — not the empty Accumulate row (execution-ready only).
+                              </div>
+                            )}
+                            {ipThesis && (
+                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginTop: 8, marginBottom: triggers.length > 0 ? 8 : 0 }}>
                                 {ipThesis}
                               </div>
                             )}
@@ -8371,15 +8438,6 @@
                                     </div>
                                   ))}
                                 </div>
-                              </div>
-                            )}
-                            {liveGuide?.actionLine && (
-                              <div style={{
-                                marginTop: 10, paddingTop: 8,
-                                borderTop: "1px solid rgba(255,255,255,0.04)",
-                                fontSize: 11, color: "var(--ds-text-muted)",
-                              }}>
-                                Lane action: {liveGuide.actionLine}
                               </div>
                             )}
                           </div>
