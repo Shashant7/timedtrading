@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
-  spxLevelToSpy,
-  spyPriceToSpx,
+  computeSpxSpyRatio,
+  translateSpxLevelToSpy,
+  translateSpyLevelToSpx,
   publicationMentionsSpx,
   tickersIncludeMemoryTheme,
   summarizeCTOForPrompt,
@@ -9,10 +10,16 @@ import {
 } from "./fsd-model-context.js";
 
 describe("fsd-model-context", () => {
-  it("converts SPX levels to SPY proxy", () => {
-    expect(spxLevelToSpy(7415)).toBe(741.5);
-    expect(spxLevelToSpy(7513)).toBe(751.3);
-    expect(spyPriceToSpx(744.48)).toBe(7444.8);
+  it("uses live SPX/SPY ratio instead of fixed 10:1", () => {
+    const spx = 7378.82;
+    const spy = 734.94;
+    const ratio = computeSpxSpyRatio(spx, spy);
+    expect(ratio).toBeCloseTo(10.039, 2);
+    expect(translateSpxLevelToSpy(7415, ratio)).toBeCloseTo(7415 / ratio, 1);
+    expect(translateSpyLevelToSpx(spy, ratio)).toBeCloseTo(spx, 0);
+    // Naive ÷10 would give 741.5 — wrong vs live ratio
+    expect(translateSpxLevelToSpy(7415, 10)).toBe(741.5);
+    expect(translateSpxLevelToSpy(7415, ratio)).not.toBe(741.5);
   });
 
   it("detects SPX and memory mentions", () => {
