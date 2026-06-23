@@ -1763,6 +1763,7 @@
     const bellRef = React.useRef(null);
 
     const TRADE_ALERT_TYPES = ["trade_entry", "trade_exit", "trade_trim"];
+    const INVESTOR_ALERT_TYPES = ["investor_signal"];
     // 2026-06-22 — scope tag (Investor vs Active Trader) so the feed reads
     // unambiguously. Investor notifications carry an investor_* type or an
     // investor link; trade_*/kanban are trader-lane; brief/system are neither.
@@ -1775,8 +1776,11 @@
     };
     const filteredNotifications = filter === "trade_alerts"
       ? notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
-      : notifications;
+      : filter === "investor_alerts"
+        ? notifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type))
+        : notifications;
     const tradeAlertsCount = notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
+    const investorAlertsCount = notifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type)).length;
 
     React.useEffect(() => {
       const handler = (event) => {
@@ -1792,6 +1796,7 @@
       trade_entry: "#00c853",
       trade_exit: "#ff5252",
       trade_trim: "#ff9800",
+      investor_signal: "#3b82f6",
       daily_brief: "#42a5f5",
       system: "#6b7280",
       kanban: "#a78bfa",
@@ -1800,6 +1805,7 @@
       trade_entry: "Trade Entry",
       trade_exit: "Trade Exit",
       trade_trim: "Trade Trim/Defend",
+      investor_signal: "Investor Signal",
       daily_brief: "Daily Brief",
       system: "System",
       kanban: "Kanban Update",
@@ -1812,7 +1818,7 @@
           const json = await res.json();
           if (json.ok) {
             setNotifications(json.notifications || []);
-            // Bell badge = trade alerts only (not Daily Brief / system)
+            // Bell badge = trader executions + investor signals (not Daily Brief / system)
             setUnreadCount(json.unread_trade_alert_count ?? json.unread_count ?? 0);
           }
         }
@@ -1988,7 +1994,7 @@
           position: "relative", background: "none", border: "none", cursor: "pointer",
           padding: "4px 6px", borderRadius: "6px", display: "flex", alignItems: "center",
         },
-        title: "Trade Alerts",
+        title: "Alerts",
       },
         h("svg", {
           width: "18", height: "18", viewBox: "0 0 24 24", fill: "none",
@@ -2036,7 +2042,7 @@
             }, "Clear All"),
           ),
         ),
-        // Trade Alerts filter tabs
+        // Alert filter tabs
         h("div", {
           style: {
             display: "flex", gap: "4px", padding: "8px 16px",
@@ -2060,14 +2066,25 @@
               color: filter === "trade_alerts" ? "#00c853" : "#6b7280",
               border: "none", cursor: "pointer",
             },
-          }, "Trade Alerts" + (tradeAlertsCount > 0 ? " (" + tradeAlertsCount + ")" : "")),
+          }, "Trader" + (tradeAlertsCount > 0 ? " (" + tradeAlertsCount + ")" : "")),
+          h("button", {
+            onClick: () => setFilter("investor_alerts"),
+            style: {
+              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
+              background: filter === "investor_alerts" ? "rgba(59,130,246,0.12)" : "transparent",
+              color: filter === "investor_alerts" ? "#3b82f6" : "#6b7280",
+              border: "none", cursor: "pointer",
+            },
+          }, "Investor" + (investorAlertsCount > 0 ? " (" + investorAlertsCount + ")" : "")),
         ),
         // List
         h("div", { style: { overflowY: "auto", maxHeight: "360px" } },
           filteredNotifications.length === 0
             ? h("div", { style: { padding: "32px 16px", textAlign: "center" } },
                 h("p", { style: { fontSize: "13px", color: "#4b5563" } },
-                  filter === "trade_alerts" ? "No trade alerts" : "No notifications yet"),
+                  filter === "trade_alerts" ? "No trader alerts"
+                    : filter === "investor_alerts" ? "No investor signals"
+                    : "No notifications yet"),
               )
             : filteredNotifications.map(n =>
                 h("div", {

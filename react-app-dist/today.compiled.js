@@ -4696,18 +4696,45 @@ function UniverseHeatmap({
   onSelectTicker
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [sortMode, setSortMode] = useState("htf");
+  const stageLabel = t => {
+    const stage = String(t?.kanban_stage || "").toLowerCase();
+    if (stage === "trim") return "Trim";
+    if (stage === "defend") return "Def";
+    if (stage === "exit") return "Exit";
+    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return "Enter";
+    if (stage === "hold" || stage === "active" || stage === "just_entered") return "Hold";
+    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return "Setup";
+    return stage ? stage.slice(0, 5) : "";
+  };
   const items = useMemo(() => {
     const arr = visible.slice();
     arr.sort((a, b) => {
-      const sa = Number(a?.htf_score);
-      const sb = Number(b?.htf_score);
-      const va = Number.isFinite(sa) ? sa : -999;
-      const vb = Number.isFinite(sb) ? sb : -999;
-      if (va !== vb) return vb - va;
+      if (sortMode === "day") {
+        const pa = Number(getDailyChange(a)?.dayPct);
+        const pb = Number(getDailyChange(b)?.dayPct);
+        const va = Number.isFinite(pa) ? pa : -999;
+        const vb = Number.isFinite(pb) ? pb : -999;
+        if (va !== vb) return vb - va;
+      } else if (sortMode === "rank") {
+        const ra = Number(a?.rank_position ?? a?.rp);
+        const rb = Number(b?.rank_position ?? b?.rp);
+        const hasA = Number.isFinite(ra) && ra > 0;
+        const hasB = Number.isFinite(rb) && rb > 0;
+        if (hasA && hasB && ra !== rb) return ra - rb;
+        if (hasA !== hasB) return hasA ? -1 : 1;
+      } else {
+        const sa = Number(a?.htf_score);
+        const sb = Number(b?.htf_score);
+        const va = Number.isFinite(sa) ? sa : -999;
+        const vb = Number.isFinite(sb) ? sb : -999;
+        if (va !== vb) return vb - va;
+      }
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return arr;
-  }, [visible]);
+  }, [visible, sortMode]);
+  const sortSubtitle = sortMode === "day" ? "Sorted by today's move" : sortMode === "rank" ? "Sorted by universe rank (best first)" : "Sorted by HTF score";
   if (items.length === 0) {
     return h("section", {
       className: "tt-row"
@@ -4715,7 +4742,7 @@ function UniverseHeatmap({
       className: "tt-sec-title"
     }, "HEAT MAP"), h("div", {
       className: "tt-sec-h"
-    }, "Ranked by today’s score"), h("div", {
+    }, sortSubtitle), h("div", {
       className: "tt-card tt-card-pad",
       style: {
         textAlign: "center",
@@ -4742,21 +4769,44 @@ function UniverseHeatmap({
     className: "tt-sec-title"
   }, "HEAT MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Ranked by today’s score")), h("div", {
+  }, sortSubtitle)), h("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, ["htf", "day", "rank"].map(mode => h("button", {
+    key: mode,
+    type: "button",
+    className: `heat-sort-btn${sortMode === mode ? " is-active" : ""}`,
+    onClick: () => setSortMode(mode)
+  }, mode === "htf" ? "HTF" : mode === "day" ? "Day %" : "Rank")))), h("div", {
     style: {
       display: "flex",
       gap: 8,
       alignItems: "center",
       fontSize: 11,
-      color: "var(--tt-text-dim)"
+      color: "var(--tt-text-dim)",
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, h("span", null, "Border = trend state"), Object.entries(STATE_BUCKET_COLOR).slice(0, 4).map(([key, color]) => h("span", {
+    key,
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
     }
   }, h("span", {
-    className: "tt-pill up"
-  }, "Strong"), h("span", {
-    className: "tt-pill accent"
-  }, "Mid"), h("span", {
-    className: "tt-pill dn"
-  }, "Weak"))), h("div", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: color,
+      display: "inline-block"
+    }
+  }), key.replace(/_/g, " ")))), h("div", {
     className: "tt-card tt-card-pad"
   }, h("div", {
     className: "heat-grid"
@@ -4765,11 +4815,17 @@ function UniverseHeatmap({
     const dc = getDailyChange(t);
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const score = Number(t?.htf_score) || 0;
+    const ltf = Number(t?.ltf_score) || 0;
+    const rank = Number(t?.rank_position ?? t?.rp);
+    const bucket = classifyStateBucket(t?.state);
+    const bucketColor = STATE_BUCKET_COLOR[bucket] || STATE_BUCKET_COLOR.neutral;
+    const stage = stageLabel(t);
     const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
     const pdir = !Number.isFinite(pct) ? "flat" : Math.abs(pct) < 0.05 ? "flat" : pct > 0 ? "up" : "dn";
     const side = pdir === "flat" ? "flat" : pdir;
     const isMatch = q.length > 0 && sym.startsWith(q);
     const isDim = q.length > 0 && !isMatch;
+    const tip = [sym, pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% today` : "no day change", `HTF ${score.toFixed(1)} · LTF ${ltf.toFixed(1)}`, t?.state ? String(t.state).replace(/_/g, " ") : "", stage ? `Stage: ${stage}` : "", Number.isFinite(rank) && rank > 0 ? `Rank #${rank}` : ""].filter(Boolean).join(" · ");
     return h("a", {
       key: sym,
       className: `heat-cell ${lvl}`,
@@ -4780,12 +4836,13 @@ function UniverseHeatmap({
           onSelectTicker(sym);
         }
       },
-      title: `${sym} · ${pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "no change"} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+      title: tip,
       "data-side": side,
       style: {
         opacity: isDim ? 0.28 : 1,
         transition: "opacity 0.15s",
         "--heat-pct": pct != null ? pct : 0,
+        borderColor: bucketColor,
         ...(isMatch ? {
           outline: "1px solid #fff",
           outlineOffset: "-1px"
@@ -4809,7 +4866,20 @@ function UniverseHeatmap({
       className: "sym"
     }, sym)), h("span", {
       className: `pct ${pdir}`
-    }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"));
+    }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"), h("div", {
+      className: "heat-cell__foot"
+    }, h("div", {
+      className: "heat-cell__meta"
+    }, stage && h("span", {
+      className: "heat-cell__chip heat-cell__chip--stage",
+      title: "Kanban stage"
+    }, stage), Number.isFinite(rank) && rank > 0 && h("span", {
+      className: "heat-cell__chip heat-cell__chip--rank",
+      title: "Universe rank"
+    }, `R${rank}`)), h("span", {
+      className: "heat-cell__score",
+      title: "HTF score"
+    }, score.toFixed(0))));
   })), items.length > cap && h("div", {
     style: {
       textAlign: "center",
@@ -5574,6 +5644,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782183706922:825313376
+// cache-bust:1782186430689:325674579
 
-// cache-bust:1782183706922:825313376
+// cache-bust:1782186430689:325674579

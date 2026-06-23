@@ -792,6 +792,14 @@ export function deriveInvestorAlertAction(type, data = {}) {
       one_liner: "The TT Investor model portfolio composition drifted from its targets. Review the dashboard suggestions — informational context only.",
     };
   }
+  if (type === "position_add") {
+    return {
+      verb: "MODEL · ADD",
+      color: "#3b82f6",
+      tone: "buy",
+      one_liner: `The TT Investor model portfolio added ${data.shares ?? "?"} shares of ${sym} at $${Number(data.price || 0).toFixed(2)} — executed rebalance. Model lane scales in on confirmed setups.`,
+    };
+  }
   if (type === "position_trim") {
     return {
       verb: "MODEL · TRIMMED",
