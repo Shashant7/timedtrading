@@ -368,18 +368,20 @@
       ),
     );
 
+    const displayStage = resolveKanbanStage(t);
     const SG = (typeof window !== "undefined") ? window.TimedSignalGrammar : null;
-    const invLaneMeta = SG?.investorLaneMeta ? SG.investorLaneMeta(stage) : null;
+    const invLaneMeta = SG?.investorLaneMeta ? SG.investorLaneMeta(displayStage) : null;
     const signalChipEls = (() => {
       if (!SG?.renderSignalChips) return [];
-      const action = stage === "accumulate" ? "accumulate"
-        : stage === "reduce" ? "reduce"
-        : stage === "core_hold" ? "core_hold"
+      const action = displayStage === "accumulate" ? "accumulate"
+        : displayStage === "reduce" ? "reduce"
+        : displayStage === "core_hold" ? "core_hold"
         : "watch";
+      const rebalanceReady = actionTier === "act_now" || actionTier === "ready";
       return SG.renderSignalChips({
         engine: "investor",
         mode: invLaneMeta?.band === "doing" ? "doing" : "watching",
-        execState: (actionTier === "act_now" || actionTier === "ready") ? "recommended" : "watching",
+        execState: rebalanceReady && displayStage === "accumulate" ? "recommended" : "watching",
         action,
       }).map((chip, i) => React.createElement("span", {
         key: `sg-${i}`,

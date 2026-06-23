@@ -5,6 +5,7 @@ import {
   evaluateBroadIndexExtensionWatch,
   evaluateBroadIndexCompressionWatch,
 } from "./timing-signals.js";
+import { computeInvestorActionTier } from "./investor.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // notifyDiscord LANE ROUTING — 2026-05-28
@@ -753,27 +754,35 @@ export function deriveInvestorAlertAction(type, data = {}) {
   if (type === "accumulation_zone") {
     const z = String(data?.zoneType || "").toLowerCase();
     const score = Number(data?.score) || 0;
-    if (z === "momentum_runner") {
+    const tier = data?.actionTier || computeInvestorActionTier({
+      stage: "accumulate",
+      score: data?.score,
+      simEligible: data?.simEligible,
+      accumZone: { inZone: data?.inZone !== false },
+      position: data?.position || {},
+    });
+    const rebalanceReady = tier === "act_now" || tier === "ready";
+    if (z === "momentum_runner" || z.includes("exhaustion") || z.includes("momentum_runner")) {
       return {
-        verb: "MODEL · WATCH",
-        color: "#10b981",
-        tone: "info",
-        one_liner: `The TT model logged a momentum-runner zone on ${sym}. The model would add only on a pullback toward the 21 EMA — not at the current print. Not a fresh-entry buy-the-dip signal.`,
+        verb: "MODEL · ON RADAR",
+        color: "#f5c25c",
+        tone: "watch",
+        one_liner: `**${sym}** logged a ${z.replace(/_/g, " ")} zone (score ${score}/100). On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
       };
     }
-    if (score >= 70) {
+    if (rebalanceReady) {
       return {
         verb: "MODEL · ACCUMULATE",
         color: "#10b981",
         tone: "buy",
-        one_liner: `The TT model entered an accumulation zone on ${sym} (score ${score}/100). The model portfolio scales in over 2–3 tranches on weakness inside the buy zone.`,
+        one_liner: `**${sym}** is execution-ready in the Accumulate lane (score ${score}/100). The model portfolio would add on the next rebalance if still qualified — not a manual buy order.`,
       };
     }
     return {
-      verb: "MODEL · WATCH",
+      verb: "MODEL · ON RADAR",
       color: "#f5c25c",
       tone: "watch",
-      one_liner: `The TT model logged an accumulation zone on ${sym} with a moderate score (${score}/100). Model lane stays Watch until confirmation strengthens.`,
+      one_liner: `**${sym}** entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
     };
   }
   if (type === "rs_breakout") {
@@ -944,14 +953,23 @@ export function createInvestorAlertEmbed(type, data) {
   // this is an Investor-system alert (not Trader) AND what the engine
   // wants the user to do. The base title (e.g. "Momentum-Runner Zone
   // Confirmed") becomes the secondary line via title concatenation.
+  const sym = String(data?.ticker || "").toUpperCase();
   const _baseTitle = config.title(data);
-  const _actionTitle = `${config.emoji} INVESTOR · ${_action.verb} — ${_baseTitle.replace(/^[^:]+:\s*/, "")}`;
+  const _shortHeadline = _baseTitle.replace(new RegExp(`^${sym}:\\s*`, "i"), "").trim();
+  const _modeLabel = String(_action.verb || "").includes("ACCUMULATE")
+    || String(_action.verb || "").includes("ADD")
+    || String(_action.verb || "").includes("TRIMMED")
+    || String(_action.verb || "").includes("EXITED")
+    || String(_action.verb || "").includes("REDUCE")
+    ? "DOING"
+    : "WATCHING";
+  const _actionTitle = `${config.emoji} **${sym}** · INVESTOR · ${_modeLabel} · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
 
   // Insert an Action field at the very top so the reader sees it before
   // scrolling. Existing fields follow.
   const _fields = [
     {
-      name: `▶ TT Model signal — ${_action.verb}`,
+      name: `▶ ${sym} — ${_action.verb}`,
       value: _action.one_liner,
       inline: false,
     },
