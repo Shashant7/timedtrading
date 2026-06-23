@@ -110,9 +110,9 @@
         laneLabel: "Reduce"
       },
       research_on_watch: {
-        actionLine: "TT Model lane: On Watch — research only.",
-        doNow: "The model tracks the name; no capital deployment until Accumulate lane.",
-        laneLabel: "On Watch"
+        actionLine: "TT Model lane: On Radar — tracking until execution-ready.",
+        doNow: "The model tracks the name; no capital deployment until execution-ready.",
+        laneLabel: "On Radar"
       },
       research_low: {
         actionLine: "TT Model lane: Low conviction — no action.",
@@ -1255,7 +1255,7 @@
         style: railTabBodyWrapStyle
       }, (invCtx || stage !== "—") && h("div", {
         style: {
-          padding: "var(--ds-space-3)",
+          padding: "14px 14px 12px",
           marginBottom: "var(--ds-space-3)",
           background: stageInfo.bg,
           border: `1px solid ${stageInfo.border}`,
@@ -1289,171 +1289,42 @@
         }
       }, invCtx.tierMeta.label)), h("div", {
         style: {
-          fontSize: 13,
-          color: "var(--ds-text-body)",
-          lineHeight: 1.5,
-          fontWeight: 600
-        }
-      }, invCtx?.statusLine || stageInfo.desc), invCtx?.signalNote && h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.45,
-          marginTop: 8
-        }
-      }, invCtx.signalNote)), catalystEvent && h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-          border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: catalystEvent.direction === "up" ? "#34d399" : "#f87171",
-          letterSpacing: "0.05em",
-          marginBottom: 4
-        }
-      }, "⚡ CATALYST EVENT DETECTED"), h("div", {
-        style: {
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          fontWeight: 600,
-          marginBottom: 4
-        }
-      }, `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`), h("div", {
-        style: {
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.4
-        }
-      }, catalystEvent.warning)), h(Panel, {
-        title: `Investor Lane · ${invCtx?.laneLabel || stageInfo.label}`,
-        action: h("span", {
-          style: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            flexWrap: "wrap",
-            justifyContent: "flex-end"
-          }
-        }, invCtx?.tierMeta && h("span", {
-          style: {
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            color: invCtx.tierMeta.color,
-            background: `${invCtx.tierMeta.color}18`,
-            border: `1px solid ${invCtx.tierMeta.color}44`
-          }
-        }, invCtx.tierMeta.label), h("span", {
-          style: {
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            color: stageInfo.color,
-            background: stageInfo.bg,
-            border: `1px solid ${stageInfo.border}`
-          }
-        }, invCtx?.laneLabel || stageInfo.label))
-      }, invCtx?.signalNote && h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.45,
-          marginBottom: "var(--ds-space-2)",
-          padding: "8px 10px",
-          background: "rgba(255,255,255,0.03)",
+          padding: "10px 12px",
           borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.06)"
-        }
-      }, invCtx.signalNote), h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: stageInfo.bg,
-          border: `1px solid ${stageInfo.border}`,
-          borderRadius: "var(--ds-radius-md)",
-          marginBottom: "var(--ds-space-2)"
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          marginBottom: invCtx?.signalNote || Number.isFinite(score) ? 8 : 0
         }
       }, h("div", {
         style: {
           fontSize: 10,
           fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em",
+          color: "#38F2A1",
+          letterSpacing: "0.06em",
           marginBottom: 4
         }
       }, "WHAT TO DO"), h("div", {
         style: {
-          fontSize: 15,
-          fontWeight: 700,
-          color: stageInfo.color
+          fontSize: 13,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.45,
+          fontWeight: 600
         }
       }, invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : invCtx?.statusLine || stageInfo.action), h("div", {
         style: {
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-body)",
-          marginTop: 4,
-          lineHeight: 1.4
-        }
-      }, invCtx?.statusLine || stageInfo.desc, invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).` : "")), invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
-        style: {
-          marginBottom: "var(--ds-space-2)",
-          padding: "10px 12px",
-          background: "rgba(248,113,113,0.06)",
-          border: "1px solid rgba(248,113,113,0.22)",
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "#f87171",
-          letterSpacing: "0.06em",
-          marginBottom: 4
-        }
-      }, "INVALIDATION LEVEL"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: 14,
-          fontWeight: 700,
-          color: "var(--ds-text-0)"
-        }
-      }, `$${invDisplay.price.toFixed(2)}`, h("span", {
-        style: {
-          fontSize: 11,
-          fontWeight: 500,
-          color: "var(--ds-text-muted)",
-          marginLeft: 8
-        }
-      }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "")), h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-body)",
-          marginTop: 4,
-          lineHeight: 1.45
-        }
-      }, invDisplay.condition), invDisplay.thesisLevel && h("div", {
-        style: {
-          marginTop: 8,
-          paddingTop: 8,
-          borderTop: "1px solid rgba(255,255,255,0.06)",
           fontSize: 11,
           color: "var(--ds-text-muted)",
-          lineHeight: 1.45
+          lineHeight: 1.45,
+          marginTop: 6
         }
-      }, h("span", {
+      }, invCtx?.statusLine || stageInfo.desc, invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).` : "")), invCtx?.signalNote && h("div", {
         style: {
-          fontWeight: 700,
-          color: "var(--ds-text-faint)"
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.45,
+          marginBottom: 8
         }
-      }, "THESIS FLOOR "), `$${invDisplay.thesisLevel.price.toFixed(2)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})`, invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : "")), Number.isFinite(score) && h("div", {
+      }, invCtx.signalNote), Number.isFinite(score) && h("div", {
         style: {
           display: "flex",
           gap: "var(--ds-space-2)"
@@ -1522,8 +1393,108 @@
           color: "var(--ds-text-muted)",
           marginTop: 2
         }
-      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), reasonProse && h(Panel, {
-        title: "🧠 Why this classification"
+      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone"))), invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
+        style: {
+          marginTop: 8,
+          padding: "10px 12px",
+          background: "rgba(248,113,113,0.06)",
+          border: "1px solid rgba(248,113,113,0.22)",
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "#f87171",
+          letterSpacing: "0.06em",
+          marginBottom: 4
+        }
+      }, "INVALIDATION LEVEL"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 14,
+          fontWeight: 700,
+          color: "var(--ds-text-0)"
+        }
+      }, `$${invDisplay.price.toFixed(2)}`, h("span", {
+        style: {
+          fontSize: 11,
+          fontWeight: 500,
+          color: "var(--ds-text-muted)",
+          marginLeft: 8
+        }
+      }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "")), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-body)",
+          marginTop: 4,
+          lineHeight: 1.45
+        }
+      }, invDisplay.condition), invDisplay.thesisLevel && h("div", {
+        style: {
+          marginTop: 8,
+          paddingTop: 8,
+          borderTop: "1px solid rgba(255,255,255,0.06)",
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.45
+        }
+      }, h("span", {
+        style: {
+          fontWeight: 700,
+          color: "var(--ds-text-faint)"
+        }
+      }, "THESIS FLOOR "), `$${invDisplay.thesisLevel.price.toFixed(2)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})`, invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""))), catalystEvent && h("div", {
+        style: {
+          padding: "var(--ds-space-2)",
+          background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+          border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: catalystEvent.direction === "up" ? "#34d399" : "#f87171",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "CATALYST EVENT"), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          fontWeight: 600,
+          marginBottom: 4
+        }
+      }, `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.4
+        }
+      }, catalystEvent.warning)), h("details", {
+        style: {
+          marginBottom: "var(--ds-space-3)"
+        }
+      }, h("summary", {
+        style: {
+          fontSize: 11,
+          fontWeight: 700,
+          color: "var(--ds-text-muted)",
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          padding: "6px 0",
+          userSelect: "none"
+        }
+      }, "More detail — classification, score, context"), h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--ds-space-3)",
+          marginTop: "var(--ds-space-2)"
+        }
+      }, reasonProse && h(Panel, {
+        title: "Why this classification"
       }, h("div", {
         style: {
           fontSize: "var(--ds-fs-body)",
@@ -1538,7 +1509,7 @@
           fontFamily: "var(--tt-font-mono)"
         }
       }, "code: ", stageReason)), components && Object.keys(components).length > 0 && h(Panel, {
-        title: "📊 Score Breakdown",
+        title: "Score Breakdown",
         action: h("span", {
           style: {
             fontSize: 10,
@@ -1606,7 +1577,7 @@
           }
         }, def.why));
       }))), accumZone?.inZone && Array.isArray(accumZone?.signals) && accumZone.signals.length > 0 && h(Panel, {
-        title: "🎯 Buy Zone Signals",
+        title: "Buy Zone Signals",
         action: h("span", {
           style: {
             fontSize: 10,
@@ -1640,7 +1611,7 @@
           marginRight: 6
         }
       }, "✓"), typeof s === "string" ? s.replace(/_/g, " ") : s?.name || s?.label || String(s))))), pos && h(Panel, {
-        title: "💼 Your Position"
+        title: "Your Position"
       }, h("div", {
         style: {
           display: "grid",
@@ -1719,7 +1690,7 @@
         month: "short",
         day: "numeric"
       }))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
-        title: "📈 Strength + Sector Context"
+        title: "Strength + Sector Context"
       }, h("div", {
         style: {
           display: "flex",
@@ -1783,7 +1754,7 @@
           color: "#34d399",
           fontWeight: 700
         }
-      }, "🚀 New RS High")), sector && h("div", {
+      }, "New RS High")), sector && h("div", {
         style: {
           fontSize: "var(--ds-fs-meta)",
           color: "var(--ds-text-muted)"
@@ -1793,7 +1764,7 @@
           color: "var(--ds-text-body)"
         }
       }, sector)))), thesis && h(Panel, {
-        title: "💡 Thesis"
+        title: "Thesis"
       }, h("div", {
         style: {
           fontSize: "var(--ds-fs-body)",
@@ -1822,7 +1793,7 @@
           color: "var(--ds-text-body)",
           lineHeight: 1.4
         }
-      }, String(invalidation)))), loading && !detail && h(Panel, {
+      }, String(invalidation)))))), loading && !detail && h(Panel, {
         title: "Loading…"
       }, h("div", {
         style: {
@@ -8962,7 +8933,9 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, React.createElement("div", {
+        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement("div", {
+          style: railTabBodyWrapStyle
+        }, React.createElement("div", {
           style: {
             display: "flex",
             gap: 0,
@@ -21257,4 +21230,4 @@
   };
 })();
 
-// cache-bust:1782182998929:602765018
+// cache-bust:1782183706922:825313376
