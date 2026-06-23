@@ -897,7 +897,7 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Zone Type", value: String(d.zoneType || "—").replace(/_/g, " "), inline: true },
         { name: "Signals", value: (d.signals || []).map(s => s.replace(/_/g, " ")).join(", ") || "—", inline: false },
         // Make it clear this is informational, not an auto-executed order.
-        { name: "Note", value: "TT Investor model signal. The model portfolio tracks this in simulation; live broker mirroring requires Mission Control → Broker Bridge.", inline: false },
+        { name: "Note", value: "TT Investor model signal — the model portfolio tracks this in simulation. Informational only, not an executed order.", inline: false },
         ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
@@ -981,13 +981,21 @@ export function createInvestorAlertEmbed(type, data) {
   const _actionTitle = `${config.emoji} **${sym}** · INVESTOR · ${_modeLabel} · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
 
   // Insert an Action field at the very top so the reader sees it before
-  // scrolling. Existing fields follow.
+  // scrolling. Skip it when its one-liner just restates the description
+  // (accumulation_zone derives both from the same lede) — the title +
+  // description already carry the action, so the extra field is noise.
+  const _descText = String(config.description(data) || "").replace(/\*\*/g, "").trim().toLowerCase();
+  const _oneLiner = String(_action.one_liner || "").replace(/\*\*/g, "").trim();
+  const _oneLinerNorm = _oneLiner.toLowerCase();
+  const _normalize = (s) => s.replace(/\(score[^)]*\)/g, "").replace(/[^a-z]+/g, " ").trim();
+  const _redundant = type === "accumulation_zone"
+    || (_oneLinerNorm.length > 0 && _normalize(_descText) === _normalize(_oneLinerNorm));
   const _fields = [
-    {
+    ...(_redundant ? [] : [{
       name: `▶ ${sym} — ${_action.verb}`,
       value: _action.one_liner,
       inline: false,
-    },
+    }]),
     ...config.fields(data),
   ];
 

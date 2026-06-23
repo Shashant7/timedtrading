@@ -2190,10 +2190,15 @@ function _reasonGroupLabel(item) {
 
 export async function sendInvestorRebalanceDigest(env, summary) {
   const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
-  const trims = Array.isArray(summary?.trims) ? summary.trims : [];
+  const allTrims = Array.isArray(summary?.trims) ? summary.trims : [];
+  // Full closes (exits) are materially different from partial trims — the model
+  // is OUT of the name. Surface them in their own prominent section so an exit
+  // of a recently-entered position isn't buried under "trimmed/reduced".
+  const closes = allTrims.filter((t) => !!t?.closed);
+  const trims = allTrims.filter((t) => !t?.closed);
   const added = Array.isArray(summary?.added) ? summary.added : [];
   const opened = Array.isArray(summary?.opened) ? summary.opened : [];
-  const totalActions = trims.length + added.length + opened.length;
+  const totalActions = closes.length + trims.length + added.length + opened.length;
   if (totalActions === 0) return { ok: true, sent: 0, recipients: 0, reason: "no_actions" };
   if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
 
@@ -2236,10 +2241,37 @@ export async function sendInvestorRebalanceDigest(env, summary) {
        ${items.map(trimRow).join("")}
      </div>`).join("");
 
+  // EXITS — full closes get their own prominent (red) section with P&L per name.
+  const closeGroups = new Map();
+  for (const c of closes) {
+    const key = _reasonGroupLabel(c);
+    if (!closeGroups.has(key)) closeGroups.set(key, []);
+    closeGroups.get(key).push(c);
+  }
+  const closeRow = (c) => {
+    const sym = String(c?.ticker || "").toUpperCase();
+    const detail = [
+      "position closed",
+      fmtUsd(c?.price) ? `@ ${fmtUsd(c.price)}` : null,
+      fmtPnl(c?.pnl) ? `· realized ${fmtPnl(c.pnl)}` : null,
+    ].filter(Boolean).join(" ");
+    const cio = String(c?.cio_reasoning || "").trim();
+    return `<div style="margin:0 0 8px;padding:0 0 8px;border-bottom:1px solid ${BRAND.border}">
+      <div><span style="font-weight:800;font-size:13px">${_esc(sym)}</span> <span style="color:${BRAND.textMuted};font-size:11px">${_esc(detail)}</span></div>
+      ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};margin-top:3px;line-height:1.45"><span style="color:${BRAND.textMuted};font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
+    </div>`;
+  };
+  const closeInner = [...closeGroups.entries()].map(([reason, items]) =>
+    `<div style="margin-bottom:12px">
+       <div style="font-size:12px;font-weight:700;color:${BRAND.textPrimary};margin-bottom:6px">${_esc(reason)} <span style="color:${BRAND.textMuted};font-weight:400">(${items.length})</span></div>
+       ${items.map(closeRow).join("")}
+     </div>`).join("");
+
   const addedSyms = added.map((x) => String(x?.ticker || "").toUpperCase());
   const openedSyms = opened.map((x) => String(x?.ticker || "").toUpperCase());
 
   const headlineBits = [];
+  if (closes.length) headlineBits.push(`${closes.length} exited`);
   if (trims.length) headlineBits.push(`${trims.length} trimmed/reduced`);
   if (added.length) headlineBits.push(`${added.length} added`);
   if (opened.length) headlineBits.push(`${opened.length} opened`);
@@ -2247,6 +2279,7 @@ export async function sendInvestorRebalanceDigest(env, summary) {
   const bodyHtml = `
     <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Investor Rebalance — ${_esc(nowLabel)} ET</h2>
     <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">The model's long-horizon portfolio cycle ran: ${_esc(headlineBits.join(" · "))}. One summary, grouped by action — no per-ticker blast.</p>
+    ${closes.length ? section("EXITED — FULL CLOSE", BRAND.danger || "#ef4444", closeInner) : ""}
     ${trims.length ? section("TRIMMED / REDUCED", BRAND.warning || "#f59e0b", trimInner) : ""}
     ${added.length ? section("ADDED TO EXISTING", BRAND.green, `<div>${addedSyms.map(chip).join("")}</div>`) : ""}
     ${opened.length ? section("NEW STARTER POSITIONS", BRAND.green, `<div>${openedSyms.map(chip).join("")}</div>`) : ""}
@@ -2276,7 +2309,7 @@ export async function sendInvestorRebalanceDigest(env, summary) {
       console.warn(`[INVESTOR REBALANCE DIGEST] send failed for ${user.email}:`, String(e?.message || e).slice(0, 120));
     }
   }
-  console.log(`[INVESTOR REBALANCE DIGEST] sent=${sent}/${opted.length} (trims=${trims.length} added=${added.length} opened=${opened.length})`);
+  console.log(`[INVESTOR REBALANCE DIGEST] sent=${sent}/${opted.length} (closes=${closes.length} trims=${trims.length} added=${added.length} opened=${opened.length})`);
   return { ok: true, sent, recipients: opted.length };
 }
 
@@ -2339,11 +2372,29 @@ export async function sendInvestorSignalsDigest(env, alerts) {
 /** One consolidated Discord embed for the rebalance cycle (grouped by action,
  *  with per-ticker AI CIO guidance — parity with the old per-lot embeds). */
 export function buildInvestorRebalanceDiscordEmbed(summary) {
-  const trims = Array.isArray(summary?.trims) ? summary.trims : [];
+  const allTrims = Array.isArray(summary?.trims) ? summary.trims : [];
+  const closes = allTrims.filter((t) => !!t?.closed);
+  const trims = allTrims.filter((t) => !t?.closed);
   const added = Array.isArray(summary?.added) ? summary.added : [];
   const opened = Array.isArray(summary?.opened) ? summary.opened : [];
-  if (trims.length + added.length + opened.length === 0) return null;
+  if (closes.length + trims.length + added.length + opened.length === 0) return null;
+  const fmtPnl = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : "-"}$${Math.abs(Number(n)).toFixed(2)}` : null;
   const fields = [];
+  // EXITS first — full closes are the highest-signal action (model is OUT).
+  if (closes.length) {
+    const lines = closes.map((c) => {
+      const sym = String(c?.ticker || "").toUpperCase();
+      const pnl = fmtPnl(c?.pnl);
+      const reason = _reasonGroupLabel(c);
+      return `• **${sym}** — closed${pnl ? ` · realized ${pnl}` : ""}${reason ? ` · ${reason}` : ""}`;
+    }).join("\n").slice(0, 1020);
+    fields.push({ name: `🔴 EXITED — full close (${closes.length})`, value: lines || "—" });
+    const withCio = closes.filter((c) => String(c?.cio_reasoning || "").trim());
+    for (const c of withCio.slice(0, 8)) {
+      const sym = String(c?.ticker || "").toUpperCase();
+      fields.push({ name: `🔴 ${sym}`, value: String(c.cio_reasoning).trim().slice(0, 360) });
+    }
+  }
   if (trims.length) {
     // Reason overview (one line per reason group).
     const groups = new Map();
@@ -2381,10 +2432,15 @@ export function buildInvestorRebalanceDiscordEmbed(summary) {
       value: opened.map((x) => `• **${String(x?.ticker || "").toUpperCase()}**`).join("\n").slice(0, 1020) || "—",
     });
   }
+  const _headline = [];
+  if (closes.length) _headline.push(`${closes.length} exited`);
+  if (trims.length) _headline.push(`${trims.length} trimmed`);
+  if (added.length) _headline.push(`${added.length} added`);
+  if (opened.length) _headline.push(`${opened.length} opened`);
   return {
-    title: "Investor Rebalance — portfolio cycle",
+    title: `Investor Rebalance — ${_headline.join(" · ") || "portfolio cycle"}`,
     description: "Long-horizon portfolio actions, grouped by reason — with AI CIO guidance per name. One summary per cycle.",
-    color: 0x8b5cf6,
+    color: closes.length ? 0xef4444 : 0x8b5cf6,
     fields: fields.slice(0, 25),
     timestamp: new Date().toISOString(),
   };
