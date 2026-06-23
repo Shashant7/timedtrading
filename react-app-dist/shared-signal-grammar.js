@@ -60,22 +60,37 @@
 
   function classifyActivityEvent(ev) {
     var t = String(ev && (ev.type || ev.event) || "").toUpperCase();
+    var modeRaw = String(ev && (ev.mode || ev.alert_class) || "").toLowerCase();
     var engine = String(ev && ev.engine || "").toLowerCase() === "investor"
       || t === "INVESTOR_SIGNAL"
       || (ev && ev.investor_alert_type)
       ? "investor" : "trader";
     if (t === "TRADE_EXIT_SIGNAL") {
-      return { engine: engine, mode: "doing", execState: "recommended", label: "EXIT", scope: engine, cls: "ev-exit ev-recommended" };
+      return { engine: engine, mode: "doing", execState: "recommended", label: "EXIT", scope: engine, cls: "ev-exit ev-recommended ev-doing" };
     }
-    var doing = t === "TRADE_ENTRY" || t === "TRADE_TRIM" || t === "TRADE_EXIT"
-      || t === "ENTRY" || t === "ENTER" || t === "ADD" || t === "TRIM" || t === "EXIT" || t === "SL_HIT";
+    var doingTypes = ["TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT"];
+    var isDoing = doingTypes.indexOf(t) >= 0 || modeRaw === "doing" || modeRaw === "done";
+    var action = "hold";
+    var label = "UPDATE";
+    var cls = "";
+    var invExecDone = false;
+    if (t === "INVESTOR_SIGNAL") {
+      var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
+      if (invT === "position_add") { action = "add"; label = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
+      else if (invT === "position_trim") { action = "trim"; label = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true; }
+      else if (invT === "position_close") { action = "exit"; label = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true; }
+      else { action = "accumulate"; label = "WATCH"; cls = "ev-watching"; }
+    } else if (t.indexOf("TRIM") >= 0 || t === "TP_HIT_TRIM") { label = "TRIM"; cls = "ev-trim"; }
+    else if (t.indexOf("EXIT") >= 0 || t === "SL_HIT") { label = "EXIT"; cls = "ev-exit"; }
+    else if (t.indexOf("ENTRY") >= 0 || t === "ENTER" || t === "ADD") { label = t.indexOf("ADD") >= 0 || t === "ADD" ? "ADD" : "ENTER"; cls = "ev-entry"; }
+    var mode = invExecDone || isDoing ? "doing" : "watching";
     return {
       engine: engine,
-      mode: doing ? "doing" : "watching",
-      execState: doing ? "done" : "watching",
-      label: t.indexOf("TRIM") >= 0 ? "TRIM" : t.indexOf("EXIT") >= 0 ? "EXIT" : t.indexOf("ENTRY") >= 0 || t === "ENTER" ? "ENTER" : "UPDATE",
+      mode: mode,
+      execState: invExecDone || isDoing ? "done" : "watching",
+      label: label,
       scope: engine,
-      cls: doing ? "ev-doing" : "ev-watching",
+      cls: cls || (mode === "doing" ? "ev-doing" : "ev-watching"),
     };
   }
 
@@ -100,4 +115,4 @@
   };
 })();
 
-// cache-bust:1782228635884:629033231
+// cache-bust:1782229857059:898238777

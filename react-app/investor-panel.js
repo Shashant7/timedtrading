@@ -12,7 +12,7 @@
      in-zone strong score; monitor = lane label only; stale = signal >7d. */
   const ACTION_TIER_ORDER = { act_now: 0, ready: 1, monitor: 2, stale: 3 };
   const ACTION_TIER_META = {
-    act_now: { label: "ACT NOW", color: "#22c55e", title: "Execution-ready — price in buy zone with trend alignment. The Investor simulator would open or add on the next rebalance; not a manual buy instruction." },
+    act_now: { label: "REBALANCE", color: "#22c55e", title: "Execution-ready — the model portfolio would open or add this name at the next scheduled rebalance. Independent of whether this account buys manually." },
     ready: { label: "READY", color: "#4ade80", title: "Structural alignment or in-zone — rebalance candidate" },
     monitor: { label: "MONITOR", color: "#6E867D", title: "Accumulate lane signal — not execution-ready yet" },
     stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
@@ -623,7 +623,7 @@
     */
     const stageMeta = {
       research_on_watch: { label: "On Radar", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
-      accumulate:        { label: "Accumulating", band: "doing", action: "BUY NOW", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. Model would open or add on the next rebalance." },
+      accumulate:        { label: "Accumulating", band: "doing", action: "MODEL · REBALANCE", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. The model portfolio adds here at the next rebalance if still qualified. Lane moves when the score or zone changes." },
       core_hold:         { label: "Core Hold", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
       watch:             { label: "Hold & Watch", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
       reduce:            { label: "Reducing", band: "doing", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
@@ -720,7 +720,7 @@
       React.createElement(InvestorKanbanBandHeader, {
         band: "doing",
         label: "DOING",
-        hint: "Model acted or would act on the next rebalance",
+        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
       }),
       ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
         React.createElement(InvestorKanbanColumn, {
