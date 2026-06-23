@@ -206,6 +206,16 @@ export function investorLaneMeta(stage) {
 
 /** Map raw activity / alert event to unified classification. */
 export function classifyActivityEvent(ev) {
+  const invT = String(ev?.investor_alert_type || "").toLowerCase();
+  if (invT === "position_add") {
+    return { engine: "investor", mode: "doing", execState: "done", action: "add", evType: "ADD", label: "ADD", cls: "ev-entry ev-doing", scope: "investor" };
+  }
+  if (invT === "position_trim") {
+    return { engine: "investor", mode: "doing", execState: "done", action: "trim", evType: "TRIM", label: "TRIM", cls: "ev-trim ev-doing", scope: "investor" };
+  }
+  if (invT === "position_close") {
+    return { engine: "investor", mode: "doing", execState: "done", action: "exit", evType: "EXIT", label: "EXIT", cls: "ev-exit ev-doing", scope: "investor" };
+  }
   const t = String(ev?.type || ev?.event || "").toUpperCase();
   const modeRaw = String(ev?.mode || ev?.alert_class || "").toLowerCase();
   const engine = String(ev?.engine || ev?.desk || "").toLowerCase() === "investor"

@@ -694,36 +694,6 @@ function InvestorApp() {
   }, [RailOverlay, applyRailOpen]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGroup, setFilterGroup] = useState(null);
-  const chipCounts = useMemo(() => {
-    let actionable = 0,
-      simEligible = 0,
-      simUnknown = 0,
-      executeReady = 0;
-    const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
-    const countNav = window.TTCountInvestorNavBadge;
-    if (typeof countNav === "function") {
-      actionable = countNav(list);
-    }
-    for (const row of list) {
-      const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
-      if (stage !== "accumulate" && stage !== "reduce") continue;
-      if (typeof countNav !== "function") {
-        if (stage === "reduce") actionable++;else if (stage === "accumulate") {
-          const tier = String(row?.actionTier || "").toLowerCase();
-          if (tier === "act_now" || tier === "ready") actionable++;
-        }
-      }
-      const tier = row?.actionTier;
-      if (tier === "act_now" || tier === "ready") executeReady++;
-      if (row?.simEligible === true) simEligible++;else if (row?.simEligible == null) simUnknown++;
-    }
-    return {
-      actionable,
-      simEligible,
-      simUnknown,
-      executeReady
-    };
-  }, [investorScores]);
   return h(React.Fragment, null, !panelMounted && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -741,64 +711,7 @@ function InvestorApp() {
       fontWeight: 600,
       textDecoration: "none"
     }
-  }, "Growth Ideas"), " on Today lists fundamentally growing names the model watches for pullbacks. Tap any card to open Fundamentals in the right rail."))), h(HowToReadCard, null), h("section", {
-    className: "tt-row inv-controls"
-  }, h("div", {
-    className: "inv-search-wrap"
-  }, h("svg", {
-    width: 14,
-    height: 14,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2,
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    className: "inv-search-icon"
-  }, h("circle", {
-    cx: 11,
-    cy: 11,
-    r: 8
-  }), h("line", {
-    x1: 21,
-    y1: 21,
-    x2: 16.65,
-    y2: 16.65
-  })), h("input", {
-    type: "text",
-    className: "inv-search",
-    placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
-    value: searchQuery,
-    onChange: e => setSearchQuery(e.target.value),
-    "aria-label": "Search Investor tickers"
-  }), searchQuery && h("button", {
-    className: "inv-search-clear",
-    onClick: () => setSearchQuery(""),
-    "aria-label": "Clear search",
-    title: "Clear"
-  }, "×")), h("div", {
-    className: "inv-filter-chips"
-  }, h("button", {
-    className: "inv-chip" + (filterGroup === null ? " active" : ""),
-    onClick: () => setFilterGroup(null)
-  }, "All"), h("button", {
-    className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
-    onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
-    title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
-  }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`), h("button", {
-    className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
-    onClick: () => setFilterGroup("EXECUTE_READY"),
-    title: "Accumulate/Reduce names the model would prioritize — ACT NOW (buy zone + trend) or READY (alignment / in-zone)"
-  }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`), h("button", {
-    className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
-    onClick: () => setFilterGroup("SIM_ELIGIBLE"),
-    title: `Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish${chipCounts.simUnknown > 0 ? `. ${chipCounts.simUnknown} ticker(s) have unknown SuperTrend state (run POST /timed/investor/compute to refresh)` : ""}`
-  }, `Sim-eligible${chipCounts.simEligible + chipCounts.simUnknown > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`), h("button", {
-    className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
-    onClick: () => setFilterGroup("SAVED"),
-    title: "Your saved tickers (star icon on any card)",
-    disabled: !saved || saved.size === 0
-  }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`))), h(AccountStrip, null), panelMounted ? h(window.InvestorPanel, {
+  }, "Growth Ideas"), " on Today lists fundamentally growing names the model watches for pullbacks. Tap any card to open Fundamentals in the right rail."))), h(HowToReadCard, null), h(AccountStrip, null), panelMounted ? h(window.InvestorPanel, {
     apiBase: API_BASE,
     onSelectTicker,
     savedTickers: saved,
@@ -806,6 +719,8 @@ function InvestorApp() {
     selectedTicker: null,
     searchQuery,
     filterGroup,
+    onSearchQueryChange: setSearchQuery,
+    onFilterGroupChange: setFilterGroup,
     tickerData: data
   }) : h("div", null, h("div", {
     className: "tt-card tt-card-pad",
@@ -857,6 +772,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782236698510:431131679
+// cache-bust:1782239283062:285719618
 
-// cache-bust:1782236698510:431131679
+// cache-bust:1782239283062:285719618

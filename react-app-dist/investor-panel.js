@@ -786,7 +786,66 @@
     );
   }
 
-  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup, allowedTickerSet, pendingTickerSymbols = [] }) {
+  /* Search + filter row — rendered directly above the kanban lanes so
+     operators can narrow the board without scrolling past account stats. */
+  function InvestorSearchRow({ searchQuery, onSearchQueryChange, filterGroup, onFilterGroupChange, chipCounts, savedCount }) {
+    const q = searchQuery || "";
+    return React.createElement("section", { className: "tt-row inv-controls", style: { marginTop: 8, marginBottom: 12 } },
+      React.createElement("div", { className: "inv-search-wrap" },
+        React.createElement("svg", {
+          width: 14, height: 14, viewBox: "0 0 24 24", fill: "none",
+          stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+          className: "inv-search-icon",
+        },
+          React.createElement("circle", { cx: 11, cy: 11, r: 8 }),
+          React.createElement("line", { x1: 21, y1: 21, x2: 16.65, y2: 16.65 }),
+        ),
+        React.createElement("input", {
+          type: "text",
+          className: "inv-search",
+          placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
+          value: q,
+          onChange: (e) => onSearchQueryChange && onSearchQueryChange(e.target.value),
+          "aria-label": "Search Investor tickers",
+        }),
+        q && React.createElement("button", {
+          className: "inv-search-clear",
+          onClick: () => onSearchQueryChange && onSearchQueryChange(""),
+          "aria-label": "Clear search",
+          title: "Clear",
+        }, "\u00D7"),
+      ),
+      React.createElement("div", { className: "inv-filter-chips" },
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === null ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange(null),
+        }, "All"),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("INVESTOR_ACTIONABLE"),
+          title: "Tickers in Accumulate or Reduce — the model has an active recommendation",
+        }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("EXECUTE_READY"),
+          title: "Accumulate/Reduce names the model would prioritize — ACT NOW or READY",
+        }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("SIM_ELIGIBLE"),
+          title: "Subset of Actionable the simulator would buy — Monthly SuperTrend bullish + \u22652 of (D, W, M) bullish",
+        }, `Sim-eligible${(chipCounts.simEligible + chipCounts.simUnknown) > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("SAVED"),
+          title: "Saved tickers (star icon on any card)",
+          disabled: !savedCount,
+        }, `Saved${savedCount > 0 ? ` (${savedCount})` : ""}`),
+      ),
+    );
+  }
+
+  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup, onSearchQueryChange, onFilterGroupChange, allowedTickerSet, pendingTickerSymbols = [] }) {
     const [scores, setScores] = useState(null);
     const [health, setHealth] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1071,6 +1130,29 @@
       return s === "accumulate_queued" || s === "accumulate_entered" || s === "reduce" || s === "core_hold" || s === "watch";
     }).length, [allTickers]);
 
+    const chipCounts = useMemo(() => {
+      let actionable = 0, simEligible = 0, simUnknown = 0, executeReady = 0;
+      const list = Array.isArray(scores?.tickers) ? scores.tickers : [];
+      const countNav = window.TTCountInvestorNavBadge;
+      if (typeof countNav === "function") actionable = countNav(list);
+      for (const row of list) {
+        const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+        if (stage !== "accumulate" && stage !== "reduce") continue;
+        if (typeof countNav !== "function") {
+          if (stage === "reduce") actionable++;
+          else if (stage === "accumulate") {
+            const tier = String(row?.actionTier || "").toLowerCase();
+            if (tier === "act_now" || tier === "ready") actionable++;
+          }
+        }
+        const tier = row?.actionTier;
+        if (tier === "act_now" || tier === "ready") executeReady++;
+        if (row?.simEligible === true) simEligible++;
+        else if (row?.simEligible == null) simUnknown++;
+      }
+      return { actionable, simEligible, simUnknown, executeReady };
+    }, [scores]);
+
     /* V2.1 round 5 (2026-05-01) — Investor narrative.
        Per user: "we need to provide some additional narrative, much like the
        Daily Brief". Builds a short, plain-language paragraph from
@@ -1261,6 +1343,14 @@
           ),
         ),
       ),
+      (onSearchQueryChange || onFilterGroupChange) && React.createElement(InvestorSearchRow, {
+        searchQuery,
+        onSearchQueryChange,
+        filterGroup,
+        onFilterGroupChange,
+        chipCounts,
+        savedCount: savedTickers?.size || 0,
+      }),
       allTickers.length > 0
         ? React.createElement(ActionKanban, {
             tickers: allTickers,
@@ -1297,4 +1387,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782236698510:431131679
+// cache-bust:1782239283062:285719618

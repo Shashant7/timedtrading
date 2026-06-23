@@ -60,37 +60,58 @@
     return INVESTOR_LANE_META[key] || { band: "watching", label: key || "—", action: "—" };
   }
 
+  function investorEvType(ev) {
+    const invT = String(ev && ev.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") return "ADD";
+    if (invT === "position_trim") return "TRIM";
+    if (invT === "position_close") return "EXIT";
+    return null;
+  }
+
   function classifyActivityEvent(ev) {
+    var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "ADD", evType: "ADD", scope: "investor", cls: "ev-entry ev-doing" };
+    }
+    if (invT === "position_trim") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "TRIM", evType: "TRIM", scope: "investor", cls: "ev-trim ev-doing" };
+    }
+    if (invT === "position_close") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "EXIT", evType: "EXIT", scope: "investor", cls: "ev-exit ev-doing" };
+    }
     var t = String(ev && (ev.type || ev.event) || "").toUpperCase();
     var modeRaw = String(ev && (ev.mode || ev.alert_class) || "").toLowerCase();
     var engine = String(ev && ev.engine || "").toLowerCase() === "investor"
+      || modeRaw === "investor"
       || t === "INVESTOR_SIGNAL"
       || (ev && ev.investor_alert_type)
       ? "investor" : "trader";
     if (t === "TRADE_EXIT_SIGNAL") {
-      return { engine: engine, mode: "doing", execState: "recommended", label: "EXIT", scope: engine, cls: "ev-exit ev-recommended ev-doing" };
+      return { engine: engine, mode: "doing", execState: "recommended", label: "EXIT", evType: "EXIT", scope: engine, cls: "ev-exit ev-recommended ev-doing" };
     }
     var doingTypes = ["TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT"];
     var isDoing = doingTypes.indexOf(t) >= 0 || modeRaw === "doing" || modeRaw === "done";
     var action = "hold";
     var label = "UPDATE";
+    var evType = t || "EVENT";
     var cls = "";
     var invExecDone = false;
     if (t === "INVESTOR_SIGNAL") {
       var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
-      if (invT === "position_add") { action = "add"; label = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
-      else if (invT === "position_trim") { action = "trim"; label = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true; }
-      else if (invT === "position_close") { action = "exit"; label = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true; }
-      else { action = "accumulate"; label = "WATCH"; cls = "ev-watching"; }
-    } else if (t.indexOf("TRIM") >= 0 || t === "TP_HIT_TRIM") { label = "TRIM"; cls = "ev-trim"; }
-    else if (t.indexOf("EXIT") >= 0 || t === "SL_HIT") { label = "EXIT"; cls = "ev-exit"; }
-    else if (t.indexOf("ENTRY") >= 0 || t === "ENTER" || t === "ADD") { label = t.indexOf("ADD") >= 0 || t === "ADD" ? "ADD" : "ENTER"; cls = "ev-entry"; }
+      if (invT === "position_add") { action = "add"; label = "ADD"; evType = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
+      else if (invT === "position_trim") { action = "trim"; label = "TRIM"; evType = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true; }
+      else if (invT === "position_close") { action = "exit"; label = "EXIT"; evType = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true; }
+      else { action = "accumulate"; label = "WATCH"; evType = "INVESTOR_SIGNAL"; cls = "ev-watching"; }
+    } else if (t.indexOf("TRIM") >= 0 || t === "TP_HIT_TRIM") { label = "TRIM"; evType = "TRIM"; cls = "ev-trim"; }
+    else if (t.indexOf("EXIT") >= 0 || t === "SL_HIT") { label = "EXIT"; evType = "EXIT"; cls = "ev-exit"; }
+    else if (t.indexOf("ENTRY") >= 0 || t === "ENTER" || t === "ADD") { label = t.indexOf("ADD") >= 0 || t === "ADD" ? "ADD" : "ENTER"; evType = label; cls = "ev-entry"; }
     var mode = invExecDone || isDoing ? "doing" : "watching";
     return {
       engine: engine,
       mode: mode,
       execState: invExecDone || isDoing ? "done" : "watching",
       label: label,
+      evType: evType,
       scope: engine,
       cls: cls || (mode === "doing" ? "ev-doing" : "ev-watching"),
     };
@@ -111,10 +132,11 @@
     traderLaneMeta: traderLaneMeta,
     investorLaneMeta: investorLaneMeta,
     classifyActivityEvent: classifyActivityEvent,
+    investorEvType: investorEvType,
     renderSignalChips: renderSignalChips,
     TRADER_LANE_META: TRADER_LANE_META,
     INVESTOR_LANE_META: INVESTOR_LANE_META,
   };
 })();
 
-// cache-bust:1782236698510:431131679
+// cache-bust:1782239283062:285719618

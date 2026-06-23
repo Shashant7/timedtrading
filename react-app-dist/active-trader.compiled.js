@@ -257,13 +257,16 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   const exit = [];
   for (const t of tickers) {
     if (!t) continue;
-    if (t.kanban_stage === null && !t._stickyExit) continue;
-    let stage = String(t?.kanban_stage || "").toLowerCase();
     const sym = String(t?.ticker || "").toUpperCase();
     const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || t?._openTrade || null);
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
     const isOpen = !!trade && (status === "OPEN" || status === "TP_HIT_TRIM" || !status && !t?._stickyExit);
+    if (t.kanban_stage === null && !t._stickyExit && !isOpen) continue;
+    let stage = String(t?.kanban_stage || "").toLowerCase();
+    if (!stage && isOpen) {
+      if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else stage = "hold";
+    }
     if (trade && isOpen) {
       if (stage === "exit") stage = "exiting";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
@@ -1751,6 +1754,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782236698510:431131679
+// cache-bust:1782239283062:285719618
 
-// cache-bust:1782236698510:431131679
+// cache-bust:1782239283062:285719618
