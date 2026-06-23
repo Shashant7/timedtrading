@@ -263,6 +263,16 @@
       if (Number.isFinite(pct)) parts.push(`${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`);
       if (ev?.source) parts.push(String(ev.source).replace(/_/g, " "));
     }
+    if (t === "INVESTOR_SIGNAL") {
+      const shares = Number(ev?.shares);
+      const price = Number(ev?.price);
+      if (Number.isFinite(shares) && shares > 0) {
+        parts.push(`${shares % 1 === 0 ? shares : shares.toFixed(1)} sh`);
+      }
+      if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
+      const reason = shortReason(ev?.reason);
+      if (reason) parts.push(reason);
+    }
     return parts.join(" · ");
   }
 
@@ -539,4 +549,4 @@
   else mount();
 })();
 
-// cache-bust:1782183706922:825313376
+// cache-bust:1782186430689:325674579
