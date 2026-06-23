@@ -949,7 +949,7 @@
       const invDisplay = investorInvalidationDisplay(detail, livePx);
       const STAGE_LABEL = {
         accumulate: {
-          label: "ACCUMULATE",
+          label: "Accumulate",
           color: "#34d399",
           bg: "rgba(52,211,153,0.10)",
           border: "rgba(52,211,153,0.30)",
@@ -957,7 +957,7 @@
           desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks."
         },
         core_hold: {
-          label: "CORE HOLD",
+          label: "Core Hold",
           color: "#60a5fa",
           bg: "rgba(96,165,250,0.10)",
           border: "rgba(96,165,250,0.30)",
@@ -965,7 +965,7 @@
           desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks."
         },
         watch: {
-          label: "WATCH",
+          label: "Hold & Watch",
           color: "#38F2A1",
           bg: "rgba(56,242,161,0.10)",
           border: "rgba(56,242,161,0.30)",
@@ -973,7 +973,7 @@
           desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly."
         },
         reduce: {
-          label: "REDUCE",
+          label: "Reduce",
           color: "#f87171",
           bg: "rgba(248,113,113,0.10)",
           border: "rgba(248,113,113,0.30)",
@@ -981,15 +981,15 @@
           desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms."
         },
         research_on_watch: {
-          label: "RESEARCH · ON WATCH",
+          label: "On Radar",
           color: "#a78bfa",
           bg: "rgba(167,139,250,0.10)",
           border: "rgba(167,139,250,0.30)",
-          action: "Research only",
-          desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire."
+          action: "Track only",
+          desc: "On the Investor board On Radar lane — tracking until execution-ready. No model buy yet."
         },
         research_low: {
-          label: "RESEARCH · LOW",
+          label: "Low Conviction",
           color: "#8AA39A",
           bg: "rgba(156,163,175,0.10)",
           border: "rgba(156,163,175,0.30)",
@@ -997,7 +997,7 @@
           desc: "Weak across most components. Better risk/reward elsewhere right now."
         },
         research_avoid: {
-          label: "AVOID",
+          label: "Avoid",
           color: "#f87171",
           bg: "rgba(248,113,113,0.10)",
           border: "rgba(248,113,113,0.30)",
@@ -1005,7 +1005,7 @@
           desc: "Multiple red flags. Avoid until the picture changes materially."
         },
         exited: {
-          label: "EXITED",
+          label: "Exited",
           color: "#8AA39A",
           bg: "rgba(156,163,175,0.08)",
           border: "rgba(156,163,175,0.20)",
@@ -1014,6 +1014,7 @@
         }
       };
       const stageInfo = STAGE_LABEL[displayStage] || STAGE_LABEL[stage] || STAGE_LABEL.watch;
+      const laneHeaderText = invCtx?.headerChipText || `Investor – ${stageInfo.label}`;
       const REASON_TRANSLATIONS = {
         score_declining: "Score has trended down over recent weeks — the underlying setup is weakening.",
         score_strong: "Score is high across components — setup is firing on multiple dimensions.",
@@ -1134,7 +1135,55 @@
       } : null;
       return h("div", {
         style: railTabBodyWrapStyle
-      }, catalystEvent && h("div", {
+      }, invCtx && h("div", {
+        style: {
+          padding: "var(--ds-space-3)",
+          marginBottom: "var(--ds-space-3)",
+          background: stageInfo.bg,
+          border: `1px solid ${stageInfo.border}`,
+          borderRadius: "var(--ds-radius-lg, 12px)"
+        }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          flexWrap: "wrap",
+          marginBottom: 8
+        }
+      }, h("div", {
+        style: {
+          fontSize: 15,
+          fontWeight: 700,
+          color: stageInfo.color
+        }
+      }, laneHeaderText), invCtx.tierMeta && h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          padding: "2px 8px",
+          borderRadius: 999,
+          color: invCtx.tierMeta.color,
+          background: `${invCtx.tierMeta.color}18`,
+          border: `1px solid ${invCtx.tierMeta.color}44`
+        }
+      }, invCtx.tierMeta.label)), h("div", {
+        style: {
+          fontSize: 13,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5,
+          fontWeight: 600
+        }
+      }, invCtx.statusLine), invCtx.signalNote && h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.45,
+          marginTop: 8
+        }
+      }, invCtx.signalNote)), catalystEvent && h("div", {
         style: {
           padding: "var(--ds-space-2)",
           background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
@@ -1163,7 +1212,7 @@
           lineHeight: 1.4
         }
       }, catalystEvent.warning)), h(Panel, {
-        title: "Investor Lane Guidance",
+        title: `Investor Lane · ${invCtx?.laneLabel || stageInfo.label}`,
         action: h("span", {
           style: {
             display: "inline-flex",
@@ -1194,7 +1243,7 @@
             background: stageInfo.bg,
             border: `1px solid ${stageInfo.border}`
           }
-        }, stageInfo.label))
+        }, invCtx?.laneLabel || stageInfo.label))
       }, invCtx?.signalNote && h("div", {
         style: {
           fontSize: 11,
@@ -7887,11 +7936,7 @@
               className: `ds-chip ds-chip--sm ${ctx.laneMeta.chip}`,
               style: ctx.laneMeta.style,
               title: chipTitle
-            }, "INVESTOR \xB7 ", ctx.displayLabel, ctx.tierMeta && (ctx.rawStage === "accumulate" || ctx.rawStage === "reduce") ? React.createElement(React.Fragment, null, " \xB7 ", React.createElement("span", {
-              style: {
-                color: ctx.tierMeta.color
-              }
-            }, ctx.tierMeta.label)) : null);
+            }, ctx.headerChipText || `Investor – ${ctx.laneLabel}`);
           })(), isTTSel && React.createElement("span", {
             title: "TT Selected",
             style: {
@@ -9239,25 +9284,14 @@
           }
           const laneColor = ctx.laneMeta.style?.color || (ctx.displayStage === "accumulate" ? "#34d399" : ctx.displayStage === "reduce" ? "#f87171" : ctx.displayStage === "research_on_watch" ? "#a78bfa" : "#8AA39A");
           const laneBg = ctx.laneMeta.style?.background || (ctx.displayStage === "accumulate" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)");
-          const verdict = (() => {
-            if (holding) {
-              const word = ctx.displayLabel;
-              return {
-                word,
-                color: laneColor,
-                bg: laneBg,
-                line: ctx.statusLine,
-                urgency: ctx.displayStage === "reduce" ? "now" : "monitor"
-              };
-            }
-            return {
-              word: ctx.displayLabel,
-              color: laneColor,
-              bg: laneBg,
-              line: ctx.statusLine,
-              urgency: ctx.executeReady ? "watch" : "context"
-            };
-          })();
+          const verdict = {
+            word: ctx.laneLabel,
+            color: laneColor,
+            bg: laneBg,
+            line: ctx.statusLine,
+            action: ctx.executeReady && ctx.displayStage === "accumulate" ? "The model would scale in on the next rebalance." : ctx.owned ? "Follow lane guidance for the open model position." : "No model position — track on the Investor board until execution-ready.",
+            urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context"
+          };
           const triggers = [];
           if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
             triggers.push({
@@ -9290,20 +9324,17 @@
               display: "flex",
               alignItems: "center",
               gap: 6,
-              marginBottom: 6,
+              marginBottom: 8,
               flexWrap: "wrap"
             }
           }, React.createElement("span", {
             style: {
-              fontSize: 10,
+              fontSize: 11,
               fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: "#a5b4fc",
-              background: "rgba(99,102,241,0.12)",
-              letterSpacing: "0.06em"
+              color: laneColor,
+              letterSpacing: "0.02em"
             }
-          }, "INVESTOR \xB7 ", ctx.laneLabel.toUpperCase(), " LANE"), ctx.tierMeta && React.createElement("span", {
+          }, ctx.headerChipText || `Investor – ${ctx.laneLabel}`), ctx.tierMeta && React.createElement("span", {
             style: {
               fontSize: 10,
               fontWeight: 700,
@@ -9330,7 +9361,7 @@
               alignItems: "baseline",
               justifyContent: "space-between",
               gap: 8,
-              marginBottom: 6,
+              marginBottom: 10,
               flexWrap: "wrap"
             }
           }, React.createElement("span", {
@@ -9350,34 +9381,42 @@
             }
           }, "$", livePx.toFixed(2))), React.createElement("div", {
             style: {
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              marginBottom: ctx.signalNote || triggers.length > 0 || ipThesis ? 8 : 0
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "#38F2A1",
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "WHAT TO DO"), React.createElement("div", {
+            style: {
               fontSize: 13,
               color: "var(--ds-text-body)",
               lineHeight: 1.45,
-              marginBottom: ctx.signalNote || triggers.length > 0 ? 8 : 0
+              fontWeight: 600
             }
-          }, verdict.line), ctx.signalNote && React.createElement("div", {
+          }, verdict.line), React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.45,
+              marginTop: 6
+            }
+          }, verdict.action)), ctx.signalNote && React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-muted)",
               lineHeight: 1.45,
               marginBottom: triggers.length > 0 ? 8 : 0
             }
-          }, ctx.signalNote), !holding && ctx.rawStage === "accumulate" && !ctx.executeReady && React.createElement("div", {
-            style: {
-              marginTop: 4,
-              padding: "8px 10px",
-              borderRadius: 8,
-              background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.06)",
-              fontSize: 11,
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.45
-            }
-          }, "No model position on this ticker. On the Investor board this name sits in the ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)"
-            }
-          }, ctx.laneLabel), " lane \u2014 not the empty Accumulate row (execution-ready only)."), ipThesis && React.createElement("div", {
+          }, ctx.signalNote), ipThesis && React.createElement("div", {
             style: {
               fontSize: 12,
               color: "var(--ds-text-muted)",
@@ -9898,7 +9937,14 @@
           const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
           const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
           const ipReason = String(ip?.why_now || "").trim();
-          const ipActionLine = (() => {
+          const ipLaneCtx = buildInvestorDisplayContext({
+            investorData,
+            ticker,
+            latestTicker,
+            effectiveInvestorTrade,
+            tickerSymbol
+          });
+          const ipActionLine = ipLaneCtx?.statusLine || (() => {
             const cardSym = String(tickerSymbol || "").trim().toUpperCase();
             const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
             if (liveStage) {
@@ -9943,7 +9989,7 @@
               background: "rgba(99,102,241,0.12)",
               letterSpacing: "0.06em"
             }
-          }, "\uD83E\uDDED INVESTOR MODEL"), React.createElement("span", {
+          }, ipLaneCtx?.headerChipText || "Investor model detail"), React.createElement("span", {
             style: {
               fontSize: 10,
               color: "var(--ds-text-faint)"
@@ -21073,4 +21119,4 @@
   };
 })();
 
-// cache-bust:1782180418635:173835171
+// cache-bust:1782181309533:635345750

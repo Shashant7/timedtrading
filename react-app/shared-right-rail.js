@@ -794,16 +794,17 @@
       const invDisplay = investorInvalidationDisplay(detail, livePx);
 
       const STAGE_LABEL = {
-        accumulate: { label: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", action: "Buy in 2-3 tranches", desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks." },
-        core_hold:  { label: "CORE HOLD",  color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", action: "Hold and DCA on dips", desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks." },
-        watch:      { label: "WATCH",      color: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.30)", action: "Hold; monitor signals", desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly." },
-        reduce:     { label: "REDUCE",     color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Trim into strength", desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms." },
-        research_on_watch: { label: "RESEARCH · ON WATCH", color: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", action: "Research only", desc: "On the radar but not actionable yet. Track for weeks; build a watchlist position when signals fire." },
-        research_low: { label: "RESEARCH · LOW", color: "#8AA39A", bg: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", action: "Pass for now", desc: "Weak across most components. Better risk/reward elsewhere right now." },
-        research_avoid: { label: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Skip", desc: "Multiple red flags. Avoid until the picture changes materially." },
-        exited:     { label: "EXITED",     color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
+        accumulate: { label: "Accumulate", color: "#34d399", bg: "rgba(52,211,153,0.10)", border: "rgba(52,211,153,0.30)", action: "Buy in 2-3 tranches", desc: "Strong setup + favorable entry zone. Build a starter position; scale in over the next 2-4 weeks." },
+        core_hold:  { label: "Core Hold",  color: "#60a5fa", bg: "rgba(96,165,250,0.10)", border: "rgba(96,165,250,0.30)", action: "Hold and DCA on dips", desc: "Thesis is intact. No action needed — let it compound. Add on meaningful pullbacks." },
+        watch:      { label: "Hold & Watch", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.30)", action: "Hold; monitor signals", desc: "Mixed signals. Don't add. If owned, tighten invalidation and monitor weekly." },
+        reduce:     { label: "Reduce",     color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Trim into strength", desc: "Thesis weakening. Trim 25-50% now; hold the remainder until invalidation confirms." },
+        research_on_watch: { label: "On Radar", color: "#a78bfa", bg: "rgba(167,139,250,0.10)", border: "rgba(167,139,250,0.30)", action: "Track only", desc: "On the Investor board On Radar lane — tracking until execution-ready. No model buy yet." },
+        research_low: { label: "Low Conviction", color: "#8AA39A", bg: "rgba(156,163,175,0.10)", border: "rgba(156,163,175,0.30)", action: "Pass for now", desc: "Weak across most components. Better risk/reward elsewhere right now." },
+        research_avoid: { label: "Avoid", color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)", action: "Skip", desc: "Multiple red flags. Avoid until the picture changes materially." },
+        exited:     { label: "Exited",     color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
       };
       const stageInfo = STAGE_LABEL[displayStage] || STAGE_LABEL[stage] || STAGE_LABEL.watch;
+      const laneHeaderText = invCtx?.headerChipText || `Investor – ${stageInfo.label}`;
 
       const REASON_TRANSLATIONS = {
         score_declining:           "Score has trended down over recent weeks — the underlying setup is weakening.",
@@ -899,6 +900,25 @@
 
       return h("div", { style: railTabBodyWrapStyle },
 
+        invCtx && h("div", {
+          style: {
+            padding: "var(--ds-space-3)",
+            marginBottom: "var(--ds-space-3)",
+            background: stageInfo.bg,
+            border: `1px solid ${stageInfo.border}`,
+            borderRadius: "var(--ds-radius-lg, 12px)",
+          },
+        },
+          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
+            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } }, laneHeaderText),
+            invCtx.tierMeta && h("span", {
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
+            }, invCtx.tierMeta.label),
+          ),
+          h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, fontWeight: 600 } }, invCtx.statusLine),
+          invCtx.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 8 } }, invCtx.signalNote),
+        ),
+
         // 0. Catalyst banner — when ticker just had a major move
         catalystEvent && h("div", {
           style: {
@@ -921,12 +941,12 @@
 
         // 1. Lane Guidance
         h(Panel, {
-          title: "Investor Lane Guidance",
+          title: `Investor Lane · ${invCtx?.laneLabel || stageInfo.label}`,
           action: h("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
             invCtx?.tierMeta && h("span", {
               style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
             }, invCtx.tierMeta.label),
-            h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, stageInfo.label),
+            h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, invCtx?.laneLabel || stageInfo.label),
           ),
         },
           invCtx?.signalNote && h("div", {
@@ -7037,10 +7057,7 @@
                             style={ctx.laneMeta.style}
                             title={chipTitle}
                           >
-                            INVESTOR · {ctx.displayLabel}
-                            {ctx.tierMeta && (ctx.rawStage === "accumulate" || ctx.rawStage === "reduce")
-                              ? <> · <span style={{ color: ctx.tierMeta.color }}>{ctx.tierMeta.label}</span></>
-                              : null}
+                            {ctx.headerChipText || `Investor – ${ctx.laneLabel}`}
                           </span>
                         );
                       })()}
@@ -8328,25 +8345,16 @@
                           || (ctx.displayStage === "accumulate" ? "rgba(52,211,153,0.10)"
                           : "rgba(255,255,255,0.04)");
 
-                        const verdict = (() => {
-                          if (holding) {
-                            const word = ctx.displayLabel;
-                            return {
-                              word,
-                              color: laneColor,
-                              bg: laneBg,
-                              line: ctx.statusLine,
-                              urgency: ctx.displayStage === "reduce" ? "now" : "monitor",
-                            };
-                          }
-                          return {
-                            word: ctx.displayLabel,
-                            color: laneColor,
-                            bg: laneBg,
-                            line: ctx.statusLine,
-                            urgency: ctx.executeReady ? "watch" : "context",
-                          };
-                        })();
+                        const verdict = {
+                          word: ctx.laneLabel,
+                          color: laneColor,
+                          bg: laneBg,
+                          line: ctx.statusLine,
+                          action: ctx.executeReady && ctx.displayStage === "accumulate"
+                            ? "The model would scale in on the next rebalance."
+                            : (ctx.owned ? "Follow lane guidance for the open model position." : "No model position — track on the Investor board until execution-ready."),
+                          urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context",
+                        };
 
                         const triggers = [];
                         if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
@@ -8367,12 +8375,12 @@
                             border: `1px solid ${laneColor}55`,
                             borderRadius: 12,
                           }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
                               <span style={{
-                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
-                                letterSpacing: "0.06em",
-                              }}>INVESTOR · {ctx.laneLabel.toUpperCase()} LANE</span>
+                                fontSize: 11, fontWeight: 700,
+                                color: laneColor,
+                                letterSpacing: "0.02em",
+                              }}>{ctx.headerChipText || `Investor – ${ctx.laneLabel}`}</span>
                               {ctx.tierMeta && (
                                 <span style={{
                                   fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
@@ -8391,7 +8399,7 @@
                                 }}>{ipDir}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                               <span style={{
                                 fontSize: 18, fontWeight: 800, color: verdict.color,
                                 letterSpacing: "0.02em", lineHeight: 1,
@@ -8402,21 +8410,24 @@
                                 </span>
                               )}
                             </div>
-                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: ctx.signalNote || triggers.length > 0 ? 8 : 0 }}>
-                              {verdict.line}
+                            <div style={{
+                              padding: "10px 12px", borderRadius: 8,
+                              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
+                              marginBottom: ctx.signalNote || triggers.length > 0 || ipThesis ? 8 : 0,
+                            }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
+                                WHAT TO DO
+                              </div>
+                              <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600 }}>
+                                {verdict.line}
+                              </div>
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 }}>
+                                {verdict.action}
+                              </div>
                             </div>
                             {ctx.signalNote && (
                               <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0 }}>
                                 {ctx.signalNote}
-                              </div>
-                            )}
-                            {!holding && ctx.rawStage === "accumulate" && !ctx.executeReady && (
-                              <div style={{
-                                marginTop: 4, padding: "8px 10px", borderRadius: 8,
-                                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
-                                fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45,
-                              }}>
-                                No model position on this ticker. On the Investor board this name sits in the <strong style={{ color: "var(--ds-text-body)" }}>{ctx.laneLabel}</strong> lane — not the empty Accumulate row (execution-ready only).
                               </div>
                             )}
                             {ipThesis && (
@@ -8771,8 +8782,14 @@
                         const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
                         const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
                         const ipReason = String(ip?.why_now || "").trim();
-                        // Plain-English mapping for the action label.
-                        const ipActionLine = (() => {
+                        const ipLaneCtx = buildInvestorDisplayContext({
+                          investorData,
+                          ticker,
+                          latestTicker,
+                          effectiveInvestorTrade,
+                          tickerSymbol,
+                        });
+                        const ipActionLine = ipLaneCtx?.statusLine || (() => {
                           const cardSym = String(tickerSymbol || "").trim().toUpperCase();
                           const liveStage = (investorData?.ticker === cardSym)
                             ? String(investorData?.stage || "").toLowerCase()
@@ -8810,7 +8827,7 @@
                                 fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
                                 color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
                                 letterSpacing: "0.06em",
-                              }}>🧭 INVESTOR MODEL</span>
+                              }}>{ipLaneCtx?.headerChipText || "Investor model detail"}</span>
                               <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>long-horizon weeks-to-months view</span>
                               {ipDir && (
                                 <span style={{
