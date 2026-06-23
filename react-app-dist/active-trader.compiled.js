@@ -98,7 +98,7 @@ function resolveOpenTrade(tr) {
   if (!tr) return null;
   return traderBookIsOpen(tr) ? tr : null;
 }
-const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
   const [closedByTicker, setClosedByTicker] = useState(() => new Map());
@@ -256,9 +256,9 @@ function computeEffectiveStage(ticker, trade) {
   const tradeIsClosed = tradeStatus === "WIN" || tradeStatus === "LOSS" || !!(openTr?.exit_ts ?? openTr?.exitTs) || trimmedPct >= 0.9999;
   const tradeIsOpen = !tradeIsClosed && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
   if (!tradeIsOpen) return rawStage;
-  if (rawStage === "exit") return "exiting";
+  if (rawStage === "exit") return "defend";
   if (rawStage === "defend") return "defend";
-  if (rawStage === "exiting") return "exiting";
+  if (rawStage === "exiting") return "defend";
   if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
@@ -285,7 +285,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
       if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else stage = "hold";
     }
     if (trade && isOpen) {
-      if (stage === "exit") stage = "exiting";else if (stage === "defend") {} else if (stage === "exiting") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+      if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (stage === "exiting") stage = "defend";else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
     if (!isOpen && closedByTicker?.get) {
       const closed = closedByTicker.get(sym) || t?._closedTrade || null;
@@ -1846,6 +1846,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782245139194:746461194
+// cache-bust:1782245701908:156933603
 
-// cache-bust:1782245139194:746461194
+// cache-bust:1782245701908:156933603

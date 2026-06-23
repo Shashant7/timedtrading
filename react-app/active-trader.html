@@ -754,7 +754,7 @@
       // Positions is authoritative when present; D1 open rows backfill gaps
       // (e.g. MU runner after trim when positions row lags). Closed sticky
       // map excludes any symbol that still has a live open row.
-      const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+      const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
       function useTraderBook(enabled) {
         const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
         const [closedByTicker, setClosedByTicker] = useState(() => new Map());
@@ -898,9 +898,11 @@
           !tradeIsClosed &&
           (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !tradeStatus);
         if (!tradeIsOpen) return rawStage;
-        if (rawStage === "exit") return "exiting";
+        // Engine exit on an still-open runner = defend (tighten SL / danger),
+        // not Exiting (active share shed). Matches index-react EarlyMoversPanel.
+        if (rawStage === "exit") return "defend";
         if (rawStage === "defend") return "defend";
-        if (rawStage === "exiting") return "exiting";
+        if (rawStage === "exiting") return "defend";
         if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
         if (!["trim","hold","active","just_entered"].includes(rawStage)) return "hold";
         return rawStage;
@@ -936,9 +938,9 @@
 
           // Open-trade override (priority order matches index-react EarlyMoversPanel):
           if (trade && isOpen) {
-            if (stage === "exit") stage = "exiting";
+            if (stage === "exit") stage = "defend";
             else if (stage === "defend") { /* keep */ }
-            else if (stage === "exiting") { /* keep — engine wants out, open runner */ }
+            else if (stage === "exiting") stage = "defend";
             else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
             else if (stage === "trim") { /* keep */ }
             else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
