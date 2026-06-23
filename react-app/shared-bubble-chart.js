@@ -1078,6 +1078,7 @@
     activeInsightTickers = null,
     layoutMode = "score",
     tradeByTicker: tradeByTickerProp = null,
+    tooltipMode = "trader",
   }) {
 
     /* V2.1 round 7 (2026-05-01) — When a ticker is SELECTED, solo it.
@@ -2147,7 +2148,16 @@
                         </span>
                       );
                     })()}
-                    {(() => {
+                    {tooltipMode === "investor" ? (() => {
+                      const act = String(tooltip._investorAction || "").toUpperCase();
+                      const stage = String(tooltip.investor_stage || tooltip._investorStage || "").toLowerCase();
+                      if (!act && !stage) return null;
+                      return (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-500/20 text-indigo-300">
+                          {act || stage.toUpperCase()}
+                        </span>
+                      );
+                    })() : (() => {
                       // V15 P0.7.83 + 2026-06-15 posture sync: use the same
                       // inferTraderPosture contract as the right rail header.
                       const posture = getPostureBiasForBubble(tooltip, null, tradeByTickerProp);

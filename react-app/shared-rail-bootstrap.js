@@ -178,6 +178,7 @@
       initialRailTab = null,
       openAutopsyForTrade = null,
       highlightTradeId = null,
+      railOpenSource = null,
     } = props || {};
     const API_BASE = window.TT_API_BASE || "";
     const tickerSym = useMemo(() => String(ticker?.ticker || ticker?.symbol || "").toUpperCase(), [ticker]);
@@ -312,6 +313,7 @@
           initialRailTab,
           openAutopsyForTrade,
           highlightTradeId,
+          railOpenSource: props.railOpenSource || null,
           savedTickers,
           toggleSavedTicker,
         }),

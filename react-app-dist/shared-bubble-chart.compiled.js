@@ -943,7 +943,8 @@
     forwardReturns = null,
     activeInsightTickers = null,
     layoutMode = "score",
-    tradeByTicker: tradeByTickerProp = null
+    tradeByTicker: tradeByTickerProp = null,
+    tooltipMode = "trader"
   }) {
     const displayTickers = React.useMemo(() => {
       const list = Array.isArray(tickers) ? tickers : [];
@@ -1766,7 +1767,14 @@
           return React.createElement("span", {
             className: `text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`
           }, pos ? "+" : "", dc.dayPct.toFixed(2), "%", Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : "");
-        })(), (() => {
+        })(), tooltipMode === "investor" ? (() => {
+          const act = String(tooltip._investorAction || "").toUpperCase();
+          const stage = String(tooltip.investor_stage || tooltip._investorStage || "").toLowerCase();
+          if (!act && !stage) return null;
+          return React.createElement("span", {
+            className: "px-1.5 py-0.5 rounded text-[9px] font-semibold bg-indigo-500/20 text-indigo-300"
+          }, act || stage.toUpperCase());
+        })() : (() => {
           const posture = getPostureBiasForBubble(tooltip, null, tradeByTickerProp);
           const b = posture?.direction || null;
           if (!b) {
@@ -2685,4 +2693,4 @@
   };
 })();
 
-// cache-bust:1782148863164:366373053
+// cache-bust:1782177437352:861455465

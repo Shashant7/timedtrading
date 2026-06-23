@@ -1333,6 +1333,7 @@ function ActiveTraderApp() {
   }, [displayLanes, ensureSpark]);
   const [railTicker, setRailTicker] = useState(null);
   const [railInitialTab, setRailInitialTab] = useState(null);
+  const [railOpenSource, setRailOpenSource] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
   const railTickerObj = useMemo(() => {
@@ -1383,12 +1384,14 @@ function ActiveTraderApp() {
     if (!t) return;
     setRailTicker(t);
     setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
+    setRailOpenSource(p?.railOpenSource || detail?.source || null);
     setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
     setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
   }, []);
   const onCloseRail = useCallback(() => {
     setRailTicker(null);
     setRailInitialTab(null);
+    setRailOpenSource(null);
     setHighlightTradeId(null);
     setOpenAutopsyForTrade(null);
     try {
@@ -1667,6 +1670,7 @@ function ActiveTraderApp() {
     allLoadedData: data,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
+    railOpenSource,
     openAutopsyForTrade,
     highlightTradeId
   }));
@@ -1679,6 +1683,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782148863164:366373053
+// cache-bust:1782177437352:861455465
 
-// cache-bust:1782148863164:366373053
+// cache-bust:1782177437352:861455465

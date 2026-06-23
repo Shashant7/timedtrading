@@ -190,8 +190,14 @@ function condenseMarkovForecast(forecast, direction) {
   if (forecast.p_1h && direction) {
     out.p_1h_in_direction = probInDirection(forecast.p_1h, direction);
   }
+  if (forecast.p_4h && direction) {
+    out.p_4h_in_direction = probInDirection(forecast.p_4h, direction);
+  }
   if (forecast.p_1d && direction) {
     out.p_1d_in_direction = probInDirection(forecast.p_1d, direction);
+  }
+  if (forecast.p_1w && direction) {
+    out.p_1w_in_direction = probInDirection(forecast.p_1w, direction);
   }
   // Expanded 12-state — just the band (EARLY / MID / LATE) is enough for CIO.
   if (forecast.expanded?.band) {

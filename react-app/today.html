@@ -685,6 +685,9 @@
       .analysis-controls {
         margin-bottom: 22px;
         padding: 24px 26px 18px;
+        position: sticky;
+        top: 56px;
+        z-index: 40;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-top: 2px solid rgba(245,194,92,0.35);
@@ -5796,6 +5799,7 @@
         // ticker isn't anywhere — the rail is robust to sparse data.
         const [railTicker, setRailTicker] = useState(null);
         const [railInitialTab, setRailInitialTab] = useState(null);
+        const [railOpenSource, setRailOpenSource] = useState(null);
         const [highlightTradeId, setHighlightTradeId] = useState(null);
         const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
 
@@ -5851,6 +5855,7 @@
           if (!t) return;
           setRailTicker(t);
           setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
+          setRailOpenSource(p?.railOpenSource || detail?.source || null);
           setHighlightTradeId(p?.highlightTradeId || detail?.tradeId || null);
           setOpenAutopsyForTrade(p?.openAutopsyForTrade || null);
         }, []);
@@ -5858,6 +5863,7 @@
         const onCloseRail = useCallback(() => {
           setRailTicker(null);
           setRailInitialTab(null);
+          setRailOpenSource(null);
           setHighlightTradeId(null);
           setOpenAutopsyForTrade(null);
           try { window.ttClearRailUrlParams?.(); } catch (_) {}
@@ -5974,6 +5980,7 @@
             allLoadedData: data,
             onClose: onCloseRail,
             initialRailTab: railInitialTab,
+            railOpenSource,
             openAutopsyForTrade,
             highlightTradeId,
           }),

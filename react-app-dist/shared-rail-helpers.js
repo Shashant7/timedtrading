@@ -958,7 +958,140 @@
       }
       return null;
     },
+    formatAgeShort(ms) {
+      const n = Number(ms);
+      if (!Number.isFinite(n) || n < 0) return "—";
+      const mins = Math.floor(n / 60000);
+      if (mins < 60) return `${mins}m ago`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 48) return `${hrs}h ago`;
+      return `${Math.floor(hrs / 24)}d ago`;
+    },
+    buildRegimeTimelineColumns(fc, direction) {
+      if (!fc) return [];
+      const PRETTY = {
+        HTF_BULL_LTF_BULL: { short: "Bull", color: "#4ade80" },
+        HTF_BULL_LTF_PULLBACK: { short: "Bull · Pull", color: "#fbbf24" },
+        HTF_BEAR_LTF_BEAR: { short: "Bear", color: "#f87171" },
+        HTF_BEAR_LTF_PULLBACK: { short: "Bear · Rally", color: "#fbbf24" },
+      };
+      const dir = String(direction || "").toUpperCase();
+      const probInDir = (vec) => {
+        if (!vec || !dir) return null;
+        if (dir === "LONG") {
+          return (Number(vec.HTF_BULL_LTF_BULL) || 0) + (Number(vec.HTF_BULL_LTF_PULLBACK) || 0);
+        }
+        if (dir === "SHORT") {
+          return (Number(vec.HTF_BEAR_LTF_BEAR) || 0) + (Number(vec.HTF_BEAR_LTF_PULLBACK) || 0);
+        }
+        return null;
+      };
+      const horizons = [
+        { key: "p_1h", label: "1 hour", bars: 12 },
+        { key: "p_4h", label: "4 hours", bars: 48 },
+        { key: "p_1d", label: "1 day", bars: 78 },
+        { key: "p_1w", label: "1 week", bars: 390 },
+      ];
+      return horizons.map((h) => {
+        const vec = fc[h.key];
+        if (!vec) return null;
+        const entries = Object.entries(vec).sort((a, b) => b[1] - a[1]);
+        const top = entries[0] || ["", 0];
+        const holdPct = Number(top[1]) || 0;
+        const holdState = top[0];
+        const meta = PRETTY[holdState] || { short: holdState, color: "var(--ds-text-muted)" };
+        const dirPct = probInDir(vec);
+        return {
+          ...h,
+          holdState,
+          holdPct,
+          holdLabel: meta.short,
+          holdColor: meta.color,
+          dirPct,
+        };
+      }).filter(Boolean);
+    },
+    buildFundamentalsHeroNarrative(F) {
+      const prof = F?.profile || {};
+      const val = F?.valuation || {};
+      const grw = F?.growth || {};
+      const earn = F?.earnings || {};
+      const beat = Number(earn.beat_rate_pct);
+      const fvPrem = Number(val.fair_value_premium_pct);
+      let tone = "neutral";
+      if (grw.eps_growth_class === "declining" || grw.rev_growth_class === "declining") tone = "cautious";
+      else if (["explosive", "exploding", "strong"].includes(grw.eps_growth_class)) tone = "bullish";
+      if (Number.isFinite(fvPrem) && fvPrem > 25) tone = tone === "bullish" ? "neutral" : "cautious";
+      const bullets = [];
+      if (Number.isFinite(beat)) bullets.push(`Beat rate near ${Math.round(beat)}% across recent quarters.`);
+      if (Number.isFinite(fvPrem)) bullets.push(`Fair-value screen shows ${Math.abs(fvPrem).toFixed(0)}% ${fvPrem > 0 ? "premium" : "discount"} vs modeled value.`);
+      if (Number.isFinite(grw.eps_growth_pct)) bullets.push(`EPS growth ${grw.eps_growth_pct >= 0 ? "+" : ""}${Number(grw.eps_growth_pct).toFixed(0)}% YoY.`);
+      while (bullets.length < 3) bullets.push(`Read metrics against ${prof.industry || prof.sector || "sector"} peers.`);
+      return {
+        headline: `${prof.name || "This name"} — ${tone === "bullish" ? "constructive" : tone === "cautious" ? "cautious" : "balanced"} ${prof.industry || "fundamental"} profile.`,
+        bullets: bullets.slice(0, 3),
+        quality_chip: earn.beat_rate_pct >= 70 ? "Consistent reporter" : "Standard profile",
+        tone,
+        source: "rule_based",
+      };
+    },
+    buildCatalystsStreetBuzz(C) {
+      const news = C?.news || {};
+      const count = Number(news.count) || 0;
+      const dom = String(news.dominant_sentiment || "neutral");
+      const top = news.top_catalyst?.headline || news.latest_3?.[0]?.headline;
+      let vibe = count === 0 ? "quiet" : dom === "bullish" ? "bullish" : dom === "bearish" ? "bearish" : "mixed";
+      return {
+        vibe,
+        headline: vibe === "quiet" ? "Street is quiet on this ticker." : vibe === "bullish" ? "Headlines lean constructive." : vibe === "bearish" ? "Headlines lean cautious." : "Mixed street buzz.",
+        summary: top ? String(top).slice(0, 220) : (count > 0 ? `${count} filtered headlines in the last few days.` : "No ticker-specific headlines after relevance filtering."),
+        top_drivers: top ? [String(top).slice(0, 100)] : [],
+        freshness_note: "Headlines filtered to mention this symbol.",
+        source: "rule_based",
+      };
+    },
+    stageDisplayLabel(stage, context) {
+      const s = String(stage || "").toLowerCase();
+      const ctx = String(context || "trader").toLowerCase();
+      const map = {
+        setup: ctx === "investor" ? "On Watch" : "Setup",
+        setup_watch: "Entry Watch",
+        watch: ctx === "investor" ? "Watching" : "Watch for Entry",
+        enter: "Enter",
+        enter_now: "Enter Now",
+        just_flipped: "Just Flipped",
+        hold: "Holding",
+        trim: "Trim",
+        defend: "Defend",
+        exit: "Exit",
+        accumulate: "Accumulate",
+        core_hold: "Core Hold",
+        reduce: "Reduce",
+      };
+      return map[s] || String(stage || "").replace(/_/g, " ") || "—";
+    },
+    buildTraderLaneCardProps(ticker, opts) {
+      opts = opts || {};
+      const t = ticker || {};
+      const sym = String(t.ticker || "").toUpperCase();
+      const stage = String(t.kanban_stage || t.stage || "").toLowerCase();
+      const laneHead = opts.laneHead || null;
+      const hideStageChip = !!laneHead;
+      const hideRank = opts.hideRank || /hold|defend|trim|exit/.test(stage);
+      const getDir = window.TimedRailHelpers?.getDirection || window.TimedBubbleChart?.getDirectionFromState;
+      const dir = typeof getDir === "function" ? getDir(t) : null;
+      const posture = String(t.posture_label || t.trader_posture_label || "").trim();
+      const biasLabel = posture || (dir === "LONG" ? "Leaning bullish" : dir === "SHORT" ? "Leaning bearish" : "Neutral");
+      return {
+        sym,
+        stageLabel: window.TimedRailHelpers?.stageDisplayLabel?.(stage, opts.context || "trader"),
+        biasLabel,
+        hideStageChip,
+        hideRank,
+        showSq: opts.showSq !== false,
+      };
+    },
   };
 })();
 
-// cache-bust:1782148863164:366373053
+// cache-bust:1782177437352:861455465

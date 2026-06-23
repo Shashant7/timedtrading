@@ -11,6 +11,10 @@
 //     → Batch 20 headlines per gpt-4o-mini call → JSON sentiment + catalyst
 //     → UPDATE rows with sentiment / catalyst_strength / scored_at
 //   CIO eval cycle → loadRecentNewsSummary(env, sym)
+//
+// headlineMentionsTicker — filter cross-ticker pollution (Finnhub sector
+// articles stored under wrong symbols). Same idea as publicationMentionsTicker
+// in worker/cro/fsd-ingestion.js.
 //     → returns compact summary for memory L14
 //   Promotion Queue → loadRecentNewsSummary(env, sym)
 //     → contributes NEWS_CATALYST scoring component
@@ -18,6 +22,16 @@
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
 const SENTIMENT_MODEL_FALLBACK = "gpt-4o-mini";
 const SENTIMENT_BATCH_SIZE = 20;
+
+/** True when headline/summary text plausibly references the ticker symbol. */
+export function headlineMentionsTicker(headline, summary, ticker) {
+  const sym = String(ticker || "").toUpperCase().trim();
+  if (!sym) return false;
+  const blob = `${headline || ""}\n${summary || ""}`;
+  if (!blob.trim()) return false;
+  const re = new RegExp(`(?:\\$${sym}\\b|\\(${sym}\\)|\\b${sym}\\b)`, "i");
+  return re.test(blob);
+}
 const SENTIMENT_TIMEOUT_MS = 30000;
 
 const SENTIMENT_SYSTEM_PROMPT = `You are a financial-news sentiment + catalyst classifier. For each headline, return:
@@ -250,15 +264,16 @@ export async function loadRecentNewsSummary(env, ticker, opts = {}) {
        ORDER BY datetime_utc DESC
        LIMIT 25
     `).bind(sym, cutoffIso).all().catch(() => ({ results: [] })))?.results || [];
-    if (rows.length === 0) {
-      return { ticker: sym, has_data: false, count: 0 };
+    const filtered = rows.filter((r) => headlineMentionsTicker(r.headline, null, sym));
+    if (filtered.length === 0) {
+      return { ticker: sym, has_data: false, count: 0, filtered_out: rows.length };
     }
     // Aggregate.
     let bull = 0, bear = 0, neutral = 0, unscored = 0;
     let topCatalyst = null;
     let bullishCatalystCount = 0;
     let bearishCatalystCount = 0;
-    for (const r of rows) {
+    for (const r of filtered) {
       const sent = r.sentiment || null;
       const cs = Number(r.catalyst_strength) || 0;
       const ic = r.is_catalyst === 1;
@@ -285,13 +300,13 @@ export async function loadRecentNewsSummary(env, ticker, opts = {}) {
       ticker: sym,
       has_data: true,
       lookback_days: lookbackDays,
-      count: rows.length,
+      count: filtered.length,
       bull, bear, neutral, unscored,
       dominant_sentiment: dominant,
       bullish_catalyst_count: bullishCatalystCount,
       bearish_catalyst_count: bearishCatalystCount,
       top_catalyst: topCatalyst,
-      latest_3: rows.slice(0, 3).map((r) => ({
+      latest_3: filtered.slice(0, 3).map((r) => ({
         headline: r.headline,
         source: r.source,
         sentiment: r.sentiment,
@@ -325,6 +340,7 @@ export async function loadNewsSummariesBatch(env, tickers, opts = {}) {
     for (const r of rows) {
       const t = String(r.ticker || "").toUpperCase();
       if (!symSet.has(t)) continue;
+      if (!headlineMentionsTicker(r.headline, null, t)) continue;
       out[t].count++;
       const cs = Number(r.catalyst_strength) || 0;
       const ic = r.is_catalyst === 1;
