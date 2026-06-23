@@ -1752,9 +1752,21 @@ body.vf-page .ds-tickercard {
   transform: translateX(40px);
   opacity: 0;
   animation: rail-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  overflow-y: auto;
+  /* Single scroll owner: tab body (.tt-rail-area-right-pane), not the
+     drawer shell. Nested scroll (panel + pane both overflow-y:auto)
+     trapped the Now tab on mobile — wheel/touch stopped early. */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+.rail-panel > .tt-rail-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  border-radius: 0;
+  border: none;
 }
 @media (min-width: 1024px) {
   .rail-panel {
@@ -1968,11 +1980,16 @@ body.vf-page .ds-tickercard {
 .tt-rail-shell:not(.tt-rail-shell--workspace) {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane {
   order: 1;
   flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   /* 2026-06-03 — Mobile rail scroll fix. On iOS Safari the URL bar +
      the app's fixed bottom nav (tt-bottom-nav.js, ~64px + safe-area)
      ate the bottom of the last panel. The page-level body padding
@@ -1981,7 +1998,7 @@ body.vf-page .ds-tickercard {
      the rail body has its own scroll container active. max() ensures
      we never lose pixels even when env(safe-area-inset-bottom) is 0
      on non-iOS browsers. */
-  padding-bottom: max(72px, calc(56px + env(safe-area-inset-bottom)));
+  padding-bottom: max(88px, calc(64px + env(safe-area-inset-bottom, 0px)));
   -webkit-overflow-scrolling: touch;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }

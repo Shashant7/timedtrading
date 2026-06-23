@@ -988,7 +988,7 @@
 
         (invCtx || stage !== "—") && h("div", {
           style: {
-            padding: "var(--ds-space-3)",
+            padding: "14px 14px 12px",
             marginBottom: "var(--ds-space-3)",
             background: stageInfo.bg,
             border: `1px solid ${stageInfo.border}`,
@@ -1001,58 +1001,44 @@
               style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
             }, invCtx.tierMeta.label),
           ),
-          h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, fontWeight: 600 } }, invCtx?.statusLine || stageInfo.desc),
-          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 8 } }, invCtx.signalNote),
-        ),
-
-        // 0. Catalyst banner — when ticker just had a major move
-        catalystEvent && h("div", {
-          style: {
-            padding: "var(--ds-space-2)",
-            background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-            border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
-            borderRadius: "var(--ds-radius-md)",
+          h("div", {
+            style: {
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              marginBottom: invCtx?.signalNote || Number.isFinite(score) ? 8 : 0,
+            },
           },
-        },
-          h("div", { style: { fontSize: 10, fontWeight: 700, color: catalystEvent.direction === "up" ? "#34d399" : "#f87171", letterSpacing: "0.05em", marginBottom: 4 } },
-            "⚡ CATALYST EVENT DETECTED",
-          ),
-          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 } },
-            `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`,
-          ),
-          h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.4 } },
-            catalystEvent.warning,
-          ),
-        ),
-
-        // 1. Lane Guidance
-        h(Panel, {
-          title: `Investor Lane · ${invCtx?.laneLabel || stageInfo.label}`,
-          action: h("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
-            invCtx?.tierMeta && h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
-            }, invCtx.tierMeta.label),
-            h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, invCtx?.laneLabel || stageInfo.label),
-          ),
-        },
-          invCtx?.signalNote && h("div", {
-            style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: "var(--ds-space-2)", padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" },
-          }, invCtx.signalNote),
-          h("div", { style: { padding: "var(--ds-space-2)", background: stageInfo.bg, border: `1px solid ${stageInfo.border}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" } },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
-            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 } }, "WHAT TO DO"),
+            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600 } },
               invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : (invCtx?.statusLine || stageInfo.action),
             ),
-            h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } },
+            h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 } },
               invCtx?.statusLine || stageInfo.desc,
               invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold")
                 ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`
                 : "",
             ),
           ),
+          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: 8 } }, invCtx.signalNote),
+          Number.isFinite(score) && h("div", { style: { display: "flex", gap: "var(--ds-space-2)" } },
+            h("div", { style: { flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "INVESTOR SCORE"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: score >= 70 ? "#34d399" : score >= 50 ? "var(--ds-text-body)" : "#f87171" } },
+                score.toFixed(0), h("span", { style: { fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" } }, "/100"),
+              ),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak"),
+            ),
+            accumZone && h("div", { style: { flex: 1, padding: "var(--ds-space-2)", background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" } },
+              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "BUY ZONE"),
+              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: accumZone.inZone ? "#34d399" : "var(--ds-text-muted)" } }, accumZone.inZone ? "ACTIVE" : "—"),
+              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone"),
+            ),
+          ),
           invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
             style: {
-              marginBottom: "var(--ds-space-2)",
+              marginTop: 8,
               padding: "10px 12px",
               background: "rgba(248,113,113,0.06)",
               border: "1px solid rgba(248,113,113,0.22)",
@@ -1073,31 +1059,50 @@
               invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : "",
             ),
           ),
-          Number.isFinite(score) && h("div", { style: { display: "flex", gap: "var(--ds-space-2)" } },
-            h("div", { style: { flex: 1, padding: "var(--ds-space-2)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "INVESTOR SCORE"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: score >= 70 ? "#34d399" : score >= 50 ? "var(--ds-text-body)" : "#f87171" } },
-                score.toFixed(0), h("span", { style: { fontSize: 10, fontWeight: 600, color: "var(--ds-text-muted)" } }, "/100"),
-              ),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, score >= 70 ? "Strong" : score >= 50 ? "Mixed" : "Weak"),
-            ),
-            accumZone && h("div", { style: { flex: 1, padding: "var(--ds-space-2)", background: accumZone.inZone ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)", border: `1px solid ${accumZone.inZone ? "rgba(52,211,153,0.30)" : "rgba(255,255,255,0.06)"}`, borderRadius: "var(--ds-radius-md)" } },
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "BUY ZONE"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, marginTop: 2, fontSize: 18, color: accumZone.inZone ? "#34d399" : "var(--ds-text-muted)" } }, accumZone.inZone ? "ACTIVE" : "—"),
-              h("div", { style: { fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 } }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone"),
-            ),
+        ),
+
+        // 0. Catalyst banner — when ticker just had a major move
+        catalystEvent && h("div", {
+          style: {
+            padding: "var(--ds-space-2)",
+            background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+            border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
+            borderRadius: "var(--ds-radius-md)",
+          },
+        },
+          h("div", { style: { fontSize: 10, fontWeight: 700, color: catalystEvent.direction === "up" ? "#34d399" : "#f87171", letterSpacing: "0.05em", marginBottom: 4 } },
+            "CATALYST EVENT",
+          ),
+          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 } },
+            `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`,
+          ),
+          h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.4 } },
+            catalystEvent.warning,
           ),
         ),
 
-        // 2. WHY (stage reason translated)
-        reasonProse && h(Panel, { title: "🧠 Why this classification" },
+        h("details", { style: { marginBottom: "var(--ds-space-3)" } },
+          h("summary", {
+            style: {
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--ds-text-muted)",
+              letterSpacing: "0.06em",
+              cursor: "pointer",
+              padding: "6px 0",
+              userSelect: "none",
+            },
+          }, "More detail — classification, score, context"),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", marginTop: "var(--ds-space-2)" } },
+
+        reasonProse && h(Panel, { title: "Why this classification" },
           h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, reasonProse),
           stageReason && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" } }, "code: ", stageReason),
         ),
 
         // 3. Score breakdown
         components && Object.keys(components).length > 0 && h(Panel, {
-          title: "📊 Score Breakdown",
+          title: "Score Breakdown",
           action: h("span", { style: { fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: "var(--ds-text-muted)" } }, "0-100 scale"),
         },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
@@ -1123,7 +1128,7 @@
 
         // 4. Buy Zone signals
         accumZone?.inZone && Array.isArray(accumZone?.signals) && accumZone.signals.length > 0 && h(Panel, {
-          title: "🎯 Buy Zone Signals",
+          title: "Buy Zone Signals",
           action: h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(52,211,153,0.10)", color: "#34d399", border: "1px solid rgba(52,211,153,0.30)" } }, `${accumZone.confidence || 0}% confidence`),
         },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
@@ -1138,7 +1143,7 @@
         ),
 
         // 5. Position
-        pos && h(Panel, { title: "💼 Your Position" },
+        pos && h(Panel, { title: "Your Position" },
           h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
             h("div", null,
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
@@ -1167,7 +1172,7 @@
         ),
 
         // 6. RS + Sector
-        (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "📈 Strength + Sector Context" },
+        (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "Strength + Sector Context" },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
             Number.isFinite(rsRank) && h("div", null,
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "RS RANK (vs SPY)"),
@@ -1180,7 +1185,7 @@
               Number.isFinite(Number(rs.rs1m)) && h("span", null, "1M: ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(rs.rs1m).toFixed(0))),
               Number.isFinite(Number(rs.rs3m)) && h("span", null, "3M: ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(rs.rs3m).toFixed(0))),
               Number.isFinite(Number(rs.rs6m)) && h("span", null, "6M: ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(rs.rs6m).toFixed(0))),
-              (rs.rsNewHigh3m || rs.rsNewHigh6m) && h("span", { style: { color: "#34d399", fontWeight: 700 } }, "🚀 New RS High"),
+              (rs.rsNewHigh3m || rs.rsNewHigh6m) && h("span", { style: { color: "#34d399", fontWeight: 700 } }, "New RS High"),
             ),
             sector && h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
               "Sector: ", h("strong", { style: { color: "var(--ds-text-body)" } }, sector),
@@ -1189,11 +1194,14 @@
         ),
 
         // 7. Thesis + invalidation
-        thesis && h(Panel, { title: "💡 Thesis" },
+        thesis && h(Panel, { title: "Thesis" },
           h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, String(thesis).slice(0, 600)),
           invalidation && h("div", { style: { marginTop: 10, padding: 10, background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.20)", borderRadius: 6, fontSize: "var(--ds-fs-meta)" } },
             h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.05em", marginBottom: 4 } }, "INVALIDATION"),
             h("div", { style: { color: "var(--ds-text-body)", lineHeight: 1.4 } }, String(invalidation)),
+          ),
+        ),
+
           ),
         ),
 
@@ -8087,7 +8095,7 @@
                       Removed the redundant hero ticker card — the sticky header
                       already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
-                    <>
+                    <div style={railTabBodyWrapStyle}>
                       {/* POV toggle — switches hero + position strip below */}
                       <div style={{
                         display: "flex",
@@ -9666,7 +9674,7 @@
                       })()}
                         </div>
                       </details>
-                    </>
+                    </div>
                   )}
 
                   {/* SETUP TAB (renamed to "Trader" in the tab strip
