@@ -7159,53 +7159,90 @@
                         </>
                       )}
                     </div>
-                    {active.length > 0 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
-                        {sortedActive.slice(0, 3).map((seq) => {
-                          const dir = String(seq?.direction || "").toUpperCase();
-                          const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-                          const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
-                          const journeyColor = headlineColor;
-                          const pf = seq?.path_forecast;
-                          const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
-                          const isPrimary = !!(primarySeqId && seqId && primarySeqId === seqId);
-                          return (
-                            <div key={seq.sequence_id || `${seq.sequence_type}-${seq.stage}`} style={{
-                              padding: "var(--ds-space-2)",
-                              borderRadius: 8,
-                              border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
-                              background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)",
-                            }}>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", alignItems: "center", marginBottom: 6 }}>
-                                <span className={`ds-chip ds-chip--sm ${dirCls}`}>{dir || "—"}</span>
-                                <span style={{ fontSize: "var(--ds-fs-body)", fontWeight: 700, color: headlineColor }}>
-                                  {sequenceHeadline(dir)}
-                                </span>
-                                {isPrimary && (
-                                  <span className="ds-chip ds-chip--sm ds-chip--accent" title="Highest-stage active sequence drives trader posture">Primary</span>
-                                )}
-                                {!isPrimary && active.length > 1 && (
-                                  <span className="ds-chip ds-chip--sm ds-chip--solid" title="Alternate direction still forming in shadow">Alternate</span>
-                                )}
-                                {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
-                              </div>
-                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir)}
-                              {seq.posture && (
-                                <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
-                                  {seq.posture}
-                                </div>
+                    {active.length > 0 ? (() => {
+                      const primarySeq = sortedActive.find((s) => {
+                        const id = s?.sequence_id ? String(s.sequence_id) : "";
+                        return !!(primarySeqId && id && primarySeqId === id);
+                      }) || sortedActive[0] || null;
+                      const alternateSeqs = sortedActive.filter((s) => s !== primarySeq);
+                      const renderSeqCard = (seq, { full = true, isPrimary = false } = {}) => {
+                        const dir = String(seq?.direction || "").toUpperCase();
+                        const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+                        const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
+                        const journeyColor = headlineColor;
+                        const pf = seq?.path_forecast;
+                        const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
+                        const stageNum = Number(seq?.stage) || 0;
+                        const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
+                        const currentDef = SEQUENCE_STAGE_DEFS.find((d) => d.stage === stageNum);
+                        return (
+                          <div key={seq.sequence_id || `${seq.sequence_type}-${seq.stage}-${full ? "full" : "alt"}`} style={{
+                            padding: "var(--ds-space-2)",
+                            borderRadius: 8,
+                            border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
+                            background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)",
+                          }}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", alignItems: "center", marginBottom: full ? 6 : 0 }}>
+                              <span className={`ds-chip ds-chip--sm ${dirCls}`}>{dir || "—"}</span>
+                              <span style={{ fontSize: "var(--ds-fs-body)", fontWeight: 700, color: headlineColor }}>
+                                {sequenceHeadline(dir)}
+                              </span>
+                              {isPrimary && (
+                                <span className="ds-chip ds-chip--sm ds-chip--accent" title="Highest-stage active sequence drives trader posture">Primary</span>
                               )}
-                              {pf?.primary_path && (
-                                <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
-                                  Path: {humanizeKey(pf.primary_path)}
-                                  {Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""}
-                                </div>
+                              {!isPrimary && (
+                                <span className="ds-chip ds-chip--sm ds-chip--solid" title="Alternate direction still forming in shadow">Alternate</span>
+                              )}
+                              {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
+                              {!full && (
+                                <span style={{ marginLeft: "auto", fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                  S{stageNum}/{maxStage}{currentDef ? ` · ${currentDef.label}` : ""}
+                                </span>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
+                            {full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir)}
+                            {full && seq.posture && (
+                              <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
+                                {seq.posture}
+                              </div>
+                            )}
+                            {full && pf?.primary_path && (
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                Path: {humanizeKey(pf.primary_path)}
+                                {Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                          {primarySeq && renderSeqCard(primarySeq, { full: true, isPrimary: true })}
+                          {alternateSeqs.length > 0 && (
+                            <div style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              border: "1px solid var(--ds-stroke)",
+                              background: "rgba(255,255,255,0.02)",
+                            }}>
+                              <div style={{
+                                fontSize: 9,
+                                letterSpacing: "0.14em",
+                                textTransform: "uppercase",
+                                color: "var(--ds-text-faint)",
+                                marginBottom: 6,
+                                fontWeight: 700,
+                              }}>
+                                Also tracking in shadow ({alternateSeqs.length})
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                {alternateSeqs.map((seq) => renderSeqCard(seq, { full: false, isPrimary: false }))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })() : (
                       <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
                         No active setup sequence in the lookback window.
                       </p>
@@ -9814,9 +9851,7 @@
                       label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
-                      {renderSequenceShadowPanel()}
-
-                      {/* 2026-05-29 — B8: surface "Current Open Position"
+                      {/* 2026-05-29 — B8: surface "Entry Decision · Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors
                           the Your Position card in the Investor tab so
@@ -9963,9 +9998,25 @@
                           ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
                           : "—";
                         const _openLabel = _trStatus === "TP_HIT_TRIM" ? "TRIMMED" : "OPEN";
+                        const _setupName = t?.setupName || t?.setup_name || null;
+                        const _setupGrade = t?.setupGrade || t?.setup_grade || null;
+                        const _risk = Number(t?.riskBudget || t?.risk_budget) || null;
+                        const _rr = Number(t?.rr) || null;
+                        const _rank = Number(t?.rank) || null;
+                        const _entryEt = (() => {
+                          const ts = Number(t?.entry_ts);
+                          if (!Number.isFinite(ts)) return null;
+                          try {
+                            return new Date(ts).toLocaleString("en-US", {
+                              month: "short", day: "numeric",
+                              hour: "numeric", minute: "2-digit",
+                              hour12: true, timeZone: "America/New_York",
+                            }) + " ET";
+                          } catch (_) { return null; }
+                        })();
                         return (
                           <Panel
-                            title="📍 Current Open Position"
+                            title="Entry Decision · Open Position"
                             action={
                               <span style={{
                                 fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
@@ -9976,6 +10027,65 @@
                               }}>{dirRaw} · {_openLabel}</span>
                             }
                           >
+                            {/* Entry thesis — merged from former standalone Entry Decision panel */}
+                            <div style={{ marginBottom: "var(--ds-space-3)", paddingBottom: "var(--ds-space-3)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--ds-space-2)", marginBottom: (_setupName || _setupGrade || _risk || _rr || _rank) ? "var(--ds-space-2)" : 0 }}>
+                                {Number.isFinite(entry) && entry > 0 && (
+                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body-lg, 14px)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                    Entry ${entry.toFixed(2)}
+                                  </span>
+                                )}
+                                {_entryEt && (
+                                  <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                                    · filled {_entryEt}
+                                  </span>
+                                )}
+                                <span className="ds-chip ds-chip--sm" style={{
+                                  fontFamily: "var(--tt-font-mono)",
+                                  fontSize: 9,
+                                  letterSpacing: "0.12em",
+                                  color: "var(--ds-accent)",
+                                  background: "var(--ds-accent-dim)",
+                                  borderColor: "var(--ds-accent)",
+                                  marginLeft: "auto",
+                                }}>ACTIVE</span>
+                              </div>
+                              {(_setupName || _setupGrade || _risk || _rr || _rank) && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-2)" }}>
+                                  {_setupName && (
+                                    <div style={{ flex: "1 1 auto", minWidth: 140 }}>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Setup</div>
+                                      <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                        {typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " ")}
+                                        {_setupGrade && <span style={{ marginLeft: 6, color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-caption)" }}>({_setupGrade})</span>}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {_risk != null && _risk > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Risk</div>
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                        {_risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {Number.isFinite(_rr) && _rr > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>R:R</div>
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)", fontWeight: 600 }}>
+                                        {_rr.toFixed(2)}:1
+                                      </div>
+                                    </div>
+                                  )}
+                                  {Number.isFinite(_rank) && _rank > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Rank</div>
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>{Math.round(_rank)}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                               <div>
                                 <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
@@ -10117,6 +10227,9 @@
                             })()}
                           </Panel>
                         );
+                      })()}
+
+                      {renderSequenceShadowPanel()}
 
                       {/* 2026-06-03 — Trader Root Verdict restructured to
                           mirror the Investor Lane Guidance pattern (Panel +
@@ -10641,7 +10754,7 @@
                         // When open position direction conflicts with model,
                         // this panel surfaces the MODEL call (bearish levels
                         // while holding long, etc.) — not the held position plan
-                        // (that lives in Current Open Position above).
+                        // (that lives in Entry Decision · Open Position above).
                         const showModelPlanPanel = hasPositionConflict;
                         const panelTitle = showModelPlanPanel
                           ? "Model Plan"
@@ -10876,130 +10989,13 @@
                               ))}
                               <div style={{ marginTop: "var(--ds-space-2)", padding: "0 4px", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
                                 {showModelPlanPanel
-                                  ? `Model ${dir} plan while holding an open ${String(v2PositionConflict?.positionDir || "").toUpperCase()} position — rare conflict. Position SL/TP are in Current Open Position above. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE." : "Targets sit ABOVE price; stop sits BELOW."}`
+                                  ? `Model ${dir} plan while holding an open ${String(v2PositionConflict?.positionDir || "").toUpperCase()} position — rare conflict. Position SL/TP are in Entry Decision · Open Position above. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE." : "Targets sit ABOVE price; stop sits BELOW."}`
                                   : tradeIsProposed
                                   ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}`
                                   : `Active ${dir} position plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`}
                                 {" "}Reference Levels below add S/R context (52W high, prior session, pivots).
                               </div>
                             </div>
-                          </Panel>
-                        );
-                      })()}
-
-                      {/* 2026-05-28 — ENTRY DECISION card (active trade).
-                          Surfaces the same info as the Discord entry embed
-                          — setup name + grade, risk %, R:R, conviction
-                          signals, full AI CIO reasoning (no truncation) —
-                          so the operator can review the entry thesis from
-                          the rail without bouncing to Discord. Only renders
-                          when an active trade exists for this ticker. */}
-                      {(() => {
-                        // 2026-06-03 — Trader tab ENTRY DECISION must NOT
-                        // render investor positions. Operator screenshot:
-                        // 'ENTRY DECISION ACTIVE / LONG Entry \$299.99 ·
-                        // filled Apr 6 at 4:00 PM ET / SETUP: Investor Buy
-                        // Reduce' was the investor entry bleeding through.
-                        // Switched from effectiveTrade → effectiveTraderTrade
-                        // (filters out _source_mode === "investor").
-                        const _t = effectiveTraderTrade;
-                        if (!_t) return null;
-                        const _status = String(_t?.status || "").toUpperCase();
-                        const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" ||
-                          (!(_t?.exit_ts ?? _t?.exitTs) && _status !== "WIN" && _status !== "LOSS");
-                        if (!_isOpen) return null;
-                        const _entryPx = Number(_t?.entry_price ?? _t?.entryPrice);
-                        const _entryTs = Number(_t?.entry_ts);
-                        const _setupName = _t?.setupName || _t?.setup_name || null;
-                        const _setupGrade = _t?.setupGrade || _t?.setup_grade || null;
-                        const _risk = Number(_t?.riskBudget || _t?.risk_budget) || null;
-                        const _rr = Number(_t?.rr) || null;
-                        const _rank = Number(_t?.rank) || null;
-                        const _dir = String(_t?.direction || "").toUpperCase();
-                        const _entryEt = (() => {
-                          if (!Number.isFinite(_entryTs)) return null;
-                          try {
-                            return new Date(_entryTs).toLocaleString("en-US", {
-                              month: "short", day: "numeric",
-                              hour: "numeric", minute: "2-digit",
-                              hour12: true, timeZone: "America/New_York",
-                            }) + " ET";
-                          } catch (_) { return null; }
-                        })();
-                        return (
-                          <Panel
-                            title="Entry Decision"
-                            action={
-                              <span className="ds-chip ds-chip--sm" style={{
-                                fontFamily: "var(--tt-font-mono)",
-                                fontSize: 9,
-                                letterSpacing: "0.12em",
-                                color: "var(--ds-accent)",
-                                background: "var(--ds-accent-dim)",
-                                borderColor: "var(--ds-accent)",
-                              }}>ACTIVE</span>
-                            }
-                          >
-                            {/* Headline: direction · entry price · ET time */}
-                            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
-                              {_dir && (
-                                <span style={{
-                                  fontFamily: "var(--tt-font-mono)",
-                                  fontSize: "var(--ds-fs-caption)",
-                                  fontWeight: 700,
-                                  letterSpacing: "0.12em",
-                                  color: _dir === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
-                                }}>{_dir}</span>
-                              )}
-                              {Number.isFinite(_entryPx) && _entryPx > 0 && (
-                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body-lg, 14px)", color: "var(--ds-text)", fontWeight: 600 }}>
-                                  Entry ${_entryPx.toFixed(2)}
-                                </span>
-                              )}
-                              {_entryEt && (
-                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
-                                  · filled {_entryEt}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Setup, Grade, Risk, R:R, Rank — same row as the Discord embed's "Signal Quality" */}
-                            {(_setupName || _setupGrade || _risk || _rr || _rank) && (
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
-                                {_setupName && (
-                                  <div style={{ flex: "1 1 auto", minWidth: 140 }}>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Setup</div>
-                                    <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
-                                      {typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " ")}
-                                      {_setupGrade && <span style={{ marginLeft: 6, color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-caption)" }}>({_setupGrade})</span>}
-                                    </div>
-                                  </div>
-                                )}
-                                {_risk != null && _risk > 0 && (
-                                  <div>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Risk</div>
-                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
-                                      {_risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`}
-                                    </div>
-                                  </div>
-                                )}
-                                {Number.isFinite(_rr) && _rr > 0 && (
-                                  <div>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>R:R</div>
-                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)", fontWeight: 600 }}>
-                                      {_rr.toFixed(2)}:1
-                                    </div>
-                                  </div>
-                                )}
-                                {Number.isFinite(_rank) && _rank > 0 && (
-                                  <div>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Rank</div>
-                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>{Math.round(_rank)}</div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
                           </Panel>
                         );
                       })()}

@@ -126,10 +126,11 @@ function useTraderBook(enabled) {
         for (const tr of d1Res.trades) {
           if (!tr || tr._source_mode === "investor") continue;
           const sym = String(tr.ticker || "").toUpperCase();
-          if (!sym || openMap.has(sym)) continue;
+          if (!sym) continue;
           const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
           if (!traderBookIsClosed(tr) || !exitMs || now - exitMs >= RECENT_EXIT_WINDOW_MS) continue;
-          if (String(tr.exit_reason || "").startsWith("REVERSED_")) continue;
+          if (String(tr.exit_reason || tr.exitReason || "").startsWith("REVERSED_")) continue;
+          openMap.delete(sym);
           const existing = closedMap.get(sym);
           if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) {
             closedMap.set(sym, tr);
@@ -257,6 +258,7 @@ function computeEffectiveStage(ticker, trade) {
   if (!tradeIsOpen) return rawStage;
   if (rawStage === "exit") return "exiting";
   if (rawStage === "defend") return "defend";
+  if (rawStage === "exiting") return "exiting";
   if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
@@ -283,7 +285,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
       if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else stage = "hold";
     }
     if (trade && isOpen) {
-      if (stage === "exit") stage = "exiting";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+      if (stage === "exit") stage = "exiting";else if (stage === "defend") {} else if (stage === "exiting") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
     if (!isOpen && closedByTicker?.get) {
       const closed = closedByTicker.get(sym) || t?._closedTrade || null;
@@ -419,7 +421,7 @@ function ATCard({
   })() || (_modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral");
   const biasLabelLc = String(biasLabel).toLowerCase();
   const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
-  const stage = String(t?.kanban_stage || "").toLowerCase();
+  const stage = String(t?._effectiveKanbanStage || t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
       label: "Trim",
@@ -555,6 +557,50 @@ function ATCard({
       boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)"
     } : {})
   };
+  const closedTrade = t?._closedTrade || null;
+  const exitPnlPct = (() => {
+    const raw = t?.pnlPct ?? t?.pnl_pct ?? closedTrade?.pnl_pct ?? closedTrade?.pnlPct;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  })();
+  const exitStatus = String(t?._exitLabel || closedTrade?.status || "").toUpperCase();
+  const closedMid = stage === "exit" && closedTrade ? h("div", {
+    style: {
+      marginTop: 4,
+      padding: "6px 8px",
+      borderRadius: 6,
+      background: "rgba(255,255,255,0.03)",
+      border: "1px solid var(--ds-stroke)",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, h("span", {
+    style: {
+      color: "var(--ds-text-muted)",
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      fontWeight: 700
+    }
+  }, exitStatus === "WIN" ? "Realized win" : exitStatus === "LOSS" ? "Realized loss" : "Model closed"), exitPnlPct != null && h("span", {
+    style: {
+      color: exitPnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+      fontWeight: 700
+    }
+  }, `${exitPnlPct >= 0 ? "+" : ""}${exitPnlPct.toFixed(2)}%`)), h("div", {
+    style: {
+      marginTop: 4,
+      fontSize: 9,
+      color: "var(--ds-text-faint)",
+      lineHeight: 1.4
+    }
+  }, "Timed Trading model exited this runner — not a live broker fill.")) : null;
   const progressMid = progressBarData && (() => {
     const {
       xPct,
@@ -690,7 +736,7 @@ function ATCard({
       dir,
       extLine
     },
-    midBody: progressMid,
+    midBody: closedMid || progressMid,
     sparkSvg,
     metrics: [rank != null && h("span", {
       className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
@@ -1262,13 +1308,33 @@ function ActiveTraderApp() {
       const out = window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
       if ((out.kanban_stage == null || out.kanban_stage === undefined) && closedByTicker?.has?.(sym) && !trade) {
         const closed = closedByTicker.get(sym);
+        const exitPx = Number(closed?.exit_price ?? closed?.exitPrice ?? closed?.mark_price) || null;
+        const pnlPct = closed?.pnl_pct ?? closed?.pnlPct ?? null;
         return {
           ...out,
           kanban_stage: "exit",
           _closedTrade: closed,
           _stickyExit: true,
-          price: out.price || Number(closed?.exit_price ?? closed?.exitPrice) || null
+          price: out.price || exitPx || null,
+          pnlPct,
+          _exitLabel: String(closed?.status || "CLOSED").toUpperCase()
         };
+      }
+      if (!trade && closedByTicker?.has?.(sym)) {
+        const closed = closedByTicker.get(sym);
+        const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+        if (exitMs > 0 && Date.now() - exitMs < RECENT_EXIT_WINDOW_MS) {
+          const exitPx = Number(closed?.exit_price ?? closed?.exitPrice) || out.price || null;
+          return {
+            ...out,
+            kanban_stage: "exit",
+            _closedTrade: closed,
+            _stickyExit: true,
+            price: exitPx,
+            pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? out.pnlPct ?? null,
+            _exitLabel: String(closed?.status || "CLOSED").toUpperCase()
+          };
+        }
       }
       if (trade && (out._stickyExit || String(out.kanban_stage || "").toLowerCase() === "exit")) {
         return {
@@ -1316,7 +1382,8 @@ function ActiveTraderApp() {
         price: Number(closed?.exit_price ?? closed?.exitPrice ?? closed?.mark_price) || null,
         _closedTrade: closed,
         _stickyExit: true,
-        pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? null
+        pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? null,
+        _exitLabel: String(closed?.status || "CLOSED").toUpperCase()
       });
       known.add(sym);
     });
@@ -1779,6 +1846,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782241044118:117555128
+// cache-bust:1782245139194:746461194
 
-// cache-bust:1782241044118:117555128
+// cache-bust:1782245139194:746461194
