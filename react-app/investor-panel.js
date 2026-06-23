@@ -368,6 +368,38 @@
       ),
     );
 
+    const SG = (typeof window !== "undefined") ? window.TimedSignalGrammar : null;
+    const invLaneMeta = SG?.investorLaneMeta ? SG.investorLaneMeta(stage) : null;
+    const signalChipEls = (() => {
+      if (!SG?.renderSignalChips) return [];
+      const action = stage === "accumulate" ? "accumulate"
+        : stage === "reduce" ? "reduce"
+        : stage === "core_hold" ? "core_hold"
+        : "watch";
+      return SG.renderSignalChips({
+        engine: "investor",
+        mode: invLaneMeta?.band === "doing" ? "doing" : "watching",
+        execState: (actionTier === "act_now" || actionTier === "ready") ? "recommended" : "watching",
+        action,
+      }).map((chip, i) => React.createElement("span", {
+        key: `sg-${i}`,
+        className: "ds-chip ds-chip--sm",
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 8,
+          fontWeight: 800,
+          letterSpacing: "0.05em",
+          color: chip.kind === "engine" ? "#c4b5fd"
+            : chip.text === "DOING" ? "#fdba74"
+            : chip.text === "RECOMMENDED" ? "#fde68a"
+            : "#8AA39A",
+          background: chip.text === "DOING" ? "rgba(251,146,60,0.12)" : "transparent",
+          borderColor: chip.text === "DOING" ? "rgba(251,146,60,0.35)" : "rgba(255,255,255,0.12)",
+        },
+        title: chip.text,
+      }, chip.text));
+    })();
+
     return LC.create({
       sym,
       button: {
@@ -377,6 +409,7 @@
       },
       isTTSel,
       chipRow: [
+        ...signalChipEls,
         isFreshSignal && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
@@ -486,6 +519,23 @@
     });
   }
 
+  function InvestorKanbanBandHeader({ band, label, hint }) {
+    return React.createElement("div", {
+      className: `at-kanban-band at-kanban-band--${band}`,
+      style: { margin: "12px 0 6px", padding: "0 4px" },
+    },
+      React.createElement("span", {
+        style: {
+          fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase",
+          color: band === "doing" ? "#fdba74" : "#6E867D",
+        },
+      }, label),
+      hint && React.createElement("span", {
+        style: { fontSize: 11, color: "#51635A", marginLeft: 10 },
+      }, hint),
+    );
+  }
+
   function InvestorKanbanColumn({ laneKey, title, hint, action, actionColor, icon, color, count, items, renderCard, laneScrollRef }) {
     const listRef = useRef(null);
     useEffect(() => {
@@ -572,13 +622,13 @@
        with this lane?" in 1 second without reading the tooltip.
     */
     const stageMeta = {
-      research_on_watch: { label: "On Radar", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
-      accumulate:        { label: "Accumulate", action: "BUY NOW", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. Model would open or add on the next rebalance." },
-      core_hold:         { label: "Core Hold", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
-      watch:             { label: "Hold & Watch", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
-      reduce:            { label: "Reduce", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
-      research_low:      { label: "Low Conviction", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — low conviction. Not actionable yet." },
-      research_avoid:    { label: "Avoid", action: "SKIP", actionColor: "#6E867D", title: "Not owned — weak signals. System advises caution." },
+      research_on_watch: { label: "On Radar", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
+      accumulate:        { label: "Accumulating", band: "doing", action: "BUY NOW", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. Model would open or add on the next rebalance." },
+      core_hold:         { label: "Core Hold", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
+      watch:             { label: "Hold & Watch", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
+      reduce:            { label: "Reducing", band: "doing", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
+      research_low:      { label: "Low Conviction", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — low conviction. Not actionable yet." },
+      research_avoid:    { label: "Avoid", band: "watching", action: "SKIP", actionColor: "#6E867D", title: "Not owned — weak signals. System advises caution." },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
@@ -646,14 +696,38 @@
       return `${owned}/${items.length}`;
     };
     return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
-      ...visibleStages.map(stage =>
+      React.createElement(InvestorKanbanBandHeader, {
+        band: "watching",
+        label: "WATCHING",
+        hint: "Monitoring — no action expected yet",
+      }),
+      ...visibleStages.filter((s) => stageMeta[s]?.band === "watching").map(stage =>
         React.createElement(InvestorKanbanColumn, {
           key: stage,
           laneKey: stage,
           title: stageMeta[stage].label,
           hint: (stage === "accumulate" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          // During a pre-event hold the Accumulate lane chip flips from "BUY NOW"
-          // (green) to "PAUSED · <event>" (amber) — the model isn't buying yet.
+          action: (stage === "accumulate" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+          actionColor: (stage === "accumulate" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+          icon: stageMeta[stage].icon,
+          color: stageMeta[stage].color,
+          count: laneCount(stage),
+          items: grouped[stage],
+          renderCard,
+          laneScrollRef,
+        }),
+      ),
+      React.createElement(InvestorKanbanBandHeader, {
+        band: "doing",
+        label: "DOING",
+        hint: "Model acted or would act on the next rebalance",
+      }),
+      ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
+        React.createElement(InvestorKanbanColumn, {
+          key: stage,
+          laneKey: stage,
+          title: stageMeta[stage].label,
+          hint: (stage === "accumulate" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
           action: (stage === "accumulate" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
           actionColor: (stage === "accumulate" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,

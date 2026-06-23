@@ -107,6 +107,40 @@
       .tt-activity-pill.ev-entry .ev-type { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill.ev-trim .ev-type { color: #fbbf24; }
       .tt-activity-pill.ev-exit .ev-type { color: var(--tt-dn-soft, #fb7185); }
+      .tt-activity-pill.ev-watching {
+        background: transparent;
+        border-style: dashed;
+        opacity: 0.82;
+      }
+      .tt-activity-pill.ev-doing,
+      .tt-activity-pill.ev-recommended {
+        background: rgba(251,146,60,0.10);
+        border-color: rgba(251,146,60,0.35);
+      }
+      .tt-activity-pill .ev-mode {
+        font-size: 8px; font-weight: 800; letter-spacing: 0.05em;
+        text-transform: uppercase; padding: 1px 4px; border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.10); color: var(--tt-text-dim);
+      }
+      .tt-activity-pill.ev-doing .ev-mode,
+      .tt-activity-pill.ev-recommended .ev-mode {
+        color: #fdba74; border-color: rgba(251,146,60,0.35);
+        background: rgba(251,146,60,0.10);
+      }
+      .tt-activity-strip__filters {
+        display: inline-flex; gap: 4px; flex-shrink: 0;
+      }
+      .tt-activity-strip__filter {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        text-transform: uppercase; padding: 3px 7px; border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.08); background: transparent;
+        color: var(--tt-text-dim); cursor: pointer;
+      }
+      .tt-activity-strip__filter.is-active {
+        color: var(--tt-text, #E8F2EC);
+        border-color: rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.06);
+      }
       .tt-activity-pill[data-scope="investor"] {
         border-color: rgba(167,139,250,0.28);
         background: rgba(167,139,250,0.06);
@@ -226,11 +260,24 @@
   }
 
   function classifyEvent(ev) {
+    const SG = window.TimedSignalGrammar;
+    if (SG && typeof SG.classifyActivityEvent === "function") {
+      const c = SG.classifyActivityEvent(ev);
+      return {
+        cls: c.cls || "",
+        label: c.label || "UPDATE",
+        evType: c.evType || String(ev?.type || "").toUpperCase(),
+        scope: c.scope || scopeOf(ev, String(ev?.type || "").toUpperCase()),
+        mode: c.mode || "doing",
+        execState: c.execState || "done",
+      };
+    }
     const t = String(ev?.type || ev?.event || "").toUpperCase();
     const scope = scopeOf(ev, t);
-    if (t === "TRADE_ENTRY") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
-    if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope };
-    if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
+    if (t === "TRADE_ENTRY") return { cls: "ev-entry ev-doing", label: "ENTER", evType: "ENTRY", scope, mode: "doing", execState: "done" };
+    if (t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit ev-recommended ev-doing", label: "EXIT", evType: "EXIT", scope, mode: "doing", execState: "recommended" };
+    if (t === "TRADE_EXIT") return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope, mode: "doing", execState: "done" };
+    if (t === "TRADE_TRIM") return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope, mode: "doing", execState: "done" };
     if (t === "INVESTOR_SIGNAL") {
       const invT = String(ev?.investor_alert_type || "").toLowerCase();
       if (invT === "position_close") {
@@ -294,7 +341,7 @@
     const traderTypes = new Set([
       "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM",
       "EXIT", "TP_HIT_EXIT", "SL_HIT",
-      "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT",
+      "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "TRADE_EXIT_SIGNAL",
     ]);
     return traderTypes.has(t);
   }
@@ -359,7 +406,7 @@
   }
 
   function render(host, events) {
-    const arr = (Array.isArray(events) ? events : [])
+    const arr = applyModeFilter(Array.isArray(events) ? events : [])
       .filter(isExecutionActivityEvent)
       .slice();
     arr.sort((a, b) => {
@@ -376,13 +423,30 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Trader · Investor · opens Now or History";
+      hint.textContent = "Did · Watching · opens Now or History";
+      const filters = document.createElement("div");
+      filters.className = "tt-activity-strip__filters";
+      ["all", "doing", "watching"].forEach((mode) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "tt-activity-strip__filter" + (_modeFilter === mode ? " is-active" : "");
+        btn.textContent = mode === "all" ? "All" : mode === "doing" ? "Did" : "Watching";
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          _modeFilter = mode;
+          host.querySelectorAll(".tt-activity-strip__filter").forEach((el) => {
+            el.classList.toggle("is-active", el.textContent.toLowerCase() === mode || (mode === "all" && el.textContent === "All") || (mode === "doing" && el.textContent === "Did"));
+          });
+          render(host, _events);
+        });
+        filters.appendChild(btn);
+      });
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
       row.className = "tt-activity-strip__row";
       scroll.appendChild(row);
-      inner.append(label, hint, scroll);
+      inner.append(label, hint, filters, scroll);
       host.appendChild(inner);
       host._row = row;
     }
@@ -408,10 +472,15 @@
 
       const pill = document.createElement("button");
       pill.type = "button";
-      pill.className = `tt-activity-pill ${meta.cls}`;
+      pill.className = `tt-activity-pill ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
       pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
       const scopeLabel = meta.scope === "investor" ? "INVESTOR" : "TRADER";
-      pill.title = [scopeLabel, meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      pill.title = [scopeLabel, meta.mode === "doing" ? "DOING" : "WATCHING", meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+
+      const modeEl = document.createElement("span");
+      modeEl.className = "ev-mode";
+      modeEl.textContent = meta.execState === "recommended" ? "REC" : (meta.mode === "doing" ? "DID" : "WATCH");
+      pill.appendChild(modeEl);
 
       // Scope chip — Investor vs Active Trader at a glance (operator request).
       const scopeEl = document.createElement("span");
@@ -458,6 +527,18 @@
   }
 
   let _events = [];
+  let _modeFilter = "all"; // all | doing | watching
+
+  function applyModeFilter(events) {
+    const arr = Array.isArray(events) ? events : [];
+    if (_modeFilter === "all") return arr;
+    return arr.filter((ev) => {
+      const meta = classifyEvent(ev);
+      const mode = String(ev?.mode || ev?.alert_class || meta.mode || "").toLowerCase();
+      if (_modeFilter === "doing") return mode === "doing" || meta.execState === "done" || meta.execState === "recommended";
+      return mode === "watching" || meta.mode === "watching";
+    });
+  }
   function isAdmin() {
     return window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
   }
