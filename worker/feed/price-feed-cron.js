@@ -28,6 +28,11 @@ import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { SECTOR_MAP } from "../sector-mapping.js";
 import { reconcileDailyChange } from "./prev-close-reconcile.js";
 import { loadCalendar, isNyRegularMarketOpen as calIsNyOpen } from "../market-calendar.js";
+import {
+  buildExtendedHoursFields,
+  isExtendedOperatingSession,
+  lightweightRestRefreshDue,
+} from "./extended-hours.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
 function feedPollTimestamp(nowMs = Date.now()) {
@@ -52,6 +57,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         _marketOpen = deps.isNyRegularMarketOpen();
       }
       const _marketClosed = !_marketOpen;
+      const _extendedSession = isExtendedOperatingSession(_marketClosed, deps.isWithinOperatingHours);
       try {
         const userAddedForPriceFeed = await deps.d1GetActiveUserTickersCached(env);
         // 2026-06-11 — SMCI incident v3 (the ACTUAL root cause). The feed's
@@ -74,21 +80,25 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
 
         // ── Lightweight mode: overlay TV futures + crypto onto existing prices ──
         // Runs during 2-8 AM UTC when stocks aren't actively trading.
-        // If stock prices are stale (all zero changes), does a one-time Alpaca
-        // REST snapshot fetch to seed today's close and prev_close.
-        if (isLightweight) {
+        // Extended session (4 AM–8 PM ET): fall through to the full pipeline
+        // so AH/PM prints refresh every minute via REST, not the 30-min gate.
+        if (isLightweight && !_extendedSession) {
           let existing = {};
           try {
             const raw = await kvGetJSON(KV, "timed:prices");
             existing = raw?.prices || {};
           } catch (_) {}
 
-          // Refresh stock prices from Alpaca REST every 30 min during lightweight window,
-          // or immediately when prices are stale (<10 non-zero changes).
-          // This provides both proper day-change values and EXT (after-hours) data.
+          // Refresh stock prices from REST every 30 min overnight (5 min when
+          // the extended-session gate above somehow still applies).
           const nonZeroCount = Object.values(existing).filter(p => Number(p?.dc) !== 0 || Number(p?.dp) !== 0).length;
           const hasAhData = Object.values(existing).some(p => Number.isFinite(Number(p?.ahdp)) && Number(p.ahdp) !== 0);
-          const needsRefresh = nonZeroCount < 10 || !hasAhData || (utcMinute % 30 === 0);
+          const needsRefresh = lightweightRestRefreshDue({
+            utcMinute,
+            nonZeroCount,
+            hasAhData,
+            extendedSession: _extendedSession,
+          });
           if (needsRefresh) {
             try {
               const snapResult = await deps.dataFetchSnapshots(env, allTickers);
@@ -113,35 +123,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 let usePc = reconciled.pc;
                 let useDc = reconciled.dc;
                 let useDp = reconciled.dp;
-                let extDc = 0, extDp = 0, extP = 0;
-                if (_marketClosed && !isCryptoSym) {
-                  const nativeExtP = Number(snap.extendedPrice);
-                  if (Number.isFinite(nativeExtP) && nativeExtP > 0 && displayPrice > 0 && Math.abs(nativeExtP - displayPrice) > 0.001) {
-                    // 2026-06-03 — Drift sanity. TwelveData's extended_price
-                    // field is cached server-side and can be 12+ hours
-                    // stale (CRDO 6/3: RTH closed -7.66% at $214.56 but
-                    // extended_price still showed $226.30 — yesterday's
-                    // premarket high captured before today's selloff).
-                    // Two layered guards before accepting the EXT quote:
-                    //   1. Reject if drift > 8% from RTH close (covers
-                    //      most legitimate AH moves, rejects extreme
-                    //      stale that crosses sessions).
-                    //   2. Reject if drift > 3% AND direction disagrees
-                    //      with today's RTH move (a -7% day with EXT
-                    //      showing +5% is almost certainly stale, not
-                    //      a real reversal).
-                    const _driftPct = ((nativeExtP - displayPrice) / displayPrice) * 100;
-                    const _absDrift = Math.abs(_driftPct);
-                    const _dirDisagree = Math.abs(useDp) > 1.5
-                      && Math.sign(useDp) !== Math.sign(_driftPct);
-                    const _looksStale = _absDrift > 8 || (_absDrift > 3 && _dirDisagree);
-                    if (!_looksStale) {
-                      extP = Math.round(nativeExtP * 100) / 100;
-                      extDc = Math.round((nativeExtP - displayPrice) * 100) / 100;
-                      extDp = Math.round(((nativeExtP - displayPrice) / displayPrice) * 10000) / 100;
-                    }
-                  }
-                }
+                const { extP, extDc, extDp } = buildExtendedHoursFields(
+                  snap, displayPrice, useDp, _marketClosed, isCryptoSym,
+                );
                 const prev = existing[sym] || {};
                 const dayRolled = !isCryptoSym && _marketClosed && useDc === 0 && useDp === 0;
                 const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (usePc > 0 ? Math.round(usePc * 100) / 100 : (prev.pc || 0));
@@ -401,25 +385,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               let usePc = reconciled.pc;
               let useDc = reconciled.dc;
               let useDp = reconciled.dp;
-              let extDc = 0, extDp = 0, extP = 0;
-              if (_marketClosed && !isCryptoSym) {
-                const nativeExtP = Number(snap.extendedPrice);
-                if (Number.isFinite(nativeExtP) && nativeExtP > 0 && displayPrice > 0 && Math.abs(nativeExtP - displayPrice) > 0.001) {
-                  // 2026-06-03 — Same drift-sanity gate as the lightweight
-                  // path above. See that block's comment for the full
-                  // reasoning (CRDO 6/3 incident).
-                  const _driftPct = ((nativeExtP - displayPrice) / displayPrice) * 100;
-                  const _absDrift = Math.abs(_driftPct);
-                  const _dirDisagree = Math.abs(useDp) > 1.5
-                    && Math.sign(useDp) !== Math.sign(_driftPct);
-                  const _looksStale = _absDrift > 8 || (_absDrift > 3 && _dirDisagree);
-                  if (!_looksStale) {
-                    extP = Math.round(nativeExtP * 100) / 100;
-                    extDc = Math.round((nativeExtP - displayPrice) * 100) / 100;
-                    extDp = Math.round(((nativeExtP - displayPrice) / displayPrice) * 10000) / 100;
-                  }
-                }
-              }
+              const { extP, extDc, extDp } = buildExtendedHoursFields(
+                snap, displayPrice, useDp, _marketClosed, isCryptoSym,
+              );
               const prev = prices[sym] || {};
               const dayRolled = !isCryptoSym && _marketClosed && useDc === 0 && useDp === 0;
               const keepPc = dayRolled && prev.pc > 0 ? prev.pc : (usePc > 0 ? Math.round(usePc * 100) / 100 : (prev.pc || 0));

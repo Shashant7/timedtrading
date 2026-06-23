@@ -247,6 +247,18 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
             ? (existing.ingest_time || new Date(existing.ingest_ts || now).toISOString())
             : ingestTime,
         };
+        if (!isNyRegularMarketOpen()) {
+          const pfAhP = Number(snap.ahp);
+          const pfAhDc = Number(snap.ahdc);
+          const pfAhDp = Number(snap.ahdp);
+          if (Number.isFinite(pfAhP) && pfAhP > 0) updated._ah_price = pfAhP;
+          if (Number.isFinite(pfAhDc)) updated._ah_change = pfAhDc;
+          if (Number.isFinite(pfAhDp)) updated._ah_change_pct = pfAhDp;
+        } else {
+          delete updated._ah_price;
+          delete updated._ah_change;
+          delete updated._ah_change_pct;
+        }
         await kvPutJSON(KV, `timed:latest:${sym}`, updated);
         return 1;
       }),
