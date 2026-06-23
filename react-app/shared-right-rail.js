@@ -3939,6 +3939,9 @@
         const [snapshotViewMode, setSnapshotViewMode] = useState(() => (
           String(railOpenSource || "").toLowerCase() === "investor" ? "investor" : "trader"
         ));
+        useEffect(() => {
+          setSnapshotViewMode(String(railOpenSource || "").toLowerCase() === "investor" ? "investor" : "trader");
+        }, [tickerSymbol, railOpenSource]);
         const [fundamentalsError, setFundamentalsError] = useState(null);
         const fundamentalsCacheRef = useRef(new Map()); // ticker -> { data, ts }
         const fundamentalsSortRef = useRef({ key: "date", dir: "desc" });
@@ -7942,22 +7945,45 @@
                       already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
                     <>
-                      {/* ── HERO VERDICT CARD (2026-06-03; verdict-FIRST 2026-06-10) ──
-                          The first thing a user sees on a ticker. Answers
-                          three questions in plain language:
-                            1. WHAT does the model want? (BUY / WATCH / HOLD /
-                               TRIM / DEFEND / EXIT / NO TRADE)
-                            2. WHY in one sentence
-                            3. WHAT TO WATCH for the next decision (entry
-                               trigger or exit signal) — with specific price
-                               levels pulled from predictionContract.
+                      {/* POV toggle — switches hero + position strip below */}
+                      <div style={{
+                        display: "flex",
+                        gap: 0,
+                        marginBottom: "var(--ds-space-3)",
+                        borderRadius: 10,
+                        border: "1px solid var(--ds-stroke)",
+                        overflow: "hidden",
+                        background: "rgba(255,255,255,0.03)",
+                      }}>
+                        {["trader", "investor"].map((mode) => {
+                          const active = snapshotViewMode === mode;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setSnapshotViewMode(mode)}
+                              style={{
+                                flex: 1,
+                                padding: "8px 12px",
+                                border: 0,
+                                cursor: "pointer",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                letterSpacing: "0.06em",
+                                textTransform: "uppercase",
+                                color: active ? "var(--ds-text-body)" : "var(--ds-text-faint)",
+                                background: active ? "rgba(56,242,161,0.12)" : "transparent",
+                                borderBottom: active ? "2px solid var(--ds-accent)" : "2px solid transparent",
+                              }}
+                            >
+                              {mode === "trader" ? "Trader" : "Investor"}
+                            </button>
+                          );
+                        })}
+                      </div>
 
-                          Replaces the "I have to read 4 dense panels to know
-                          what to do" experience reported on CRDO. The
-                          existing Today/Discovery/Regime/Model Guidance
-                          panels stay below for the user who wants the
-                          underlying detail. */}
-                      {(() => {
+                      {/* ── HERO VERDICT CARD — trader POV ── */}
+                      {snapshotViewMode === "trader" && (() => {
                         const formatPx = (n) => {
                           const x = Number(n);
                           if (!Number.isFinite(x)) return "—";
@@ -8229,144 +8255,138 @@
                         );
                       })()}
 
-                      {/* Snapshot POV toggle — trader vs investor context */}
-                      <div style={{
-                        display: "flex", gap: 6, marginBottom: "var(--ds-space-3)", flexWrap: "wrap",
-                      }}>
-                        {["trader", "investor"].map((mode) => {
-                          const active = snapshotViewMode === mode;
-                          return (
-                            <button
-                              key={mode}
-                              type="button"
-                              onClick={() => setSnapshotViewMode(mode)}
-                              className={`ds-chip ds-chip--sm${active ? " ds-chip--accent" : ""}`}
-                              style={{ cursor: "pointer", textTransform: "capitalize" }}
-                            >
-                              {mode === "trader" ? "Trader" : "Investor"}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* ── D2 (2026-06-11) FRESHNESS STATE ──────────────────
-                          The UI face of the Data Age Contract: when the
-                          payload says its candles are stale/aging, say so
-                          instead of rendering stale numbers as if fresh.
-                          Admins see the offending TFs; users see a calm
-                          "refreshing" chip. */}
-                      {(() => {
-                        const f = ticker?._freshness;
-                        if (!f || f.grade === "FRESH" || f.enforced === false) return null;
-                        const isStale = f.grade === "STALE";
-                        const sr = f.session_ref;
-                        const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
-                        const lastDay = sr?.last_trading_day;
-                        const fmtDay = (ds) => {
-                          if (!ds) return null;
-                          try {
-                            const d = new Date(`${ds}T12:00:00`);
-                            return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-                          } catch (_) { return ds; }
+                      {/* ── HERO VERDICT CARD — investor POV ── */}
+                      {snapshotViewMode === "investor" && (() => {
+                        const formatPx = (n) => {
+                          const x = Number(n);
+                          if (!Number.isFinite(x)) return "—";
+                          return `$${x.toFixed(2)}`;
                         };
-                        let msg;
-                        if (isStale) {
-                          msg = "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land.";
-                        } else if (!f.market_open && lastDay) {
-                          msg = `Market closed — levels reflect the ${fmtDay(lastDay) || lastDay} session. The engine will refresh at the next open.`;
-                        } else {
-                          msg = "Some chart data is catching up — figures may lag a few minutes.";
+                        const cardSym = String(tickerSymbol || "").trim().toUpperCase();
+                        const liveStage = (investorData?.ticker === cardSym)
+                          ? String(investorData?.stage || "").toLowerCase()
+                          : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+                        const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
+                        const ip = investorPrediction;
+                        const ipDir = String(ip?.direction || "").toUpperCase();
+                        const ipAction = String(ip?.action_label || "").toUpperCase();
+                        const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
+                        const ipStop = Number(ip?.risk?.stop_loss);
+                        const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
+                        const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
+                        const livePx = Number(v2Price) || Number(ticker?.price);
+                        const invDisplay = investorInvalidationDisplay(investorData, livePx);
+                        const holding = effectiveInvestorTrade;
+                        const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
+
+                        const verdict = (() => {
+                          if (holding) {
+                            if (liveStage === "reduce") return { word: "REDUCE", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: liveGuide?.doNow || "Reduce on strength — taking profits per the investor lane.", urgency: "now" };
+                            if (liveStage === "watch") return { word: "WATCH", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", line: liveGuide?.doNow || "Monitor closely — no add until the thesis re-confirms.", urgency: "watch" };
+                            if (liveStage === "avoid") return { word: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.08)", line: liveGuide?.doNow || "The investor lane skips this name.", urgency: "none" };
+                            return { word: "HOLDING", color: "#93c5fd", bg: "rgba(59,130,246,0.08)", line: liveGuide?.doNow || "Investor position is active. Follow lane guidance and invalidation below.", urgency: "monitor" };
+                          }
+                          if (liveGuide?.laneLabel) {
+                            const lane = String(liveGuide.laneLabel).toUpperCase();
+                            const color = liveStage === "avoid" ? "#f87171" : liveStage === "reduce" ? "#f59e0b" : ipColor;
+                            return { word: lane, color, bg: `${color}14`, line: liveGuide.doNow || liveGuide.actionLine || "Investor lane guidance for this ticker.", urgency: liveStage === "accumulate" ? "watch" : "context" };
+                          }
+                          const a = ipAction.toLowerCase();
+                          if (a.includes("hold")) return { word: "HOLD", color: "#93c5fd", bg: "rgba(59,130,246,0.08)", line: "Hold — no add, no trim. Let the thesis play out.", urgency: "monitor" };
+                          if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return { word: "ACCUMULATE", color: "#34d399", bg: "rgba(52,211,153,0.10)", line: "Accumulate — add to position on weakness.", urgency: "watch" };
+                          if (a.includes("trim") || a.includes("reduc") || a.includes("sell")) return { word: "REDUCE", color: "#f59e0b", bg: "rgba(245,158,11,0.10)", line: "Reduce on strength — taking profits.", urgency: "now" };
+                          if (a.includes("watch") || a.includes("monitor")) return { word: "WATCH", color: "#fbbf24", bg: "rgba(251,191,36,0.08)", line: "Monitor — no position change recommended.", urgency: "watch" };
+                          if (a.includes("avoid")) return { word: "AVOID", color: "#f87171", bg: "rgba(248,113,113,0.08)", line: "Avoid — investor lane sees no edge here.", urgency: "none" };
+                          if (ipDir === "LONG") return { word: "CONSTRUCTIVE", color: "#34d399", bg: "rgba(52,211,153,0.06)", line: ipThesis || "Investor lane leans long over weeks to months.", urgency: "context" };
+                          if (ipDir === "SHORT") return { word: "CAUTIOUS", color: "#fb7185", bg: "rgba(244,63,94,0.06)", line: ipThesis || "Investor lane leans defensive on this ticker.", urgency: "context" };
+                          return { word: "NEUTRAL", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: ipThesis || "No strong investor-lane view on this ticker yet.", urgency: "none" };
+                        })();
+
+                        const triggers = [];
+                        if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
+                          triggers.push({ tone: "neutral", text: `Invalidation: close below ${formatPx(invDisplay.price)} (${invDisplay.label}).` });
                         }
-                        return (
-                          <div style={{
-                            display: "flex", alignItems: "center", gap: 8,
-                            padding: "8px 12px", marginBottom: 10, borderRadius: 10,
-                            background: isStale ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.07)",
-                            border: `1px solid ${isStale ? "rgba(248,113,113,0.25)" : "rgba(251,191,36,0.2)"}`,
-                            fontSize: 11, color: "var(--ds-text-muted)",
-                          }}>
-                            <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isStale ? "#f87171" : "#fbbf24" }} />
-                            <span>
-                              {msg}
-                              {window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""}
-                            </span>
-                          </div>
-                        );
-                      })()}
+                        if (ipTp1 && livePx) {
+                          triggers.push({ tone: "neutral", text: `Thesis target: ${formatPx(ipTp1)}${ipTargets[0]?.label ? ` (${ipTargets[0].label})` : ""}.` });
+                        }
+                        if (ipStop && livePx && !invDisplay) {
+                          triggers.push({ tone: "neutral", text: `Invalidates below ${formatPx(ipStop)}.` });
+                        }
 
-                      {/* ── D2 (2026-06-11) POSITION GUIDANCE CARD ───────────
-                          The PLAN, first — rendered from the live payload
-                          advisories the engine already computes for open
-                          positions (B4): the trim ladder against ATR-fib
-                          targets and the forward-looking move-ending
-                          signal. No fetch; refreshes with the 5-min
-                          scoring cadence. */}
-                      {(() => {
-                        const ladder = ticker?._trim_ladder;
-                        const me = ticker?._move_ending;
-                        if (!ladder && !me) return null;
-                        const meColor = me?.level === "EXIT" ? "#f87171"
-                          : me?.level === "TRIM" ? "#f59e0b"
-                          : me?.level === "WATCH" ? "#fbbf24" : "#34d399";
-                        const fmtP = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
                         return (
                           <div style={{
-                            background: "var(--ds-bg-elevated, rgba(255,255,255,0.03))",
-                            border: "1px solid var(--ds-border, rgba(255,255,255,0.08))",
-                            borderRadius: 12, padding: "12px 14px", marginBottom: 10,
+                            padding: "14px 14px 12px",
+                            marginBottom: "var(--ds-space-3)",
+                            background: verdict.bg,
+                            border: `1px solid ${verdict.color}55`,
+                            borderRadius: 12,
                           }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "var(--ds-text-muted)", marginBottom: 8 }}>
-                              POSITION GUIDANCE · THE PLAN
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
+                                letterSpacing: "0.06em",
+                              }}>INVESTOR MODEL</span>
+                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>weeks-to-months view</span>
+                              {ipDir && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: ipColor,
+                                  background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
+                                  letterSpacing: "0.05em",
+                                  marginLeft: "auto",
+                                }}>{ipDir}</span>
+                              )}
                             </div>
-                            {ladder && Array.isArray(ladder.levels) && (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: me ? 10 : 0 }}>
-                                {ladder.levels.map((l) => (
-                                  <div key={l.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                                    <span style={{
-                                      width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                                      background: l.status === "reached" ? "#34d399" : "var(--ds-border, rgba(255,255,255,0.15))",
-                                    }} />
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, minWidth: 58 }}>{l.name.replace("_", " ")}</span>
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", color: l.status === "reached" ? "#34d399" : "var(--ds-text-body)" }}>{fmtP(l.price)}</span>
-                                    <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
-                                      {l.status === "reached" ? "reached" : `trim ${l.trim_pct}% · ${l.basis}`}
-                                    </span>
-                                  </div>
-                                ))}
-                                <div style={{ display: "flex", gap: 14, fontSize: 10, color: "var(--ds-text-muted)", marginTop: 3, fontFamily: "var(--tt-font-mono)" }}>
-                                  {ladder.sl != null && <span>Invalidation {fmtP(ladder.sl)}</span>}
-                                  {ladder.trimmed_pct > 0 && <span>{ladder.trimmed_pct}% trimmed</span>}
-                                  {ladder.next && <span>Next: {ladder.next.name.replace("_", " ")} {ladder.next.distance_pct != null ? `(${ladder.next.distance_pct > 0 ? "+" : ""}${ladder.next.distance_pct}%)` : ""}</span>}
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                              <span style={{
+                                fontSize: 18, fontWeight: 800, color: verdict.color,
+                                letterSpacing: "0.02em", lineHeight: 1,
+                              }}>{verdict.word}</span>
+                              {livePx && (
+                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
+                                  ${livePx.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 10 : 0 }}>
+                              {verdict.line}
+                            </div>
+                            {ipThesis && verdict.line !== ipThesis && (
+                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginBottom: triggers.length > 0 ? 8 : 0 }}>
+                                {ipThesis}
+                              </div>
+                            )}
+                            {triggers.length > 0 && (
+                              <div style={{ marginTop: 4 }}>
+                                <div style={{
+                                  fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)",
+                                  letterSpacing: "0.06em", marginBottom: 5,
+                                }}>KEY LEVELS</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {triggers.map((tr, i) => (
+                                    <div key={`inv-tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 }}>
+                                      <span style={{ color: "var(--ds-text-muted)", flexShrink: 0, marginTop: 1 }}>·</span>
+                                      <span style={{ color: "var(--ds-text-body)" }}>{tr.text}</span>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
                             )}
-                            {me && (
-                              <div style={{ borderTop: ladder ? "1px solid var(--ds-border, rgba(255,255,255,0.06))" : "none", paddingTop: ladder ? 8 : 0 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: me.level !== "NONE" ? 5 : 0 }}>
-                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "var(--ds-text-muted)" }}>MOVE-ENDING SIGNAL</span>
-                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 700, color: meColor }}>
-                                    {me.level} · {me.score}/100
-                                  </span>
-                                </div>
-                                {me.level !== "NONE" && (me.evidence || []).slice(0, 3).map((ev, i) => (
-                                  <div key={i} style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
-                                    · {String(ev).replace(/ \(\+\d+\)$/, "")}
-                                  </div>
-                                ))}
+                            {liveGuide?.actionLine && (
+                              <div style={{
+                                marginTop: 10, paddingTop: 8,
+                                borderTop: "1px solid rgba(255,255,255,0.04)",
+                                fontSize: 11, color: "var(--ds-text-muted)",
+                              }}>
+                                Lane action: {liveGuide.actionLine}
                               </div>
                             )}
                           </div>
                         );
                       })()}
 
-                      {/* ── INVESTOR PORTFOLIO CARD (2026-06-03) ──────────────
-                          Shown when the Investor lane has an active holding
-                          on this ticker. 2026-06-10: Snapshot is now
-                          verdict-FIRST — the hero verdict renders above;
-                          the portfolio cards follow so both POVs stay
-                          cleanly separated instead of one ambiguous card.
-                          Drives off effectiveInvestorTrade which filters
-                          to _source_mode === "investor" only. */}
+                      {/* Position strip — active holding for the selected POV */}
                       {effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
                         const it = effectiveInvestorTrade;
                         const dir = String(it?.direction || "LONG").toUpperCase();
@@ -8416,7 +8436,7 @@
                                   fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
                                   color: "#93c5fd", background: "rgba(59,130,246,0.12)",
                                   letterSpacing: "0.06em",
-                                }}>📂 INVESTOR PORTFOLIO</span>
+                                }}>INVESTOR PORTFOLIO</span>
                                 <span style={{
                                   fontSize: 13, fontWeight: 800, color: "#93c5fd",
                                   letterSpacing: "0.02em",
@@ -8470,24 +8490,6 @@
                                     {invDisplay.label}{invDisplay.distText ? ` · ${invDisplay.distText}` : ""}
                                   </span>
                                 </div>
-                                <div style={{ fontSize: 11, color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.45 }}>
-                                  {invDisplay.condition}
-                                </div>
-                                {invDisplay.thesisLevel && (
-                                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
-                                    <span style={{ fontWeight: 700, color: "var(--ds-text-faint)" }}>THESIS FLOOR </span>
-                                    ${invDisplay.thesisLevel.price.toFixed(2)} ({invDisplay.thesisLevel.label}
-                                    {invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})
-                                    {invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""}
-                                  </div>
-                                )}
-                                {invDisplay.lines.length > 0 && (
-                                  <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 10, color: "var(--ds-text-faint)", lineHeight: 1.4 }}>
-                                    {invDisplay.lines.slice(0, 2).map((line, i) => (
-                                      <li key={i}>{line}</li>
-                                    ))}
-                                  </ul>
-                                )}
                               </div>
                             )}
                             <div style={{ marginTop: 8 }}>
@@ -8497,27 +8499,11 @@
                               <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.4 }}>
                                 {currentAction}
                               </div>
-                              {stageMoved && (
-                                <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginTop: 4, lineHeight: 1.4 }}>
-                                  Entry thesis was {entryAction}. The model has since moved this name to {liveGuide?.laneLabel || liveStage} — follow current lane guidance above.
-                                </div>
-                              )}
-                            </div>
-                            <div style={{
-                              marginTop: 10, paddingTop: 8,
-                              borderTop: "1px solid rgba(255,255,255,0.04)",
-                              fontSize: 10, color: "var(--ds-text-faint)",
-                            }}>
-                              The Trader model below is independent of this holding. It may suggest a SHORT scalp while this LONG position keeps running.
                             </div>
                           </div>
                         );
                       })()}
 
-                      {/* ── TRADER PORTFOLIO CARD (2026-06-06) ───────────────
-                          Mirror of Investor Portfolio — shows the active
-                          trader-lane position on Snapshot so both holdings
-                          are visible without switching tabs. */}
                       {effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
                         const tt = effectiveTraderTrade;
                         const st = String(tt?.status || "").toUpperCase();
@@ -8590,17 +8576,117 @@
                                 {sl > 0 && <> · Stop ${sl.toFixed(2)}</>}
                               </div>
                             </div>
-                            <div style={{
-                              marginTop: 10, paddingTop: 8,
-                              borderTop: "1px solid rgba(255,255,255,0.04)",
-                              fontSize: 10, color: "var(--ds-text-faint)",
-                            }}>
-                              Switch to the <button
-                                type="button"
-                                onClick={() => setRailTab("SETUP")}
-                                style={{ display: "inline", background: "transparent", border: 0, padding: 0, color: "#6ee7b7", cursor: "pointer", textDecoration: "underline", fontSize: 10 }}
-                              >Trader tab</button> for the full trade plan and timing signals.
+                          </div>
+                        );
+                      })()}
+
+                      <details style={{ marginBottom: "var(--ds-space-3)" }}>
+                        <summary style={{ fontSize: 11, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "6px 0", userSelect: "none" }}>
+                          More detail — model, regime, diagnostics
+                        </summary>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", marginTop: "var(--ds-space-2)" }}>
+
+                      {/* ── D2 (2026-06-11) FRESHNESS STATE ────────────────── */}
+                      {(() => {
+                        const f = ticker?._freshness;
+                        if (!f || f.grade === "FRESH" || f.enforced === false) return null;
+                        const isStale = f.grade === "STALE";
+                        const sr = f.session_ref;
+                        const tfs = [...(f.stale_tfs || []), ...(f.missing_tfs || [])].join(", ");
+                        const lastDay = sr?.last_trading_day;
+                        const fmtDay = (ds) => {
+                          if (!ds) return null;
+                          try {
+                            const d = new Date(`${ds}T12:00:00`);
+                            return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                          } catch (_) { return ds; }
+                        };
+                        let msg;
+                        if (isStale) {
+                          msg = "Chart data is refreshing — the engine has quarantined this ticker until fresh candles land.";
+                        } else if (!f.market_open && lastDay) {
+                          msg = `Market closed — levels reflect the ${fmtDay(lastDay) || lastDay} session. The engine will refresh at the next open.`;
+                        } else {
+                          msg = "Some chart data is catching up — figures may lag a few minutes.";
+                        }
+                        return (
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            padding: "8px 12px", marginBottom: 10, borderRadius: 10,
+                            background: isStale ? "rgba(248,113,113,0.08)" : "rgba(251,191,36,0.07)",
+                            border: `1px solid ${isStale ? "rgba(248,113,113,0.25)" : "rgba(251,191,36,0.2)"}`,
+                            fontSize: 11, color: "var(--ds-text-muted)",
+                          }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: isStale ? "#f87171" : "#fbbf24" }} />
+                            <span>
+                              {msg}
+                              {window._ttIsAdmin && tfs ? ` (${f.grade}: ${tfs})` : ""}
+                            </span>
+                          </div>
+                        );
+                      })()}
+
+                      {/* ── D2 (2026-06-11) POSITION GUIDANCE CARD ───────────
+                          The PLAN, first — rendered from the live payload
+                          advisories the engine already computes for open
+                          positions (B4): the trim ladder against ATR-fib
+                          targets and the forward-looking move-ending
+                          signal. No fetch; refreshes with the 5-min
+                          scoring cadence. */}
+                      {snapshotViewMode === "trader" && (() => {
+                        const ladder = ticker?._trim_ladder;
+                        const me = ticker?._move_ending;
+                        if (!ladder && !me) return null;
+                        const meColor = me?.level === "EXIT" ? "#f87171"
+                          : me?.level === "TRIM" ? "#f59e0b"
+                          : me?.level === "WATCH" ? "#fbbf24" : "#34d399";
+                        const fmtP = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
+                        return (
+                          <div style={{
+                            background: "var(--ds-bg-elevated, rgba(255,255,255,0.03))",
+                            border: "1px solid var(--ds-border, rgba(255,255,255,0.08))",
+                            borderRadius: 12, padding: "12px 14px", marginBottom: 10,
+                          }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "var(--ds-text-muted)", marginBottom: 8 }}>
+                              POSITION GUIDANCE · THE PLAN
                             </div>
+                            {ladder && Array.isArray(ladder.levels) && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: me ? 10 : 0 }}>
+                                {ladder.levels.map((l) => (
+                                  <div key={l.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                                    <span style={{
+                                      width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                                      background: l.status === "reached" ? "#34d399" : "var(--ds-border, rgba(255,255,255,0.15))",
+                                    }} />
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontWeight: 700, minWidth: 58 }}>{l.name.replace("_", " ")}</span>
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", color: l.status === "reached" ? "#34d399" : "var(--ds-text-body)" }}>{fmtP(l.price)}</span>
+                                    <span style={{ fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                      {l.status === "reached" ? "reached" : `trim ${l.trim_pct}% · ${l.basis}`}
+                                    </span>
+                                  </div>
+                                ))}
+                                <div style={{ display: "flex", gap: 14, fontSize: 10, color: "var(--ds-text-muted)", marginTop: 3, fontFamily: "var(--tt-font-mono)" }}>
+                                  {ladder.sl != null && <span>Invalidation {fmtP(ladder.sl)}</span>}
+                                  {ladder.trimmed_pct > 0 && <span>{ladder.trimmed_pct}% trimmed</span>}
+                                  {ladder.next && <span>Next: {ladder.next.name.replace("_", " ")} {ladder.next.distance_pct != null ? `(${ladder.next.distance_pct > 0 ? "+" : ""}${ladder.next.distance_pct}%)` : ""}</span>}
+                                </div>
+                              </div>
+                            )}
+                            {me && (
+                              <div style={{ borderTop: ladder ? "1px solid var(--ds-border, rgba(255,255,255,0.06))" : "none", paddingTop: ladder ? 8 : 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: me.level !== "NONE" ? 5 : 0 }}>
+                                  <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: "var(--ds-text-muted)" }}>MOVE-ENDING SIGNAL</span>
+                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 11, fontWeight: 700, color: meColor }}>
+                                    {me.level} · {me.score}/100
+                                  </span>
+                                </div>
+                                {me.level !== "NONE" && (me.evidence || []).slice(0, 3).map((ev, i) => (
+                                  <div key={i} style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
+                                    · {String(ev).replace(/ \(\+\d+\)$/, "")}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
@@ -8617,7 +8703,7 @@
                           investor contract is unavailable (cold start /
                           API error / no model output), this card is
                           silently omitted. */}
-                      {investorPrediction && (() => {
+                      {snapshotViewMode === "investor" && investorPrediction && (() => {
                         const ip = investorPrediction;
                         const ipDir = String(ip?.direction || "").toUpperCase();
                         const ipAction = String(ip?.action_label || "").toUpperCase();
@@ -8978,11 +9064,6 @@
                             p_20_bar = 20 bars = 100 minutes (~1.5h)
                           Now rendered as 'Next 5 min', 'Next 25 min', and
                           'Next ~1h 40min' with bar count in the tooltip. */}
-                      <details style={{ marginBottom: "var(--ds-space-3)" }}>
-                        <summary style={{ fontSize: 11, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "6px 0", userSelect: "none" }}>
-                          More detail — model, regime, diagnostics
-                        </summary>
-                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", marginTop: "var(--ds-space-2)" }}>
 
                       {ticker?.regime_forecast?.p_next && (() => {
                         const fc = ticker.regime_forecast;
@@ -9153,7 +9234,7 @@
                       {/* Model Guidance — moved to top of snapshot.
                           Header surfaces R{rank} so it reconciles with the
                           Conviction panel below (single source of truth). */}
-                      {predictionContract && (() => {
+                      {snapshotViewMode === "trader" && predictionContract && (() => {
                         // V2.1 round 10 (2026-05-04) — Bias-aware Model Guidance.
                         // Adds:
                         //  1. Direction chip + plain-language bias line at the top so
@@ -9326,7 +9407,7 @@
                       )}
 
                       {/* Position panel — only when open trade exists; with vertical price-level viz */}
-                      {v2Pos && (
+                      {snapshotViewMode === "trader" && v2Pos && (
                         <Panel title="Position" action={<span className={`ds-chip ds-chip--sm ${v2DirChip}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{trade?.direction || v2Dir}</span>}>
                           {/* Vertical price ladder: SL ─ Entry ─ Current ─ TP */}
                           {(() => {
