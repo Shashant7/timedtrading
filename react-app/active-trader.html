@@ -900,6 +900,7 @@
         if (!tradeIsOpen) return rawStage;
         if (rawStage === "exit") return "exiting";
         if (rawStage === "defend") return "defend";
+        if (rawStage === "exiting") return "exiting";
         if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
         if (!["trim","hold","active","just_entered"].includes(rawStage)) return "hold";
         return rawStage;
@@ -937,6 +938,7 @@
           if (trade && isOpen) {
             if (stage === "exit") stage = "exiting";
             else if (stage === "defend") { /* keep */ }
+            else if (stage === "exiting") { /* keep — engine wants out, open runner */ }
             else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";
             else if (stage === "trim") { /* keep */ }
             else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
@@ -1052,7 +1054,7 @@
                          : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn"
                          : "ds-chip--solid";
 
-        const stage = String(t?.kanban_stage || "").toLowerCase();
+        const stage = String(t?._effectiveKanbanStage || t?.kanban_stage || "").toLowerCase();
         const stageChip = (() => {
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
