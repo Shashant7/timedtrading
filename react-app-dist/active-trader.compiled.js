@@ -270,7 +270,6 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   const hold = [];
   const defend = [];
   const trim = [];
-  const exiting = [];
   const exit = [];
   for (const t of tickers) {
     if (!t) continue;
@@ -322,11 +321,11 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
       case "trim":
         trim.push(t);
         break;
-      case "exiting":
-        exiting.push(t);
-        break;
       case "exit":
         exit.push(t);
+        break;
+      case "exiting":
+        defend.push(t);
         break;
       default:
         break;
@@ -345,7 +344,6 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   hold.sort(byAlpha);
   defend.sort(byAlpha);
   trim.sort(byAlpha);
-  exiting.sort(byAlpha);
   exit.sort(byAlpha);
   return {
     setup,
@@ -354,7 +352,6 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     hold,
     defend,
     trim,
-    exiting,
     exit
   };
 }
@@ -429,10 +426,6 @@ function ATCard({
     };
     if (stage === "defend") return {
       label: "Defend",
-      cls: "ds-chip--dn"
-    };
-    if (stage === "exiting") return {
-      label: "Exiting",
       cls: "ds-chip--dn"
     };
     if (stage === "exit") return {
@@ -1396,7 +1389,6 @@ function ActiveTraderApp() {
     hold: lanes.hold.length,
     defend: lanes.defend.length,
     trim: lanes.trim.length,
-    exiting: lanes.exiting.length,
     exit: lanes.exit.length
   }), [lanes]);
   const displayLanes = useMemo(() => {
@@ -1412,7 +1404,6 @@ function ActiveTraderApp() {
       hold: match(lanes.hold),
       defend: match(lanes.defend),
       trim: match(lanes.trim),
-      exiting: match(lanes.exiting),
       exit: match(lanes.exit)
     };
     if (!filterLane) return base;
@@ -1423,7 +1414,6 @@ function ActiveTraderApp() {
       hold: [],
       defend: [],
       trim: [],
-      exiting: [],
       exit: []
     };
     if (filterLane === "setup") return {
@@ -1445,10 +1435,6 @@ function ActiveTraderApp() {
     if (filterLane === "trim") return {
       ...empty,
       trim: base.trim
-    };
-    if (filterLane === "exiting") return {
-      ...empty,
-      exiting: base.exiting
     };
     if (filterLane === "exit") return {
       ...empty,
@@ -1680,15 +1666,10 @@ function ActiveTraderApp() {
     disabled: laneCounts.trim === 0,
     title: "Open positions hitting a take-profit level"
   }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
-    className: "at-chip" + (filterLane === "exiting" ? " active" : ""),
-    onClick: () => setFilterLane(filterLane === "exiting" ? null : "exiting"),
-    disabled: laneCounts.exiting === 0,
-    title: "Open positions where the model recommends exiting"
-  }, `Exiting${laneCounts.exiting > 0 ? ` (${laneCounts.exiting})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
     disabled: laneCounts.exit === 0,
-    title: "Recently closed positions (visible 24h)"
+    title: "Recently closed model trades (visible 7d)"
   }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
@@ -1750,7 +1731,7 @@ function ActiveTraderApp() {
     key: "band-d",
     band: "doing",
     label: "DOING",
-    hint: "Model acted or is acting on a live position"
+    hint: "Hold · Defend · Trim · Closed — what the model is doing with open or recent trades"
   }), h(KanbanLane, {
     key: "initiated",
     id: "initiated",
@@ -1800,18 +1781,6 @@ function ActiveTraderApp() {
     tradeByTicker,
     tradesLoaded
   }), h(KanbanLane, {
-    key: "exiting",
-    id: "exiting",
-    title: "Exiting",
-    accentClass: "exiting",
-    tickers: displayLanes.exiting,
-    sparkCache,
-    savedSet: saved,
-    onToggleSaved: toggleSaved,
-    onOpen,
-    tradeByTicker,
-    tradesLoaded
-  }), h(KanbanLane, {
     key: "exit",
     id: "exit",
     title: "Closed",
@@ -1846,6 +1815,4 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782245778752:185400246
-
-// cache-bust:1782245778752:185400246
+// build:1782246098468
