@@ -16418,7 +16418,9 @@
         }), v2RailTab === "OPTIONS" && React.createElement(OptionsTabPanel, {
           tickerSymbol: tickerSymbol,
           API_BASE: API_BASE
-        }), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, (() => {
+        }), v2RailTab === "HISTORY" && React.createElement("div", {
+          style: railTabBodyWrapStyle
+        }, (() => {
           const traderTrades = ledgerTrades.filter(t => t._source_mode !== "investor");
           const invTrades = ledgerTrades.filter(t => t._source_mode === "investor");
           const traderClosed = traderTrades.filter(t => {
@@ -16855,6 +16857,7 @@
             deltaClass: n >= 0 ? "up" : "dn"
           });
         }))))), v2RailTab !== "CHART" && React.createElement("div", {
+          className: "tt-rail-footer",
           style: {
             borderTop: "1px solid var(--ds-stroke)",
             padding: "var(--ds-space-3) var(--ds-space-4)",
@@ -21472,4 +21475,4 @@
   };
 })();
 
-// cache-bust:1782264601578:13660467
+// cache-bust:1782269879773:633229614
