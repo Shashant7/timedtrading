@@ -4943,7 +4943,7 @@
       const RAIL_TAB_GROUP_OF = {
         SNAPSHOT: "NOW",
         SETUP: "TRADE",
-        OPTIONS: "TRADE",
+        OPTIONS: "OPTIONS",
         INVESTOR: "INVEST",
         TECHNICALS: "CONTEXT",
         FUNDAMENTALS: "CONTEXT",
@@ -7682,8 +7682,9 @@
         }, title && React.createElement("div", {
           className: "ds-glass__title"
         }, title), action), children);
-        const renderSequenceShadowPanel = () => {
+        const renderSequenceShadowPanel = (opts = {}) => {
           if (typeof window === "undefined" || !window._ttIsAdmin) return null;
+          const compact = opts.compact === true || v2RailTab === "SETUP";
           const humanizeKey = k => {
             if (!k) return "";
             return String(k).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -7823,7 +7824,7 @@
             if (!Number.isFinite(n) || n <= 0) return null;
             return `$${n.toFixed(2)}`;
           };
-          const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
+          const renderSequenceStageJourney = (seq, eventById, accentColor, dir, journeyCompact = false) => {
             const seqId = seq?.sequence_id ? String(seq.sequence_id) : String(seq?.direction || "seq");
             const currentStage = Number(seq?.stage) || 0;
             const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
@@ -7914,10 +7915,10 @@
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-faint)",
-                marginBottom: 8,
+                marginBottom: journeyCompact ? 0 : 8,
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, "Stage ", currentStage, " of ", maxStage), React.createElement("div", {
+            }, "Stage ", currentStage, " of ", maxStage, journeyCompact && nextDef && currentStage < maxStage ? ` · Next: ${nextDef.label}` : ""), !journeyCompact && React.createElement("div", {
               style: {
                 display: "flex",
                 flexDirection: "column",
@@ -8058,7 +8059,10 @@
           })();
           return React.createElement(Panel, {
             title: "Sequence (shadow)",
-            action: React.createElement("div", {
+            action: compact ? React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--solid",
+              title: "Shadow-only \u2014 does not affect live entry or kanban"
+            }, "SHADOW") : React.createElement("div", {
               style: {
                 display: "flex",
                 gap: 4,
@@ -8094,7 +8098,7 @@
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-dn)"
             }
-          }, "Shadow diagnostics unavailable (", setupShadowError === "sign_in_required" ? "admin session required — hard refresh after login" : setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, React.createElement("p", {
+          }, "Shadow diagnostics unavailable (", setupShadowError === "sign_in_required" ? "admin session required — hard refresh after login" : setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, !compact && React.createElement("p", {
             style: {
               margin: "0 0 var(--ds-space-2) 0",
               fontSize: "var(--ds-fs-caption)",
@@ -8107,36 +8111,77 @@
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-text-faint)"
             }
-          }, "No trail snapshots in the lookback window yet.", setupShadowDiag.hint ? ` ${setupShadowDiag.hint}` : " Fresh scoring or backfill will populate this panel."), !setupShadowDiag.empty && React.createElement(React.Fragment, null, React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "var(--ds-space-1)",
-              marginBottom: active.length ? "var(--ds-space-2)" : 0
+          }, "No trail snapshots in the lookback window yet.", setupShadowDiag.hint ? ` ${setupShadowDiag.hint}` : " Fresh scoring or backfill will populate this panel."), !setupShadowDiag.empty && React.createElement(React.Fragment, null, (() => {
+            const ctxChips = [ctx.vix_regime && {
+              key: "vix",
+              label: `VIX ${ctx.vix_regime}`,
+              cls: "ds-chip--solid",
+              title: "VIX regime context"
+            }, ctx.index_posture && {
+              key: "idx",
+              label: `Index ${ctx.index_posture}`,
+              cls: "ds-chip--solid",
+              title: "Index posture context"
+            }, ctx.ticker_personality && {
+              key: "pers",
+              label: String(ctx.ticker_personality).replace(/_/g, " "),
+              cls: "ds-chip--accent",
+              title: "Ticker personality"
+            }, setupShadowDiag.snapshot_source && {
+              key: "snaps",
+              label: `${setupShadowDiag.snapshot_count || 0} snaps · ${setupShadowDiag.snapshot_source}${setupShadowDiag.inline_from_payload ? " · live payload" : ""}`,
+              cls: "",
+              title: "Trail snapshot source",
+              mono: true
+            }, setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.stack_full_confirm && {
+              key: "confirm",
+              label: `Confirm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}`,
+              cls: setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid",
+              title: "Shadow: stack_full_confirm (120h lookback)"
+            }, setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.gate_runway_full && {
+              key: "runway",
+              label: `Runway ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}`,
+              cls: setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid",
+              title: "Shadow: TD9 + RSI div + confirm stack (120h lookback)"
+            }].filter(Boolean);
+            if (!ctxChips.length) return null;
+            const chipRow = React.createElement("div", {
+              style: {
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "var(--ds-space-1)"
+              }
+            }, ctxChips.map(c => React.createElement("span", {
+              key: c.key,
+              className: `ds-chip ds-chip--sm ${c.cls || ""}`,
+              style: c.mono ? {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 9
+              } : undefined,
+              title: c.title
+            }, c.label)));
+            if (!compact) {
+              return React.createElement("div", {
+                style: {
+                  marginBottom: active.length ? "var(--ds-space-2)" : 0
+                }
+              }, chipRow);
             }
-          }, ctx.vix_regime && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--solid",
-            title: "VIX regime context"
-          }, "VIX ", ctx.vix_regime), ctx.index_posture && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--solid",
-            title: "Index posture context"
-          }, "Index ", ctx.index_posture), ctx.ticker_personality && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--accent",
-            title: "Ticker personality"
-          }, String(ctx.ticker_personality).replace(/_/g, " ")), setupShadowDiag.snapshot_source && React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 9
-            },
-            title: "Trail snapshot source"
-          }, setupShadowDiag.snapshot_count || 0, " snaps \xB7 ", setupShadowDiag.snapshot_source, setupShadowDiag.inline_from_payload ? " · live payload" : ""), setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates && React.createElement(React.Fragment, null, setupShadowDiag.setup_gates.stack_full_confirm && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid"}`,
-            title: "Shadow: stack_full_confirm (120h lookback)"
-          }, "Confirm ", setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"), setupShadowDiag.setup_gates.gate_runway_full && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid"}`,
-            title: "Shadow: TD9 + RSI div + confirm stack (120h lookback)"
-          }, "Runway ", setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"))), active.length > 0 ? (() => {
+            return React.createElement("details", {
+              style: {
+                marginBottom: active.length ? "var(--ds-space-2)" : 0
+              }
+            }, React.createElement("summary", {
+              style: {
+                cursor: "pointer",
+                fontSize: 10,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.06em",
+                fontWeight: 600,
+                marginBottom: 4
+              }
+            }, "Context & diagnostics"), chipRow);
+          })(), active.length > 0 ? (() => {
             const primarySeq = sortedActive.find(s => {
               const id = s?.sequence_id ? String(s.sequence_id) : "";
               return !!(primarySeqId && id && primarySeqId === id);
@@ -8182,7 +8227,19 @@
               }, sequenceHeadline(dir)), isPrimary && React.createElement("span", {
                 className: "ds-chip ds-chip--sm ds-chip--accent",
                 title: "Highest-stage active sequence drives trader posture"
-              }, "Primary"), !isPrimary && React.createElement("span", {
+              }, "Primary"), isPrimary && seq?.sequence_type && React.createElement("span", {
+                className: "ds-chip ds-chip--sm ds-chip--accent",
+                title: "Setup sequence archetype"
+              }, sequenceArchetypeLabel(seq.sequence_type)), isPrimary && Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && compact && React.createElement("span", {
+                className: "ds-chip ds-chip--sm",
+                style: {
+                  fontFamily: "var(--tt-font-mono)"
+                },
+                title: "Active sequence stage"
+              }, "S", Number(tp.stage)), isPrimary && postureLabel && postureLabel !== "Neutral" && compact && React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${postureChipCls}`,
+                title: "Derived trader posture from setup sequences"
+              }, postureLabel), !isPrimary && React.createElement("span", {
                 className: "ds-chip ds-chip--sm ds-chip--solid",
                 title: "Alternate direction still forming in shadow"
               }, "Alternate"), seq.status && React.createElement("span", {
@@ -8194,7 +8251,7 @@
                   fontSize: 10,
                   color: "var(--ds-text-muted)"
                 }
-              }, "S", stageNum, "/", maxStage, currentDef ? ` · ${currentDef.label}` : "")), full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir), full && seq.posture && React.createElement("div", {
+              }, "S", stageNum, "/", maxStage, currentDef ? ` · ${currentDef.label}` : "")), full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir, compact), full && !compact && seq.posture && React.createElement("div", {
                 style: {
                   fontSize: "var(--ds-fs-body)",
                   color: "var(--ds-text-body)",
@@ -8202,7 +8259,7 @@
                   marginTop: 8,
                   marginBottom: 4
                 }
-              }, seq.posture), full && pf?.primary_path && React.createElement("div", {
+              }, seq.posture), full && pf?.primary_path && !compact && React.createElement("div", {
                 style: {
                   fontSize: "var(--ds-fs-caption)",
                   color: "var(--ds-text-muted)",
@@ -8710,7 +8767,11 @@
             }, {
               key: "TRADE",
               label: "Trade",
-              tabs: [["SETUP", "Setup"], ["OPTIONS", "Options"]]
+              tabs: [["SETUP", "Setup"]]
+            }, {
+              key: "OPTIONS",
+              label: "Options",
+              tabs: [["OPTIONS", "Options"]]
             }, {
               key: "INVEST",
               label: "Invest",
@@ -11788,7 +11849,7 @@
               }
             }, "+", _exhW.length - 6, " more")));
           })());
-        })(), renderSequenceShadowPanel(), (() => {
+        })(), (() => {
           const conf = optionsTabData?.confluence_verdict || null;
           if (!conf || !conf.mode) return null;
           return null;
@@ -13103,7 +13164,9 @@
           className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
         }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement("div", {
+        }, "RISK")))), renderSequenceShadowPanel({
+          compact: true
+        })), v2RailTab === "TECHNICALS" && React.createElement("div", {
           style: railTabBodyWrapStyle
         }, (() => {
           const tfm = ticker?.tf_tech || {};
@@ -21409,4 +21472,4 @@
   };
 })();
 
-// cache-bust:1782253690185:505277627
+// cache-bust:1782263808252:32444536
