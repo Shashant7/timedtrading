@@ -39,7 +39,26 @@
       gap: "var(--ds-space-3)",
       paddingBottom: RAIL_TAB_SCROLL_PAD,
       WebkitOverflowScrolling: "touch",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box",
     };
+    const investorRailContainStyle = {
+      width: "100%",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box",
+    };
+    const investorRailTextStyle = {
+      ...investorRailContainStyle,
+      overflowWrap: "break-word",
+      wordBreak: "break-word",
+    };
+    const sanitizeUserFacingCopy = (text) => (
+      typeof window !== "undefined" && window.TimedRailHelpers?.sanitizeUserFacingCopy
+        ? window.TimedRailHelpers.sanitizeUserFacingCopy(text)
+        : String(text || "").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim()
+    );
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -991,7 +1010,7 @@
       })();
       const holdingTrade = tradeOpen ? effectiveTrade : null;
       const hasHolding = !!(pos?.owned || invCtx?.owned || holdingTrade);
-      const thesisText = String(thesis || "").trim();
+      const thesisText = sanitizeUserFacingCopy(String(thesis || "").trim());
       const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? pos?.avg_entry);
       const liveForPos = Number.isFinite(livePx) && livePx > 0 ? livePx : null;
       const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? pos?.shares);
@@ -1024,6 +1043,7 @@
 
         (invCtx || stage !== "—") && h("div", {
           style: {
+            ...investorRailContainStyle,
             padding: "14px 14px 12px",
             marginBottom: "var(--ds-space-3)",
             background: stageInfo.bg,
@@ -1031,8 +1051,8 @@
             borderRadius: "var(--ds-radius-lg, 12px)",
           },
         },
-          h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8 } },
-            h("span", { style: { fontSize: 11, fontWeight: 700, color: laneColor, letterSpacing: "0.02em" } }, laneHeaderText),
+          h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8, minWidth: 0, maxWidth: "100%" } },
+            h("span", { style: { fontSize: 11, fontWeight: 700, color: laneColor, letterSpacing: "0.02em", ...investorRailTextStyle } }, sanitizeUserFacingCopy(laneHeaderText)),
             hasHolding && h("span", {
               style: { fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, color: laneColor, background: `${laneColor}18`, border: `1px solid ${laneColor}44`, letterSpacing: "0.05em" },
             }, "HOLDING"),
@@ -1040,8 +1060,8 @@
               style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 7px", borderRadius: 4, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
             }, invCtx.tierMeta.label),
           ),
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" } },
-            h("span", { style: { fontSize: 18, fontWeight: 800, color: laneColor, letterSpacing: "0.02em", lineHeight: 1 } }, stageInfo.label),
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" } },
+            h("span", { style: { fontSize: 18, fontWeight: 800, color: laneColor, letterSpacing: "0.02em", lineHeight: 1, ...investorRailTextStyle } }, stageInfo.label),
             liveForPos && h("span", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 } }, fmtUsd(liveForPos)),
           ),
 
@@ -1052,10 +1072,11 @@
               borderLeft: `3px solid ${laneColor}`,
               background: "rgba(255,255,255,0.04)",
               borderRadius: "0 8px 8px 0",
+              ...investorRailContainStyle,
             },
           },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em", marginBottom: 4 } }, "THESIS"),
-            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5 } }, thesisText.slice(0, 600)),
+            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, ...investorRailTextStyle } }, thesisText.slice(0, 600)),
           ),
 
           hasHolding && h("div", {
@@ -1078,18 +1099,18 @@
               liveForPos > 0 ? ` → ${fmtUsd(liveForPos)}` : null,
               entryWhen && h("span", { style: { color: "var(--ds-text-faint)" } }, ` · entered ${entryWhen}`),
             ),
-            (Number.isFinite(shares) || costBasis > 0) && h("div", { style: { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 } },
-              Number.isFinite(shares) && h("div", null,
+            (Number.isFinite(shares) || costBasis > 0) && h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 8, minWidth: 0 } },
+              Number.isFinite(shares) && h("div", { style: investorRailContainStyle },
                 h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 } }, shares.toFixed(2)),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle } }, shares.toFixed(2)),
               ),
-              entryPx > 0 && h("div", null,
+              entryPx > 0 && h("div", { style: investorRailContainStyle },
                 h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(entryPx)),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle } }, fmtUsd(entryPx)),
               ),
-              costBasis > 0 && h("div", null,
+              costBasis > 0 && h("div", { style: investorRailContainStyle },
                 h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
-                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(costBasis)),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle } }, fmtUsd(costBasis)),
               ),
             ),
             pos?.last_action_type && pos?.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)" } },
@@ -1106,23 +1127,24 @@
               background: "rgba(255,255,255,0.04)",
               border: "1px solid rgba(255,255,255,0.06)",
               marginBottom: invCtx?.signalNote || keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0),
+              ...investorRailContainStyle,
             },
           },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 } }, "WHAT TO DO"),
-            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600 } },
-              invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : (invCtx?.statusLine || stageInfo.action),
+            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600, ...investorRailTextStyle } },
+              sanitizeUserFacingCopy(invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : (invCtx?.statusLine || stageInfo.action)),
             ),
-            h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 } },
-              invCtx?.statusLine || stageInfo.desc,
+            h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6, ...investorRailTextStyle } },
+              sanitizeUserFacingCopy(invCtx?.statusLine || stageInfo.desc),
             ),
           ),
-          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0) } }, invCtx.signalNote),
+          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0), ...investorRailTextStyle } }, sanitizeUserFacingCopy(invCtx.signalNote)),
           keyLevels.length > 0 && h("div", { style: { marginBottom: Number.isFinite(score) ? 8 : 0 } },
             h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 5 } }, "KEY LEVELS"),
             h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
-              keyLevels.map((line, i) => h("div", { key: `inv-kl-${i}`, style: { display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 } },
+              keyLevels.map((line, i) => h("div", { key: `inv-kl-${i}`, style: { display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45, minWidth: 0 } },
                 h("span", { style: { color: "var(--ds-text-muted)", flexShrink: 0, marginTop: 1 } }, "·"),
-                h("span", { style: { color: "var(--ds-text-body)" } }, line),
+                h("span", { style: { color: "var(--ds-text-body)", ...investorRailTextStyle } }, sanitizeUserFacingCopy(line)),
               )),
             ),
           ),
@@ -7497,7 +7519,7 @@
                           className={`ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`}
                           title={[
                             `Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`,
-                            strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "",
+                            strategyAlignment.reason ? `Reason: ${sanitizeUserFacingCopy(strategyAlignment.reason)}` : "",
                             strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "",
                             "See Insights → Active Strategy for full detail.",
                           ].filter(Boolean).join(" · ")}
@@ -8424,6 +8446,8 @@
                         border: "1px solid var(--ds-stroke)",
                         overflow: "hidden",
                         background: "rgba(255,255,255,0.03)",
+                        minWidth: 0,
+                        maxWidth: "100%",
                       }}>
                         {["trader", "investor"].map((mode) => {
                           const active = snapshotViewMode === mode;
@@ -8434,6 +8458,7 @@
                               onClick={() => setSnapshotViewMode(mode)}
                               style={{
                                 flex: 1,
+                                minWidth: 0,
                                 padding: "8px 12px",
                                 border: 0,
                                 cursor: "pointer",
@@ -8763,9 +8788,9 @@
                           tickerSymbol: cardSym,
                         });
                         const ip = investorPrediction;
-                        const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
-                        const ipReason = String(ip?.why_now || "").trim();
-                        const detailThesis = String(investorData?.thesis || "").trim();
+                        const ipThesis = sanitizeUserFacingCopy(String(ip?.thesis || ip?.actionable_summary || "").trim());
+                        const ipReason = sanitizeUserFacingCopy(String(ip?.why_now || "").trim());
+                        const detailThesis = sanitizeUserFacingCopy(String(investorData?.thesis || "").trim());
                         const thesisText = ipThesis || detailThesis;
                         const ipStop = Number(ip?.risk?.stop_loss);
                         const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
@@ -8801,12 +8826,13 @@
                           word: ctx.laneLabel,
                           color: laneColor,
                           bg: laneBg,
-                          line: ctx.statusLine,
+                          line: sanitizeUserFacingCopy(ctx.statusLine),
                           action: ctx.executeReady && ctx.displayStage === "accumulate"
                             ? "The model would scale in on the next rebalance."
                             : (ctx.owned ? "Follow lane guidance for the open model position." : "No model position — track on the Investor board until execution-ready."),
                           urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context",
                         };
+                        const signalNote = sanitizeUserFacingCopy(ctx.signalNote);
 
                         const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? invPos?.avg_entry);
                         const liveForPos = livePx || Number(ticker?._live_price || ticker?.price || latestTicker?.price);
@@ -8839,18 +8865,20 @@
 
                         return (
                           <div style={{
+                            ...investorRailContainStyle,
                             padding: "14px 14px 12px",
                             marginBottom: "var(--ds-space-3)",
                             background: verdict.bg,
                             border: `1px solid ${laneColor}55`,
                             borderRadius: 12,
                           }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" }}>
                               <span style={{
                                 fontSize: 11, fontWeight: 700,
                                 color: laneColor,
                                 letterSpacing: "0.02em",
-                              }}>{ctx.headerChipText || `Investor – ${ctx.laneLabel}`}</span>
+                                ...investorRailTextStyle,
+                              }}>{sanitizeUserFacingCopy(ctx.headerChipText || `Investor – ${ctx.laneLabel}`)}</span>
                               {hasHolding && (
                                 <span style={{
                                   fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
@@ -8869,10 +8897,11 @@
                                 }}>{ctx.tierMeta.label}</span>
                               )}
                             </div>
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" }}>
                               <span style={{
                                 fontSize: 18, fontWeight: 800, color: verdict.color,
                                 letterSpacing: "0.02em", lineHeight: 1,
+                                ...investorRailTextStyle,
                               }}>{verdict.word}</span>
                               {livePx > 0 && (
                                 <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
@@ -8888,15 +8917,16 @@
                                 borderLeft: `3px solid ${laneColor}`,
                                 background: "rgba(255,255,255,0.04)",
                                 borderRadius: "0 8px 8px 0",
+                                ...investorRailContainStyle,
                               }}>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em", marginBottom: 4 }}>
                                   THESIS
                                 </div>
-                                <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5 }}>
+                                <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, ...investorRailTextStyle }}>
                                   {thesisText}
                                 </div>
                                 {ipReason && (
-                                  <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 }}>
+                                  <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6, ...investorRailTextStyle }}>
                                     <span style={{ fontWeight: 700, color: "var(--ds-text-faint)" }}>Why now:</span> {ipReason}
                                   </div>
                                 )}
@@ -8929,23 +8959,23 @@
                                   </div>
                                 )}
                                 {(Number.isFinite(shares) || costBasis > 0) && (
-                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 8, minWidth: 0 }}>
                                     {Number.isFinite(shares) && (
-                                      <div>
+                                      <div style={investorRailContainStyle}>
                                         <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
-                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 }}>{shares.toFixed(2)}</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle }}>{shares.toFixed(2)}</div>
                                       </div>
                                     )}
                                     {entryPx > 0 && (
-                                      <div>
+                                      <div style={investorRailContainStyle}>
                                         <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>AVG ENTRY</div>
-                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 }}>{formatPx(entryPx)}</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle }}>{formatPx(entryPx)}</div>
                                       </div>
                                     )}
                                     {costBasis > 0 && (
-                                      <div>
+                                      <div style={investorRailContainStyle}>
                                         <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>COST BASIS</div>
-                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2 }}>{formatPx(costBasis)}</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle }}>{formatPx(costBasis)}</div>
                                       </div>
                                     )}
                                   </div>
@@ -8956,21 +8986,22 @@
                             <div style={{
                               padding: "10px 12px", borderRadius: 8,
                               background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
-                              marginBottom: ctx.signalNote || triggers.length > 0 ? 8 : 0,
+                              marginBottom: signalNote || triggers.length > 0 ? 8 : 0,
+                              ...investorRailContainStyle,
                             }}>
                               <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
                                 WHAT TO DO
                               </div>
-                              <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600 }}>
+                              <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600, ...investorRailTextStyle }}>
                                 {verdict.line}
                               </div>
-                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 }}>
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6, ...investorRailTextStyle }}>
                                 {verdict.action}
                               </div>
                             </div>
-                            {ctx.signalNote && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0 }}>
-                                {ctx.signalNote}
+                            {signalNote && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0, ...investorRailTextStyle }}>
+                                {signalNote}
                               </div>
                             )}
                             {triggers.length > 0 && (
@@ -8981,9 +9012,9 @@
                                 }}>KEY LEVELS</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   {triggers.map((tr, i) => (
-                                    <div key={`inv-tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 }}>
+                                    <div key={`inv-tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45, minWidth: 0 }}>
                                       <span style={{ color: "var(--ds-text-muted)", flexShrink: 0, marginTop: 1 }}>·</span>
-                                      <span style={{ color: "var(--ds-text-body)" }}>{tr.text}</span>
+                                      <span style={{ color: "var(--ds-text-body)", ...investorRailTextStyle }}>{sanitizeUserFacingCopy(tr.text)}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -10455,8 +10486,8 @@
                                 {timing.flash_headline}
                               </div>
                               {timing.flash_detail && (
-                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45 }}>
-                                  {timing.flash_detail}
+                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45, ...investorRailTextStyle }}>
+                                  {sanitizeUserFacingCopy(timing.flash_detail)}
                                 </div>
                               )}
                               {playbook === "TREND_CATCH" && (
@@ -10499,8 +10530,8 @@
                               )}
                             </div>
                             {signals.length > 0 && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
-                                {signals.slice(0, 5).join(" · ")}
+                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45, ...investorRailTextStyle }}>
+                                {signals.slice(0, 5).map((s) => sanitizeUserFacingCopy(s)).filter(Boolean).join(" · ")}
                               </div>
                             )}
                           </Panel>

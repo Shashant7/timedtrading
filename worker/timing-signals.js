@@ -299,7 +299,7 @@ function computeExtensionSide(tickerData, confluence, warnings) {
   const vx = vixLevel(tickerData);
   if (vx != null && vx >= 22) { score += 8; signals.push(`VIX elevated (${vx.toFixed(1)})`); }
   if (vx != null && vx >= 28) { score += 10; signals.push(`VIX risk-off (${vx.toFixed(1)})`); }
-  if (fsdRiskOffHint(tickerData)) { score += 8; signals.push("FSD / macro risk-off context"); }
+  if (fsdRiskOffHint(tickerData)) { score += 8; signals.push("Macro risk-off context"); }
   if (tickerData?.mean_revert_td9?.active && String(tickerData.mean_revert_td9.side || "").toUpperCase() !== "LONG") {
     score += 16;
     signals.push("Mean-revert TD9 aligned (short)");
@@ -351,7 +351,7 @@ function computeCompressionSide(tickerData, confluence, compressions) {
   if (markovBullish(tickerData)) { score += 14; signals.push("Markov 1d bullish"); }
   const vx = vixLevel(tickerData);
   if (vx != null && vx >= 25) { score += 8; signals.push(`VIX spike capitulation (${vx.toFixed(1)})`); }
-  if (fsdRiskOnHint(tickerData)) { score += 8; signals.push("FSD / macro risk-on context"); }
+  if (fsdRiskOnHint(tickerData)) { score += 8; signals.push("Macro risk-on context"); }
   if (tickerData?.mean_revert_td9?.active && String(tickerData.mean_revert_td9.side || "").toUpperCase() === "LONG") {
     score += 16;
     signals.push("Mean-revert TD9 aligned (long)");
