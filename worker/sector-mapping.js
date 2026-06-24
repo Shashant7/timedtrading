@@ -270,6 +270,9 @@ const SECTOR_MAP = {
   'XLV': 'Sector ETF',
   'XLY': 'Sector ETF',
   'XHB': 'Sector ETF',
+  // 2026-06-24 — VanEck / iShares semiconductor sector ETFs (admin add SMH).
+  'SMH': 'Sector ETF',
+  'SOXX': 'Sector ETF',
 
   // Thematic ETFs (biotech, lithium, inflation, granny shots etc.)
   'GRNJ': 'Thematic ETF',
