@@ -8059,10 +8059,32 @@
           })();
           return React.createElement(Panel, {
             title: "Sequence (shadow)",
-            action: React.createElement("span", {
+            action: compact ? React.createElement("span", {
               className: "ds-chip ds-chip--sm ds-chip--solid",
               title: "Shadow-only \u2014 does not affect live entry or kanban"
-            }, "SHADOW")
+            }, "SHADOW") : React.createElement("div", {
+              style: {
+                display: "flex",
+                gap: 4,
+                alignItems: "center",
+                flexWrap: "wrap"
+              }
+            }, React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--solid",
+              title: "Shadow-only \u2014 does not affect live entry or kanban"
+            }, "SHADOW"), sharedArchetype && active.length > 0 && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--accent",
+              title: "Shared setup archetype"
+            }, sharedArchetype), postureLabel && postureLabel !== "Neutral" && React.createElement("span", {
+              className: `ds-chip ds-chip--sm ${postureChipCls}`,
+              title: "Derived trader posture from setup sequences"
+            }, postureLabel), Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              },
+              title: "Active sequence stage"
+            }, "S", Number(tp.stage)))
           }, setupShadowLoading && !setupShadowDiag && React.createElement("p", {
             style: {
               margin: 0,
@@ -21450,4 +21472,4 @@
   };
 })();
 
-// cache-bust:1782258755957:743681233
+// cache-bust:1782263808252:32444536
