@@ -13443,7 +13443,7 @@
 
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
-                    <>
+                    <div style={railTabBodyWrapStyle}>
                       {/* 2026-05-30 — Header stats row: per-mode tally with
                           win-rate + total realized $ + currently-open count.
                           Replaces the bare "N trades" chip. Trader and
@@ -13737,7 +13737,7 @@
                           </div>
                         </Panel>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
                 {/* ─── Footer ───────────────────────────────────────── */}
@@ -13751,7 +13751,7 @@
                     externally; on the CHART tab the same link is rendered
                     inline next to the TF chips. */}
                 {v2RailTab !== "CHART" && (
-                <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="tt-rail-footer" style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
                   <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
                     Open in TradingView ↗
                   </a>
