@@ -2413,6 +2413,91 @@ export async function sendInvestorQueueDigest(env, alerts) {
   return { ok: true, sent, recipients: opted.length };
 }
 
+function _buildReduceTickerCard(alert, baseUrl) {
+  const data = alert?.data || {};
+  const sym = String(data.ticker || "").toUpperCase();
+  if (!sym) return "";
+  const workerUrl = baseUrl || "https://timed-trading.com";
+  const chartUrl = `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=D&bars=60`;
+  const price = Number(data.price);
+  const reasons = Array.isArray(data.reasons) ? data.reasons.filter(Boolean) : [];
+  const cio = String(data.cio_reasoning || "").trim();
+  const danger = BRAND.danger || "#ef4444";
+  return `<div style="margin:0 0 20px;padding:14px 16px;border:1px solid ${BRAND.border};border-radius:12px;background:${BRAND.cardBg}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:${BRAND.textPrimary};letter-spacing:0.02em">${_esc(sym)}</div>
+        <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;color:${danger};margin-top:2px">MODEL THESIS SHIFT</div>
+      </div>
+      ${Number.isFinite(price) ? `<div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;color:${BRAND.textPrimary}">$${price.toFixed(2)}</div>` : ""}
+    </div>
+    <div style="margin:0 0 10px;padding:10px 12px;border-radius:8px;background:${danger}1A;border:1px solid ${danger}55">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:${danger};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>
+      <div style="font-size:14px;font-weight:700;color:${danger};margin-bottom:4px">MODEL · REDUCE</div>
+      <div style="font-size:12px;line-height:1.5;color:${BRAND.textSecondary}">The TT Investor model moved <strong>${_esc(sym)}</strong> to Reduce — one or more supporting conditions no longer hold. The model portfolio would trim or exit on the next rebalance cycle. Informational only; not investment advice.</div>
+    </div>
+    ${reasons.length ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:${BRAND.textMuted};font-weight:700">Why:</span> ${_esc(reasons.join("; "))}</div>` : ""}
+    ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:#a78bfa;font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
+    <div style="margin:10px 0 4px;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
+      <img src="${chartUrl}" alt="${_esc(sym)} daily chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
+    </div>
+    <div style="font-size:10px;color:${BRAND.textMuted}">Daily chart · last 60 bars · refreshes every 5 min</div>
+  </div>`;
+}
+
+/** Build HTML body for the Reduce / Model Thesis Shift digest (exported for tests). */
+export function buildInvestorReduceDigestBody(alerts, baseUrl) {
+  const list = Array.isArray(alerts)
+    ? alerts.filter((a) => a?.type === "thesis_invalidation" && a?.data?.ticker)
+    : [];
+  const nowLabel = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const syms = list.map((a) => String(a.data.ticker || "").toUpperCase()).filter(Boolean);
+  const cards = list.map((a) => _buildReduceTickerCard(a, baseUrl)).join("");
+  const danger = BRAND.danger || "#ef4444";
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Model Thesis Shift — ${_esc(nowLabel)} ET</h2>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">${list.length} name${list.length === 1 ? "" : "s"} moved to Reduce this pass — supporting conditions no longer hold. Full detail per ticker below — price, daily chart, reasons, and AI CIO guidance.</p>
+    <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${danger};margin-bottom:8px">MODEL · REDUCE (${list.length})</div>
+    ${cards}
+    <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Informational model signals only — not investment advice. The model portfolio would trim or exit on the next hourly rebalance cycle.</p>
+    <p style="margin:10px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
+  `;
+  return { bodyHtml, syms, count: list.length };
+}
+
+/** One email per scoring pass for Reduce signals — chart + reasons + CIO per ticker. */
+export async function sendInvestorReduceDigest(env, alerts) {
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  const { bodyHtml, syms, count } = buildInvestorReduceDigestBody(alerts, baseUrl);
+  if (!count) return { ok: true, sent: 0, recipients: 0, reason: "no_alerts" };
+  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
+
+  let sent = 0;
+  for (const user of opted) {
+    try {
+      const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
+        ? await buildUnsubscribeUrl(baseUrl, user.email, "investor_alerts", env.EMAIL_HMAC_SECRET)
+        : null;
+      const html = emailLayout(bodyHtml, {
+        unsubscribeUrl,
+        preheader: `Model Thesis Shift — ${syms.join(", ")}.`,
+      });
+      const r = await sendEmail(env, {
+        to: user.email,
+        subject: `[INVESTOR] Model Thesis Shift — ${syms.join(", ")}`,
+        html,
+        category: "investor_reduce_digest",
+      });
+      if (r?.ok !== false) sent++;
+    } catch (e) {
+      console.warn(`[INVESTOR REDUCE DIGEST] send failed for ${user.email}:`, String(e?.message || e).slice(0, 120));
+    }
+  }
+  console.log(`[INVESTOR REDUCE DIGEST] sent=${sent}/${opted.length} tickers=${syms.join(",")}`);
+  return { ok: true, sent, recipients: opted.length };
+}
+
 /** @deprecated Replaced by sendInvestorQueueDigest (charts per ticker). Kept as no-op shim. */
 export async function sendInvestorSignalsDigest(env, alerts) {
   void env;

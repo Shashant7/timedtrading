@@ -3,7 +3,11 @@ import {
   deriveInvestorAccumulationAlertCopy,
   deriveInvestorAlertAction,
 } from "./alerts.js";
-import { buildInvestorQueueDigestBody, sendInvestorSignalsDigest } from "./email.js";
+import {
+  buildInvestorQueueDigestBody,
+  buildInvestorReduceDigestBody,
+  sendInvestorSignalsDigest,
+} from "./email.js";
 
 describe("Entered Queue copy", () => {
   it("uses Entered Queue headline for execution-ready zones", () => {
@@ -65,6 +69,45 @@ describe("buildInvestorQueueDigestBody", () => {
     expect(bodyHtml).toContain("chart-image?ticker=GDX");
     expect(bodyHtml).toContain("Sample CIO note for BG.");
     expect(bodyHtml).not.toContain("Investor Signals —");
+  });
+});
+
+describe("buildInvestorReduceDigestBody", () => {
+  it("combines reduce tickers with charts, reasons and CIO in one body", () => {
+    const alerts = [
+      {
+        type: "thesis_invalidation",
+        data: {
+          ticker: "CRDO",
+          price: 262.08,
+          reasons: ["timing top:primary invalidation breach"],
+          cio_reasoning: "CRDO being moved to reduce on thesis invalidation.",
+        },
+      },
+      {
+        type: "thesis_invalidation",
+        data: { ticker: "RIOT", price: 26.83, reasons: ["primary invalidation breach"] },
+      },
+    ];
+    const { bodyHtml, syms, count } = buildInvestorReduceDigestBody(
+      alerts,
+      "https://timed-trading.com",
+    );
+    expect(count).toBe(2);
+    expect(syms).toEqual(["CRDO", "RIOT"]);
+    expect(bodyHtml).toContain("Model Thesis Shift —");
+    expect(bodyHtml).toContain("MODEL · REDUCE (2)");
+    expect(bodyHtml).toContain("chart-image?ticker=CRDO");
+    expect(bodyHtml).toContain("chart-image?ticker=RIOT");
+    expect(bodyHtml).toContain("CRDO being moved to reduce on thesis invalidation.");
+  });
+
+  it("ignores non-reduce alert types", () => {
+    const { count } = buildInvestorReduceDigestBody(
+      [{ type: "accumulation_zone", data: { ticker: "BG" } }],
+      "https://timed-trading.com",
+    );
+    expect(count).toBe(0);
   });
 });
 
