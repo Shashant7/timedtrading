@@ -83,13 +83,59 @@ function buildPremarketGapContext(pf, marketOpen) {
     const gapPct = ((spot - pc) / pc) * 100;
     if (Math.abs(gapPct) >= 0.35) {
       lines.push(
-        `${sym}: prior close $${pc.toFixed(2)} → pre-market $${spot.toFixed(2)} `
-        + `(${gapPct >= 0 ? "+" : ""}${gapPct.toFixed(2)}% gap). Price is ALREADY away from Friday's close — `
-        + `do NOT describe the open as "inside range" or "near prior close".`,
+        `${sym}: prior session close $${pc.toFixed(2)} → pre-market $${spot.toFixed(2)} `
+        + `(${gapPct >= 0 ? "+" : ""}${gapPct.toFixed(2)}% gap). Price is ALREADY away from the prior RTH close — `
+        + `do NOT describe the open as "inside range" or "near prior close". `
+        + `Note: gaps often fade after 9:30 ET — trust live session day-change if it contradicts this gap.`,
       );
     }
   }
   return lines.length > 0 ? lines.join("\n") : null;
+}
+
+/** Prompt block for macro prints that already have Actual values (PCE/CPI/NFP @ 8:30 ET). */
+export function buildReleasedMacroPromptBlock(todayEcon = []) {
+  const released = (todayEcon || []).filter((e) => e?.actual != null && String(e.actual).trim());
+  if (!released.length) return "";
+  const lines = released.map((e) => fmtEconEvent(e)).join("\n");
+  return `\n## RELEASED TODAY (8:30 AM ET prints — MUST cite in Big Picture):\n${lines}\n`
+    + `These releases ALREADY PRINTED before this brief. Lead with Actual vs Est (hot/cool/in-line) and how SPY/QQQ have traded since 8:30 ET. `
+    + `Do NOT describe them as "upcoming", "due at 8:30", or "on deck".\n`;
+}
+
+/**
+ * When the 9 AM brief was written off a pre-market gap but RTH has since stabilized,
+ * return a correction banner for the UI (markdown body stays static until evening).
+ */
+export function computeSessionContextBanner(slot, pf, marketOpen, nowMs = Date.now()) {
+  if (!slot || String(slot.type || "") !== "morning" || !marketOpen || !pf || typeof pf !== "object") return null;
+  const snap = slot.marketSnapshot;
+  if (!snap?.premarketGap) return null;
+  if (getETMinutes(nowMs) < 10 * 60) return null;
+
+  const spyRow = pf.SPY;
+  if (!spyRow) return null;
+  const liveDp = liveDayPctFromPriceFeedRow(spyRow, true);
+  if (!Number.isFinite(liveDp)) return null;
+
+  const genDp = Number(snap.spyDp);
+  const signFlip = Number.isFinite(genDp) && genDp <= -0.25 && liveDp >= -0.05;
+  const faded = Number.isFinite(genDp) && Math.abs(genDp) >= 0.35 && Math.abs(liveDp) < 0.35;
+  const bigMove = Number.isFinite(genDp) && Math.abs(liveDp - genDp) >= 0.45;
+  if (!signFlip && !faded && !bigMove) return null;
+
+  const fmt = (n) => `${n >= 0 ? "+" : ""}${Number(n).toFixed(2)}%`;
+  const genPart = Number.isFinite(genDp)
+    ? ` (the 9 AM brief used a ${fmt(genDp)} pre-market read)`
+    : "";
+  return {
+    kind: "gap_faded",
+    spyLiveDp: liveDp,
+    spyGenDp: Number.isFinite(genDp) ? genDp : null,
+    message: `Session update: SPY is ${fmt(liveDp)} on the day${genPart}. `
+      + `The early gap narrative is stale — use the live index cards above as the current read.`,
+    updatedAt: nowMs,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2553,6 +2599,7 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
 
   infographic.indices = infographic.indices.map((idx) => {
     const sym = String(idx?.sym || "").toUpperCase();
+    const row = pf[sym];
     const live = liveSpotFor(sym);
     if (!Number.isFinite(live)) return idx;
     let levels = idx.levels ? _recomputeGateBlock(idx.levels, live, { atrKey: "dayAtr", isWeek: false }) : idx.levels;
@@ -2563,11 +2610,16 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
     const weeklyLevels = idx.weeklyLevels
       ? _recomputeGateBlock(idx.weeklyLevels, live, { atrKey: "weekAtr", isWeek: true })
       : idx.weeklyLevels;
+    const pct = row ? liveDayPctFromPriceFeedRow(row, mktOpen) : null;
+    const dc = row ? liveDayChgFromPriceFeedRow(row, mktOpen) : null;
     return {
       ...idx,
       price: Math.round(live * 100) / 100,
+      ...(Number.isFinite(pct) ? { chgPct: Math.round(pct * 100) / 100, dayChangePct: pct } : {}),
+      ...(Number.isFinite(dc) ? { dayChange: dc } : {}),
       levels,
       weeklyLevels,
+      _price_source: "timed:prices",
     };
   });
   return infographic;
@@ -3623,7 +3675,8 @@ async function buildMorningPrompt(data, env) {
         : "";
   return `Generate the MORNING BRIEF for ${data.today} (${cal.dayOfWeekLabel || "weekday"}) (published by 9:00 AM ET).
 ${calNote ? `\n## Calendar context (MUST acknowledge where relevant):\n${calNote}\n` : ""}
-${data.premarketGapContext ? `\n## Pre-Market Gap Alert (MUST lead Big Picture / index sections when present):\n${data.premarketGapContext}\nWhen this block is present, the indices have ALREADY gapped vs the prior session close. Use the pre-market prices in Market Data and Price Feed — NOT Friday's RTH close — as "current price". Do NOT write that SPY/QQQ/IWM are "opening inside range", "near prior close", or "unchanged at the open" when the gap is material.\n` : ""}
+${data.premarketGapContext ? `\n## Pre-Market Gap Alert (context at 9 AM ET — may fade after the open):\n${data.premarketGapContext}\nWhen this block is present, pre-market WAS away from the prior session close at generation time. Use Market Data / Price Feed for current prices. Do NOT write "unchanged at the open" when the gap was material at 9 AM — but if session day-change later shows stabilization (near flat or green), lead with that recovery rather than anchoring on the faded gap.\n` : ""}
+${buildReleasedMacroPromptBlock(data.todayEconomicEvents)}
 
 ${await getStrategyBriefAsync(env)}
 
@@ -4637,6 +4690,9 @@ function buildBriefInfographic(data, type) {
     title: e.title || e.event || "",
     severity: e.impact || e.severity || "medium",
     kind: "macro",
+    actual: e.actual ?? null,
+    estimate: e.estimate ?? null,
+    prev: e.prev ?? null,
   }));
   const todayEarnings = (data.todayEarnings || []).slice(0, 8).map(e => ({
     date: today,
@@ -5127,6 +5183,18 @@ export async function generateDailyBrief(env, type, opts = {}) {
   const start = Date.now();
 
   try {
+    // Morning brief runs at 9 AM ET — refresh FRED actuals immediately before
+    // gather so 8:30 prints (PCE/CPI/NFP) land in todayEconomicEvents.
+    if (type === "morning") {
+      try {
+        const { refreshMacroActualsFromFRED } = await import("./macro-actuals-fred.js");
+        const fredR = await refreshMacroActualsFromFRED(env);
+        if (fredR?.refreshed) {
+          console.log(`[DAILY BRIEF] FRED actuals refreshed (${fredR.refreshed} series) before morning gather`);
+        }
+      } catch (_) { /* FRED optional */ }
+    }
+
     // CRO refresh runs IN PARALLEL with data gather (was sequential and
     // added 30-60s before the brief, causing morning cron misses).
     const croSlot = type === "morning" ? "morning" : "evening";
@@ -5237,6 +5305,9 @@ export async function generateDailyBrief(env, type, opts = {}) {
       console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
     }
     const current = (await kvGetJSON(KV, "timed:daily-brief:current")) || {};
+    const _pfSnap = data.priceFeedRaw || {};
+    const _spySnap = _pfSnap.SPY;
+    const _mktOpenSnap = data?.calendar?.marketOpen === true;
     current[type] = {
       id: briefId,
       date: data.today,
@@ -5250,6 +5321,11 @@ export async function generateDailyBrief(env, type, opts = {}) {
       croNote: formatCRONoteForBriefUI(croNoteForBrief),
       publishedAt: now,
       infographic,
+      marketSnapshot: type === "morning" ? {
+        spyDp: liveDayPctFromPriceFeedRow(_spySnap, _mktOpenSnap),
+        spyPrice: liveSpotFromPriceFeedRow(_spySnap, _mktOpenSnap),
+        premarketGap: !!data.premarketGapContext,
+      } : null,
     };
     await kvPutJSON(KV, "timed:daily-brief:current", current);
 
@@ -5499,12 +5575,28 @@ export async function handleGetBrief(env) {
     }
   }
 
+  let sessionContext = null;
+  try {
+    const cal = env ? await loadCalendar(env).catch(() => null) : null;
+    const mktOpen = cal ? isNyRegularMarketOpen(cal, new Date()) : false;
+    if (current.morning?.content && mktOpen) {
+      let pf = null;
+      try {
+        const raw = env?.KV_TIMED ? await env.KV_TIMED.get("timed:prices") : null;
+        pf = raw ? (JSON.parse(raw)?.prices || JSON.parse(raw)) : null;
+      } catch (_) {}
+      sessionContext = computeSessionContextBanner(current.morning, pf, mktOpen);
+      if (sessionContext) current.morning.sessionContext = sessionContext;
+    }
+  } catch (_) {}
+
   const active = pickBriefSlotForSession(current);
   return {
     ok: true,
     brief: current,
     et_date: etToday,
     active_slot: active ? (active === current.evening ? "evening" : "morning") : null,
+    session_context: sessionContext,
   };
 }
 
