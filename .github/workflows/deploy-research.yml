@@ -107,16 +107,4 @@ jobs:
 
       - name: Post-deploy smoke
         if: steps.cfsec.outputs.secrets-ok == 'true'
-        run: |
-          sleep 5
-          HEALTH=$(curl -s -m 20 "https://tt-research.shashant.workers.dev/timed/health" || echo "{}")
-          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
-            echo "::error::tt-research /timed/health returned non-JSON after deploy"
-            exit 1
-          fi
-          OK=$(echo "$HEALTH" | jq -r '.ok // false')
-          echo "ok=$OK (full bundle serves the shared router; cron work gated by WORKER_ROLE=research + RESEARCH_ENABLED)"
-          if [ "$OK" != "true" ]; then
-            echo "::error::tt-research /timed/health did not return ok:true after deploy"
-            exit 1
-          fi
+        run: bash scripts/post-deploy-timed-health-smoke.sh "https://tt-research.shashant.workers.dev/timed/health" "tt-research /timed/health"

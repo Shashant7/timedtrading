@@ -108,17 +108,4 @@ jobs:
 
       - name: Post-deploy smoke
         if: steps.cfsec.outputs.secrets-ok == 'true'
-        run: |
-          sleep 5
-          HEALTH=$(curl -s -m 20 "https://tt-engine.shashant.workers.dev/timed/health" || echo "{}")
-          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
-            echo "::error::tt-engine /timed/health returned non-JSON after deploy"
-            exit 1
-          fi
-          OK=$(echo "$HEALTH" | jq -r '.ok // false')
-          SCORING=$(echo "$HEALTH" | jq -r '.minutesSinceScoring // "null"')
-          echo "ok=$OK minutesSinceScoring=$SCORING (shared KV — reflects whichever worker owns the */5 slot)"
-          if [ "$OK" != "true" ]; then
-            echo "::error::tt-engine /timed/health did not return ok:true after deploy"
-            exit 1
-          fi
+        run: bash scripts/post-deploy-timed-health-smoke.sh "https://tt-engine.shashant.workers.dev/timed/health" "tt-engine /timed/health"
