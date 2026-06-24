@@ -249,7 +249,7 @@ const SECTOR_MAP = {
   'QQQ': 'Index ETF',
   'IWM': 'Index ETF',
   'DIA': 'Index ETF',
-  // CBOE VIX index — TwelveData native quote (replaces VX1! TV futures)
+  // CBOE VIX — canonical UI key; timed:latest + prices mirror VX1! (see futures-proxy.js)
   'VIX': 'Index ETF',
   'SOXL': 'Index ETF',
   'TNA': 'Index ETF',
