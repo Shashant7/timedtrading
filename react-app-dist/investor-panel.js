@@ -165,6 +165,9 @@
     const livePnlPct = (isOwned && posAvg > 0 && Number.isFinite(price) && price > 0)
       ? ((price - posAvg) / posAvg) * 100
       : null;
+    const livePnlAbs = (livePnlPct != null && posShares > 0)
+      ? (price - posAvg) * posShares
+      : null;
     const pnlDir = livePnlPct == null
       ? "flat"
       : livePnlPct > 0.05 ? "up" : livePnlPct < -0.05 ? "dn" : "flat";
@@ -1335,4 +1338,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782327109265:53565167
+// cache-bust:1782327833156:666621444
