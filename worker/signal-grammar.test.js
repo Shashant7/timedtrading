@@ -1,0 +1,193 @@
+import { describe, it, expect } from "vitest";
+import {
+  buildSignal,
+  renderDiscordTitle,
+  renderEmailSubject,
+  formatTradeCloseTitle,
+  formatExitRecommendedTitle,
+  classifyActivityEvent,
+  traderLaneMeta,
+  investorLaneMeta,
+  isActionableFeedEvent,
+  isActionableNotification,
+} from "./signal-grammar.js";
+
+describe("buildSignal", () => {
+  it("marks recommended exit as doing", () => {
+    const s = buildSignal({ engine: "trader", execState: "recommended", action: "exit", ticker: "MU" });
+    expect(s.mode).toBe("doing");
+    expect(s.execState).toBe("recommended");
+  });
+});
+
+describe("formatTradeCloseTitle", () => {
+  it("explains final runner slice after prior trim", () => {
+    const title = formatTradeCloseTitle({
+      ticker: "MU",
+      direction: "LONG",
+      status: "WIN",
+      pnlPct: 42.97,
+      exitPrice: 1097.14,
+      trimmedPct: 0.75,
+    });
+    expect(title).toContain("Full exit +42.97%");
+    expect(title).toContain("final 25% runner");
+    expect(title).toContain("trimming 75%");
+    expect(title).not.toMatch(/Closed 25%/);
+  });
+});
+
+describe("formatExitRecommendedTitle", () => {
+  it("uses recommended exec state grammar", () => {
+    expect(formatExitRecommendedTitle("MU")).toContain("RECOMMENDED");
+    expect(formatExitRecommendedTitle("MU")).toContain("TRADER · DOING");
+  });
+});
+
+describe("classifyActivityEvent", () => {
+  it("classifies exit signal as recommended doing", () => {
+    const c = classifyActivityEvent({ type: "TRADE_EXIT_SIGNAL", ticker: "MU" });
+    expect(c.mode).toBe("doing");
+    expect(c.execState).toBe("recommended");
+  });
+
+  it("classifies filled exit as done doing", () => {
+    const c = classifyActivityEvent({ type: "TRADE_EXIT", ticker: "MU" });
+    expect(c.mode).toBe("doing");
+    expect(c.execState).toBe("done");
+  });
+
+  it("classifies investor rebalance add as done doing", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "CRDO",
+      investor_alert_type: "position_add",
+      shares: 25.1,
+      price: 279.05,
+    });
+    expect(c.label).toBe("ADD");
+    expect(c.mode).toBe("doing");
+    expect(c.execState).toBe("done");
+  });
+
+  it("classifies investor zone alert as watching", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SOFI",
+      investor_alert_type: "accumulation_zone",
+      action: "MODEL · ON RADAR",
+    });
+    expect(c.label).toBe("WATCH");
+    expect(c.mode).toBe("watching");
+  });
+
+  it("classifies investor accumulate-ready as recommended doing", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SOFI",
+      investor_alert_type: "accumulation_zone",
+      action: "MODEL · QUEUE",
+    });
+    expect(c.label).toBe("QUEUE");
+    expect(c.execState).toBe("recommended");
+    expect(c.mode).toBe("doing");
+  });
+
+  it("classifies investor rebalance open as BOUGHT done doing", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "FIX",
+      investor_alert_type: "position_open",
+      shares: 3.58,
+      price: 1957.31,
+    });
+    expect(c.label).toBe("BOUGHT");
+    expect(c.mode).toBe("doing");
+    expect(c.execState).toBe("done");
+  });
+});
+
+describe("isActionableFeedEvent", () => {
+  it("includes trader exit signal and lot fills", () => {
+    expect(isActionableFeedEvent({ type: "TRADE_EXIT_SIGNAL", ticker: "MU" })).toBe(true);
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "CRDO",
+      investor_alert_type: "position_add",
+    })).toBe(true);
+  });
+
+  it("excludes passive on-radar investor alerts", () => {
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "FSLR",
+      action: "MODEL · ON RADAR",
+      investor_alert_type: "accumulation_zone",
+    })).toBe(false);
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "NVDA",
+      action: "MODEL · WATCH",
+      investor_alert_type: "rs_breakout",
+    })).toBe(false);
+  });
+
+  it("includes execution-ready queue", () => {
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SOFI",
+      action: "MODEL · QUEUE",
+      investor_alert_type: "accumulation_zone",
+    })).toBe(true);
+  });
+});
+
+describe("isActionableNotification", () => {
+  it("excludes passive investor and setup kanban", () => {
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "INVESTOR · ON RADAR: FSLR",
+    })).toBe(false);
+    expect(isActionableNotification({
+      type: "kanban",
+      title: "Setup: AAPL",
+      body: "AAPL moved to setup (from new)",
+    })).toBe(false);
+  });
+
+  it("includes trade alerts and under-review kanban", () => {
+    expect(isActionableNotification({ type: "trade_entry", title: "Enter MU" })).toBe(true);
+    expect(isActionableNotification({
+      type: "kanban",
+      title: "Under Review: MU",
+      body: "MU moved to in_review (from enter)",
+    })).toBe(true);
+  });
+});
+
+describe("lane meta bands", () => {
+  it("marks trader setup as watching", () => {
+    expect(traderLaneMeta("setup").band).toBe("watching");
+  });
+  it("marks trader exiting as doing", () => {
+    expect(traderLaneMeta("exiting").band).toBe("doing");
+  });
+  it("marks investor accumulate as doing", () => {
+    expect(investorLaneMeta("accumulate").band).toBe("doing");
+  });
+});
+
+describe("renderEmailSubject", () => {
+  it("uses bracket grammar", () => {
+    const subj = renderEmailSubject(buildSignal({
+      engine: "trader",
+      mode: "doing",
+      execState: "done",
+      action: "exit",
+      ticker: "MU",
+      direction: "LONG",
+      pnlPct: 42.97,
+    }));
+    expect(subj).toMatch(/^\[TRADER · DOING\]/);
+  });
+});

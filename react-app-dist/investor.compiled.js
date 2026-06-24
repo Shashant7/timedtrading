@@ -100,6 +100,69 @@ function useSparklineCache() {
     ensure
   };
 }
+const INV_BUBBLE_MAP_FILTERS = [{
+  id: "ON_RADAR",
+  label: "On Radar",
+  title: "Not owned — moderate score, worth tracking"
+}, {
+  id: "QUEUED",
+  label: "Queued",
+  title: "Execution-ready accumulate — waits for next rebalance"
+}, {
+  id: "HOLD_WATCH",
+  label: "Hold & Watch",
+  title: "Owned — mixed signals, model says hold"
+}, {
+  id: "CORE_HOLD",
+  label: "Core Hold",
+  title: "Owned core position — trend remains solid"
+}, {
+  id: "OPEN",
+  label: "Open Positions",
+  title: "Any ticker with an investor lot in the book"
+}, {
+  id: "TT_SELECTED",
+  label: "TT Selected",
+  title: "Timed Trading curated universe (GRNI / GRNJ / UPTICKS)"
+}, {
+  id: "REDUCING",
+  label: "Reducing",
+  title: "Owned — weakness, model may trim on trigger"
+}];
+function investorBubbleRow(sym, scoreRow, dataTicker) {
+  return scoreRow ? {
+    ...(dataTicker || {}),
+    ...scoreRow,
+    ticker: sym
+  } : {
+    ...(dataTicker || {}),
+    ticker: sym
+  };
+}
+function passesInvestorBubbleMapFilter(filterId, sym, scoreRow, dataTicker) {
+  if (!filterId) return true;
+  const resolveStage = window.TTInvestorLane?.resolveKanbanStage;
+  const row = investorBubbleRow(sym, scoreRow, dataTicker);
+  const lane = resolveStage ? resolveStage(row) : String(scoreRow?.stage || scoreRow?.investor_stage || "").toLowerCase();
+  switch (String(filterId).toUpperCase()) {
+    case "ON_RADAR":
+      return lane === "research_on_watch";
+    case "QUEUED":
+      return lane === "accumulate_queued";
+    case "HOLD_WATCH":
+      return lane === "watch";
+    case "CORE_HOLD":
+      return lane === "core_hold";
+    case "REDUCING":
+      return lane === "reduce";
+    case "OPEN":
+      return !!scoreRow?.position?.owned;
+    case "TT_SELECTED":
+      return typeof window.isTickerTTSelected === "function" && window.isTickerTTSelected(sym);
+    default:
+      return true;
+  }
+}
 function InvBubbleMap({
   data,
   scores,
@@ -107,7 +170,9 @@ function InvBubbleMap({
   searchQuery,
   setSearchQuery,
   filterGroup,
-  savedTickers
+  savedTickers,
+  bubbleMapFilter,
+  onBubbleMapFilterChange
 }) {
   const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
   const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
@@ -160,41 +225,67 @@ function InvBubbleMap({
     }, 50);
     return () => clearTimeout(t);
   }, [bubbleSearchOpen]);
+  const passesBaseBubbleFilters = useCallback((t, sym) => {
+    const filter = String(filterGroup || "").toUpperCase();
+    if (searchQuery && !matchSearch(sym, searchQuery)) return false;
+    if (filter === "SAVED") {
+      if (!savedTickers || savedTickers.size === 0) return false;
+      if (!savedTickers.has(sym)) return false;
+    }
+    if (filter === "INVESTOR_ACTIONABLE") {
+      const stage = stageBySym.get(sym) || "";
+      if (stage !== "accumulate" && stage !== "reduce") return false;
+    }
+    if (filter === "SIM_ELIGIBLE") {
+      const stage = stageBySym.get(sym) || "";
+      if (stage !== "accumulate" && stage !== "reduce") return false;
+      const scoreRow = scoreBySym.get(sym);
+      if (scoreRow && typeof scoreRow.simEligible === "boolean") {
+        if (!scoreRow.simEligible) return false;
+      } else {
+        const dStBull = t?.tf_tech?.D?.stDir === -1;
+        const wStBull = t?.tf_tech?.W?.stDir === -1;
+        const mStBull = t?.monthly_bundle?.supertrend_dir === -1;
+        if (!mStBull) return false;
+        const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
+        if (bullCount < 2) return false;
+      }
+    }
+    const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
+    if (stage && stage !== "null") return true;
+    return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+  }, [filterGroup, savedTickers, searchQuery, stageBySym, scoreBySym, matchSearch]);
+  const bubbleFilterCounts = useMemo(() => {
+    if (!data) return {};
+    const counts = {
+      ALL: 0
+    };
+    for (const f of INV_BUBBLE_MAP_FILTERS) counts[f.id] = 0;
+    const entries = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
+      ticker: String(k).toUpperCase(),
+      ...(v || {})
+    });
+    for (const t of entries) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (!sym || !passesBaseBubbleFilters(t, sym)) continue;
+      counts.ALL++;
+      const scoreRow = scoreBySym.get(sym) || null;
+      for (const f of INV_BUBBLE_MAP_FILTERS) {
+        if (passesInvestorBubbleMapFilter(f.id, sym, scoreRow, t)) counts[f.id]++;
+      }
+    }
+    return counts;
+  }, [data, passesBaseBubbleFilters, scoreBySym]);
   const visible = useMemo(() => {
     if (!data) return [];
-    const filter = String(filterGroup || "").toUpperCase();
     const arr = Object.entries(data).map(([k, v]) => v && v.ticker ? v : {
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => {
       const sym = String(t?.ticker || "").toUpperCase();
-      if (searchQuery && !matchSearch(sym, searchQuery)) return false;
-      if (filter === "SAVED") {
-        if (!savedTickers || savedTickers.size === 0) return false;
-        if (!savedTickers.has(sym)) return false;
-      }
-      if (filter === "INVESTOR_ACTIONABLE") {
-        const stage = stageBySym.get(sym) || "";
-        if (stage !== "accumulate" && stage !== "reduce") return false;
-      }
-      if (filter === "SIM_ELIGIBLE") {
-        const stage = stageBySym.get(sym) || "";
-        if (stage !== "accumulate" && stage !== "reduce") return false;
-        const scoreRow = scoreBySym.get(sym);
-        if (scoreRow && typeof scoreRow.simEligible === "boolean") {
-          if (!scoreRow.simEligible) return false;
-        } else {
-          const dStBull = t?.tf_tech?.D?.stDir === -1;
-          const wStBull = t?.tf_tech?.W?.stDir === -1;
-          const mStBull = t?.monthly_bundle?.supertrend_dir === -1;
-          if (!mStBull) return false;
-          const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
-          if (bullCount < 2) return false;
-        }
-      }
-      const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
-      if (stage && stage !== "null") return true;
-      return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+      if (!passesBaseBubbleFilters(t, sym)) return false;
+      const scoreRow = scoreBySym.get(sym) || null;
+      return passesInvestorBubbleMapFilter(bubbleMapFilter, sym, scoreRow, t);
     });
     return arr.slice(0, 250).map(t => {
       const sym = String(t?.ticker || "").toUpperCase();
@@ -208,7 +299,7 @@ function InvBubbleMap({
         _investorStageReason: scoreRow?.stageReason || scoreRow?.stage_reason || null
       } : t;
     });
-  }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym, matchSearch]);
+  }, [data, scores, searchQuery, filterGroup, savedTickers, bubbleMapFilter, stageBySym, scoreBySym, investorActionBySym, matchSearch, passesBaseBubbleFilters]);
   const rankedTickers = useMemo(() => {
     if (!getRankedTickers || !data) return [];
     try {
@@ -224,18 +315,20 @@ function InvBubbleMap({
     });
     return m;
   }, [rankedTickers]);
-  if (!SharedChart || visible.length === 0) return null;
+  if (!SharedChart) return null;
   return h("section", {
     className: "tt-row inv-bubble-row"
   }, h("div", {
     className: "inv-bubble-head"
+  }, h("div", {
+    className: "inv-bubble-head-top"
   }, h("div", null, h("div", {
     className: "tt-sec-title"
   }, "BUBBLE MAP"), h("h2", {
     className: "tt-sec-h2"
   }, "Where the long-horizon universe sits on momentum \u00d7 trend"), h("p", {
     className: "tt-sec-sub"
-  }, `${visible.length} tickers`)), h("div", {
+  }, `${visible.length} tickers${bubbleMapFilter ? " (filtered)" : ""}`)), h("div", {
     className: "inv-bubble-legend"
   }, h("span", null, h("span", {
     className: "bdot",
@@ -253,8 +346,33 @@ function InvBubbleMap({
       background: "#f43f5e"
     }
   }), "Bear aligned"))), h("div", {
+    className: "inv-bubble-filters",
+    role: "toolbar",
+    "aria-label": "Bubble map lane filters"
+  }, h("button", {
+    type: "button",
+    className: "inv-chip" + (!bubbleMapFilter ? " active" : ""),
+    onClick: () => onBubbleMapFilterChange && onBubbleMapFilterChange(null),
+    title: "Show all tickers in scope"
+  }, `All${bubbleFilterCounts.ALL > 0 ? ` (${bubbleFilterCounts.ALL})` : ""}`), INV_BUBBLE_MAP_FILTERS.map(f => h("button", {
+    key: f.id,
+    type: "button",
+    className: "inv-chip" + (bubbleMapFilter === f.id ? " active" : ""),
+    onClick: () => onBubbleMapFilterChange && onBubbleMapFilterChange(bubbleMapFilter === f.id ? null : f.id),
+    disabled: !(bubbleFilterCounts[f.id] > 0),
+    title: f.title
+  }, `${f.label}${bubbleFilterCounts[f.id] > 0 ? ` (${bubbleFilterCounts[f.id]})` : ""}`)))), h("div", {
     className: "tt-card inv-bubble-card"
-  }, h("div", {
+  }, visible.length === 0 ? h("div", {
+    className: "inv-bubble-stage",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      color: "var(--tt-text-muted)",
+      fontSize: 14
+    }
+  }, "No tickers match the current bubble map filters.") : h("div", {
     className: "inv-bubble-stage"
   }, h(SharedChart, {
     tickers: visible,
@@ -565,6 +683,23 @@ function InvestorApp() {
           const tickers = Array.isArray(scoresRes.tickers) ? [...scoresRes.tickers] : [];
           const seenOwned = new Set(tickers.filter(t => (t?.position || {}).owned).map(t => String(t?.ticker || "").toUpperCase()));
           const positions = positionsRes?.ok && Array.isArray(positionsRes.positions) ? positionsRes.positions : [];
+          if (positionsRes?.ok && Array.isArray(positionsRes.positions)) {
+            const openSet = new Set(positions.filter(p => String(p?.status || "").toUpperCase() === "OPEN" && Number(p?.total_shares) > 0).map(p => String(p?.ticker || "").toUpperCase()));
+            for (let i = 0; i < tickers.length; i++) {
+              const tk = tickers[i];
+              const sym = String(tk?.ticker || "").toUpperCase();
+              if (tk?.position?.owned && sym && !openSet.has(sym)) {
+                tickers[i] = {
+                  ...tk,
+                  position: {
+                    owned: false
+                  },
+                  _ownershipCleared: true
+                };
+                seenOwned.delete(sym);
+              }
+            }
+          }
           for (const p of positions) {
             const sym = String(p?.ticker || "").toUpperCase();
             if (!sym) continue;
@@ -694,36 +829,7 @@ function InvestorApp() {
   }, [RailOverlay, applyRailOpen]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterGroup, setFilterGroup] = useState(null);
-  const chipCounts = useMemo(() => {
-    let actionable = 0,
-      simEligible = 0,
-      simUnknown = 0,
-      executeReady = 0;
-    const list = Array.isArray(investorScores?.tickers) ? investorScores.tickers : [];
-    const countNav = window.TTCountInvestorNavBadge;
-    if (typeof countNav === "function") {
-      actionable = countNav(list);
-    }
-    for (const row of list) {
-      const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
-      if (stage !== "accumulate" && stage !== "reduce") continue;
-      if (typeof countNav !== "function") {
-        if (stage === "reduce") actionable++;else if (stage === "accumulate") {
-          const tier = String(row?.actionTier || "").toLowerCase();
-          if (tier === "act_now" || tier === "ready") actionable++;
-        }
-      }
-      const tier = row?.actionTier;
-      if (tier === "act_now" || tier === "ready") executeReady++;
-      if (row?.simEligible === true) simEligible++;else if (row?.simEligible == null) simUnknown++;
-    }
-    return {
-      actionable,
-      simEligible,
-      simUnknown,
-      executeReady
-    };
-  }, [investorScores]);
+  const [bubbleMapFilter, setBubbleMapFilter] = useState(null);
   return h(React.Fragment, null, !panelMounted && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -741,64 +847,7 @@ function InvestorApp() {
       fontWeight: 600,
       textDecoration: "none"
     }
-  }, "Growth Ideas"), " on Today lists fundamentally growing names the model watches for pullbacks. Tap any card to open Fundamentals in the right rail."))), h(HowToReadCard, null), h("section", {
-    className: "tt-row inv-controls"
-  }, h("div", {
-    className: "inv-search-wrap"
-  }, h("svg", {
-    width: 14,
-    height: 14,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    stroke: "currentColor",
-    strokeWidth: 2,
-    strokeLinecap: "round",
-    strokeLinejoin: "round",
-    className: "inv-search-icon"
-  }, h("circle", {
-    cx: 11,
-    cy: 11,
-    r: 8
-  }), h("line", {
-    x1: 21,
-    y1: 21,
-    x2: 16.65,
-    y2: 16.65
-  })), h("input", {
-    type: "text",
-    className: "inv-search",
-    placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
-    value: searchQuery,
-    onChange: e => setSearchQuery(e.target.value),
-    "aria-label": "Search Investor tickers"
-  }), searchQuery && h("button", {
-    className: "inv-search-clear",
-    onClick: () => setSearchQuery(""),
-    "aria-label": "Clear search",
-    title: "Clear"
-  }, "×")), h("div", {
-    className: "inv-filter-chips"
-  }, h("button", {
-    className: "inv-chip" + (filterGroup === null ? " active" : ""),
-    onClick: () => setFilterGroup(null)
-  }, "All"), h("button", {
-    className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
-    onClick: () => setFilterGroup("INVESTOR_ACTIONABLE"),
-    title: "Tickers in Accumulate or Reduce — the model has an active recommendation"
-  }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`), h("button", {
-    className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
-    onClick: () => setFilterGroup("EXECUTE_READY"),
-    title: "Accumulate/Reduce names the model would prioritize — ACT NOW (buy zone + trend) or READY (alignment / in-zone)"
-  }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`), h("button", {
-    className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
-    onClick: () => setFilterGroup("SIM_ELIGIBLE"),
-    title: `Subset of Actionable the simulator would actually buy — Monthly SuperTrend bullish + ≥2 of (D, W, M) bullish${chipCounts.simUnknown > 0 ? `. ${chipCounts.simUnknown} ticker(s) have unknown SuperTrend state (run POST /timed/investor/compute to refresh)` : ""}`
-  }, `Sim-eligible${chipCounts.simEligible + chipCounts.simUnknown > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`), h("button", {
-    className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
-    onClick: () => setFilterGroup("SAVED"),
-    title: "Your saved tickers (star icon on any card)",
-    disabled: !saved || saved.size === 0
-  }, `Saved${saved && saved.size > 0 ? ` (${saved.size})` : ""}`))), h(AccountStrip, null), panelMounted ? h(window.InvestorPanel, {
+  }, "Growth Ideas"), " on Today lists fundamentally growing names the model watches for pullbacks. Tap any card to open Fundamentals in the right rail."))), h(HowToReadCard, null), h(AccountStrip, null), panelMounted ? h(window.InvestorPanel, {
     apiBase: API_BASE,
     onSelectTicker,
     savedTickers: saved,
@@ -806,6 +855,8 @@ function InvestorApp() {
     selectedTicker: null,
     searchQuery,
     filterGroup,
+    onSearchQueryChange: setSearchQuery,
+    onFilterGroupChange: setFilterGroup,
     tickerData: data
   }) : h("div", null, h("div", {
     className: "tt-card tt-card-pad",
@@ -838,7 +889,9 @@ function InvestorApp() {
     setSearchQuery,
     filterGroup,
     savedTickers: saved,
-    onSelectTicker
+    onSelectTicker,
+    bubbleMapFilter,
+    onBubbleMapFilterChange: setBubbleMapFilter
   })), RailOverlay && railTickerObj && h(RailOverlay, {
     ticker: railTickerObj,
     allLoadedData: data,
@@ -857,6 +910,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782339011908:958696457
+// cache-bust:1782340070914:56279579
 
-// cache-bust:1782339011908:958696457
+// cache-bust:1782340070914:56279579

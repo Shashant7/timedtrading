@@ -5,6 +5,7 @@ import {
   evaluateBroadIndexExtensionWatch,
   evaluateBroadIndexCompressionWatch,
 } from "./timing-signals.js";
+import { computeInvestorActionTier } from "./investor.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // notifyDiscord LANE ROUTING — 2026-05-28
@@ -753,27 +754,35 @@ export function deriveInvestorAlertAction(type, data = {}) {
   if (type === "accumulation_zone") {
     const z = String(data?.zoneType || "").toLowerCase();
     const score = Number(data?.score) || 0;
-    if (z === "momentum_runner") {
+    const tier = data?.actionTier || computeInvestorActionTier({
+      stage: "accumulate",
+      score: data?.score,
+      simEligible: data?.simEligible,
+      accumZone: { inZone: data?.inZone !== false },
+      position: data?.position || {},
+    });
+    const rebalanceReady = tier === "act_now" || tier === "ready";
+    if (z === "momentum_runner" || z.includes("exhaustion") || z.includes("momentum_runner")) {
       return {
-        verb: "MODEL · WATCH",
-        color: "#10b981",
-        tone: "info",
-        one_liner: `The TT model logged a momentum-runner zone on ${sym}. The model would add only on a pullback toward the 21 EMA — not at the current print. Not a fresh-entry buy-the-dip signal.`,
+        verb: "MODEL · ON RADAR",
+        color: "#f5c25c",
+        tone: "watch",
+        one_liner: `**${sym}** logged a ${z.replace(/_/g, " ")} zone (score ${score}/100). On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
       };
     }
-    if (score >= 70) {
+    if (rebalanceReady) {
       return {
-        verb: "MODEL · ACCUMULATE",
+        verb: "MODEL · QUEUE",
         color: "#10b981",
         tone: "buy",
-        one_liner: `The TT model entered an accumulation zone on ${sym} (score ${score}/100). The model portfolio scales in over 2–3 tranches on weakness inside the buy zone.`,
+        one_liner: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
       };
     }
     return {
-      verb: "MODEL · WATCH",
+      verb: "MODEL · ON RADAR",
       color: "#f5c25c",
       tone: "watch",
-      one_liner: `The TT model logged an accumulation zone on ${sym} with a moderate score (${score}/100). Model lane stays Watch until confirmation strengthens.`,
+      one_liner: `**${sym}** entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
     };
   }
   if (type === "rs_breakout") {
@@ -790,6 +799,24 @@ export function deriveInvestorAlertAction(type, data = {}) {
       color: "#f59e0b",
       tone: "info",
       one_liner: "The TT Investor model portfolio composition drifted from its targets. Review the dashboard suggestions — informational context only.",
+    };
+  }
+  if (type === "position_open") {
+    const val = Number(data.value) || (Number(data.shares) * Number(data.price));
+    const valBit = Number.isFinite(val) && val > 0 ? ` · $${Math.round(val).toLocaleString()}` : "";
+    return {
+      verb: "MODEL · BOUGHT",
+      color: "#10b981",
+      tone: "buy",
+      one_liner: `**${sym}** opened — ${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}${valBit}. Executed rebalance buy.`,
+    };
+  }
+  if (type === "position_add") {
+    return {
+      verb: "MODEL · ADD",
+      color: "#10b981",
+      tone: "buy",
+      one_liner: `**${sym}** scale-in — ${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}. Executed rebalance add.`,
     };
   }
   if (type === "position_trim") {
@@ -809,6 +836,36 @@ export function deriveInvestorAlertAction(type, data = {}) {
     };
   }
   return { verb: "MODEL · INFO", color: "#9ca3af", tone: "info", one_liner: "TT Investor model signal — informational only." };
+}
+
+/** Email/Discord masthead copy for accumulation-zone alerts — keyed off action tier. */
+export function deriveInvestorAccumulationAlertCopy(data = {}, action = null) {
+  const act = action || deriveInvestorAlertAction("accumulation_zone", data);
+  const sym = String(data?.ticker || "ticker").toUpperCase();
+  const score = Number(data?.score) || 0;
+  const z = String(data?.zoneType || "").toLowerCase().replace(/_/g, " ");
+  if (act.verb === "MODEL · QUEUE") {
+    return {
+      subjectBase: `${sym} — Entered Queue`,
+      headline: "Entered Queue",
+      lede: `<strong>${sym}</strong> entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
+      ledePlain: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
+    };
+  }
+  if (z.includes("momentum runner") || z.includes("exhaustion")) {
+    return {
+      subjectBase: `${sym} — On Radar (${z})`,
+      headline: "On Radar — Zone Detected",
+      lede: `<strong>${sym}</strong> logged a ${z} condition. On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
+      ledePlain: `**${sym}** logged a ${z} condition. On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
+    };
+  }
+  return {
+    subjectBase: `${sym} — On Radar (Buy Zone Detected)`,
+    headline: "On Radar — Buy Zone Detected",
+    lede: `<strong>${sym}</strong> entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
+    ledePlain: `**${sym}** entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
+  };
 }
 
 /**
@@ -838,26 +895,11 @@ export function createInvestorAlertEmbed(type, data) {
     accumulation_zone: {
       color: 0x10b981,
       emoji: "🎯",
-      // 2026-05-30 — Differentiate title + description by zoneType.
-      // The "Accumulation Zone" label was being applied to BOTH true
-      // pullback setups (oversold-bounce branch) AND momentum-runner
-      // continuation conditions (line 752 of worker/investor.js), which
-      // are very different signals. CDNS / ITT / AMZN all fired the
-      // momentum_runner branch while at all-time highs — labeling those
-      // as "accumulation" misleads users into thinking a pullback has
-      // occurred. zoneType is now surfaced explicitly: 'Momentum-Runner
-      // Zone' for trend-continuation; 'Accumulation Zone' for the
-      // oversold-bounce / near-support cases.
       title: (d) => {
-        if (d.zoneType === "momentum_runner") return `${d.ticker}: Momentum-Runner Zone Confirmed`;
-        return `${d.ticker}: Entered Accumulation Zone`;
+        const copy = deriveInvestorAccumulationAlertCopy(d, _action);
+        return `${d.ticker}: ${copy.headline}`;
       },
-      description: (d) => {
-        if (d.zoneType === "momentum_runner") {
-          return `**${d.ticker}** is in a confirmed *momentum-runner* zone — trend is healthy and intact, signals support adding on minor pullbacks. ⚠ Not a fresh-entry "buy the dip" signal; price may already be extended from a low.`;
-        }
-        return `**${d.ticker}** has entered an accumulation zone in the TT model — pullback context with monthly trend intact, or price near major support. Informational only.`;
-      },
+      description: (d) => deriveInvestorAccumulationAlertCopy(d, _action).ledePlain,
       fields: (d) => [
         { name: "Investor Score", value: `${d.score || "—"} / 100`, inline: true },
         { name: "Confidence", value: `${d.confidence || "—"}%`, inline: true },
@@ -865,7 +907,7 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Zone Type", value: String(d.zoneType || "—").replace(/_/g, " "), inline: true },
         { name: "Signals", value: (d.signals || []).map(s => s.replace(/_/g, " ")).join(", ") || "—", inline: false },
         // Make it clear this is informational, not an auto-executed order.
-        { name: "Note", value: "TT Investor model signal. The model portfolio tracks this in simulation; live broker mirroring requires Mission Control → Broker Bridge.", inline: false },
+        { name: "Note", value: "TT Investor model signal — the model portfolio tracks this in simulation. Informational only, not an executed order.", inline: false },
         ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
@@ -891,6 +933,40 @@ export function createInvestorAlertEmbed(type, data) {
         value: s.message,
         inline: false,
       })),
+    },
+    position_open: {
+      color: 0x10b981,
+      emoji: "🟢",
+      title: (d) => `${d.ticker}: New Position Opened`,
+      description: (d) => {
+        const val = Number(d.value) || (Number(d.shares) * Number(d.price));
+        const valBit = Number.isFinite(val) && val > 0 ? ` · $${Math.round(val).toLocaleString()}` : "";
+        return `**${d.ticker}** — the model portfolio opened a new position (${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}${valBit}). Executed rebalance buy.`;
+      },
+      fields: (d) => [
+        { name: "Shares", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
+        { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
+        { name: "Value", value: `$${Number(d.value || (Number(d.shares) * Number(d.price)) || 0).toFixed(2)}`, inline: true },
+        { name: "Stage", value: String(d.stage || "—").replace(/_/g, " "), inline: true },
+        { name: "Investor Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
+        { name: "Note", value: "Executed rebalance — model simulation fill, not a manual order.", inline: false },
+        ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
+      ],
+    },
+    position_add: {
+      color: 0x10b981,
+      emoji: "➕",
+      title: (d) => `${d.ticker}: Position Added`,
+      description: (d) => `**${d.ticker}** — scale-in executed by the Investor auto-rebalance engine (${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}).`,
+      fields: (d) => [
+        { name: "Shares Added", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
+        { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
+        { name: "Value", value: `$${Number(d.value || (Number(d.shares) * Number(d.price)) || 0).toFixed(2)}`, inline: true },
+        { name: "Stage", value: String(d.stage || "—").replace(/_/g, " "), inline: true },
+        { name: "Investor Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
+        { name: "Note", value: "Executed rebalance — model simulation fill, not a manual order.", inline: false },
+        ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
+      ],
     },
     position_trim: {
       color: 0xf59e0b,
@@ -936,24 +1012,46 @@ export function createInvestorAlertEmbed(type, data) {
   // this is an Investor-system alert (not Trader) AND what the engine
   // wants the user to do. The base title (e.g. "Momentum-Runner Zone
   // Confirmed") becomes the secondary line via title concatenation.
+  const sym = String(data?.ticker || "").toUpperCase();
   const _baseTitle = config.title(data);
-  const _actionTitle = `${config.emoji} INVESTOR · ${_action.verb} — ${_baseTitle.replace(/^[^:]+:\s*/, "")}`;
+  const _shortHeadline = _baseTitle.replace(new RegExp(`^${sym}:\\s*`, "i"), "").trim();
+  const _modeLabel = String(_action.verb || "").includes("QUEUE")
+    || String(_action.verb || "").includes("BOUGHT")
+    || String(_action.verb || "").includes("ADD")
+    || String(_action.verb || "").includes("TRIMMED")
+    || String(_action.verb || "").includes("EXITED")
+    || String(_action.verb || "").includes("REDUCE")
+    ? "DOING"
+    : "WATCHING";
+  const _actionTitle = `${config.emoji} **${sym}** · INVESTOR · ${_modeLabel} · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
 
   // Insert an Action field at the very top so the reader sees it before
-  // scrolling. Existing fields follow.
+  // scrolling. Skip it when its one-liner just restates the description
+  // (accumulation_zone derives both from the same lede) — the title +
+  // description already carry the action, so the extra field is noise.
+  const _descText = String(config.description(data) || "").replace(/\*\*/g, "").trim().toLowerCase();
+  const _oneLiner = String(_action.one_liner || "").replace(/\*\*/g, "").trim();
+  const _oneLinerNorm = _oneLiner.toLowerCase();
+  const _normalize = (s) => s.replace(/\(score[^)]*\)/g, "").replace(/[^a-z]+/g, " ").trim();
+  const _redundant = type === "accumulation_zone"
+    || (_oneLinerNorm.length > 0 && _normalize(_descText) === _normalize(_oneLinerNorm));
   const _fields = [
-    {
-      name: `▶ TT Model signal — ${_action.verb}`,
+    ...(_redundant ? [] : [{
+      name: `▶ ${sym} — ${_action.verb}`,
       value: _action.one_liner,
       inline: false,
-    },
+    }]),
     ...config.fields(data),
   ];
 
   return {
     title: _actionTitle,
     description: config.description(data),
-    color: config.color,
+    color: type === "accumulation_zone"
+      ? (_action.tone === "buy" ? 0x10b981 : _action.tone === "watch" ? 0xf5c25c : config.color)
+      : (type === "position_open" || type === "position_add")
+        ? 0x10b981
+        : config.color,
     fields: _fields,
     footer: { text: "Timed Trading — Investor Intelligence • Not financial advice" },
     timestamp: new Date().toISOString(),

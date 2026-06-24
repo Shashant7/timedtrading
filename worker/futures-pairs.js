@@ -94,7 +94,7 @@ export function computeFuturesPairsState(marketData, opts = {}) {
   const nq  = marketData.NQ  || marketData["NQ1!"]  || marketData.QQQ || null;
   const ym  = marketData.YM  || marketData["YM1!"]  || marketData.DIA || null;
   const rty = marketData.RTY || marketData["RTY1!"] || marketData.IWM || null;
-  const vix = marketData.VIX || marketData["VX1!"]  || null;
+  const vix = marketData.VIX || marketData["VX1!"] || null; // VX1! legacy
 
   if (!es || !nq) return { ok: false, error: "missing_es_or_nq" };
 

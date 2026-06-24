@@ -58,35 +58,121 @@ async function fetchAll() {
     ok: false
   };
 }
-function resolveOpenTrade(tr) {
-  if (!tr) return null;
-  try {
-    return window.TimedPriceUtils?.isTradeOpen?.(tr) ? tr : null;
-  } catch (_) {
-    return null;
+function traderBookIsOpen(tr) {
+  if (!tr || typeof tr !== "object") return false;
+  const status = String(tr.status || "").toUpperCase();
+  const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+  const trimmedPct = Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0);
+  const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
+  const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !isOpenStatus && exitTs > 0 || trimmedPct >= 0.9999;
+  return isOpenStatus && !isClosed;
+}
+function traderBookIsClosed(tr) {
+  if (!tr || typeof tr !== "object") return false;
+  const status = String(tr.status || "").toUpperCase();
+  const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+  const trimmedPct = Number(tr.trimmed_pct ?? tr.trimmedPct ?? 0);
+  const isOpenStatus = status === "OPEN" || status === "TP_HIT_TRIM";
+  return status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !isOpenStatus && exitTs > 0 || trimmedPct >= 0.9999;
+}
+function mergeOpenTradeIntoMap(map, tr) {
+  if (!traderBookIsOpen(tr)) return;
+  const sym = String(tr?.ticker || "").toUpperCase();
+  if (!sym) return;
+  const existing = map.get(sym);
+  const exitTs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+  const entryTs = Number(tr.entry_ts ?? tr.entryTime ?? tr.entryTs ?? 0);
+  if (!existing) {
+    map.set(sym, tr);
+    return;
+  }
+  const exExit = Number(existing.exit_ts ?? existing.exitTs ?? 0);
+  const exEntry = Number(existing.entry_ts ?? existing.entryTime ?? existing.entryTs ?? 0);
+  const trOpen = !exitTs;
+  const exOpen = !exExit;
+  if (trOpen && !exOpen || trOpen && exOpen && entryTs > exEntry || !trOpen && !exOpen && exitTs > exExit) {
+    map.set(sym, tr);
   }
 }
-function useOpenTrades(enabled) {
+function resolveOpenTrade(tr) {
+  if (!tr) return null;
+  return traderBookIsOpen(tr) ? tr : null;
+}
+function tsToMs(ts) {
+  if (ts == null || ts === "") return null;
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n < 1e12 ? n * 1000 : n;
+}
+function getLocalDayBoundsMs() {
+  const d = new Date();
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const start = new Date(`${key}T00:00:00`).getTime();
+  return {
+    start,
+    end: start + 86400000
+  };
+}
+function tradeTrimmedToday(tr) {
+  if (!tr) return false;
+  const trimmedPct = Number(tr?.trimmed_pct ?? tr?.trimmedPct ?? 0);
+  if (!(trimmedPct > 0)) return false;
+  const trimMs = tsToMs(tr?.trim_ts ?? tr?.trimTs);
+  if (!trimMs) return false;
+  const {
+    start,
+    end
+  } = getLocalDayBoundsMs();
+  return trimMs >= start && trimMs < end;
+}
+function hasTrimSignalPending(ticker, trade) {
+  const openTr = resolveOpenTrade(trade);
+  if (!openTr || !traderBookIsOpen(openTr)) return false;
+  if (tradeTrimmedToday(openTr)) return false;
+  const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
+  return raw === "trim";
+}
+const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+  const [closedByTicker, setClosedByTicker] = useState(() => new Map());
   const [tradesLoaded, setTradesLoaded] = useState(false);
   const refresh = useCallback(async () => {
     try {
-      const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, {
+      const [posRes, d1Res] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
         cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      const m = new Map();
-      const accept = tr => {
-        if (!resolveOpenTrade(tr)) return;
-        const sym = String(tr?.ticker || "").toUpperCase();
-        if (!sym) return;
-        const entryTs = tr?.entry_ts ?? tr?.entryTime ?? tr?.entryTs ?? 0;
-        const existing = m.get(sym);
-        if (!existing || entryTs > Number(existing?.entry_ts ?? existing?.entryTime ?? existing?.entryTs ?? 0)) {
-          m.set(sym, tr);
+      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/trades?source=d1`, {
+        cache: "no-store"
+      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+      const openMap = new Map();
+      if (posRes?.ok && Array.isArray(posRes.trades)) {
+        posRes.trades.forEach(tr => mergeOpenTradeIntoMap(openMap, tr));
+      }
+      if (d1Res?.ok && Array.isArray(d1Res.trades)) {
+        d1Res.trades.forEach(tr => {
+          if (tr?._source_mode === "investor") return;
+          mergeOpenTradeIntoMap(openMap, tr);
+        });
+      }
+      const closedMap = new Map();
+      const now = Date.now();
+      if (d1Res?.ok && Array.isArray(d1Res.trades)) {
+        for (const tr of d1Res.trades) {
+          if (!tr || tr._source_mode === "investor") continue;
+          const sym = String(tr.ticker || "").toUpperCase();
+          if (!sym) continue;
+          const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
+          if (!traderBookIsClosed(tr) || !exitMs || now - exitMs >= RECENT_EXIT_WINDOW_MS) continue;
+          if (String(tr.exit_reason || tr.exitReason || "").startsWith("REVERSED_")) continue;
+          openMap.delete(sym);
+          const existing = closedMap.get(sym);
+          if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) {
+            closedMap.set(sym, tr);
+          }
         }
-      };
-      if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
-      setTradeByTicker(m);
+      }
+      setTradeByTicker(openMap);
+      setClosedByTicker(closedMap);
     } catch (_) {} finally {
       setTradesLoaded(true);
     }
@@ -99,44 +185,8 @@ function useOpenTrades(enabled) {
   }, [enabled, refresh]);
   return {
     tradeByTicker,
+    closedByTicker,
     tradesLoaded
-  };
-}
-const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
-function useRecentClosedTrades(enabled) {
-  const [closedByTicker, setClosedByTicker] = useState(() => new Map());
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/timed/trades?source=d1`, {
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      const m = new Map();
-      const now = Date.now();
-      if (res?.ok && Array.isArray(res.trades)) {
-        for (const tr of res.trades) {
-          if (!tr || tr._source_mode === "investor") continue;
-          const status = String(tr.status || "").toUpperCase();
-          const exitMs = Number(tr.exit_ts ?? tr.exitTs ?? 0);
-          const isClosed = status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED" || status === "CANCELED" || !!exitMs && status !== "OPEN" && status !== "TP_HIT_TRIM";
-          if (!isClosed || !exitMs || now - exitMs >= RECENT_EXIT_WINDOW_MS) continue;
-          if (String(tr.exit_reason || "").startsWith("REVERSED_")) continue;
-          const sym = String(tr.ticker || "").toUpperCase();
-          if (!sym) continue;
-          const existing = m.get(sym);
-          if (!existing || exitMs > Number(existing.exit_ts ?? existing.exitTs ?? 0)) m.set(sym, tr);
-        }
-      }
-      setClosedByTicker(m);
-    } catch (_) {}
-  }, []);
-  useEffect(() => {
-    if (!enabled) return undefined;
-    refresh();
-    const id = setInterval(refresh, 180000);
-    return () => clearInterval(id);
-  }, [enabled, refresh]);
-  return {
-    closedByTicker
   };
 }
 function useSavedTickers() {
@@ -242,7 +292,9 @@ function computeEffectiveStage(ticker, trade) {
   if (!tradeIsOpen) return rawStage;
   if (rawStage === "exit") return "defend";
   if (rawStage === "defend") return "defend";
-  if (tradeStatus === "TP_HIT_TRIM" || trimmedPct > 0) return "trim";
+  if (rawStage === "exiting") return "defend";
+  if (tradeTrimmedToday(openTr)) return "trim";
+  if (rawStage === "trim") return "hold";
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
 }
@@ -255,21 +307,27 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   const trim = [];
   const exit = [];
   for (const t of tickers) {
-    if (!t || t.kanban_stage === null) continue;
-    let stage = String(t?.kanban_stage || "").toLowerCase();
+    if (!t) continue;
     const sym = String(t?.ticker || "").toUpperCase();
-    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
+    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || t?._openTrade || null);
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
-    const isOpen = !!trade;
+    const isOpen = traderBookIsOpen(trade);
+    if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen) continue;
+    let stage = String(t?.kanban_stage || "").toLowerCase();
+    if (!stage && isOpen) {
+      stage = tradeTrimmedToday(trade) ? "trim" : "hold";
+    }
     if (trade && isOpen) {
-      if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (status === "TP_HIT_TRIM" || trimmedPct > 0) stage = "trim";else if (stage === "trim") {} else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
+      if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (stage === "exiting") stage = "defend";else if (tradeTrimmedToday(trade)) stage = "trim";else if (stage === "trim") stage = "hold";else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
     if (!isOpen && closedByTicker?.get) {
-      const closed = closedByTicker.get(sym);
+      const closed = closedByTicker.get(sym) || t?._closedTrade || null;
       const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
-      const newOpportunity = ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
-      if (exitMs > 0 && Date.now() - exitMs < 24 * 60 * 60 * 1000 && !newOpportunity) {
+      const exitAgeMs = exitMs > 0 ? Date.now() - exitMs : Infinity;
+      const forceRecentExit = exitMs > 0 && exitAgeMs < 6 * 60 * 60 * 1000;
+      const newOpportunity = !forceRecentExit && ["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"].includes(stage);
+      if (exitMs > 0 && exitAgeMs < RECENT_EXIT_WINDOW_MS && !newOpportunity) {
         stage = "exit";
       }
     }
@@ -300,6 +358,9 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
         break;
       case "exit":
         exit.push(t);
+        break;
+      case "exiting":
+        defend.push(t);
         break;
       default:
         break;
@@ -392,8 +453,23 @@ function ATCard({
   })() || (_modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral");
   const biasLabelLc = String(biasLabel).toLowerCase();
   const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
-  const stage = String(t?.kanban_stage || "").toLowerCase();
+  const stage = String(t?._effectiveKanbanStage || t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
+    const rawStage = String(t?._rawKanbanStage || "").toLowerCase();
+    if (resolvedOpen && tradeTrimmedToday(resolvedOpen)) {
+      return {
+        label: "Trimmed today",
+        cls: "ds-chip--accent",
+        title: "Partial trim executed today — card stays in Trim lane"
+      };
+    }
+    if (hasTrimSignalPending(t, resolvedOpen)) {
+      return {
+        label: "Trim signal",
+        cls: "ds-chip--solid",
+        title: "Engine recommends taking partial profits — trim not executed yet (card stays in Hold)"
+      };
+    }
     if (stage === "trim") return {
       label: "Trim",
       cls: "ds-chip--accent"
@@ -403,7 +479,7 @@ function ATCard({
       cls: "ds-chip--dn"
     };
     if (stage === "exit") return {
-      label: "Exit",
+      label: "Closed",
       cls: "ds-chip--dn"
     };
     if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
@@ -524,6 +600,50 @@ function ATCard({
       boxShadow: "inset 0 0 0 1px rgba(56,242,161,0.18)"
     } : {})
   };
+  const closedTrade = t?._closedTrade || null;
+  const exitPnlPct = (() => {
+    const raw = t?.pnlPct ?? t?.pnl_pct ?? closedTrade?.pnl_pct ?? closedTrade?.pnlPct;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  })();
+  const exitStatus = String(t?._exitLabel || closedTrade?.status || "").toUpperCase();
+  const closedMid = stage === "exit" && closedTrade ? h("div", {
+    style: {
+      marginTop: 4,
+      padding: "6px 8px",
+      borderRadius: 6,
+      background: "rgba(255,255,255,0.03)",
+      border: "1px solid var(--ds-stroke)",
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10
+    }
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, h("span", {
+    style: {
+      color: "var(--ds-text-muted)",
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      fontWeight: 700
+    }
+  }, exitStatus === "WIN" ? "Realized win" : exitStatus === "LOSS" ? "Realized loss" : "Model closed"), exitPnlPct != null && h("span", {
+    style: {
+      color: exitPnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)",
+      fontWeight: 700
+    }
+  }, `${exitPnlPct >= 0 ? "+" : ""}${exitPnlPct.toFixed(2)}%`)), h("div", {
+    style: {
+      marginTop: 4,
+      fontSize: 9,
+      color: "var(--ds-text-faint)",
+      lineHeight: 1.4
+    }
+  }, "Timed Trading model exited this runner.")) : null;
   const progressMid = progressBarData && (() => {
     const {
       xPct,
@@ -650,7 +770,8 @@ function ATCard({
       },
       title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
     }, cardBiasLabel), stageChip && h("span", {
-      className: `ds-chip ds-chip--sm ${stageChip.cls}`
+      className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+      title: stageChip.title || undefined
     }, stageChip.label)],
     quote: {
       price,
@@ -659,7 +780,7 @@ function ATCard({
       dir,
       extLine
     },
-    midBody: progressMid,
+    midBody: closedMid || progressMid,
     sparkSvg,
     metrics: [rank != null && h("span", {
       className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
@@ -672,29 +793,24 @@ function ATCard({
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: `Score: ${Math.round(score)}`
-    }, `S${Math.round(score)}`), conv != null && h("span", {
-      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Conviction tier · focus score"
-    }, `${tier || "C"}·${Math.round(conv)}`), rr != null && h("span", {
-      className: `ds-chip ds-chip--sm ${rr >= 2 ? "ds-chip--up" : rr >= 1.5 ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Risk:Reward"
-    }, `${rr.toFixed(1)}R`), sqChipInfo && h("span", {
-      className: `ds-chip ds-chip--sm ${sqChipInfo.cls}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: `Squeeze ${sqChipInfo.state} on ${sqChipInfo.tf}`
-    }, sqChipInfo.label)],
+      title: `Score: ${Math.round(score)}${conv != null ? ` · ${tier || "C"}·${Math.round(conv)} conv` : ""}${rr != null ? ` · ${rr.toFixed(1)}R` : ""}`
+    }, `S${Math.round(score)}`)],
     isSaved,
     onToggleSaved
   });
+}
+function KanbanBandHeader({
+  band,
+  label,
+  hint
+}) {
+  return h("div", {
+    className: `at-kanban-band at-kanban-band--${band}`
+  }, h("span", {
+    className: "at-kanban-band__label"
+  }, label), hint && h("span", {
+    className: "at-kanban-band__hint"
+  }, hint));
 }
 function KanbanLane({
   id,
@@ -1157,7 +1273,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "taking partial profits into a target."), lane("Exit", "the model is closing or has closed it."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1202,11 +1318,9 @@ function ActiveTraderApp() {
   }, []);
   const {
     tradeByTicker,
+    closedByTicker,
     tradesLoaded
-  } = useOpenTrades(!!data);
-  const {
-    closedByTicker
-  } = useRecentClosedTrades(!!data);
+  } = useTraderBook(!!data);
   const {
     saved,
     toggle: toggleSaved
@@ -1224,18 +1338,72 @@ function ActiveTraderApp() {
     const mapped = raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
       const trade = resolveOpenTrade(tradeByTicker.get(sym) || null);
+      const rawKanban = String(t?.kanban_stage || "").toLowerCase();
       const eff = computeEffectiveStage(t, trade);
-      const base = eff === String(t?.kanban_stage || "").toLowerCase() && !trade ? t : {
+      const trimSignalPending = hasTrimSignalPending({
+        _rawKanbanStage: rawKanban,
+        kanban_stage: rawKanban
+      }, trade);
+      const base = eff === rawKanban && !trade ? {
+        ...t,
+        _rawKanbanStage: rawKanban,
+        _trimSignalPending: trimSignalPending
+      } : {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
+        _rawKanbanStage: rawKanban,
+        _trimSignalPending: trimSignalPending,
         kanban_stage: eff,
         ...(trade ? {
           has_open_position: true,
           position_direction: trade.direction || t.position_direction
         } : {})
       };
-      return window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
+      const out = window.TimedPriceUtils?.sanitizeTickerOpenPosture ? window.TimedPriceUtils.sanitizeTickerOpenPosture(base, trade) : base;
+      if ((out.kanban_stage == null || out.kanban_stage === undefined) && closedByTicker?.has?.(sym) && !trade) {
+        const closed = closedByTicker.get(sym);
+        const exitPx = Number(closed?.exit_price ?? closed?.exitPrice ?? closed?.mark_price) || null;
+        const pnlPct = closed?.pnl_pct ?? closed?.pnlPct ?? null;
+        return {
+          ...out,
+          kanban_stage: "exit",
+          _closedTrade: closed,
+          _stickyExit: true,
+          price: out.price || exitPx || null,
+          pnlPct,
+          _exitLabel: String(closed?.status || "CLOSED").toUpperCase()
+        };
+      }
+      if (!trade && closedByTicker?.has?.(sym)) {
+        const closed = closedByTicker.get(sym);
+        const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+        if (exitMs > 0 && Date.now() - exitMs < RECENT_EXIT_WINDOW_MS) {
+          const exitPx = Number(closed?.exit_price ?? closed?.exitPrice) || out.price || null;
+          return {
+            ...out,
+            kanban_stage: "exit",
+            _closedTrade: closed,
+            _stickyExit: true,
+            price: exitPx,
+            pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? out.pnlPct ?? null,
+            _exitLabel: String(closed?.status || "CLOSED").toUpperCase()
+          };
+        }
+      }
+      if (trade && (out._stickyExit || String(out.kanban_stage || "").toLowerCase() === "exit")) {
+        return {
+          ...out,
+          _stickyExit: false,
+          _closedTrade: null,
+          _openTrade: trade,
+          kanban_stage: eff,
+          _effectiveKanbanStage: eff,
+          has_open_position: true,
+          position_direction: trade.direction || out.position_direction
+        };
+      }
+      return out;
     });
     const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
     const injected = [];
@@ -1255,11 +1423,29 @@ function ActiveTraderApp() {
         kanban_stage: eff,
         _openTrade: openTr,
         _effectiveKanbanStage: eff,
+        _rawKanbanStage: String(stub.kanban_stage || "hold").toLowerCase(),
+        _trimSignalPending: hasTrimSignalPending(stub, openTr),
         _injectedOpenTrade: true
       });
     });
+    closedByTicker.forEach((closed, sym) => {
+      if (!sym || known.has(sym) || tradeByTicker.has(sym)) return;
+      const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+      if (!exitMs || Date.now() - exitMs >= RECENT_EXIT_WINDOW_MS) return;
+      if (String(closed?.exit_reason || "").startsWith("REVERSED_")) return;
+      injected.push({
+        ticker: sym,
+        kanban_stage: "exit",
+        price: Number(closed?.exit_price ?? closed?.exitPrice ?? closed?.mark_price) || null,
+        _closedTrade: closed,
+        _stickyExit: true,
+        pnlPct: closed?.pnl_pct ?? closed?.pnlPct ?? null,
+        _exitLabel: String(closed?.status || "CLOSED").toUpperCase()
+      });
+      known.add(sym);
+    });
     return injected.length ? mapped.concat(injected) : mapped;
-  }, [data, tradeByTicker]);
+  }, [data, tradeByTicker, closedByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
   const laneCounts = useMemo(() => ({
     setup: lanes.setup.length,
@@ -1528,7 +1714,7 @@ function ActiveTraderApp() {
     onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
     disabled: laneCounts.review === 0,
     title: "Tickers signaling entry — under operator review"
-  }, `In Review${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`), h("button", {
+  }, `Trigger Ready${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "hold" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "hold" ? null : "hold"),
     disabled: laneCounts.hold === 0,
@@ -1542,13 +1728,13 @@ function ActiveTraderApp() {
     className: "at-chip" + (filterLane === "trim" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "trim" ? null : "trim"),
     disabled: laneCounts.trim === 0,
-    title: "Open positions hitting a take-profit level"
+    title: "Positions with a partial trim executed today (not trim signals awaiting execution)"
   }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
     disabled: laneCounts.exit === 0,
-    title: "Positions the model wants closed now"
-  }, `Exit${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
+    title: "Recently closed model trades (visible 7d)"
+  }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
   }, h("div", {
@@ -1576,10 +1762,15 @@ function ActiveTraderApp() {
     style: {
       width: 280
     }
-  })))))) : [h(KanbanLane, {
+  })))))) : [h(KanbanBandHeader, {
+    key: "band-w",
+    band: "watching",
+    label: "WATCHING",
+    hint: "Monitoring — no action expected yet"
+  }), h(KanbanLane, {
     key: "setup",
     id: "setup",
-    title: "Setup",
+    title: "Watchlist",
     accentClass: "setup",
     tickers: displayLanes.setup,
     sparkCache,
@@ -1591,7 +1782,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "review",
     id: "review",
-    title: "In Review",
+    title: "Trigger Ready",
     accentClass: "review",
     tickers: displayLanes.enter,
     sparkCache,
@@ -1600,10 +1791,15 @@ function ActiveTraderApp() {
     onOpen,
     tradeByTicker,
     tradesLoaded
+  }), h(KanbanBandHeader, {
+    key: "band-d",
+    band: "doing",
+    label: "DOING",
+    hint: "Hold · Defend · Trim · Closed — what the model is doing with open or recent trades"
   }), h(KanbanLane, {
     key: "initiated",
     id: "initiated",
-    title: "Position Initiated",
+    title: "Just Entered",
     accentClass: "initiated",
     tickers: displayLanes.new,
     sparkCache,
@@ -1615,7 +1811,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "hold",
     id: "hold",
-    title: "Hold",
+    title: "Holding",
     accentClass: "hold",
     tickers: displayLanes.hold,
     sparkCache,
@@ -1627,7 +1823,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "defend",
     id: "defend",
-    title: "Defend",
+    title: "Defending",
     accentClass: "defend",
     tickers: displayLanes.defend,
     sparkCache,
@@ -1639,7 +1835,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "trim",
     id: "trim",
-    title: "Trim",
+    title: "Trimming",
     accentClass: "trim",
     tickers: displayLanes.trim,
     sparkCache,
@@ -1651,7 +1847,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "exit",
     id: "exit",
-    title: "Exit",
+    title: "Closed",
     accentClass: "exit",
     tickers: displayLanes.exit,
     sparkCache,
@@ -1683,6 +1879,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782339011908:958696457
+// cache-bust:1782340070914:56279579
 
-// cache-bust:1782339011908:958696457
+// cache-bust:1782340070914:56279579
