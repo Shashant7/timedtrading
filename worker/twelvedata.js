@@ -27,15 +27,13 @@ const TD_TO_CRYPTO = Object.fromEntries(
 );
 
 // Symbol normalization: internal symbol → TwelveData symbol.
-// P0.7.132 — VX1! (TV-style VIX futures) maps to "VIX" (the underlying index
-// TD serves natively). Inverse map lets us write back to KV under VX1!.
+// Legacy VX1! reads still map to TD "VIX"; canonical KV key is VIX (2026-06-23).
 const SYM_NORMALIZE = {
   "BRK-B": "BRK.B",
-  "VX1!":  "VIX",
 };
-const SYM_REVERSE = Object.fromEntries(
-  Object.entries(SYM_NORMALIZE).map(([k, v]) => [v, k]),
-);
+const LEGACY_TD_ALIASES = Object.freeze({
+  "VX1!": "VIX",
+});
 
 // Non-equity tickers that TwelveData cannot serve cleanly via /quote +
 // /time_series for our US-equity universe.
@@ -69,12 +67,14 @@ function isCrypto(sym) {
 
 function toTdSymbol(sym) {
   if (CRYPTO_TO_TD[sym]) return CRYPTO_TO_TD[sym];
+  if (LEGACY_TD_ALIASES[sym]) return LEGACY_TD_ALIASES[sym];
   return SYM_NORMALIZE[sym] || sym;
 }
 
 function fromTdSymbol(tdSym) {
   if (TD_TO_CRYPTO[tdSym]) return TD_TO_CRYPTO[tdSym];
-  return SYM_REVERSE[tdSym] || tdSym;
+  // TD "VIX" always writes to canonical VIX — never back to VX1!.
+  return tdSym;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

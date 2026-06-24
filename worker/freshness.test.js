@@ -155,6 +155,20 @@ describe("computeFreshnessBlock — grading", () => {
     expect(effectiveCandleAgeMs("D", map.D, satNow, false, sessionRef)).toBe(0);
   });
 
+  it("monthly bar in current ET month reads as age 0 mid-month", () => {
+    const june1 = tradingDateUtcMs("2026-06-01");
+    const june23 = Date.UTC(2026, 5, 23, 15, 0, 0);
+    expect(effectiveCandleAgeMs("M", june1, june23, false, null)).toBe(0);
+  });
+
+  it("monthly bar from prior month measures lag from current month start", () => {
+    const may1 = tradingDateUtcMs("2026-05-01");
+    const june23 = Date.UTC(2026, 5, 23, 15, 0, 0);
+    const june1 = tradingDateUtcMs("2026-06-01");
+    const age = effectiveCandleAgeMs("M", may1, june23, false, null);
+    expect(age).toBe(june23 - june1);
+  });
+
   it("worst offender is SLO-relative, not absolute age", () => {
     const map = freshTfMap(RTH_NOW);
     map["10"] = RTH_NOW - 50 * MIN; // 50min vs 30min SLO → rel 1.67

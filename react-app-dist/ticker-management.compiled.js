@@ -18,7 +18,7 @@ const TF_LABELS = {
   "15": "15m",
   "5": "5m"
 };
-const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!", "GC1!", "SI1!"]);
+const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "GC1!", "SI1!"]);
 const COMPANY_NAMES = {
   AAPL: "Apple",
   AAPU: "Apple 2x ETF",
@@ -357,7 +357,7 @@ const GROUPS = {
   GRNJ: new Set(),
   GRNY: new Set(),
   SP_Sectors: new Set(["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"]),
-  Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD", "VX1!"])
+  Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD"])
 };
 let _etfWeightMap = {};
 const GROUP_ORDER = ["SP_Sectors", "Futures", "UPTICKS", "GRNI", "GRNJ", "GRNY"];
@@ -2024,6 +2024,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1782263808252:32444536
+// cache-bust:1782264601578:13660467
 
-// cache-bust:1782263808252:32444536
+// cache-bust:1782264601578:13660467

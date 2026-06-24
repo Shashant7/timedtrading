@@ -1167,12 +1167,12 @@
       }
 
       // ── Mini Chart Component (TradingView Lightweight Charts) ────────────
-      // Primary: SPY, QQQ, IWM + VIX proxy (VIXY)
+      // Primary: SPY, QQQ, IWM + VIX (TwelveData CBOE index)
       const CHART_SYMBOLS_PRIMARY = [
         { sym: "SPY", label: "SPY", color: "#38F2A1" },
         { sym: "QQQ", label: "QQQ", color: "#2196f3" },
         { sym: "IWM", label: "IWM (Russell 2000)", color: "#f97316" },
-        { sym: "VIXY", label: "VIXY (VIX ETF)", color: "#f59e0b" },
+        { sym: "VIX", label: "VIX", color: "#f59e0b" },
       ];
       const TF_OPTIONS = [
         { value: "5", label: "5m", limit: 250 },
@@ -1326,7 +1326,7 @@
             },
             localization: {
               priceFormatter: (p) => {
-                if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+                if (sym === "VIX") return p.toFixed(2);
                 return p >= 1000 ? p.toFixed(2) : p.toFixed(2);
               },
               timeFormatter: (time) => {
@@ -2155,7 +2155,7 @@
           { sym: "SPY",  label: "SPY",  sub: "broad market",  accentColor: "#a78bfa" },
           { sym: "QQQ",  label: "QQQ",  sub: "tech",          accentColor: "#60a5fa" },
           { sym: "IWM",  label: "IWM",  sub: "small caps",    accentColor: "#fbbf24" },
-          { sym: "VIXY", label: "VIXY", sub: "vol proxy",     accentColor: "#f87171" },
+          { sym: "VIX",  label: "VIX",  sub: "volatility",    accentColor: "#f87171" },
         ]), []);
 
         // Early-return AFTER all hooks have run.
@@ -2194,7 +2194,7 @@
                 <div className="mb-5">
                   <div className="flex items-baseline gap-2 mb-2">
                     <span className="tt-label-editorial" style={{ fontSize: 10, color: "#a78bfa" }}>Today's Tape</span>
-                    <span className="text-[11px] text-[#6E867D]">SPY · QQQ · IWM · VIXY · 15m · violet dots mark each flash</span>
+                    <span className="text-[11px] text-[#6E867D]">SPY · QQQ · IWM · VIX · 15m · violet dots mark each flash</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {TODAYS_TAPE_TICKERS.map(t => (

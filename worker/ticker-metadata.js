@@ -63,7 +63,7 @@ function inferMetadataFallback(sym, partial = {}) {
   const themed = {
     KWEB: "China Internet ETF", IGV: "Software ETF", IBB: "Biotech ETF",
     SOXL: "Semiconductor ETF", LIT: "Lithium ETF", XHB: "Homebuilders ETF",
-    INFL: "Inflation ETF", VIXY: "Volatility ETF", GRNY: "Growth ETF",
+    INFL: "Inflation ETF", VIX: "VIX Index", VIXY: "Volatility ETF", GRNY: "Growth ETF",
     GRNI: "Growth ETF", GRNJ: "Growth ETF", ETHA: "Ethereum ETF",
   };
   if (themed[t]) {

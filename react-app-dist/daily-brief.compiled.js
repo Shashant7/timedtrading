@@ -1005,8 +1005,8 @@ const CHART_SYMBOLS_PRIMARY = [{
   label: "IWM (Russell 2000)",
   color: "#f97316"
 }, {
-  sym: "VIXY",
-  label: "VIXY (VIX ETF)",
+  sym: "VIX",
+  label: "VIX",
   color: "#f59e0b"
 }];
 const TF_OPTIONS = [{
@@ -1213,7 +1213,7 @@ function MiniChart({
       },
       localization: {
         priceFormatter: p => {
-          if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+          if (sym === "VIX") return p.toFixed(2);
           return p >= 1000 ? p.toFixed(2) : p.toFixed(2);
         },
         timeFormatter: time => {
@@ -2071,9 +2071,9 @@ function IntradayFlash({
     sub: "small caps",
     accentColor: "#fbbf24"
   }, {
-    sym: "VIXY",
-    label: "VIXY",
-    sub: "vol proxy",
+    sym: "VIX",
+    label: "VIX",
+    sub: "volatility",
     accentColor: "#f87171"
   }], []);
   if (!entries || entries.length === 0) return null;
@@ -2139,7 +2139,7 @@ function IntradayFlash({
     }
   }, "Today's Tape"), React.createElement("span", {
     className: "text-[11px] text-[#6E867D]"
-  }, "SPY \xB7 QQQ \xB7 IWM \xB7 VIXY \xB7 15m \xB7 violet dots mark each flash")), React.createElement("div", {
+  }, "SPY \xB7 QQQ \xB7 IWM \xB7 VIX \xB7 15m \xB7 violet dots mark each flash")), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-3"
   }, TODAYS_TAPE_TICKERS.map(t => React.createElement("div", {
     key: t.sym
@@ -2709,6 +2709,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1782263808252:32444536
+// cache-bust:1782264601578:13660467
 
-// cache-bust:1782263808252:32444536
+// cache-bust:1782264601578:13660467

@@ -147,6 +147,15 @@ lane removed; engine `exit`/`exiting` → Defending.
 lane filter chips (On Radar, Queued, Hold & Watch, etc.). After shared-JS
 merges always run full `npm run build:frontend` or browsers keep stale `?v=`.
 
+**VIX (2026-06-23):** Canonical symbol is `VIX` (TwelveData CBOE index).
+VX1! TV futures removed from feed overlays; Daily Brief / Today charts use
+VIX not VIXY. Legacy `VX1!` KV reads kept as fallback only. Handoff:
+`tasks/2026-06-23-vix-monthly-handoff.md`.
+
+**Monthly candle freshness (2026-06-23):** M/W ages in `/timed/health` use
+calendar-period logic (current-month M bar = age 0). One-shot heal:
+`POST /timed/admin/wm-bootstrap`. See `skills/backfill-candles.md`.
+
 **CF Access policy regex (User Pages) must list every authenticated HTML page**
 or users hit a login loop. **Public (do not require Access):** `splash.html`,
 `terms.html`, `logout.html`, `proof.html`, `faq.html`, `learn.html`. **Admin

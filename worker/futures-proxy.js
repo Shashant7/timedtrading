@@ -34,8 +34,8 @@
  * universe (SECTOR_MAP / Market Pulse list), so they get polled by the
  * existing minute price-feed cron at no extra cost.
  *
- * VX1! is intentionally excluded — already routed natively to TD via the
- * VX1! → VIX symbol mapping in worker/twelvedata.js (P0.7.132).
+ * VIX is served natively via TwelveData on the canonical "VIX" symbol
+ * (SECTOR_MAP + MARKET_PULSE_SYMS). VX1! TV futures removed 2026-06-23.
  */
 export const FUTURES_PROXY_MAP = Object.freeze({
   // Index futures (CME E-mini + Micro E-mini) → broad-market index ETFs

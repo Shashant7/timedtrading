@@ -246,7 +246,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           }
 
           // 1. Overlay TV futures heartbeats
-          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
+          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "US500", "CL1!"];
           let tvUpdated = 0;
           for (const tvSym of TV_FUTURES_LIGHT) {
             try {
@@ -475,7 +475,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         }
 
         // Overlay TV heartbeat prices for futures/macro tickers not handled by the DO
-        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "SPX"];
+        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "US500", "CL1!", "SPX"];
         let tvOverlayCount = 0;
         for (const tvSym of TV_FUTURES_ACTIVE) {
           try {
@@ -767,7 +767,7 @@ export async function runFeedStreamKeepAlives(env, ctx, deps) {
               try {
                 const status = await deps.dataStreamStatus(env);
                 if (status && status.isRunning === false) {
-                  const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
+                  const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500"]);
                   const userAdded = await deps.d1GetActiveUserTickersCached(env);
                   const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAdded])]
                     .filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
