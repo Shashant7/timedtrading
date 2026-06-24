@@ -141,7 +141,8 @@ export async function buildEmissionSeries(env, opts = {}) {
 
   // 1. SPY daily candles for returns + ATR%
   const spyCandles = await _getDailyCandles(env, "SPY", Math.ceil(windowDays * 1.2));
-  // 2. VIXY daily candles for VIX level proxy (VIXY closely tracks VIX × 10)
+  // 2. VIXY daily candles — directional vol feature only (not VIX level;
+  //    live VIX level resolves via worker/vix-source.js: VX1! → Yahoo ^VIX).
   const vixyCandles = await _getDailyCandles(env, "VIXY", Math.ceil(windowDays * 1.2));
   // 3. Universe breadth per day
   const breadthSeries = await _getBreadthSeries(env, windowDays);
