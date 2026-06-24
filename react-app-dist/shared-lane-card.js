@@ -116,7 +116,7 @@
         ),
         quoteColumn(p.quote || {}),
       ),
-      p.midBody || null,
+      p.midBody ? h("div", { className: "tt-lane-card__mid" }, p.midBody) : null,
       p.sparkSvg && h("div", {
         className: "ds-tickercard__spark",
         dangerouslySetInnerHTML: { __html: p.sparkSvg },
@@ -141,4 +141,4 @@
   boot();
 })();
 
-// cache-bust:1782339418332:810329945
+// cache-bust:1782340454217:375692056

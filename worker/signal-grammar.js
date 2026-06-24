@@ -213,13 +213,15 @@ export const INVESTOR_PASSIVE_ALERT_VERBS = Object.freeze([
 
 /** Actionable investor verbs — executed, trigger-ready, or queued-by-policy. */
 export const INVESTOR_ACTIONABLE_ALERT_VERBS = Object.freeze([
-  "MODEL · ACCUMULATE",
+  "MODEL · QUEUE",
+  "MODEL · BOUGHT",
   "MODEL · REDUCE",
   "MODEL · TRIMMED",
   "MODEL · EXITED",
   "MODEL · REVIEW",
   "MODEL · ADD",
   "ACCUMULATE",
+  "QUEUE",
   "ADD ON PULLBACK",
   "REDUCE / EXIT",
   "TRIM / REDUCE",
@@ -236,7 +238,7 @@ const TRADER_EXEC_FEED_TYPES = new Set([
 ]);
 
 const INVESTOR_EXEC_ALERT_TYPES = new Set([
-  "position_add", "position_trim", "position_close",
+  "position_open", "position_add", "position_trim", "position_close",
 ]);
 
 /** Kanban stages that are trigger-ready or post-entry — not passive watch. */
@@ -252,7 +254,9 @@ function normalizeInvestorVerb(raw) {
   if (!v) return "";
   if (v.startsWith("MODEL ·")) return v;
   const upper = v.toUpperCase();
-  if (upper.startsWith("ACCUMULATE")) return "MODEL · ACCUMULATE";
+  if (upper.startsWith("ACCUMULATE")) return "MODEL · QUEUE";
+  if (upper.startsWith("QUEUE")) return "MODEL · QUEUE";
+  if (upper.startsWith("BOUGHT")) return "MODEL · BOUGHT";
   if (upper.startsWith("REDUCE")) return "MODEL · REDUCE";
   if (upper.startsWith("ADD")) return "MODEL · ADD";
   if (upper.includes("TRIM")) return "MODEL · TRIMMED";
@@ -285,6 +289,9 @@ function kanbanStageFromNotification(n) {
 /** Map raw activity / alert event to unified classification. */
 export function classifyActivityEvent(ev) {
   const invT = String(ev?.investor_alert_type || "").toLowerCase();
+  if (invT === "position_open") {
+    return { engine: "investor", mode: "doing", execState: "done", action: "open", evType: "ENTRY", label: "BOUGHT", cls: "ev-entry ev-doing", scope: "investor" };
+  }
   if (invT === "position_add") {
     return { engine: "investor", mode: "doing", execState: "done", action: "add", evType: "ADD", label: "ADD", cls: "ev-entry ev-doing", scope: "investor" };
   }
@@ -331,7 +338,9 @@ export function classifyActivityEvent(ev) {
   let invExecDone = false;
   if (t === "INVESTOR_SIGNAL") {
     const invT = String(ev?.investor_alert_type || "").toLowerCase();
-    if (invT === "position_add") {
+    if (invT === "position_open") {
+      action = "open"; label = "BOUGHT"; cls = "ev-entry ev-doing"; invExecDone = true;
+    } else if (invT === "position_add") {
       action = "add"; label = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true;
     } else if (invT === "position_trim") {
       action = "trim"; label = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true;
@@ -339,8 +348,8 @@ export function classifyActivityEvent(ev) {
       action = "exit"; label = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true;
     } else {
       const verb = normalizeInvestorVerb(ev?.action);
-      if (verb === "MODEL · ACCUMULATE") {
-        action = "accumulate"; label = "ACCUM"; cls = "ev-recommended ev-doing";
+      if (verb === "MODEL · QUEUE" || verb === "MODEL · ACCUMULATE") {
+        action = "queue"; label = "QUEUE"; cls = "ev-recommended ev-doing";
         isDoing = true;
       } else if (verb === "MODEL · REDUCE") {
         action = "reduce"; label = "REDUCE"; cls = "ev-trim ev-recommended ev-doing";
@@ -356,7 +365,7 @@ export function classifyActivityEvent(ev) {
 
   const mode = invExecDone || isDoing ? "doing" : "watching";
   let execStateOut = invExecDone || isDoing ? "done" : "watching";
-  if (t === "INVESTOR_SIGNAL" && (label === "ACCUM" || label === "REDUCE" || label === "REVIEW")) {
+  if (t === "INVESTOR_SIGNAL" && (label === "QUEUE" || label === "ACCUM" || label === "REDUCE" || label === "REVIEW")) {
     execStateOut = "recommended";
   }
   return {

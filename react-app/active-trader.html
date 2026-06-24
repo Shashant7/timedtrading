@@ -775,6 +775,16 @@
         return trimMs >= start && trimMs < end;
       }
 
+      // Backend kanban_stage=trim on an open, untrimmed position = signal only.
+      // Active Trader keeps the card in Hold until a trim actually executes.
+      function hasTrimSignalPending(ticker, trade) {
+        const openTr = resolveOpenTrade(trade);
+        if (!openTr || !traderBookIsOpen(openTr)) return false;
+        if (tradeTrimmedToday(openTr)) return false;
+        const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
+        return raw === "trim";
+      }
+
       // ── useTraderBook — positions + D1 in one pass (index-react parity).
       // Positions is authoritative when present; D1 open rows backfill gaps
       // (e.g. MU runner after trim when positions row lags). Closed sticky
@@ -1081,6 +1091,21 @@
 
         const stage = String(t?._effectiveKanbanStage || t?.kanban_stage || "").toLowerCase();
         const stageChip = (() => {
+          const rawStage = String(t?._rawKanbanStage || "").toLowerCase();
+          if (resolvedOpen && tradeTrimmedToday(resolvedOpen)) {
+            return {
+              label: "Trimmed today",
+              cls: "ds-chip--accent",
+              title: "Partial trim executed today — card stays in Trim lane",
+            };
+          }
+          if (hasTrimSignalPending(t, resolvedOpen)) {
+            return {
+              label: "Trim signal",
+              cls: "ds-chip--solid",
+              title: "Engine recommends taking partial profits — trim not executed yet (card stays in Hold)",
+            };
+          }
           if (stage === "trim") return { label: "Trim", cls: "ds-chip--accent" };
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
           if (stage === "exit") return { label: "Closed", cls: "ds-chip--dn" };
@@ -1319,6 +1344,7 @@
             }, cardBiasLabel),
             stageChip && h("span", {
               className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+              title: stageChip.title || undefined,
             }, stageChip.label),
           ],
           quote: { price, dayPct, dayChg, dir, extLine },
@@ -1737,9 +1763,9 @@
               lane("Setup", "watching for a trigger. No action yet."),
               lane("In Review", "the CIO is evaluating an entry."),
               lane("Position Initiated", "a trade was just opened."),
-              lane("Hold", "thesis intact — let it work."),
+              lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."),
               lane("Defend", "under pressure — risk is being managed."),
-              lane("Trim", "taking partial profits into a target."),
+              lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."),
               lane("Exit", "the model is closing or has closed it."),
               h("p", { style: { fontSize: 12, lineHeight: 1.5, color: "var(--tt-text-muted)", margin: "10px 0 0" } },
                 h("strong", { style: { color: "var(--tt-text)" } }, "Tip: "),
@@ -1801,13 +1827,17 @@
           const mapped = raw.map((t) => {
             const sym = String(t.ticker || "").toUpperCase();
             const trade = resolveOpenTrade(tradeByTicker.get(sym) || null);
+            const rawKanban = String(t?.kanban_stage || "").toLowerCase();
             const eff = computeEffectiveStage(t, trade);
-            const base = eff === String(t?.kanban_stage || "").toLowerCase() && !trade
-              ? t
+            const trimSignalPending = hasTrimSignalPending({ _rawKanbanStage: rawKanban, kanban_stage: rawKanban }, trade);
+            const base = eff === rawKanban && !trade
+              ? { ...t, _rawKanbanStage: rawKanban, _trimSignalPending: trimSignalPending }
               : {
                   ...t,
                   _openTrade: trade,
                   _effectiveKanbanStage: eff,
+                  _rawKanbanStage: rawKanban,
+                  _trimSignalPending: trimSignalPending,
                   kanban_stage: eff,
                   ...(trade ? { has_open_position: true, position_direction: trade.direction || t.position_direction } : {}),
                 };
@@ -1877,6 +1907,8 @@
               kanban_stage: eff,
               _openTrade: openTr,
               _effectiveKanbanStage: eff,
+              _rawKanbanStage: String(stub.kanban_stage || "hold").toLowerCase(),
+              _trimSignalPending: hasTrimSignalPending(stub, openTr),
               _injectedOpenTrade: true,
             });
           });
@@ -2133,7 +2165,7 @@
                   className: "at-chip" + (filterLane === "trim" ? " active" : ""),
                   onClick: () => setFilterLane(filterLane === "trim" ? null : "trim"),
                   disabled: laneCounts.trim === 0,
-                  title: "Open positions where the model trimmed today",
+                  title: "Positions with a partial trim executed today (not trim signals awaiting execution)",
                 }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`),
                 h("button", {
                   className: "at-chip" + (filterLane === "exit" ? " active" : ""),

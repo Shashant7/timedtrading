@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260624-inv-cards" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -25,9 +25,9 @@
     <script src="shared-signal-grammar.js?v=20260623d"></script>
     <script src="tt-activity-strip.js?v=20260623d" defer></script>
     <script src="shared-price-utils.js?v=20260615a"></script>
-    <script src="shared-lane-card.js?v=20260616a"></script>
+    <script src="shared-lane-card.js?v=20260624a"></script>
     <script src="ds-components.js?v=20260501a"></script>
-    <script src="investor-panel.js?v=20260623b"></script>
+    <script src="investor-panel.js?v=20260624a"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
@@ -460,6 +460,36 @@
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+
+      /* Investor kanban — equal-height lane cards */
+      .inv-kanban-lane {
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.015);
+        border: 1px solid rgba(255, 255, 255, 0.04);
+      }
+      .inv-kanban-cards {
+        align-items: stretch;
+        padding-bottom: 2px;
+      }
+      .inv-kanban-card {
+        display: flex;
+        width: 280px;
+        min-width: 280px;
+        align-self: stretch;
+      }
+      .inv-kanban-card > .tt-lane-card {
+        flex: 1 1 auto;
+        width: 100%;
+        min-height: 132px;
+      }
+      .inv-kanban-lane[data-lane="watch"] .tt-lane-card--owned .tt-lane-card__mid,
+      .inv-kanban-lane[data-lane="core_hold"] .tt-lane-card--owned .tt-lane-card__mid {
+        min-height: 54px;
+      }
+      .inv-kanban-lane[data-lane="watch"] .tt-lane-card--owned .tt-lane-card__trace,
+      .inv-kanban-lane[data-lane="core_hold"] .tt-lane-card--owned .tt-lane-card__trace {
+        min-height: 22px;
+      }
     </style>
   </head>
   <body class="vf-page">
@@ -1104,6 +1134,27 @@
                 );
                 const positions = (positionsRes?.ok && Array.isArray(positionsRes.positions))
                   ? positionsRes.positions : [];
+                // 2026-06-24 — reverse reconcile: a cached /scores row can show
+                // owned=true after the model sold (compute lags the rebalance).
+                // Clear ownership for any owned row that has no live OPEN
+                // position so the lane demotes out of Hold & Watch immediately.
+                // (Server overlays this too; this is defense-in-depth for the
+                // brief window where /positions is fresh but /scores is stale.)
+                if (positionsRes?.ok && Array.isArray(positionsRes.positions)) {
+                  const openSet = new Set(
+                    positions
+                      .filter((p) => String(p?.status || "").toUpperCase() === "OPEN" && Number(p?.total_shares) > 0)
+                      .map((p) => String(p?.ticker || "").toUpperCase())
+                  );
+                  for (let i = 0; i < tickers.length; i++) {
+                    const tk = tickers[i];
+                    const sym = String(tk?.ticker || "").toUpperCase();
+                    if (tk?.position?.owned && sym && !openSet.has(sym)) {
+                      tickers[i] = { ...tk, position: { owned: false }, _ownershipCleared: true };
+                      seenOwned.delete(sym);
+                    }
+                  }
+                }
                 for (const p of positions) {
                   const sym = String(p?.ticker || "").toUpperCase();
                   if (!sym) continue;
