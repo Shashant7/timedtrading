@@ -2375,12 +2375,13 @@ export async function sendInvestorSignalsDigest(env, alerts) {
 
 /** One consolidated Discord embed for the rebalance cycle (grouped by action,
  *  with per-ticker AI CIO guidance — parity with the old per-lot embeds). */
-export function buildInvestorRebalanceDiscordEmbed(summary) {
+export function buildInvestorRebalanceDiscordEmbed(summary, opts = {}) {
+  const includeBuys = opts.buysInDigest !== false;
   const allTrims = Array.isArray(summary?.trims) ? summary.trims : [];
   const closes = allTrims.filter((t) => !!t?.closed);
   const trims = allTrims.filter((t) => !t?.closed);
-  const added = Array.isArray(summary?.added) ? summary.added : [];
-  const opened = Array.isArray(summary?.opened) ? summary.opened : [];
+  const added = includeBuys && Array.isArray(summary?.added) ? summary.added : [];
+  const opened = includeBuys && Array.isArray(summary?.opened) ? summary.opened : [];
   if (closes.length + trims.length + added.length + opened.length === 0) return null;
   const fmtPnl = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : "-"}$${Math.abs(Number(n)).toFixed(2)}` : null;
   const fields = [];

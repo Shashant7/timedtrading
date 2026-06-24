@@ -772,10 +772,10 @@ export function deriveInvestorAlertAction(type, data = {}) {
     }
     if (rebalanceReady) {
       return {
-        verb: "MODEL · ACCUMULATE",
+        verb: "MODEL · QUEUE",
         color: "#10b981",
         tone: "buy",
-        one_liner: `**${sym}** is execution-ready in the Accumulate lane (score ${score}/100). The model portfolio would add on the next rebalance if still qualified — not a manual buy order.`,
+        one_liner: `**${sym}** is rebalance-ready in the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
       };
     }
     return {
@@ -801,12 +801,22 @@ export function deriveInvestorAlertAction(type, data = {}) {
       one_liner: "The TT Investor model portfolio composition drifted from its targets. Review the dashboard suggestions — informational context only.",
     };
   }
+  if (type === "position_open") {
+    const val = Number(data.value) || (Number(data.shares) * Number(data.price));
+    const valBit = Number.isFinite(val) && val > 0 ? ` · $${Math.round(val).toLocaleString()}` : "";
+    return {
+      verb: "MODEL · BOUGHT",
+      color: "#10b981",
+      tone: "buy",
+      one_liner: `**${sym}** opened — ${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}${valBit}. Executed rebalance buy.`,
+    };
+  }
   if (type === "position_add") {
     return {
       verb: "MODEL · ADD",
-      color: "#3b82f6",
+      color: "#10b981",
       tone: "buy",
-      one_liner: `The TT Investor model portfolio added ${data.shares ?? "?"} shares of ${sym} at $${Number(data.price || 0).toFixed(2)} — executed rebalance. Model lane scales in on confirmed setups.`,
+      one_liner: `**${sym}** scale-in — ${data.shares ?? "?"} shares at $${Number(data.price || 0).toFixed(2)}. Executed rebalance add.`,
     };
   }
   if (type === "position_trim") {
@@ -834,12 +844,12 @@ export function deriveInvestorAccumulationAlertCopy(data = {}, action = null) {
   const sym = String(data?.ticker || "ticker").toUpperCase();
   const score = Number(data?.score) || 0;
   const z = String(data?.zoneType || "").toLowerCase().replace(/_/g, " ");
-  if (act.verb === "MODEL · ACCUMULATE") {
+  if (act.verb === "MODEL · QUEUE") {
     return {
-      subjectBase: `${sym} — Execution-Ready Accumulate`,
-      headline: "Execution-Ready Accumulate",
-      lede: `<strong>${sym}</strong> is rebalance-ready in the Accumulate lane (score ${score}/100). The model portfolio may add on the next hourly rebalance pass if still qualified.`,
-      ledePlain: `**${sym}** is rebalance-ready in the Accumulate lane (score ${score}/100). The model portfolio may add on the next hourly rebalance pass if still qualified.`,
+      subjectBase: `${sym} — Queued for Rebalance`,
+      headline: "Queued for Rebalance",
+      lede: `<strong>${sym}</strong> is rebalance-ready in the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified.`,
+      ledePlain: `**${sym}** is rebalance-ready in the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified.`,
     };
   }
   if (z.includes("momentum runner") || z.includes("exhaustion")) {
@@ -924,6 +934,40 @@ export function createInvestorAlertEmbed(type, data) {
         inline: false,
       })),
     },
+    position_open: {
+      color: 0x10b981,
+      emoji: "🟢",
+      title: (d) => `${d.ticker}: New Position Opened`,
+      description: (d) => {
+        const val = Number(d.value) || (Number(d.shares) * Number(d.price));
+        const valBit = Number.isFinite(val) && val > 0 ? ` · $${Math.round(val).toLocaleString()}` : "";
+        return `**${d.ticker}** — the model portfolio opened a new position (${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}${valBit}). Executed rebalance buy.`;
+      },
+      fields: (d) => [
+        { name: "Shares", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
+        { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
+        { name: "Value", value: `$${Number(d.value || (Number(d.shares) * Number(d.price)) || 0).toFixed(2)}`, inline: true },
+        { name: "Stage", value: String(d.stage || "—").replace(/_/g, " "), inline: true },
+        { name: "Investor Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
+        { name: "Note", value: "Executed rebalance — model simulation fill, not a manual order.", inline: false },
+        ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
+      ],
+    },
+    position_add: {
+      color: 0x10b981,
+      emoji: "➕",
+      title: (d) => `${d.ticker}: Position Added`,
+      description: (d) => `**${d.ticker}** — scale-in executed by the Investor auto-rebalance engine (${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}).`,
+      fields: (d) => [
+        { name: "Shares Added", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
+        { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
+        { name: "Value", value: `$${Number(d.value || (Number(d.shares) * Number(d.price)) || 0).toFixed(2)}`, inline: true },
+        { name: "Stage", value: String(d.stage || "—").replace(/_/g, " "), inline: true },
+        { name: "Investor Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
+        { name: "Note", value: "Executed rebalance — model simulation fill, not a manual order.", inline: false },
+        ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
+      ],
+    },
     position_trim: {
       color: 0xf59e0b,
       emoji: "🔻",
@@ -971,7 +1015,8 @@ export function createInvestorAlertEmbed(type, data) {
   const sym = String(data?.ticker || "").toUpperCase();
   const _baseTitle = config.title(data);
   const _shortHeadline = _baseTitle.replace(new RegExp(`^${sym}:\\s*`, "i"), "").trim();
-  const _modeLabel = String(_action.verb || "").includes("ACCUMULATE")
+  const _modeLabel = String(_action.verb || "").includes("QUEUE")
+    || String(_action.verb || "").includes("BOUGHT")
     || String(_action.verb || "").includes("ADD")
     || String(_action.verb || "").includes("TRIMMED")
     || String(_action.verb || "").includes("EXITED")
@@ -1004,7 +1049,9 @@ export function createInvestorAlertEmbed(type, data) {
     description: config.description(data),
     color: type === "accumulation_zone"
       ? (_action.tone === "buy" ? 0x10b981 : _action.tone === "watch" ? 0xf5c25c : config.color)
-      : config.color,
+      : (type === "position_open" || type === "position_add")
+        ? 0x10b981
+        : config.color,
     fields: _fields,
     footer: { text: "Timed Trading — Investor Intelligence • Not financial advice" },
     timestamp: new Date().toISOString(),

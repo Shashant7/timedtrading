@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   deriveInvestorAlertAction,
   deriveInvestorAccumulationAlertCopy,
+  createInvestorAlertEmbed,
 } from "./alerts.js";
 
 describe("deriveInvestorAlertAction accumulation_zone", () => {
@@ -17,7 +18,7 @@ describe("deriveInvestorAlertAction accumulation_zone", () => {
     expect(action.verb).toBe("MODEL · ON RADAR");
   });
 
-  it("uses ACCUMULATE only when execution-ready", () => {
+  it("uses QUEUE only when execution-ready", () => {
     const action = deriveInvestorAlertAction("accumulation_zone", {
       ticker: "SOFI",
       score: 78,
@@ -26,7 +27,7 @@ describe("deriveInvestorAlertAction accumulation_zone", () => {
       inZone: true,
       actionTier: "act_now",
     });
-    expect(action.verb).toBe("MODEL · ACCUMULATE");
+    expect(action.verb).toBe("MODEL · QUEUE");
   });
 });
 
@@ -43,5 +44,35 @@ describe("deriveInvestorAccumulationAlertCopy", () => {
     const copy = deriveInvestorAccumulationAlertCopy(data, action);
     expect(copy.headline).toMatch(/On Radar/i);
     expect(copy.headline).not.toMatch(/Accumulation Zone/i);
+  });
+});
+
+describe("createInvestorAlertEmbed buy actions", () => {
+  it("uses prominent DOING title for rebalance open", () => {
+    const embed = createInvestorAlertEmbed("position_open", {
+      ticker: "FIX",
+      shares: 3.58,
+      price: 1957.31,
+      value: 7000,
+      stage: "accumulate",
+      score: 72,
+    });
+    expect(embed.title).toContain("**FIX**");
+    expect(embed.title).toContain("DOING");
+    expect(embed.title).toContain("BOUGHT");
+  });
+
+  it("uses prominent DOING title for rebalance add", () => {
+    const embed = createInvestorAlertEmbed("position_add", {
+      ticker: "CAT",
+      shares: 7.09,
+      price: 987.85,
+      value: 7000,
+      stage: "accumulate",
+      score: 68,
+    });
+    expect(embed.title).toContain("**CAT**");
+    expect(embed.title).toContain("DOING");
+    expect(embed.title).toContain("ADD");
   });
 });
