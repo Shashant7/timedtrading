@@ -475,7 +475,9 @@
     if (!hasDistinctExtPx) return null;
     if (!(px > 0)) return null;
 
-    // Cross-session stale guard (e.g. CRDO/MU extended_price lagging RTH).
+    // Cross-session stale guard (e.g. CRDO extended_price lagging RTH).
+    // Suppress only when the extended print disagrees with today's session
+    // direction — large same-direction AH pops (earnings AMC) must pass.
     if (headline > 0) {
       var driftPct = ((px - headline) / headline) * 100;
       var absDrift = Math.abs(driftPct);
@@ -483,7 +485,7 @@
       var dirDisagree = Number.isFinite(dayPct)
         && Math.abs(dayPct) > 1.5
         && Math.sign(dayPct) !== Math.sign(driftPct);
-      if (absDrift > 4 && (absDrift > 6 || dirDisagree)) return null;
+      if (absDrift > 4 && dirDisagree) return null;
     }
 
     return {
@@ -783,4 +785,4 @@
   };
 })();
 
-// cache-bust:1782304754370:925227984
+// cache-bust:1782339418332:810329945

@@ -2884,6 +2884,11 @@ function TickerLogo({
     }
   }, mono);
 }
+const MOVER_LIMIT = 10;
+const getExtMoverPct = t => {
+  const ext = window.TimedPriceUtils?.getExtChange?.(t);
+  return Number.isFinite(ext?.pct) ? ext.pct : NaN;
+};
 function MoverRow({
   rk,
   t,
@@ -2892,9 +2897,10 @@ function MoverRow({
   universe
 }) {
   const dc = getDailyChange(t);
-  const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
-  const price = mode === "ext" ? Number(t?._ah_price ?? t?.extended_price ?? t?._live_price ?? t?.price) : Number(t?.price);
-  const rthClose = mode === "ext" ? Number(t?.price) : null;
+  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
+  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+  const price = mode === "ext" ? Number(ext?.price ?? t?._ah_price ?? t?.extended_price) : Number(t?.price);
+  const rthClose = mode === "ext" ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price) : null;
   const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
   const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
@@ -2977,27 +2983,27 @@ function TopMovers({
       t,
       pct: Number(dc?.dayPct)
     };
-  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => b.pct - a.pct).slice(0, 5).map(x => x.t), [arr]);
+  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => b.pct - a.pct).slice(0, MOVER_LIMIT).map(x => x.t), [arr]);
   const rthLoss = useMemo(() => arr.map(t => {
     const dc = getDailyChange(t);
     return {
       t,
       pct: Number(dc?.dayPct)
     };
-  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t), [arr]);
+  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t), [arr]);
   const extGain = useMemo(() => {
     if (open) return [];
     return arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
       t,
-      pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
-    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => b.pct - a.pct).slice(0, 5).map(x => x.t);
+      pct: getExtMoverPct(t)
+    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => b.pct - a.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const extLoss = useMemo(() => {
     if (open) return [];
     return arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
       t,
-      pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
-    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t);
+      pct: getExtMoverPct(t)
+    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const hasExt = extGain.length > 0 || extLoss.length > 0;
   if (strip) {
@@ -3005,7 +3011,7 @@ function TopMovers({
       const sym = String(t.ticker || t.sym || "").toUpperCase();
       let pct;
       if (mode === "ext") {
-        pct = Number(t._ah_change_pct);
+        pct = getExtMoverPct(t);
       } else {
         const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
         pct = Number(dc?.dayPct);
@@ -3570,14 +3576,14 @@ function computeInsightChips(allTickers, opts) {
       pct
     };
   }).filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const moverSet = new Set([...rthArr.slice(0, 5).map(t => t.ticker), ...rthArr.slice(-5).map(t => t.ticker)]);
+  const moverSet = new Set([...rthArr.slice(0, 10).map(t => t.ticker), ...rthArr.slice(-10).map(t => t.ticker)]);
   chips.push({
     id: "top_movers",
     label: "Top Movers",
     count: moverSet.size,
     tickers: Array.from(moverSet),
     row: "context",
-    tooltip: "Top 5 gainers + top 5 losers on the session."
+    tooltip: "Top 10 gainers + top 10 losers on the session."
   });
   const idxTickers = allTickers.filter(t => INDEX_SYMS.includes(TT_NORM_TICKER(t?.ticker)));
   chips.push({
@@ -5025,7 +5031,12 @@ function TodayApp({
     addOns: new Set()
   });
   const _liveHooks = window.TimedLiveData;
-  if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+  if (_liveHooks?.usePriceFeed) {
+    const mktOpen = isNyRegularMarketOpen();
+    _liveHooks.usePriceFeed(data, setData, {
+      firstPollMs: mktOpen ? 2500 : 0
+    });
+  }
   if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
   if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
   useEffect(() => {
@@ -5448,7 +5459,7 @@ function BriefPlaceholder({
   let signalMode = useExt ? "ext" : "rth";
   let signal = useExt ? arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
     t,
-    pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
+    pct: getExtMoverPct(t)
   })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3) : arr.map(t => {
     const dc = getDailyChange(t);
     return {
@@ -5710,6 +5721,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782304754370:925227984
+// cache-bust:1782339418332:810329945
 
-// cache-bust:1782304754370:925227984
+// cache-bust:1782339418332:810329945
