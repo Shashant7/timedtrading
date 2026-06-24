@@ -5,7 +5,7 @@ right rail, Active Trader kanban, or Investor bubble map.
 
 ---
 
-## Right rail IA (PR pending: `cursor/rail-sequence-options-ux-0b66`)
+## Right rail IA (PR #824: `cursor/rail-sequence-options-ux-0b66` — rebased on main after #823)
 
 ### Top-level tabs (5 groups)
 
