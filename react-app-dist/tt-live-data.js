@@ -122,6 +122,9 @@
 
   function usePriceFeed(data, setData, opts) {
     const intervalMs = Number(opts?.intervalMs) || 30000;
+    const firstPollMs = opts?.firstPollMs != null
+      ? Number(opts.firstPollMs)
+      : 2500;
     const ready = useDataReady(data);
     const setterRef = useRef(setData);
     setterRef.current = setData;
@@ -204,13 +207,13 @@
 
     useEffect(() => {
       if (!ready) return;
-      const firstPoll = setTimeout(fetchPrices, 2500);
+      const firstPoll = setTimeout(fetchPrices, firstPollMs);
       const id = setInterval(fetchPrices, intervalMs);
       return () => {
         clearTimeout(firstPoll);
         clearInterval(id);
       };
-    }, [ready, fetchPrices, intervalMs]);
+    }, [ready, fetchPrices, intervalMs, firstPollMs]);
 
     return { lastPriceUpdate };
   }
@@ -378,4 +381,4 @@
   window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
 })();
 
-// cache-bust:1782340070914:56279579
+// cache-bust:1782340454217:375692056
