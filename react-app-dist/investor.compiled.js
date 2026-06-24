@@ -683,6 +683,23 @@ function InvestorApp() {
           const tickers = Array.isArray(scoresRes.tickers) ? [...scoresRes.tickers] : [];
           const seenOwned = new Set(tickers.filter(t => (t?.position || {}).owned).map(t => String(t?.ticker || "").toUpperCase()));
           const positions = positionsRes?.ok && Array.isArray(positionsRes.positions) ? positionsRes.positions : [];
+          if (positionsRes?.ok && Array.isArray(positionsRes.positions)) {
+            const openSet = new Set(positions.filter(p => String(p?.status || "").toUpperCase() === "OPEN" && Number(p?.total_shares) > 0).map(p => String(p?.ticker || "").toUpperCase()));
+            for (let i = 0; i < tickers.length; i++) {
+              const tk = tickers[i];
+              const sym = String(tk?.ticker || "").toUpperCase();
+              if (tk?.position?.owned && sym && !openSet.has(sym)) {
+                tickers[i] = {
+                  ...tk,
+                  position: {
+                    owned: false
+                  },
+                  _ownershipCleared: true
+                };
+                seenOwned.delete(sym);
+              }
+            }
+          }
           for (const p of positions) {
             const sym = String(p?.ticker || "").toUpperCase();
             if (!sym) continue;
@@ -893,6 +910,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782327740156:419890135
+// cache-bust:1782336700132:742177905
 
-// cache-bust:1782327740156:419890135
+// cache-bust:1782336700132:742177905

@@ -1134,6 +1134,27 @@
                 );
                 const positions = (positionsRes?.ok && Array.isArray(positionsRes.positions))
                   ? positionsRes.positions : [];
+                // 2026-06-24 — reverse reconcile: a cached /scores row can show
+                // owned=true after the model sold (compute lags the rebalance).
+                // Clear ownership for any owned row that has no live OPEN
+                // position so the lane demotes out of Hold & Watch immediately.
+                // (Server overlays this too; this is defense-in-depth for the
+                // brief window where /positions is fresh but /scores is stale.)
+                if (positionsRes?.ok && Array.isArray(positionsRes.positions)) {
+                  const openSet = new Set(
+                    positions
+                      .filter((p) => String(p?.status || "").toUpperCase() === "OPEN" && Number(p?.total_shares) > 0)
+                      .map((p) => String(p?.ticker || "").toUpperCase())
+                  );
+                  for (let i = 0; i < tickers.length; i++) {
+                    const tk = tickers[i];
+                    const sym = String(tk?.ticker || "").toUpperCase();
+                    if (tk?.position?.owned && sym && !openSet.has(sym)) {
+                      tickers[i] = { ...tk, position: { owned: false }, _ownershipCleared: true };
+                      seenOwned.delete(sym);
+                    }
+                  }
+                }
                 for (const p of positions) {
                   const sym = String(p?.ticker || "").toUpperCase();
                   if (!sym) continue;

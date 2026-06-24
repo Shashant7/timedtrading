@@ -53,7 +53,7 @@
         transform: translate3d(0,0,0); will-change: transform;
       }
       .tt-activity-strip__inner {
-        max-width: 1600px; margin: 0 auto; padding: 8px 24px;
+        max-width: 1600px; margin: 0 auto; padding: 11px 24px;
         display: flex; align-items: center; gap: 12px;
       }
       @media (max-width: 720px) {
@@ -62,20 +62,20 @@
            above force position:static so the strip flows under the
            nav within the sticky container. */
         .tt-activity-strip { position: sticky; top: var(--tt-nav-h, 52px); left: 0; right: 0; }
-        .tt-activity-strip__inner { padding: 8px 12px; gap: 8px; }
+        .tt-activity-strip__inner { padding: 10px 12px; gap: 8px; }
       }
       .tt-activity-strip__label {
-        font-size: 10.5px; font-weight: 700; letter-spacing: 0.10em;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
         color: var(--tt-text-dim, #6E867D); text-transform: uppercase; flex-shrink: 0;
       }
-      .tt-activity-strip__hint { font-size: 10px; color: var(--tt-text-faint); display: none; flex-shrink: 0; }
+      .tt-activity-strip__hint { font-size: 10.5px; color: var(--tt-text-faint); display: none; flex-shrink: 0; }
       @media (min-width: 900px) { .tt-activity-strip__hint { display: block; } }
       .tt-activity-strip__scroll { flex: 1; overflow-x: auto; scrollbar-width: none; }
       .tt-activity-strip__scroll::-webkit-scrollbar { display: none; }
       .tt-activity-strip__row { display: inline-flex; gap: 10px; align-items: center; }
       .tt-activity-pill {
-        display: inline-flex; align-items: center; gap: 5px;
-        padding: 4px 10px; border-radius: 8px; font-size: 11px;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 9px; font-size: 12.5px;
         font-family: var(--tt-font-mono, ui-monospace, monospace);
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
@@ -83,8 +83,20 @@
         max-width: min(560px, 96vw); text-align: left; flex-shrink: 0;
       }
       .tt-activity-pill:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
+      /* Brand logo to the left of the ticker — monogram fallback until the
+         real logo async-loads (mirrors ds-components tickerLogo). */
+      .tt-activity-pill .ev-logo {
+        width: 18px; height: 18px; flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; overflow: hidden;
+        font-size: 8px; font-weight: 700; letter-spacing: 0.02em;
+        color: #fff; line-height: 1;
+      }
+      .tt-activity-pill .ev-logo img {
+        width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+      }
       .tt-activity-pill .ev-scope {
-        font-size: 8px; font-weight: 800; letter-spacing: 0.06em;
+        font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
         text-transform: uppercase; padding: 1px 4px; border-radius: 4px;
         border: 1px solid transparent; line-height: 1.3;
       }
@@ -94,16 +106,16 @@
       .tt-activity-pill .ev-scope--investor {
         color: #c4b5fd; background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.30);
       }
-      .tt-activity-pill .ev-type { font-weight: 700; font-size: 10px; text-transform: uppercase; }
-      .tt-activity-pill .ev-sym { font-weight: 700; color: var(--tt-text, #E8F2EC); }
-      .tt-activity-pill .ev-dir { font-size: 9px; font-weight: 600; }
+      .tt-activity-pill .ev-type { font-weight: 700; font-size: 11px; text-transform: uppercase; }
+      .tt-activity-pill .ev-sym { font-weight: 700; font-size: 12.5px; color: var(--tt-text, #E8F2EC); }
+      .tt-activity-pill .ev-dir { font-size: 10px; font-weight: 600; }
       .tt-activity-pill .ev-dir--long { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill .ev-dir--short { color: var(--tt-dn-soft, #fb7185); }
-      .tt-activity-pill .ev-detail { font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
-      .tt-activity-pill .ev-pnl { font-size: 10px; font-weight: 600; }
+      .tt-activity-pill .ev-detail { font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+      .tt-activity-pill .ev-pnl { font-size: 11px; font-weight: 600; }
       .tt-activity-pill .ev-pnl--up { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill .ev-pnl--dn { color: var(--tt-dn-soft, #fb7185); }
-      .tt-activity-pill .ev-time { font-size: 9px; opacity: 0.65; }
+      .tt-activity-pill .ev-time { font-size: 10px; opacity: 0.65; }
       .tt-activity-pill.ev-entry .ev-type { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill.ev-trim .ev-type { color: #fbbf24; }
       .tt-activity-pill.ev-exit .ev-type { color: var(--tt-dn-soft, #fb7185); }
@@ -118,7 +130,7 @@
         border-color: rgba(251,146,60,0.35);
       }
       .tt-activity-pill .ev-mode {
-        font-size: 8px; font-weight: 800; letter-spacing: 0.05em;
+        font-size: 9px; font-weight: 800; letter-spacing: 0.05em;
         text-transform: uppercase; padding: 1px 4px; border-radius: 4px;
         border: 1px solid rgba(255,255,255,0.10); color: var(--tt-text-dim);
       }
@@ -149,7 +161,7 @@
         border-color: rgba(103,232,249,0.22);
         background: rgba(103,232,249,0.04);
       }
-      .tt-activity-strip__empty { font-size: 11.5px; color: var(--tt-text-faint); font-style: italic; }
+      .tt-activity-strip__empty { font-size: 12.5px; color: var(--tt-text-faint); font-style: italic; }
     `;
     document.head.appendChild(el);
   }
@@ -184,6 +196,69 @@
     const v = Number(n);
     if (!Number.isFinite(v)) return "";
     return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+  }
+
+  // Brand logo (monogram fallback → async real logo swap). Mirrors the
+  // ds-components / today.html TickerLogo so the strip matches cards.
+  function buildTickerLogo(sym) {
+    const SYM = String(sym || "").toUpperCase();
+    const el = document.createElement("span");
+    el.className = "ev-logo";
+    if (!SYM) return el;
+    const mono = SYM.slice(0, 2);
+    el.textContent = mono;
+    let hash = 0;
+    for (let i = 0; i < SYM.length; i++) hash = ((hash << 5) - hash) + SYM.charCodeAt(i);
+    el.style.background = `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+    const url = (window.DS && typeof window.DS.tickerLogoUrl === "function")
+      ? window.DS.tickerLogoUrl(SYM)
+      : `${API_BASE}/timed/logo/${encodeURIComponent(SYM)}.png`;
+    if (url) {
+      const img = new Image();
+      img.src = url;
+      img.alt = SYM;
+      img.onload = () => {
+        // White plate so transparent-PNG ETF logos stay visible on dark.
+        while (el.firstChild) el.removeChild(el.firstChild);
+        el.style.background = "#ffffff";
+        el.style.color = "transparent";
+        el.appendChild(img);
+      };
+      img.onerror = () => { /* keep monogram + colored background */ };
+    }
+    return el;
+  }
+
+  // Client-side dedupe guard (belt-and-braces on top of the server's
+  // buildMergedActivityFeed dedupe). The same investor action can surface via
+  // both a D1 lot row and a KV signal append; collapse them by ticker + coarse
+  // action class + 10-min bucket so the strip never shows duplicate
+  // RIOT/CRDO exits even if a stale cache slips through.
+  function actionClass(ev) {
+    const a = String(ev?.action || ev?.investor_alert_type || ev?.type || ev?.event || "").toUpperCase();
+    if (/SELL|TRIM|REDUCE|CLOSE|EXIT/.test(a)) return "sell";
+    if (/BUY|ADD|ACCUMULAT|QUEUE|OPEN|ENTRY|ENTER/.test(a)) return "buy";
+    return "other";
+  }
+  function dedupeKeys(ev) {
+    const keys = [];
+    if (ev?.lot_id) keys.push(`lot:${ev.lot_id}`);
+    const sym = String(ev?.ticker || ev?.symbol || "").toUpperCase();
+    const tsN = Number(ev?.ts ?? ev?.timestamp ?? 0);
+    const tsMs = tsN > 1e12 ? tsN : tsN * 1000;
+    if (sym) keys.push(`${scopeOf(ev, String(ev?.type || "").toUpperCase())}:${sym}:${actionClass(ev)}:${Math.floor(tsMs / 600000)}`);
+    return keys;
+  }
+  function dedupeEvents(list) {
+    const seen = new Set();
+    const out = [];
+    for (const ev of (Array.isArray(list) ? list : [])) {
+      const keys = dedupeKeys(ev);
+      if (keys.length && keys.some((k) => seen.has(k))) continue;
+      for (const k of keys) seen.add(k);
+      out.push(ev);
+    }
+    return out;
   }
 
   // Display-layer only — raw execution_actions.reason values stay unchanged
@@ -481,7 +556,9 @@
       const norm = (x) => { const n = Number(x?.ts ?? x?.timestamp ?? 0); return n > 1e12 ? n : n * 1000; };
       return norm(b) - norm(a);
     });
-    const visible = arr.slice(0, 20);
+    // Collapse cross-channel duplicates (D1 lot + KV signal append) — sorted
+    // newest-first so the freshest copy of an action wins.
+    const visible = dedupeEvents(arr).slice(0, 20);
 
     if (!host._row) {
       const inner = document.createElement("div");
@@ -546,6 +623,7 @@
       typeEl.textContent = meta.label;
       pill.appendChild(typeEl);
       if (sym) {
+        pill.appendChild(buildTickerLogo(sym));
         const symEl = document.createElement("span");
         symEl.className = "ev-sym";
         symEl.textContent = sym;
@@ -692,4 +770,4 @@
   else mount();
 })();
 
-// cache-bust:1782327740156:419890135
+// cache-bust:1782336700132:742177905
