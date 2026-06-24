@@ -38,9 +38,9 @@ const LEGACY_TD_ALIASES = Object.freeze({
 // Non-equity tickers that TwelveData cannot serve cleanly via /quote +
 // /time_series for our US-equity universe.
 //
-// P0.7.132 — VX1! REMOVED from skip list. TD serves the VIX index ("VIX")
-// natively, and we now route VX1! through the standard TD price-feed path
-// (mapped to "VIX") instead of the fragile TradingView webhook.
+// P0.7.132 — VX1! maps to TD "VIX" for legacy reads only. TD does NOT
+// serve the CBOE VIX index on our plan (404 on /quote and /time_series).
+// Canonical live price + timed:latest come from VX1! via MACRO_CANONICAL_SOURCES.
 //
 // 2026-05-22 — GOLD REMOVED from skip list. GOLD on NYSE is Barrick
 // Gold Corp (real US equity, TD serves it via /quote and /time_series
@@ -55,6 +55,8 @@ const LEGACY_TD_ALIASES = Object.freeze({
 // Sun Life Silver ETF" on NSE (India), not anything in our universe.
 const SKIP_TICKERS = new Set([
   "ES1!", "NQ1!", "SILVER", "US500", "GC1!", "SI1!",
+  // CBOE VIX index — not on our TwelveData plan; use VX1! → VIX alias instead.
+  "VIX",
 ]);
 
 function getApiKey(env) {

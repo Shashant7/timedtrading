@@ -4,12 +4,13 @@
 
 | Before | After |
 |--------|-------|
-| VX1! TradingView futures heartbeat | **VIX** CBOE index via TwelveData |
-| Daily Brief charts: VIXY ETF proxy | **VIX** index |
-| TD quote wrote KV as VX1! | TD quote writes **`VIX`** only |
+| VX1! TradingView futures heartbeat | **VIX** canonical key in UI/KV |
+| Daily Brief charts: VIXY ETF proxy | **VIX** (mirrors VX1! stub) |
+| TD quote attempted for VIX | **Skipped** — TD 404; VX1! is source |
 
-**Files:** `worker/sector-mapping.js` (VIX in SECTOR_MAP), `worker/twelvedata.js`,
-`worker/index.js` MARKET_PULSE_SYMS, `worker/feed/price-feed-cron.js`,
+**Files:** `worker/sector-mapping.js` (VIX in SECTOR_MAP), `worker/futures-proxy.js`
+(`MACRO_CANONICAL_SOURCES`), `worker/twelvedata.js` (VIX in SKIP_TICKERS),
+`worker/feed/price-feed-cron.js`, `worker/index.js` MARKET_PULSE_SYMS,
 `react-app/daily-brief.html`, `react-app/today.html`.
 
 Legacy `timed:latest:VX1!` still read as fallback where `pull("VX1!")` remains.

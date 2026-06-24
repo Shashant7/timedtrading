@@ -1,7 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 // Futures proxy registry — TwelveData-served fallback for TV-fed futures
-//
-// Background: TradingView webhook alerts feed our futures heartbeats
 // (timed:heartbeat:ES1!, NQ1!, etc.). TV alerts are fragile — they pause
 // silently on indicator failure, network blips, or TV alert quota throttling.
 // We considered Tradovate WebSocket as a replacement but their CME
@@ -28,14 +26,16 @@
 // with the futures move" — not as the literal futures price.
 // ═══════════════════════════════════════════════════════════════════════════════
 
+import { kvGetJSON, kvPutJSON } from "./storage.js";
+
 /**
  * Map TV futures ticker → TwelveData ETF symbol that tracks it 1:1
  * directionally. All proxies are ALREADY in the system's TD-served
  * universe (SECTOR_MAP / Market Pulse list), so they get polled by the
  * existing minute price-feed cron at no extra cost.
  *
- * VIX is served natively via TwelveData on the canonical "VIX" symbol
- * (SECTOR_MAP + MARKET_PULSE_SYMS). VX1! TV futures removed 2026-06-23.
+ * VIX canonical symbol maps to VX1! (TV/scoring stub). TwelveData does
+ * not serve the CBOE VIX index on our plan — see MACRO_CANONICAL_SOURCES.
  */
 export const FUTURES_PROXY_MAP = Object.freeze({
   // Index futures (CME E-mini + Micro E-mini) → broad-market index ETFs
@@ -56,6 +56,59 @@ export const FUTURES_PROXY_MAP = Object.freeze({
   "SI1!":  "SLV",   // Silver               → iShares Silver Trust
   "HG1!":  "CPER",  // Copper               → United States Copper Index Fund
 });
+
+/**
+ * Canonical macro symbols → authoritative KV source when TD/Alpaca cannot
+ * serve the index directly. Price feed copies source → canonical in
+ * timed:prices; syncMacroLatestStubs mirrors timed:latest.
+ */
+export const MACRO_CANONICAL_SOURCES = Object.freeze({
+  VIX: "VX1!",
+});
+
+export function macroCanonicalSource(sym) {
+  return MACRO_CANONICAL_SOURCES[String(sym || "").toUpperCase()] || null;
+}
+
+/** Copy live price rows from macro sources onto canonical keys. */
+export function applyMacroPriceAliases(prices = {}) {
+  if (!prices || typeof prices !== "object") return prices;
+  for (const [canonical, source] of Object.entries(MACRO_CANONICAL_SOURCES)) {
+    const src = prices[source];
+    if (!src || !(Number(src.p) > 0)) continue;
+    const prev = prices[canonical] || {};
+    const srcT = Number(src.t) || 0;
+    const prevT = Number(prev.t) || 0;
+    if (!prices[canonical] || srcT >= prevT) {
+      prices[canonical] = { ...src, _macro_source: source };
+    }
+  }
+  return prices;
+}
+
+/** Mirror timed:latest source stubs onto canonical macro keys (e.g. VX1! → VIX). */
+export async function syncMacroLatestStubs(KV, getJson = kvGetJSON, putJson = kvPutJSON) {
+  if (!KV) return { synced: 0 };
+  let synced = 0;
+  for (const [canonical, source] of Object.entries(MACRO_CANONICAL_SOURCES)) {
+    try {
+      const sourceStub = await getJson(KV, `timed:latest:${source}`);
+      if (!sourceStub || typeof sourceStub !== "object" || !(Number(sourceStub.price) > 0)) continue;
+      const existing = await getJson(KV, `timed:latest:${canonical}`);
+      const sourceTs = Number(sourceStub.ingest_ts || sourceStub.ts || 0);
+      const existingTs = Number(existing?.ingest_ts || existing?.ts || 0);
+      if (existing && existingTs >= sourceTs) continue;
+      await putJson(KV, `timed:latest:${canonical}`, {
+        ...sourceStub,
+        ticker: canonical,
+        _macro_source: source,
+        ingest_ts: sourceStub.ingest_ts || sourceStub.ts || Date.now(),
+      });
+      synced++;
+    } catch (_) { /* best-effort */ }
+  }
+  return { synced };
+}
 
 /** All futures tickers we maintain a proxy for. */
 export function futuresWithProxy() {

@@ -33,6 +33,7 @@ import {
   isExtendedOperatingSession,
   lightweightRestRefreshDue,
 } from "./extended-hours.js";
+import { applyMacroPriceAliases, syncMacroLatestStubs } from "../futures-proxy.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
 function feedPollTimestamp(nowMs = Date.now()) {
@@ -246,7 +247,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           }
 
           // 1. Overlay TV futures heartbeats
-          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "US500", "CL1!"];
+          const TV_FUTURES_LIGHT = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!"];
           let tvUpdated = 0;
           for (const tvSym of TV_FUTURES_LIGHT) {
             try {
@@ -272,6 +273,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               }
             } catch (_) {}
           }
+          applyMacroPriceAliases(existing);
 
           // 2. Overlay crypto from Alpaca snapshots
           let cryptoUpdated = 0;
@@ -331,6 +333,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           }));
           console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
           ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, existing).catch(e => console.warn("[FRESHNESS LIGHT]", e?.message)));
+          ctx.waitUntil(syncMacroLatestStubs(KV).catch(e => console.warn("[MACRO STUB SYNC LIGHT]", e?.message)));
           // Skip the rest of the heavy pipeline
         } else {
         // ── Full pipeline (active hours) ──
@@ -475,7 +478,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         }
 
         // Overlay TV heartbeat prices for futures/macro tickers not handled by the DO
-        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "US500", "CL1!", "SPX"];
+        const TV_FUTURES_ACTIVE = ["ES1!", "NQ1!", "GC1!", "SI1!", "VX1!", "US500", "CL1!", "SPX"];
         let tvOverlayCount = 0;
         for (const tvSym of TV_FUTURES_ACTIVE) {
           try {
@@ -502,6 +505,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             }
           } catch (_) {}
         }
+        applyMacroPriceAliases(prices);
 
         // ── 2026-06-10 — PER-SYMBOL STALE SWEEP (SMCI incident) ────────────
         // A VIP user caught SMCI displayed at $41.64 while the real price
@@ -680,6 +684,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
 
         console.log(`[PRICE FEED] Updated ${Object.keys(prices).length} tickers`);
         ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, prices).catch(e => console.warn("[FRESHNESS]", e?.message)));
+        ctx.waitUntil(syncMacroLatestStubs(KV).catch(e => console.warn("[MACRO STUB SYNC]", e?.message)));
 
         // Merge live quotes into chart TFs (10/15/30/60) so right-rail
         // charts and freshness grades track the same price the header shows
