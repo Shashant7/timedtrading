@@ -62,6 +62,7 @@
 
   function investorEvType(ev) {
     const invT = String(ev && ev.investor_alert_type || "").toLowerCase();
+    if (invT === "position_open") return "BOUGHT";
     if (invT === "position_add") return "ADD";
     if (invT === "position_trim") return "TRIM";
     if (invT === "position_close") return "EXIT";
@@ -70,15 +71,15 @@
 
   var INVESTOR_PASSIVE_ALERT_VERBS = ["MODEL · ON RADAR", "MODEL · WATCH", "MODEL · INFO"];
   var INVESTOR_ACTIONABLE_ALERT_VERBS = [
-    "MODEL · ACCUMULATE", "MODEL · REDUCE", "MODEL · TRIMMED", "MODEL · EXITED",
-    "MODEL · REVIEW", "MODEL · ADD", "ACCUMULATE", "ADD ON PULLBACK",
+    "MODEL · QUEUE", "MODEL · BOUGHT", "MODEL · REDUCE", "MODEL · TRIMMED", "MODEL · EXITED",
+    "MODEL · REVIEW", "MODEL · ADD", "ACCUMULATE", "QUEUE", "ADD ON PULLBACK",
     "REDUCE / EXIT", "TRIM / REDUCE", "REVIEW PORTFOLIO",
   ];
   var TRADER_EXEC_FEED_TYPES = [
     "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "ENTRY", "ENTER", "ADD", "ADD_ENTRY",
     "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT",
   ];
-  var INVESTOR_EXEC_ALERT_TYPES = ["position_add", "position_trim", "position_close"];
+  var INVESTOR_EXEC_ALERT_TYPES = ["position_open", "position_add", "position_trim", "position_close"];
   var ACTIONABLE_KANBAN_STAGES = [
     "in_review", "enter", "enter_now", "just_flipped", "just_entered",
     "hold", "active", "defend", "trim", "exiting", "exit",
@@ -89,7 +90,9 @@
     if (!v) return "";
     if (v.indexOf("MODEL ·") === 0) return v;
     var upper = v.toUpperCase();
-    if (upper.indexOf("ACCUMULATE") === 0) return "MODEL · ACCUMULATE";
+    if (upper.indexOf("ACCUMULATE") === 0) return "MODEL · QUEUE";
+    if (upper.indexOf("QUEUE") === 0) return "MODEL · QUEUE";
+    if (upper.indexOf("BOUGHT") === 0) return "MODEL · BOUGHT";
     if (upper.indexOf("REDUCE") === 0) return "MODEL · REDUCE";
     if (upper.indexOf("ADD") === 0) return "MODEL · ADD";
     if (upper.indexOf("TRIM") >= 0) return "MODEL · TRIMMED";
@@ -100,6 +103,9 @@
 
   function classifyActivityEvent(ev) {
     var invT = String(ev && ev.investor_alert_type || "").toLowerCase();
+    if (invT === "position_open") {
+      return { engine: "investor", mode: "doing", execState: "done", label: "BOUGHT", evType: "ENTRY", scope: "investor", cls: "ev-entry ev-doing" };
+    }
     if (invT === "position_add") {
       return { engine: "investor", mode: "doing", execState: "done", label: "ADD", evType: "ADD", scope: "investor", cls: "ev-entry ev-doing" };
     }
@@ -128,13 +134,14 @@
     var invExecDone = false;
     if (t === "INVESTOR_SIGNAL") {
       var invT2 = String(ev && ev.investor_alert_type || "").toLowerCase();
-      if (invT2 === "position_add") { action = "add"; label = "ADD"; evType = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
+      if (invT2 === "position_open") { action = "open"; label = "BOUGHT"; evType = "ENTRY"; cls = "ev-entry ev-doing"; invExecDone = true; }
+      else if (invT2 === "position_add") { action = "add"; label = "ADD"; evType = "ADD"; cls = "ev-entry ev-doing"; invExecDone = true; }
       else if (invT2 === "position_trim") { action = "trim"; label = "TRIM"; evType = "TRIM"; cls = "ev-trim ev-doing"; invExecDone = true; }
       else if (invT2 === "position_close") { action = "exit"; label = "EXIT"; evType = "EXIT"; cls = "ev-exit ev-doing"; invExecDone = true; }
       else {
         var verb = normalizeInvestorVerb(ev && ev.action);
-        if (verb === "MODEL · ACCUMULATE") {
-          action = "accumulate"; label = "ACCUM"; evType = "INVESTOR_SIGNAL"; cls = "ev-recommended ev-doing";
+        if (verb === "MODEL · QUEUE" || verb === "MODEL · ACCUMULATE") {
+          action = "queue"; label = "QUEUE"; evType = "INVESTOR_SIGNAL"; cls = "ev-recommended ev-doing";
           isDoing = true;
         } else if (verb === "MODEL · REDUCE") {
           action = "reduce"; label = "REDUCE"; evType = "INVESTOR_SIGNAL"; cls = "ev-trim ev-recommended ev-doing";
@@ -151,7 +158,7 @@
     else if (t.indexOf("ENTRY") >= 0 || t === "ENTER" || t === "ADD") { label = t.indexOf("ADD") >= 0 || t === "ADD" ? "ADD" : "ENTER"; evType = label; cls = "ev-entry"; }
     var mode = invExecDone || isDoing ? "doing" : "watching";
     var execStateOut = invExecDone || isDoing ? "done" : "watching";
-    if (t === "INVESTOR_SIGNAL" && (label === "ACCUM" || label === "REDUCE" || label === "REVIEW")) {
+    if (t === "INVESTOR_SIGNAL" && (label === "QUEUE" || label === "ACCUM" || label === "REDUCE" || label === "REVIEW")) {
       execStateOut = "recommended";
     }
     return {

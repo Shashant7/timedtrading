@@ -86,11 +86,24 @@ describe("classifyActivityEvent", () => {
       type: "INVESTOR_SIGNAL",
       ticker: "SOFI",
       investor_alert_type: "accumulation_zone",
-      action: "MODEL · ACCUMULATE",
+      action: "MODEL · QUEUE",
     });
-    expect(c.label).toBe("ACCUM");
+    expect(c.label).toBe("QUEUE");
     expect(c.execState).toBe("recommended");
     expect(c.mode).toBe("doing");
+  });
+
+  it("classifies investor rebalance open as BOUGHT done doing", () => {
+    const c = classifyActivityEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "FIX",
+      investor_alert_type: "position_open",
+      shares: 3.58,
+      price: 1957.31,
+    });
+    expect(c.label).toBe("BOUGHT");
+    expect(c.mode).toBe("doing");
+    expect(c.execState).toBe("done");
   });
 });
 
@@ -119,11 +132,11 @@ describe("isActionableFeedEvent", () => {
     })).toBe(false);
   });
 
-  it("includes execution-ready accumulate", () => {
+  it("includes execution-ready queue", () => {
     expect(isActionableFeedEvent({
       type: "INVESTOR_SIGNAL",
       ticker: "SOFI",
-      action: "MODEL · ACCUMULATE",
+      action: "MODEL · QUEUE",
       investor_alert_type: "accumulation_zone",
     })).toBe(true);
   });
