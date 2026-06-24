@@ -2463,7 +2463,7 @@
           localization: {
             priceFormatter: (p) => {
               const sym = String(propTicker?.ticker || "").toUpperCase();
-              if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+              if (sym === "VIX") return p.toFixed(2);
               return p.toFixed(2);
             },
             timeFormatter: (time) => {

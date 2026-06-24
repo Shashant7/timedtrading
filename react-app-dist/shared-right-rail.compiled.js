@@ -3494,7 +3494,7 @@
           localization: {
             priceFormatter: p => {
               const sym = String(propTicker?.ticker || "").toUpperCase();
-              if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+              if (sym === "VIX") return p.toFixed(2);
               return p.toFixed(2);
             },
             timeFormatter: time => {
@@ -21409,4 +21409,4 @@
   };
 })();
 
-// cache-bust:1782253690185:505277627
+// cache-bust:1782261344697:746813733

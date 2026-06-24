@@ -355,7 +355,7 @@
     SP_Sectors: new Set([
       "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
     ]),
-    Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD","VX1!"]),
+    Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD"]),
   };
   const GROUP_LABELS = {
     SP_Sectors: "S&P Sectors", Futures: "Futures", Other: "Other",
@@ -1250,4 +1250,4 @@
   };
 })();
 
-// cache-bust:1782253690185:505277627
+// cache-bust:1782261344697:746813733
