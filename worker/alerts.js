@@ -775,7 +775,7 @@ export function deriveInvestorAlertAction(type, data = {}) {
         verb: "MODEL · QUEUE",
         color: "#10b981",
         tone: "buy",
-        one_liner: `**${sym}** is rebalance-ready in the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
+        one_liner: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
       };
     }
     return {
@@ -846,10 +846,10 @@ export function deriveInvestorAccumulationAlertCopy(data = {}, action = null) {
   const z = String(data?.zoneType || "").toLowerCase().replace(/_/g, " ");
   if (act.verb === "MODEL · QUEUE") {
     return {
-      subjectBase: `${sym} — Queued for Rebalance`,
-      headline: "Queued for Rebalance",
-      lede: `<strong>${sym}</strong> is rebalance-ready in the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified.`,
-      ledePlain: `**${sym}** is rebalance-ready in the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified.`,
+      subjectBase: `${sym} — Entered Queue`,
+      headline: "Entered Queue",
+      lede: `<strong>${sym}</strong> entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
+      ledePlain: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
     };
   }
   if (z.includes("momentum runner") || z.includes("exhaustion")) {
