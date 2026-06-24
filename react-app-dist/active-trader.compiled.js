@@ -125,6 +125,13 @@ function tradeTrimmedToday(tr) {
   } = getLocalDayBoundsMs();
   return trimMs >= start && trimMs < end;
 }
+function hasTrimSignalPending(ticker, trade) {
+  const openTr = resolveOpenTrade(trade);
+  if (!openTr || !traderBookIsOpen(openTr)) return false;
+  if (tradeTrimmedToday(openTr)) return false;
+  const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
+  return raw === "trim";
+}
 const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
@@ -448,6 +455,21 @@ function ATCard({
   const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?._effectiveKanbanStage || t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
+    const rawStage = String(t?._rawKanbanStage || "").toLowerCase();
+    if (resolvedOpen && tradeTrimmedToday(resolvedOpen)) {
+      return {
+        label: "Trimmed today",
+        cls: "ds-chip--accent",
+        title: "Partial trim executed today — card stays in Trim lane"
+      };
+    }
+    if (hasTrimSignalPending(t, resolvedOpen)) {
+      return {
+        label: "Trim signal",
+        cls: "ds-chip--solid",
+        title: "Engine recommends taking partial profits — trim not executed yet (card stays in Hold)"
+      };
+    }
     if (stage === "trim") return {
       label: "Trim",
       cls: "ds-chip--accent"
@@ -748,7 +770,8 @@ function ATCard({
       },
       title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
     }, cardBiasLabel), stageChip && h("span", {
-      className: `ds-chip ds-chip--sm ${stageChip.cls}`
+      className: `ds-chip ds-chip--sm ${stageChip.cls}`,
+      title: stageChip.title || undefined
     }, stageChip.label)],
     quote: {
       price,
@@ -1250,7 +1273,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "taking partial profits into a target."), lane("Exit", "the model is closing or has closed it."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1315,11 +1338,22 @@ function ActiveTraderApp() {
     const mapped = raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
       const trade = resolveOpenTrade(tradeByTicker.get(sym) || null);
+      const rawKanban = String(t?.kanban_stage || "").toLowerCase();
       const eff = computeEffectiveStage(t, trade);
-      const base = eff === String(t?.kanban_stage || "").toLowerCase() && !trade ? t : {
+      const trimSignalPending = hasTrimSignalPending({
+        _rawKanbanStage: rawKanban,
+        kanban_stage: rawKanban
+      }, trade);
+      const base = eff === rawKanban && !trade ? {
+        ...t,
+        _rawKanbanStage: rawKanban,
+        _trimSignalPending: trimSignalPending
+      } : {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
+        _rawKanbanStage: rawKanban,
+        _trimSignalPending: trimSignalPending,
         kanban_stage: eff,
         ...(trade ? {
           has_open_position: true,
@@ -1389,6 +1423,8 @@ function ActiveTraderApp() {
         kanban_stage: eff,
         _openTrade: openTr,
         _effectiveKanbanStage: eff,
+        _rawKanbanStage: String(stub.kanban_stage || "hold").toLowerCase(),
+        _trimSignalPending: hasTrimSignalPending(stub, openTr),
         _injectedOpenTrade: true
       });
     });
@@ -1692,7 +1728,7 @@ function ActiveTraderApp() {
     className: "at-chip" + (filterLane === "trim" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "trim" ? null : "trim"),
     disabled: laneCounts.trim === 0,
-    title: "Open positions where the model trimmed today"
+    title: "Positions with a partial trim executed today (not trim signals awaiting execution)"
   }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
@@ -1843,6 +1879,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782319132266:137031678
+// cache-bust:1782322736008:578010489
 
-// cache-bust:1782319132266:137031678
+// cache-bust:1782322736008:578010489
