@@ -3677,17 +3677,14 @@
 
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
 
-        // 2026-06-10 — Rail IA consolidation: 9 tabs → 4 groups
-        // (Now / Trade / Invest / Context). The INTERNAL railTab keys are
-        // unchanged (SNAPSHOT / SETUP / OPTIONS / INVESTOR / TECHNICALS /
-        // FUNDAMENTALS / CATALYSTS / HISTORY) so every data-fetch gate,
-        // deep link (?railTab=OPTIONS) and initialRailTab keeps working.
-        // The nav renders the 4 group pills; groups with multiple member
-        // tabs show a secondary sub-pill row. This ref remembers the last
-        // sub-tab visited per group so re-entering a group restores it.
+        // 2026-06-23 — Rail IA: 5 top-level groups (Now / Trade / Options /
+        // Invest / Context). INTERNAL railTab keys unchanged (SNAPSHOT /
+        // SETUP / OPTIONS / …) so data-fetch gates and ?railTab= deep
+        // links keep working. Trade is Setup-only; Options is its own pill.
         const RAIL_TAB_GROUP_OF = {
           SNAPSHOT: "NOW",
-          SETUP: "TRADE", OPTIONS: "TRADE",
+          SETUP: "TRADE",
+          OPTIONS: "OPTIONS",
           INVESTOR: "INVEST",
           TECHNICALS: "CONTEXT", FUNDAMENTALS: "CONTEXT", CATALYSTS: "CONTEXT", HISTORY: "CONTEXT",
         };
@@ -6691,8 +6688,9 @@
               {children}
             </div>
           );
-          const renderSequenceShadowPanel = () => {
+          const renderSequenceShadowPanel = (opts = {}) => {
             if (typeof window === "undefined" || !window._ttIsAdmin) return null;
+            const compact = opts.compact === true || v2RailTab === "SETUP";
             const humanizeKey = (k) => {
               if (!k) return "";
               return String(k).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -6818,7 +6816,7 @@
               if (!Number.isFinite(n) || n <= 0) return null;
               return `$${n.toFixed(2)}`;
             };
-            const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
+            const renderSequenceStageJourney = (seq, eventById, accentColor, dir, journeyCompact = false) => {
               const seqId = seq?.sequence_id ? String(seq.sequence_id) : String(seq?.direction || "seq");
               const currentStage = Number(seq?.stage) || 0;
               const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
@@ -6913,11 +6911,15 @@
                   <div style={{
                     fontSize: 10,
                     color: "var(--ds-text-faint)",
-                    marginBottom: 8,
+                    marginBottom: journeyCompact ? 0 : 8,
                     fontFamily: "var(--tt-font-mono)",
                   }}>
                     Stage {currentStage} of {maxStage}
+                    {journeyCompact && nextDef && currentStage < maxStage
+                      ? ` · Next: ${nextDef.label}`
+                      : ""}
                   </div>
+                  {!journeyCompact && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {SEQUENCE_STAGE_DEFS.filter((def) => {
                       const r = resultsByStage.get(def.stage);
@@ -7047,6 +7049,7 @@
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
               );
             };
@@ -7083,7 +7086,9 @@
             return (
               <Panel
                 title="Sequence (shadow)"
-                action={(
+                action={compact ? (
+                  <span className="ds-chip ds-chip--sm ds-chip--solid" title="Shadow-only — does not affect live entry or kanban">SHADOW</span>
+                ) : (
                   <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                     <span className="ds-chip ds-chip--sm ds-chip--solid" title="Shadow-only — does not affect live entry or kanban">SHADOW</span>
                     {sharedArchetype && active.length > 0 && (
@@ -7112,14 +7117,16 @@
                 )}
                 {setupShadowDiag && !setupShadowError && (
                   <>
-                    <p style={{
-                      margin: "0 0 var(--ds-space-2) 0",
-                      fontSize: "var(--ds-fs-caption)",
-                      color: "var(--ds-text-muted)",
-                      lineHeight: 1.5,
-                    }}>
-                      Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban.
-                    </p>
+                    {!compact && (
+                      <p style={{
+                        margin: "0 0 var(--ds-space-2) 0",
+                        fontSize: "var(--ds-fs-caption)",
+                        color: "var(--ds-text-muted)",
+                        lineHeight: 1.5,
+                      }}>
+                        Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban.
+                      </p>
+                    )}
                     {setupShadowDiag.empty && (
                       <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
                         No trail snapshots in the lookback window yet.
@@ -7128,37 +7135,69 @@
                     )}
                     {!setupShadowDiag.empty && (
                     <>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
-                      {ctx.vix_regime && <span className="ds-chip ds-chip--sm ds-chip--solid" title="VIX regime context">VIX {ctx.vix_regime}</span>}
-                      {ctx.index_posture && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Index posture context">Index {ctx.index_posture}</span>}
-                      {ctx.ticker_personality && <span className="ds-chip ds-chip--sm ds-chip--accent" title="Ticker personality">{String(ctx.ticker_personality).replace(/_/g, " ")}</span>}
-                      {setupShadowDiag.snapshot_source && (
-                        <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9 }} title="Trail snapshot source">
-                          {setupShadowDiag.snapshot_count || 0} snaps · {setupShadowDiag.snapshot_source}
-                          {setupShadowDiag.inline_from_payload ? " · live payload" : ""}
-                        </span>
-                      )}
-                      {setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates && (
-                        <>
-                          {setupShadowDiag.setup_gates.stack_full_confirm && (
+                    {(() => {
+                      const ctxChips = [
+                        ctx.vix_regime && { key: "vix", label: `VIX ${ctx.vix_regime}`, cls: "ds-chip--solid", title: "VIX regime context" },
+                        ctx.index_posture && { key: "idx", label: `Index ${ctx.index_posture}`, cls: "ds-chip--solid", title: "Index posture context" },
+                        ctx.ticker_personality && { key: "pers", label: String(ctx.ticker_personality).replace(/_/g, " "), cls: "ds-chip--accent", title: "Ticker personality" },
+                        setupShadowDiag.snapshot_source && {
+                          key: "snaps",
+                          label: `${setupShadowDiag.snapshot_count || 0} snaps · ${setupShadowDiag.snapshot_source}${setupShadowDiag.inline_from_payload ? " · live payload" : ""}`,
+                          cls: "",
+                          title: "Trail snapshot source",
+                          mono: true,
+                        },
+                        setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.stack_full_confirm && {
+                          key: "confirm",
+                          label: `Confirm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}`,
+                          cls: setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid",
+                          title: "Shadow: stack_full_confirm (120h lookback)",
+                        },
+                        setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.gate_runway_full && {
+                          key: "runway",
+                          label: `Runway ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}`,
+                          cls: setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid",
+                          title: "Shadow: TD9 + RSI div + confirm stack (120h lookback)",
+                        },
+                      ].filter(Boolean);
+                      if (!ctxChips.length) return null;
+                      const chipRow = (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                          {ctxChips.map((c) => (
                             <span
-                              className={`ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid"}`}
-                              title="Shadow: stack_full_confirm (120h lookback)"
+                              key={c.key}
+                              className={`ds-chip ds-chip--sm ${c.cls || ""}`}
+                              style={c.mono ? { fontFamily: "var(--tt-font-mono)", fontSize: 9 } : undefined}
+                              title={c.title}
                             >
-                              Confirm {setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}
+                              {c.label}
                             </span>
-                          )}
-                          {setupShadowDiag.setup_gates.gate_runway_full && (
-                            <span
-                              className={`ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid"}`}
-                              title="Shadow: TD9 + RSI div + confirm stack (120h lookback)"
-                            >
-                              Runway {setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </div>
+                          ))}
+                        </div>
+                      );
+                      if (!compact) {
+                        return (
+                          <div style={{ marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
+                            {chipRow}
+                          </div>
+                        );
+                      }
+                      return (
+                        <details style={{ marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
+                          <summary style={{
+                            cursor: "pointer",
+                            fontSize: 10,
+                            color: "var(--ds-text-faint)",
+                            letterSpacing: "0.06em",
+                            fontWeight: 600,
+                            marginBottom: 4,
+                          }}>
+                            Context & diagnostics
+                          </summary>
+                          {chipRow}
+                        </details>
+                      );
+                    })()}
                     {active.length > 0 ? (() => {
                       const primarySeq = sortedActive.find((s) => {
                         const id = s?.sequence_id ? String(s.sequence_id) : "";
@@ -7190,6 +7229,21 @@
                               {isPrimary && (
                                 <span className="ds-chip ds-chip--sm ds-chip--accent" title="Highest-stage active sequence drives trader posture">Primary</span>
                               )}
+                              {isPrimary && seq?.sequence_type && (
+                                <span className="ds-chip ds-chip--sm ds-chip--accent" title="Setup sequence archetype">
+                                  {sequenceArchetypeLabel(seq.sequence_type)}
+                                </span>
+                              )}
+                              {isPrimary && Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && compact && (
+                                <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Active sequence stage">
+                                  S{Number(tp.stage)}
+                                </span>
+                              )}
+                              {isPrimary && postureLabel && postureLabel !== "Neutral" && compact && (
+                                <span className={`ds-chip ds-chip--sm ${postureChipCls}`} title="Derived trader posture from setup sequences">
+                                  {postureLabel}
+                                </span>
+                              )}
                               {!isPrimary && (
                                 <span className="ds-chip ds-chip--sm ds-chip--solid" title="Alternate direction still forming in shadow">Alternate</span>
                               )}
@@ -7200,13 +7254,13 @@
                                 </span>
                               )}
                             </div>
-                            {full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir)}
-                            {full && seq.posture && (
+                            {full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir, compact)}
+                            {full && !compact && seq.posture && (
                               <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
                                 {seq.posture}
                               </div>
                             )}
-                            {full && pf?.primary_path && (
+                            {full && pf?.primary_path && !compact && (
                               <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
                                 Path: {humanizeKey(pf.primary_path)}
                                 {Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""}
@@ -7786,16 +7840,12 @@
                        back to SNAPSHOT so they don't see an empty body.
                     */}
                     {(() => {
-                      // 2026-06-10 — IA consolidation: 9 tabs → 4 groups
-                      // (Now / Trade / Invest / Context) with a verdict-first
-                      // Snapshot. Operator constraints honored: Options and
-                      // Fundamentals are RETAINED (as sub-tabs of Trade /
-                      // Context); the chart stays (persistent left pane on
-                      // desktop, CHART pill on mobile). Internal railTab keys
-                      // are unchanged so data gates + deep links keep working.
+                      // 2026-06-23 — 5 top-level groups: Options promoted out
+                      // of Trade (Setup-only). Fundamentals stays under Context.
                       const RAIL_GROUPS = [
                         { key: "NOW", label: "Now", tabs: [["SNAPSHOT", "Snapshot"]] },
-                        { key: "TRADE", label: "Trade", tabs: [["SETUP", "Setup"], ["OPTIONS", "Options"]] },
+                        { key: "TRADE", label: "Trade", tabs: [["SETUP", "Setup"]] },
+                        { key: "OPTIONS", label: "Options", tabs: [["OPTIONS", "Options"]] },
                         { key: "INVEST", label: "Invest", tabs: [["INVESTOR", "Investor"]] },
                         { key: "CONTEXT", label: "Context", tabs: [["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]] },
                       ];
@@ -10229,8 +10279,6 @@
                         );
                       })()}
 
-                      {renderSequenceShadowPanel()}
-
                       {/* 2026-06-03 — Trader Root Verdict restructured to
                           mirror the Investor Lane Guidance pattern (Panel +
                           "WHAT TO DO" hero block + metric grid + "WHY" line).
@@ -11228,6 +11276,8 @@
                           </div>
                         </Panel>
                       )}
+
+                      {renderSequenceShadowPanel({ compact: true })}
                     </>
                   )}
 

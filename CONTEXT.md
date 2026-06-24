@@ -133,6 +133,20 @@ root redirect lives in `react-app/_worker.js`.
 <script src="shared-rail-bootstrap.js?v=..."></script>
 ```
 
+**Right rail IA (2026-06-23):** five top-level pills — Now / Trade / Options /
+Invest / Context. Trade is Setup-only; Options is its own pill (not a
+Trade sub-tab). On Trade, **Sequence (shadow)** is the **last** panel
+(admin-gated); compact mode dedupes posture/stage chips vs Entry Decision.
+Handoff: `tasks/2026-06-23-journey-ux-handoff.md`.
+
+**Active Trader kanban (2026-06-23):** four DOING lanes — Holding, Defending,
+Trimming (trim **today** only via `tradeTrimmedToday()`), Closed. Exiting
+lane removed; engine `exit`/`exiting` → Defending.
+
+**Investor kanban (2026-06-23):** DOING band above WATCHING; bubble map has
+lane filter chips (On Radar, Queued, Hold & Watch, etc.). After shared-JS
+merges always run full `npm run build:frontend` or browsers keep stale `?v=`.
+
 **VIX (2026-06-23):** Canonical symbol is `VIX` (TwelveData CBOE index).
 VX1! TV futures removed from feed overlays; Daily Brief / Today charts use
 VIX not VIXY. Legacy `VX1!` KV reads kept as fallback only. Handoff:
