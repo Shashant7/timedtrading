@@ -319,11 +319,23 @@
       .inv-bubble-row { margin-top: 40px; }
       .inv-bubble-head {
         display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .inv-bubble-head-top {
+        display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 18px;
         flex-wrap: wrap;
-        margin-bottom: 14px;
+        width: 100%;
+      }
+      .inv-bubble-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        width: 100%;
       }
       .inv-bubble-legend {
         display: flex;
@@ -547,13 +559,49 @@
         return { cache, ensure };
       }
 
+      const INV_BUBBLE_MAP_FILTERS = [
+        { id: "ON_RADAR", label: "On Radar", title: "Not owned — moderate score, worth tracking" },
+        { id: "QUEUED", label: "Queued", title: "Execution-ready accumulate — waits for next rebalance" },
+        { id: "HOLD_WATCH", label: "Hold & Watch", title: "Owned — mixed signals, model says hold" },
+        { id: "CORE_HOLD", label: "Core Hold", title: "Owned core position — trend remains solid" },
+        { id: "OPEN", label: "Open Positions", title: "Any ticker with an investor lot in the book" },
+        { id: "TT_SELECTED", label: "TT Selected", title: "Timed Trading curated universe (GRNI / GRNJ / UPTICKS)" },
+        { id: "REDUCING", label: "Reducing", title: "Owned — weakness, model may trim on trigger" },
+      ];
+
+      function investorBubbleRow(sym, scoreRow, dataTicker) {
+        return scoreRow
+          ? { ...(dataTicker || {}), ...scoreRow, ticker: sym }
+          : { ...(dataTicker || {}), ticker: sym };
+      }
+
+      function passesInvestorBubbleMapFilter(filterId, sym, scoreRow, dataTicker) {
+        if (!filterId) return true;
+        const resolveStage = window.TTInvestorLane?.resolveKanbanStage;
+        const row = investorBubbleRow(sym, scoreRow, dataTicker);
+        const lane = resolveStage
+          ? resolveStage(row)
+          : String(scoreRow?.stage || scoreRow?.investor_stage || "").toLowerCase();
+        switch (String(filterId).toUpperCase()) {
+          case "ON_RADAR": return lane === "research_on_watch";
+          case "QUEUED": return lane === "accumulate_queued";
+          case "HOLD_WATCH": return lane === "watch";
+          case "CORE_HOLD": return lane === "core_hold";
+          case "REDUCING": return lane === "reduce";
+          case "OPEN": return !!(scoreRow?.position?.owned);
+          case "TT_SELECTED":
+            return typeof window.isTickerTTSelected === "function" && window.isTickerTTSelected(sym);
+          default: return true;
+        }
+      }
+
       // ── InvBubbleMap — renders the shared BubbleChart filtered to
       //    tickers the Investor panel actually surfaces. Now respects
       //    the page-level search + filter chips (All / Actionable /
       //    Saved) so the bubble plot scope matches what the cards
       //    below show. User feedback: "The Search and Filters should
       //    apply to the Bubble Map as well."
-      function InvBubbleMap({ data, scores, onSelectTicker, searchQuery, setSearchQuery, filterGroup, savedTickers }) {
+      function InvBubbleMap({ data, scores, onSelectTicker, searchQuery, setSearchQuery, filterGroup, savedTickers, bubbleMapFilter, onBubbleMapFilterChange }) {
         const SharedChart = window.TimedBubbleChart?.BubbleChart || null;
         const getRankedTickers = window.TimedBubbleChart?.getRankedTickers || null;
         const [hovered, setHovered] = useState(null);
@@ -642,56 +690,64 @@
           return () => clearTimeout(t);
         }, [bubbleSearchOpen]);
 
+        const passesBaseBubbleFilters = useCallback((t, sym) => {
+          const filter = String(filterGroup || "").toUpperCase();
+          if (searchQuery && !matchSearch(sym, searchQuery)) return false;
+          if (filter === "SAVED") {
+            if (!savedTickers || savedTickers.size === 0) return false;
+            if (!savedTickers.has(sym)) return false;
+          }
+          if (filter === "INVESTOR_ACTIONABLE") {
+            const stage = stageBySym.get(sym) || "";
+            if (stage !== "accumulate" && stage !== "reduce") return false;
+          }
+          if (filter === "SIM_ELIGIBLE") {
+            const stage = stageBySym.get(sym) || "";
+            if (stage !== "accumulate" && stage !== "reduce") return false;
+            const scoreRow = scoreBySym.get(sym);
+            if (scoreRow && typeof scoreRow.simEligible === "boolean") {
+              if (!scoreRow.simEligible) return false;
+            } else {
+              const dStBull = t?.tf_tech?.D?.stDir === -1;
+              const wStBull = t?.tf_tech?.W?.stDir === -1;
+              const mStBull = t?.monthly_bundle?.supertrend_dir === -1;
+              if (!mStBull) return false;
+              const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
+              if (bullCount < 2) return false;
+            }
+          }
+          const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
+          if (stage && stage !== "null") return true;
+          return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+        }, [filterGroup, savedTickers, searchQuery, stageBySym, scoreBySym, matchSearch]);
+
+        const bubbleFilterCounts = useMemo(() => {
+          if (!data) return {};
+          const counts = { ALL: 0 };
+          for (const f of INV_BUBBLE_MAP_FILTERS) counts[f.id] = 0;
+          const entries = Object.entries(data)
+            .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }));
+          for (const t of entries) {
+            const sym = String(t?.ticker || "").toUpperCase();
+            if (!sym || !passesBaseBubbleFilters(t, sym)) continue;
+            counts.ALL++;
+            const scoreRow = scoreBySym.get(sym) || null;
+            for (const f of INV_BUBBLE_MAP_FILTERS) {
+              if (passesInvestorBubbleMapFilter(f.id, sym, scoreRow, t)) counts[f.id]++;
+            }
+          }
+          return counts;
+        }, [data, passesBaseBubbleFilters, scoreBySym]);
+
         const visible = useMemo(() => {
           if (!data) return [];
-          const filter = String(filterGroup || "").toUpperCase();
           const arr = Object.entries(data)
             .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
             .filter((t) => {
               const sym = String(t?.ticker || "").toUpperCase();
-              if (searchQuery && !matchSearch(sym, searchQuery)) return false;
-              // Saved filter — same as the panel.
-              if (filter === "SAVED") {
-                if (!savedTickers || savedTickers.size === 0) return false;
-                if (!savedTickers.has(sym)) return false;
-              }
-              // Actionable filter — Accumulate or Reduce stage from
-              // /timed/investor/scores. Matches the panel's
-              // INVESTOR_ACTIONABLE filter exactly.
-              if (filter === "INVESTOR_ACTIONABLE") {
-                const stage = stageBySym.get(sym) || "";
-                if (stage !== "accumulate" && stage !== "reduce") return false;
-              }
-              // 2026-06-01 — Sim-eligible: same Accumulate / Reduce
-              // gate as Actionable, AND the D/W/M SuperTrend alignment
-              // the simulator enforces in worker/index.js:36692-36698.
-              // Required: Monthly bullish AND ≥2 of (D, W, M) bullish.
-              //
-              // The scoring cron pre-computes the `simEligible` boolean
-              // on each /timed/investor/scores row, so we prefer that.
-              // Fall back to recomputing from `data` structural fields
-              // for tickers that exist in the universe payload but not
-              // in scores yet (rare; off-cycle adds).
-              if (filter === "SIM_ELIGIBLE") {
-                const stage = stageBySym.get(sym) || "";
-                if (stage !== "accumulate" && stage !== "reduce") return false;
-                const scoreRow = scoreBySym.get(sym);
-                if (scoreRow && typeof scoreRow.simEligible === "boolean") {
-                  if (!scoreRow.simEligible) return false;
-                } else {
-                  const dStBull = t?.tf_tech?.D?.stDir === -1;
-                  const wStBull = t?.tf_tech?.W?.stDir === -1;
-                  const mStBull = t?.monthly_bundle?.supertrend_dir === -1;
-                  if (!mStBull) return false;
-                  const bullCount = (dStBull ? 1 : 0) + (wStBull ? 1 : 0) + (mStBull ? 1 : 0);
-                  if (bullCount < 2) return false;
-                }
-              }
-              // Default: keep tickers with an investor_stage OR a
-              // non-zero scoring signal so the chart has context.
-              const stage = String(t?.investor_stage || stageBySym.get(sym) || "").toLowerCase();
-              if (stage && stage !== "null") return true;
-              return Number(t?.htf_score) !== 0 || Number(t?.ltf_score) !== 0;
+              if (!passesBaseBubbleFilters(t, sym)) return false;
+              const scoreRow = scoreBySym.get(sym) || null;
+              return passesInvestorBubbleMapFilter(bubbleMapFilter, sym, scoreRow, t);
             });
           /* 2026-06-02 — Attach Investor-side action + stage so the
              shared BubbleChart renders the Investor badge (ACCUMULATE
@@ -708,7 +764,7 @@
               _investorStageReason: scoreRow?.stageReason || scoreRow?.stage_reason || null,
             } : t;
           });
-        }, [data, scores, searchQuery, filterGroup, savedTickers, stageBySym, scoreBySym, investorActionBySym, matchSearch]);
+        }, [data, scores, searchQuery, filterGroup, savedTickers, bubbleMapFilter, stageBySym, scoreBySym, investorActionBySym, matchSearch, passesBaseBubbleFilters]);
 
         const rankedTickers = useMemo(() => {
           if (!getRankedTickers || !data) return [];
@@ -720,92 +776,115 @@
           return m;
         }, [rankedTickers]);
 
-        if (!SharedChart || visible.length === 0) return null;
+        if (!SharedChart) return null;
 
         return h("section", { className: "tt-row inv-bubble-row" },
           h("div", { className: "inv-bubble-head" },
-            h("div", null,
-              h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
-              h("h2", { className: "tt-sec-h2" }, "Where the long-horizon universe sits on momentum \u00d7 trend"),
-              h("p", { className: "tt-sec-sub" }, `${visible.length} tickers`),
+            h("div", { className: "inv-bubble-head-top" },
+              h("div", null,
+                h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
+                h("h2", { className: "tt-sec-h2" }, "Where the long-horizon universe sits on momentum \u00d7 trend"),
+                h("p", { className: "tt-sec-sub" }, `${visible.length} tickers${bubbleMapFilter ? " (filtered)" : ""}`),
+              ),
+              h("div", { className: "inv-bubble-legend" },
+                h("span", null, h("span", { className: "bdot", style: { background: "#22c55e" } }), "Bull aligned"),
+                h("span", null, h("span", { className: "bdot", style: { background: "#38F2A1" } }), "Pullback"),
+                h("span", null, h("span", { className: "bdot", style: { background: "#f43f5e" } }), "Bear aligned"),
+              ),
             ),
-            h("div", { className: "inv-bubble-legend" },
-              h("span", null, h("span", { className: "bdot", style: { background: "#22c55e" } }), "Bull aligned"),
-              h("span", null, h("span", { className: "bdot", style: { background: "#38F2A1" } }), "Pullback"),
-              h("span", null, h("span", { className: "bdot", style: { background: "#f43f5e" } }), "Bear aligned"),
+            h("div", { className: "inv-bubble-filters", role: "toolbar", "aria-label": "Bubble map lane filters" },
+              h("button", {
+                type: "button",
+                className: "inv-chip" + (!bubbleMapFilter ? " active" : ""),
+                onClick: () => onBubbleMapFilterChange && onBubbleMapFilterChange(null),
+                title: "Show all tickers in scope",
+              }, `All${bubbleFilterCounts.ALL > 0 ? ` (${bubbleFilterCounts.ALL})` : ""}`),
+              INV_BUBBLE_MAP_FILTERS.map((f) => h("button", {
+                key: f.id,
+                type: "button",
+                className: "inv-chip" + (bubbleMapFilter === f.id ? " active" : ""),
+                onClick: () => onBubbleMapFilterChange && onBubbleMapFilterChange(bubbleMapFilter === f.id ? null : f.id),
+                disabled: !(bubbleFilterCounts[f.id] > 0),
+                title: f.title,
+              }, `${f.label}${bubbleFilterCounts[f.id] > 0 ? ` (${bubbleFilterCounts[f.id]})` : ""}`)),
             ),
           ),
           h("div", { className: "tt-card inv-bubble-card" },
-            h("div", { className: "inv-bubble-stage" },
-              h(SharedChart, {
-                tickers: visible,
-                allData: data,
-                rankedTickers,
-                rankedTickerPositions,
-                hoveredTicker: hovered,
-                onHover: setHovered,
-                onBubbleClick: (sym) => {
-                  if (typeof onSelectTicker === "function") onSelectTicker(sym);
-                  else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+            visible.length === 0
+              ? h("div", {
+                  className: "inv-bubble-stage",
+                  style: { display: "flex", alignItems: "center", justifyContent: "center", color: "var(--tt-text-muted)", fontSize: 14 },
+                }, "No tickers match the current bubble map filters.")
+              : h("div", { className: "inv-bubble-stage" },
+                h(SharedChart, {
+                  tickers: visible,
+                  allData: data,
+                  rankedTickers,
+                  rankedTickerPositions,
+                  hoveredTicker: hovered,
+                  onHover: setHovered,
+                  onBubbleClick: (sym) => {
+                    if (typeof onSelectTicker === "function") onSelectTicker(sym);
+                    else window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+                  },
+                  onBackgroundClick: () => setBubbleSearchOpen(true),
+                  selectedTicker: null,
+                  selectedTrail: null,
+                  isTimeTravelActive: false,
+                  highlightTrailPoint: null,
+                  thesisMode: false,
+                  forwardReturns: null,
+                  activeInsightTickers: null,
+                  layoutMode: "score",
+                  tooltipMode: "investor",
+                }),
+                bubbleSearchOpen && h("div", {
+                  className: "bm-quick-search-overlay",
+                  onClick: (e) => { if (e.target === e.currentTarget) setBubbleSearchOpen(false); },
                 },
-                onBackgroundClick: () => setBubbleSearchOpen(true),
-                selectedTicker: null,
-                selectedTrail: null,
-                isTimeTravelActive: false,
-                highlightTrailPoint: null,
-                thesisMode: false,
-                forwardReturns: null,
-                activeInsightTickers: null,
-                layoutMode: "score",
-                tooltipMode: "investor",
-              }),
-              bubbleSearchOpen && h("div", {
-                className: "bm-quick-search-overlay",
-                onClick: (e) => { if (e.target === e.currentTarget) setBubbleSearchOpen(false); },
-              },
-                h("div", {
-                  className: "bm-quick-search-panel",
-                  onClick: (e) => e.stopPropagation(),
-                },
-                  h("div", { className: "bm-quick-search-head" },
-                    h("span", { className: "bm-quick-search-title" }, "Search tickers"),
-                    h("button", {
-                      type: "button",
-                      className: "bm-quick-search-close",
-                      onClick: () => setBubbleSearchOpen(false),
-                      "aria-label": "Close search",
-                    }, "\u00d7"),
-                  ),
-                  h("input", {
-                    ref: bubbleSearchRef,
-                    type: "search",
-                    className: "bm-quick-search-input",
-                    placeholder: "Search tickers (e.g. NVDA, MSFT, TSLA)",
-                    value: searchQuery || "",
-                    onChange: (e) => {
-                      if (typeof setSearchQuery === "function") setSearchQuery(e.target.value);
-                    },
-                    onKeyDown: (e) => {
-                      if (e.key === "Escape") {
-                        setBubbleSearchOpen(false);
-                        return;
-                      }
-                      if (e.key !== "Enter") return;
-                      const raw = String(e.target.value || "").trim().toUpperCase();
-                      if (!raw || raw.includes(",")) return;
-                      const hit = visible.find((t) => String(t?.ticker || "").toUpperCase() === raw);
-                      if (hit && typeof onSelectTicker === "function") {
-                        onSelectTicker(raw);
-                        setBubbleSearchOpen(false);
-                      }
-                    },
-                  }),
-                  h("p", { className: "bm-quick-search-hint" },
-                    "Comma-separated lists filter multiple tickers. Press Enter on a single symbol to open its card.",
+                  h("div", {
+                    className: "bm-quick-search-panel",
+                    onClick: (e) => e.stopPropagation(),
+                  },
+                    h("div", { className: "bm-quick-search-head" },
+                      h("span", { className: "bm-quick-search-title" }, "Search tickers"),
+                      h("button", {
+                        type: "button",
+                        className: "bm-quick-search-close",
+                        onClick: () => setBubbleSearchOpen(false),
+                        "aria-label": "Close search",
+                      }, "\u00d7"),
+                    ),
+                    h("input", {
+                      ref: bubbleSearchRef,
+                      type: "search",
+                      className: "bm-quick-search-input",
+                      placeholder: "Search tickers (e.g. NVDA, MSFT, TSLA)",
+                      value: searchQuery || "",
+                      onChange: (e) => {
+                        if (typeof setSearchQuery === "function") setSearchQuery(e.target.value);
+                      },
+                      onKeyDown: (e) => {
+                        if (e.key === "Escape") {
+                          setBubbleSearchOpen(false);
+                          return;
+                        }
+                        if (e.key !== "Enter") return;
+                        const raw = String(e.target.value || "").trim().toUpperCase();
+                        if (!raw || raw.includes(",")) return;
+                        const hit = visible.find((t) => String(t?.ticker || "").toUpperCase() === raw);
+                        if (hit && typeof onSelectTicker === "function") {
+                          onSelectTicker(raw);
+                          setBubbleSearchOpen(false);
+                        }
+                      },
+                    }),
+                    h("p", { className: "bm-quick-search-hint" },
+                      "Comma-separated lists filter multiple tickers. Press Enter on a single symbol to open its card.",
+                    ),
                   ),
                 ),
               ),
-            ),
           ),
         );
       }
@@ -1166,6 +1245,7 @@
         // Search + filter state — rendered inside InvestorPanel above kanban.
         const [searchQuery, setSearchQuery] = useState("");
         const [filterGroup, setFilterGroup] = useState(null);
+        const [bubbleMapFilter, setBubbleMapFilter] = useState(null);
 
         return h(React.Fragment, null,
           !panelMounted && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Investor" }),
@@ -1236,6 +1316,8 @@
               filterGroup,
               savedTickers: saved,
               onSelectTicker,
+              bubbleMapFilter,
+              onBubbleMapFilterChange: setBubbleMapFilter,
             }),
           ),
           // Right rail slide-in (TickerDetailRightRail).
