@@ -18,6 +18,7 @@ const SECTOR_ETF_INDUSTRY = {
   XLV: "Health Care Sector ETF", XLI: "Industrial Sector ETF", XLY: "Consumer Discretionary Sector ETF",
   XLP: "Consumer Staples Sector ETF", XLU: "Utilities Sector ETF", XLB: "Materials Sector ETF",
   XLRE: "Real Estate Sector ETF", XLC: "Communication Services Sector ETF",
+  SMH: "Semiconductor Sector ETF", SOXX: "Semiconductor Sector ETF",
 };
 
 function inferMetadataFallback(sym, partial = {}) {
@@ -62,7 +63,8 @@ function inferMetadataFallback(sym, partial = {}) {
   }
   const themed = {
     KWEB: "China Internet ETF", IGV: "Software ETF", IBB: "Biotech ETF",
-    SOXL: "Semiconductor ETF", LIT: "Lithium ETF", XHB: "Homebuilders ETF",
+    SOXL: "Semiconductor ETF", SMH: "Semiconductor Sector ETF", SOXX: "Semiconductor Sector ETF",
+    LIT: "Lithium ETF", XHB: "Homebuilders ETF",
     INFL: "Inflation ETF", VIX: "VIX Index", VIXY: "Volatility ETF", GRNY: "Growth ETF",
     GRNI: "Growth ETF", GRNJ: "Growth ETF", ETHA: "Ethereum ETF",
   };

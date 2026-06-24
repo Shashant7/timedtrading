@@ -174,6 +174,8 @@ const COMPANY_NAMES = {
   SO: "Southern Company",
   SOFI: "SoFi",
   SOXL: "Semis 3x ETF",
+  SMH: "VanEck Semiconductor ETF",
+  SOXX: "iShares Semiconductor ETF",
   SPCX: "SPAC & New Issue ETF",
   SPGI: "S&P Global",
   SPG: "Simon Property",
@@ -265,6 +267,14 @@ const CONTEXT_FALLBACKS = {
   ARM: {
     name: "Arm Holdings",
     industry: "Semiconductors"
+  },
+  SMH: {
+    name: "VanEck Semiconductor ETF",
+    industry: "Semiconductor Sector ETF"
+  },
+  SOXX: {
+    name: "iShares Semiconductor ETF",
+    industry: "Semiconductor Sector ETF"
   },
   "BRK-B": {
     name: "Berkshire Hathaway",
@@ -2024,6 +2034,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1782336700132:742177905
+// cache-bust:1782340258869:112861161
 
-// cache-bust:1782336700132:742177905
+// cache-bust:1782340258869:112861161
