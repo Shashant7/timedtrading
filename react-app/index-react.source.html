@@ -13582,7 +13582,9 @@
 
         // ── VIX level + bucket (from VIXY proxy × 0.55 heuristic, or a VIX ticker if available)
         const vix = React.useMemo(() => {
-          const vixTkr = (data && typeof data === "object") ? (data["VIX"] || data["$VIX"] || data["^VIX"]) : null;
+          const vixTkr = (data && typeof data === "object")
+            ? (data["VIX"] || data["$VIX"] || data["^VIX"] || data["VX1!"])
+            : null;
           const vixy = (data && typeof data === "object") ? data["VIXY"] : null;
           let level = null;
           if (vixTkr) {

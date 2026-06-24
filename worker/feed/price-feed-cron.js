@@ -34,6 +34,7 @@ import {
   lightweightRestRefreshDue,
 } from "./extended-hours.js";
 import { applyMacroPriceAliases, syncMacroLatestStubs } from "../futures-proxy.js";
+import { ensureVixLevel } from "../vix-source.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
 function feedPollTimestamp(nowMs = Date.now()) {
@@ -274,6 +275,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             } catch (_) {}
           }
           applyMacroPriceAliases(existing);
+          await ensureVixLevel(env, existing).catch((e) =>
+            console.warn("[VIX LEVEL LIGHT]", String(e?.message || e).slice(0, 120)),
+          );
 
           // 2. Overlay crypto from Alpaca snapshots
           let cryptoUpdated = 0;
@@ -506,6 +510,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           } catch (_) {}
         }
         applyMacroPriceAliases(prices);
+        await ensureVixLevel(env, prices).catch((e) =>
+          console.warn("[VIX LEVEL]", String(e?.message || e).slice(0, 120)),
+        );
 
         // ── 2026-06-10 — PER-SYMBOL STALE SWEEP (SMCI incident) ────────────
         // A VIP user caught SMCI displayed at $41.64 while the real price
