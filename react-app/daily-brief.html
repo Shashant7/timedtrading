@@ -978,6 +978,25 @@
       }
 
       // ── Brief Card Component ───────────────────────────────────────────────
+      function SessionContextBanner({ sessionContext }) {
+        if (!sessionContext?.message) return null;
+        return (
+          <div
+            className="mb-4 rounded-lg border px-4 py-3 text-[13px] leading-relaxed"
+            style={{
+              borderColor: "rgba(245, 158, 11, 0.35)",
+              background: "rgba(245, 158, 11, 0.08)",
+              color: "#E8F2EC",
+            }}
+          >
+            <div className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ color: "#f59e0b" }}>
+              Live session update
+            </div>
+            {sessionContext.message}
+          </div>
+        );
+      }
+
       function BriefCard({ brief, type }) {
         if (!brief) return null;
         const isMorning = type === "morning";
@@ -1004,6 +1023,9 @@
               </h2>
             </div>
             {brief.infographic && <BriefInfographic data={brief.infographic} />}
+            {isMorning && brief.sessionContext && (
+              <SessionContextBanner sessionContext={brief.sessionContext} />
+            )}
             <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(brief.content) }} />
             {!isMorning && brief.croNote && (
               <CRODeskWrapPanel croNote={brief.croNote} accentColor={accentColor} />

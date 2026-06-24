@@ -777,6 +777,24 @@ function IndexOutlookSection({
     embedded: true
   }));
 }
+function SessionContextBanner({
+  sessionContext
+}) {
+  if (!sessionContext?.message) return null;
+  return React.createElement("div", {
+    className: "mb-4 rounded-lg border px-4 py-3 text-[13px] leading-relaxed",
+    style: {
+      borderColor: "rgba(245, 158, 11, 0.35)",
+      background: "rgba(245, 158, 11, 0.08)",
+      color: "#E8F2EC"
+    }
+  }, React.createElement("div", {
+    className: "text-[10px] font-semibold uppercase tracking-wider mb-1",
+    style: {
+      color: "#f59e0b"
+    }
+  }, "Live session update"), sessionContext.message);
+}
 function BriefCard({
   brief,
   type
@@ -823,6 +841,8 @@ function BriefCard({
     }
   }, dateStr)), brief.infographic && React.createElement(BriefInfographic, {
     data: brief.infographic
+  }), isMorning && brief.sessionContext && React.createElement(SessionContextBanner, {
+    sessionContext: brief.sessionContext
   }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
@@ -2709,6 +2729,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1782304754370:925227984
+// cache-bust:1782307306286:45090518
 
-// cache-bust:1782304754370:925227984
+// cache-bust:1782307306286:45090518
