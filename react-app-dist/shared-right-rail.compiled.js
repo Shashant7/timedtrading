@@ -25,8 +25,23 @@
       flexDirection: "column",
       gap: "var(--ds-space-3)",
       paddingBottom: RAIL_TAB_SCROLL_PAD,
-      WebkitOverflowScrolling: "touch"
+      WebkitOverflowScrolling: "touch",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box"
     };
+    const investorRailContainStyle = {
+      width: "100%",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box"
+    };
+    const investorRailTextStyle = {
+      ...investorRailContainStyle,
+      overflowWrap: "break-word",
+      wordBreak: "break-word"
+    };
+    const sanitizeUserFacingCopy = text => typeof window !== "undefined" && window.TimedRailHelpers?.sanitizeUserFacingCopy ? window.TimedRailHelpers.sanitizeUserFacingCopy(text) : String(text || "").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim();
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -1261,7 +1276,7 @@
       })();
       const holdingTrade = tradeOpen ? effectiveTrade : null;
       const hasHolding = !!(pos?.owned || invCtx?.owned || holdingTrade);
-      const thesisText = String(thesis || "").trim();
+      const thesisText = sanitizeUserFacingCopy(String(thesis || "").trim());
       const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? pos?.avg_entry);
       const liveForPos = Number.isFinite(livePx) && livePx > 0 ? livePx : null;
       const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? pos?.shares);
@@ -1299,6 +1314,7 @@
         style: railTabBodyWrapStyle
       }, (invCtx || stage !== "—") && h("div", {
         style: {
+          ...investorRailContainStyle,
           padding: "14px 14px 12px",
           marginBottom: "var(--ds-space-3)",
           background: stageInfo.bg,
@@ -1311,16 +1327,19 @@
           alignItems: "center",
           gap: 6,
           flexWrap: "wrap",
-          marginBottom: 8
+          marginBottom: 8,
+          minWidth: 0,
+          maxWidth: "100%"
         }
       }, h("span", {
         style: {
           fontSize: 11,
           fontWeight: 700,
           color: laneColor,
-          letterSpacing: "0.02em"
+          letterSpacing: "0.02em",
+          ...investorRailTextStyle
         }
-      }, laneHeaderText), hasHolding && h("span", {
+      }, sanitizeUserFacingCopy(laneHeaderText)), hasHolding && h("span", {
         style: {
           fontSize: 10,
           fontWeight: 700,
@@ -1349,7 +1368,9 @@
           justifyContent: "space-between",
           gap: 8,
           marginBottom: 10,
-          flexWrap: "wrap"
+          flexWrap: "wrap",
+          minWidth: 0,
+          maxWidth: "100%"
         }
       }, h("span", {
         style: {
@@ -1357,7 +1378,8 @@
           fontWeight: 800,
           color: laneColor,
           letterSpacing: "0.02em",
-          lineHeight: 1
+          lineHeight: 1,
+          ...investorRailTextStyle
         }
       }, stageInfo.label), liveForPos && h("span", {
         style: {
@@ -1372,7 +1394,8 @@
           padding: "10px 12px",
           borderLeft: `3px solid ${laneColor}`,
           background: "rgba(255,255,255,0.04)",
-          borderRadius: "0 8px 8px 0"
+          borderRadius: "0 8px 8px 0",
+          ...investorRailContainStyle
         }
       }, h("div", {
         style: {
@@ -1386,7 +1409,8 @@
         style: {
           fontSize: 13,
           color: "var(--ds-text-body)",
-          lineHeight: 1.5
+          lineHeight: 1.5,
+          ...investorRailTextStyle
         }
       }, thesisText.slice(0, 600))), hasHolding && h("div", {
         style: {
@@ -1433,10 +1457,13 @@
       }, ` · entered ${entryWhen}`)), (Number.isFinite(shares) || costBasis > 0) && h("div", {
         style: {
           display: "grid",
-          gridTemplateColumns: "repeat(3, 1fr)",
-          gap: 8
+          gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+          gap: 8,
+          minWidth: 0
         }
-      }, Number.isFinite(shares) && h("div", null, h("div", {
+      }, Number.isFinite(shares) && h("div", {
+        style: investorRailContainStyle
+      }, h("div", {
         style: {
           fontSize: 9,
           fontWeight: 700,
@@ -1448,9 +1475,12 @@
           fontFamily: "var(--tt-font-mono)",
           fontSize: 12,
           color: "var(--ds-text-body)",
-          marginTop: 2
+          marginTop: 2,
+          ...investorRailTextStyle
         }
-      }, shares.toFixed(2))), entryPx > 0 && h("div", null, h("div", {
+      }, shares.toFixed(2))), entryPx > 0 && h("div", {
+        style: investorRailContainStyle
+      }, h("div", {
         style: {
           fontSize: 9,
           fontWeight: 700,
@@ -1462,9 +1492,12 @@
           fontFamily: "var(--tt-font-mono)",
           fontSize: 12,
           color: "var(--ds-text-body)",
-          marginTop: 2
+          marginTop: 2,
+          ...investorRailTextStyle
         }
-      }, fmtUsd(entryPx))), costBasis > 0 && h("div", null, h("div", {
+      }, fmtUsd(entryPx))), costBasis > 0 && h("div", {
+        style: investorRailContainStyle
+      }, h("div", {
         style: {
           fontSize: 9,
           fontWeight: 700,
@@ -1476,7 +1509,8 @@
           fontFamily: "var(--tt-font-mono)",
           fontSize: 12,
           color: "var(--ds-text-body)",
-          marginTop: 2
+          marginTop: 2,
+          ...investorRailTextStyle
         }
       }, fmtUsd(costBasis)))), pos?.last_action_type && pos?.last_action_ts && h("div", {
         style: {
@@ -1499,7 +1533,8 @@
           borderRadius: 8,
           background: "rgba(255,255,255,0.04)",
           border: "1px solid rgba(255,255,255,0.06)",
-          marginBottom: invCtx?.signalNote || keyLevels.length > 0 ? 8 : Number.isFinite(score) ? 8 : 0
+          marginBottom: invCtx?.signalNote || keyLevels.length > 0 ? 8 : Number.isFinite(score) ? 8 : 0,
+          ...investorRailContainStyle
         }
       }, h("div", {
         style: {
@@ -1514,23 +1549,26 @@
           fontSize: 13,
           color: "var(--ds-text-body)",
           lineHeight: 1.45,
-          fontWeight: 600
+          fontWeight: 600,
+          ...investorRailTextStyle
         }
-      }, invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : invCtx?.statusLine || stageInfo.action), h("div", {
+      }, sanitizeUserFacingCopy(invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : invCtx?.statusLine || stageInfo.action)), h("div", {
         style: {
           fontSize: 11,
           color: "var(--ds-text-muted)",
           lineHeight: 1.45,
-          marginTop: 6
+          marginTop: 6,
+          ...investorRailTextStyle
         }
-      }, invCtx?.statusLine || stageInfo.desc)), invCtx?.signalNote && h("div", {
+      }, sanitizeUserFacingCopy(invCtx?.statusLine || stageInfo.desc))), invCtx?.signalNote && h("div", {
         style: {
           fontSize: 11,
           color: "var(--ds-text-muted)",
           lineHeight: 1.45,
-          marginBottom: keyLevels.length > 0 ? 8 : Number.isFinite(score) ? 8 : 0
+          marginBottom: keyLevels.length > 0 ? 8 : Number.isFinite(score) ? 8 : 0,
+          ...investorRailTextStyle
         }
-      }, invCtx.signalNote), keyLevels.length > 0 && h("div", {
+      }, sanitizeUserFacingCopy(invCtx.signalNote)), keyLevels.length > 0 && h("div", {
         style: {
           marginBottom: Number.isFinite(score) ? 8 : 0
         }
@@ -1554,7 +1592,8 @@
           display: "flex",
           gap: 8,
           fontSize: 12,
-          lineHeight: 1.45
+          lineHeight: 1.45,
+          minWidth: 0
         }
       }, h("span", {
         style: {
@@ -1564,9 +1603,10 @@
         }
       }, "·"), h("span", {
         style: {
-          color: "var(--ds-text-body)"
+          color: "var(--ds-text-body)",
+          ...investorRailTextStyle
         }
-      }, line))))), Number.isFinite(score) && h("div", {
+      }, sanitizeUserFacingCopy(line)))))), Number.isFinite(score) && h("div", {
         style: {
           display: "flex",
           gap: "var(--ds-space-2)"
@@ -8480,7 +8520,7 @@
             className: `ds-chip ds-chip--sm ${stageChip.cls}`
           }, stageChip.label), strategyAlignment && strategyAlignment.stance && strategyAlignment.stance !== "neutral" && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`,
-            title: [`Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`, strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "", strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "", "See Insights → Active Strategy for full detail."].filter(Boolean).join(" · "),
+            title: [`Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`, strategyAlignment.reason ? `Reason: ${sanitizeUserFacingCopy(strategyAlignment.reason)}` : "", strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "", "See Insights → Active Strategy for full detail."].filter(Boolean).join(" · "),
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
@@ -9377,7 +9417,9 @@
             borderRadius: 10,
             border: "1px solid var(--ds-stroke)",
             overflow: "hidden",
-            background: "rgba(255,255,255,0.03)"
+            background: "rgba(255,255,255,0.03)",
+            minWidth: 0,
+            maxWidth: "100%"
           }
         }, ["trader", "investor"].map(mode => {
           const active = snapshotViewMode === mode;
@@ -9387,6 +9429,7 @@
             onClick: () => setSnapshotViewMode(mode),
             style: {
               flex: 1,
+              minWidth: 0,
               padding: "8px 12px",
               border: 0,
               cursor: "pointer",
@@ -9827,9 +9870,9 @@
             tickerSymbol: cardSym
           });
           const ip = investorPrediction;
-          const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
-          const ipReason = String(ip?.why_now || "").trim();
-          const detailThesis = String(investorData?.thesis || "").trim();
+          const ipThesis = sanitizeUserFacingCopy(String(ip?.thesis || ip?.actionable_summary || "").trim());
+          const ipReason = sanitizeUserFacingCopy(String(ip?.why_now || "").trim());
+          const detailThesis = sanitizeUserFacingCopy(String(investorData?.thesis || "").trim());
           const thesisText = ipThesis || detailThesis;
           const ipStop = Number(ip?.risk?.stop_loss);
           const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
@@ -9861,10 +9904,11 @@
             word: ctx.laneLabel,
             color: laneColor,
             bg: laneBg,
-            line: ctx.statusLine,
+            line: sanitizeUserFacingCopy(ctx.statusLine),
             action: ctx.executeReady && ctx.displayStage === "accumulate" ? "The model would scale in on the next rebalance." : ctx.owned ? "Follow lane guidance for the open model position." : "No model position — track on the Investor board until execution-ready.",
             urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context"
           };
+          const signalNote = sanitizeUserFacingCopy(ctx.signalNote);
           const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? invPos?.avg_entry);
           const liveForPos = livePx || Number(ticker?._live_price || ticker?.price || latestTicker?.price);
           const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? invPos?.shares);
@@ -9909,6 +9953,7 @@
           }
           return React.createElement("div", {
             style: {
+              ...investorRailContainStyle,
               padding: "14px 14px 12px",
               marginBottom: "var(--ds-space-3)",
               background: verdict.bg,
@@ -9921,16 +9966,19 @@
               alignItems: "center",
               gap: 6,
               marginBottom: 8,
-              flexWrap: "wrap"
+              flexWrap: "wrap",
+              minWidth: 0,
+              maxWidth: "100%"
             }
           }, React.createElement("span", {
             style: {
               fontSize: 11,
               fontWeight: 700,
               color: laneColor,
-              letterSpacing: "0.02em"
+              letterSpacing: "0.02em",
+              ...investorRailTextStyle
             }
-          }, ctx.headerChipText || `Investor – ${ctx.laneLabel}`), hasHolding && React.createElement("span", {
+          }, sanitizeUserFacingCopy(ctx.headerChipText || `Investor – ${ctx.laneLabel}`)), hasHolding && React.createElement("span", {
             style: {
               fontSize: 10,
               fontWeight: 700,
@@ -9958,7 +10006,9 @@
               justifyContent: "space-between",
               gap: 8,
               marginBottom: 10,
-              flexWrap: "wrap"
+              flexWrap: "wrap",
+              minWidth: 0,
+              maxWidth: "100%"
             }
           }, React.createElement("span", {
             style: {
@@ -9966,7 +10016,8 @@
               fontWeight: 800,
               color: verdict.color,
               letterSpacing: "0.02em",
-              lineHeight: 1
+              lineHeight: 1,
+              ...investorRailTextStyle
             }
           }, verdict.word), livePx > 0 && React.createElement("span", {
             style: {
@@ -9981,7 +10032,8 @@
               padding: "10px 12px",
               borderLeft: `3px solid ${laneColor}`,
               background: "rgba(255,255,255,0.04)",
-              borderRadius: "0 8px 8px 0"
+              borderRadius: "0 8px 8px 0",
+              ...investorRailContainStyle
             }
           }, React.createElement("div", {
             style: {
@@ -9995,14 +10047,16 @@
             style: {
               fontSize: 13,
               color: "var(--ds-text-body)",
-              lineHeight: 1.5
+              lineHeight: 1.5,
+              ...investorRailTextStyle
             }
           }, thesisText), ipReason && React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-muted)",
               lineHeight: 1.45,
-              marginTop: 6
+              marginTop: 6,
+              ...investorRailTextStyle
             }
           }, React.createElement("span", {
             style: {
@@ -10058,10 +10112,13 @@
           }, " \xB7 entered ", entryWhen)), (Number.isFinite(shares) || costBasis > 0) && React.createElement("div", {
             style: {
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
-              gap: 8
+              gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+              gap: 8,
+              minWidth: 0
             }
-          }, Number.isFinite(shares) && React.createElement("div", null, React.createElement("div", {
+          }, Number.isFinite(shares) && React.createElement("div", {
+            style: investorRailContainStyle
+          }, React.createElement("div", {
             style: {
               fontSize: 9,
               fontWeight: 700,
@@ -10073,9 +10130,12 @@
               fontFamily: "var(--tt-font-mono)",
               fontSize: 12,
               color: "var(--ds-text-body)",
-              marginTop: 2
+              marginTop: 2,
+              ...investorRailTextStyle
             }
-          }, shares.toFixed(2))), entryPx > 0 && React.createElement("div", null, React.createElement("div", {
+          }, shares.toFixed(2))), entryPx > 0 && React.createElement("div", {
+            style: investorRailContainStyle
+          }, React.createElement("div", {
             style: {
               fontSize: 9,
               fontWeight: 700,
@@ -10087,9 +10147,12 @@
               fontFamily: "var(--tt-font-mono)",
               fontSize: 12,
               color: "var(--ds-text-body)",
-              marginTop: 2
+              marginTop: 2,
+              ...investorRailTextStyle
             }
-          }, formatPx(entryPx))), costBasis > 0 && React.createElement("div", null, React.createElement("div", {
+          }, formatPx(entryPx))), costBasis > 0 && React.createElement("div", {
+            style: investorRailContainStyle
+          }, React.createElement("div", {
             style: {
               fontSize: 9,
               fontWeight: 700,
@@ -10101,7 +10164,8 @@
               fontFamily: "var(--tt-font-mono)",
               fontSize: 12,
               color: "var(--ds-text-body)",
-              marginTop: 2
+              marginTop: 2,
+              ...investorRailTextStyle
             }
           }, formatPx(costBasis))))), React.createElement("div", {
             style: {
@@ -10109,7 +10173,8 @@
               borderRadius: 8,
               background: "rgba(255,255,255,0.04)",
               border: "1px solid rgba(255,255,255,0.06)",
-              marginBottom: ctx.signalNote || triggers.length > 0 ? 8 : 0
+              marginBottom: signalNote || triggers.length > 0 ? 8 : 0,
+              ...investorRailContainStyle
             }
           }, React.createElement("div", {
             style: {
@@ -10124,23 +10189,26 @@
               fontSize: 13,
               color: "var(--ds-text-body)",
               lineHeight: 1.45,
-              fontWeight: 600
+              fontWeight: 600,
+              ...investorRailTextStyle
             }
           }, verdict.line), React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-muted)",
               lineHeight: 1.45,
-              marginTop: 6
+              marginTop: 6,
+              ...investorRailTextStyle
             }
-          }, verdict.action)), ctx.signalNote && React.createElement("div", {
+          }, verdict.action)), signalNote && React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-muted)",
               lineHeight: 1.45,
-              marginBottom: triggers.length > 0 ? 8 : 0
+              marginBottom: triggers.length > 0 ? 8 : 0,
+              ...investorRailTextStyle
             }
-          }, ctx.signalNote), triggers.length > 0 && React.createElement("div", {
+          }, signalNote), triggers.length > 0 && React.createElement("div", {
             style: {
               marginTop: 4
             }
@@ -10164,7 +10232,8 @@
               display: "flex",
               gap: 8,
               fontSize: 12,
-              lineHeight: 1.45
+              lineHeight: 1.45,
+              minWidth: 0
             }
           }, React.createElement("span", {
             style: {
@@ -10174,9 +10243,10 @@
             }
           }, "\xB7"), React.createElement("span", {
             style: {
-              color: "var(--ds-text-body)"
+              color: "var(--ds-text-body)",
+              ...investorRailTextStyle
             }
-          }, tr.text))))));
+          }, sanitizeUserFacingCopy(tr.text)))))));
         })(), effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
           const tt = effectiveTraderTrade;
           if (!isTradeOpenSafe(tt)) return null;
@@ -12139,9 +12209,10 @@
               fontSize: 12,
               color: "var(--ds-text-muted)",
               marginTop: 6,
-              lineHeight: 1.45
+              lineHeight: 1.45,
+              ...investorRailTextStyle
             }
-          }, timing.flash_detail), playbook === "TREND_CATCH" && React.createElement("div", {
+          }, sanitizeUserFacingCopy(timing.flash_detail)), playbook === "TREND_CATCH" && React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-faint)",
@@ -12185,9 +12256,10 @@
             style: {
               fontSize: 11,
               color: "var(--ds-text-faint)",
-              lineHeight: 1.45
+              lineHeight: 1.45,
+              ...investorRailTextStyle
             }
-          }, signals.slice(0, 5).join(" · ")));
+          }, signals.slice(0, 5).map(s => sanitizeUserFacingCopy(s)).filter(Boolean).join(" · ")));
         })(), "})()}", (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
           title: "Setup"
         }, React.createElement("div", {
@@ -21475,4 +21547,4 @@
   };
 })();
 
-// cache-bust:1782269879773:633229614
+// cache-bust:1782304754370:925227984
