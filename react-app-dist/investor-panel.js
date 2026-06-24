@@ -272,7 +272,7 @@
                     : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
 
     const cardStyle = {
-      width: 280,
+      width: "100%",
       textAlign: "left",
       padding: "var(--ds-space-3)",
       // 2026-06-06 — execution-ready accumulate cards get a green left rail.
@@ -309,88 +309,38 @@
     const LC = window.TTLaneCard;
     const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
 
-    const midBody = React.createElement(React.Fragment, null,
-      isOwned && React.createElement("div", {
-        style: {
-          display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
-          marginTop: "var(--ds-space-1)",
-          padding: "4px 6px",
-          borderRadius: "4px",
-          background: "rgba(167,139,250,0.07)",
-          border: "1px solid rgba(167,139,250,0.18)",
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: 11,
-          flexWrap: "wrap",
-          zIndex: 2,
-          position: "relative",
-        },
+    const midBody = isOwned && React.createElement(React.Fragment, null,
+      React.createElement("div", {
+        className: "tt-lane-card__pos",
         title: posShares > 0 && posAvg > 0 && livePnlPct != null
           ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} sh @ $${posAvg.toFixed(2)} → live $${(price ?? 0).toFixed(2)} (${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(2)}%)`
           : "Open investor position",
       },
-        React.createElement("span", {
-          style: { color: "rgb(196,181,253)", fontWeight: 600, letterSpacing: "0.04em" },
-        }, "POS"),
-        React.createElement("span", { style: { color: "var(--ds-text-muted)" } },
+        React.createElement("span", { className: "tt-lane-card__pos-label" }, "POS"),
+        React.createElement("span", { className: "tt-lane-card__pos-muted" },
           posShares > 0 ? `${posShares >= 10 ? posShares.toFixed(1) : posShares.toFixed(4)} sh` : "—"),
-        React.createElement("span", { style: { color: "var(--ds-text-muted)" } },
+        React.createElement("span", { className: "tt-lane-card__pos-muted" },
           posAvg > 0 ? `@ $${posAvg.toFixed(2)}` : ""),
         livePnlPct != null && React.createElement("span", {
-          style: {
-            marginLeft: "auto",
-            color: pnlDir === "up" ? "var(--ds-up, rgb(74,222,128))"
-                 : pnlDir === "dn" ? "var(--ds-dn, rgb(248,113,113))"
-                 : "var(--ds-text-muted)",
-            fontWeight: 700,
-          },
+          className: `tt-lane-card__pos-pnl tt-lane-card__pos-pnl--${pnlDir}`,
         }, `${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(1)}%`),
-        livePnlAbs != null && Math.abs(livePnlAbs) >= 1 && React.createElement("span", {
-          style: {
-            color: pnlDir === "up" ? "var(--ds-up, rgb(74,222,128))"
-                 : pnlDir === "dn" ? "var(--ds-dn, rgb(248,113,113))"
-                 : "var(--ds-text-muted)",
-            opacity: 0.85,
-          },
-        }, `(${livePnlAbs >= 0 ? "+" : ""}$${Math.abs(livePnlAbs).toFixed(0)})`),
       ),
-      isOwned && (watchingLabel || lastActionAgoLabel) && React.createElement("div", {
-        style: { marginTop: 4, display: "flex", flexDirection: "column", gap: 2, zIndex: 2, position: "relative" },
-      },
+      React.createElement("div", { className: "tt-lane-card__trace" },
         watchingLabel && React.createElement("div", {
-          style: {
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "3px 6px",
-            borderRadius: "4px",
-            background: isStaleSignal ? "rgba(245,158,11,0.10)" : "rgba(96,165,250,0.06)",
-            border: `1px solid ${isStaleSignal ? "rgba(245,158,11,0.30)" : "rgba(96,165,250,0.18)"}`,
-            fontFamily: "var(--tt-font-mono)",
-            fontSize: 10,
-            color: isStaleSignal ? "rgb(252,211,77)" : "rgb(147,197,253)",
-            lineHeight: 1.2,
-          },
+          className: `tt-lane-card__trace-row tt-lane-card__trace-row--watch${isStaleSignal ? " tt-lane-card__trace-row--stale" : ""}`,
           title: `Model recommends "${stage}" \u2014 watching for the trigger condition. Last lot action was ${lastActionType || "none"}${lastActionTs ? ` on ${new Date(lastActionTs).toLocaleDateString()}` : ""}.${isStaleSignal ? " Signal is stale (>7d) — trailing-stop / consecutive-day trigger has not yet fired." : ""}`,
         },
-          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, isStaleSignal ? "STALE" : "WATCHING"),
-          React.createElement("span", { style: { opacity: 0.95 } }, watchingLabel),
+          React.createElement("span", { className: "tt-lane-card__trace-label" }, isStaleSignal ? "STALE" : "WATCHING"),
+          React.createElement("span", { className: "tt-lane-card__trace-text" }, watchingLabel),
         ),
         lastActionAgoLabel && React.createElement("div", {
-          style: {
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "3px 6px",
-            borderRadius: "4px",
-            background: "rgba(167,139,250,0.05)",
-            border: "1px solid rgba(167,139,250,0.14)",
-            fontFamily: "var(--tt-font-mono)",
-            fontSize: 10,
-            color: "var(--ds-text-muted)",
-            lineHeight: 1.2,
-          },
+          className: "tt-lane-card__trace-row tt-lane-card__trace-row--last",
           title: `Last model action: ${lastActionType} ${lastActionShares > 0 ? lastActionShares.toFixed(2) + " sh" : ""} on ${new Date(lastActionTs).toLocaleString()}.`,
         },
-          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, "LAST"),
-          React.createElement("span", { style: { opacity: 0.95 } },
+          React.createElement("span", { className: "tt-lane-card__trace-label" }, "LAST"),
+          React.createElement("span", { className: "tt-lane-card__trace-text" },
             `${lastActionType === "DCA_BUY" ? "DCA" : lastActionType}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
-          React.createElement("span", { style: { marginLeft: "auto", opacity: 0.75 } }, lastActionAgoLabel),
+          React.createElement("span", { className: "tt-lane-card__trace-ago" }, lastActionAgoLabel),
         ),
       ),
     );
@@ -443,6 +393,7 @@
         onClick: () => onSelect && onSelect(sym),
         onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect && onSelect(sym); } },
         style: cardStyle,
+        className: isOwned ? "tt-lane-card--owned" : "",
       },
       isTTSel,
       chipRow: [
@@ -477,7 +428,7 @@
         }, "RS HI"),
       ].filter(Boolean),
       quote: { price, dayPct, dayChg, dir, extLine },
-      midBody: (isOwned || (watchingLabel || lastActionAgoLabel)) ? midBody : null,
+      midBody: isOwned ? midBody : null,
       sparkSvg,
       metrics: [
         Number.isFinite(score) && score > 0 && React.createElement("span", {
@@ -530,7 +481,7 @@
     // the Active Trader pattern (active-trader.html .lane media query
     // at line ~274) and frees ~88px of width per card on phones.
     // Desktop unchanged — gutter on the left.
-    return React.createElement("div", { className: "flex flex-col md:flex-row items-stretch gap-0 mb-2 md:mb-0.5 kanban-lane" },
+    return React.createElement("div", { className: "flex flex-col md:flex-row items-stretch gap-0 mb-2 md:mb-0.5 kanban-lane inv-kanban-lane", "data-lane": laneKey },
       // V15 P0.7.144/.152 — gutter shows lane title + action chip +
       // count. On desktop: vertical column on the left. On mobile:
       // horizontal strip on top so the cards below get the full width.
@@ -569,8 +520,8 @@
         },
       },
         Array.isArray(items) && items.length > 0
-          ? React.createElement("div", { className: "flex gap-1.5" },
-              items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "w-[280px] shrink-0 kanban-card" }, renderCard(t))),
+          ? React.createElement("div", { className: "flex gap-1.5 items-stretch inv-kanban-cards" },
+              items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "kanban-card inv-kanban-card shrink-0" }, renderCard(t))),
             )
           : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" },
               laneKey === "accumulate_queued"
@@ -1387,4 +1338,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782311564530:200252478
+// cache-bust:1782319132266:137031678
