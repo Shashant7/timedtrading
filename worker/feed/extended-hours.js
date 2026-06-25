@@ -2,6 +2,31 @@
 // Prefers TwelveData native extended_* quote fields; applies drift sanity
 // before accepting a computed extended print vs today's RTH close.
 
+/** Rescale extended print when vendor leaves a pre/post-split scale mismatch. */
+export function reconcileExtendedPrice(displayPrice, nativeExtP) {
+  const price = Number(displayPrice);
+  const ext = Number(nativeExtP);
+  if (!(price > 0 && ext > 0)) return ext;
+
+  const ratio = ext / price;
+  const candidates = [ext];
+  if (ratio > 8 && ratio < 15) candidates.push(ext / 10);
+  if (ratio > 0.06 && ratio < 0.15) candidates.push(ext * 10);
+
+  let best = ext;
+  let bestDrift = Math.abs(ext - price) / price;
+  for (const c of candidates) {
+    if (!(c > 0)) continue;
+    const drift = Math.abs(c - price) / price;
+    if (drift < bestDrift) {
+      best = c;
+      bestDrift = drift;
+    }
+  }
+  if (best !== ext && bestDrift <= 0.2) return best;
+  return ext;
+}
+
 /** Reject cached extended_price that disagrees with today's RTH move. */
 export function extendedQuoteLooksStale(displayPrice, useDp, nativeExtP) {
   if (!(displayPrice > 0) || !(nativeExtP > 0)) return true;
@@ -33,16 +58,18 @@ export function buildExtendedHoursFields(snap, displayPrice, useDp, marketClosed
       || Math.abs(nativeExtP - displayPrice) > 0.001);
 
   if (hasNativeExt) {
-    if (extendedQuoteLooksStale(displayPrice, useDp, nativeExtP)) {
+    const adjustedExtP = reconcileExtendedPrice(displayPrice, nativeExtP);
+    if (extendedQuoteLooksStale(displayPrice, useDp, adjustedExtP)) {
       return { extP: 0, extDc: 0, extDp: 0 };
     }
-    const extP = Math.round(nativeExtP * 100) / 100;
-    const extDc = Number.isFinite(nativeExtDc) && nativeExtDc !== 0
-      ? Math.round(nativeExtDc * 100) / 100
-      : Math.round((nativeExtP - displayPrice) * 100) / 100;
-    const extDp = Number.isFinite(nativeExtDp) && nativeExtDp !== 0
+    const extP = Math.round(adjustedExtP * 100) / 100;
+    const extDc = Math.round((adjustedExtP - displayPrice) * 100) / 100;
+    const nativeExtDpUsable = Number.isFinite(nativeExtDp) && nativeExtDp !== 0
+      && Math.abs(nativeExtDp) <= 25
+      && Math.sign(nativeExtDp) === Math.sign(extDc);
+    const extDp = nativeExtDpUsable
       ? Math.round(nativeExtDp * 100) / 100
-      : Math.round(((nativeExtP - displayPrice) / displayPrice) * 10000) / 100;
+      : Math.round(((adjustedExtP - displayPrice) / displayPrice) * 10000) / 100;
     return { extP, extDc, extDp };
   }
 

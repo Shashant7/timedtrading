@@ -4,7 +4,26 @@ import {
   extendedQuoteLooksStale,
   isExtendedOperatingSession,
   lightweightRestRefreshDue,
+  reconcileExtendedPrice,
 } from "./extended-hours.js";
+
+describe("reconcileExtendedPrice", () => {
+  it("rescales KLAC post-split ext print that is 10x too high", () => {
+    expect(reconcileExtendedPrice(241.16, 2415)).toBeCloseTo(241.5, 1);
+  });
+
+  it("rescales KLAC ext print that is 10x too low", () => {
+    expect(reconcileExtendedPrice(241.16, 24.35)).toBeCloseTo(243.5, 1);
+  });
+
+  it("rescales split-day pre-split close with post-split ext print", () => {
+    expect(reconcileExtendedPrice(2411.64, 243.5)).toBeCloseTo(2435, 0);
+  });
+
+  it("leaves sane same-scale ext unchanged", () => {
+    expect(reconcileExtendedPrice(241.16, 243.5)).toBeCloseTo(243.5, 2);
+  });
+});
 
 describe("extendedQuoteLooksStale", () => {
   it("rejects AH drift that disagrees with RTH day change", () => {
@@ -30,6 +49,19 @@ describe("buildExtendedHoursFields", () => {
       false,
     );
     expect(r).toEqual({ extP: 105, extDc: 2, extDp: 1.94 });
+  });
+
+  it("fixes KLAC split-scale extended_price before publishing ahp", () => {
+    const r = buildExtendedHoursFields(
+      { extendedPrice: 2415, extendedChange: 23.4, extendedPercentChange: 0.97 },
+      241.16,
+      12.9,
+      true,
+      false,
+    );
+    expect(r.extP).toBeCloseTo(241.5, 1);
+    expect(r.extDc).toBeCloseTo(0.34, 1);
+    expect(r.extDp).toBeCloseTo(0.97, 1);
   });
 
   it("returns zeros during RTH", () => {
