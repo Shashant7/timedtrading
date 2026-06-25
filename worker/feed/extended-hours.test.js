@@ -7,12 +7,16 @@ import {
 } from "./extended-hours.js";
 
 describe("extendedQuoteLooksStale", () => {
-  it("rejects extreme drift from RTH close", () => {
+  it("rejects AH drift that disagrees with RTH day change", () => {
     expect(extendedQuoteLooksStale(214.56, -7.66, 226.30)).toBe(true);
   });
 
   it("accepts modest AH move in same direction as RTH", () => {
     expect(extendedQuoteLooksStale(100, 2, 101.5)).toBe(false);
+  });
+
+  it("accepts large AH move when RTH day change is flat (SOXL AMC pop)", () => {
+    expect(extendedQuoteLooksStale(229.57, -0.8, 264.7)).toBe(false);
   });
 });
 

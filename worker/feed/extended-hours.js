@@ -9,7 +9,10 @@ export function extendedQuoteLooksStale(displayPrice, useDp, nativeExtP) {
   const absDrift = Math.abs(driftPct);
   const dirDisagree = Math.abs(useDp) > 1.5
     && Math.sign(useDp) !== Math.sign(driftPct);
-  return absDrift > 8 || (absDrift > 3 && dirDisagree);
+  // Match frontend getExtChange(): only suppress when direction disagrees with
+  // RTH day change. Large same-direction (or flat-RTH) AH moves are valid —
+  // e.g. SOXL AMC pop after a flat RTH session, MU earnings after-hours.
+  return absDrift > 4 && dirDisagree;
 }
 
 /**
