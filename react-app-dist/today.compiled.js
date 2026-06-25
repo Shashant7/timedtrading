@@ -4159,10 +4159,7 @@ function Viewport({
   }, "VIEWPORT"), h("div", {
     className: "vp-count"
   }, `${ranked.length} tickers`)), h("div", {
-    className: "vp-list",
-    style: {
-      flex: "1 1 auto"
-    }
+    className: "vp-list"
   }, ranked.length === 0 ? h("div", {
     className: "vp-empty"
   }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => {
@@ -5721,6 +5718,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782394559738:14693781
+// cache-bust:1782402690031:546658315
 
-// cache-bust:1782394559738:14693781
+// cache-bust:1782402690031:546658315
