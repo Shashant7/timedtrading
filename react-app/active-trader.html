@@ -945,6 +945,55 @@
       }
 
       // ── categorizeKanbanLanes — management lanes: Hold · Defend · Trim · Closed
+      /** Guarantee every live book row appears in a management lane. */
+      function ensureOpenTradesInManagementLanes(lanes, tradeByTicker, tickers) {
+        if (!tradeByTicker?.forEach) return lanes;
+        const placed = new Set();
+        for (const key of ["hold", "defend", "trim", "new"]) {
+          for (const t of lanes[key] || []) {
+            const sym = String(t?.ticker || "").toUpperCase();
+            if (sym) placed.add(sym);
+          }
+        }
+        const bySym = new Map();
+        for (const t of tickers || []) {
+          const sym = String(t?.ticker || "").toUpperCase();
+          if (sym) bySym.set(sym, t);
+        }
+        tradeByTicker.forEach((trade, sym) => {
+          const openTr = resolveOpenTrade(trade);
+          if (!sym || !openTr || placed.has(sym)) return;
+          const base = bySym.get(sym) || { ticker: sym };
+          const eff = computeEffectiveStage(base, openTr);
+          const enriched = {
+            ...base,
+            ticker: sym,
+            kanban_stage: eff,
+            _effectiveKanbanStage: eff,
+            _rawKanbanStage: String(base?._rawKanbanStage ?? base?.kanban_stage ?? "hold").toLowerCase(),
+            _openTrade: openTr,
+            has_open_position: true,
+            position_direction: openTr.direction || base.position_direction || null,
+            price: Number(
+              base?.price ?? base?.close ?? openTr?.mark_price ?? openTr?.current_price
+              ?? openTr?.entry_price ?? openTr?.entryPrice,
+            ) || null,
+            _injectedOpenTrade: true,
+          };
+          if (eff === "trim") lanes.trim.push(enriched);
+          else if (eff === "defend") lanes.defend.push(enriched);
+          else if (eff === "just_entered") lanes.new.push(enriched);
+          else lanes.hold.push(enriched);
+          placed.add(sym);
+        });
+        const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+        lanes.hold.sort(byAlpha);
+        lanes.defend.sort(byAlpha);
+        lanes.trim.sort(byAlpha);
+        lanes.new.sort(byAlpha);
+        return lanes;
+      }
+
       function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
         const setup = [];
         const enter = [];
@@ -960,17 +1009,18 @@
           const status = trade ? String(trade.status || "").toUpperCase() : "";
           const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
           const isOpen = traderBookIsOpen(trade);
+          const snapshotOpen = !!t.has_open_position && !t._stickyExit;
           // Keep open positions visible even when /timed/all drops kanban_stage
           // (e.g. MU after a partial trim alert — scorer clears stage to null).
-          if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen) continue;
+          if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen && !snapshotOpen) continue;
           let stage = String(t?.kanban_stage || "").toLowerCase();
           // Default null/empty-stage open positions into TRIM/HOLD based on trade state.
-          if (!stage && isOpen) {
+          if (!stage && (isOpen || snapshotOpen)) {
             stage = tradeTrimmedToday(trade) ? "trim" : "hold";
           }
 
           // Open-trade override (priority order matches index-react EarlyMoversPanel):
-          if (trade && isOpen) {
+          if ((trade && isOpen) || snapshotOpen) {
             if (stage === "exit") stage = "defend";
             else if (stage === "defend") { /* keep */ }
             else if (stage === "exiting") stage = "defend";
@@ -1019,10 +1069,11 @@
         setup.sort(byScore); enter.sort(byScore);
         newLane.sort(byAlpha); hold.sort(byAlpha);
         defend.sort(byAlpha); trim.sort(byAlpha); exit.sort(byAlpha);
-        return { setup, enter, new: newLane, hold, defend, trim, exit };
+        const lanes = { setup, enter, new: newLane, hold, defend, trim, exit };
+        ensureOpenTradesInManagementLanes(lanes, tradeByTicker, tickers);
+        return lanes;
       }
 
-      // ── ActiveTraderCard — DS card (port of today.html ViewportCard).
       function ATCard({ t, onOpen, sparkSrc, isSaved, onToggleSaved, openTrade, tradesLoaded }) {
         const sym = String(t?.ticker || "").toUpperCase();
         // Match index-react DsCompactCard: request sparkline on render so
@@ -1526,11 +1577,12 @@
           return { word: "Mixed", cls: "regime-mix" };
         })();
 
-        // Open positions — derive from lanes (hold / defend / trim are open).
+        // Open positions — derive from lanes (hold / defend / trim / just-entered are open).
         const openLanes = [
           ...lanes.hold.map((t) => ({ t, lane: "hold" })),
           ...lanes.defend.map((t) => ({ t, lane: "defend" })),
           ...lanes.trim.map((t) => ({ t, lane: "trim" })),
+          ...lanes.new.map((t) => ({ t, lane: "new" })),
         ];
         const openCount = openLanes.length;
         const positionChip = ({ t, lane }) => {
