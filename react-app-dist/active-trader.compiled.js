@@ -375,6 +375,12 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
         stage = "exit";
       }
     }
+    if (stage === "exit" && !isOpen && !snapshotOpen) {
+      const closed = closedByTicker?.get?.(sym) || t?._closedTrade || null;
+      const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+      const exitAgeMs = exitMs > 0 ? Date.now() - exitMs : Infinity;
+      if (exitMs <= 0 || exitAgeMs >= RECENT_EXIT_WINDOW_MS) continue;
+    }
     switch (stage) {
       case "setup":
       case "setup_watch":
@@ -1452,6 +1458,19 @@ function ActiveTraderApp() {
           position_direction: trade.direction || out.position_direction
         };
       }
+      if (!trade && String(out.kanban_stage || "").toLowerCase() === "exit") {
+        const closed = closedByTicker?.get?.(sym) || out._closedTrade || null;
+        const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+        if (!exitMs || Date.now() - exitMs >= RECENT_EXIT_WINDOW_MS) {
+          return {
+            ...out,
+            kanban_stage: null,
+            _effectiveKanbanStage: null,
+            _closedTrade: null,
+            _stickyExit: false
+          };
+        }
+      }
       return out;
     });
     const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
@@ -1928,6 +1947,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782409387454:280632540
+// cache-bust:1782410019075:599152647
 
-// cache-bust:1782409387454:280632540
+// cache-bust:1782410019075:599152647
