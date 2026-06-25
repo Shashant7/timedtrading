@@ -988,6 +988,7 @@
         flex-direction: column;
         gap: 10px;
         max-height: 720px;
+        min-height: 0;
       }
       .vp-head {
         display: flex;
@@ -1003,6 +1004,9 @@
         gap: 10px;
         overflow-y: auto;
         padding-right: 4px;
+        flex: 1 1 auto;
+        min-height: 0;
+        align-content: flex-start;
         scrollbar-width: thin;
         scrollbar-color: rgba(255,255,255,0.12) transparent;
       }
@@ -1022,12 +1026,13 @@
          strip. With flex-shrink: 1 (default) every card collapsed to
          ~28px and clipped its content via .ds-tickercard {overflow:hidden}.
          Pin flex-shrink: 0 + a sane min-height so cards stay readable. */
-      .vp-list .ds-tickercard {
+      .vp-list .ds-tickercard.tt-lane-card {
         width: 100% !important;
         box-sizing: border-box;
         margin: 0;
         flex: 0 0 auto;
         min-height: 118px;
+        height: auto;
       }
 
       /* Skeleton */
@@ -5182,7 +5187,7 @@
             h("div", { className: "vp-title" }, "VIEWPORT"),
             h("div", { className: "vp-count" }, `${ranked.length} tickers`),
           ),
-          h("div", { className: "vp-list", style: { flex: "1 1 auto" } },
+          h("div", { className: "vp-list" },
             ranked.length === 0
               ? h("div", { className: "vp-empty" }, "No tickers match. Try a different filter or clear the search.")
               : ranked.slice(0, 60).map((t) => {
