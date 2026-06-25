@@ -28,7 +28,7 @@
 //
 //  Authored 2026-05-30.
 
-import { buildOptionsLadder } from "./options-plays.js";
+import { buildOptionsLadder, contractToLadderInput } from "./options-plays.js";
 import { scoreRootConfluence } from "./root-strategy.js";
 import { getThemesForTicker } from "./sector-mapping.js";
 
@@ -246,19 +246,12 @@ export function decideAutoMirror(ctx, prefs, profile = "speculator") {
 
   // Build ladder + pick the primary play.
   const themes = (() => { try { return getThemesForTicker(sym); } catch (_) { return []; } })();
-  const ladderInput = {
+  const ladderInput = contractToLadderInput(ctx.traderContract, ctx.tickerSnapshot || {}, {
     ticker: sym,
-    price: Number(ctx.traderContract.price) || null,
-    direction: ctx.traderContract.direction || null,
-    sl: Number(ctx.traderContract.sl) || null,
-    tp1: Number(ctx.traderContract.tp_trim ?? ctx.traderContract.tp1 ?? ctx.traderContract.tp) || null,
-    rr: ctx.traderContract.rr || null,
-    tier: ctx.traderContract.tier || null,
-    riskPct: ctx.traderContract.riskPct || null,
-    stage: ctx.traderContract.stage || "swing",
-    atr_pct: Number(ctx.traderContract.atr_pct) || 0.025,
     mode: ctx.traderContract.mode || "trader",
-  };
+    pricesMap: ctx.pricesMap || null,
+    marketOpen: ctx.marketOpen,
+  });
   const ladder = buildOptionsLadder(ladderInput, { profile, confluence, themes });
   if (!ladder || !ladder.primary) return { should_mirror: false, reason: "no_primary_play", confluence };
 
