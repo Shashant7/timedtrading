@@ -768,6 +768,29 @@ export async function runPublicationPostIngestPipeline(env, pubId, { forceExtrac
   return out;
 }
 
+/** Discord embed title max (API limit). */
+export const MARKET_INTEL_DISCORD_TITLE_MAX = 256;
+
+/**
+ * Build a distinct Market Intel Discord title: tickers + TT headline.
+ * Avoids duplicate-looking alerts when two flashes share the same tag set.
+ */
+export function buildMarketIntelDiscordTitle(matchedTickers, summaryTitle) {
+  const tickers = (matchedTickers || []).map((t) => String(t || "").toUpperCase()).filter(Boolean);
+  const headline = String(summaryTitle || "Market Intel update").replace(/\s+/g, " ").trim();
+  const tickerPart = tickers.length <= 3
+    ? tickers.join(", ")
+    : `${tickers.slice(0, 3).join(", ")} +${tickers.length - 3}`;
+  const prefix = tickers.length
+    ? `📡 Market Intel — ${tickerPart} · `
+    : "📡 Market Intel · ";
+  const maxHeadline = Math.max(0, MARKET_INTEL_DISCORD_TITLE_MAX - prefix.length);
+  if (maxHeadline <= 0) return prefix.trim();
+  if (headline.length <= maxHeadline) return `${prefix}${headline}`;
+  const clipped = headline.slice(0, Math.max(0, maxHeadline - 1)).trim();
+  return `${prefix}${clipped}…`;
+}
+
 // ── Discord notification for new FlashInsights ──────────────────────────────
 /**
  * Fires a Discord system-lane embed when a newly-ingested FlashInsight
@@ -830,9 +853,10 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
 
   try {
     const { notifyDiscord } = await import("../alerts.js");
+    const discordTitle = buildMarketIntelDiscordTitle(matched, summary_title);
     await notifyDiscord(env, {
-      title: `📡 Market Intel — ${matched.slice(0, 3).join(", ")}${matched.length > 3 ? ` +${matched.length - 3}` : ""}`,
-      description: summary_title.slice(0, 220),
+      title: discordTitle,
+      description: summary_body ? summary_body.slice(0, 220) : undefined,
       color: 0xa855f7,
       fields: [
         { name: "Mentioned (active universe)", value: matched.map((t) => `\`${t}\``).join(" "), inline: false },
