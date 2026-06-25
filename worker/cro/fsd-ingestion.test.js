@@ -4,6 +4,8 @@ import {
   expandResearchDeskTickerTags,
   researchDeskIntelQueryTickers,
   publicationMentionsTicker,
+  buildMarketIntelDiscordTitle,
+  MARKET_INTEL_DISCORD_TITLE_MAX,
   RESEARCH_DESK_INDEX_ALIASES,
 } from "./fsd-ingestion.js";
 
@@ -41,5 +43,33 @@ describe("research desk SPX alias mapping", () => {
     expect(publicationMentionsTicker(title, excerpt, "SPY")).toBe(true);
     expect(publicationMentionsTicker(title, excerpt, "ES1!")).toBe(true);
     expect(publicationMentionsTicker(title, excerpt, "AAPL")).toBe(false);
+  });
+});
+
+describe("Market Intel Discord title", () => {
+  it("includes tickers and TT headline so same-tag flashes look distinct", () => {
+    const title = buildMarketIntelDiscordTitle(
+      ["MAGS", "SPY"],
+      "QQQ faces resistance near 732-734 amid mixed market signals",
+    );
+    expect(title).toBe(
+      "📡 Market Intel — MAGS, SPY · QQQ faces resistance near 732-734 amid mixed market signals",
+    );
+  });
+
+  it("truncates long headlines to the Discord embed title limit", () => {
+    const longHeadline = "A".repeat(300);
+    const title = buildMarketIntelDiscordTitle(["SPY"], longHeadline);
+    expect(title.length).toBeLessThanOrEqual(MARKET_INTEL_DISCORD_TITLE_MAX);
+    expect(title.endsWith("…")).toBe(true);
+    expect(title.startsWith("📡 Market Intel — SPY · ")).toBe(true);
+  });
+
+  it("shows overflow ticker count when more than three match", () => {
+    const title = buildMarketIntelDiscordTitle(
+      ["MAGS", "SPY", "QQQ", "IWM"],
+      "Breadth improving into the close",
+    );
+    expect(title).toContain("MAGS, SPY, QQQ +1 · Breadth improving into the close");
   });
 });
