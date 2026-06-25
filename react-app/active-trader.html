@@ -789,7 +789,7 @@
       // Positions is authoritative when present; D1 open rows backfill gaps
       // (e.g. MU runner after trim when positions row lags). Closed sticky
       // map excludes any symbol that still has a live open row.
-      const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+      const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
       function useTraderBook(enabled) {
         const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
         const [closedByTicker, setClosedByTicker] = useState(() => new Map());
@@ -2223,7 +2223,7 @@
                   className: "at-chip" + (filterLane === "exit" ? " active" : ""),
                   onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
                   disabled: laneCounts.exit === 0,
-                  title: "Recently closed model trades (visible 7d)",
+                  title: "Recently closed model trades (visible 24h)",
                 }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`),
               ),
             ),
