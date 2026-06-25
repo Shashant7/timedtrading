@@ -2452,6 +2452,51 @@
       // ranks RIDE > DRIFT > READY > FADE > WAIT and within each by
       // confluence score. Renders nothing if no plays returned.
       // ─────────────────────────────────────────────────────────────
+      function formatDayTradeSuppressLabel(s) {
+        if (!s || typeof s !== "object") return "unknown";
+        const lean = s.day_lean ? String(s.day_lean).toUpperCase() : "";
+        const conv = s.day_lean_conviction ? String(s.day_lean_conviction).toLowerCase() : "";
+        const mode = s.confluence_mode ? String(s.confluence_mode).toUpperCase() : "";
+        switch (String(s.reason || "")) {
+          case "day_lean_low_conviction":
+            return `playbook lean ${lean || "mixed"} but conviction is low${mode ? ` · fusion ${mode}` : ""}`;
+          case "no_directional_signal_low_vol":
+            return `no actionable day lean${lean ? ` (${lean}${conv ? ` · ${conv}` : ""})` : ""} and low vol · fusion ${mode || "WAIT"}`;
+          case "wait_no_directional_bet":
+            return `layer fusion is WAIT — no directional 0DTE bet${lean ? ` · playbook ${lean}` : ""}`;
+          default:
+            if (String(s.reason || "").startsWith("strike_drift")) {
+              return `strike drifted too far from spot (${String(s.reason).replace(/_/g, " ")})`;
+            }
+            return String(s.reason || "unknown").replace(/_/g, " ");
+        }
+      }
+
+      function dayTradeModelLevelsLine(p, flavor) {
+        const gp = p?.game_plan;
+        if (!gp) return null;
+        const fmt = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? `$${Number(n).toFixed(2)}` : null);
+        if (flavor === "call") {
+          const trig = fmt(gp.bull_trigger);
+          const tgt = fmt(gp.bull_target);
+          if (!trig && !tgt) return null;
+          return `Playbook: ${trig ? `reclaim ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
+        }
+        if (flavor === "put") {
+          const trig = fmt(gp.bear_trigger);
+          const tgt = fmt(gp.bear_target);
+          if (!trig && !tgt) return null;
+          return `Playbook: ${trig ? `break ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
+        }
+        if (flavor === "straddle") {
+          const up = fmt(gp.bull_target);
+          const dn = fmt(gp.bear_target);
+          if (!up && !dn) return null;
+          return `Playbook range: ${dn || "?"} – ${up || "?"}`;
+        }
+        return null;
+      }
+
       function OptionsPlaysOfTheDay({ onSelectTicker, layout = "grid" }) {
         const [plays, setPlays] = useState(null);
         // 2026-06-01 — Day-trade plays for SPY/QQQ/IWM (0DTE/1DTE),
@@ -2622,6 +2667,15 @@
                   : `${driftPct.toFixed(1)}% from spot`;
                 const driftColor = driftPct == null ? "var(--tt-text-dim)"
                   : driftPct < 1 ? "#34d399" : driftPct < 2 ? "#fbbf24" : "#f87171";
+                const flavorSource = p.flavor_source || p.primary?._day_trade_flavor_source || null;
+                const dayLean = String(p.day_lean || p.primary?._day_trade_lean || "").toUpperCase();
+                const dayLeanConv = String(p.day_lean_conviction || "").toLowerCase();
+                const modelLine = dayTradeModelLevelsLine(p, flavor);
+                const sourceLabel = flavorSource === "day_lean" && dayLean
+                  ? `Playbook lean ${dayLean}${dayLeanConv ? ` (${dayLeanConv})` : ""}`
+                  : (p.confluence_mode && p.confluence_mode !== "UNKNOWN"
+                    ? `Layer fusion ${p.confluence_mode}${Number.isFinite(Number(p.confluence_score)) ? ` · ${p.confluence_score}/100` : ""}`
+                    : null);
                 return h("div", {
                   key: `dt-${p.ticker}`,
                   onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
@@ -2669,8 +2723,29 @@
                     }, driftLabel),
                     asOfLabel && h("span", { style: { color: "var(--tt-text-dim)" } }, `· as of ${asOfLabel}`),
                   ),
-                  p.primary?.max_loss_usd && h("div", { style: { fontSize: 10, color: "var(--tt-text-faint)", fontFamily: "var(--tt-font-mono)" } },
-                    `Max loss $${p.primary.max_loss_usd}${p.primary.breakeven ? ` · BE $${p.primary.breakeven.toFixed(2)}` : (p.primary.breakeven_up ? ` · BE $${p.primary.breakeven_down.toFixed(2)} / $${p.primary.breakeven_up.toFixed(2)}` : "")}`),
+                  sourceLabel && h("div", {
+                    style: { fontSize: 10, color: "var(--tt-text-muted)", lineHeight: 1.4, marginBottom: 4 },
+                    title: flavorSource === "day_lean"
+                      ? "0/1DTE flavor follows the same index playbook lean as Day Predictions"
+                      : "0/1DTE flavor follows multi-layer fusion alignment",
+                  }, sourceLabel),
+                  modelLine && h("div", {
+                    style: {
+                      fontSize: 10, color: "var(--tt-text)", lineHeight: 1.4, marginBottom: 6,
+                      fontFamily: "var(--tt-font-mono)",
+                    },
+                  }, modelLine),
+                  p.primary?.max_loss_usd && h("div", {
+                    style: { fontSize: 10.5, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.4 },
+                  },
+                    "Max loss ",
+                    h("strong", { style: { color: "#f87171" } }, `$${p.primary.max_loss_usd}`),
+                    p.primary.breakeven
+                      ? h("span", null, " · BE ", h("strong", { style: { color: "var(--tt-text)" } }, `$${Number(p.primary.breakeven).toFixed(2)}`))
+                      : (p.primary.breakeven_up
+                        ? h("span", null, " · BE ", h("strong", { style: { color: "var(--tt-text)" } }, `$${Number(p.primary.breakeven_down).toFixed(2)} / $${Number(p.primary.breakeven_up).toFixed(2)}`))
+                        : null),
+                  ),
                 );
               }),
             ),
@@ -2690,7 +2765,7 @@
               title: "Day-trade plays we considered but suppressed for one of: strike drifted too far from spot, after-close 0DTE expired, no clear directional signal at low vol.",
             },
               "Suppressed: ",
-              dayTradeSuppressed.map(s => `${s.ticker} (${String(s.reason).replace(/_/g, " ")})`).join(" · "),
+              dayTradeSuppressed.map((s) => `${s.ticker} (${formatDayTradeSuppressLabel(s)})`).join(" · "),
             ),
           );
         };

@@ -29,6 +29,8 @@ import {
   optionsPlayEmailHtml,
   buildOptionsLadder,
   buildDayTradePlay,
+  explainDayTradeSuppression,
+  summarizeDayTradeGamePlan,
   pickExpirationForProfile,
   pickDayTradeExpiration,
   validateDayTradePlay,
@@ -555,6 +557,51 @@ describe("index ETF profile alignment", () => {
     });
     expect(play).not.toBeNull();
     expect(play.archetype).toBe("day_trade_straddle");
+  });
+});
+
+describe("explainDayTradeSuppression", () => {
+  it("labels low-conviction day lean separately from generic low-vol WAIT", () => {
+    const lowLean = explainDayTradeSuppression({
+      ticker: "QQQ",
+      price: 520,
+      direction: "LONG",
+      dayLean: "SHORT",
+      dayLeanConviction: "low",
+      atrPct: 0.011,
+      verdict: { mode: "WAIT", side: "LONG" },
+      profile: "speculator",
+    });
+    expect(lowLean.reason).toBe("day_lean_low_conviction");
+    expect(lowLean.day_lean).toBe("SHORT");
+
+    const lowVol = explainDayTradeSuppression({
+      ticker: "QQQ",
+      price: 520,
+      direction: "LONG",
+      atrPct: 0.011,
+      verdict: { mode: "WAIT", side: "NEUTRAL" },
+      profile: "speculator",
+    });
+    expect(lowVol.reason).toBe("no_directional_signal_low_vol");
+  });
+});
+
+describe("summarizeDayTradeGamePlan", () => {
+  it("normalizes snake_case and camelCase game plan fields", () => {
+    const out = summarizeDayTradeGamePlan({
+      lean: "SHORT",
+      leanConviction: "high",
+      bearTrigger: 732.5,
+      bearTarget: 728.0,
+      bullTrigger: 736.0,
+      bullTarget: 740.0,
+    });
+    expect(out.lean).toBe("SHORT");
+    expect(out.lean_conviction).toBe("high");
+    expect(out.bear_trigger).toBe(732.5);
+    expect(out.bear_target).toBe(728);
+    expect(out.bull_target).toBe(740);
   });
 });
 
