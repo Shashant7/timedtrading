@@ -2448,7 +2448,178 @@
           color: "var(--ds-text-body)",
           flex: "1 1 200px"
         }
-      }, setupGuidance.action || setupGuidance.headline || "—")), h("details", {
+      }, setupGuidance.action || setupGuidance.headline || "—")), (() => {
+        const recon = data?.model_reconciliation || null;
+        const levels = recon?.model_levels || {};
+        const hasLevels = [levels.stop, levels.trim, levels.exit, levels.runner].some(v => Number.isFinite(v) && v > 0);
+        if (!hasLevels && !(recon?.lines || []).length && !_callVsLeanConflict && !_dirFlipped) return null;
+        const fmtPx = n => Number.isFinite(n) ? "$" + Number(n).toFixed(2) : "—";
+        return h(Panel, {
+          title: "Model Levels & Bias",
+          color: "#60a5fa"
+        }, h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 8,
+            marginBottom: 8
+          }
+        }, h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(248,113,113,0.05)",
+            border: "1px solid rgba(248,113,113,0.20)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "#f87171",
+            letterSpacing: "0.05em"
+          }
+        }, "STOP / INVALIDATION"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.stop))), h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(255,255,255,0.03)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "SPOT"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.price), levels.price_source === "live_kv" && h("span", {
+          style: {
+            fontSize: 9,
+            color: "#34d399",
+            marginLeft: 4
+          }
+        }, "LIVE"))), Number.isFinite(levels.trim) && levels.trim > 0 && h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(255,255,255,0.03)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "TRIM"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.trim))), Number.isFinite(levels.exit) && levels.exit > 0 && h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(52,211,153,0.05)",
+            border: "1px solid rgba(52,211,153,0.20)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "#34d399",
+            letterSpacing: "0.05em"
+          }
+        }, "EXIT (SPREAD / P&L)"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.exit)))), h("div", {
+          style: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginBottom: 8
+          }
+        }, _contractDir && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: _callColor,
+            background: _callColor + "18",
+            border: `1px solid ${_callColor}44`
+          }
+        }, "Contract ", _contractDir), _layerLean && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: _layerLean === "SHORT" ? "#fb7185" : _layerLean === "LONG" ? "#34d399" : "var(--ds-text-muted)",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid var(--ds-stroke)"
+          }
+        }, "Layers ", _layerLean), _effDir && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: "#a78bfa",
+            background: "rgba(167,139,250,0.12)",
+            border: "1px solid rgba(167,139,250,0.35)"
+          }
+        }, "Play ", _effDir), _dirFlipped && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: "#f5c25c",
+            background: "rgba(245,194,92,0.12)",
+            border: "1px solid rgba(245,194,92,0.35)"
+          }
+        }, "FADE FLIP")), (recon?.lines || []).slice(0, 4).map((line, i) => h("div", {
+          key: "recon-" + i,
+          style: {
+            fontSize: 11,
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.5,
+            marginBottom: i < 3 ? 4 : 0
+          }
+        }, line)), Array.isArray(contract?.invalidation) && contract.invalidation.length > 0 && h("div", {
+          style: {
+            marginTop: 8,
+            fontSize: 11,
+            color: "var(--ds-text-faint)",
+            lineHeight: 1.45
+          }
+        }, "Invalidation: ", contract.invalidation.slice(0, 2).join(" · ")));
+      })(), h("details", {
         style: {
           marginBottom: 4
         }
@@ -2801,7 +2972,42 @@
           color: "var(--ds-text-body)",
           fontFamily: "var(--tt-font-mono)"
         }
-      }, "$" + primary.breakeven.toFixed(2))), (() => {
+      }, "$" + primary.breakeven.toFixed(2))), (primary.est_at_tp || primary.est_at_sl) && h("div", {
+        style: {
+          marginTop: 10,
+          padding: "10px 12px",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: 8
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.06em",
+          marginBottom: 6
+        }
+      }, "LIVE EXIT PROJECTIONS"), primary.est_at_tp && primary.est_at_tp.total_pl_usd != null && h("div", {
+        style: {
+          fontSize: 11,
+          color: primary.est_at_tp.total_pl_usd >= 0 ? "#34d399" : "#f87171",
+          fontFamily: "var(--tt-font-mono)",
+          marginBottom: 4
+        }
+      }, "If Exit target hit (~", primary.est_at_tp.hold_days, "d): est. P&L ", fmtUsd(primary.est_at_tp.total_pl_usd), primary.est_at_tp.est_premium != null ? ` · premium ≈ $${Number(primary.est_at_tp.est_premium).toFixed(2)}` : ""), primary.est_at_sl && primary.est_at_sl.total_pl_usd != null && h("div", {
+        style: {
+          fontSize: 11,
+          color: primary.est_at_sl.total_pl_usd >= 0 ? "#34d399" : "#f87171",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "If stop hit (~", primary.est_at_sl.hold_days, "d): est. P&L ", fmtUsd(primary.est_at_sl.total_pl_usd)), primary.target_clears_breakeven === false && h("div", {
+        style: {
+          fontSize: 10,
+          color: "#f87171",
+          marginTop: 6
+        }
+      }, "Exit target is below option breakeven — hold-to-target may still lose on premium decay.")), (() => {
         const arch = String(primary.archetype || "").toLowerCase();
         const legs = Array.isArray(primary.legs) ? primary.legs : [];
         const exp = primary.expiration?.label || primary.expiration?.iso || "expiry";
@@ -21547,4 +21753,4 @@
   };
 })();
 
-// cache-bust:1782340739634:382670455
+// cache-bust:1782392442427:488099466
