@@ -298,6 +298,49 @@ function computeEffectiveStage(ticker, trade) {
   if (!["trim", "hold", "active", "just_entered"].includes(rawStage)) return "hold";
   return rawStage;
 }
+function ensureOpenTradesInManagementLanes(lanes, tradeByTicker, tickers) {
+  if (!tradeByTicker?.forEach) return lanes;
+  const placed = new Set();
+  for (const key of ["hold", "defend", "trim", "new"]) {
+    for (const t of lanes[key] || []) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      if (sym) placed.add(sym);
+    }
+  }
+  const bySym = new Map();
+  for (const t of tickers || []) {
+    const sym = String(t?.ticker || "").toUpperCase();
+    if (sym) bySym.set(sym, t);
+  }
+  tradeByTicker.forEach((trade, sym) => {
+    const openTr = resolveOpenTrade(trade);
+    if (!sym || !openTr || placed.has(sym)) return;
+    const base = bySym.get(sym) || {
+      ticker: sym
+    };
+    const eff = computeEffectiveStage(base, openTr);
+    const enriched = {
+      ...base,
+      ticker: sym,
+      kanban_stage: eff,
+      _effectiveKanbanStage: eff,
+      _rawKanbanStage: String(base?._rawKanbanStage ?? base?.kanban_stage ?? "hold").toLowerCase(),
+      _openTrade: openTr,
+      has_open_position: true,
+      position_direction: openTr.direction || base.position_direction || null,
+      price: Number(base?.price ?? base?.close ?? openTr?.mark_price ?? openTr?.current_price ?? openTr?.entry_price ?? openTr?.entryPrice) || null,
+      _injectedOpenTrade: true
+    };
+    if (eff === "trim") lanes.trim.push(enriched);else if (eff === "defend") lanes.defend.push(enriched);else if (eff === "just_entered") lanes.new.push(enriched);else lanes.hold.push(enriched);
+    placed.add(sym);
+  });
+  const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+  lanes.hold.sort(byAlpha);
+  lanes.defend.sort(byAlpha);
+  lanes.trim.sort(byAlpha);
+  lanes.new.sort(byAlpha);
+  return lanes;
+}
 function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   const setup = [];
   const enter = [];
@@ -313,12 +356,13 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     const status = trade ? String(trade.status || "").toUpperCase() : "";
     const trimmedPct = Number(trade?.trimmed_pct ?? trade?.trimmedPct ?? 0);
     const isOpen = traderBookIsOpen(trade);
-    if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen) continue;
+    const snapshotOpen = !!t.has_open_position && !t._stickyExit;
+    if ((t.kanban_stage == null || t.kanban_stage === undefined) && !t._stickyExit && !isOpen && !snapshotOpen) continue;
     let stage = String(t?.kanban_stage || "").toLowerCase();
-    if (!stage && isOpen) {
+    if (!stage && (isOpen || snapshotOpen)) {
       stage = tradeTrimmedToday(trade) ? "trim" : "hold";
     }
-    if (trade && isOpen) {
+    if (trade && isOpen || snapshotOpen) {
       if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (stage === "exiting") stage = "defend";else if (tradeTrimmedToday(trade)) stage = "trim";else if (stage === "trim") stage = "hold";else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
     if (!isOpen && closedByTicker?.get) {
@@ -380,7 +424,7 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
   defend.sort(byAlpha);
   trim.sort(byAlpha);
   exit.sort(byAlpha);
-  return {
+  const lanes = {
     setup,
     enter,
     new: newLane,
@@ -389,6 +433,8 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     trim,
     exit
   };
+  ensureOpenTradesInManagementLanes(lanes, tradeByTicker, tickers);
+  return lanes;
 }
 function ATCard({
   t,
@@ -989,6 +1035,9 @@ function ATBrief({
   })), ...lanes.trim.map(t => ({
     t,
     lane: "trim"
+  })), ...lanes.new.map(t => ({
+    t,
+    lane: "new"
   }))];
   const openCount = openLanes.length;
   const positionChip = ({
@@ -1879,6 +1928,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782392442427:488099466
+// cache-bust:1782394559738:14693781
 
-// cache-bust:1782392442427:488099466
+// cache-bust:1782394559738:14693781
