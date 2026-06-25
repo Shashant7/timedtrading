@@ -3720,6 +3720,21 @@
         "regime_score": -4,
         "btc_pct": -2.8,
         "eth_pct": -3.28
+      },
+      {
+        "date": "2026-06-25",
+        "vix_close": 18.6,
+        "vix_state": "normal",
+        "spy_pct": -0.05,
+        "qqq_pct": -0.42,
+        "iwm_pct": 0.46,
+        "offense_avg_pct": 0.56,
+        "defense_avg_pct": 0.89,
+        "sector_rotation": "balanced",
+        "regime_overall": "balanced",
+        "regime_score": -5,
+        "btc_pct": 0.17,
+        "eth_pct": 0.78
       }
     ],
     "success": true,
@@ -3729,14 +3744,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 2.5683
+        "sql_duration_ms": 3.4443
       },
-      "duration": 2.5683,
+      "duration": 3.4443,
       "changes": 0,
-      "last_row_id": 91031,
+      "last_row_id": 66334028,
       "changed_db": false,
-      "size_after": 4920737792,
-      "rows_read": 248,
+      "size_after": 5037338624,
+      "rows_read": 249,
       "rows_written": 0,
       "total_attempts": 1
     }
