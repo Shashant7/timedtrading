@@ -132,7 +132,7 @@ function hasTrimSignalPending(ticker, trade) {
   const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
   return raw === "trim";
 }
-const RECENT_EXIT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
   const [closedByTicker, setClosedByTicker] = useState(() => new Map());
@@ -1782,7 +1782,7 @@ function ActiveTraderApp() {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
     disabled: laneCounts.exit === 0,
-    title: "Recently closed model trades (visible 7d)"
+    title: "Recently closed model trades (visible 24h)"
   }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
@@ -1928,6 +1928,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782405190410:398313074
+// cache-bust:1782409387454:280632540
 
-// cache-bust:1782405190410:398313074
+// cache-bust:1782409387454:280632540
