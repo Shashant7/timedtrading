@@ -132,6 +132,44 @@ function hasTrimSignalPending(ticker, trade) {
   const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
   return raw === "trim";
 }
+function isPricePastStop(openTr, ticker, price) {
+  const px = Number(price);
+  if (!openTr || !Number.isFinite(px) || px <= 0) return false;
+  const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
+  const sl = Number(openTr.sl ?? openTr.stop_loss);
+  if (!Number.isFinite(sl) || sl <= 0) return false;
+  if (dir === "LONG") return px <= sl;
+  if (dir === "SHORT") return px >= sl;
+  return false;
+}
+function hasExitSignalPending(ticker, trade, price) {
+  const openTr = resolveOpenTrade(trade);
+  if (!openTr || !traderBookIsOpen(openTr)) return false;
+  const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
+  if (raw === "exit" || raw === "exiting") return true;
+  const bucket = String(ticker?.kanban_meta?.bucket || "").toLowerCase();
+  if (bucket === "close_now") return true;
+  const exitReason = String(ticker?.__exit_reason || (Array.isArray(ticker?.kanban_meta?.reasons) ? ticker.kanban_meta.reasons[0] : "") || "").toLowerCase();
+  if (/sl_breach|sl_hit|max_loss|doctrine_force|v13_hard|hard_loss|critical/.test(exitReason)) {
+    return true;
+  }
+  const px = Number(price ?? ticker?.price ?? ticker?._live_price ?? ticker?.close ?? openTr?.mark_price ?? openTr?.current_price);
+  return isPricePastStop(openTr, ticker, px);
+}
+function exitSignalChipLabel(ticker, trade, price) {
+  const openTr = resolveOpenTrade(trade);
+  const px = Number(price ?? ticker?.price ?? ticker?._live_price ?? ticker?.close ?? openTr?.mark_price ?? openTr?.current_price);
+  if (isPricePastStop(openTr, ticker, px)) {
+    return {
+      label: "Stop breached",
+      title: "Price is at or past the stop — engine exit signal (card stays in Defend until the book closes)"
+    };
+  }
+  return {
+    label: "Exit signal",
+    title: "Engine recommends closing the position — exit not executed yet (card stays in Defend)"
+  };
+}
 const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
@@ -520,6 +558,14 @@ function ATCard({
         label: "Trim signal",
         cls: "ds-chip--solid",
         title: "Engine recommends taking partial profits — trim not executed yet (card stays in Hold)"
+      };
+    }
+    if (hasExitSignalPending(t, resolvedOpen, price)) {
+      const exitChip = exitSignalChipLabel(t, resolvedOpen, price);
+      return {
+        label: exitChip.label,
+        cls: "ds-chip--dn",
+        title: exitChip.title
       };
     }
     if (stage === "trim") return {
@@ -1328,7 +1374,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — tighten risk. Exit-signal / stop-breached cards stay here until the book closes."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1399,16 +1445,23 @@ function ActiveTraderApp() {
         _rawKanbanStage: rawKanban,
         kanban_stage: rawKanban
       }, trade);
+      const exitSignalPending = hasExitSignalPending({
+        ...t,
+        _rawKanbanStage: rawKanban,
+        kanban_stage: rawKanban
+      }, trade);
       const base = eff === rawKanban && !trade ? {
         ...t,
         _rawKanbanStage: rawKanban,
-        _trimSignalPending: trimSignalPending
+        _trimSignalPending: trimSignalPending,
+        _exitSignalPending: exitSignalPending
       } : {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
         _rawKanbanStage: rawKanban,
         _trimSignalPending: trimSignalPending,
+        _exitSignalPending: exitSignalPending,
         kanban_stage: eff,
         ...(trade ? {
           has_open_position: true,
@@ -1493,6 +1546,7 @@ function ActiveTraderApp() {
         _effectiveKanbanStage: eff,
         _rawKanbanStage: String(stub.kanban_stage || "hold").toLowerCase(),
         _trimSignalPending: hasTrimSignalPending(stub, openTr),
+        _exitSignalPending: hasExitSignalPending(stub, openTr),
         _injectedOpenTrade: true
       });
     });
@@ -1947,6 +2001,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782410019075:599152647
+// cache-bust:1782428320490:687343507
 
-// cache-bust:1782410019075:599152647
+// cache-bust:1782428320490:687343507
