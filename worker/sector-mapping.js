@@ -279,6 +279,8 @@ const SECTOR_MAP = {
   'GRNI': 'Thematic ETF',
   'SPCX': 'Thematic ETF', // 2026-06-12 — SPAC & New Issue ETF; thin history, live quote OK
   'IBB':  'Thematic ETF',
+  'IGV':  'Thematic ETF', // iShares Expanded Tech-Software — IGV/SMH RS pair
+  'KWEB': 'Thematic ETF',
   'INFL': 'Thematic ETF',
   'LIT':  'Thematic ETF',
 
