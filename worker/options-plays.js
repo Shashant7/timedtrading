@@ -2050,6 +2050,77 @@ function buildLeveragedETF(ctx) {
      - Max loss = premium paid (always defined; never undefined)
 
    Returns null if the ticker isn't on the day-trade allow-list. */
+
+/** Compact game-plan levels for Today day-trade cards (index playbook). */
+export function summarizeDayTradeGamePlan(gamePlan) {
+  if (!gamePlan || typeof gamePlan !== "object") return null;
+  const lean = String(gamePlan.lean || "").toUpperCase() || null;
+  return {
+    lean,
+    lean_conviction: gamePlan.lean_conviction || gamePlan.leanConviction || null,
+    bull_trigger: Number(gamePlan.bull_trigger ?? gamePlan.bullTrigger) || null,
+    bull_target: Number(gamePlan.bull_target ?? gamePlan.bullTarget) || null,
+    bear_trigger: Number(gamePlan.bear_trigger ?? gamePlan.bearTrigger) || null,
+    bear_target: Number(gamePlan.bear_target ?? gamePlan.bearTarget) || null,
+  };
+}
+
+/** When buildDayTradePlay returns null, explain why (Today suppressed row). */
+export function explainDayTradeSuppression(ctx) {
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!isDayTradeTicker(ticker)) return { reason: "not_day_trade_ticker" };
+  const price = Number(ctx?.price);
+  if (!(price > 0)) return { reason: "no_live_spot" };
+
+  const profile = ctx?.profile && PROFILE_META[ctx.profile] ? ctx.profile : DEFAULT_RISK_PROFILE;
+  const direction = String(ctx?.direction || "").toUpperCase();
+  const verdictMode = String(ctx?.verdict?.mode || "UNKNOWN").toUpperCase();
+  const verdictSide = ctx?.verdict?.side || direction;
+  const atrPct = Number(ctx?.atrPct) || 0.012;
+  const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
+  const dayLean = String(ctx?.dayLean || "").toUpperCase();
+  const dayLeanConv = String(ctx?.dayLeanConviction || "").toLowerCase();
+  const leanActionable = (dayLean === "LONG" || dayLean === "SHORT")
+    && (dayLeanConv === "medium" || dayLeanConv === "high");
+
+  if (leanActionable) return { reason: "build_failed", day_lean: dayLean, day_lean_conviction: dayLeanConv };
+
+  const align = shouldAllowIndexDirectional({
+    verdictMode,
+    verdictSide,
+    direction,
+    effectiveDirection: direction,
+    confluence: ctx?.verdict,
+    timingOverlay: ctx?.verdict?.timing,
+  });
+
+  if (!align.allow) {
+    if (dayLean && dayLeanConv === "low") {
+      return {
+        reason: "day_lean_low_conviction",
+        day_lean: dayLean,
+        day_lean_conviction: dayLeanConv,
+        confluence_mode: verdictMode,
+      };
+    }
+    if (verdictMode === "WAIT" && wantsSingleLeg && atrPct < 0.012) {
+      return {
+        reason: "no_directional_signal_low_vol",
+        confluence_mode: verdictMode,
+        day_lean: dayLean || null,
+        day_lean_conviction: dayLeanConv || null,
+      };
+    }
+    return {
+      reason: align.reason || "wait_no_directional_bet",
+      confluence_mode: verdictMode,
+      day_lean: dayLean || null,
+      day_lean_conviction: dayLeanConv || null,
+    };
+  }
+  return { reason: "build_failed", confluence_mode: verdictMode };
+}
+
 export function buildDayTradePlay(ctx) {
   const ticker = String(ctx?.ticker || "").toUpperCase();
   if (!isDayTradeTicker(ticker)) return null;
