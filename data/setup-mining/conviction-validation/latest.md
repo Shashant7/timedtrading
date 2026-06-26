@@ -21,6 +21,14 @@ out-sample BASELINE        n= 91  WR= 52.7%  meanPnl= -0.124  SQN= -0.58
 out-sample confirm FIRED   n= 49  WR= 57.1%  meanPnl= -0.076  SQN= -0.26
 ```
 
+## What-if: conviction-weighted sizing applied to the corpus (sum of pnl_pct)
+```
+all:        base Σ=-8.97  sized Σ=0.35  Δ=103.9%  sizedSQN=0.01
+in-sample:  base Σ=2.33  sized Σ=8.62  Δ=269.3%  sizedSQN=0.22
+out-sample: base Σ=-11.31  sized Σ=-8.27  Δ=26.8%  sizedSQN=-0.5
+(Caveat: focus_conviction + EMA21 absent in cache => tiers collapse to gate/no-gate; lower bound.)
+```
+
 ## Missed-move capture opportunity
 ```
 all misses confirm_stack would flag:    130 / 211 (61.6%)

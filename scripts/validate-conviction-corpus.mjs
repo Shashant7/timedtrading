@@ -93,6 +93,30 @@ const oosConfirm = stats(outSample.filter((t) => t._confirm));
 const isBase = stats(inSample);
 const oosBase = stats(outSample);
 
+// ── "What if we flipped the flag?" — apply conviction sizeMult to the corpus ──
+// Conviction-weighted sizing keeps full size on edge (Tier A/B = gate fired) and
+// under-sizes low-conviction trades (Tier C = no gate). This measures the net
+// effect on the existing corpus (a real what-if, runnable now). Caveat: focus +
+// EMA21 absent in cache, so tiers collapse to gate/no-gate => lower bound.
+function sizedSummary(rows) {
+  const baseSum = rows.reduce((a, t) => a + pnl(t), 0);
+  const sizedSum = rows.reduce((a, t) => a + pnl(t) * (Number(t._conv.sizeMult) || 1), 0);
+  const sizedPnls = rows.map((t) => pnl(t) * (Number(t._conv.sizeMult) || 1));
+  const n = rows.length || 1;
+  const mean = sizedPnls.reduce((a, b) => a + b, 0) / n;
+  const std = Math.sqrt(sizedPnls.reduce((a, b) => a + (b - mean) ** 2, 0) / n);
+  const sqn = std > 0 ? (mean / std) * Math.sqrt(n) : 0;
+  return {
+    baseSum: Math.round(baseSum * 100) / 100,
+    sizedSum: Math.round(sizedSum * 100) / 100,
+    deltaPct: baseSum !== 0 ? Math.round(((sizedSum - baseSum) / Math.abs(baseSum)) * 1000) / 10 : null,
+    sizedSqn: Math.round(sqn * 100) / 100,
+  };
+}
+const sizedAll = sizedSummary(trades);
+const sizedIs = sizedSummary(inSample);
+const sizedOos = sizedSummary(outSample);
+
 // ── Missed corpus (capture opportunity) ─────────────────────────────────
 const misses = load(MISSED);
 const tierAmisses = misses.filter((m) => Number(m.move_atr) >= 8);
@@ -136,6 +160,14 @@ lines.push(fmt("out-sample BASELINE", oosBase));
 lines.push(fmt("out-sample confirm FIRED", oosConfirm));
 lines.push("```");
 lines.push("");
+lines.push("## What-if: conviction-weighted sizing applied to the corpus (sum of pnl_pct)");
+lines.push("```");
+lines.push(`all:        base Σ=${sizedAll.baseSum}  sized Σ=${sizedAll.sizedSum}  Δ=${sizedAll.deltaPct}%  sizedSQN=${sizedAll.sizedSqn}`);
+lines.push(`in-sample:  base Σ=${sizedIs.baseSum}  sized Σ=${sizedIs.sizedSum}  Δ=${sizedIs.deltaPct}%  sizedSQN=${sizedIs.sizedSqn}`);
+lines.push(`out-sample: base Σ=${sizedOos.baseSum}  sized Σ=${sizedOos.sizedSum}  Δ=${sizedOos.deltaPct}%  sizedSQN=${sizedOos.sizedSqn}`);
+lines.push("(Caveat: focus_conviction + EMA21 absent in cache => tiers collapse to gate/no-gate; lower bound.)");
+lines.push("```");
+lines.push("");
 lines.push("## Missed-move capture opportunity");
 lines.push("```");
 lines.push(`all misses confirm_stack would flag:    ${confirmCatch.length} / ${misses.length} (${(100 * confirmCatch.length / misses.length).toFixed(1)}%)`);
@@ -161,6 +193,7 @@ const artifact = {
   backtest: { baseline, confirmFired, confirmNot, tierA, tierB, tierC },
   walk_forward: { inSampleBaseline: isBase, inSampleConfirm: isConfirm, outSampleBaseline: oosBase, outSampleConfirm: oosConfirm, oosHoldsRatio },
   misses: { total: misses.length, tierA: tierAmisses.length, confirmCatch: confirmCatch.length, confirmCatchTierA: confirmCatchTierA.length },
+  sized_whatif: { all: sizedAll, in_sample: sizedIs, out_sample: sizedOos },
   checks,
   overall_pass: allPass,
 };
