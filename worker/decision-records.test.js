@@ -3,10 +3,37 @@ import {
   canonicalJson,
   computeConfigHash,
   buildDecisionRecord,
+  loadDeepAuditConfigFromDb,
   DECISION_RECORD_SCHEMA_VERSION,
   DECISION_RECORD_COLUMNS,
   DECISION_RECORDS_DDL,
 } from "./decision-records.js";
+
+describe("loadDeepAuditConfigFromDb", () => {
+  it("filters allowed keys and returns the same hash as computeConfigHash", async () => {
+    const rows = [
+      { config_key: "deep_audit_max_loss_pct", config_value: "-4.5" },
+      { config_key: "ignored_key", config_value: "1" },
+      { config_key: "gates", config_value: '{"g1":true}' },
+    ];
+    const db = {
+      prepare: () => ({
+        all: async () => ({ results: rows }),
+      }),
+    };
+    const allowed = ["deep_audit_max_loss_pct", "gates"];
+    const { config, configHash } = await loadDeepAuditConfigFromDb(db, allowed);
+    expect(config.ignored_key).toBeUndefined();
+    expect(config.deep_audit_max_loss_pct).toBe(-4.5);
+    expect(config.gates).toEqual({ g1: true });
+    expect(configHash).toBe(computeConfigHash(config));
+  });
+
+  it("returns empty config/hash when db or allowlist missing", async () => {
+    expect(await loadDeepAuditConfigFromDb(null, ["a"])).toEqual({ config: {}, configHash: "" });
+    expect(await loadDeepAuditConfigFromDb({}, [])).toEqual({ config: {}, configHash: "" });
+  });
+});
 
 describe("computeConfigHash", () => {
   it("is deterministic and key-order independent", () => {

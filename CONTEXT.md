@@ -192,6 +192,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Both behavior levers (`deep_audit_conviction_fusion_enabled`,
   `deep_audit_bleeder_shield_enabled`) ship **OFF**; flip only after the forward
   validation clears. Includes the operator verification + flip runbook.
+- **`docs/week-calibration-2026-06-26.md`** — first live-week scorecard +
+  calibration recommendations (Jun 20–26); re-run via
+  `node scripts/analyze-week-activity.mjs --days 7`.
 - **`tasks/archive/2026-pre-may/`** — historical plans. **Jul→Apr recovery is
   complete** (engine backtested and promoted to live); do not reopen unless
   starting a deliberate new validation lane. Key archives:

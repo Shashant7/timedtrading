@@ -19,6 +19,35 @@ export function canonicalJson(v) {
   return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalJson(v[k])).join(",") + "}";
 }
 
+/**
+ * Load the active deep-audit config subset from D1 and fingerprint it.
+ * Mirrors the scoring-cron loader: read all model_config rows, filter in JS
+ * (REPLAY_DA_KEYS exceeds D1 bind-param cap). Returns the same hash whether
+ * the caller is the five-minute cron or the processTradeSimulation lazy loader.
+ */
+export async function loadDeepAuditConfigFromDb(db, allowedKeys) {
+  const cfg = {};
+  if (!db) return { config: cfg, configHash: "" };
+  const allowed = allowedKeys instanceof Set ? allowedKeys : new Set(allowedKeys || []);
+  if (allowed.size === 0) return { config: cfg, configHash: "" };
+  try {
+    const rows = (await db.prepare(`SELECT config_key, config_value FROM model_config`).all())?.results || [];
+    for (const r of rows) {
+      if (!r?.config_key || !allowed.has(r.config_key)) continue;
+      try {
+        cfg[r.config_key] = JSON.parse(r.config_value);
+      } catch {
+        cfg[r.config_key] = r.config_value;
+      }
+    }
+  } catch (_) {}
+  let configHash = "";
+  try {
+    configHash = computeConfigHash(cfg);
+  } catch (_) {}
+  return { config: cfg, configHash };
+}
+
 /** FNV-1a 32-bit -> 8-hex. A fast, deterministic config fingerprint. */
 export function computeConfigHash(cfg) {
   if (!cfg || (typeof cfg === "object" && Object.keys(cfg).length === 0)) return "";
