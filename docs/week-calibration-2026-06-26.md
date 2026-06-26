@@ -122,6 +122,21 @@ Prioritized for the self-calibrating loop. None flip conviction/bleeder flags
 until forward `decision_records` validation clears (see
 `docs/self-calibrating-loop.md`).
 
+### Applied 2026-06-26 (PR pending deploy)
+
+| Rec | Status | Implementation |
+|---|---|---|
+| P0 config_hash unification | **Live** (PR #856 merged) | `loadDeepAuditConfigFromDb()` |
+| P0 NVDA SL enforcement | **Live** (PR #855 merged) | `sl-hard-exit.js` stale-price + PnL-implied marks |
+| P1 range-reversal adverse phase gate | **Code + config** | `calibration-guards.js` + `deep_audit_range_reversal_block_adverse_phase=true` |
+| P1 ATH false-break confirm | **Code + config** | min 5 min + 3 confirm cycles before ATH entry |
+| P1 repeat churn (CRDO/MOD/GRNJ) | **Code + config** | Wired dormant `repeat_churn_guard`; include list + global 2× same-day SL |
+| P3 pullback low-liquidity cap | **Code + config** | Caps `tt_pullback` notional on avg vol < 500k |
+| P2 forward validation | **Operational** | `decision_records` accrual + weekly scorecard script |
+| P3 full autopsy | **On demand** | `USE_D1=1 node scripts/calibrate.js --since 2026-06-20` |
+
+Re-apply config: `node scripts/apply-week-calibration-config.mjs`
+
 ### P0 — Trust spine (act now)
 
 1. **Deploy config_hash unification** — every new `decision_record` must carry
