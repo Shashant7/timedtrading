@@ -13,6 +13,9 @@ export const REPLAY_DA_KEYS = [
   // Slice B — conviction fusion. Default absent => OFF (shadow-stamped only).
   // Flip ON only after corpus walk-forward validation (Slice E).
   "deep_audit_conviction_fusion_enabled",
+  // Slice B Part 2 — bleeder guard: shield soft force/fast-cut exits when
+  // structure holds. Default absent => OFF. Never shields hard SL/max-loss.
+  "deep_audit_bleeder_shield_enabled",
   "deep_audit_ripster_5_12_trim_min_pnl_pct",
   "deep_audit_ripster_34_50_trim_min_pnl_pct",
   "deep_audit_continuation_trigger_accept_pullback",
