@@ -564,6 +564,7 @@ Entry and exit engines switched from frozen `ripster_core` references to `tt_cor
 - Runner management: trim at exhaustion, hold runner if 34/50 structure + 30m SuperTrend intact
 - Runner trailing: exit on structure break or breakeven stop (MFE >= 1%, PnL <= 0.1%)
 - Safety nets: regime reversal, SL breach, max loss, DOA, time exits, bias flip
+- **Published SL enforcement** (`worker/feed/sl-hard-exit.js`): backfill SL from entry history onto trade row; stop checks use worst-case of all price prints + PnL-implied mark; fresh quote when headline disagrees with loss past stop; hard SL bypasses 30m cadence (NVDA Jun 2026).
 
 **Dispatcher**: `exit-engine.js` dispatches to `tt-core-exit.js` in `classifyKanbanStage`. Inline legacy code preserved as fallback.
 

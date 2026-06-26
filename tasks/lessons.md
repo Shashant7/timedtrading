@@ -6,6 +6,18 @@
 
 ---
 
+## SL enforcement used headline price only; NVDA stayed open past stop [2026-06-26]
+
+NVDA LONG entry $209.90 / SL $198.81 stayed OPEN while market was
+~$194. Headline/`_ah_price` ~$200 sat above the stop so `sl_breached`
+never fired; `sl` was null on the trade row (only in entry history).
+Fix: `worker/feed/sl-hard-exit.js` now (1) backfills published SL onto
+the trade row, (2) uses worst-case price candidates (all prints + PnL-
+implied mark), (3) fetches a fresh quote when loss/stop proximity
+discordant, (4) bypasses the 30m soft-exit cadence for hard SL closes.
+
+---
+
 ## Global freshness checks hide per-symbol corpses (SMCI $41 vs $29) [2026-06-10]
 
 A VIP subscriber caught SMCI displayed at $41.64 while the real price
