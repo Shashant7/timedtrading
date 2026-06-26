@@ -4,7 +4,7 @@ Prioritized list of what to apply next, synthesized from:
 
 - Week live scorecard (`docs/week-calibration-2026-06-26.md`)
 - Full autopsy `cal_1782508713652` (644 trades, mixed live+replay)
-- Live-only autopsy (re-run with `--live-only`; 616 live trades since 2026-06-20)
+- **Live-only autopsy `cal_1782510783746`** (615 trades, `run_id` empty since 2026-06-20)
 - Production `model_config` + pending `learning_proposals`
 
 Re-queue after live autopsy completes:
@@ -70,7 +70,9 @@ USE_D1=1 node scripts/calibrate.js \
   2>&1 | tee /tmp/calibrate-live-only.log
 ```
 
-Expect ~616 closed trades (`run_id` empty). Compare report to mixed `cal_1782508713652` before approving tier2 demotions.
+Expect ~616 closed trades (`run_id` empty). **Completed:** report `cal_1782510783746` — 615 trades, WR 50.7%, SQN 2.94, PF 1.94, SL rec 0.51 ATR. WFO still WARNING (OS SQN −2.29). Deep-audit endpoint still reads all 644 trades (same 3 recs; all already in `model_config`).
+
+Compare report to mixed `cal_1782508713652` before approving tier2 demotions.
 
 ---
 
