@@ -21,7 +21,9 @@ to a new D1 table **`decision_records`**, version-pinned with:
 - `scoring_version` (`worker/indicators.js` `SCORING_VERSION`)
 - `engine_git_sha` (the exact deployed commit — injected by CI at deploy)
 - `config_hash` (FNV-1a over the canonical, key-sorted active `model_config` —
-  computed once per scoring tick)
+  computed once per scoring tick via `loadDeepAuditConfigFromDb()` — both the
+  five-minute cron and HTTP/queue-drain lazy loader use the same REPLAY_DA_KEYS
+  fingerprint)
 - `engine` (`trader` | `investor` — the two engines never blur)
 - `conviction_tier`, `reason`, `inputs_json`, `schema_version`
 
@@ -197,4 +199,5 @@ Read `data/setup-mining/conviction-validation/latest.md`.
 | Flags allowlist | `worker/replay-runtime-setup.js` (`REPLAY_DA_KEYS`) |
 | Build-id injection | `.github/workflows/deploy-worker.yml`, `deploy-engine.yml` (`--var ENGINE_GIT_SHA:…`) |
 | Validation | `scripts/validate-conviction-corpus.mjs`, `data/setup-mining/conviction-validation/` |
+| Weekly scorecard | `scripts/analyze-week-activity.mjs`, `docs/week-calibration-2026-06-26.md` |
 | Tests | `worker/decision-records.test.js`, `worker/conviction.test.js`, `worker/bleeder-guard.test.js` |
