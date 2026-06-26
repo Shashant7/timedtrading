@@ -128,6 +128,10 @@ CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
+# Provenance (Slice A): build identity stamped on every decision_record.
+# Placeholder; deploy injects the real short SHA via
+# `wrangler deploy --var ENGINE_GIT_SHA:$(git rev-parse --short HEAD)`.
+ENGINE_GIT_SHA = "unset"
 # ── AI COO (Chief Operating Officer) — self-learning + self-healing ──
 # Turned on 2026-06-02. See worker/coo/coo-orchestrator.js. Tier-1
 # changes are bounded by the calibration apply BOUNDS/blendVal so
