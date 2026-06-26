@@ -386,16 +386,23 @@
       const evType = resolveEvType(ev, c);
       const invOverride = classifyInvestorExecution(ev);
       if (invOverride) return invOverride;
+      const rawType = String(ev?.type || ev?.event || "").toUpperCase();
+      const execFromEv = String(ev?.exec_state || ev?.execState || "").toLowerCase();
+      const isExitRecommended = c.execState === "recommended"
+        || execFromEv === "recommended"
+        || rawType === "TRADE_EXIT_SIGNAL";
       const label = (c.label && c.label !== "UPDATE" && c.label !== "WATCH")
         ? c.label
         : (evType === "ADD" || evType === "TRIM" || evType === "EXIT" ? evType : (c.label || evType || "UPDATE"));
       return {
-        cls: c.cls || "",
+        cls: c.cls || (isExitRecommended ? "ev-exit ev-recommended ev-doing" : ""),
         label,
         evType,
         scope: c.scope || scopeOf(ev, String(ev?.type || "").toUpperCase()),
         mode: (c.mode === "doing" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "doing" : (c.mode || "doing"),
-        execState: (c.execState === "done" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "done" : (c.execState || "done"),
+        execState: isExitRecommended
+          ? "recommended"
+          : ((c.execState === "done" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "done" : (c.execState || "done")),
       };
     }
     const t = String(ev?.type || ev?.event || "").toUpperCase();
@@ -770,4 +777,4 @@
   else mount();
 })();
 
-// cache-bust:1782428320490:687343507
+// cache-bust:1782477020355:976478164
