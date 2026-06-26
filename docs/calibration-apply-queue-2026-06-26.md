@@ -21,14 +21,14 @@ node scripts/queue-calibration-apply.mjs --report-id <live_report_id>
 |---|--------|------|-----|--------|
 | 0 | Week calibration guards (repeat churn, range-reversal, ATH confirm, pullback cap) | P1 | `apply-week-calibration-config.mjs` | **Applied** |
 | 0 | config_hash unification + NVDA SL hard-exit | P0 | code deploy PR #855–857 | **Applied** |
-| 1 | Verify NVDA exits at published SL; confirm EXIT `decision_record` | P0 | operational | **Monitor** |
-| 2 | Tighten time-scaled 4h max-loss `-2.0` → `-2.5` | tier1 | `learning_proposals` | **Queued** |
-| 3 | Blend `calibrated_sl_atr` `0.3` → `0.45` (toward autopsy `0.53`) | tier1 | `learning_proposals` | **Queued** |
-| 4 | Approve ATH breakout demotion (`tt_ath_breakout` blocked) | tier2 | `learning_proposals` #2 | **Pending review** |
-| 5 | Review support-bounce demotion (`tt_n_test_support`) — GEV open | tier2 | `learning_proposals` #1 | **Pending review** |
-| 6 | SHORT min rank `55` → `80` | tier2 | `learning_proposals` | **Queued** |
-| 7 | Discovery: widen trail ATR mult → 3 (churn) | tier2 | `learning_proposals` #4 | **Pending review** |
-| 8 | Discovery: investor accumulate floor 65 → 60 | tier2 | `learning_proposals` #3 | **Hold** (investor track) |
+| 1 | Verify NVDA exits at published SL; confirm EXIT `decision_record` | P0 | operational | **Acked (#5)** |
+| 2 | Tighten time-scaled 4h max-loss `-2.0` → `-2.5` | tier1 | `learning_proposals` #8 | **Applied** |
+| 3 | Blend `calibrated_sl_atr` `0.3` → `0.45` (toward autopsy `0.53`) | tier1 | `learning_proposals` #6 | **Applied** |
+| 4 | Approve ATH breakout demotion (`tt_ath_breakout` blocked) | tier2 | `learning_proposals` #2 | **Applied** |
+| 5 | Review support-bounce demotion (`tt_n_test_support`) — GEV open | tier2 | `learning_proposals` #1 | **Applied** |
+| 6 | SHORT min rank `55` → `80` | tier2 | `learning_proposals` #7 | **Applied** |
+| 7 | Discovery: widen trail ATR mult → 3 (churn) | tier2 | `learning_proposals` #4 | **Applied** |
+| 8 | Discovery: investor accumulate floor 65 → 60 | tier2 | `learning_proposals` #3 | **Applied** |
 
 ---
 
