@@ -137,6 +137,12 @@ until forward `decision_records` validation clears (see
 
 Re-apply config: `node scripts/apply-week-calibration-config.mjs`
 
+**Apply queue (prioritized next steps):** [`calibration-apply-queue-2026-06-26.md`](calibration-apply-queue-2026-06-26.md)
+
+```bash
+node scripts/queue-calibration-apply.mjs --report-id cal_1782508713652
+```
+
 ### P0 — Trust spine (act now)
 
 1. **Deploy config_hash unification** — every new `decision_record` must carry
