@@ -10,6 +10,7 @@ import {
   investorLaneMeta,
   isActionableFeedEvent,
   isActionableNotification,
+  shouldNotifyKanbanStageTransition,
 } from "./signal-grammar.js";
 
 describe("buildSignal", () => {
@@ -189,5 +190,17 @@ describe("renderEmailSubject", () => {
       pnlPct: 42.97,
     }));
     expect(subj).toMatch(/^\[TRADER · DOING\]/);
+  });
+});
+
+describe("shouldNotifyKanbanStageTransition", () => {
+  it("blocks exit advisory outside RTH", () => {
+    expect(shouldNotifyKanbanStageTransition("exit", false)).toBe(false);
+    expect(shouldNotifyKanbanStageTransition("exit", true)).toBe(true);
+  });
+
+  it("allows hold transitions regardless of session", () => {
+    expect(shouldNotifyKanbanStageTransition("hold", false)).toBe(true);
+    expect(shouldNotifyKanbanStageTransition("just_entered", false)).toBe(true);
   });
 });

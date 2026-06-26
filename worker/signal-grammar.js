@@ -249,6 +249,22 @@ export const ACTIONABLE_KANBAN_STAGES = Object.freeze([
 
 const _ACTIONABLE_KANBAN_SET = new Set(ACTIONABLE_KANBAN_STAGES);
 
+/** Kanban stages where the user must act in sync with the model — RTH alerts only. */
+export const RTH_KANBAN_NOTIFY_STAGES = Object.freeze([
+  "exit", "trim", "defend", "enter", "enter_now", "in_review",
+]);
+
+/**
+ * Gate kanban lane Discord / in-app alerts to NY regular hours for stages
+ * that require the user to follow along (exit advisory, trim, defend, entry).
+ * Hard protective closes use TRADE_EXIT and are unaffected.
+ */
+export function shouldNotifyKanbanStageTransition(stage, isMarketOpen = true) {
+  const s = String(stage || "").toLowerCase();
+  if (!RTH_KANBAN_NOTIFY_STAGES.includes(s)) return true;
+  return isMarketOpen === true;
+}
+
 function normalizeInvestorVerb(raw) {
   const v = String(raw || "").trim();
   if (!v) return "";
