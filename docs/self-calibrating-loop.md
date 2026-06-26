@@ -200,4 +200,5 @@ Read `data/setup-mining/conviction-validation/latest.md`.
 | Build-id injection | `.github/workflows/deploy-worker.yml`, `deploy-engine.yml` (`--var ENGINE_GIT_SHA:…`) |
 | Validation | `scripts/validate-conviction-corpus.mjs`, `data/setup-mining/conviction-validation/` |
 | Weekly scorecard | `scripts/analyze-week-activity.mjs`, `docs/week-calibration-2026-06-26.md` |
+| Entry calibration guards | `worker/calibration-guards.js`, `scripts/apply-week-calibration-config.mjs` |
 | Tests | `worker/decision-records.test.js`, `worker/conviction.test.js`, `worker/bleeder-guard.test.js` |

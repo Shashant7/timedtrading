@@ -16,6 +16,18 @@ export const REPLAY_DA_KEYS = [
   // Slice B Part 2 — bleeder guard: shield soft force/fast-cut exits when
   // structure holds. Default absent => OFF. Never shields hard SL/max-loss.
   "deep_audit_bleeder_shield_enabled",
+  // Week-calibration guards (2026-06-26) — path gates + repeat churn + pullback cap
+  "deep_audit_range_reversal_block_adverse_phase",
+  "deep_audit_ath_breakout_confirm_gate_enabled",
+  "deep_audit_ath_breakout_min_confirm_minutes",
+  "deep_audit_ath_breakout_min_confirm_count",
+  "deep_audit_repeat_churn_max_same_day_sl",
+  "deep_audit_repeat_churn_cooldown_hours",
+  "deep_audit_repeat_churn_guard_global",
+  "deep_audit_pullback_low_liquidity_cap_enabled",
+  "deep_audit_pullback_low_liquidity_min_avg_vol",
+  "deep_audit_pullback_low_liquidity_max_notional_pct_adv",
+  "deep_audit_pullback_low_liquidity_max_notional_floor",
   "deep_audit_ripster_5_12_trim_min_pnl_pct",
   "deep_audit_ripster_34_50_trim_min_pnl_pct",
   "deep_audit_continuation_trigger_accept_pullback",
