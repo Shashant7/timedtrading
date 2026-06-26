@@ -1,0 +1,126 @@
+{
+  "generated_at": "2026-06-26T12:18:00.373Z",
+  "backtest": {
+    "baseline": {
+      "n": 362,
+      "wr": 57.7,
+      "mean": -0.025,
+      "sqn": -0.18
+    },
+    "confirmFired": {
+      "n": 212,
+      "wr": 59.9,
+      "mean": 0.079,
+      "sqn": 0.44
+    },
+    "confirmNot": {
+      "n": 150,
+      "wr": 54.7,
+      "mean": -0.172,
+      "sqn": -0.82
+    },
+    "tierA": {
+      "n": 2,
+      "wr": 50,
+      "mean": -2.012,
+      "sqn": -1.01
+    },
+    "tierB": {
+      "n": 210,
+      "wr": 60,
+      "mean": 0.099,
+      "sqn": 0.55
+    },
+    "tierC": {
+      "n": 150,
+      "wr": 54.7,
+      "mean": -0.172,
+      "sqn": -0.82
+    }
+  },
+  "walk_forward": {
+    "inSampleBaseline": {
+      "n": 271,
+      "wr": 59.4,
+      "mean": 0.009,
+      "sqn": 0.05
+    },
+    "inSampleConfirm": {
+      "n": 163,
+      "wr": 60.7,
+      "mean": 0.126,
+      "sqn": 0.58
+    },
+    "outSampleBaseline": {
+      "n": 91,
+      "wr": 52.7,
+      "mean": -0.124,
+      "sqn": -0.58
+    },
+    "outSampleConfirm": {
+      "n": 49,
+      "wr": 57.1,
+      "mean": -0.076,
+      "sqn": -0.26
+    },
+    "oosHoldsRatio": -0.4482758620689656
+  },
+  "misses": {
+    "total": 211,
+    "tierA": 75,
+    "confirmCatch": 130,
+    "confirmCatchTierA": 51
+  },
+  "sized_whatif": {
+    "all": {
+      "baseSum": -8.97,
+      "sizedSum": 0.35,
+      "deltaPct": 103.9,
+      "sizedSqn": 0.01
+    },
+    "in_sample": {
+      "baseSum": 2.33,
+      "sizedSum": 8.62,
+      "deltaPct": 269.3,
+      "sizedSqn": 0.22
+    },
+    "out_sample": {
+      "baseSum": -11.31,
+      "sizedSum": -8.27,
+      "deltaPct": 26.8,
+      "sizedSqn": -0.5
+    }
+  },
+  "checks": {
+    "gate_fired_n_oos": {
+      "value": 49,
+      "pass": true,
+      "want": ">=30"
+    },
+    "confirm_beats_baseline_wr": {
+      "value": 59.9,
+      "base": 57.7,
+      "pass": true,
+      "want": "> baseline 57.7%"
+    },
+    "confirm_positive_expectancy": {
+      "value": 0.079,
+      "pass": true,
+      "want": "> 0"
+    },
+    "oos_sqn_holds_70pct": {
+      "value": -0.45,
+      "pass": false,
+      "want": ">= 0.70 of in-sample"
+    },
+    "tierA_beats_tierC_wr": {
+      "value": [
+        50,
+        54.7
+      ],
+      "pass": false,
+      "want": "Tier A WR > Tier C WR"
+    }
+  },
+  "overall_pass": false
+}
