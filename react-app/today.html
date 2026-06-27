@@ -1123,7 +1123,7 @@
         flex-direction: row;
         gap: 10px;
         overflow-x: auto;
-        padding: 4px 2px 10px;
+        padding: 0 0 6px;
         scroll-snap-type: x proximity;
         scrollbar-width: thin;
         scrollbar-color: rgba(255,255,255,0.12) transparent;
@@ -1141,14 +1141,118 @@
       .tt-mp-divider {
         height: 1px;
         background: var(--tt-border, rgba(255,255,255,0.08));
-        margin: 16px 0;
+        margin: 12px 0;
+      }
+      /* Market Pulse — 8 tiles on one row at desktop */
+      .tt-mp-tiles-row {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      @media (max-width: 1100px) {
+        .tt-mp-tiles-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      }
+      .tt-mp-tiles-row .ds-tickercard {
+        min-width: 0;
+        padding: 10px !important;
+      }
+      /* Compact Top Movers under Market Pulse */
+      .tt-mp-movers-compact-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .tt-mp-movers-compact-grid.has-ext {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      @media (max-width: 900px) {
+        .tt-mp-movers-compact-grid.has-ext { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      .tt-mover-compact-col__title {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: var(--tt-text-dim);
+        margin-bottom: 6px;
+      }
+      .tt-mover-compact-list { display: flex; flex-direction: column; gap: 3px; }
+      .tt-mover-compact {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        width: 100%;
+        padding: 4px 6px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        background: transparent;
+        cursor: pointer;
+        font-family: var(--tt-font-mono);
+        text-align: left;
+      }
+      .tt-mover-compact:hover {
+        background: rgba(255,255,255,0.04);
+        border-color: var(--tt-border, rgba(255,255,255,0.06));
+      }
+      .tt-mover-compact__sym { font-size: 11px; font-weight: 700; color: var(--tt-text); }
+      .tt-mover-compact__pct { font-size: 11px; font-weight: 700; }
+      .tt-mover-compact__pct.up { color: var(--tt-up-soft); }
+      .tt-mover-compact__pct.dn { color: var(--tt-dn-soft); }
+      .tt-mover-compact__pct.mut { color: var(--tt-text-dim); }
+      .tt-mover-compact__ext { font-size: 8px; opacity: 0.75; margin-left: 2px; }
+      .tt-mover-compact-empty { font-size: 11px; color: var(--tt-text-faint); font-style: italic; }
+      /* Open Positions hero — match Research Desk height, tighter cards */
+      @media (min-width: 981px) {
+        .today-hero-pos-col .tt-open-pos-hero {
+          height: min(520px, 62vh);
+          max-height: min(520px, 62vh);
+          padding: 14px 14px 8px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          box-sizing: border-box;
+        }
+        .today-hero-pos-col .tt-open-pos-grid {
+          flex: 1;
+          min-height: 0;
+          max-height: none;
+          overflow-y: auto;
+          padding-bottom: 4px;
+          align-content: start;
+        }
+      }
+      @media (max-width: 980px) {
+        .today-hero-pos-col .tt-open-pos-hero {
+          height: min(400px, 48vh);
+          max-height: min(400px, 48vh);
+          padding: 14px 14px 8px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+        }
+        .today-hero-pos-col .tt-open-pos-grid {
+          flex: 1;
+          min-height: 0;
+          max-height: none;
+          overflow-y: auto;
+          padding-bottom: 4px;
+        }
+      }
+      .tt-open-pos-chip {
+        gap: 4px !important;
+        padding: 7px 9px !important;
       }
       .tt-lane-controls {
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        margin-bottom: 12px;
+        gap: 10px;
+        margin-bottom: 6px;
       }
+      .tt-lane-section .vp-lane-wrap { margin-bottom: 0; gap: 0; }
+      .tt-lane-section .tt-bmap-block { margin-top: 0; }
+      .tt-lane-section .tt-bmap-guide { margin: 0 0 4px; }
+      .tt-lane-section .tt-bmap-head { margin: 2px 0 4px; }
       .tt-lane-controls .ac-search { margin: 0; }
       .tt-lane-chip-row {
         display: flex;
@@ -1447,7 +1551,8 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* Brief | Research Desk — matched height, inner scroll */
+        /* Open Positions | Research Desk — matched height, inner scroll */
+        .today-hero-pos-col,
         .today-hero-desk-col {
           align-self: stretch;
         }
@@ -3207,20 +3312,19 @@
         const sorted = [...traderSorted, ...investorSorted];
 
         return h("section", {
-          className: hero ? "tt-card tt-card-pad" : "tt-card tt-card-pad tt-row",
+          className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
           style: hero ? { minHeight: 0, display: "flex", flexDirection: "column", flex: 1 } : { marginBottom: 14 },
         },
           h("div", { className: "tt-sec-title" }, "OPEN POSITIONS · MODEL GUIDANCE"),
-          h("div", { className: "tt-sec-h", style: { fontSize: hero ? 14 : 16, marginBottom: 8 } },
+          h("div", { className: "tt-sec-h", style: { fontSize: hero ? 14 : 16, marginBottom: 6 } },
             `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`,
           ),
           h("div", {
             className: "tt-open-pos-grid",
             style: {
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))",
-              gap: 10,
-              ...(hero ? { maxHeight: 320, overflowY: "auto", paddingRight: 2 } : {}),
+              gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
+              gap: 8,
             },
           },
             sorted.slice(0, hero ? 16 : 12).map((t) => {
@@ -3259,8 +3363,6 @@
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
-                  gap: 6,
-                  padding: "10px 12px",
                   borderRadius: 10,
                   cursor: "pointer",
                   textAlign: "left",
@@ -3281,7 +3383,15 @@
               },
                 h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 } },
                   h("span", { style: { fontWeight: 800, fontSize: 13, color: "var(--tt-text)", letterSpacing: "0.02em" } }, sym),
-                  h("span", { style: { fontSize: 9, fontWeight: 700, color: dirColor, letterSpacing: "0.08em" } }, dir),
+                  h("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } },
+                    t?._mode === "trader" && h("span", {
+                      style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
+                    }, "TRADER"),
+                    t?._mode === "investor" && h("span", {
+                      style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
+                    }, "INVESTOR"),
+                    h("span", { style: { fontSize: 9, fontWeight: 700, color: dirColor, letterSpacing: "0.08em" } }, dir),
+                  ),
                 ),
                 h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flexWrap: "wrap" } },
                   Number.isFinite(pnlPct) && h("span", {
@@ -3289,19 +3399,13 @@
                   }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
                   h("span", {
                     style: {
-                      padding: "2px 7px", borderRadius: 999, fontSize: 9, fontWeight: 700,
+                      padding: "1px 6px", borderRadius: 999, fontSize: 9, fontWeight: 700,
                       letterSpacing: "0.06em", color: stageMeta.color, background: stageMeta.bg,
                       border: `1px solid ${stageMeta.color}40`,
                       marginLeft: "auto",
                     },
                   }, stageDisplay),
                 ),
-                t?._mode === "trader" && h("span", {
-                  style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em", alignSelf: "flex-start" },
-                }, "TRADER"),
-                t?._mode === "investor" && h("span", {
-                  style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em", alignSelf: "flex-start" },
-                }, "INVESTOR"),
               );
             }),
           ),
@@ -3760,14 +3864,7 @@
               `MARKET REGIME · ${_latentMeta.label}`,
             ),
           ),
-          h("div", {
-            style: {
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-              gap: 12,
-              marginTop: 10,
-            },
-          },
+          h("div", { className: "tt-mp-tiles-row" },
             order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym], onSelectTicker })),
           ),
         );
@@ -4278,6 +4375,40 @@
           ),
         );
       }
+      function CompactMoverChip({ t, mode, onSelectTicker }) {
+        const dc = getDailyChange(t);
+        const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
+        const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+        const sym = String(t?.ticker || "").toUpperCase();
+        const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
+        return h("button", {
+          type: "button",
+          className: "tt-mover-compact",
+          onClick: (e) => {
+            e.preventDefault();
+            if (typeof onSelectTicker === "function") onSelectTicker(sym);
+          },
+          title: `Open ${sym}`,
+        },
+          h("span", { className: "tt-mover-compact__sym" }, sym),
+          h("span", { className: `tt-mover-compact__pct ${dir}` },
+            Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—",
+            mode === "ext" && h("span", { className: "tt-mover-compact__ext" }, " EXT"),
+          ),
+        );
+      }
+      function CompactMoversCol({ title, items, mode, onSelectTicker }) {
+        return h("div", { className: "tt-mover-compact-col" },
+          h("div", { className: "tt-mover-compact-col__title" }, title),
+          items.length === 0
+            ? h("div", { className: "tt-mover-compact-empty" }, "—")
+            : h("div", { className: "tt-mover-compact-list" },
+                items.slice(0, 5).map((t, i) => h(CompactMoverChip, {
+                  key: t.ticker || i, t, mode, onSelectTicker,
+                })),
+              ),
+        );
+      }
       function MoversCol({ title, items, mode, onSelectTicker, universe }) {
         return h("div", { className: "tt-card tt-card-pad" },
           h("div", { className: "tt-sec-title", style: { marginBottom: 10 } }, title),
@@ -4340,18 +4471,13 @@
         if (embedded) {
           return h("div", { className: "tt-mp-movers-embed" },
             h("div", { className: "tt-sec-title", style: { marginBottom: 4 } }, "TOP MOVERS"),
-            h("div", { className: "tt-sec-h", style: { fontSize: 14, margin: "0 0 10px" } },
-              open
-                ? "Session RTH leaders — click a row to open the ticker."
-                : "RTH close plus extended-hours follow-through when available.",
-            ),
-            h("div", { className: "tt-grid tt-grid-2" },
-              h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker, universe }),
-              h(MoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth", onSelectTicker, universe }),
-            ),
-            hasExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 10 } },
-              h(MoversCol, { title: "EXT GAINERS", items: extGain, mode: "ext", onSelectTicker, universe }),
-              h(MoversCol, { title: "EXT LOSERS", items: extLoss, mode: "ext", onSelectTicker, universe }),
+            h("div", {
+              className: `tt-mp-movers-compact-grid${hasExt ? " has-ext" : ""}`,
+            },
+              h(CompactMoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker }),
+              h(CompactMoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth", onSelectTicker }),
+              hasExt && h(CompactMoversCol, { title: "EXT GAINERS", items: extGain, mode: "ext", onSelectTicker }),
+              hasExt && h(CompactMoversCol, { title: "EXT LOSERS", items: extLoss, mode: "ext", onSelectTicker }),
             ),
           );
         }
@@ -5682,8 +5808,8 @@
           className: lane ? "vp-lane-wrap" : "vp-card",
           "aria-label": "Ticker viewport",
         },
-          h("div", { className: lane ? "vp-lane-head vp-head" : "vp-head" },
-            h("div", { className: "vp-title" }, lane ? "TICKER LANE" : "VIEWPORT"),
+          !lane && h("div", { className: "vp-head" },
+            h("div", { className: "vp-title" }, "VIEWPORT"),
             h("div", { className: "vp-count" }, `${ranked.length} tickers`),
           ),
           h("div", { className: lane ? "vp-lane" : "vp-list" },
@@ -5717,24 +5843,7 @@
         const laneChips = LANE_CHIP_IDS
           .map((id) => (chips || []).find((c) => c.id === id))
           .filter(Boolean);
-        const isFiltered = (activeChip && activeChip !== "all") || String(query || "").trim().length > 0;
         return h("div", { className: "tt-lane-controls" },
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
-            h("div", null,
-              h("div", { className: "tt-sec-title" }, "TICKER LANE"),
-              h("div", { className: "tt-sec-h" }, "Filter the lane and bubble map together"),
-            ),
-            h("div", { className: "ac-meta" },
-              isFiltered && h("button", {
-                className: "ac-clear",
-                onClick: () => setFilters({ activeChip: "entry_zone", query: "", addOns: new Set() }),
-                title: "Reset to Entry Zone · clear search",
-              }, "✕ Clear filters"),
-              h("span", null,
-                h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers",
-              ),
-            ),
-          ),
           h("div", { className: "ac-search" },
             h("span", { className: "ac-search-icon" }, "⌕"),
             h("input", {
@@ -5748,19 +5857,24 @@
             }),
             query && h("button", { className: "ac-search-clear", onClick: () => setQ("") }, "clear"),
           ),
-          h("div", { className: "tt-lane-chip-row" },
-            laneChips.map((c) => {
-              const isActive = activeChip === c.id;
-              return h("button", {
-                key: c.id,
-                className: `ac-chip${isActive ? " active" : ""}${c.id === "entry_zone" && isActive ? " pull" : ""}`,
-                onClick: () => setChip(c.id),
-                title: c.tooltip || c.label,
-              },
-                c.label,
-                c.count != null && h("span", { className: "ac-count" }, c.count),
-              );
-            }),
+          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" } },
+            h("div", { className: "tt-lane-chip-row" },
+              laneChips.map((c) => {
+                const isActive = activeChip === c.id;
+                return h("button", {
+                  key: c.id,
+                  className: `ac-chip${isActive ? " active" : ""}${c.id === "entry_zone" && isActive ? " pull" : ""}`,
+                  onClick: () => setChip(c.id),
+                  title: c.tooltip || c.label,
+                },
+                  c.label,
+                  c.count != null && h("span", { className: "ac-count" }, c.count),
+                );
+              }),
+            ),
+            h("span", { className: "ac-meta", style: { fontSize: 11, whiteSpace: "nowrap" } },
+              h("strong", null, visibleCount), " of ", h("strong", null, totalCount),
+            ),
           ),
         );
       }
@@ -5785,7 +5899,7 @@
             layout: "lane",
           }),
           h(BubbleMapGuide, null),
-          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "16px 0 8px" } },
+          h("div", { className: "tt-bmap-head", style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
             h("div", null,
               h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
               h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum × trend"),
