@@ -122,3 +122,17 @@ export function checkEarningsClusterEntryBlock(args) {
 }
 
 export { parseDateKey, expandBlockDates };
+
+/** July 2025 backdrop clusters — fallback when market_events is empty on preprod. */
+export const JULY_2025_EARNINGS_CLUSTER_FALLBACK = [
+  {
+    anchor: "2025-07-23",
+    window_dates: ["2025-07-23", "2025-07-24"],
+    tickers: ["FIX", "GOOGL", "TSLA"],
+  },
+  {
+    anchor: "2025-07-28",
+    window_dates: ["2025-07-28", "2025-07-29", "2025-07-30"],
+    tickers: ["CDNS", "META", "MSFT", "SWK"],
+  },
+];

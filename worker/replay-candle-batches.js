@@ -11,7 +11,7 @@ import {
   serializeSequenceTrailSnapshot,
   sequenceTrailSnapshotEnabled,
 } from "./foundation/sequence-snapshot.js";
-import { buildEarningsClusterWindowsFromEvents } from "./pipeline/earnings-cluster-gate.js";
+import { buildEarningsClusterWindowsFromEvents, JULY_2025_EARNINGS_CLUSTER_FALLBACK } from "./pipeline/earnings-cluster-gate.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -148,6 +148,9 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
       minTickers: Number(replayEnv?._deepAuditConfig?.deep_audit_earnings_cluster_min_tickers) || 4,
       windowDays: 3,
     });
+    if (!replayEnv._earningsClusterWindows.length) {
+      replayEnv._earningsClusterWindows = JULY_2025_EARNINGS_CLUSTER_FALLBACK;
+    }
   }
 
   let dayScored = 0;
