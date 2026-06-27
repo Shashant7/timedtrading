@@ -60,37 +60,46 @@ function useSavedTickers() {
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
+  const sparkCfg = window.TTSparklineConfig || {};
+  const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+  const toCloses = sparkCfg.closesFromCandles || (candles => Array.isArray(candles) ? candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []);
+  const fromEntry = sparkCfg.sparkClosesFromCacheEntry || (entry => Array.isArray(entry) ? entry : entry?.closes || null);
   const fetchSpark = useCallback(async sym => {
     try {
-      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+      const r = await fetch(buildUrl(API_BASE, sym), {
         cache: "no-store"
       });
       if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
-      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+      const closes = toCloses(candles);
+      if (closes.length < 2) return null;
+      return {
+        closes,
+        candles
+      };
     } catch (_) {
       return null;
     }
-  }, []);
+  }, [buildUrl, toCloses]);
   const ensure = useCallback(sym => {
     if (!sym) return null;
     const upper = String(sym).toUpperCase();
-    if (cache[upper]) return cache[upper];
+    if (cache[upper]) return fromEntry(cache[upper]);
     if (cache[upper] === undefined) {
       setCache(prev => ({
         ...prev,
         [upper]: null
       }));
-      fetchSpark(upper).then(arr => {
-        if (arr && arr.length >= 2) setCache(prev => ({
+      fetchSpark(upper).then(payload => {
+        if (payload?.closes?.length >= 2) setCache(prev => ({
           ...prev,
-          [upper]: arr
+          [upper]: payload
         }));
       });
     }
     return null;
-  }, [cache, fetchSpark]);
+  }, [cache, fetchSpark, fromEntry]);
   useEffect(() => {
     window._dsEnsureSparkline = ensure;
     window._dsSparklineCache = cache;
@@ -910,6 +919,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782477020355:976478164
+// cache-bust:1782581133095:916843501
 
-// cache-bust:1782477020355:976478164
+// cache-bust:1782581133095:916843501

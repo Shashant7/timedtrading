@@ -739,7 +739,8 @@ function MarketPulseTile({
   const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(tx) ?? tx.price);
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const sparkSrc = window._dsSparklineCache && window._dsSparklineCache[SYM] || null;
+  const sparkRaw = window._dsSparklineCache && window._dsSparklineCache[SYM] || null;
+  const sparkSrc = sparkClosesFromCacheEntry(sparkRaw);
   useEffect(() => {
     if (typeof window._dsEnsureSparkline === "function") window._dsEnsureSparkline(SYM);
   }, [SYM]);
@@ -2178,7 +2179,7 @@ function TodayHero({
     style: {
       display: "grid",
       gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-      gridTemplateRows: "auto auto",
+      gridTemplateRows: "auto",
       gap: 16,
       marginBottom: 16,
       alignItems: "stretch"
@@ -2196,10 +2197,6 @@ function TodayHero({
   })), h("div", {
     className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
-    onSelectTicker
-  })), h("div", {
-    className: "today-hero-levels-col"
-  }, h(CTOLevelsPanel, {
     onSelectTicker
   })));
 }
@@ -2692,6 +2689,95 @@ function MacroStrip({
   }, "Rotation to mind: "), themeCallout, ".")));
 }
 const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
+const CTO_FEED_URL = `${API_BASE}/timed/cto/feed?limit=120`;
+function buildGrowthZoneModel(row, ctoItem) {
+  const price = Number(row?.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const down = ctoItem?.top_downside;
+  const up = ctoItem?.top_upside;
+  let inv = Number(down?.price);
+  let tgt = Number(up?.price);
+  const fv = Number(row?.fair_value_price);
+  if (!Number.isFinite(inv) || inv >= price) inv = price * 0.9;
+  if (!Number.isFinite(tgt) || tgt <= price) {
+    tgt = Number.isFinite(fv) && fv > price ? fv : price * 1.12;
+  }
+  if (inv >= tgt) {
+    inv = price * 0.92;
+    tgt = price * 1.1;
+  }
+  const span = tgt - inv;
+  const pbLo = inv + span * 0.28;
+  const pbHi = inv + span * 0.48;
+  const pad = span * 0.04 || price * 0.01;
+  const minPx = inv - pad;
+  const maxPx = tgt + pad;
+  const pct = px => Math.max(0, Math.min(100, (px - minPx) / (maxPx - minPx) * 100));
+  return {
+    inv,
+    tgt,
+    pbLo,
+    pbHi,
+    price,
+    invProb: Number(down?.adj_prob),
+    tgtProb: Number(up?.adj_prob),
+    pct,
+    minPx,
+    maxPx
+  };
+}
+function GrowthZoneBar({
+  row,
+  ctoItem
+}) {
+  const zm = buildGrowthZoneModel(row, ctoItem);
+  if (!zm) return null;
+  const fmtPx = n => `$${Number(n).toFixed(Number(n) >= 100 ? 0 : 2)}`;
+  const fmtProb = p => Number.isFinite(p) ? `${Math.round(p * 100)}%` : null;
+  const invPct = zm.pct(zm.inv);
+  const pbLoPct = zm.pct(zm.pbLo);
+  const pbHiPct = zm.pct(zm.pbHi);
+  const tgtPct = zm.pct(zm.tgt);
+  const pricePct = zm.pct(zm.price);
+  return h("div", {
+    className: "tt-opp-zone"
+  }, h("div", {
+    className: "tt-opp-zone-labels"
+  }, h("span", null, "Invalidation"), h("span", null, "Pullback"), h("span", null, "Target")), h("div", {
+    className: "tt-opp-zone-track",
+    title: "Daily CTO levels — invalidation, pullback add zone, and upside target."
+  }, h("div", {
+    className: "tt-opp-zone-seg tt-opp-zone-seg--inv",
+    style: {
+      left: "0%",
+      width: `${pbLoPct}%`
+    }
+  }), h("div", {
+    className: "tt-opp-zone-seg tt-opp-zone-seg--pb",
+    style: {
+      left: `${pbLoPct}%`,
+      width: `${Math.max(0, pbHiPct - pbLoPct)}%`
+    }
+  }), h("div", {
+    className: "tt-opp-zone-seg tt-opp-zone-seg--tgt",
+    style: {
+      left: `${pbHiPct}%`,
+      width: `${Math.max(0, 100 - pbHiPct)}%`
+    }
+  }), h("div", {
+    className: "tt-opp-zone-marker",
+    style: {
+      left: `${pricePct}%`
+    },
+    title: `Today ${fmtPx(zm.price)}`
+  })), h("div", {
+    className: "tt-opp-zone-meta"
+  }, h("span", null, `Inv ${fmtPx(zm.inv)}`, fmtProb(zm.invProb) && h("span", {
+    className: "tt-opp-zone-prob"
+  }, ` · ${fmtProb(zm.invProb)} hit`)), h("span", null, `PB ${fmtPx(zm.pbLo)}–${fmtPx(zm.pbHi)}`), h("span", null, `Tgt ${fmtPx(zm.tgt)}`, fmtProb(zm.tgtProb) && h("span", {
+    className: "tt-opp-zone-prob"
+  }, ` · ${fmtProb(zm.tgtProb)} reach`))));
+}
 function GrowthIdeasStrip({
   onSelectTicker,
   user
@@ -2702,6 +2788,33 @@ function GrowthIdeasStrip({
     return list.length ? list.slice(0, 16) : null;
   });
   const [loadErr, setLoadErr] = useState(null);
+  const [ctoBySym, setCtoBySym] = useState({});
+  useEffect(() => {
+    let alive = true;
+    const loadCto = async () => {
+      try {
+        const j = window.TTFetchCache ? await window.TTFetchCache.get(CTO_FEED_URL, {
+          ttlMs: 5 * 60 * 1000,
+          maxAgeMs: 30 * 60 * 1000,
+          fetchOpts: {
+            credentials: "include"
+          }
+        }) : await fetchJsonRetry(CTO_FEED_URL);
+        if (!alive || !j?.ok || !Array.isArray(j.items)) return;
+        const map = {};
+        for (const it of j.items) {
+          const sym = String(it?.ticker || "").toUpperCase();
+          if (sym) map[sym] = it;
+        }
+        setCtoBySym(map);
+      } catch (_) {}
+    };
+    const t = setTimeout(loadCto, 1800);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
@@ -2850,7 +2963,10 @@ function GrowthIdeasStrip({
       }
     }, fmtPctOpp(pct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`)), row.dip_buy && h("div", {
       className: "tt-opp-dip"
-    }, "Dip posture active"), h("p", {
+    }, "Dip posture active"), h(GrowthZoneBar, {
+      row,
+      ctoItem: ctoBySym[sym]
+    }), h("p", {
       className: "tt-opp-why"
     }, why));
   })));
@@ -2865,16 +2981,7 @@ function FocusRail({
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => t && t.ticker);
-    const TT = window.TimedBubbleChart || {};
-    const entryType = TT.entryType || (() => ({
-      corridor: false
-    }));
-    const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
-    return all.filter(t => {
-      const ent = entryType(t);
-      const stage = String(t.kanban_stage || "").toLowerCase();
-      return ent?.corridor && ENTRY_STAGES.has(stage);
-    }).sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0)).slice(0, 8);
+    return sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t)), null).slice(0, 12);
   }, [data]);
   if (items.length === 0) return null;
   return h("section", {
@@ -2887,11 +2994,13 @@ function FocusRail({
     const sym = String(t.ticker || "").toUpperCase();
     const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
     const pct = Number(dc?.dayPct);
+    const stage = String(t.kanban_stage || "").toLowerCase();
+    const side = entryZoneSide(t) || "LONG";
     return h("button", {
       key: sym,
       onClick: () => onSelectTicker && onSelectTicker(sym),
       className: "tt-strip-chip",
-      title: `${sym} — in corridor + entry stage`
+      title: `${sym} — ${side} entry setup · ${stage || "setup"}`
     }, h(TickerLogo, {
       sym,
       size: 18
@@ -2901,7 +3010,16 @@ function FocusRail({
         fontSize: 12,
         fontFamily: "var(--tt-font-mono)"
       }
-    }, sym), Number.isFinite(pct) && h("span", {
+    }, sym), h("span", {
+      className: "tt-primed-badge",
+      style: {
+        fontSize: 8,
+        padding: "0 5px",
+        color: side === "SHORT" ? "var(--tt-dn-soft)" : "var(--tt-accent)",
+        borderColor: side === "SHORT" ? "rgba(248,113,113,0.45)" : "rgba(245,194,92,0.45)",
+        background: side === "SHORT" ? "rgba(248,113,113,0.1)" : "rgba(245,194,92,0.1)"
+      }
+    }, side), Number.isFinite(pct) && h("span", {
       style: {
         fontSize: 11,
         fontWeight: 700,
@@ -3427,9 +3545,48 @@ const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "VIX", "US500", 
 const INDEX_SYMS = ["SPY", "RSP", "QQQ", "IWM"];
 const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
 const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
+const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
 const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
 const KANBAN_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "just_entered", "hold", "trim", "defend", "exit"]);
+function entryZoneSide(t, entryTypeFn) {
+  const TT = window.TimedBubbleChart || {};
+  const entFn = entryTypeFn || TT.entryType || (() => ({
+    corridor: false,
+    side: null
+  }));
+  const ent = entFn(t);
+  if (!ent?.corridor || !ent?.side) return null;
+  return String(ent.side).toUpperCase();
+}
+function isEntryZoneTicker(t, entryTypeFn) {
+  const side = entryZoneSide(t, entryTypeFn);
+  if (!side) return false;
+  const ks = String(t?.kanban_stage || "").toLowerCase();
+  if (!ENTRY_STAGES.has(ks)) return false;
+  const openDir = String(t?._openTrade?.direction || "").toUpperCase();
+  if (openDir) return false;
+  return true;
+}
+function sortEntryZoneTickers(list, entryTypeFn) {
+  return (Array.isArray(list) ? list : []).slice().sort((a, b) => {
+    const longA = entryZoneSide(a, entryTypeFn) === "LONG" ? 1 : 0;
+    const longB = entryZoneSide(b, entryTypeFn) === "LONG" ? 1 : 0;
+    if (longA !== longB) return longB - longA;
+    const ra = Number(a.rank_score) || Number(a.rank) || Number(a.rank_position) || 0;
+    const rb = Number(b.rank_score) || Number(b.rank) || Number(b.rank_position) || 0;
+    if (ra !== rb) return rb - ra;
+    return String(a.ticker).localeCompare(String(b.ticker));
+  });
+}
+function sparkClosesFromCacheEntry(entry) {
+  if (Array.isArray(entry)) return entry;
+  if (entry && Array.isArray(entry.closes)) return entry.closes;
+  return null;
+}
+function sparkCandlesFromCacheEntry(entry) {
+  if (entry && Array.isArray(entry.candles)) return entry.candles;
+  return null;
+}
 function computeInsightChips(allTickers, opts) {
   const isAdmin = !!(opts && opts.isAdmin);
   const savedSet = (opts && opts.savedSet) instanceof Set ? opts.savedSet : new Set();
@@ -3458,6 +3615,15 @@ function computeInsightChips(allTickers, opts) {
     row: "focus",
     isDefault: true,
     tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
+  });
+  const entryZone = sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t, entryType)), entryType);
+  chips.push({
+    id: "entry_zone",
+    label: "Entry Zone",
+    count: entryZone.length,
+    tickers: entryZone.map(t => t.ticker),
+    row: "focus",
+    tooltip: "Tickers in the entry corridor with a priming kanban stage — long or short setups worth considering before the model enters. Longs sort first."
   });
   chips.push({
     id: "all",
@@ -4054,13 +4220,22 @@ function ViewportCard({
     return null;
   })();
   const isTTSel = typeof window !== "undefined" && typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
-  const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
+  const sparkPointsRaw = sparkClosesFromCacheEntry(sparkSrc);
+  const sparkPoints = sparkPointsRaw && sparkPointsRaw.length >= 2 ? sparkPointsRaw : [price || 0, price || 0];
   const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
     height: 44,
     direction: dir,
     strokeWidth: 1.4
   }) : "";
+  const patternChips = (() => {
+    const candles = sparkCandlesFromCacheEntry(sparkSrc);
+    const detect = window.TimedPatternDetect?.detectCandlePatterns;
+    if (!candles || !detect) return [];
+    return detect(candles).slice(0, 2);
+  })();
+  const isInEntryZone = isEntryZoneTicker(t);
+  const entrySide = entryZoneSide(t);
   const cardBiasLabel = window.TTLaneCard?.compactBiasLabel ? window.TTLaneCard.compactBiasLabel(biasLabel) : biasLabel;
   const extLine = window.TTLaneCard?.extLineFromTicker ? window.TTLaneCard.extLineFromTicker(t) : null;
   const cardStyle = {
@@ -4079,7 +4254,15 @@ function ViewportCard({
       title: `Open ${sym} in Active Trader`
     },
     isTTSel,
-    chipRow: [h("span", {
+    chipRow: [isInEntryZone && entrySide && h("span", {
+      className: "tt-primed-badge",
+      title: `${entrySide} entry setup — in corridor with priming stage. The model may not have entered yet; Active Trader lanes use stricter criteria.`,
+      style: entrySide === "SHORT" ? {
+        color: "var(--tt-dn-soft)",
+        borderColor: "rgba(248,113,113,0.45)",
+        background: "rgba(248,113,113,0.1)"
+      } : undefined
+    }, entrySide), h("span", {
       className: `ds-chip ds-chip--sm ${biasChipCls}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
@@ -4087,7 +4270,11 @@ function ViewportCard({
       title: "Bias"
     }, cardBiasLabel), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`
-    }, stageChip.label)],
+    }, stageChip.label), ...patternChips.map(p => h("span", {
+      key: p.type,
+      className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
+      title: p.tooltip
+    }, `${p.icon} ${p.type}`))],
     quote: {
       price,
       dayPct,
@@ -4132,33 +4319,41 @@ function ViewportCard({
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
+  const sparkCfg = window.TTSparklineConfig || {};
+  const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+  const toCloses = sparkCfg.closesFromCandles || (candles => Array.isArray(candles) ? candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []);
   const fetchSpark = useCallback(async sym => {
     try {
-      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+      const r = await fetch(buildUrl(API_BASE, sym), {
         cache: "no-store"
       });
       if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
-      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+      const closes = toCloses(candles);
+      if (closes.length < 2) return null;
+      return {
+        closes,
+        candles
+      };
     } catch (_) {
       return null;
     }
-  }, []);
+  }, [buildUrl, toCloses]);
   const ensure = useCallback(sym => {
     if (!sym) return null;
     const upper = String(sym).toUpperCase();
-    if (cache[upper]) return cache[upper];
+    if (cache[upper]) return sparkClosesFromCacheEntry(cache[upper]);
     if (cache[upper] === undefined) {
       setCache(prev => ({
         ...prev,
         [upper]: null
       }));
-      fetchSpark(upper).then(arr => {
-        if (arr && arr.length >= 2) {
+      fetchSpark(upper).then(payload => {
+        if (payload && payload.closes?.length >= 2) {
           setCache(prev => ({
             ...prev,
-            [upper]: arr
+            [upper]: payload
           }));
         }
       });
@@ -4171,12 +4366,12 @@ function useSparklineCache() {
   }, [ensure, cache]);
   useEffect(() => {
     const interval = setInterval(() => {
-      const symbols = Object.keys(cache).filter(s => Array.isArray(cache[s]));
+      const symbols = Object.keys(cache).filter(s => sparkClosesFromCacheEntry(cache[s])?.length >= 2);
       symbols.forEach(sym => {
-        fetchSpark(sym).then(arr => {
-          if (arr && arr.length >= 2) setCache(prev => ({
+        fetchSpark(sym).then(payload => {
+          if (payload && payload.closes?.length >= 2) setCache(prev => ({
             ...prev,
-            [sym]: arr
+            [sym]: payload
           }));
         });
       });
@@ -4194,7 +4389,8 @@ function Viewport({
   query,
   sparkCache,
   ensureSpark,
-  onSelectTicker
+  onSelectTicker,
+  activeChip
 }) {
   const {
     saved,
@@ -4202,6 +4398,9 @@ function Viewport({
   } = useSavedTickers();
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
+    if (activeChip === "entry_zone") {
+      return sortEntryZoneTickers(list, null);
+    }
     list.sort((a, b) => {
       const ra = rankedTickerPositions?.get?.(a.ticker);
       const rb = rankedTickerPositions?.get?.(b.ticker);
@@ -4214,7 +4413,7 @@ function Viewport({
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return list;
-  }, [visible, rankedTickerPositions]);
+  }, [visible, rankedTickerPositions, activeChip]);
   useEffect(() => {
     if (!ensureSpark) return;
     ranked.slice(0, 60).forEach(t => ensureSpark(t.ticker));
@@ -4348,7 +4547,8 @@ function BubbleMapViewportSplit({
     query,
     sparkCache,
     ensureSpark,
-    onSelectTicker
+    onSelectTicker,
+    activeChip: filters?.activeChip
   }), h("div", {
     className: "bmv-bubble"
   }, h(SharedBubbleMapSection, {
@@ -5795,6 +5995,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782477020355:976478164
+// cache-bust:1782581133095:916843501
 
-// cache-bust:1782477020355:976478164
+// cache-bust:1782581133095:916843501

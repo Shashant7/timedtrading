@@ -25,6 +25,8 @@
     <script src="shared-signal-grammar.js?v=20260623d"></script>
     <script src="tt-activity-strip.js?v=20260623d" defer></script>
     <script src="shared-price-utils.js?v=20260615a"></script>
+    <script src="tt-sparkline-config.js?v=20260624a"></script>
+    <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-lane-card.js?v=20260624a"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260624a"></script>
@@ -561,27 +563,33 @@
       //    hook used by /today.html + /active-trader.html.
       function useSparklineCache() {
         const [cache, setCache] = useState({});
+        const sparkCfg = window.TTSparklineConfig || {};
+        const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+        const toCloses = sparkCfg.closesFromCandles || ((candles) => (Array.isArray(candles) ? candles.map((c) => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []));
+        const fromEntry = sparkCfg.sparkClosesFromCacheEntry || ((entry) => (Array.isArray(entry) ? entry : entry?.closes || null));
         const fetchSpark = useCallback(async (sym) => {
           try {
-            const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            const r = await fetch(buildUrl(API_BASE, sym), { cache: "no-store" });
             if (!r.ok) return null;
             const j = await r.json();
             const candles = Array.isArray(j?.candles) ? j.candles : [];
-            return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+            const closes = toCloses(candles);
+            if (closes.length < 2) return null;
+            return { closes, candles };
           } catch (_) { return null; }
-        }, []);
+        }, [buildUrl, toCloses]);
         const ensure = useCallback((sym) => {
           if (!sym) return null;
           const upper = String(sym).toUpperCase();
-          if (cache[upper]) return cache[upper];
+          if (cache[upper]) return fromEntry(cache[upper]);
           if (cache[upper] === undefined) {
-            setCache(prev => ({ ...prev, [upper]: null }));
-            fetchSpark(upper).then(arr => {
-              if (arr && arr.length >= 2) setCache(prev => ({ ...prev, [upper]: arr }));
+            setCache((prev) => ({ ...prev, [upper]: null }));
+            fetchSpark(upper).then((payload) => {
+              if (payload?.closes?.length >= 2) setCache((prev) => ({ ...prev, [upper]: payload }));
             });
           }
           return null;
-        }, [cache, fetchSpark]);
+        }, [cache, fetchSpark, fromEntry]);
         useEffect(() => {
           window._dsEnsureSparkline = ensure;
           window._dsSparklineCache = cache;

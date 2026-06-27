@@ -251,15 +251,26 @@
       return null;
     })();
 
-    /* 1H sparkline: same shared cache the Active Trader cards use. */
-    const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
-      ? window._dsEnsureSparkline(sym) : null;
+    /* Daily sparkline: same shared cache the Active Trader cards use. */
+    const cachedSparkEntry = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
+      ? window._dsSparklineCache?.[sym] : null;
+    if (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function") {
+      window._dsEnsureSparkline(sym);
+    }
+    const cachedSpark = window.TTSparklineConfig?.sparkClosesFromCacheEntry?.(cachedSparkEntry)
+      || (Array.isArray(cachedSparkEntry) ? cachedSparkEntry : cachedSparkEntry?.closes);
     const sparkPoints = (cachedSpark && cachedSpark.length >= 2)
       ? cachedSpark
       : (Array.isArray(t._sparkline) && t._sparkline.length >= 2 ? t._sparkline : [price || 0, price || 0]);
     const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0)
       ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
       : "";
+    const patternChips = (() => {
+      const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(cachedSparkEntry);
+      const detect = window.TimedPatternDetect?.detectCandlePatterns;
+      if (!candles || !detect) return [];
+      return detect(candles).slice(0, 2);
+    })();
 
     /* TT Selected highlight — same gold accent as DsCompactCard. */
     const isTTSel = (typeof window !== "undefined" && typeof window.isTickerTTSelected === "function")
@@ -426,6 +437,24 @@
           style: { fontFamily: "var(--tt-font-mono)" },
           title: "Relative strength made a new 3-month high",
         }, "RS HI"),
+        earnLabel && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--accent",
+          style: { fontFamily: "var(--tt-font-mono)" },
+          title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
+        }, `EPS ${earnLabel}`),
+        ...patternChips.map((p) => React.createElement("span", {
+          key: p.type,
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            color: p.bias === "bullish" ? "var(--tt-up-soft, #34d399)" : p.bias === "bearish" ? "var(--tt-dn-soft, #f87171)" : "var(--tt-text-muted)",
+            borderColor: p.bias === "bullish" ? "rgba(56,242,161,0.35)" : p.bias === "bearish" ? "rgba(248,113,113,0.35)" : undefined,
+          },
+          title: p.tooltip,
+        }, `${p.icon} ${p.type}`)),
       ].filter(Boolean),
       quote: { price, dayPct, dayChg, dir, extLine },
       midBody: isOwned ? midBody : null,
