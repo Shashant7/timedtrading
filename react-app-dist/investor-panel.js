@@ -1363,8 +1363,14 @@
   }
 
   window.InvestorPanel = InvestorPanel;
-  window.TTInvestorLane = { deriveActionTier, isExecuteReady, isAccumulateEntered, resolveKanbanStage, countInvestorNavBadge };
+  window.TTInvestorLane = Object.assign({}, window.TTInvestorLane, {
+    deriveActionTier,
+    isExecuteReady,
+    isAccumulateEntered,
+    resolveKanbanStage,
+    countInvestorNavBadge,
+  });
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782581133095:916843501
+// cache-bust:1782586128189:369129050

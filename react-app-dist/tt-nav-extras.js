@@ -630,15 +630,24 @@
     refreshBadges();
   }
 
-  // Fetch both nav counts and cache+apply them. Safe to call repeatedly.
+  // Fetch both nav counts and apply them. Safe to call repeatedly.
   function refreshBadges() {
-    fetchOpenTradeCount().then((n) => {
-      setBadge("Active Trader", n, "up");
-    });
-    fetchInvestorActionableCount().then((n) => {
-      setBadge("Investor", n, "up");
+    Promise.all([fetchOpenTradeCount(), fetchInvestorActionableCount()]).then(([traderN, investorN]) => {
+      setBadge("Active Trader", traderN, "up");
+      setBadge("Investor", investorN, "up");
+      try {
+        window.dispatchEvent(new CustomEvent("tt-nav-badges-updated", {
+          detail: { trader: traderN, investor: investorN },
+        }));
+      } catch (_) {}
     });
   }
+
+  window.TTRefreshNavBadges = refreshBadges;
+  setInterval(refreshBadges, 60 * 1000);
+  window.addEventListener("pageshow", (ev) => {
+    if (ev && ev.persisted) refreshBadges();
+  });
 
   // Admin pages render their nav through React, so the <nav> element
   // may not exist when init() first fires. Re-attempt journey-link
@@ -733,4 +742,4 @@
   })();
 })();
 
-// cache-bust:1782581133095:916843501
+// cache-bust:1782586128189:369129050
