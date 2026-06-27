@@ -96,6 +96,7 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_index_model_pullback_state_only",
   // Setup demotion + earnings cluster + tape capitulation tuning
   "deep_audit_setup_demotion_enforce_paths",
+  "deep_audit_setup_demotion_index_only",
   "deep_audit_earnings_cluster_gate_enabled",
   "deep_audit_earnings_cluster_min_tickers",
   "deep_audit_earnings_cluster_rank_bypass",

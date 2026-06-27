@@ -41,12 +41,23 @@ export function parseEnforceDemotionPaths(raw) {
 /**
  * @returns {{ blocked: boolean, key?: string }}
  */
-export function checkSetupDemotion(path, direction, daCfg) {
+export function checkSetupDemotion(path, direction, daCfg, ticker) {
   const enforce = parseEnforceDemotionPaths(
-    daCfg?.deep_audit_setup_demotion_enforce_paths ?? "tt_n_test_support,tt_range_reversal_long",
+    daCfg?.deep_audit_setup_demotion_enforce_paths ?? "",
   );
   const pathKey = String(path || "").toLowerCase();
   if (!enforce.has(pathKey)) {
+    return { blocked: false };
+  }
+  const indexOnly = String(daCfg?.deep_audit_setup_demotion_index_only ?? "true") === "true";
+  const tk = String(ticker || "").trim().toUpperCase();
+  const indexTickers = new Set(
+    String(daCfg?.deep_audit_index_model_tickers ?? "SPY,QQQ,IWM")
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean),
+  );
+  if (indexOnly && !indexTickers.has(tk)) {
     return { blocked: false };
   }
   const key = setupDemotionConfigKey(path, direction);

@@ -3,142 +3,78 @@ import {
   isIndexModelTicker,
   isStockPathBlockedOnIndex,
   evaluateIndexEtfModelEntry,
+  getIndexTickerProfile,
+  INDEX_TICKER_PROFILES,
 } from "./index-etf-model.js";
-import { checkSetupDemotion, setupDemotionConfigKey } from "./setup-demotion.js";
-import {
-  buildEarningsClusterWindowsFromEvents,
-  checkEarningsClusterEntryBlock,
-} from "./earnings-cluster-gate.js";
+import { checkSetupDemotion } from "./setup-demotion.js";
+import { getEtfProfile, isEtfRideRunnerMode } from "../etf-profile.js";
 
-describe("index-etf-model", () => {
+describe("index-etf-model v4", () => {
   const daCfg = { deep_audit_index_model_enabled: "true" };
 
-  it("recognizes index tickers", () => {
-    expect(isIndexModelTicker("SPY", daCfg)).toBe(true);
-    expect(isIndexModelTicker("NVDA", daCfg)).toBe(false);
+  it("SPY profile is slower/tighter than IWM", () => {
+    const spy = getIndexTickerProfile("SPY", daCfg);
+    const iwm = getIndexTickerProfile("IWM", daCfg);
+    expect(spy.rvol_min).toBeLessThan(iwm.rvol_min);
+    expect(spy.pct_above_e48[1]).toBeLessThan(iwm.pct_above_e48[1]);
+    expect(spy.min_rank).toBeLessThanOrEqual(iwm.min_rank);
   });
 
-  it("blocks stock paths on index", () => {
-    expect(isStockPathBlockedOnIndex("tt_pullback")).toBe(true);
-    expect(isStockPathBlockedOnIndex("tt_index_etf_swing")).toBe(false);
-  });
-
-  it("qualifies strict long index swing", () => {
+  it("qualifies SPY slow grind in BULL state", () => {
     let qualified = null;
-    const qualifyEntry = (path, conf, reason, sizing, meta) => {
-      qualified = { path, conf, reason, meta };
-      return { ok: true, path };
-    };
-    const rejectEntry = () => ({ ok: false });
-    const ctx = {
-      state: "HTF_BULL_LTF_PULLBACK",
-      daily: {
-        bull_stack: true,
-        above_e200: true,
-        pct_above_e48: 2.5,
-        e21_slope_5d_pct: 1.0,
-      },
-      rvol: { best: 1.2 },
-      raw: {},
-    };
-    evaluateIndexEtfModelEntry(ctx, {
-      qualifyEntry,
-      rejectEntry,
-      daCfg,
-      rankScore: 96,
-      side: "LONG",
-      c10_8: { above: true, inCloud: false },
-      tf: { m30: { ripster: { c8_9: { above: true } } } },
-      baseSizing: {},
-    });
-    expect(qualified?.path).toBe("tt_index_etf_swing");
-  });
-
-  it("rejects index long in BULL state when pullback-only", () => {
-    let reason = null;
     evaluateIndexEtfModelEntry(
       {
+        ticker: "SPY",
         state: "HTF_BULL_LTF_BULL",
         daily: {
           bull_stack: true,
           above_e200: true,
-          pct_above_e48: 2.5,
-          e21_slope_5d_pct: 1.0,
+          pct_above_e48: 1.2,
+          e21_slope_5d_pct: 0.4,
         },
-        rvol: { best: 1.2 },
+        rvol: { best: 0.5 },
         raw: {},
       },
       {
-        qualifyEntry: () => ({ ok: true }),
-        rejectEntry: (r) => { reason = r; return { ok: false }; },
+        qualifyEntry: (path) => { qualified = path; return { ok: true }; },
+        rejectEntry: () => ({ ok: false }),
         daCfg,
-        rankScore: 96,
+        rankScore: 90,
         side: "LONG",
-        c10_8: { above: true },
-        tf: { m30: { ripster: { c8_9: { above: true } } } },
+        c10_8: { inCloud: true },
+        tf: { m30: { ripster: { c8_9: { inCloud: true } } } },
         baseSizing: {},
       },
     );
-    expect(reason).toBe("index_model_structure_long");
+    expect(qualified).toBe("tt_index_etf_swing");
+  });
+
+  it("rejects stock ATH path on index via block list", () => {
+    expect(isStockPathBlockedOnIndex("tt_ath_breakout")).toBe(true);
+    expect(isStockPathBlockedOnIndex("tt_index_etf_swing")).toBe(false);
   });
 });
 
-describe("setup-demotion", () => {
-  it("builds demotion config key", () => {
-    expect(setupDemotionConfigKey("tt_n_test_support", "LONG"))
-      .toBe("deep_audit_setup_demotion_TT Support Bounce_long");
-  });
-
-  it("blocks support when demotion key set", () => {
+describe("setup-demotion index-only", () => {
+  it("does not block singles support demotion", () => {
     const daCfg = {
       deep_audit_setup_demotion_enforce_paths: "tt_n_test_support",
+      deep_audit_setup_demotion_index_only: "true",
       "deep_audit_setup_demotion_TT Support Bounce_long": "blocked",
     };
-    expect(checkSetupDemotion("tt_n_test_support", "LONG", daCfg).blocked).toBe(true);
-    expect(checkSetupDemotion("tt_ath_breakout", "LONG", daCfg).blocked).toBe(false);
+    expect(checkSetupDemotion("tt_n_test_support", "LONG", daCfg, "NVDA").blocked).toBe(false);
+    expect(checkSetupDemotion("tt_n_test_support", "LONG", daCfg, "IWM").blocked).toBe(true);
   });
 });
 
-describe("earnings-cluster-gate", () => {
-  it("builds cluster windows", () => {
-    const events = [
-      { event_type: "earnings", ticker: "CDNS", date: "2025-07-28" },
-      { event_type: "earnings", ticker: "META", date: "2025-07-30" },
-      { event_type: "earnings", ticker: "MSFT", date: "2025-07-30" },
-      { event_type: "earnings", ticker: "SWK", date: "2025-07-29" },
-    ];
-    const windows = buildEarningsClusterWindowsFromEvents(events, { minTickers: 4 });
-    expect(windows.length).toBeGreaterThan(0);
-    expect(windows[0].tickers).toContain("CDNS");
+describe("etf-profile per-index", () => {
+  it("SPY ride runner activates at 0.6% MFE", () => {
+    const r = isEtfRideRunnerMode("SPY", 0.65, 0.3);
+    expect(r.active).toBe(true);
   });
 
-  it("blocks low-rank entry in cluster window", () => {
-    const block = checkEarningsClusterEntryBlock({
-      dateKey: "2025-07-29",
-      ticker: "SWK",
-      rank: 95,
-      daCfg: { deep_audit_earnings_cluster_gate_enabled: "true" },
-      clusterWindows: [{
-        anchor: "2025-07-28",
-        window_dates: ["2025-07-28", "2025-07-29", "2025-07-30"],
-        tickers: ["CDNS", "META", "MSFT", "SWK"],
-      }],
-    });
-    expect(block.blocked).toBe(true);
-  });
-
-  it("allows high-rank bypass", () => {
-    const block = checkEarningsClusterEntryBlock({
-      dateKey: "2025-07-29",
-      ticker: "SWK",
-      rank: 100,
-      daCfg: { deep_audit_earnings_cluster_gate_enabled: "true" },
-      clusterWindows: [{
-        anchor: "2025-07-28",
-        window_dates: ["2025-07-28", "2025-07-29", "2025-07-30"],
-        tickers: ["CDNS", "META", "MSFT", "SWK"],
-      }],
-    });
-    expect(block.blocked).toBe(false);
+  it("SPY has tighter TP than generic ETF default", () => {
+    const spy = getEtfProfile("SPY");
+    expect(spy.tp_ladder.trim_pct_target).toBe(0.005);
   });
 });

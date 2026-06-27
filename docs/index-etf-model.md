@@ -1,48 +1,46 @@
 # Index ETF Model (SPY / QQQ / IWM)
 
-Index tickers use a **dedicated entry model**, not stock `tt_core` paths.
+Indices are **not stocks**. SPY moves in slow, defined daily ranges; TSLA
+does not. Each index ticker has its own profile.
+
+## Design principle
+
+| Stock model | Index model |
+|-------------|---------------|
+| ATH breakout, deep pullback ST flips | Slow range rotation inside D21/D48 band |
+| rvol ≥ 1.0+, rank 95+ | SPY rvol ≥ 0.45, rank ≥ 88 |
+| Wide MFE trail (multi-%) | Ride-runner at **0.6% MFE** for SPY |
+| Stock SL ATR | **0.5% max stop** for SPY |
 
 ## Routing
 
-When `deep_audit_index_model_enabled=true` (default):
+SPY/QQQ/IWM enter **only** via `tt_index_etf_swing`. Stock paths
+(`tt_pullback`, `tt_ath_breakout`, etc.) are blocked on index tickers.
 
-1. `evaluateEntry()` detects SPY/QQQ/IWM and calls `evaluateIndexEtfModelEntry()`.
-2. Only **`tt_index_etf_swing`** may qualify.
-3. Stock paths (`tt_pullback`, `tt_ath_breakout`, `tt_n_test_support`, etc.) are
-   rejected via `index_model_stock_path_blocked`.
+## Per-ticker entry profiles (code defaults)
 
-Legacy Phase-E `indexEtfSwingTrigger` bypass is disabled
-(`deep_audit_index_etf_swing_enabled=false`).
+| Ticker | rvol min | rank min | pct_above_e48 band | e21 slope | ride MFE |
+|--------|----------|----------|----------------------|-----------|----------|
+| SPY | 0.45 | 88 | 0.4 – 2.8% | 0.12 – 1.0% | 0.6% |
+| QQQ | 0.55 | 90 | 0.6 – 3.5% | 0.18 – 1.5% | 0.7% |
+| IWM | 0.60 | 90 | 0.8 – 4.5% | 0.22 – 2.0% | 0.8% |
 
-## Entry criteria (LONG defaults)
+Allowed states: `HTF_BULL_LTF_PULLBACK` **and** `HTF_BULL_LTF_BULL` (slow
+grind in calm uptrends — July SPY +2.34% monthly).
 
-| Gate | Default |
-|---|---|
-| State | `HTF_BULL_LTF_PULLBACK` only (`pullback_state_only=true`) |
-| Rank | ≥ 95 |
-| RVOL | ≥ 1.0 |
-| Daily | bull stack, above E200 |
-| Extension | pct_above_e48 ∈ [1.5%, 4.5%] |
-| Slope | e21_slope ∈ [0.4%, 2.0%] |
-| LTF | m30 8/9 cloud **above** + 10m 8/9 above/in cloud |
+LTF: in-cloud holds OK for SPY/QQQ/IWM (no forced m30 reclaim).
 
-SHORT mirrors with bear stack / bounce state.
+## Management (`etf-profile.js`)
 
-## Config keys
+Per-index TP ladder and stop overrides merged into `getEtfProfile(ticker)`.
 
-See `worker/replay-runtime-setup.js` (`deep_audit_index_model_*`) and
-`scripts/push-july-v3-config.mjs`.
+## Config overrides
 
-## Admission matrix
+Per-ticker DA keys: `deep_audit_index_model_spy_min_rank`, `_rvol_min`, etc.
 
-`tt_index_etf_swing:LONG:Prime` in `phase-c-setup-admission.js` — Confirmed
-grade blocked.
+Module: `worker/pipeline/index-etf-model.js`
 
-## Exit handling
+## Singles regression guard
 
-Index swing trades skip `tape_capitulation_force_exit` when
-`deep_audit_tape_capitulation_skip_index_swing=true`.
-
-## Module
-
-`worker/pipeline/index-etf-model.js`
+Setup demotion applies **index tickers only**
+(`deep_audit_setup_demotion_index_only=true`). Singles keep support/range paths.

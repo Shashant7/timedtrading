@@ -420,7 +420,7 @@ export function evaluateEntry(ctx) {
         note: "SPY/QQQ/IWM must enter via tt_index_etf_swing only",
       });
     }
-    const _demotion = checkSetupDemotion(path, effectiveDir, daCfg);
+    const _demotion = checkSetupDemotion(path, effectiveDir, daCfg, _pathTicker);
     if (_demotion.blocked) {
       return rejectEntry("setup_demotion_blocked", {
         config_key: _demotion.key,
