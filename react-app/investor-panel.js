@@ -1334,6 +1334,12 @@
   }
 
   window.InvestorPanel = InvestorPanel;
-  window.TTInvestorLane = { deriveActionTier, isExecuteReady, isAccumulateEntered, resolveKanbanStage, countInvestorNavBadge };
+  window.TTInvestorLane = Object.assign({}, window.TTInvestorLane, {
+    deriveActionTier,
+    isExecuteReady,
+    isAccumulateEntered,
+    resolveKanbanStage,
+    countInvestorNavBadge,
+  });
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
