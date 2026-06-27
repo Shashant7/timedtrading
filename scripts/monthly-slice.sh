@@ -330,6 +330,7 @@ http() {
     esac
   done
   local args=(-sS -m "$timeout" -X "$method" "$url" -H "Content-Type: application/json")
+  [[ -n "$API_KEY" ]] && args+=(-H "X-API-Key: $API_KEY")
   [[ -n "$data" ]] && args+=(-d "$data")
   curl "${args[@]}"
 }
@@ -414,7 +415,7 @@ reset_replay_state() {
   # replay lane is reset (replayOnly=1, skipTickerLatest=1); live-data
   # surfaces are untouched.
   local resp
-  resp=$(http POST "$API_BASE/timed/admin/reset?resetLedger=1&skipTickerLatest=1&replayOnly=1&key=$API_KEY" --timeout 120)
+  resp=$(http POST "$API_BASE/timed/admin/reset?resetLedger=1&skipTickerLatest=1&replayOnly=1&confirm_destroy=YES_DESTROY&key=$API_KEY" --timeout 120)
   local ok
   ok=$(echo "$resp" | jq -r '.ok // false' 2>/dev/null || echo "false")
   if [[ "$ok" != "true" ]]; then
@@ -518,7 +519,7 @@ replay_day() {
     url+="&skipInvestor=1"
     url+="&disableReferenceExecution=1"
     if [[ "$clean_slate" == "1" ]]; then
-      url+="&cleanSlate=1"
+      url+="&cleanSlate=1&confirm_clean_slate=YES_DESTROY"
     fi
     if $BLOCK_CHAIN; then
       url+="&blockChainTrace=1"
@@ -536,7 +537,7 @@ replay_day() {
     # TCP keepalive bytes kept the connection "alive". Wrap with coreutils
     # `timeout` which hard-kills the whole process once $WATCHDOG_SECONDS
     # elapses regardless of what curl thinks.
-    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
+    resp=$(timeout --kill-after=10s "${WATCHDOG_SECONDS}s" curl -sS -m "$WATCHDOG_SECONDS" --connect-timeout 30 -X POST "$url" -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" -d '{}' -w "\n__HTTP_STATUS__:%{http_code}" 2>&1) && rc=$? || rc=$?
     t1=$(date -u +%s)
     local elapsed=$((t1 - t0))
 
