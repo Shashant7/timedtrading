@@ -1724,7 +1724,7 @@ function OpenPositionsPreview({
   const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
   const sorted = [...traderSorted, ...investorSorted];
   return h("section", {
-    className: hero ? "tt-card tt-card-pad" : "tt-card tt-card-pad tt-row",
+    className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
     style: hero ? {
       minHeight: 0,
       display: "flex",
@@ -1739,19 +1739,14 @@ function OpenPositionsPreview({
     className: "tt-sec-h",
     style: {
       fontSize: hero ? 14 : 16,
-      marginBottom: 8
+      marginBottom: 6
     }
   }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), h("div", {
     className: "tt-open-pos-grid",
     style: {
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))",
-      gap: 10,
-      ...(hero ? {
-        maxHeight: 320,
-        overflowY: "auto",
-        paddingRight: 2
-      } : {})
+      gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
+      gap: 8
     }
   }, sorted.slice(0, hero ? 16 : 12).map(t => {
     const sym = String(t?.ticker || "").toUpperCase();
@@ -1792,8 +1787,6 @@ function OpenPositionsPreview({
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
-        gap: 6,
-        padding: "10px 12px",
         borderRadius: 10,
         cursor: "pointer",
         textAlign: "left",
@@ -1827,12 +1820,30 @@ function OpenPositionsPreview({
       }
     }, sym), h("span", {
       style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5
+      }
+    }, t?._mode === "trader" && h("span", {
+      style: {
+        fontSize: 8,
+        color: "var(--tt-text-faint)",
+        letterSpacing: "0.1em"
+      }
+    }, "TRADER"), t?._mode === "investor" && h("span", {
+      style: {
+        fontSize: 8,
+        color: "var(--tt-text-faint)",
+        letterSpacing: "0.1em"
+      }
+    }, "INVESTOR"), h("span", {
+      style: {
         fontSize: 9,
         fontWeight: 700,
         color: dirColor,
         letterSpacing: "0.08em"
       }
-    }, dir)), h("div", {
+    }, dir))), h("div", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -1848,7 +1859,7 @@ function OpenPositionsPreview({
       }
     }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`), h("span", {
       style: {
-        padding: "2px 7px",
+        padding: "1px 6px",
         borderRadius: 999,
         fontSize: 9,
         fontWeight: 700,
@@ -1858,21 +1869,7 @@ function OpenPositionsPreview({
         border: `1px solid ${stageMeta.color}40`,
         marginLeft: "auto"
       }
-    }, stageDisplay)), t?._mode === "trader" && h("span", {
-      style: {
-        fontSize: 8,
-        color: "var(--tt-text-faint)",
-        letterSpacing: "0.1em",
-        alignSelf: "flex-start"
-      }
-    }, "TRADER"), t?._mode === "investor" && h("span", {
-      style: {
-        fontSize: 8,
-        color: "var(--tt-text-faint)",
-        letterSpacing: "0.1em",
-        alignSelf: "flex-start"
-      }
-    }, "INVESTOR"));
+    }, stageDisplay)));
   })));
 }
 function ResearchDeskPanel({
@@ -2633,12 +2630,7 @@ function MarketState({
       boxShadow: `0 0 0 2px ${_latentMeta.color}33`
     }
   }), `MARKET REGIME · ${_latentMeta.label}`)), h("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-      gap: 12,
-      marginTop: 10
-    }
+    className: "tt-mp-tiles-row"
   }, order.map(sym => h(MarketPulseTile, {
     key: sym,
     sym,
@@ -3235,6 +3227,53 @@ function MoverRow({
     className: "tt-trow__sub"
   }, "RTH " + fmtUsd(rthClose))));
 }
+function CompactMoverChip({
+  t,
+  mode,
+  onSelectTicker
+}) {
+  const dc = getDailyChange(t);
+  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
+  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+  const sym = String(t?.ticker || "").toUpperCase();
+  const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
+  return h("button", {
+    type: "button",
+    className: "tt-mover-compact",
+    onClick: e => {
+      e.preventDefault();
+      if (typeof onSelectTicker === "function") onSelectTicker(sym);
+    },
+    title: `Open ${sym}`
+  }, h("span", {
+    className: "tt-mover-compact__sym"
+  }, sym), h("span", {
+    className: `tt-mover-compact__pct ${dir}`
+  }, Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—", mode === "ext" && h("span", {
+    className: "tt-mover-compact__ext"
+  }, " EXT")));
+}
+function CompactMoversCol({
+  title,
+  items,
+  mode,
+  onSelectTicker
+}) {
+  return h("div", {
+    className: "tt-mover-compact-col"
+  }, h("div", {
+    className: "tt-mover-compact-col__title"
+  }, title), items.length === 0 ? h("div", {
+    className: "tt-mover-compact-empty"
+  }, "—") : h("div", {
+    className: "tt-mover-compact-list"
+  }, items.slice(0, 5).map((t, i) => h(CompactMoverChip, {
+    key: t.ticker || i,
+    t,
+    mode,
+    onSelectTicker
+  }))));
+}
 function MoversCol({
   title,
   items,
@@ -3321,42 +3360,27 @@ function TopMovers({
         marginBottom: 4
       }
     }, "TOP MOVERS"), h("div", {
-      className: "tt-sec-h",
-      style: {
-        fontSize: 14,
-        margin: "0 0 10px"
-      }
-    }, open ? "Session RTH leaders — click a row to open the ticker." : "RTH close plus extended-hours follow-through when available."), h("div", {
-      className: "tt-grid tt-grid-2"
-    }, h(MoversCol, {
+      className: `tt-mp-movers-compact-grid${hasExt ? " has-ext" : ""}`
+    }, h(CompactMoversCol, {
       title: "RTH GAINERS",
       items: rthGain,
       mode: "rth",
-      onSelectTicker,
-      universe
-    }), h(MoversCol, {
+      onSelectTicker
+    }), h(CompactMoversCol, {
       title: "RTH LOSERS",
       items: rthLoss,
       mode: "rth",
-      onSelectTicker,
-      universe
-    })), hasExt && h("div", {
-      className: "tt-grid tt-grid-2",
-      style: {
-        marginTop: 10
-      }
-    }, h(MoversCol, {
+      onSelectTicker
+    }), hasExt && h(CompactMoversCol, {
       title: "EXT GAINERS",
       items: extGain,
       mode: "ext",
-      onSelectTicker,
-      universe
-    }), h(MoversCol, {
+      onSelectTicker
+    }), hasExt && h(CompactMoversCol, {
       title: "EXT LOSERS",
       items: extLoss,
       mode: "ext",
-      onSelectTicker,
-      universe
+      onSelectTicker
     })));
   }
   if (strip) {
@@ -4631,11 +4655,11 @@ function Viewport({
   return h("aside", {
     className: lane ? "vp-lane-wrap" : "vp-card",
     "aria-label": "Ticker viewport"
-  }, h("div", {
-    className: lane ? "vp-lane-head vp-head" : "vp-head"
+  }, !lane && h("div", {
+    className: "vp-head"
   }, h("div", {
     className: "vp-title"
-  }, lane ? "TICKER LANE" : "VIEWPORT"), h("div", {
+  }, "VIEWPORT"), h("div", {
     className: "vp-count"
   }, `${ranked.length} tickers`)), h("div", {
     className: lane ? "vp-lane" : "vp-list"
@@ -4684,32 +4708,9 @@ function LaneControls({
     addOns: new Set()
   }));
   const laneChips = LANE_CHIP_IDS.map(id => (chips || []).find(c => c.id === id)).filter(Boolean);
-  const isFiltered = activeChip && activeChip !== "all" || String(query || "").trim().length > 0;
   return h("div", {
     className: "tt-lane-controls"
   }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 12,
-      flexWrap: "wrap"
-    }
-  }, h("div", null, h("div", {
-    className: "tt-sec-title"
-  }, "TICKER LANE"), h("div", {
-    className: "tt-sec-h"
-  }, "Filter the lane and bubble map together")), h("div", {
-    className: "ac-meta"
-  }, isFiltered && h("button", {
-    className: "ac-clear",
-    onClick: () => setFilters({
-      activeChip: "entry_zone",
-      query: "",
-      addOns: new Set()
-    }),
-    title: "Reset to Entry Zone · clear search"
-  }, "✕ Clear filters"), h("span", null, h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers"))), h("div", {
     className: "ac-search"
   }, h("span", {
     className: "ac-search-icon"
@@ -4725,6 +4726,14 @@ function LaneControls({
     className: "ac-search-clear",
     onClick: () => setQ("")
   }, "clear")), h("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, h("div", {
     className: "tt-lane-chip-row"
   }, laneChips.map(c => {
     const isActive = activeChip === c.id;
@@ -4736,7 +4745,13 @@ function LaneControls({
     }, c.label, c.count != null && h("span", {
       className: "ac-count"
     }, c.count));
-  })));
+  })), h("span", {
+    className: "ac-meta",
+    style: {
+      fontSize: 11,
+      whiteSpace: "nowrap"
+    }
+  }, h("strong", null, visibleCount), " of ", h("strong", null, totalCount))));
 }
 function TickerLaneSection({
   allTickers,
@@ -4772,13 +4787,13 @@ function TickerLaneSection({
     activeChip: filters?.activeChip,
     layout: "lane"
   }), h(BubbleMapGuide, null), h("div", {
+    className: "tt-bmap-head",
     style: {
       display: "flex",
       alignItems: "baseline",
       justifyContent: "space-between",
       gap: 12,
-      flexWrap: "wrap",
-      margin: "16px 0 8px"
+      flexWrap: "wrap"
     }
   }, h("div", null, h("div", {
     className: "tt-sec-title"
@@ -6344,6 +6359,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782596381693:873375173
+// cache-bust:1782597372397:217801864
 
-// cache-bust:1782596381693:873375173
+// cache-bust:1782597372397:217801864
