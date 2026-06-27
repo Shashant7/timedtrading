@@ -192,6 +192,28 @@ const DEFAULT_ADMISSION_MATRIX = {
   },
 
   // ───────────────────────────────────────────────────────────────────
+  // INDEX ETF SWING — dedicated index model (SPY/QQQ/IWM). Prime only.
+  // ───────────────────────────────────────────────────────────────────
+  "tt_index_etf_swing:LONG:Prime": {
+    allow_only_in: ["HTF_BULL_LTF_PULLBACK", "HTF_BULL_LTF_BULL", "EARLY_BULL", "STRONG_BULL"],
+    min_rr: 2.0,
+    reason: "Index model long — Prime in bull/pullback regimes",
+  },
+  "tt_index_etf_swing:LONG:Confirmed": {
+    block_when: "always",
+    reason: "Index swing requires Prime grade",
+  },
+  "tt_index_etf_swing:SHORT:Prime": {
+    allow_only_in: ["HTF_BEAR_LTF_BOUNCE", "HTF_BEAR_LTF_BEAR", "EARLY_BEAR", "STRONG_BEAR"],
+    min_rr: 2.0,
+    reason: "Index model short — Prime in bear/bounce regimes",
+  },
+  "tt_index_etf_swing:SHORT:Confirmed": {
+    block_when: "always",
+    reason: "Index swing short requires Prime grade",
+  },
+
+  // ───────────────────────────────────────────────────────────────────
   // N-TEST RESISTANCE (SHORT) — DEAD. 0% WR in canon. Absolute kill.
   // ───────────────────────────────────────────────────────────────────
   "tt_n_test_resistance:SHORT:Prime": {
