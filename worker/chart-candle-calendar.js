@@ -9,7 +9,7 @@ import { expectedIntradayBuckets } from "./foundation/trading-calendar.js";
 
 export const CHART_SYMBOL_BLOCKLIST = new Set([
   "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "HG1!", "NG1!",
-  "BTCUSD", "ETHUSD", "US500", "VX1!",
+  "BTCUSD", "ETHUSD", "US500",
 ]);
 
 const TICKER_RE = /^[A-Z]{1,5}(-[A-Z]{1,2})?$/;

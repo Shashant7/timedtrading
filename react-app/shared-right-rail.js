@@ -39,7 +39,26 @@
       gap: "var(--ds-space-3)",
       paddingBottom: RAIL_TAB_SCROLL_PAD,
       WebkitOverflowScrolling: "touch",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box",
     };
+    const investorRailContainStyle = {
+      width: "100%",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box",
+    };
+    const investorRailTextStyle = {
+      ...investorRailContainStyle,
+      overflowWrap: "break-word",
+      wordBreak: "break-word",
+    };
+    const sanitizeUserFacingCopy = (text) => (
+      typeof window !== "undefined" && window.TimedRailHelpers?.sanitizeUserFacingCopy
+        ? window.TimedRailHelpers.sanitizeUserFacingCopy(text)
+        : String(text || "").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim()
+    );
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -126,9 +145,9 @@
         laneLabel: "Reduce",
       },
       research_on_watch: {
-        actionLine: "TT Model lane: On Watch — research only.",
-        doNow: "The model tracks the name; no capital deployment until Accumulate lane.",
-        laneLabel: "On Watch",
+        actionLine: "TT Model lane: On Radar — tracking until execution-ready.",
+        doNow: "The model tracks the name; no capital deployment until execution-ready.",
+        laneLabel: "On Radar",
       },
       research_low: {
         actionLine: "TT Model lane: Low conviction — no action.",
@@ -153,10 +172,96 @@
     }
 
     function buildInvestorDisplayContext(opts) {
-      if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
-        return window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+      try {
+        if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
+          const ctx = window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+          if (ctx) return ctx;
+        }
+      } catch (_) { /* fall through to inline fallback */ }
+      // Inline fallback — pages without shared-rail-helpers.js (alerts,
+      // simulation-dashboard) or before the helper IIFE finishes still
+      // need kanban-aware lane labels (e.g. Accumulate thesis → On Radar).
+      opts = opts || {};
+      const sym = String(opts.tickerSymbol || opts.ticker?.ticker || opts.latestTicker?.ticker || "").trim().toUpperCase();
+      const invRaw = opts.investorData;
+      const investorData = invRaw && String(invRaw.ticker || sym || "").toUpperCase() === sym ? invRaw : null;
+      const rawStage = String(
+        investorData?.stage
+        || opts.ticker?.investor_stage
+        || opts.latestTicker?.investor_stage
+        || ""
+      ).toLowerCase();
+      if (!rawStage || rawStage === "—") return null;
+      const H = window.TimedRailHelpers || {};
+      const owned = !!(opts.effectiveInvestorTrade || investorData?.position?.owned);
+      const row = {
+        stage: rawStage,
+        score: Number(investorData?.score ?? opts.ticker?.investor_score ?? opts.latestTicker?.investor_score) || 0,
+        actionTier: investorData?.actionTier || null,
+        simEligible: investorData?.simEligible === true,
+        accumZone: investorData?.accumZone || null,
+        position: {
+          ...(investorData?.position || {}),
+          owned,
+          last_action_ts: investorData?.position?.last_action_ts,
+          last_action_type: investorData?.position?.last_action_type,
+        },
+      };
+      const resolveKanban = H.resolveInvestorKanbanStage || function (r) {
+        let stage = String(r?.stage || "research_avoid");
+        if (stage === "research") stage = "research_avoid";
+        const o = !!(r?.position?.owned);
+        if (!o) {
+          if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
+          else if (stage === "reduce") stage = "research_low";
+        }
+        const tier = H.deriveInvestorActionTier ? H.deriveInvestorActionTier(r) : null;
+        const execReady = tier === "act_now" || tier === "ready";
+        if (stage === "accumulate" && !execReady) stage = o ? "watch" : "research_on_watch";
+        return stage;
+      };
+      const deriveTier = H.deriveInvestorActionTier || function () { return null; };
+      const displayStage = resolveKanban(row);
+      const actionTier = row.actionTier || deriveTier(row);
+      const executeReady = actionTier === "act_now" || actionTier === "ready";
+      const laneMeta = (H.INVESTOR_LANE_CHIP_META && H.INVESTOR_LANE_CHIP_META[displayStage])
+        || { label: "On Radar", chip: "ds-chip--solid", title: "Investor lane", style: { color: "#a78bfa" } };
+      const tierMeta = actionTier && H.INVESTOR_TIER_CHIP_META ? H.INVESTOR_TIER_CHIP_META[actionTier] : null;
+      const LANE_GUIDANCE = {
+        accumulate: { laneLabel: "Accumulate", doNow: "The model scales in over 2–3 tranches inside the buy zone; no chasing extended moves." },
+        core_hold: { laneLabel: "Core Hold", doNow: "The model holds the core; adds only on meaningful pullbacks if the buy zone triggers again." },
+        watch: { laneLabel: "Hold & Watch", doNow: "The model holds flat and monitors signals; invalidation floor stays visible on the chart." },
+        reduce: { laneLabel: "Reduce", doNow: "The model trims ~30% per reduce cycle (or exits fully on invalidation breach)." },
+        research_on_watch: { laneLabel: "On Radar", doNow: "The model tracks the name; no capital deployment until execution-ready." },
+        research_low: { laneLabel: "Low Conviction", doNow: "The model passes — better setups elsewhere in the universe." },
+        research_avoid: { laneLabel: "Avoid", doNow: "The model skips — multiple red flags; no initiate or add." },
+        exited: { laneLabel: "Exited", doNow: "The model monitors for a fresh Accumulate signal before re-entry." },
+      };
+      const displayGuide = LANE_GUIDANCE[displayStage] || LANE_GUIDANCE.watch;
+      const inBuyZone = !!(investorData?.accumZone?.inZone);
+      let signalNote = null;
+      if (rawStage === "accumulate" && displayStage !== "accumulate") {
+        signalNote = owned
+          ? "Accumulate thesis — owned but not execution-ready; shown in Hold & Watch until the buy zone triggers."
+          : "Accumulate thesis — tracking on On Radar until price enters the buy zone with trend alignment.";
       }
-      return null;
+      const statusLine = (() => {
+        if (!owned && rawStage === "accumulate" && !executeReady) {
+          if (inBuyZone) return "In buy zone but not fully aligned — model is monitoring, not buying yet.";
+          return "Waiting for buy zone entry — no model position opened yet.";
+        }
+        if (owned && rawStage === "accumulate" && !executeReady) {
+          return "Owned — accumulate signal active but model is not adding until the next trigger.";
+        }
+        return displayGuide.doNow;
+      })();
+      const laneLabel = displayGuide.laneLabel;
+      return {
+        sym, rawStage, displayStage, displayGuide, actionTier, executeReady,
+        laneMeta, tierMeta, signalNote, statusLine, inBuyZone, owned, laneLabel,
+        displayLabel: laneLabel,
+        headerChipText: `Investor – ${laneLabel}`,
+      };
     }
 
     function investorInvalidationDisplay(investorData, livePx) {
@@ -898,93 +1003,149 @@
           }
         : null;
 
+      const laneColor = stageInfo.color;
+      const tradeOpen = (() => {
+        try { return window.TimedPriceUtils?.isTradeOpen?.(effectiveTrade) ?? false; }
+        catch (_) { return false; }
+      })();
+      const holdingTrade = tradeOpen ? effectiveTrade : null;
+      const hasHolding = !!(pos?.owned || invCtx?.owned || holdingTrade);
+      const thesisText = sanitizeUserFacingCopy(String(thesis || "").trim());
+      const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? pos?.avg_entry);
+      const liveForPos = Number.isFinite(livePx) && livePx > 0 ? livePx : null;
+      const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? pos?.shares);
+      const costBasis = Number(pos?.cost_basis);
+      const pnlPct = (() => {
+        if (Number.isFinite(Number(pos?.unrealized_pct))) return Number(pos.unrealized_pct);
+        if (!(entryPx > 0) || !(liveForPos > 0)) return null;
+        return ((liveForPos - entryPx) / entryPx) * 100;
+      })();
+      const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+      const entryWhen = (() => {
+        const t = Number(holdingTrade?.entry_ts ?? pos?.last_action_ts);
+        if (!Number.isFinite(t)) return null;
+        try {
+          return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+        } catch (_) { return null; }
+      })();
+      const keyLevels = [];
+      if (invDisplay) {
+        keyLevels.push(`Invalidation: close below ${fmtUsd(invDisplay.price)} (${invDisplay.label}).`);
+        if (invDisplay.thesisLevel) {
+          keyLevels.push(`Thesis floor: ${fmtUsd(invDisplay.thesisLevel.price)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""}).`);
+        }
+      }
+      if (invalidation && !invDisplay) {
+        keyLevels.push(String(invalidation));
+      }
+
       return h("div", { style: railTabBodyWrapStyle },
 
-        invCtx && h("div", {
+        (invCtx || stage !== "—") && h("div", {
           style: {
-            padding: "var(--ds-space-3)",
+            ...investorRailContainStyle,
+            padding: "14px 14px 12px",
             marginBottom: "var(--ds-space-3)",
             background: stageInfo.bg,
             border: `1px solid ${stageInfo.border}`,
             borderRadius: "var(--ds-radius-lg, 12px)",
           },
         },
-          h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 } },
-            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } }, laneHeaderText),
-            invCtx.tierMeta && h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
-            }, invCtx.tierMeta.label),
-          ),
-          h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, fontWeight: 600 } }, invCtx.statusLine),
-          invCtx.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 8 } }, invCtx.signalNote),
-        ),
-
-        // 0. Catalyst banner — when ticker just had a major move
-        catalystEvent && h("div", {
-          style: {
-            padding: "var(--ds-space-2)",
-            background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-            border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
-            borderRadius: "var(--ds-radius-md)",
-          },
-        },
-          h("div", { style: { fontSize: 10, fontWeight: 700, color: catalystEvent.direction === "up" ? "#34d399" : "#f87171", letterSpacing: "0.05em", marginBottom: 4 } },
-            "⚡ CATALYST EVENT DETECTED",
-          ),
-          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 } },
-            `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`,
-          ),
-          h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.4 } },
-            catalystEvent.warning,
-          ),
-        ),
-
-        // 1. Lane Guidance
-        h(Panel, {
-          title: `Investor Lane · ${invCtx?.laneLabel || stageInfo.label}`,
-          action: h("span", { style: { display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" } },
+          h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 8, minWidth: 0, maxWidth: "100%" } },
+            h("span", { style: { fontSize: 11, fontWeight: 700, color: laneColor, letterSpacing: "0.02em", ...investorRailTextStyle } }, sanitizeUserFacingCopy(laneHeaderText)),
+            hasHolding && h("span", {
+              style: { fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, color: laneColor, background: `${laneColor}18`, border: `1px solid ${laneColor}44`, letterSpacing: "0.05em" },
+            }, "HOLDING"),
             invCtx?.tierMeta && h("span", {
-              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
+              style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 7px", borderRadius: 4, color: invCtx.tierMeta.color, background: `${invCtx.tierMeta.color}18`, border: `1px solid ${invCtx.tierMeta.color}44` },
             }, invCtx.tierMeta.label),
-            h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, color: stageInfo.color, background: stageInfo.bg, border: `1px solid ${stageInfo.border}` } }, invCtx?.laneLabel || stageInfo.label),
           ),
-        },
-          invCtx?.signalNote && h("div", {
-            style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: "var(--ds-space-2)", padding: "8px 10px", background: "rgba(255,255,255,0.03)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.06)" },
-          }, invCtx.signalNote),
-          h("div", { style: { padding: "var(--ds-space-2)", background: stageInfo.bg, border: `1px solid ${stageInfo.border}`, borderRadius: "var(--ds-radius-md)", marginBottom: "var(--ds-space-2)" } },
-            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 4 } }, "WHAT TO DO"),
-            h("div", { style: { fontSize: 15, fontWeight: 700, color: stageInfo.color } },
-              invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : (invCtx?.statusLine || stageInfo.action),
-            ),
-            h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.4 } },
-              invCtx?.statusLine || stageInfo.desc,
-              invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold")
-                ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`
-                : "",
-            ),
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" } },
+            h("span", { style: { fontSize: 18, fontWeight: 800, color: laneColor, letterSpacing: "0.02em", lineHeight: 1, ...investorRailTextStyle } }, stageInfo.label),
+            liveForPos && h("span", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 } }, fmtUsd(liveForPos)),
           ),
-          invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
+
+          thesisText && h("div", {
             style: {
-              marginBottom: "var(--ds-space-2)",
+              marginBottom: 10,
               padding: "10px 12px",
-              background: "rgba(248,113,113,0.06)",
-              border: "1px solid rgba(248,113,113,0.22)",
-              borderRadius: "var(--ds-radius-md)",
+              borderLeft: `3px solid ${laneColor}`,
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: "0 8px 8px 0",
+              ...investorRailContainStyle,
             },
           },
-            h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em", marginBottom: 4 } }, "INVALIDATION LEVEL"),
-            h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-text-0)" } },
-              `$${invDisplay.price.toFixed(2)}`,
-              h("span", { style: { fontSize: 11, fontWeight: 500, color: "var(--ds-text-muted)", marginLeft: 8 } },
-                invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "",
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em", marginBottom: 4 } }, "THESIS"),
+            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, ...investorRailTextStyle } }, thesisText.slice(0, 600)),
+          ),
+
+          hasHolding && h("div", {
+            style: {
+              marginBottom: 10,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.05)",
+              border: `1px solid ${laneColor}33`,
+            },
+          },
+            h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" } },
+              h("span", { style: { fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em" } }, "OPEN POSITION"),
+              pnlPct != null && h("span", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor } },
+                `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`,
               ),
             ),
-            h("div", { style: { fontSize: 11, color: "var(--ds-text-body)", marginTop: 4, lineHeight: 1.45 } }, invDisplay.condition),
-            invDisplay.thesisLevel && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45 } },
-              h("span", { style: { fontWeight: 700, color: "var(--ds-text-faint)" } }, "THESIS FLOOR "),
-              `$${invDisplay.thesisLevel.price.toFixed(2)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})`,
-              invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : "",
+            (entryPx > 0 || liveForPos > 0) && h("div", { style: { fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: (Number.isFinite(shares) || costBasis > 0) ? 8 : 0 } },
+              entryPx > 0 ? `Entry ${fmtUsd(entryPx)}` : null,
+              liveForPos > 0 ? ` → ${fmtUsd(liveForPos)}` : null,
+              entryWhen && h("span", { style: { color: "var(--ds-text-faint)" } }, ` · entered ${entryWhen}`),
+            ),
+            (Number.isFinite(shares) || costBasis > 0) && h("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 8, minWidth: 0 } },
+              Number.isFinite(shares) && h("div", { style: investorRailContainStyle },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle } }, shares.toFixed(2)),
+              ),
+              entryPx > 0 && h("div", { style: investorRailContainStyle },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle } }, fmtUsd(entryPx)),
+              ),
+              costBasis > 0 && h("div", { style: investorRailContainStyle },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle } }, fmtUsd(costBasis)),
+              ),
+            ),
+            pos?.last_action_type && pos?.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: 11, color: "var(--ds-text-muted)" } },
+              "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
+              pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
+              " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            ),
+          ),
+
+          h("div", {
+            style: {
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              marginBottom: invCtx?.signalNote || keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0),
+              ...investorRailContainStyle,
+            },
+          },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 } }, "WHAT TO DO"),
+            h("div", { style: { fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600, ...investorRailTextStyle } },
+              sanitizeUserFacingCopy(invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : (invCtx?.statusLine || stageInfo.action)),
+            ),
+            h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6, ...investorRailTextStyle } },
+              sanitizeUserFacingCopy(invCtx?.statusLine || stageInfo.desc),
+            ),
+          ),
+          invCtx?.signalNote && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: keyLevels.length > 0 ? 8 : (Number.isFinite(score) ? 8 : 0), ...investorRailTextStyle } }, sanitizeUserFacingCopy(invCtx.signalNote)),
+          keyLevels.length > 0 && h("div", { style: { marginBottom: Number.isFinite(score) ? 8 : 0 } },
+            h("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 5 } }, "KEY LEVELS"),
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 4 } },
+              keyLevels.map((line, i) => h("div", { key: `inv-kl-${i}`, style: { display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45, minWidth: 0 } },
+                h("span", { style: { color: "var(--ds-text-muted)", flexShrink: 0, marginTop: 1 } }, "·"),
+                h("span", { style: { color: "var(--ds-text-body)", ...investorRailTextStyle } }, sanitizeUserFacingCopy(line)),
+              )),
             ),
           ),
           Number.isFinite(score) && h("div", { style: { display: "flex", gap: "var(--ds-space-2)" } },
@@ -1003,15 +1164,48 @@
           ),
         ),
 
-        // 2. WHY (stage reason translated)
-        reasonProse && h(Panel, { title: "🧠 Why this classification" },
+        // 0. Catalyst banner — when ticker just had a major move
+        catalystEvent && h("div", {
+          style: {
+            padding: "var(--ds-space-2)",
+            background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+            border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
+            borderRadius: "var(--ds-radius-md)",
+          },
+        },
+          h("div", { style: { fontSize: 10, fontWeight: 700, color: catalystEvent.direction === "up" ? "#34d399" : "#f87171", letterSpacing: "0.05em", marginBottom: 4 } },
+            "CATALYST EVENT",
+          ),
+          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginBottom: 4 } },
+            `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`,
+          ),
+          h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.4 } },
+            catalystEvent.warning,
+          ),
+        ),
+
+        h("details", { open: true, style: { marginBottom: "var(--ds-space-3)" } },
+          h("summary", {
+            style: {
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--ds-text-muted)",
+              letterSpacing: "0.06em",
+              cursor: "pointer",
+              padding: "6px 0",
+              userSelect: "none",
+            },
+          }, "More detail — classification, score, context"),
+          h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", marginTop: "var(--ds-space-2)" } },
+
+        reasonProse && h(Panel, { title: "Why this classification" },
           h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, reasonProse),
           stageReason && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" } }, "code: ", stageReason),
         ),
 
         // 3. Score breakdown
         components && Object.keys(components).length > 0 && h(Panel, {
-          title: "📊 Score Breakdown",
+          title: "Score Breakdown",
           action: h("span", { style: { fontSize: 10, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: "var(--ds-text-muted)" } }, "0-100 scale"),
         },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
@@ -1037,7 +1231,7 @@
 
         // 4. Buy Zone signals
         accumZone?.inZone && Array.isArray(accumZone?.signals) && accumZone.signals.length > 0 && h(Panel, {
-          title: "🎯 Buy Zone Signals",
+          title: "Buy Zone Signals",
           action: h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, background: "rgba(52,211,153,0.10)", color: "#34d399", border: "1px solid rgba(52,211,153,0.30)" } }, `${accumZone.confidence || 0}% confidence`),
         },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
@@ -1051,37 +1245,8 @@
           ),
         ),
 
-        // 5. Position
-        pos && h(Panel, { title: "💼 Your Position" },
-          h("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 } },
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SHARES"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, Number(pos.shares || 0).toFixed(2)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "AVG ENTRY"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.avg_entry) || 0)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "COST BASIS"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", marginTop: 2 } }, fmtUsd(Number(pos.cost_basis) || 0)),
-            ),
-            h("div", null,
-              h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "UNREALIZED"),
-              h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", marginTop: 2, color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171" } },
-                pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—",
-              ),
-            ),
-          ),
-          pos.last_action_type && pos.last_action_ts && h("div", { style: { marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
-            "Last: ", h("strong", { style: { color: "var(--ds-text-body)" } }, pos.last_action_type),
-            pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "",
-            " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-          ),
-        ),
-
         // 6. RS + Sector
-        (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "📈 Strength + Sector Context" },
+        (Number.isFinite(rsRank) || rs || sector) && h(Panel, { title: "Strength + Sector Context" },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 8 } },
             Number.isFinite(rsRank) && h("div", null,
               h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "RS RANK (vs SPY)"),
@@ -1094,7 +1259,7 @@
               Number.isFinite(Number(rs.rs1m)) && h("span", null, "1M: ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(rs.rs1m).toFixed(0))),
               Number.isFinite(Number(rs.rs3m)) && h("span", null, "3M: ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(rs.rs3m).toFixed(0))),
               Number.isFinite(Number(rs.rs6m)) && h("span", null, "6M: ", h("strong", { style: { color: "var(--ds-text-body)" } }, Number(rs.rs6m).toFixed(0))),
-              (rs.rsNewHigh3m || rs.rsNewHigh6m) && h("span", { style: { color: "#34d399", fontWeight: 700 } }, "🚀 New RS High"),
+              (rs.rsNewHigh3m || rs.rsNewHigh6m) && h("span", { style: { color: "#34d399", fontWeight: 700 } }, "New RS High"),
             ),
             sector && h("div", { style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)" } },
               "Sector: ", h("strong", { style: { color: "var(--ds-text-body)" } }, sector),
@@ -1102,12 +1267,6 @@
           ),
         ),
 
-        // 7. Thesis + invalidation
-        thesis && h(Panel, { title: "💡 Thesis" },
-          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, String(thesis).slice(0, 600)),
-          invalidation && h("div", { style: { marginTop: 10, padding: 10, background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.20)", borderRadius: 6, fontSize: "var(--ds-fs-meta)" } },
-            h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.05em", marginBottom: 4 } }, "INVALIDATION"),
-            h("div", { style: { color: "var(--ds-text-body)", lineHeight: 1.4 } }, String(invalidation)),
           ),
         ),
 
@@ -1493,6 +1652,51 @@
           h("span", { style: { fontSize: 11, color: "var(--ds-text-body)", flex: "1 1 200px" } }, setupGuidance.action || setupGuidance.headline || "—"),
         ),
 
+        // Model levels + bias reconciliation — aligns Options tab with Model card geometry.
+        (() => {
+          const recon = data?.model_reconciliation || null;
+          const levels = recon?.model_levels || {};
+          const hasLevels = [levels.stop, levels.trim, levels.exit, levels.runner].some((v) => Number.isFinite(v) && v > 0);
+          if (!hasLevels && !(recon?.lines || []).length && !_callVsLeanConflict && !_dirFlipped) return null;
+          const fmtPx = (n) => Number.isFinite(n) ? "$" + Number(n).toFixed(2) : "—";
+          return h(Panel, { title: "Model Levels & Bias", color: "#60a5fa" },
+            h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 8 } },
+              h("div", { style: { padding: 8, background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.20)", borderRadius: 6 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.05em" } }, "STOP / INVALIDATION"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 } }, fmtPx(levels.stop)),
+              ),
+              h("div", { style: { padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "SPOT"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 } },
+                  fmtPx(levels.price),
+                  levels.price_source === "live_kv" && h("span", { style: { fontSize: 9, color: "#34d399", marginLeft: 4 } }, "LIVE"),
+                ),
+              ),
+              Number.isFinite(levels.trim) && levels.trim > 0 && h("div", { style: { padding: 8, background: "rgba(255,255,255,0.03)", borderRadius: 6 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" } }, "TRIM"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 } }, fmtPx(levels.trim)),
+              ),
+              Number.isFinite(levels.exit) && levels.exit > 0 && h("div", { style: { padding: 8, background: "rgba(52,211,153,0.05)", border: "1px solid rgba(52,211,153,0.20)", borderRadius: 6 } },
+                h("div", { style: { fontSize: 9, fontWeight: 700, color: "#34d399", letterSpacing: "0.05em" } }, "EXIT (SPREAD / P&L)"),
+                h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 } }, fmtPx(levels.exit)),
+              ),
+            ),
+            h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 } },
+              _contractDir && h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: _callColor, background: _callColor + "18", border: `1px solid ${_callColor}44` } }, "Contract ", _contractDir),
+              _layerLean && h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: _layerLean === "SHORT" ? "#fb7185" : _layerLean === "LONG" ? "#34d399" : "var(--ds-text-muted)", background: "rgba(255,255,255,0.04)", border: "1px solid var(--ds-stroke)" } }, "Layers ", _layerLean),
+              _effDir && h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: "#a78bfa", background: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.35)" } }, "Play ", _effDir),
+              _dirFlipped && h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: "#f5c25c", background: "rgba(245,194,92,0.12)", border: "1px solid rgba(245,194,92,0.35)" } }, "FADE FLIP"),
+            ),
+            (recon?.lines || []).slice(0, 4).map((line, i) => h("div", {
+              key: "recon-" + i,
+              style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.5, marginBottom: i < 3 ? 4 : 0 },
+            }, line)),
+            Array.isArray(contract?.invalidation) && contract.invalidation.length > 0 && h("div", { style: { marginTop: 8, fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 } },
+              "Invalidation: ", contract.invalidation.slice(0, 2).join(" · "),
+            ),
+          );
+        })(),
+
         // 2. Options Preferences — collapsed by default.
         h("details", { style: { marginBottom: 4 } },
           h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Preferences · profile & horizon"),
@@ -1640,6 +1844,26 @@
                   "$" + primary.breakeven_up.toFixed(2), " up / $", primary.breakeven_down.toFixed(2), " down")
               : h("strong", { style: { color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" } },
                   "$" + primary.breakeven.toFixed(2)),
+          ),
+          (primary.est_at_tp || primary.est_at_sl) && h("div", {
+            style: {
+              marginTop: 10, padding: "10px 12px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: 8,
+            },
+          },
+            h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 6 } }, "LIVE EXIT PROJECTIONS"),
+            primary.est_at_tp && primary.est_at_tp.total_pl_usd != null && h("div", { style: { fontSize: 11, color: primary.est_at_tp.total_pl_usd >= 0 ? "#34d399" : "#f87171", fontFamily: "var(--tt-font-mono)", marginBottom: 4 } },
+              "If Exit target hit (~", primary.est_at_tp.hold_days, "d): est. P&L ", fmtUsd(primary.est_at_tp.total_pl_usd),
+              primary.est_at_tp.est_premium != null ? ` · premium ≈ $${Number(primary.est_at_tp.est_premium).toFixed(2)}` : "",
+            ),
+            primary.est_at_sl && primary.est_at_sl.total_pl_usd != null && h("div", { style: { fontSize: 11, color: primary.est_at_sl.total_pl_usd >= 0 ? "#34d399" : "#f87171", fontFamily: "var(--tt-font-mono)" } },
+              "If stop hit (~", primary.est_at_sl.hold_days, "d): est. P&L ", fmtUsd(primary.est_at_sl.total_pl_usd),
+            ),
+            primary.target_clears_breakeven === false && h("div", { style: { fontSize: 10, color: "#f87171", marginTop: 6 } },
+              "Exit target is below option breakeven — hold-to-target may still lose on premium decay.",
+            ),
           ),
           // 2026-05-30 (P4) — "How This Works" panel. User feedback:
           // "Our users vary in their experience of options and may not
@@ -2326,7 +2550,7 @@
           localization: {
             priceFormatter: (p) => {
               const sym = String(propTicker?.ticker || "").toUpperCase();
-              if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+              if (sym === "VIX") return p.toFixed(2);
               return p.toFixed(2);
             },
             timeFormatter: (time) => {
@@ -3440,6 +3664,11 @@
         const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
         const [ledgerTradesError, setLedgerTradesError] = useState(null);
 
+        const isTradeOpenSafe = (tr) => {
+          try { return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false; }
+          catch (_) { return false; }
+        };
+
         // ─────────────────────────────────────────────────────────────
         // 2026-05-28 — Resolve `trade` from ledgerTrades when the caller
         // did not pass one explicitly.
@@ -3460,19 +3689,14 @@
         // (e.g. simulation-dashboard's trade-detail entrypoint).
         // ─────────────────────────────────────────────────────────────
         const effectiveTrade = useMemo(() => {
-          if (trade) return trade;
+          if (trade && isTradeOpenSafe(trade)) return trade;
           if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
           const symUp = tickerSymbol.toUpperCase();
           if (!symUp) return null;
-          // Prefer an explicitly OPEN row; otherwise any non-WIN/non-LOSS
-          // row (TP_HIT_TRIM intermediate state, or rows where status
-          // hasn't been written yet but exit_ts is unset).
           let candidate = null;
           for (const t of ledgerTrades) {
             if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
-            const st = String(t?.status || "").toUpperCase();
-            if (st === "WIN" || st === "LOSS") continue;
-            // Newest entry wins
+            if (!isTradeOpenSafe(t)) continue;
             if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
               candidate = t;
             }
@@ -3497,12 +3721,8 @@
         // that pass `trade` as a prop still get exactly that trade
         // via `effectiveTrade` for back-compat.
         const effectiveTraderTrade = useMemo(() => {
-          const isOpen = (tr) => {
-            try { return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false; }
-            catch (_) { return false; }
-          };
-          if (trade && trade._source_mode !== "investor" && isOpen(trade)) return trade;
-          if (ticker?._openTrade && isOpen(ticker._openTrade)) return ticker._openTrade;
+          if (trade && trade._source_mode !== "investor" && isTradeOpenSafe(trade)) return trade;
+          if (ticker?._openTrade && isTradeOpenSafe(ticker._openTrade)) return ticker._openTrade;
           if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
           const symUp = tickerSymbol.toUpperCase();
           if (!symUp) return null;
@@ -3510,7 +3730,7 @@
           for (const t of ledgerTrades) {
             if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
             if (t?._source_mode === "investor") continue;
-            if (!isOpen(t)) continue;
+            if (!isTradeOpenSafe(t)) continue;
             if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
               candidate = t;
             }
@@ -3518,7 +3738,7 @@
           return candidate;
         }, [trade, ticker?._openTrade, ledgerTrades, tickerSymbol]);
         const effectiveInvestorTrade = useMemo(() => {
-          if (trade && trade._source_mode === "investor") return trade;
+          if (trade && trade._source_mode === "investor" && isTradeOpenSafe(trade)) return trade;
           if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
           const symUp = tickerSymbol.toUpperCase();
           if (!symUp) return null;
@@ -3526,8 +3746,7 @@
           for (const t of ledgerTrades) {
             if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
             if (t?._source_mode !== "investor") continue;
-            const st = String(t?.status || "").toUpperCase();
-            if (st === "WIN" || st === "LOSS") continue;
+            if (!isTradeOpenSafe(t)) continue;
             if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
               candidate = t;
             }
@@ -3545,17 +3764,14 @@
 
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
 
-        // 2026-06-10 — Rail IA consolidation: 9 tabs → 4 groups
-        // (Now / Trade / Invest / Context). The INTERNAL railTab keys are
-        // unchanged (SNAPSHOT / SETUP / OPTIONS / INVESTOR / TECHNICALS /
-        // FUNDAMENTALS / CATALYSTS / HISTORY) so every data-fetch gate,
-        // deep link (?railTab=OPTIONS) and initialRailTab keeps working.
-        // The nav renders the 4 group pills; groups with multiple member
-        // tabs show a secondary sub-pill row. This ref remembers the last
-        // sub-tab visited per group so re-entering a group restores it.
+        // 2026-06-23 — Rail IA: 5 top-level groups (Now / Trade / Options /
+        // Invest / Context). INTERNAL railTab keys unchanged (SNAPSHOT /
+        // SETUP / OPTIONS / …) so data-fetch gates and ?railTab= deep
+        // links keep working. Trade is Setup-only; Options is its own pill.
         const RAIL_TAB_GROUP_OF = {
           SNAPSHOT: "NOW",
-          SETUP: "TRADE", OPTIONS: "TRADE",
+          SETUP: "TRADE",
+          OPTIONS: "OPTIONS",
           INVESTOR: "INVEST",
           TECHNICALS: "CONTEXT", FUNDAMENTALS: "CONTEXT", CATALYSTS: "CONTEXT", HISTORY: "CONTEXT",
         };
@@ -3651,14 +3867,107 @@
           return () => { cancelled = true; };
         }, [tickerSymbol, API_BASE]);
 
-        // 2026-05-28 — AI CIO verdict for the active trade (Setup tab).
-        // Lazy-fetched when (a) Setup tab is active AND (b) effectiveTrade
-        // is an open position with a trade_id. Cached per trade_id so
-        // switching tabs doesn't re-fetch.
+        // 2026-05-28 — AI CIO verdict for the active trader position.
+        // Lazy-fetched when effectiveTraderTrade is open (any rail tab —
+        // Snapshot Position panel + Trader open-position card need it).
+        // Cached per trade_id so switching tabs doesn't re-fetch.
         const [cioVerdict, setCioVerdict] = useState(null);
         const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
         const [cioVerdictError, setCioVerdictError] = useState(null);
         const cioVerdictCacheRef = useRef({});
+        const renderCioPositionBlock = (opts = {}) => {
+          const compact = !!opts.compact;
+          if (cioVerdictLoading && !cioVerdict) {
+            return (
+              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic", marginTop: compact ? "var(--ds-space-2)" : 0 }}>
+                Loading AI CIO verdict…
+              </div>
+            );
+          }
+          if (cioVerdictError) {
+            return (
+              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-dn)", marginTop: compact ? "var(--ds-space-2)" : 0 }}>
+                AI CIO unavailable ({cioVerdictError})
+              </div>
+            );
+          }
+          if (!cioVerdict) return null;
+          const _decisionIcon = cioVerdict.decision === "APPROVE" ? "✅"
+            : cioVerdict.decision === "ADJUST" ? "⚙️"
+            : "🛑";
+          const _decisionColor = cioVerdict.decision === "APPROVE" ? "#22c55e"
+            : cioVerdict.decision === "ADJUST" ? "#f59e0b"
+            : "#ef4444";
+          return (
+            <div style={{
+              marginTop: "var(--ds-space-2)",
+              paddingTop: compact ? "var(--ds-space-2)" : "var(--ds-space-3)",
+              borderTop: "1px solid var(--ds-stroke)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
+                <span style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>AI CIO</span>
+                <span style={{ color: _decisionColor, fontWeight: 700, fontSize: "var(--ds-fs-body)" }}>
+                  {_decisionIcon} {cioVerdict.decision}
+                </span>
+                {cioVerdict.matched_by === "ticker_lifecycle" && (
+                  <span title="Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)" style={{
+                    fontSize: 9, letterSpacing: "0.12em",
+                    padding: "1px 6px", borderRadius: 4,
+                    background: "rgba(96,165,250,0.12)",
+                    color: "var(--ds-text-muted)",
+                    border: "1px solid var(--ds-stroke)",
+                  }}>LATEST</span>
+                )}
+                {cioVerdict.confidence > 0 && (
+                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                    {(cioVerdict.confidence * 100).toFixed(0)}% conf
+                  </span>
+                )}
+                {cioVerdict.edge_score > 0 && (
+                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                    edge {(cioVerdict.edge_score * 100).toFixed(0)}%
+                  </span>
+                )}
+                {cioVerdict.shadow && (
+                  <span style={{
+                    fontSize: 9, letterSpacing: "0.12em",
+                    padding: "1px 6px", borderRadius: 4,
+                    background: "rgba(168,162,158,0.15)",
+                    color: "var(--ds-text-muted)",
+                    border: "1px solid var(--ds-stroke)",
+                  }}>SHADOW</span>
+                )}
+                {cioVerdict.model && (
+                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)", marginLeft: "auto" }}>
+                    {cioVerdict.model}
+                  </span>
+                )}
+              </div>
+              {cioVerdict.reasoning && (
+                <div style={{
+                  fontSize: "var(--ds-fs-caption)",
+                  color: "var(--ds-text)",
+                  lineHeight: 1.55,
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {cioVerdict.reasoning}
+                </div>
+              )}
+              {Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: "var(--ds-space-2)" }}>
+                  {cioVerdict.risk_flags.map((flag, i) => (
+                    <span key={`cio-flag-${i}`} className="ds-chip ds-chip--sm" style={{
+                      fontSize: 9, letterSpacing: "0.04em",
+                      background: "rgba(239,68,68,0.10)",
+                      color: "var(--ds-dn)",
+                      borderColor: "rgba(239,68,68,0.30)",
+                    }}>{flag}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        };
 
         // 2026-06-18 — L2 shadow sequence diagnostics (admin-only, read-only).
         // Fetches GET /timed/admin/setup-diagnostics on Snapshot + Trader tabs.
@@ -5031,8 +5340,11 @@
           else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
             tab = "SNAPSHOT";
           }
+          if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY") {
+            tab = "CATALYSTS";
+          }
           setRailTab(tab);
-        }, [tickerSymbol, initialRailTab]);
+        }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse]);
 
         // Trade History: default chart selection to first trade when trades load
         useEffect(() => {
@@ -5065,6 +5377,15 @@
             setInvestorLoading(false);
             return;
           }
+          // Seed from /timed/all snapshot so header chip + Snapshot investor
+          // POV render immediately (slim payloads omit investor_stage).
+          const seedStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+          const seedScore = Number(ticker?.investor_score ?? latestTicker?.investor_score);
+          if (seedStage && seedStage !== "—") {
+            setInvestorData({ ticker: sym, stage: seedStage, score: seedScore });
+          } else {
+            setInvestorData(null);
+          }
           let cancelled = false;
           const fetchInvestor = async () => {
             const showLoading = railTab === "INVESTOR";
@@ -5083,7 +5404,11 @@
               if (!cancelled) setInvestorData({ ticker: sym, ...json });
             } catch (e) {
               if (!cancelled) {
-                if (showLoading) setInvestorData(null);
+                if (seedStage && seedStage !== "—") {
+                  setInvestorData({ ticker: sym, stage: seedStage, score: seedScore });
+                } else if (showLoading) {
+                  setInvestorData(null);
+                }
                 if (showLoading) setInvestorError(String(e?.message || e));
               }
             } finally {
@@ -5092,7 +5417,7 @@
           };
           fetchInvestor();
           return () => { cancelled = true; };
-        }, [tickerSymbol, API_BASE]);
+        }, [tickerSymbol, API_BASE, ticker?.investor_stage, ticker?.investor_score, latestTicker?.investor_stage, latestTicker?.investor_score]);
 
         // Fundamentals fetch — only when the Fundamentals tab is selected.
         // Cached per-ticker for 5 min in fundamentalsCacheRef so tab flips
@@ -5381,14 +5706,11 @@
           return () => { cancelled = true; };
         }, [tickerSymbol]);
 
-        // 2026-05-28 — Lazy-fetch the AI CIO verdict for the active trade
-        // when the Setup tab is open. Mirrors the Catalysts-tab pattern:
-        // only fires when needed, cached per trade_id, never re-fetched
-        // unless the trade_id changes.
+        // 2026-05-28 — Lazy-fetch the AI CIO verdict for the open trader
+        // position (Snapshot + Trader tabs). Cached per trade_id.
         useEffect(() => {
-          if (railTab !== "SETUP") return;
-          const _t = effectiveTrade;
-          if (!_t) {
+          const _t = effectiveTraderTrade;
+          if (!_t || !isTradeOpenSafe(_t)) {
             setCioVerdict(null);
             setCioVerdictError(null);
             setCioVerdictLoading(false);
@@ -5427,7 +5749,7 @@
             }
           })();
           return () => { cancelled = true; };
-        }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
+        }, [effectiveTraderTrade?.trade_id, effectiveTraderTrade?.id]);
 
         const countActiveShadowSequences = (diag) => {
           if (!diag || diag.empty) return 0;
@@ -6071,6 +6393,29 @@
           [bubbleJourney, patternFlags],
         );
 
+        const isOutsideScoredUniverse = React.useMemo(() => {
+          if (ticker?._outsideUniverse) return true;
+          if (!tickerSymbol) return false;
+          const row = (allLoadedData && allLoadedData[tickerSymbol]) || ticker;
+          const scored = Number.isFinite(Number(row?.score))
+            || !!row?.state
+            || !!row?.kanban_stage
+            || Number.isFinite(Number(row?.htf_score));
+          if (scored) return false;
+          if (latestTickerLoading) return false;
+          if (latestTicker && (latestTicker.state || Number.isFinite(Number(latestTicker.score)))) {
+            return false;
+          }
+          return !!(latestTickerError || (!latestTicker && !latestTickerLoading));
+        }, [
+          ticker,
+          tickerSymbol,
+          allLoadedData,
+          latestTicker,
+          latestTickerLoading,
+          latestTickerError,
+        ]);
+
         if (!safeTicker || !tickerSymbol) return null;
 
         // ── Unified direction — single source of truth for the entire Right Rail ──
@@ -6081,20 +6426,15 @@
             const pcDir = String(predictionContract.direction).toUpperCase();
             if (pcDir === "LONG" || pcDir === "SHORT") return pcDir;
           }
-          // 2. Server-provided position direction
-          const posDirStr = String(ticker?.position_direction || "").toUpperCase();
-          if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
-          // 3. Open trade direction (fallback when no prediction available)
-          // 2026-05-28 — use effectiveTrade so pages that don't pass `trade`
-          // explicitly (today / portfolio / active-trader) still benefit.
+          // 2. Verified open trader trade direction
+          if (isTradeOpenSafe(effectiveTraderTrade)) {
+            const tradeDirStr = String(effectiveTraderTrade?.direction || "").toUpperCase();
+            if (tradeDirStr === "LONG" || tradeDirStr === "SHORT") return tradeDirStr;
+          }
+          // 3. Open trade direction (legacy prop path)
           const trade = effectiveTrade;
           const tradeDirStr = String(trade?.direction || "").toUpperCase();
-          const tradeStatus = String(trade?.status || "").toUpperCase();
-          const tradeIsOpen = trade && (
-            tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
-            (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
-          );
-          if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
+          if (isTradeOpenSafe(trade) && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
           // 4. HTF state (primary trend)
           const state = String(ticker?.state || "");
           if (state.startsWith("HTF_BULL")) return "LONG";
@@ -6271,7 +6611,7 @@
               if (d === "LONG" || d === "SHORT") return d;
             }
             const posDir = String(ticker?.position_direction || "").toUpperCase();
-            if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+            if (isTradeOpenSafe(effectiveTraderTrade) && (posDir === "LONG" || posDir === "SHORT")) return posDir;
             try {
               const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection
                 ? window.TimedPriceUtils.inferModelDirection(ticker)
@@ -6285,12 +6625,8 @@
           })();
           const v2Dir = v2BiasDirection;
           const v2TraderPosture = (() => {
-            const isOpen = (tr) => {
-              try { return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false; }
-              catch (_) { return false; }
-            };
-            const openTr = effectiveTraderTrade || ticker?._openTrade;
-            if (isOpen(openTr)) {
+            const openTr = effectiveTraderTrade;
+            if (isTradeOpenSafe(openTr)) {
               const odir = String(openTr.direction || "").toUpperCase();
               if (odir === "LONG" || odir === "SHORT") {
                 return {
@@ -6319,9 +6655,9 @@
               if (helper) {
                 return helper({
                   ...ticker,
-                  _openTrade: effectiveTraderTrade || ticker?._openTrade,
-                  has_open_position: !!(effectiveTraderTrade || ticker?.has_open_position),
-                  position_direction: effectiveTraderTrade?.direction || ticker?.position_direction,
+                  _openTrade: effectiveTraderTrade || null,
+                  has_open_position: isTradeOpenSafe(effectiveTraderTrade),
+                  position_direction: effectiveTraderTrade?.direction || undefined,
                 });
               }
             } catch (_) {}
@@ -6329,6 +6665,54 @@
               return { posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT", label: v2Dir === "LONG" ? "Leaning bullish" : "Leaning bearish", direction: v2Dir, strength: "lean", reason: "direction_fallback" };
             }
             return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "fallback" };
+          })();
+          // Model posture ignores the open position — used to detect organic
+          // conflicts (e.g. NVDA: open LONG, model leaning SHORT / wants exit).
+          const v2ModelPosture = (() => {
+            if (predictionContract && railTab !== "INVESTOR") {
+              const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
+              const label = String(predictionContract.posture_label || "").trim();
+              const labelUpper = label.toUpperCase();
+              const dir = String(predictionContract.posture_direction || predictionContract.direction || "").toUpperCase();
+              if (raw === "OPEN_LONG" || labelUpper === "OPEN LONG") return { posture: "OPEN_LONG", label: "Open Long", direction: "LONG", strength: "open", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "OPEN_SHORT" || labelUpper === "OPEN SHORT") return { posture: "OPEN_SHORT", label: "Open Short", direction: "SHORT", strength: "open", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "NEUTRAL" || labelUpper === "NEUTRAL") return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "LEAN_LONG" || labelUpper === "LEANING BULLISH" || labelUpper === "LEAN LONG") return { posture: "LEAN_LONG", label: "Leaning bullish", direction: "LONG", strength: "lean", reason: predictionContract.posture_reason || "contract" };
+              if (raw === "LEAN_SHORT" || labelUpper === "LEANING BEARISH" || labelUpper === "LEAN SHORT") return { posture: "LEAN_SHORT", label: "Leaning bearish", direction: "SHORT", strength: "lean", reason: predictionContract.posture_reason || "contract" };
+              if (dir === "LONG" || dir === "SHORT") return { posture: dir, label: dir === "LONG" ? "Bullish" : "Bearish", direction: dir, strength: "confirmed", reason: "contract" };
+            }
+            try {
+              const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
+              if (helper) {
+                return helper({
+                  ...ticker,
+                  _openTrade: null,
+                  has_open_position: false,
+                  position_direction: undefined,
+                });
+              }
+            } catch (_) {}
+            if (v2Dir === "LONG" || v2Dir === "SHORT") {
+              return { posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT", label: v2Dir === "LONG" ? "Leaning bullish" : "Leaning bearish", direction: v2Dir, strength: "lean", reason: "direction_fallback" };
+            }
+            return { posture: "NEUTRAL", label: "Neutral", direction: "", strength: "neutral", reason: "fallback" };
+          })();
+          const v2PositionConflict = (() => {
+            const openTr = effectiveTraderTrade;
+            if (!isTradeOpenSafe(openTr)) return null;
+            const posDir = String(openTr.direction || "").toUpperCase();
+            const modelDir = String(v2ModelPosture?.direction || "").toUpperCase();
+            if (posDir !== "LONG" && posDir !== "SHORT") return null;
+            if (modelDir !== "LONG" && modelDir !== "SHORT") return null;
+            if (posDir === modelDir) return null;
+            const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+            return {
+              positionDir: posDir,
+              modelDir,
+              modelLabel: String(v2ModelPosture?.label || "").trim()
+                || (modelDir === "SHORT" ? "Leaning bearish" : "Leaning bullish"),
+              awaitingRth: !rthOpen,
+            };
           })();
           const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
           const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
@@ -6391,8 +6775,9 @@
               {children}
             </div>
           );
-          const renderSequenceShadowPanel = () => {
+          const renderSequenceShadowPanel = (opts = {}) => {
             if (typeof window === "undefined" || !window._ttIsAdmin) return null;
+            const compact = opts.compact === true || v2RailTab === "SETUP";
             const humanizeKey = (k) => {
               if (!k) return "";
               return String(k).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -6518,7 +6903,7 @@
               if (!Number.isFinite(n) || n <= 0) return null;
               return `$${n.toFixed(2)}`;
             };
-            const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
+            const renderSequenceStageJourney = (seq, eventById, accentColor, dir, journeyCompact = false) => {
               const seqId = seq?.sequence_id ? String(seq.sequence_id) : String(seq?.direction || "seq");
               const currentStage = Number(seq?.stage) || 0;
               const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
@@ -6613,11 +6998,15 @@
                   <div style={{
                     fontSize: 10,
                     color: "var(--ds-text-faint)",
-                    marginBottom: 8,
+                    marginBottom: journeyCompact ? 0 : 8,
                     fontFamily: "var(--tt-font-mono)",
                   }}>
                     Stage {currentStage} of {maxStage}
+                    {journeyCompact && nextDef && currentStage < maxStage
+                      ? ` · Next: ${nextDef.label}`
+                      : ""}
                   </div>
+                  {!journeyCompact && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {SEQUENCE_STAGE_DEFS.filter((def) => {
                       const r = resultsByStage.get(def.stage);
@@ -6747,6 +7136,7 @@
                       </div>
                     )}
                   </div>
+                  )}
                 </div>
               );
             };
@@ -6783,7 +7173,9 @@
             return (
               <Panel
                 title="Sequence (shadow)"
-                action={(
+                action={compact ? (
+                  <span className="ds-chip ds-chip--sm ds-chip--solid" title="Shadow-only — does not affect live entry or kanban">SHADOW</span>
+                ) : (
                   <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                     <span className="ds-chip ds-chip--sm ds-chip--solid" title="Shadow-only — does not affect live entry or kanban">SHADOW</span>
                     {sharedArchetype && active.length > 0 && (
@@ -6812,14 +7204,16 @@
                 )}
                 {setupShadowDiag && !setupShadowError && (
                   <>
-                    <p style={{
-                      margin: "0 0 var(--ds-space-2) 0",
-                      fontSize: "var(--ds-fs-caption)",
-                      color: "var(--ds-text-muted)",
-                      lineHeight: 1.5,
-                    }}>
-                      Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban.
-                    </p>
+                    {!compact && (
+                      <p style={{
+                        margin: "0 0 var(--ds-space-2) 0",
+                        fontSize: "var(--ds-fs-caption)",
+                        color: "var(--ds-text-muted)",
+                        lineHeight: 1.5,
+                      }}>
+                        Read-only L2 sequence view from trail snapshots. Does not change live entry, sizing, or kanban.
+                      </p>
+                    )}
                     {setupShadowDiag.empty && (
                       <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
                         No trail snapshots in the lookback window yet.
@@ -6828,84 +7222,168 @@
                     )}
                     {!setupShadowDiag.empty && (
                     <>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
-                      {ctx.vix_regime && <span className="ds-chip ds-chip--sm ds-chip--solid" title="VIX regime context">VIX {ctx.vix_regime}</span>}
-                      {ctx.index_posture && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Index posture context">Index {ctx.index_posture}</span>}
-                      {ctx.ticker_personality && <span className="ds-chip ds-chip--sm ds-chip--accent" title="Ticker personality">{String(ctx.ticker_personality).replace(/_/g, " ")}</span>}
-                      {setupShadowDiag.snapshot_source && (
-                        <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9 }} title="Trail snapshot source">
-                          {setupShadowDiag.snapshot_count || 0} snaps · {setupShadowDiag.snapshot_source}
-                          {setupShadowDiag.inline_from_payload ? " · live payload" : ""}
-                        </span>
-                      )}
-                      {setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates && (
-                        <>
-                          {setupShadowDiag.setup_gates.stack_full_confirm && (
+                    {(() => {
+                      const ctxChips = [
+                        ctx.vix_regime && { key: "vix", label: `VIX ${ctx.vix_regime}`, cls: "ds-chip--solid", title: "VIX regime context" },
+                        ctx.index_posture && { key: "idx", label: `Index ${ctx.index_posture}`, cls: "ds-chip--solid", title: "Index posture context" },
+                        ctx.ticker_personality && { key: "pers", label: String(ctx.ticker_personality).replace(/_/g, " "), cls: "ds-chip--accent", title: "Ticker personality" },
+                        setupShadowDiag.snapshot_source && {
+                          key: "snaps",
+                          label: `${setupShadowDiag.snapshot_count || 0} snaps · ${setupShadowDiag.snapshot_source}${setupShadowDiag.inline_from_payload ? " · live payload" : ""}`,
+                          cls: "",
+                          title: "Trail snapshot source",
+                          mono: true,
+                        },
+                        setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.stack_full_confirm && {
+                          key: "confirm",
+                          label: `Confirm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}`,
+                          cls: setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid",
+                          title: "Shadow: stack_full_confirm (120h lookback)",
+                        },
+                        setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.gate_runway_full && {
+                          key: "runway",
+                          label: `Runway ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}`,
+                          cls: setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid",
+                          title: "Shadow: TD9 + RSI div + confirm stack (120h lookback)",
+                        },
+                      ].filter(Boolean);
+                      if (!ctxChips.length) return null;
+                      const chipRow = (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                          {ctxChips.map((c) => (
                             <span
-                              className={`ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid"}`}
-                              title="Shadow: stack_full_confirm (120h lookback)"
+                              key={c.key}
+                              className={`ds-chip ds-chip--sm ${c.cls || ""}`}
+                              style={c.mono ? { fontFamily: "var(--tt-font-mono)", fontSize: 9 } : undefined}
+                              title={c.title}
                             >
-                              Confirm {setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}
+                              {c.label}
                             </span>
-                          )}
-                          {setupShadowDiag.setup_gates.gate_runway_full && (
-                            <span
-                              className={`ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid"}`}
-                              title="Shadow: TD9 + RSI div + confirm stack (120h lookback)"
-                            >
-                              Runway {setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    {active.length > 0 ? (
-                      <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
-                        {sortedActive.slice(0, 3).map((seq) => {
-                          const dir = String(seq?.direction || "").toUpperCase();
-                          const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-                          const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
-                          const journeyColor = headlineColor;
-                          const pf = seq?.path_forecast;
-                          const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
-                          const isPrimary = !!(primarySeqId && seqId && primarySeqId === seqId);
-                          return (
-                            <div key={seq.sequence_id || `${seq.sequence_type}-${seq.stage}`} style={{
-                              padding: "var(--ds-space-2)",
-                              borderRadius: 8,
-                              border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
-                              background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)",
-                            }}>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", alignItems: "center", marginBottom: 6 }}>
-                                <span className={`ds-chip ds-chip--sm ${dirCls}`}>{dir || "—"}</span>
-                                <span style={{ fontSize: "var(--ds-fs-body)", fontWeight: 700, color: headlineColor }}>
-                                  {sequenceHeadline(dir)}
-                                </span>
-                                {isPrimary && (
-                                  <span className="ds-chip ds-chip--sm ds-chip--accent" title="Highest-stage active sequence drives trader posture">Primary</span>
-                                )}
-                                {!isPrimary && active.length > 1 && (
-                                  <span className="ds-chip ds-chip--sm ds-chip--solid" title="Alternate direction still forming in shadow">Alternate</span>
-                                )}
-                                {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
-                              </div>
-                              {renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir)}
-                              {seq.posture && (
-                                <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
-                                  {seq.posture}
-                                </div>
+                          ))}
+                        </div>
+                      );
+                      if (!compact) {
+                        return (
+                          <div style={{ marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
+                            {chipRow}
+                          </div>
+                        );
+                      }
+                      return (
+                        <details style={{ marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
+                          <summary style={{
+                            cursor: "pointer",
+                            fontSize: 10,
+                            color: "var(--ds-text-faint)",
+                            letterSpacing: "0.06em",
+                            fontWeight: 600,
+                            marginBottom: 4,
+                          }}>
+                            Context & diagnostics
+                          </summary>
+                          {chipRow}
+                        </details>
+                      );
+                    })()}
+                    {active.length > 0 ? (() => {
+                      const primarySeq = sortedActive.find((s) => {
+                        const id = s?.sequence_id ? String(s.sequence_id) : "";
+                        return !!(primarySeqId && id && primarySeqId === id);
+                      }) || sortedActive[0] || null;
+                      const alternateSeqs = sortedActive.filter((s) => s !== primarySeq);
+                      const renderSeqCard = (seq, { full = true, isPrimary = false } = {}) => {
+                        const dir = String(seq?.direction || "").toUpperCase();
+                        const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+                        const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
+                        const journeyColor = headlineColor;
+                        const pf = seq?.path_forecast;
+                        const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
+                        const stageNum = Number(seq?.stage) || 0;
+                        const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
+                        const currentDef = SEQUENCE_STAGE_DEFS.find((d) => d.stage === stageNum);
+                        return (
+                          <div key={seq.sequence_id || `${seq.sequence_type}-${seq.stage}-${full ? "full" : "alt"}`} style={{
+                            padding: "var(--ds-space-2)",
+                            borderRadius: 8,
+                            border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
+                            background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)",
+                          }}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)", alignItems: "center", marginBottom: full ? 6 : 0 }}>
+                              <span className={`ds-chip ds-chip--sm ${dirCls}`}>{dir || "—"}</span>
+                              <span style={{ fontSize: "var(--ds-fs-body)", fontWeight: 700, color: headlineColor }}>
+                                {sequenceHeadline(dir)}
+                              </span>
+                              {isPrimary && (
+                                <span className="ds-chip ds-chip--sm ds-chip--accent" title="Highest-stage active sequence drives trader posture">Primary</span>
                               )}
-                              {pf?.primary_path && (
-                                <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
-                                  Path: {humanizeKey(pf.primary_path)}
-                                  {Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""}
-                                </div>
+                              {isPrimary && seq?.sequence_type && (
+                                <span className="ds-chip ds-chip--sm ds-chip--accent" title="Setup sequence archetype">
+                                  {sequenceArchetypeLabel(seq.sequence_type)}
+                                </span>
+                              )}
+                              {isPrimary && Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && compact && (
+                                <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }} title="Active sequence stage">
+                                  S{Number(tp.stage)}
+                                </span>
+                              )}
+                              {isPrimary && postureLabel && postureLabel !== "Neutral" && compact && (
+                                <span className={`ds-chip ds-chip--sm ${postureChipCls}`} title="Derived trader posture from setup sequences">
+                                  {postureLabel}
+                                </span>
+                              )}
+                              {!isPrimary && (
+                                <span className="ds-chip ds-chip--sm ds-chip--solid" title="Alternate direction still forming in shadow">Alternate</span>
+                              )}
+                              {seq.status && <span className="ds-chip ds-chip--sm ds-chip--solid">{String(seq.status)}</span>}
+                              {!full && (
+                                <span style={{ marginLeft: "auto", fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--ds-text-muted)" }}>
+                                  S{stageNum}/{maxStage}{currentDef ? ` · ${currentDef.label}` : ""}
+                                </span>
                               )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
+                            {full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir, compact)}
+                            {full && !compact && seq.posture && (
+                              <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", fontWeight: 600, marginTop: 8, marginBottom: 4 }}>
+                                {seq.posture}
+                              </div>
+                            )}
+                            {full && pf?.primary_path && !compact && (
+                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                Path: {humanizeKey(pf.primary_path)}
+                                {Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                          {primarySeq && renderSeqCard(primarySeq, { full: true, isPrimary: true })}
+                          {alternateSeqs.length > 0 && (
+                            <div style={{
+                              padding: "8px 10px",
+                              borderRadius: 8,
+                              border: "1px solid var(--ds-stroke)",
+                              background: "rgba(255,255,255,0.02)",
+                            }}>
+                              <div style={{
+                                fontSize: 9,
+                                letterSpacing: "0.14em",
+                                textTransform: "uppercase",
+                                color: "var(--ds-text-faint)",
+                                marginBottom: 6,
+                                fontWeight: 700,
+                              }}>
+                                Also tracking in shadow ({alternateSeqs.length})
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                {alternateSeqs.map((seq) => renderSeqCard(seq, { full: false, isPrimary: false }))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })() : (
                       <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)" }}>
                         No active setup sequence in the lookback window.
                       </p>
@@ -6931,13 +7409,14 @@
           const v2Tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
           // ── Position values ────────────────────────────────────────
           const v2Pos = (() => {
-            if (!trade) return null;
-            const ep = Number(trade.entry_price ?? trade.entryPrice) || null;
+            const tr = effectiveTraderTrade;
+            if (!isTradeOpenSafe(tr)) return null;
+            const ep = Number(tr.entry_price ?? tr.entryPrice) || null;
             if (!ep) return null;
             const cur = v2Price || ep;
-            const isLong = String(trade.direction || "LONG").toUpperCase() === "LONG";
+            const isLong = String(tr.direction || "LONG").toUpperCase() === "LONG";
             const pnlPct = isLong ? ((cur - ep) / ep * 100) : ((ep - cur) / ep * 100);
-            return { entry: ep, current: cur, pnlPct, sl: Number(trade.sl) || null, tp: Number(trade.tp) || null };
+            return { entry: ep, current: cur, pnlPct, sl: Number(tr.sl) || null, tp: Number(tr.tp) || null, trade: tr };
           })();
           // ── Sparkline SVG ──────────────────────────────────────────
           const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
@@ -6976,11 +7455,14 @@
                   // a trade and the level is just a planning anchor). Resolve trade
                   // status here so we can pick the right phrase.
                   const _hdrTrade = effectiveTraderTrade;
-                  const _hdrTradeIsOpen = !!(window.TimedPriceUtils?.isTradeOpen?.(_hdrTrade));
+                  const _hdrTradeIsOpen = isTradeOpenSafe(_hdrTrade);
+                  const _hdrPosDir = String(_hdrTrade?.direction || "").toUpperCase();
+                  const _hdrPosChipCls = _hdrPosDir === "SHORT" ? "ds-chip--dn" : _hdrPosDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
+                  const _hdrPosLabel = _hdrPosDir === "SHORT" ? "Open Short" : _hdrPosDir === "LONG" ? "Open Long" : "Open";
                   const _mgmtStage = ["trim", "hold", "active", "just_entered", "defend"].includes(stage);
                   const _hdrPosturePending = ledgerTradesLoading
                     && !_hdrTradeIsOpen
-                    && (_mgmtStage || !!(ticker?._openTrade || ticker?.has_open_position || trade));
+                    && (_mgmtStage || !!trade);
                   const stageChip = (() => {
                     if (stage === "trim") return { label: "TRIM", cls: "ds-chip--accent" };
                     if (stage === "defend") return { label: "DEFEND", cls: "ds-chip--dn" };
@@ -7009,9 +7491,9 @@
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
                       {(v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && (
                         <span
-                          className={`ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`}
+                          className={`ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`}
                           title={_hdrTradeIsOpen
-                            ? `Active ${v2Dir} trade — currently in position (Active Trader mode)`
+                            ? `Active ${_hdrPosDir || "trader"} position — ledger truth (Active Trader mode)`
                             : v2TraderPosture?.strength === "lean"
                               ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.`
                               : v2TraderPosture?.posture === "NEUTRAL"
@@ -7019,8 +7501,25 @@
                                 : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`}
                         >
                           TRADER · {_hdrTradeIsOpen
-                            ? (_hdrTrade?.direction === "SHORT" || v2Dir === "SHORT" ? "Open Short" : "Open Long")
+                            ? _hdrPosLabel
                             : (v2TraderPosture?.label || v2Dir)}
+                        </span>
+                      )}
+                      {v2PositionConflict && (
+                        <span
+                          className="ds-chip ds-chip--sm ds-chip--dn"
+                          title={[
+                            `Open ${v2PositionConflict.positionDir} position vs model ${v2PositionConflict.modelLabel}.`,
+                            v2PositionConflict.awaitingRth
+                              ? "Waiting for regular session open to assess and execute exit."
+                              : "Model direction conflicts with the open position — review exit plan.",
+                          ].join(" ")}
+                          style={{
+                            background: "rgba(239,68,68,0.12)",
+                            borderColor: "rgba(239,68,68,0.35)",
+                          }}
+                        >
+                          CONFLICT · Model {v2PositionConflict.modelLabel}
                         </span>
                       )}
                       {/* 2026-05-29 — Investor mode bias chip alongside
@@ -7085,7 +7584,7 @@
                           className={`ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`}
                           title={[
                             `Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`,
-                            strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "",
+                            strategyAlignment.reason ? `Reason: ${sanitizeUserFacingCopy(strategyAlignment.reason)}` : "",
                             strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "",
                             "See Insights → Active Strategy for full detail.",
                           ].filter(Boolean).join(" · ")}
@@ -7369,6 +7868,24 @@
                       </div>
                     );
                   })()}
+                  {isOutsideScoredUniverse && (
+                    <div
+                      style={{
+                        margin: "0 var(--ds-space-3) var(--ds-space-2)",
+                        padding: "10px 12px",
+                        borderRadius: "var(--ds-radius-md)",
+                        border: "1px solid rgba(245,158,11,0.35)",
+                        background: "rgba(245,158,11,0.08)",
+                        fontSize: 11,
+                        lineHeight: 1.55,
+                        color: "var(--ds-text-body)",
+                      }}
+                    >
+                      <strong style={{ color: "#fcd34d" }}>{tickerSymbol}</strong>
+                      {" "}
+                      is outside the Timed Trading scored universe. Model scores, trade plans, and investor lanes are unavailable here — use the Catalysts tab for earnings context.
+                    </div>
+                  )}
                   {/* Tab nav — 2026-05-28 IA fix.
                       Old behavior: overflow-x: auto. On mobile this clipped
                       the leftmost tab ("Snapshot" → "...not" in user's
@@ -7410,16 +7927,12 @@
                        back to SNAPSHOT so they don't see an empty body.
                     */}
                     {(() => {
-                      // 2026-06-10 — IA consolidation: 9 tabs → 4 groups
-                      // (Now / Trade / Invest / Context) with a verdict-first
-                      // Snapshot. Operator constraints honored: Options and
-                      // Fundamentals are RETAINED (as sub-tabs of Trade /
-                      // Context); the chart stays (persistent left pane on
-                      // desktop, CHART pill on mobile). Internal railTab keys
-                      // are unchanged so data gates + deep links keep working.
+                      // 2026-06-23 — 5 top-level groups: Options promoted out
+                      // of Trade (Setup-only). Fundamentals stays under Context.
                       const RAIL_GROUPS = [
                         { key: "NOW", label: "Now", tabs: [["SNAPSHOT", "Snapshot"]] },
-                        { key: "TRADE", label: "Trade", tabs: [["SETUP", "Setup"], ["OPTIONS", "Options"]] },
+                        { key: "TRADE", label: "Trade", tabs: [["SETUP", "Setup"]] },
+                        { key: "OPTIONS", label: "Options", tabs: [["OPTIONS", "Options"]] },
                         { key: "INVEST", label: "Invest", tabs: [["INVESTOR", "Investor"]] },
                         { key: "CONTEXT", label: "Context", tabs: [["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]] },
                       ];
@@ -7988,7 +8501,7 @@
                       Removed the redundant hero ticker card — the sticky header
                       already shows logo / symbol / price / day-change. */}
                   {v2RailTab === "SNAPSHOT" && (
-                    <>
+                    <div style={railTabBodyWrapStyle}>
                       {/* POV toggle — switches hero + position strip below */}
                       <div style={{
                         display: "flex",
@@ -7998,6 +8511,8 @@
                         border: "1px solid var(--ds-stroke)",
                         overflow: "hidden",
                         background: "rgba(255,255,255,0.03)",
+                        minWidth: 0,
+                        maxWidth: "100%",
                       }}>
                         {["trader", "investor"].map((mode) => {
                           const active = snapshotViewMode === mode;
@@ -8008,6 +8523,7 @@
                               onClick={() => setSnapshotViewMode(mode)}
                               style={{
                                 flex: 1,
+                                minWidth: 0,
                                 padding: "8px 12px",
                                 border: 0,
                                 cursor: "pointer",
@@ -8049,11 +8565,7 @@
                         // produced the "HOLDING [SHORT]" nonsense the
                         // operator reported.
                         const traderTrade = effectiveTraderTrade;
-                        const tradeOpen = !!(traderTrade && (() => {
-                          const s = String(traderTrade?.status || "").toUpperCase();
-                          return s === "OPEN" || s === "TP_HIT_TRIM"
-                            || (!(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                        })());
+                        const tradeOpen = isTradeOpenSafe(traderTrade);
 
                         // VERDICT resolution. Order matters — most actionable wins.
                         // 2026-06-03 — Trade-management verdicts (HOLDING / TRIM
@@ -8217,6 +8729,32 @@
                                   letterSpacing: "0.02em", lineHeight: 1,
                                 }}>{verdict.word}</span>
                                 {(() => {
+                                  if (tradeOpen) {
+                                    const posDir = String(traderTrade?.direction || "").toUpperCase();
+                                    if (posDir !== "LONG" && posDir !== "SHORT") return null;
+                                    const chipLabel = posDir === "SHORT" ? "Open Short" : "Open Long";
+                                    return (
+                                      <>
+                                        <span style={{
+                                          fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                          color: posDir === "SHORT" ? "#fb7185" : "#34d399",
+                                          background: posDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                                          letterSpacing: "0.05em",
+                                        }} title="Open trader position — ledger truth">{chipLabel}</span>
+                                        {v2PositionConflict && (
+                                          <span style={{
+                                            fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                            color: "#f87171",
+                                            background: "rgba(239,68,68,0.12)",
+                                            border: "1px solid rgba(239,68,68,0.35)",
+                                            letterSpacing: "0.05em",
+                                          }} title={`Open ${v2PositionConflict.positionDir} vs model ${v2PositionConflict.modelLabel}`}>
+                                            Model {v2PositionConflict.modelLabel}
+                                          </span>
+                                        )}
+                                      </>
+                                    );
+                                  }
                                   if (v2PostureStrength === "lean") return null;
                                   const chipLabel = v2PostureStrength === "open"
                                     ? (postureDir === "SHORT" ? "Open Short" : "Open Long")
@@ -8299,7 +8837,7 @@
                         );
                       })()}
 
-                      {/* ── HERO VERDICT CARD — investor POV ── */}
+                      {/* ── HERO VERDICT CARD — investor POV (lane + thesis + position) ── */}
                       {snapshotViewMode === "investor" && (() => {
                         const formatPx = (n) => {
                           const x = Number(n);
@@ -8315,15 +8853,19 @@
                           tickerSymbol: cardSym,
                         });
                         const ip = investorPrediction;
-                        const ipDir = String(ip?.direction || "").toUpperCase();
-                        const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
+                        const ipThesis = sanitizeUserFacingCopy(String(ip?.thesis || ip?.actionable_summary || "").trim());
+                        const ipReason = sanitizeUserFacingCopy(String(ip?.why_now || "").trim());
+                        const detailThesis = sanitizeUserFacingCopy(String(investorData?.thesis || "").trim());
+                        const thesisText = ipThesis || detailThesis;
                         const ipStop = Number(ip?.risk?.stop_loss);
                         const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
                         const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
                         const livePx = Number(v2Price) || Number(ticker?.price);
                         const invDisplay = investorInvalidationDisplay(investorData, livePx);
-                        const holding = effectiveInvestorTrade;
-                        const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
+                        const invPos = investorData?.position?.owned ? investorData.position : null;
+                        const holdingTrade = effectiveInvestorTrade && isTradeOpenSafe(effectiveInvestorTrade)
+                          ? effectiveInvestorTrade : null;
+                        const hasHolding = !!(holdingTrade || invPos?.owned || ctx?.owned);
 
                         if (!ctx) {
                           return (
@@ -8349,15 +8891,34 @@
                           word: ctx.laneLabel,
                           color: laneColor,
                           bg: laneBg,
-                          line: ctx.statusLine,
+                          line: sanitizeUserFacingCopy(ctx.statusLine),
                           action: ctx.executeReady && ctx.displayStage === "accumulate"
                             ? "The model would scale in on the next rebalance."
                             : (ctx.owned ? "Follow lane guidance for the open model position." : "No model position — track on the Investor board until execution-ready."),
                           urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context",
                         };
+                        const signalNote = sanitizeUserFacingCopy(ctx.signalNote);
+
+                        const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? invPos?.avg_entry);
+                        const liveForPos = livePx || Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+                        const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? invPos?.shares);
+                        const costBasis = Number(invPos?.cost_basis);
+                        const pnlPct = (() => {
+                          if (Number.isFinite(Number(invPos?.unrealized_pct))) return Number(invPos.unrealized_pct);
+                          if (!(entryPx > 0) || !(liveForPos > 0)) return null;
+                          return ((liveForPos - entryPx) / entryPx) * 100;
+                        })();
+                        const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+                        const entryWhen = (() => {
+                          const t = Number(holdingTrade?.entry_ts);
+                          if (!Number.isFinite(t)) return null;
+                          try {
+                            return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                          } catch (_) { return null; }
+                        })();
 
                         const triggers = [];
-                        if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
+                        if (invDisplay) {
                           triggers.push({ tone: "neutral", text: `Invalidation: close below ${formatPx(invDisplay.price)} (${invDisplay.label}).` });
                         }
                         if (ipTp1 && livePx) {
@@ -8369,18 +8930,29 @@
 
                         return (
                           <div style={{
+                            ...investorRailContainStyle,
                             padding: "14px 14px 12px",
                             marginBottom: "var(--ds-space-3)",
                             background: verdict.bg,
                             border: `1px solid ${laneColor}55`,
                             borderRadius: 12,
                           }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" }}>
                               <span style={{
                                 fontSize: 11, fontWeight: 700,
                                 color: laneColor,
                                 letterSpacing: "0.02em",
-                              }}>{ctx.headerChipText || `Investor – ${ctx.laneLabel}`}</span>
+                                ...investorRailTextStyle,
+                              }}>{sanitizeUserFacingCopy(ctx.headerChipText || `Investor – ${ctx.laneLabel}`)}</span>
+                              {hasHolding && (
+                                <span style={{
+                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                                  color: laneColor,
+                                  background: `${laneColor}18`,
+                                  border: `1px solid ${laneColor}44`,
+                                  letterSpacing: "0.05em",
+                                }}>HOLDING</span>
+                              )}
                               {ctx.tierMeta && (
                                 <span style={{
                                   fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
@@ -8389,50 +8961,112 @@
                                   letterSpacing: "0.05em",
                                 }}>{ctx.tierMeta.label}</span>
                               )}
-                              {ipDir && (
-                                <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                  color: ipColor,
-                                  background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-                                  letterSpacing: "0.05em",
-                                  marginLeft: "auto",
-                                }}>{ipDir}</span>
-                              )}
                             </div>
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 10, flexWrap: "wrap", minWidth: 0, maxWidth: "100%" }}>
                               <span style={{
                                 fontSize: 18, fontWeight: 800, color: verdict.color,
                                 letterSpacing: "0.02em", lineHeight: 1,
+                                ...investorRailTextStyle,
                               }}>{verdict.word}</span>
-                              {livePx && (
+                              {livePx > 0 && (
                                 <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, color: "var(--ds-text-body)", fontWeight: 600 }}>
                                   ${livePx.toFixed(2)}
                                 </span>
                               )}
                             </div>
+
+                            {thesisText && (
+                              <div style={{
+                                marginBottom: 10,
+                                padding: "10px 12px",
+                                borderLeft: `3px solid ${laneColor}`,
+                                background: "rgba(255,255,255,0.04)",
+                                borderRadius: "0 8px 8px 0",
+                                ...investorRailContainStyle,
+                              }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em", marginBottom: 4 }}>
+                                  THESIS
+                                </div>
+                                <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, ...investorRailTextStyle }}>
+                                  {thesisText}
+                                </div>
+                                {ipReason && (
+                                  <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6, ...investorRailTextStyle }}>
+                                    <span style={{ fontWeight: 700, color: "var(--ds-text-faint)" }}>Why now:</span> {ipReason}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {hasHolding && (
+                              <div style={{
+                                marginBottom: 10,
+                                padding: "10px 12px",
+                                borderRadius: 8,
+                                background: "rgba(255,255,255,0.05)",
+                                border: `1px solid ${laneColor}33`,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: laneColor, letterSpacing: "0.06em" }}>
+                                    OPEN POSITION
+                                  </span>
+                                  {pnlPct != null && (
+                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor }}>
+                                      {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%
+                                    </span>
+                                  )}
+                                </div>
+                                {(entryPx > 0 || liveForPos > 0) && (
+                                  <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: (Number.isFinite(shares) || costBasis > 0) ? 8 : 0 }}>
+                                    {entryPx > 0 ? <>Entry {formatPx(entryPx)}</> : null}
+                                    {liveForPos > 0 ? <> → <span style={{ color: pnlColor }}>{formatPx(liveForPos)}</span></> : null}
+                                    {entryWhen && <span style={{ color: "var(--ds-text-faint)" }}> · entered {entryWhen}</span>}
+                                  </div>
+                                )}
+                                {(Number.isFinite(shares) || costBasis > 0) && (
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 8, minWidth: 0 }}>
+                                    {Number.isFinite(shares) && (
+                                      <div style={investorRailContainStyle}>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle }}>{shares.toFixed(2)}</div>
+                                      </div>
+                                    )}
+                                    {entryPx > 0 && (
+                                      <div style={investorRailContainStyle}>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>AVG ENTRY</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle }}>{formatPx(entryPx)}</div>
+                                      </div>
+                                    )}
+                                    {costBasis > 0 && (
+                                      <div style={investorRailContainStyle}>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>COST BASIS</div>
+                                        <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 12, color: "var(--ds-text-body)", marginTop: 2, ...investorRailTextStyle }}>{formatPx(costBasis)}</div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
                             <div style={{
                               padding: "10px 12px", borderRadius: 8,
                               background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
-                              marginBottom: ctx.signalNote || triggers.length > 0 || ipThesis ? 8 : 0,
+                              marginBottom: signalNote || triggers.length > 0 ? 8 : 0,
+                              ...investorRailContainStyle,
                             }}>
                               <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
                                 WHAT TO DO
                               </div>
-                              <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600 }}>
+                              <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.45, fontWeight: 600, ...investorRailTextStyle }}>
                                 {verdict.line}
                               </div>
-                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6 }}>
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginTop: 6, ...investorRailTextStyle }}>
                                 {verdict.action}
                               </div>
                             </div>
-                            {ctx.signalNote && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0 }}>
-                                {ctx.signalNote}
-                              </div>
-                            )}
-                            {ipThesis && (
-                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginTop: 8, marginBottom: triggers.length > 0 ? 8 : 0 }}>
-                                {ipThesis}
+                            {signalNote && (
+                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: triggers.length > 0 ? 8 : 0, ...investorRailTextStyle }}>
+                                {signalNote}
                               </div>
                             )}
                             {triggers.length > 0 && (
@@ -8443,9 +9077,9 @@
                                 }}>KEY LEVELS</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   {triggers.map((tr, i) => (
-                                    <div key={`inv-tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45 }}>
+                                    <div key={`inv-tr-${i}`} style={{ display: "flex", gap: 8, fontSize: 12, lineHeight: 1.45, minWidth: 0 }}>
                                       <span style={{ color: "var(--ds-text-muted)", flexShrink: 0, marginTop: 1 }}>·</span>
-                                      <span style={{ color: "var(--ds-text-body)" }}>{tr.text}</span>
+                                      <span style={{ color: "var(--ds-text-body)", ...investorRailTextStyle }}>{sanitizeUserFacingCopy(tr.text)}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -8455,130 +9089,10 @@
                         );
                       })()}
 
-                      {/* Position strip — active holding for the selected POV */}
-                      {effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
-                        const it = effectiveInvestorTrade;
-                        const dir = String(it?.direction || "LONG").toUpperCase();
-                        const isLong = dir !== "SHORT";
-                        const entry = Number(it?.entryPrice ?? it?.entry_price);
-                        const live = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
-                        const pnlPct = (entry > 0 && live > 0)
-                          ? ((isLong ? (live - entry) : (entry - live)) / entry) * 100
-                          : null;
-                        const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
-                        const entryWhen = (() => {
-                          const t = Number(it?.entry_ts);
-                          if (!Number.isFinite(t)) return null;
-                          try {
-                            return new Date(t).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" });
-                          } catch (_) { return null; }
-                        })();
-                        const setupRaw = String(it?.setupName || it?.setup_name || "").trim();
-                        const entryAction = investorEntryActionFromSetup(setupRaw);
-                        const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-                        const liveStage = (investorData?.ticker === cardSym)
-                          ? String(investorData?.stage || "").toLowerCase()
-                          : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-                        const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
-                        const currentAction = liveGuide?.actionLine || entryAction;
-                        const invDisplay = investorInvalidationDisplay(investorData, live);
-                        const doNow = (() => {
-                          const base = liveGuide?.doNow || null;
-                          if (!base) return null;
-                          if (invDisplay && (liveStage === "reduce" || liveStage === "watch" || liveStage === "core_hold")) {
-                            return `${base} Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`;
-                          }
-                          return base;
-                        })();
-                        const stageMoved = !!(liveStage && setupRaw && !setupRaw.toLowerCase().includes(liveStage));
-                        return (
-                          <div style={{
-                            padding: "14px 14px 12px",
-                            marginBottom: "var(--ds-space-3)",
-                            background: "rgba(59,130,246,0.06)",
-                            border: "1px solid rgba(59,130,246,0.30)",
-                            borderRadius: 12,
-                          }}>
-                            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-                              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                                <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                  color: "#93c5fd", background: "rgba(59,130,246,0.12)",
-                                  letterSpacing: "0.06em",
-                                }}>INVESTOR PORTFOLIO</span>
-                                <span style={{
-                                  fontSize: 13, fontWeight: 800, color: "#93c5fd",
-                                  letterSpacing: "0.02em",
-                                }}>HOLDING {dir}</span>
-                              </div>
-                              {pnlPct != null && (
-                                <span style={{
-                                  fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: pnlColor,
-                                }}>{pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}%</span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8 }}>
-                              Entry {entry > 0 ? `$${entry.toFixed(2)}` : "—"}
-                              {live > 0 ? <> → <span style={{ color: pnlColor }}>${live.toFixed(2)}</span></> : null}
-                              {entryWhen && <span style={{ color: "var(--ds-text-faint)" }}> · entered {entryWhen}</span>}
-                            </div>
-                            {doNow && (
-                              <div style={{
-                                marginTop: 8, padding: "10px 12px",
-                                background: "rgba(255,255,255,0.04)",
-                                borderRadius: 8,
-                                border: "1px solid rgba(255,255,255,0.06)",
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#38F2A1", letterSpacing: "0.06em", marginBottom: 4 }}>
-                                  WHAT TO DO NOW
-                                </div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--ds-text-0)", lineHeight: 1.45 }}>
-                                  {doNow}
-                                </div>
-                                {liveGuide?.laneLabel && (
-                                  <div style={{ fontSize: 10, color: "var(--ds-text-faint)", marginTop: 6 }}>
-                                    Current lane: {liveGuide.laneLabel}
-                                    {stageMoved && entryWhen ? ` · entered ${entryWhen} under ${entryAction}` : ""}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {invDisplay && (
-                              <div style={{
-                                marginTop: 8, padding: "10px 12px",
-                                background: "rgba(248,113,113,0.06)",
-                                borderRadius: 8,
-                                border: "1px solid rgba(248,113,113,0.22)",
-                              }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: "#f87171", letterSpacing: "0.06em", marginBottom: 4 }}>
-                                  INVALIDATION LEVEL
-                                </div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ds-text-0)", fontFamily: "var(--tt-font-mono)" }}>
-                                  ${invDisplay.price.toFixed(2)}
-                                  <span style={{ fontSize: 11, fontWeight: 500, color: "var(--ds-text-muted)", marginLeft: 8 }}>
-                                    {invDisplay.label}{invDisplay.distText ? ` · ${invDisplay.distText}` : ""}
-                                  </span>
-                                </div>
-                              </div>
-                            )}
-                            <div style={{ marginTop: 8 }}>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em", marginBottom: 4 }}>
-                                INVESTOR ACTION
-                              </div>
-                              <div style={{ fontSize: 12, color: "var(--ds-text-body)", lineHeight: 1.4 }}>
-                                {currentAction}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-
                       {effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
                         const tt = effectiveTraderTrade;
+                        if (!isTradeOpenSafe(tt)) return null;
                         const st = String(tt?.status || "").toUpperCase();
-                        const isOpen = st === "OPEN" || st === "TP_HIT_TRIM"
-                          || (!(tt?.exit_ts ?? tt?.exitTs) && st !== "WIN" && st !== "LOSS" && st !== "FLAT" && st !== "ARCHIVED");
-                        if (!isOpen) return null;
                         const dir = String(tt?.direction || "LONG").toUpperCase();
                         const isLong = dir !== "SHORT";
                         const entry = Number(tt?.entryPrice ?? tt?.entry_price);
@@ -8754,116 +9268,6 @@
                                     · {String(ev).replace(/ \(\+\d+\)$/, "")}
                                   </div>
                                 ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
-                      {/* ── INVESTOR MODEL CARD (2026-06-03) ─────────────────
-                          The investor lane's MODEL guidance for this
-                          ticker (separate from the actual investor
-                          portfolio holding card above — that card is
-                          about what we OWN; this card is about what the
-                          model SAYS regardless of ownership).
-
-                          Sourced from the parallel investorPrediction
-                          contract (fetched on ticker change). When the
-                          investor contract is unavailable (cold start /
-                          API error / no model output), this card is
-                          silently omitted. */}
-                      {snapshotViewMode === "investor" && investorPrediction && (() => {
-                        const ip = investorPrediction;
-                        const ipDir = String(ip?.direction || "").toUpperCase();
-                        const ipAction = String(ip?.action_label || "").toUpperCase();
-                        const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
-                        const ipStop = Number(ip?.risk?.stop_loss);
-                        const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
-                        const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
-                        const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
-                        const ipReason = String(ip?.why_now || "").trim();
-                        const ipLaneCtx = buildInvestorDisplayContext({
-                          investorData,
-                          ticker,
-                          latestTicker,
-                          effectiveInvestorTrade,
-                          tickerSymbol,
-                        });
-                        const ipActionLine = ipLaneCtx?.statusLine || (() => {
-                          const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-                          const liveStage = (investorData?.ticker === cardSym)
-                            ? String(investorData?.stage || "").toLowerCase()
-                            : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-                          if (liveStage) {
-                            const g = investorGuidanceForStage(liveStage);
-                            if (g?.actionLine) return g.actionLine;
-                          }
-                          const a = ipAction.toLowerCase();
-                          if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
-                          if (a.includes("buy") && a.includes("reduc")) return "Accumulate on dips, trim into strength.";
-                          if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return "Accumulate — add to position on weakness.";
-                          if (a.includes("trim") || a.includes("reduc")) return "Reduce on strength — taking profits.";
-                          if (a.includes("sell") || a.includes("exit") || a.includes("close")) return "Exit recommended — close or trim aggressively.";
-                          if (a.includes("watch") || a.includes("monitor")) return "Monitor — no position change recommended.";
-                          if (a.includes("avoid")) return "Avoid — investor lane sees no edge here.";
-                          if (ipAction) return ipAction;
-                          return ipDir === "LONG"  ? "Constructive — investor lane leans long over weeks/months."
-                              :  ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker."
-                              :  "Neutral — investor lane has no strong directional view.";
-                        })();
-                        const ipColor = ipDir === "LONG"  ? "#34d399"
-                                      : ipDir === "SHORT" ? "#fb7185"
-                                      : "#8AA39A";
-                        return (
-                          <div style={{
-                            padding: "12px 14px",
-                            marginBottom: "var(--ds-space-3)",
-                            background: "rgba(99,102,241,0.05)",
-                            border: "1px solid rgba(99,102,241,0.25)",
-                            borderRadius: 12,
-                          }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                color: "#a5b4fc", background: "rgba(99,102,241,0.12)",
-                                letterSpacing: "0.06em",
-                              }}>{ipLaneCtx?.headerChipText || "Investor model detail"}</span>
-                              <span style={{ fontSize: 10, color: "var(--ds-text-faint)" }}>long-horizon weeks-to-months view</span>
-                              {ipDir && (
-                                <span style={{
-                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                                  color: ipColor,
-                                  background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-                                  letterSpacing: "0.05em",
-                                  marginLeft: "auto",
-                                }}>{ipDir}</span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: 13, color: "var(--ds-text-body)", lineHeight: 1.5, marginBottom: 8, fontWeight: 600 }}>
-                              {ipActionLine}
-                            </div>
-                            {ipThesis && (
-                              <div style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.5, marginBottom: ipReason || ipTp1 || ipStop ? 8 : 0 }}>
-                                {ipThesis}
-                              </div>
-                            )}
-                            {ipReason && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.45, marginBottom: ipTp1 || ipStop ? 8 : 0 }}>
-                                <span style={{ color: "var(--ds-text-faint)", fontWeight: 700 }}>Why now:</span> {ipReason}
-                              </div>
-                            )}
-                            {(ipTp1 || ipStop) && (
-                              <div style={{
-                                display: "flex", gap: 12, flexWrap: "wrap",
-                                paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.04)",
-                                fontSize: 11, color: "var(--ds-text-muted)",
-                              }}>
-                                {ipTp1 && (
-                                  <span>{ipTp1Label}: <strong style={{ color: "var(--ds-text-body)", fontFamily: "var(--tt-font-mono)" }}>${ipTp1.toFixed(2)}</strong></span>
-                                )}
-                                {ipStop && (
-                                  <span>Invalidates: <strong style={{ color: "#fb7185", fontFamily: "var(--tt-font-mono)" }}>${ipStop.toFixed(2)}</strong></span>
-                                )}
                               </div>
                             )}
                           </div>
@@ -9483,7 +9887,7 @@
 
                       {/* Position panel — only when open trade exists; with vertical price-level viz */}
                       {snapshotViewMode === "trader" && v2Pos && (
-                        <Panel title="Position" action={<span className={`ds-chip ds-chip--sm ${v2DirChip}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{trade?.direction || v2Dir}</span>}>
+                        <Panel title="Position" action={<span className={`ds-chip ds-chip--sm ${String(v2Pos.trade?.direction || "LONG").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>{v2Pos.trade?.direction || "LONG"}</span>}>
                           {/* Vertical price ladder: SL ─ Entry ─ Current ─ TP */}
                           {(() => {
                             const entry = v2Pos.entry;
@@ -9491,7 +9895,7 @@
                             const sl = v2Pos.sl;
                             const tp = v2Pos.tp;
                             if (!entry) return null;
-                            const isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+                            const isLong = String(v2Pos.trade?.direction || "LONG").toUpperCase() === "LONG";
                             // Build levels with relative position 0..100
                             const allPx = [entry, current, sl, tp].filter(p => Number.isFinite(p) && p > 0);
                             if (allPx.length < 2) return null;
@@ -9550,6 +9954,26 @@
                             <Metric label="P&L" value={`${v2Pos.pnlPct >= 0 ? "+" : ""}${v2Pos.pnlPct.toFixed(2)}%`} delta={v2Pos.pnlPct >= 0 ? "Up" : "Down"} deltaClass={v2Pos.pnlPct >= 0 ? "up" : "dn"} />
                             {ticker?.rr && <Metric label="R:R" value={Number(ticker.rr).toFixed(2)} delta={Number(ticker.rr) >= 2 ? "Strong" : "OK"} deltaClass={Number(ticker.rr) >= 2 ? "up" : "accent"} />}
                           </div>
+                          {v2PositionConflict && (
+                            <div style={{
+                              marginTop: "var(--ds-space-3)",
+                              padding: "8px 10px",
+                              background: "rgba(239,68,68,0.08)",
+                              border: "1px solid rgba(239,68,68,0.32)",
+                              borderRadius: "var(--ds-radius-xs)",
+                              fontSize: "var(--ds-fs-meta)",
+                            }}>
+                              <div style={{ color: "var(--ds-dn)", fontWeight: 700, marginBottom: 4, letterSpacing: "0.02em" }}>
+                                POSITION CONFLICT · Open {v2PositionConflict.positionDir} vs model {v2PositionConflict.modelLabel}
+                              </div>
+                              <div style={{ color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                {v2PositionConflict.awaitingRth
+                                  ? "The model wants out of this side. Waiting for regular session open to assess and execute."
+                                  : "The model direction conflicts with this open position. Review the exit plan before the next session."}
+                              </div>
+                            </div>
+                          )}
+                          {renderCioPositionBlock({ compact: true })}
                         </Panel>
                       )}
 
@@ -9566,16 +9990,14 @@
                       })()}
                         </div>
                       </details>
-                    </>
+                    </div>
                   )}
 
                   {/* SETUP TAB (renamed to "Trader" in the tab strip
                       label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
                     <>
-                      {renderSequenceShadowPanel()}
-
-                      {/* 2026-05-29 — B8: surface "Current Open Position"
+                      {/* 2026-05-29 — B8: surface "Entry Decision · Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors
                           the Your Position card in the Investor tab so
@@ -9600,22 +10022,14 @@
                           const traderOpen = arr.filter((x) =>
                             String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase()
                             && (x?._source_mode === "trader" || !x?._source_mode)
-                            && (() => {
-                              const s = String(x?.status || "").toUpperCase();
-                              return s === "OPEN" || s === "TP_HIT_TRIM"
-                                || (!(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                            })()
+                            && isTradeOpenSafe(x)
                           );
                           if (traderOpen.length > 0) return { kind: "trader", t: traderOpen[0] };
                           // No trader open — is there an investor holding?
                           const investorOpen = arr.find((x) =>
                             String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase()
                             && x?._source_mode === "investor"
-                            && (() => {
-                              const s = String(x?.status || "").toUpperCase();
-                              return s === "OPEN" || s === "TP_HIT_TRIM"
-                                || (!(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED");
-                            })()
+                            && isTradeOpenSafe(x)
                           );
                           if (investorOpen) return { kind: "investor", t: investorOpen };
                           // Fall back to the prop trade ONLY if it's not an
@@ -9661,11 +10075,8 @@
                           );
                         }
                         const t = candidates.t;
+                        if (!isTradeOpenSafe(t)) return null;
                         const _trStatus = String(t.status || "").toUpperCase();
-                        const _isOpen = _trStatus === "OPEN"
-                          || _trStatus === "TP_HIT_TRIM"
-                          || (!(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED");
-                        if (!_isOpen) return null;
                         const dirRaw = String(t.direction || "").toUpperCase();
                         const isLong = dirRaw !== "SHORT";
                         const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
@@ -9733,9 +10144,25 @@
                           ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
                           : "—";
                         const _openLabel = _trStatus === "TP_HIT_TRIM" ? "TRIMMED" : "OPEN";
+                        const _setupName = t?.setupName || t?.setup_name || null;
+                        const _setupGrade = t?.setupGrade || t?.setup_grade || null;
+                        const _risk = Number(t?.riskBudget || t?.risk_budget) || null;
+                        const _rr = Number(t?.rr) || null;
+                        const _rank = Number(t?.rank) || null;
+                        const _entryEt = (() => {
+                          const ts = Number(t?.entry_ts);
+                          if (!Number.isFinite(ts)) return null;
+                          try {
+                            return new Date(ts).toLocaleString("en-US", {
+                              month: "short", day: "numeric",
+                              hour: "numeric", minute: "2-digit",
+                              hour12: true, timeZone: "America/New_York",
+                            }) + " ET";
+                          } catch (_) { return null; }
+                        })();
                         return (
                           <Panel
-                            title="📍 Current Open Position"
+                            title="Entry Decision · Open Position"
                             action={
                               <span style={{
                                 fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
@@ -9746,6 +10173,65 @@
                               }}>{dirRaw} · {_openLabel}</span>
                             }
                           >
+                            {/* Entry thesis — merged from former standalone Entry Decision panel */}
+                            <div style={{ marginBottom: "var(--ds-space-3)", paddingBottom: "var(--ds-space-3)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--ds-space-2)", marginBottom: (_setupName || _setupGrade || _risk || _rr || _rank) ? "var(--ds-space-2)" : 0 }}>
+                                {Number.isFinite(entry) && entry > 0 && (
+                                  <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body-lg, 14px)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                    Entry ${entry.toFixed(2)}
+                                  </span>
+                                )}
+                                {_entryEt && (
+                                  <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
+                                    · filled {_entryEt}
+                                  </span>
+                                )}
+                                <span className="ds-chip ds-chip--sm" style={{
+                                  fontFamily: "var(--tt-font-mono)",
+                                  fontSize: 9,
+                                  letterSpacing: "0.12em",
+                                  color: "var(--ds-accent)",
+                                  background: "var(--ds-accent-dim)",
+                                  borderColor: "var(--ds-accent)",
+                                  marginLeft: "auto",
+                                }}>ACTIVE</span>
+                              </div>
+                              {(_setupName || _setupGrade || _risk || _rr || _rank) && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-2)" }}>
+                                  {_setupName && (
+                                    <div style={{ flex: "1 1 auto", minWidth: 140 }}>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Setup</div>
+                                      <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                        {typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " ")}
+                                        {_setupGrade && <span style={{ marginLeft: 6, color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-caption)" }}>({_setupGrade})</span>}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {_risk != null && _risk > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Risk</div>
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
+                                        {_risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {Number.isFinite(_rr) && _rr > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>R:R</div>
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)", fontWeight: 600 }}>
+                                        {_rr.toFixed(2)}:1
+                                      </div>
+                                    </div>
+                                  )}
+                                  {Number.isFinite(_rank) && _rank > 0 && (
+                                    <div>
+                                      <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Rank</div>
+                                      <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>{Math.round(_rank)}</div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                               <div>
                                 <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>SHARES</div>
@@ -9813,6 +10299,26 @@
                               </div>
                             )}
 
+                            {v2PositionConflict && (
+                              <div style={{
+                                marginTop: 10, padding: "8px 10px",
+                                background: "rgba(239,68,68,0.08)",
+                                border: "1px solid rgba(239,68,68,0.32)",
+                                borderRadius: "var(--ds-radius-xs)",
+                                fontSize: "var(--ds-fs-meta)",
+                              }}>
+                                <div style={{ color: "#f87171", fontWeight: 700, marginBottom: 4, letterSpacing: "0.02em" }}>
+                                  POSITION CONFLICT · Open {v2PositionConflict.positionDir} vs model {v2PositionConflict.modelLabel}
+                                </div>
+                                <div style={{ color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                  {v2PositionConflict.awaitingRth
+                                    ? "The model wants out of this side. Waiting for regular session open to assess and execute."
+                                    : "The model direction conflicts with this open position. Review the exit plan before the next session."}
+                                </div>
+                              </div>
+                            )}
+                            {renderCioPositionBlock({ compact: true })}
+
                             {/* 2026-06-02 — Exhausted-momentum banner.
                                 When the ticker is currently flagged as
                                 momentum_runner_exhausted by the Investor
@@ -9867,6 +10373,7 @@
                             })()}
                           </Panel>
                         );
+                      })()}
 
                       {/* 2026-06-03 — Trader Root Verdict restructured to
                           mirror the Investor Lane Guidance pattern (Panel +
@@ -10044,8 +10551,8 @@
                                 {timing.flash_headline}
                               </div>
                               {timing.flash_detail && (
-                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45 }}>
-                                  {timing.flash_detail}
+                                <div style={{ fontSize: 12, color: "var(--ds-text-muted)", marginTop: 6, lineHeight: 1.45, ...investorRailTextStyle }}>
+                                  {sanitizeUserFacingCopy(timing.flash_detail)}
                                 </div>
                               )}
                               {playbook === "TREND_CATCH" && (
@@ -10088,8 +10595,8 @@
                               )}
                             </div>
                             {signals.length > 0 && (
-                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 }}>
-                                {signals.slice(0, 5).join(" · ")}
+                              <div style={{ fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45, ...investorRailTextStyle }}>
+                                {signals.slice(0, 5).map((s) => sanitizeUserFacingCopy(s)).filter(Boolean).join(" · ")}
                               </div>
                             )}
                           </Panel>
@@ -10387,9 +10894,15 @@
                           tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" ||
                           (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
                         ));
-                        // Trade Plan chip = trader call. Proposed plans use
-                        // the trader contract (not HTF first-paint LONG from
-                        // v2Dir, not investor ledger direction).
+                        const hasPositionConflict = !!v2PositionConflict && tradeIsOpen;
+                        // When open position direction conflicts with model,
+                        // this panel surfaces the MODEL call (bearish levels
+                        // while holding long, etc.) — not the held position plan
+                        // (that lives in Entry Decision · Open Position above).
+                        const showModelPlanPanel = hasPositionConflict;
+                        const panelTitle = showModelPlanPanel
+                          ? "Model Plan"
+                          : (tradeIsOpen ? "Position Plan" : "Trade Plan");
                         const resolveTraderCallDir = (raw) => {
                           const d = String(raw || "").toUpperCase();
                           return d === "LONG" || d === "SHORT" ? d : "";
@@ -10403,6 +10916,12 @@
                           return pcSL > px ? "SHORT" : "LONG";
                         };
                         const traderCallDir = (() => {
+                          if (showModelPlanPanel) {
+                            return resolveTraderCallDir(v2ModelPosture?.direction)
+                              || resolveTraderCallDir(pcDirRaw)
+                              || resolveTraderCallDir(optionsTraderDir)
+                              || inferDirFromLevels();
+                          }
                           if (tradeIsOpen) {
                             return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
                           }
@@ -10413,7 +10932,7 @@
                         if (!traderCallDir) {
                           if (predictionContractLoading) {
                             return (
-                              <Panel title="Trade Plan">
+                              <Panel title={panelTitle}>
                                 <p style={{ margin: 0, fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic" }}>
                                   Loading trader call…
                                 </p>
@@ -10436,6 +10955,10 @@
                         // $423.85). Active trade wins. Prediction contract
                         // wins only when there's no active trade.
                         const sl = (() => {
+                          if (showModelPlanPanel) {
+                            if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+                            return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+                          }
                           if (tradeIsOpen) {
                             const tSl = Number(trade?.sl);
                             if (Number.isFinite(tSl) && tSl > 0) return tSl;
@@ -10443,11 +10966,19 @@
                           if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
                           return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
                         })();
-                        const entry = tradeIsOpen ? (Number(trade?.entry_price ?? trade?.entryPrice) || 0) : 0;
+                        const entry = tradeIsOpen && !showModelPlanPanel ? (Number(trade?.entry_price ?? trade?.entryPrice) || 0) : 0;
                         // 2026-05-28 — TP priority REVERSED when trade is
                         // open (same rationale as SL above).
                         const tps = (() => {
                           const list = [];
+                          if (showModelPlanPanel && pcTargets.length > 0) {
+                            pcTargets.forEach((tp, i) => {
+                              const tpPx = Number(tp?.price);
+                              if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                              list.push({ label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`, desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
+                            });
+                            return list;
+                          }
                           if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
                             trade.tpArray.forEach((tp, i) => {
                               const tpPx = Number(tp?.price ?? tp);
@@ -10489,9 +11020,13 @@
                         above.sort((a, b) => a.px - b.px);
                         below.sort((a, b) => b.px - a.px);
 
-                        const tradeIsProposed = !tradeIsOpen;
-                        const eyebrow = tradeIsProposed ? "PROPOSED" : "ACTIVE";
-                        const eyebrowColor = tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
+                        const tradeIsProposed = !tradeIsOpen || showModelPlanPanel;
+                        const eyebrow = showModelPlanPanel
+                          ? "MODEL"
+                          : (tradeIsProposed ? "PROPOSED" : "ACTIVE");
+                        const eyebrowColor = showModelPlanPanel
+                          ? "var(--ds-dn)"
+                          : (tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)");
 
                         const labelOfTp = (label, desc) => `${label} · ${desc}`;
                         const TpRow = ({ row, side }) => {
@@ -10535,15 +11070,20 @@
                         const _rrChip = (Number.isFinite(_rr) && _rr > 0) ? (
                           <span className={`ds-chip ds-chip--sm ${_rr >= 2 ? "ds-chip--up" : "ds-chip--accent"}`}
                                 style={{ fontFamily: "var(--tt-font-mono)" }}
-                                title={tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"}>
+                                title={showModelPlanPanel ? "Model reward-to-risk (conflicts with open position)" : (tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade")}>
                             R:R {_rr.toFixed(2)}
                           </span>
                         ) : null;
                         return (
-                          <Panel title="Trade Plan" action={
+                          <Panel title={panelTitle} action={
                             <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 9, fontFamily: "var(--tt-font-mono)", letterSpacing: "0.10em" }}>
-                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title="Trader call">{dir}</span>
+                              <span className={`ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`} title={showModelPlanPanel ? "Model call (conflicts with open position)" : "Trader call"}>{dir}</span>
                               {_rrChip}
+                              {showModelPlanPanel && (
+                                <span className="ds-chip ds-chip--sm ds-chip--dn" title={`Open ${v2PositionConflict?.positionDir || ""} position vs model ${v2PositionConflict?.modelLabel || dir}`}>
+                                  CONFLICT
+                                </span>
+                              )}
                               <span style={{ color: eyebrowColor, fontWeight: 700 }}>{eyebrow}</span>
                             </span>
                           }>
@@ -10592,219 +11132,14 @@
                                 <TpRow key={`below-${i}-${row.px}`} row={row} side="below" />
                               ))}
                               <div style={{ marginTop: "var(--ds-space-2)", padding: "0 4px", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
-                                {tradeIsProposed
+                                {showModelPlanPanel
+                                  ? `Model ${dir} plan while holding an open ${String(v2PositionConflict?.positionDir || "").toUpperCase()} position — rare conflict. Position SL/TP are in Entry Decision · Open Position above. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE." : "Targets sit ABOVE price; stop sits BELOW."}`
+                                  : tradeIsProposed
                                   ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}`
-                                  : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`}
+                                  : `Active ${dir} position plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`}
                                 {" "}Reference Levels below add S/R context (52W high, prior session, pivots).
                               </div>
                             </div>
-                          </Panel>
-                        );
-                      })()}
-
-                      {/* 2026-05-28 — ENTRY DECISION card (active trade).
-                          Surfaces the same info as the Discord entry embed
-                          — setup name + grade, risk %, R:R, conviction
-                          signals, full AI CIO reasoning (no truncation) —
-                          so the operator can review the entry thesis from
-                          the rail without bouncing to Discord. Only renders
-                          when an active trade exists for this ticker. */}
-                      {(() => {
-                        // 2026-06-03 — Trader tab ENTRY DECISION must NOT
-                        // render investor positions. Operator screenshot:
-                        // 'ENTRY DECISION ACTIVE / LONG Entry \$299.99 ·
-                        // filled Apr 6 at 4:00 PM ET / SETUP: Investor Buy
-                        // Reduce' was the investor entry bleeding through.
-                        // Switched from effectiveTrade → effectiveTraderTrade
-                        // (filters out _source_mode === "investor").
-                        const _t = effectiveTraderTrade;
-                        if (!_t) return null;
-                        const _status = String(_t?.status || "").toUpperCase();
-                        const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" ||
-                          (!(_t?.exit_ts ?? _t?.exitTs) && _status !== "WIN" && _status !== "LOSS");
-                        if (!_isOpen) return null;
-                        const _entryPx = Number(_t?.entry_price ?? _t?.entryPrice);
-                        const _entryTs = Number(_t?.entry_ts);
-                        const _setupName = _t?.setupName || _t?.setup_name || null;
-                        const _setupGrade = _t?.setupGrade || _t?.setup_grade || null;
-                        const _risk = Number(_t?.riskBudget || _t?.risk_budget) || null;
-                        const _rr = Number(_t?.rr) || null;
-                        const _rank = Number(_t?.rank) || null;
-                        const _dir = String(_t?.direction || "").toUpperCase();
-                        const _entryEt = (() => {
-                          if (!Number.isFinite(_entryTs)) return null;
-                          try {
-                            return new Date(_entryTs).toLocaleString("en-US", {
-                              month: "short", day: "numeric",
-                              hour: "numeric", minute: "2-digit",
-                              hour12: true, timeZone: "America/New_York",
-                            }) + " ET";
-                          } catch (_) { return null; }
-                        })();
-                        const _decisionIcon = cioVerdict
-                          ? (cioVerdict.decision === "APPROVE" ? "✅"
-                             : cioVerdict.decision === "ADJUST" ? "⚙️"
-                             : "🛑")
-                          : null;
-                        const _decisionColor = cioVerdict
-                          ? (cioVerdict.decision === "APPROVE" ? "#22c55e"
-                             : cioVerdict.decision === "ADJUST" ? "#f59e0b"
-                             : "#ef4444")
-                          : "var(--ds-text-muted)";
-                        return (
-                          <Panel
-                            title="Entry Decision"
-                            action={
-                              <span className="ds-chip ds-chip--sm" style={{
-                                fontFamily: "var(--tt-font-mono)",
-                                fontSize: 9,
-                                letterSpacing: "0.12em",
-                                color: "var(--ds-accent)",
-                                background: "var(--ds-accent-dim)",
-                                borderColor: "var(--ds-accent)",
-                              }}>ACTIVE</span>
-                            }
-                          >
-                            {/* Headline: direction · entry price · ET time */}
-                            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
-                              {_dir && (
-                                <span style={{
-                                  fontFamily: "var(--tt-font-mono)",
-                                  fontSize: "var(--ds-fs-caption)",
-                                  fontWeight: 700,
-                                  letterSpacing: "0.12em",
-                                  color: _dir === "LONG" ? "var(--ds-up)" : "var(--ds-dn)",
-                                }}>{_dir}</span>
-                              )}
-                              {Number.isFinite(_entryPx) && _entryPx > 0 && (
-                                <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body-lg, 14px)", color: "var(--ds-text)", fontWeight: 600 }}>
-                                  Entry ${_entryPx.toFixed(2)}
-                                </span>
-                              )}
-                              {_entryEt && (
-                                <span style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
-                                  · filled {_entryEt}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Setup, Grade, Risk, R:R, Rank — same row as the Discord embed's "Signal Quality" */}
-                            {(_setupName || _setupGrade || _risk || _rr || _rank) && (
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-3)" }}>
-                                {_setupName && (
-                                  <div style={{ flex: "1 1 auto", minWidth: 140 }}>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Setup</div>
-                                    <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
-                                      {typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " ")}
-                                      {_setupGrade && <span style={{ marginLeft: 6, color: "var(--ds-text-muted)", fontSize: "var(--ds-fs-caption)" }}>({_setupGrade})</span>}
-                                    </div>
-                                  </div>
-                                )}
-                                {_risk != null && _risk > 0 && (
-                                  <div>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Risk</div>
-                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>
-                                      {_risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`}
-                                    </div>
-                                  </div>
-                                )}
-                                {Number.isFinite(_rr) && _rr > 0 && (
-                                  <div>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>R:R</div>
-                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)", fontWeight: 600 }}>
-                                      {_rr.toFixed(2)}:1
-                                    </div>
-                                  </div>
-                                )}
-                                {Number.isFinite(_rank) && _rank > 0 && (
-                                  <div>
-                                    <div style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>Rank</div>
-                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", color: "var(--ds-text)", fontWeight: 600 }}>{Math.round(_rank)}</div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-
-                            {/* AI CIO verdict + FULL reasoning (no Discord 1024-char truncation) */}
-                            {cioVerdictLoading && !cioVerdict && (
-                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic" }}>
-                                Loading AI CIO verdict…
-                              </div>
-                            )}
-                            {cioVerdictError && (
-                              <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-dn)" }}>
-                                AI CIO unavailable ({cioVerdictError})
-                              </div>
-                            )}
-                            {cioVerdict && (
-                              <div style={{
-                                marginTop: "var(--ds-space-2)",
-                                paddingTop: "var(--ds-space-3)",
-                                borderTop: "1px solid var(--ds-stroke)",
-                              }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)", marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
-                                  <span style={{ fontSize: 9, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-text-faint)" }}>AI CIO</span>
-                                  <span style={{ color: _decisionColor, fontWeight: 700, fontSize: "var(--ds-fs-body)" }}>
-                                    {_decisionIcon} {cioVerdict.decision}
-                                  </span>
-                                  {cioVerdict.matched_by === "ticker_lifecycle" && (
-                                    <span title="Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)" style={{
-                                      fontSize: 9, letterSpacing: "0.12em",
-                                      padding: "1px 6px", borderRadius: 4,
-                                      background: "rgba(96,165,250,0.12)",
-                                      color: "var(--ds-text-muted)",
-                                      border: "1px solid var(--ds-stroke)",
-                                    }}>LATEST</span>
-                                  )}
-                                  {cioVerdict.confidence > 0 && (
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
-                                      {(cioVerdict.confidence * 100).toFixed(0)}% conf
-                                    </span>
-                                  )}
-                                  {cioVerdict.edge_score > 0 && (
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)" }}>
-                                      edge {(cioVerdict.edge_score * 100).toFixed(0)}%
-                                    </span>
-                                  )}
-                                  {cioVerdict.shadow && (
-                                    <span style={{
-                                      fontSize: 9, letterSpacing: "0.12em",
-                                      padding: "1px 6px", borderRadius: 4,
-                                      background: "rgba(168,162,158,0.15)",
-                                      color: "var(--ds-text-muted)",
-                                      border: "1px solid var(--ds-stroke)",
-                                    }}>SHADOW</span>
-                                  )}
-                                  {cioVerdict.model && (
-                                    <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: 9, color: "var(--ds-text-faint)", marginLeft: "auto" }}>
-                                      {cioVerdict.model}
-                                    </span>
-                                  )}
-                                </div>
-                                {cioVerdict.reasoning && (
-                                  <div style={{
-                                    fontSize: "var(--ds-fs-caption)",
-                                    color: "var(--ds-text)",
-                                    lineHeight: 1.55,
-                                    whiteSpace: "pre-wrap",
-                                  }}>
-                                    {cioVerdict.reasoning}
-                                  </div>
-                                )}
-                                {Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && (
-                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: "var(--ds-space-2)" }}>
-                                    {cioVerdict.risk_flags.map((flag, i) => (
-                                      <span key={`cio-flag-${i}`} className="ds-chip ds-chip--sm" style={{
-                                        fontSize: 9, letterSpacing: "0.04em",
-                                        background: "rgba(239,68,68,0.10)",
-                                        color: "var(--ds-dn)",
-                                        borderColor: "rgba(239,68,68,0.30)",
-                                      }}>{flag}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
                           </Panel>
                         );
                       })()}
@@ -11037,6 +11372,8 @@
                           </div>
                         </Panel>
                       )}
+
+                      {renderSequenceShadowPanel({ compact: true })}
                     </>
                   )}
 
@@ -13151,7 +13488,7 @@
                     <InvestorTabPanel
                       ticker={ticker}
                       latestTicker={latestTicker}
-                      effectiveTrade={effectiveTrade}
+                      effectiveTrade={effectiveInvestorTrade}
                       tickerSymbol={tickerSymbol}
                       API_BASE={API_BASE}
                     />
@@ -13171,7 +13508,7 @@
 
                   {/* HISTORY TAB */}
                   {v2RailTab === "HISTORY" && (
-                    <>
+                    <div style={railTabBodyWrapStyle}>
                       {/* 2026-05-30 — Header stats row: per-mode tally with
                           win-rate + total realized $ + currently-open count.
                           Replaces the bare "N trades" chip. Trader and
@@ -13261,7 +13598,7 @@
                         ) : ledgerTrades.length === 0 ? (
                           <div style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-muted)" }}>
                             No prior trades on this ticker.
-                            {(ticker?.has_open_position || latestTicker?.has_open_position) && (
+                            {isTradeOpenSafe(effectiveTraderTrade) && (
                               <div style={{ marginTop: "var(--ds-space-2)", padding: "var(--ds-space-2)", background: "rgba(56,242,161,0.08)", border: "1px solid rgba(56,242,161,0.25)", borderRadius: "var(--ds-radius-xs)", color: "var(--ds-accent)", fontSize: "var(--ds-fs-caption)" }}>
                                 ⚠ This ticker shows an open position but no trade row was found in the ledger.
                                 The trade row may not have been written yet (entry signal stamped but execution didn't persist).
@@ -13465,7 +13802,7 @@
                           </div>
                         </Panel>
                       )}
-                    </>
+                    </div>
                   )}
                 </div>
                 {/* ─── Footer ───────────────────────────────────────── */}
@@ -13479,7 +13816,7 @@
                     externally; on the CHART tab the same link is rendered
                     inline next to the TF chips. */}
                 {v2RailTab !== "CHART" && (
-                <div style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="tt-rail-footer" style={{ borderTop: "1px solid var(--ds-stroke)", padding: "var(--ds-space-3) var(--ds-space-4)", display: "flex", alignItems: "center", gap: 8 }}>
                   <a href={`https://www.tradingview.com/symbols/${tickerSymbol}/`} target="_blank" rel="noopener noreferrer" className="ds-chip ds-chip--sm" style={{ display: "inline-flex" }}>
                     Open in TradingView ↗
                   </a>
@@ -13821,7 +14158,7 @@
                     <InvestorTabPanel
                       ticker={ticker}
                       latestTicker={latestTicker}
-                      effectiveTrade={effectiveTrade}
+                      effectiveTrade={effectiveInvestorTrade}
                       tickerSymbol={tickerSymbol}
                       API_BASE={API_BASE}
                     />

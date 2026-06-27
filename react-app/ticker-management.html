@@ -132,7 +132,7 @@
       // Auth via CF Access JWT cookie (sent automatically with credentials: "include")
       const TFS = ["M", "W", "D", "240", "60", "30", "15", "5"];
       const TF_LABELS = { M: "M", W: "W", D: "D", "240": "4H", "60": "1H", "30": "30m", "15": "15m", "5": "5m" };
-      const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!", "GC1!", "SI1!"]);
+      const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "GC1!", "SI1!"]);
 
       // ── Company Names ──
       const COMPANY_NAMES = {
@@ -162,7 +162,7 @@
         RDDT:"Reddit",RGLD:"Royal Gold",RIOT:"Riot Platforms",RKLB:"Rocket Lab",SANM:"Sanmina",
         SBET:"SharpLink Gaming",SBUX:"Starbucks",SCHW:"Charles Schwab",SGI:"Surgalign",SHOP:"Shopify",
         SHW:"Sherwin-Williams",SLB:"SLB",SLV:"Silver ETF",SN:"SharkNinja",SO:"Southern Company",
-        SOFI:"SoFi",SOXL:"Semis 3x ETF",SPCX:"SPAC & New Issue ETF",SPGI:"S&P Global",SPG:"Simon Property",SPY:"S&P 500 ETF",
+        SOFI:"SoFi",SOXL:"Semis 3x ETF",SMH:"VanEck Semiconductor ETF",SOXX:"iShares Semiconductor ETF",SPCX:"SPAC & New Issue ETF",SPGI:"S&P Global",SPG:"Simon Property",SPY:"S&P 500 ETF",
         SRE:"Sempra",STRL:"Sterling Infra",STX:"Seagate",STZ:"Constellation Brands",SWK:"Stanley Black&Decker",
         T:"AT&T",TFC:"Truist Financial",TGT:"Target",TJX:"TJX Companies",TLN:"Talen Energy",TMO:"Thermo Fisher",
         TNA:"Small Cap 3x ETF",TSLA:"Tesla",TSM:"TSMC",TT:"Trane Technologies",TWLO:"Twilio",TXN:"Texas Instruments",
@@ -183,6 +183,8 @@
         ACN: { name: "Accenture", industry: "IT Consulting" },
         AGYS: { name: "Agilysys", industry: "Software" },
         ARM: { name: "Arm Holdings", industry: "Semiconductors" },
+        SMH: { name: "VanEck Semiconductor ETF", industry: "Semiconductor Sector ETF" },
+        SOXX: { name: "iShares Semiconductor ETF", industry: "Semiconductor Sector ETF" },
         "BRK-B": { name: "Berkshire Hathaway", industry: "Insurance - Diversified" },
         CELH: { name: "Celsius Holdings", industry: "Beverages - Non-Alcoholic" },
         CVNA: { name: "Carvana", industry: "Auto & Truck Dealerships" },
@@ -219,7 +221,7 @@
         SP_Sectors: new Set([
           "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
         ]),
-        Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD","VX1!"]),
+        Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD"]),
       };
       // ETF weight map: { "AAPL": { GRNY: 2.50, GRNI: 2.55 }, ... }
       let _etfWeightMap = {};

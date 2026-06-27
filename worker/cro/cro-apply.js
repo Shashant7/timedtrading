@@ -103,6 +103,12 @@ function proposalToOverrideBlob(proposal, { proposalId, pubId }) {
     sector_notes: Array.isArray(proposal?.sector_playbook_updates)
       ? proposal.sector_playbook_updates
       : [],
+    sector_stance_changes: Array.isArray(proposal?.sector_stance_changes)
+      ? proposal.sector_stance_changes
+      : [],
+    theme_stance_changes: Array.isArray(proposal?.theme_stance_changes)
+      ? proposal.theme_stance_changes
+      : [],
     active_risks_add: Array.isArray(proposal?.active_risks_add)
       ? proposal.active_risks_add
       : [],
@@ -113,8 +119,6 @@ function proposalToOverrideBlob(proposal, { proposalId, pubId }) {
       ? {
           headline_revision: proposal.strategy_headline_revision || null,
           phase_revision: proposal.strategy_phase_revision || null,
-          sector_stance_changes: proposal.sector_stance_changes || [],
-          theme_stance_changes: proposal.theme_stance_changes || [],
         }
       : null,
   };
@@ -145,6 +149,22 @@ export async function applyProposal(env, proposalId, { autoApproved = false, dec
   await markProposalApplied(env, proposalId, { apply_kind: "kv_override" });
   await markPublicationApplied(env, row.pub_id);
 
+  // Live strategy arm: merge sector/theme stances into runtime + scoring ratings.
+  try {
+    const {
+      setStrategyOverrideCache,
+      syncSectorRatingsFromOverride,
+    } = await import("./strategy-overrides.js");
+    setStrategyOverrideCache(blob);
+    const { SECTOR_RATINGS } = await import("../sector-mapping.js");
+    const ratingSync = await syncSectorRatingsFromOverride(env, blob, SECTOR_RATINGS);
+    if (ratingSync.updated > 0) {
+      console.log(`[CRO_APPLY] synced ${ratingSync.updated} sector rating(s) from FSD stance changes`);
+    }
+  } catch (e) {
+    console.warn("[CRO_APPLY] strategy override sync failed:", String(e?.message || e).slice(0, 200));
+  }
+
   // B3 (2026-06-11) — record every applied tactical signal in the Signal
   // Outcome Ledger so FSD's calls get graded against candles like
   // everything else we act on ("actively learn from FSD"). Idempotent on
@@ -164,26 +184,41 @@ export async function applyProposal(env, proposalId, { autoApproved = false, dec
     }
   } catch (_) { /* ledger recording never blocks applies */ }
 
-  // Best-effort Discord notify on system lane so the operator sees
-  // what changed near-real-time. Never blocks; never throws.
+  // Research alert on #general so Discord users see tactical overlay updates.
+  // Never blocks; never throws.
   try {
     const { notifyDiscord } = await import("../alerts.js");
     const sigCount = (blob.tactical_signals || []).length;
-    const signalLines = (blob.tactical_signals || []).slice(0, 4).map((s) => `• \`${s.signal}\` (${s.pair} → ${s.direction})`).join("\n");
+    const signalLines = (blob.tactical_signals || []).slice(0, 4)
+      .map((s) => `• **${s.signal || "signal"}** (${s.pair || "—"} → ${s.direction || "—"})`)
+      .join("\n");
+    const stanceLines = (blob.sector_stance_changes || []).slice(0, 4)
+      .map((s) => `• **${s.sector || "sector"}** → ${s.new_stance || "neutral"}`)
+      .join("\n");
+    const themeStanceLines = (blob.theme_stance_changes || []).slice(0, 3)
+      .map((t) => `• **${t.theme || "theme"}** → ${t.new_stance || "neutral"}`)
+      .join("\n");
+    let rewriteTitle = null;
+    try {
+      const rw = await env.DB.prepare(
+        `SELECT tt_summary_title FROM cro_publication_rewrites WHERE pub_id = ?1`,
+      ).bind(row.pub_id).first();
+      rewriteTitle = rw?.tt_summary_title || null;
+    } catch (_) {}
+    const headline = rewriteTitle || blob.tactical_title || "Research desk tactical overlay updated";
     await notifyDiscord(env, {
-      title: `${autoApproved ? "[CRO auto-applied]" : "[CRO operator-applied]"} new tactical overlay`,
-      description: blob.tactical_title || "Tactical overlay refreshed",
+      title: "Research Desk — tactical update",
+      description: String(headline).slice(0, 500),
       color: autoApproved ? 0x2ecc71 : 0x3498db,
       fields: [
-        { name: "Proposal", value: `${proposalId}`, inline: true },
-        { name: "Publication", value: `${row.pub_id || "manual"}`, inline: true },
-        { name: "Tactical vintage", value: `${blob.tactical_vintage || "(n/a)"}`, inline: true },
-        { name: `${sigCount} signal${sigCount === 1 ? "" : "s"}`, value: signalLines || "(none — overlay clear)", inline: false },
-        { name: "Revert", value: "POST /timed/admin/cro/override/clear", inline: false },
+        { name: "Overlay", value: String(blob.tactical_overlay || blob.tactical_title || "—").slice(0, 900), inline: false },
+        { name: sigCount ? `${sigCount} signal${sigCount === 1 ? "" : "s"}` : "Signals", value: signalLines || "See Today → Research Desk feed for details.", inline: false },
+        ...(stanceLines ? [{ name: "Sector stances (live)", value: stanceLines.slice(0, 900), inline: false }] : []),
+        ...(themeStanceLines ? [{ name: "Theme stances (live)", value: themeStanceLines.slice(0, 900), inline: false }] : []),
       ],
-      footer: { text: `decided_by=${decidedBy}` },
+      footer: { text: "Timed Trading research desk — directional context, not a trade entry" },
       timestamp: new Date().toISOString(),
-    }, "system");
+    }, "general");
   } catch (_) { /* alerts never block applies */ }
 
   return { ok: true, applied_blob: blob, decided_by: decidedBy, auto_approved: !!autoApproved };

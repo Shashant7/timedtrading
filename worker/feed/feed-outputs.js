@@ -20,6 +20,7 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
+import { isNyRegularMarketOpen } from "../market-calendar.js";
 
 const PF_FRESH_MS = 30 * 60 * 1000;
 
@@ -201,6 +202,16 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
         const existDp = existing.day_change_pct;
         const updatedPrice = Number(snap.p);
         const updatedPc = Number(snap.pc) || existing.prev_close || 0;
+        const marketOpen = isNyRegularMarketOpen();
+        // During RTH open, a price that equals prev_close with zero day
+        // change is almost always a stale vendor quote (PWR 2026-06-23).
+        // Do not stamp a fresh ingest_ts — that defeats age-based guards.
+        const staleOpenQuote = marketOpen
+          && updatedPrice > 0
+          && updatedPc > 0
+          && Math.abs(updatedPrice - updatedPc) < updatedPc * 0.0005
+          && (!Number.isFinite(newDc) || newDc === 0)
+          && (!Number.isFinite(newDp) || newDp === 0);
 
         // If existing day_change is 0 (stale) but we have valid price + prev_close,
         // recompute from scratch so the UI shows a real value.
@@ -230,9 +241,24 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
           day_change: finalDc,
           day_change_pct: finalDp,
           _price_updated_at: Number(snap.t) || now,
-          ingest_ts: now,
-          ingest_time: ingestTime,
+          ...(staleOpenQuote ? { __price_stale_at_open: true } : {}),
+          ingest_ts: staleOpenQuote ? (existing.ingest_ts || existing.ts || now) : now,
+          ingest_time: staleOpenQuote
+            ? (existing.ingest_time || new Date(existing.ingest_ts || now).toISOString())
+            : ingestTime,
         };
+        if (!isNyRegularMarketOpen()) {
+          const pfAhP = Number(snap.ahp);
+          const pfAhDc = Number(snap.ahdc);
+          const pfAhDp = Number(snap.ahdp);
+          if (Number.isFinite(pfAhP) && pfAhP > 0) updated._ah_price = pfAhP;
+          if (Number.isFinite(pfAhDc)) updated._ah_change = pfAhDc;
+          if (Number.isFinite(pfAhDp)) updated._ah_change_pct = pfAhDp;
+        } else {
+          delete updated._ah_price;
+          delete updated._ah_change;
+          delete updated._ah_change_pct;
+        }
         await kvPutJSON(KV, `timed:latest:${sym}`, updated);
         return 1;
       }),

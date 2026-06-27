@@ -373,6 +373,219 @@ export function resolveDayTradeSpot(pricesMap, ticker, { marketOpen = true } = {
   return rthP > 0 ? rthP : 0;
 }
 
+/** Resolve spot for swing/investor ladder anchoring — prefer live KV over snapshot. */
+export function resolveLadderSpotPrice({ ticker, contract, data, pricesMap, marketOpen = true } = {}) {
+  const sym = String(ticker || contract?.ticker || data?.ticker || "").toUpperCase();
+  if (pricesMap && sym) {
+    const live = resolveDayTradeSpot(pricesMap, sym, { marketOpen });
+    if (live > 0) return { price: live, source: "live_kv" };
+  }
+  const snapshotPx = Number(contract?.price) || Number(data?.price) || 0;
+  if (snapshotPx > 0) return { price: snapshotPx, source: "snapshot" };
+  return { price: null, source: "none" };
+}
+
+function _targetPriceFromContract(contract, label) {
+  const targets = Array.isArray(contract?.targets) ? contract.targets : [];
+  const hit = targets.find((t) => String(t?.label || "").toLowerCase() === String(label).toLowerCase());
+  const px = Number(hit?.price);
+  return Number.isFinite(px) && px > 0 ? px : null;
+}
+
+function _investorTargetLadder(price, sl) {
+  const px = Number(price);
+  if (!(px > 0)) return { tp1: null, tp2: null, tp3: null };
+  const inv = Number(sl);
+  const riskPct = Number.isFinite(inv) && inv > 0 && inv < px
+    ? (px - inv) / px
+    : 0.08;
+  const mult = (m) => Math.round(px * m * 100) / 100;
+  return {
+    tp1: mult(1 + Math.max(0.05, riskPct * 0.75)),
+    tp2: mult(1 + Math.max(0.10, riskPct * 1.5)),
+    tp3: mult(1 + Math.max(0.18, riskPct * 2.5)),
+  };
+}
+
+/**
+ * Normalize prediction contract + snapshot into buildOptionsLadder() input.
+ * Uses corrected risk.stop_loss / targets[] from buildTraderPredictionContract.
+ */
+export function contractToLadderInput(contract, data = {}, opts = {}) {
+  const isInvestorMode = opts.mode === "investor"
+    || String(contract?.mode || "").toLowerCase() === "investor";
+  const investorData = opts.investorData || null;
+  const spot = resolveLadderSpotPrice({
+    ticker: opts.ticker || contract?.ticker || data?.ticker,
+    contract,
+    data,
+    pricesMap: opts.pricesMap,
+    marketOpen: opts.marketOpen,
+  });
+
+  let sl = Number(contract?.risk?.stop_loss);
+  if (!Number.isFinite(sl) || sl <= 0) {
+    if (isInvestorMode && investorData) {
+      sl = Number(investorData.thesisInvalidationPrice)
+        || Number(investorData.primaryInvalidation?.price)
+        || null;
+    }
+    if (!Number.isFinite(sl) || sl <= 0) sl = Number(data?.sl) || null;
+  }
+
+  let tp1 = _targetPriceFromContract(contract, "Trim");
+  let tp2 = _targetPriceFromContract(contract, "Exit");
+  let tp3 = _targetPriceFromContract(contract, "Runner");
+
+  if (!Number.isFinite(tp1) || tp1 <= 0) {
+    tp1 = Number(contract?.tp_trim ?? contract?.tp1 ?? contract?.tp ?? data?.tp_trim ?? data?.tp1) || null;
+  }
+  if (!Number.isFinite(tp2) || tp2 <= 0) {
+    tp2 = Number(contract?.tp_exit ?? data?.tp_exit) || null;
+  }
+  if (!Number.isFinite(tp3) || tp3 <= 0) {
+    tp3 = Number(contract?.tp_runner ?? data?.tp_runner) || null;
+  }
+
+  const pxForTargets = spot.price || Number(data?.price) || 0;
+  if (isInvestorMode && pxForTargets > 0 && (!Number.isFinite(tp1) || tp1 <= 0)) {
+    const invTargets = _investorTargetLadder(pxForTargets, sl);
+    tp1 = invTargets.tp1;
+    tp2 = invTargets.tp2;
+    tp3 = invTargets.tp3;
+  }
+
+  const atrDay = Number(data?.atr_levels?.atr_day || data?.atr_day || 0);
+  const px = spot.price || Number(data?.price) || 0;
+  const atrPct = Number.isFinite(Number(opts.atr_pct))
+    ? Number(opts.atr_pct)
+    : (atrDay > 0 && px > 0 ? atrDay / px : 0.025);
+
+  const levels = Array.isArray(contract?.levels) && contract.levels.length
+    ? contract.levels
+    : (Array.isArray(data?.levels) ? data.levels : []);
+
+  return {
+    ticker: String(opts.ticker || contract?.ticker || data?.ticker || "").toUpperCase(),
+    price: spot.price,
+    price_source: spot.source,
+    direction: isInvestorMode ? "LONG" : (contract?.direction || data?.direction || null),
+    sl: Number.isFinite(sl) && sl > 0 ? sl : null,
+    tp1: Number.isFinite(tp1) && tp1 > 0 ? tp1 : null,
+    tp2: Number.isFinite(tp2) && tp2 > 0 ? tp2 : null,
+    tp3: Number.isFinite(tp3) && tp3 > 0 ? tp3 : null,
+    rr: Number(contract?.risk?.rr ?? contract?.rr ?? data?.rr) || null,
+    tier: contract?.setup_tier ?? contract?.tier ?? data?.setup_tier ?? null,
+    riskPct: Number(contract?.setup_tier_risk_pct ?? contract?.riskPct ?? data?.setup_tier_risk_pct) || null,
+    stage: isInvestorMode ? "investor" : (contract?.stage || data?.kanban_stage || "swing"),
+    atr_pct: atrPct,
+    earnings_dte: contract?.earnings_dte ?? data?.earnings_dte ?? null,
+    mode: isInvestorMode ? "investor" : "trader",
+    levels,
+    invalidation: Array.isArray(contract?.invalidation) ? contract.invalidation.filter(Boolean) : [],
+    contract_direction: contract?.direction || null,
+  };
+}
+
+/** Snap a delta-derived strike to the nearest model S/R level within tolerance. */
+export function refineStrikeWithModelLevels(strike, levels = [], { maxDriftPct = 0.08 } = {}) {
+  const k = Number(strike);
+  if (!(k > 0) || !Array.isArray(levels) || !levels.length) return snapStrike(k);
+  let best = snapStrike(k);
+  let bestDist = Infinity;
+  for (const row of levels) {
+    const lv = Number(row?.price);
+    if (!Number.isFinite(lv) || lv <= 0) continue;
+    const drift = Math.abs(lv - k) / k;
+    if (drift > maxDriftPct) continue;
+    const snapped = snapStrike(lv);
+    const dist = Math.abs(snapped - k);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = snapped;
+    }
+  }
+  return best;
+}
+
+/** Exit target for P&L projection — prefer Exit over Trim when direction-valid. */
+export function pickExitTargetPrice(ctx) {
+  const price = Number(ctx?.price);
+  const dir = String(ctx?.direction || "").toUpperCase();
+  const tp2 = Number(ctx?.tp2);
+  const tp1 = Number(ctx?.tp1);
+  if (Number.isFinite(tp2) && tp2 > 0) {
+    if (dir === "LONG" && (!Number.isFinite(price) || tp2 > price)) return tp2;
+    if (dir === "SHORT" && (!Number.isFinite(price) || tp2 < price)) return tp2;
+    if (dir !== "LONG" && dir !== "SHORT") return tp2;
+  }
+  return Number.isFinite(tp1) && tp1 > 0 ? tp1 : null;
+}
+
+/** Short leg anchor for vertical spreads — Exit target, else Trim. */
+export function pickSpreadShortStrikePrice(ctx) {
+  return pickExitTargetPrice(ctx) ?? Number(ctx?.tp1);
+}
+
+/** Reconcile trader contract bias vs confluence for UI + alerts. */
+export function buildOptionsModelReconciliation({
+  contractDirection,
+  confluenceSide,
+  effectiveDirection,
+  directionFlipped,
+  directionAlignment,
+  contract,
+} = {}) {
+  const contractDir = String(contractDirection || contract?.contract_direction || contract?.direction || "").toUpperCase() || null;
+  const layerSide = String(confluenceSide || "").toUpperCase() || null;
+  const effDir = String(effectiveDirection || contractDir || "").toUpperCase() || null;
+  const signalSplit = (contractDir === "LONG" || contractDir === "SHORT")
+    && (layerSide === "LONG" || layerSide === "SHORT")
+    && contractDir !== layerSide;
+  const lines = [];
+  if (contractDir && layerSide && contractDir === layerSide && !directionFlipped) {
+    lines.push(`Trader contract and layer fusion both read ${contractDir}.`);
+  } else if (directionFlipped && contractDir && effDir && contractDir !== effDir) {
+    lines.push(`Confluence FADE expresses ${effDir}; swing contract reads ${contractDir} — intentional counter-trend options expression.`);
+  } else if (signalSplit) {
+    lines.push(`Swing contract is ${contractDir} while layers lean ${layerSide} — options play follows confluence timing, not contract direction alone.`);
+  }
+  if (directionAlignment?.timing_override) {
+    lines.push(`Timing override (${String(directionAlignment.reason || "timing").replace(/_/g, " ")}) opened a directional window despite split fusion.`);
+  }
+  const sl = Number(contract?.sl);
+  const trim = Number(contract?.tp1);
+  const exit = Number(contract?.tp2);
+  const runner = Number(contract?.tp3);
+  if (Number.isFinite(sl) && sl > 0) {
+    lines.push(`Invalidation / stop reference $${sl.toFixed(2)}${contract?.price_source === "live_kv" ? " (live spot anchor)" : ""}.`);
+  }
+  if (Number.isFinite(trim) && trim > 0 && Number.isFinite(exit) && exit > 0 && Math.abs(trim - exit) > 0.01) {
+    lines.push(`Targets: Trim $${trim.toFixed(2)} · Exit $${exit.toFixed(2)}${Number.isFinite(runner) && runner > 0 ? ` · Runner $${runner.toFixed(2)}` : ""}.`);
+  } else if (Number.isFinite(exit) && exit > 0) {
+    lines.push(`Primary target (Exit) $${exit.toFixed(2)}.`);
+  } else if (Number.isFinite(trim) && trim > 0) {
+    lines.push(`Primary target (Trim) $${trim.toFixed(2)}.`);
+  }
+  return {
+    contract_direction: contractDir,
+    confluence_side: layerSide,
+    effective_direction: effDir,
+    signal_split: signalSplit,
+    direction_flipped: !!directionFlipped,
+    timing_override: !!(directionAlignment?.timing_override),
+    lines,
+    model_levels: {
+      stop: Number.isFinite(sl) && sl > 0 ? sl : null,
+      trim: Number.isFinite(trim) && trim > 0 ? trim : null,
+      exit: Number.isFinite(exit) && exit > 0 ? exit : null,
+      runner: Number.isFinite(runner) && runner > 0 ? runner : null,
+      price: Number(contract?.price) || null,
+      price_source: contract?.price_source || null,
+    },
+  };
+}
+
 /** Validate short-dated index day-trade strike + DTE against live spot and ET clock.
  *  Returns { valid, reason?, strike?, spot?, drift_pct? }. */
 export function validateDayTradePlay({
@@ -1206,7 +1419,8 @@ export function deltaToStrikeBS({ price, targetDelta, dte, atrPct, type }) {
 }
 
 function buildLongCall(ctx) {
-  const { price, tp1, sl, atrPct, expiration, contracts, chain, targetDelta = 0.50 } = ctx;
+  const { price, tp1, tp2, sl, atrPct, expiration, contracts, chain, targetDelta = 0.50, levels = [] } = ctx;
+  const exitTarget = pickExitTargetPrice(ctx) ?? tp1;
   // Delta-targeted strike selection (Carter's framework):
   //   0.70 = stock replacement (deep ITM, low time value)
   //   0.50 = ATM balanced (default)
@@ -1227,20 +1441,21 @@ function buildLongCall(ctx) {
     chainLeg = chain ? _chainLeg(chain, "C", strike) : null;
     deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate";
   }
+  strike = refineStrikeWithModelLevels(strike, levels);
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "C", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
   const maxLoss = premPerShare * 100 * contracts;
   const breakeven = strike + premPerShare;
-  // Max gain at TP1 — intrinsic value at target.
-  const intrinsicAtTP = Math.max(0, tp1 - strike);
+  // Max gain at exit target — intrinsic value at target.
+  const intrinsicAtTP = Math.max(0, exitTarget - strike);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
   /* 2026-06-02 — Live-trade exit projections. The user never holds
      to expiration; the trade exits at TP or SL with whatever the
      option is worth THEN. Project both via BS at reduced DTE. */
   const ivUsed = Number(prem.iv_used) || null;
-  const estAtTp = (Number.isFinite(tp1) && tp1 > 0) ? estimateOptionAtTargetPrice({
-    currentPrice: price, targetPrice: tp1, strike, type: "C",
+  const estAtTp = (Number.isFinite(exitTarget) && exitTarget > 0) ? estimateOptionAtTargetPrice({
+    currentPrice: price, targetPrice: exitTarget, strike, type: "C",
     currentDte: expiration.dte, premiumPaid: premPerShare,
     contracts, atrPct, ivOverride: ivUsed,
   }) : null;
@@ -1249,16 +1464,19 @@ function buildLongCall(ctx) {
     currentDte: expiration.dte, premiumPaid: premPerShare,
     contracts, atrPct, ivOverride: ivUsed,
   }) : null;
-  const targetClearsBreakeven = Number.isFinite(tp1) ? tp1 > breakeven : null;
+  const targetClearsBreakeven = Number.isFinite(exitTarget) ? exitTarget > breakeven : null;
   const deltaLabel = targetDelta >= 0.65 ? "Deep ITM (Stock Replacement)"
                     : targetDelta >= 0.40 ? "ATM"
                     : targetDelta >= 0.25 ? "OTM"
                     : "Far OTM";
   const deltaPct = (Math.abs(prem.greeks?.delta || targetDelta) * 100).toFixed(0);
+  const targetLine = Number.isFinite(tp2) && tp2 > 0 && Math.abs(tp2 - exitTarget) < 0.01 && Number.isFinite(tp1) && Math.abs(tp1 - tp2) > 0.01
+    ? `Trim $${tp1?.toFixed(2) ?? "?"} · Exit $${exitTarget?.toFixed(2) ?? "?"}`
+    : `$${exitTarget?.toFixed(2) ?? "?"}`;
   return {
     archetype: "long_call",
     label: `Long Call (${deltaLabel})`,
-    rationale: `Bullish bias to $${tp1?.toFixed(2) ?? "?"}. Strike $${strike} (${deltaPct}Δ via ${deltaSource}) — every $1 underlying ≈ $${deltaPct}/contract. Max loss = premium paid.`,
+    rationale: `Bullish bias to ${targetLine}. Strike $${strike} (${deltaPct}Δ via ${deltaSource}) — every $1 underlying ≈ $${deltaPct}/contract. Max loss = premium paid.`,
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
@@ -1310,7 +1528,8 @@ function buildLongCall(ctx) {
  * ladder (ranker, profile preview, warnings) just works.
  */
 function buildLeapCall(ctx) {
-  const { price, tp1, sl, atrPct, contracts, chain, targetDelta = 0.80 } = ctx;
+  const { price, tp1, tp2, sl, atrPct, contracts, chain, targetDelta = 0.80, levels = [] } = ctx;
+  const exitTarget = pickExitTargetPrice(ctx) ?? tp1;
   // Force a real LEAP expiration. Caller may have passed a short one
   // (e.g. classifySetupStage routes Investor → 90 DTE today); override
   // unless the caller already supplied a LEAP-grade DTE.
@@ -1333,12 +1552,13 @@ function buildLeapCall(ctx) {
     chainLeg = chain ? _chainLeg(chain, "C", strike) : null;
     deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate_deep_itm";
   }
+  strike = refineStrikeWithModelLevels(strike, levels);
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "C", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
   const maxLoss = premPerShare * 100 * contracts;
   const breakeven = strike + premPerShare;
-  const intrinsicAtTP = Math.max(0, tp1 - strike);
+  const intrinsicAtTP = Math.max(0, exitTarget - strike);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
   const actualDelta = Math.abs(prem.greeks?.delta || targetDelta);
   const sharesEquivalent = Math.round(contracts * 100 * actualDelta);
@@ -1389,7 +1609,7 @@ function buildLeapCall(ctx) {
   return {
     archetype: "leap_call",
     label: `LEAP Call (${expiration.dte}DTE · Stock Replacement)`,
-    rationale: `Long-term bullish to $${tp1?.toFixed(2) ?? "?"}. Deep-ITM ${expiration.iso} call at $${strike} (${deltaPct}Δ) tracks ~${deltaPct}% of every $1 move with ~${capitalEfficiency ? capitalEfficiency.toFixed(1) + "×" : "?"} less capital than buying ${sharesEquivalent} shares outright. Max loss = premium paid; no margin call, no forced exit on drawdown. Plan to roll at T-180 days and consider stacking a poor-man's covered call once your thesis confirms.`,
+    rationale: `Long-term bullish to $${exitTarget?.toFixed(2) ?? "?"}. Deep-ITM ${expiration.iso} call at $${strike} (${deltaPct}Δ) tracks ~${deltaPct}% of every $1 move with ~${capitalEfficiency ? capitalEfficiency.toFixed(1) + "×" : "?"} less capital than buying ${sharesEquivalent} shares outright. Max loss = premium paid; no margin call, no forced exit on drawdown. Plan to roll at T-180 days and consider stacking a poor-man's covered call once your thesis confirms.`,
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
@@ -1410,13 +1630,13 @@ function buildLeapCall(ctx) {
     max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
     max_gain_label: "Uncapped above target — held to thesis exit or T-180 roll",
     breakeven,
-    target_clears_breakeven: Number.isFinite(tp1) ? tp1 > breakeven : null,
+    target_clears_breakeven: Number.isFinite(exitTarget) ? exitTarget > breakeven : null,
     /* LEAPs are held for months → the user actually approximates the
        hold-to-expiration scenario. Still surface est_at_tp so the
        UI/email can show the projection; the est_at_sl is less
        relevant for LEAPs (no hard stop) but reported for symmetry. */
-    est_at_tp: (Number.isFinite(tp1) && tp1 > 0) ? estimateOptionAtTargetPrice({
-      currentPrice: price, targetPrice: tp1, strike, type: "C",
+    est_at_tp: (Number.isFinite(exitTarget) && exitTarget > 0) ? estimateOptionAtTargetPrice({
+      currentPrice: price, targetPrice: exitTarget, strike, type: "C",
       currentDte: expiration.dte, premiumPaid: premPerShare,
       contracts, atrPct, ivOverride: Number(prem.iv_used) || null,
     }) : null,
@@ -1438,7 +1658,8 @@ function buildLeapCall(ctx) {
 }
 
 function buildLongPut(ctx) {
-  const { price, tp1, sl, atrPct, expiration, contracts, chain, targetDelta = 0.50 } = ctx;
+  const { price, tp1, tp2, sl, atrPct, expiration, contracts, chain, targetDelta = 0.50, levels = [] } = ctx;
+  const exitTarget = pickExitTargetPrice(ctx) ?? tp1;
   // Delta-targeted strike selection (Carter's framework, puts mirror calls).
   let strike, chainLeg, deltaSource = "snap_atm";
   if (chain) {
@@ -1455,13 +1676,15 @@ function buildLongPut(ctx) {
     chainLeg = chain ? _chainLeg(chain, "P", strike) : null;
     deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate";
   }
+  strike = refineStrikeWithModelLevels(strike, levels);
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "P", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
   const maxLoss = premPerShare * 100 * contracts;
   const breakeven = strike - premPerShare;
-  const intrinsicAtTP = Math.max(0, strike - tp1);
+  const intrinsicAtTP = Math.max(0, strike - exitTarget);
   const gainAtTP = (intrinsicAtTP - premPerShare) * 100 * contracts;
+  const ivUsed = Number(prem.iv_used) || null;
   const deltaLabel = targetDelta >= 0.65 ? "Deep ITM (Stock Replacement)"
                     : targetDelta >= 0.40 ? "ATM"
                     : targetDelta >= 0.25 ? "OTM"
@@ -1470,7 +1693,7 @@ function buildLongPut(ctx) {
   return {
     archetype: "long_put",
     label: `Long Put (${deltaLabel})`,
-    rationale: `Bearish bias to $${tp1?.toFixed(2) ?? "?"}. Strike $${strike} (${deltaPct}Δ via ${deltaSource}) — every $1 down ≈ $${deltaPct}/contract. Max loss = premium paid.`,
+    rationale: `Bearish bias to $${exitTarget?.toFixed(2) ?? "?"}. Strike $${strike} (${deltaPct}Δ via ${deltaSource}) — every $1 down ≈ $${deltaPct}/contract. Max loss = premium paid.`,
     target_delta: targetDelta,
     actual_delta: Number(prem.greeks?.delta) || null,
     legs: [
@@ -1491,11 +1714,11 @@ function buildLongPut(ctx) {
     max_gain_usd: intrinsicAtTP > premPerShare ? Math.round(gainAtTP) : null,
     max_gain_label: "Uncapped below target",
     breakeven,
-    target_clears_breakeven: Number.isFinite(tp1) ? tp1 < breakeven : null,
-    est_at_tp: (Number.isFinite(tp1) && tp1 > 0) ? estimateOptionAtTargetPrice({
-      currentPrice: price, targetPrice: tp1, strike, type: "P",
+    target_clears_breakeven: Number.isFinite(exitTarget) ? exitTarget < breakeven : null,
+    est_at_tp: (Number.isFinite(exitTarget) && exitTarget > 0) ? estimateOptionAtTargetPrice({
+      currentPrice: price, targetPrice: exitTarget, strike, type: "P",
       currentDte: expiration.dte, premiumPaid: premPerShare,
-      contracts, atrPct, ivOverride: Number(prem.iv_used) || null,
+      contracts, atrPct, ivOverride: ivUsed,
     }) : null,
     est_at_sl: (Number.isFinite(sl) && sl > 0) ? estimateOptionAtTargetPrice({
       currentPrice: price, targetPrice: sl, strike, type: "P",
@@ -1511,9 +1734,10 @@ function buildLongPut(ctx) {
 }
 
 function buildVerticalSpread(ctx, direction) {
-  const { price, tp1, atrPct, expiration, contracts, chain } = ctx;
-  const longStrike  = snapStrike(price);
-  const shortStrike = direction === "long" ? snapStrike(tp1) : snapStrike(tp1);
+  const { price, tp1, tp2, atrPct, expiration, contracts, chain, levels = [] } = ctx;
+  const spreadTarget = pickSpreadShortStrikePrice({ ...ctx, direction: direction === "long" ? "LONG" : "SHORT" });
+  const longStrike  = refineStrikeWithModelLevels(snapStrike(price), levels);
+  const shortStrike = refineStrikeWithModelLevels(snapStrike(spreadTarget), levels);
   if (direction === "long" && shortStrike <= longStrike) return null;
   if (direction === "short" && shortStrike >= longStrike) return null;
   const type = direction === "long" ? "C" : "P";
@@ -1532,7 +1756,7 @@ function buildVerticalSpread(ctx, direction) {
   return {
     archetype: "vertical_spread",
     label: direction === "long" ? "Bull Call Spread" : "Bear Put Spread",
-    rationale: `Defined-risk ${direction === "long" ? "bullish" : "bearish"} play to $${tp1?.toFixed(2) ?? "?"}. Pay ${netDebit.toFixed(2)} to win up to $${width.toFixed(2)} (${rrRatio.toFixed(1)}x R:R). Caps both downside AND upside.`,
+    rationale: `Defined-risk ${direction === "long" ? "bullish" : "bearish"} play to $${spreadTarget?.toFixed(2) ?? "?"}${Number.isFinite(tp2) && tp2 > 0 && Math.abs(tp2 - spreadTarget) < 0.01 && Number.isFinite(tp1) ? ` (Exit; Trim $${tp1.toFixed(2)})` : ""}. Pay ${netDebit.toFixed(2)} to win up to $${width.toFixed(2)} (${rrRatio.toFixed(1)}x R:R). Caps both downside AND upside.`,
     // 2026-05-30 — Attach per-leg premium so the UI's "How This Works"
     // panel can show the math: e.g. "BUY $510 CALL @ $X" + "SELL $540
     // CALL @ $Y" → "Net debit X - Y = $7.45". Without per-leg prices
@@ -1574,8 +1798,8 @@ function buildVerticalSpread(ctx, direction) {
 }
 
 function buildCashSecuredPut(ctx) {
-  const { price, sl, atrPct, expiration, contracts, chain } = ctx;
-  const strike = snapStrike(sl);
+  const { price, sl, atrPct, expiration, contracts, chain, levels = [] } = ctx;
+  const strike = refineStrikeWithModelLevels(snapStrike(sl), levels);
   if (!strike || strike >= price) return null;
   const chainLeg = _chainLeg(chain, "P", strike);
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "P", chainLeg });
@@ -1826,6 +2050,77 @@ function buildLeveragedETF(ctx) {
      - Max loss = premium paid (always defined; never undefined)
 
    Returns null if the ticker isn't on the day-trade allow-list. */
+
+/** Compact game-plan levels for Today day-trade cards (index playbook). */
+export function summarizeDayTradeGamePlan(gamePlan) {
+  if (!gamePlan || typeof gamePlan !== "object") return null;
+  const lean = String(gamePlan.lean || "").toUpperCase() || null;
+  return {
+    lean,
+    lean_conviction: gamePlan.lean_conviction || gamePlan.leanConviction || null,
+    bull_trigger: Number(gamePlan.bull_trigger ?? gamePlan.bullTrigger) || null,
+    bull_target: Number(gamePlan.bull_target ?? gamePlan.bullTarget) || null,
+    bear_trigger: Number(gamePlan.bear_trigger ?? gamePlan.bearTrigger) || null,
+    bear_target: Number(gamePlan.bear_target ?? gamePlan.bearTarget) || null,
+  };
+}
+
+/** When buildDayTradePlay returns null, explain why (Today suppressed row). */
+export function explainDayTradeSuppression(ctx) {
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!isDayTradeTicker(ticker)) return { reason: "not_day_trade_ticker" };
+  const price = Number(ctx?.price);
+  if (!(price > 0)) return { reason: "no_live_spot" };
+
+  const profile = ctx?.profile && PROFILE_META[ctx.profile] ? ctx.profile : DEFAULT_RISK_PROFILE;
+  const direction = String(ctx?.direction || "").toUpperCase();
+  const verdictMode = String(ctx?.verdict?.mode || "UNKNOWN").toUpperCase();
+  const verdictSide = ctx?.verdict?.side || direction;
+  const atrPct = Number(ctx?.atrPct) || 0.012;
+  const wantsSingleLeg = profile === "speculator" || profile === "aggressive";
+  const dayLean = String(ctx?.dayLean || "").toUpperCase();
+  const dayLeanConv = String(ctx?.dayLeanConviction || "").toLowerCase();
+  const leanActionable = (dayLean === "LONG" || dayLean === "SHORT")
+    && (dayLeanConv === "medium" || dayLeanConv === "high");
+
+  if (leanActionable) return { reason: "build_failed", day_lean: dayLean, day_lean_conviction: dayLeanConv };
+
+  const align = shouldAllowIndexDirectional({
+    verdictMode,
+    verdictSide,
+    direction,
+    effectiveDirection: direction,
+    confluence: ctx?.verdict,
+    timingOverlay: ctx?.verdict?.timing,
+  });
+
+  if (!align.allow) {
+    if (dayLean && dayLeanConv === "low") {
+      return {
+        reason: "day_lean_low_conviction",
+        day_lean: dayLean,
+        day_lean_conviction: dayLeanConv,
+        confluence_mode: verdictMode,
+      };
+    }
+    if (verdictMode === "WAIT" && wantsSingleLeg && atrPct < 0.012) {
+      return {
+        reason: "no_directional_signal_low_vol",
+        confluence_mode: verdictMode,
+        day_lean: dayLean || null,
+        day_lean_conviction: dayLeanConv || null,
+      };
+    }
+    return {
+      reason: align.reason || "wait_no_directional_bet",
+      confluence_mode: verdictMode,
+      day_lean: dayLean || null,
+      day_lean_conviction: dayLeanConv || null,
+    };
+  }
+  return { reason: "build_failed", confluence_mode: verdictMode };
+}
+
 export function buildDayTradePlay(ctx) {
   const ticker = String(ctx?.ticker || "").toUpperCase();
   if (!isDayTradeTicker(ticker)) return null;
@@ -2118,7 +2413,13 @@ export function buildOptionsLadder(contract, opts = {}) {
   const price = Number(contract.price);
   const direction = String(contract.direction || "").toUpperCase();
   const sl = Number(contract.sl);
-  const tp1 = Number(contract.tp1 ?? contract.tp ?? (direction === "LONG" ? price * 1.05 : price * 0.95));
+  const tp1Raw = Number(contract.tp1 ?? contract.tp);
+  const tp1 = Number.isFinite(tp1Raw) && tp1Raw > 0
+    ? tp1Raw
+    : (direction === "LONG" ? price * 1.05 : price * 0.95);
+  const tp2 = Number(contract.tp2);
+  const tp3 = Number(contract.tp3);
+  const levels = Array.isArray(contract.levels) ? contract.levels : [];
   const atrPct = Number(contract.atr_pct ?? contract.atrPct ?? 0.025);
   const isInvestorMode = String(contract?.mode || "").toLowerCase() === "investor"
     || classifySetupStage(contract) === "investor";
@@ -2163,11 +2464,16 @@ export function buildOptionsLadder(contract, opts = {}) {
 
   const ctx = {
     ticker: contract.ticker,
-    price, direction, sl, tp1, atrPct, expiration, contracts,
+    price, direction, sl,
+    tp1: Number.isFinite(tp1) ? tp1 : null,
+    tp2: Number.isFinite(tp2) && tp2 > 0 ? tp2 : null,
+    tp3: Number.isFinite(tp3) && tp3 > 0 ? tp3 : null,
+    atrPct, expiration, contracts,
     account_value: accountValue, risk_budget_pct: riskBudgetPct,
     dollars_at_risk: dollarsAtRisk,
     chain: opts.chain || null,
     themes: Array.isArray(opts.themes) ? opts.themes : [],
+    levels,
     targetDelta,
   };
 
@@ -2198,7 +2504,10 @@ export function buildOptionsLadder(contract, opts = {}) {
     : direction;
   // Re-derive context price-target geometry for FADE flips.
   const fadeFlipped = effectiveDirection !== direction;
-  const ctxEff = fadeFlipped ? { ...ctx, direction: effectiveDirection, tp1: sl, sl: tp1 } : ctx;
+  const exitForFade = pickExitTargetPrice(ctx) ?? tp1;
+  const ctxEff = fadeFlipped
+    ? { ...ctx, direction: effectiveDirection, tp1: sl, tp2: tp3, tp3: tp2, sl: exitForFade }
+    : ctx;
 
   const ladder = [];
 
@@ -2223,8 +2532,8 @@ export function buildOptionsLadder(contract, opts = {}) {
       verdictSide,
       direction,
       effectiveDirection,
-      confluence: ctx?.verdict,
-      timingOverlay: ctx?.verdict?.timing,
+      confluence: verdict,
+      timingOverlay: verdict?.timing,
     })
     : null;
   const suppressDirectional = (verdictMode === "WAIT" && !isInvestorMode && !indexAlign?.timing_override)
@@ -2429,7 +2738,15 @@ export function buildOptionsLadder(contract, opts = {}) {
   return {
     contract: {
       ticker: contract.ticker,
-      direction, price, sl, tp1,
+      direction,
+      contract_direction: contract.contract_direction || direction,
+      price,
+      price_source: contract.price_source || null,
+      sl: Number.isFinite(sl) && sl > 0 ? sl : null,
+      tp1: Number.isFinite(tp1) && tp1 > 0 ? tp1 : null,
+      tp2: Number.isFinite(tp2) && tp2 > 0 ? tp2 : null,
+      tp3: Number.isFinite(tp3) && tp3 > 0 ? tp3 : null,
+      invalidation: Array.isArray(contract.invalidation) ? contract.invalidation.slice(0, 4) : [],
       tier: contract.tier || null,
       rr: Number(contract.rr) || null,
       stage: classifySetupStage(contract),
@@ -2489,6 +2806,23 @@ export function buildOptionsLadder(contract, opts = {}) {
         contract_direction: direction,
         effective_direction: effectiveDirection,
         model_disposition,
+        model_reconciliation: buildOptionsModelReconciliation({
+          contractDirection: contract.contract_direction || direction,
+          confluenceSide: verdictSide,
+          effectiveDirection,
+          directionFlipped: fadeFlipped,
+          directionAlignment: isIndexTrader ? indexAlign : null,
+          contract: {
+            direction,
+            contract_direction: contract.contract_direction || direction,
+            sl: Number.isFinite(sl) && sl > 0 ? sl : null,
+            tp1: Number.isFinite(tp1) && tp1 > 0 ? tp1 : null,
+            tp2: Number.isFinite(tp2) && tp2 > 0 ? tp2 : null,
+            tp3: Number.isFinite(tp3) && tp3 > 0 ? tp3 : null,
+            price,
+            price_source: contract.price_source || null,
+          },
+        }),
       };
     })(),
     estimated_premium_caveat: opts.chain

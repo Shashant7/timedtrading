@@ -70,6 +70,20 @@
     }
   })();
 
+  // Unified signal grammar — shared chip/lane helpers for activity strip,
+  // kanban cards, and notification bell tags.
+  (function injectSignalGrammar() {
+    try {
+      if (typeof document === "undefined") return;
+      if (document.querySelector('script[src*="shared-signal-grammar.js"]')) return;
+      const s = document.createElement("script");
+      s.src = "shared-signal-grammar.js?v=20260623d";
+      s.async = true;
+      s.dataset.injectedBy = "auth-gate-bootstrap";
+      (document.head || document.documentElement).appendChild(s);
+    } catch (_) {}
+  })();
+
   const { useState, useEffect, useCallback } = React;
 
   const STORAGE_KEY = "timed_auth_session";
@@ -1759,10 +1773,31 @@
     });
     const [loading, setLoading] = React.useState(false);
     const [selectedNotification, setSelectedNotification] = React.useState(null); // modal
-    const [filter, setFilter] = React.useState("all"); // "all" | "trade_alerts"
+    const [filter, setFilter] = React.useState("all"); // "all" | "trade_alerts" | "investor_alerts"
     const bellRef = React.useRef(null);
 
+    const isActionableNotif = React.useCallback((n) => {
+      const SG = window.TimedSignalGrammar;
+      if (SG && typeof SG.isActionableNotification === "function") {
+        return SG.isActionableNotification(n);
+      }
+      const t = String(n?.type || "").toLowerCase();
+      if (t === "trade_entry" || t === "trade_exit" || t === "trade_trim") return true;
+      if (t === "investor_signal") {
+        const title = String(n?.title || "").toUpperCase();
+        if (title.includes("ON RADAR") || title.includes("WATCH") || title.includes("INFO")) return false;
+        return true;
+      }
+      if (t === "kanban") {
+        const title = String(n?.title || "").toUpperCase();
+        if (title.startsWith("SETUP:")) return false;
+        return true;
+      }
+      return false;
+    }, []);
+
     const TRADE_ALERT_TYPES = ["trade_entry", "trade_exit", "trade_trim"];
+    const INVESTOR_ALERT_TYPES = ["investor_signal"];
     // 2026-06-22 — scope tag (Investor vs Active Trader) so the feed reads
     // unambiguously. Investor notifications carry an investor_* type or an
     // investor link; trade_*/kanban are trader-lane; brief/system are neither.
@@ -1773,10 +1808,25 @@
       if (t.startsWith("trade_") || t === "kanban") return "trader";
       return null;
     };
-    const filteredNotifications = filter === "trade_alerts"
-      ? notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
-      : notifications;
-    const tradeAlertsCount = notifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
+    const notifMode = (n) => {
+      const cls = String(n?.alert_class || n?.mode || "").toLowerCase();
+      if (cls === "doing" || cls === "watching") return cls;
+      const exec = String(n?.exec_state || "").toLowerCase();
+      if (exec === "recommended" || exec === "done") return "doing";
+      const t = String(n?.type || "").toLowerCase();
+      if (t.startsWith("trade_")) return "doing";
+      if (t === "kanban") return "watching";
+      return null;
+    };
+    const actionableNotifications = notifications.filter(isActionableNotif);
+    const scopeFiltered = filter === "trade_alerts"
+      ? actionableNotifications.filter(n => TRADE_ALERT_TYPES.includes(n.type))
+      : filter === "investor_alerts"
+        ? actionableNotifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type))
+        : actionableNotifications;
+    const filteredNotifications = scopeFiltered;
+    const tradeAlertsCount = actionableNotifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
+    const investorAlertsCount = actionableNotifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type)).length;
 
     React.useEffect(() => {
       const handler = (event) => {
@@ -1792,6 +1842,7 @@
       trade_entry: "#00c853",
       trade_exit: "#ff5252",
       trade_trim: "#ff9800",
+      investor_signal: "#3b82f6",
       daily_brief: "#42a5f5",
       system: "#6b7280",
       kanban: "#a78bfa",
@@ -1800,6 +1851,7 @@
       trade_entry: "Trade Entry",
       trade_exit: "Trade Exit",
       trade_trim: "Trade Trim/Defend",
+      investor_signal: "Investor Signal",
       daily_brief: "Daily Brief",
       system: "System",
       kanban: "Kanban Update",
@@ -1812,7 +1864,7 @@
           const json = await res.json();
           if (json.ok) {
             setNotifications(json.notifications || []);
-            // Bell badge = trade alerts only (not Daily Brief / system)
+            // Bell badge = trader executions + investor signals (not Daily Brief / system)
             setUnreadCount(json.unread_trade_alert_count ?? json.unread_count ?? 0);
           }
         }
@@ -1873,10 +1925,13 @@
 
     const handleClick = async (n) => {
       await markSingleRead(n);
-      // Always open the detail modal — never navigate away on click.
-      // If the notification has a link, it's shown as a button inside the modal.
-      setSelectedNotification(n);
       setOpen(false);
+      setSelectedNotification(null);
+      if (typeof window.ttOpenNotificationInRail === "function") {
+        await window.ttOpenNotificationInRail(n, { scope: notifScope(n) });
+        return;
+      }
+      setSelectedNotification(n);
     };
 
     const formatTime = (ts) => {
@@ -1956,9 +2011,20 @@
           },
         },
           selectedNotification.link
-            ? h("a", {
-                href: selectedNotification.link,
-                style: { fontSize: "12px", color: "#00c853", textDecoration: "none", fontWeight: "500" },
+            ? h("button", {
+                type: "button",
+                onClick: async () => {
+                  if (typeof window.ttOpenNotificationInRail === "function") {
+                    await window.ttOpenNotificationInRail(selectedNotification, { scope: notifScope(selectedNotification) });
+                    setSelectedNotification(null);
+                    return;
+                  }
+                  window.location.href = selectedNotification.link;
+                },
+                style: {
+                  fontSize: "12px", color: "#00c853", background: "none", border: "none",
+                  cursor: "pointer", fontWeight: "500", padding: 0, fontFamily: "inherit",
+                },
               }, "View Details \u2192")
             : h("span"),
           h("button", {
@@ -1988,7 +2054,7 @@
           position: "relative", background: "none", border: "none", cursor: "pointer",
           padding: "4px 6px", borderRadius: "6px", display: "flex", alignItems: "center",
         },
-        title: "Trade Alerts",
+        title: "Alerts",
       },
         h("svg", {
           width: "18", height: "18", viewBox: "0 0 24 24", fill: "none",
@@ -2036,7 +2102,7 @@
             }, "Clear All"),
           ),
         ),
-        // Trade Alerts filter tabs
+        // Alert filter tabs
         h("div", {
           style: {
             display: "flex", gap: "4px", padding: "8px 16px",
@@ -2060,14 +2126,25 @@
               color: filter === "trade_alerts" ? "#00c853" : "#6b7280",
               border: "none", cursor: "pointer",
             },
-          }, "Trade Alerts" + (tradeAlertsCount > 0 ? " (" + tradeAlertsCount + ")" : "")),
+          }, "Trader" + (tradeAlertsCount > 0 ? " (" + tradeAlertsCount + ")" : "")),
+          h("button", {
+            onClick: () => setFilter("investor_alerts"),
+            style: {
+              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
+              background: filter === "investor_alerts" ? "rgba(59,130,246,0.12)" : "transparent",
+              color: filter === "investor_alerts" ? "#3b82f6" : "#6b7280",
+              border: "none", cursor: "pointer",
+            },
+          }, "Investor" + (investorAlertsCount > 0 ? " (" + investorAlertsCount + ")" : "")),
         ),
         // List
         h("div", { style: { overflowY: "auto", maxHeight: "360px" } },
           filteredNotifications.length === 0
             ? h("div", { style: { padding: "32px 16px", textAlign: "center" } },
                 h("p", { style: { fontSize: "13px", color: "#4b5563" } },
-                  filter === "trade_alerts" ? "No trade alerts" : "No notifications yet"),
+                  filter === "trade_alerts" ? "No trader alerts"
+                    : filter === "investor_alerts" ? "No investor signals"
+                    : "No model actions yet"),
               )
             : filteredNotifications.map(n =>
                 h("div", {
@@ -2093,18 +2170,63 @@
                   h("div", { style: { flex: 1, minWidth: 0 } },
                     (() => {
                       const scope = notifScope(n);
-                      if (!scope) return null;
-                      const isInv = scope === "investor";
-                      return h("span", {
-                        style: {
-                          display: "inline-block", fontSize: "8px", fontWeight: "800",
-                          letterSpacing: "0.06em", textTransform: "uppercase",
-                          padding: "1px 5px", borderRadius: "4px", marginBottom: "3px",
-                          color: isInv ? "#c4b5fd" : "#67e8f9",
-                          background: isInv ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
-                          border: `1px solid ${isInv ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
-                        },
-                      }, isInv ? "Investor" : "Active Trader");
+                      const engine = String(n?.engine || "").toLowerCase();
+                      const mode = notifMode(n);
+                      const exec = String(n?.exec_state || "").toUpperCase();
+                      const chips = [];
+                      if (engine === "investor" || engine === "trader") {
+                        chips.push(h("span", {
+                          key: "eng",
+                          style: {
+                            display: "inline-block", fontSize: "8px", fontWeight: "800",
+                            letterSpacing: "0.06em", textTransform: "uppercase",
+                            padding: "1px 5px", borderRadius: "4px", marginRight: "4px",
+                            color: engine === "investor" ? "#c4b5fd" : "#67e8f9",
+                            background: engine === "investor" ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
+                            border: `1px solid ${engine === "investor" ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
+                          },
+                        }, engine === "investor" ? "INVESTOR" : "TRADER"));
+                      } else if (scope) {
+                        const isInv = scope === "investor";
+                        chips.push(h("span", {
+                          key: "scope",
+                          style: {
+                            display: "inline-block", fontSize: "8px", fontWeight: "800",
+                            letterSpacing: "0.06em", textTransform: "uppercase",
+                            padding: "1px 5px", borderRadius: "4px", marginRight: "4px",
+                            color: isInv ? "#c4b5fd" : "#67e8f9",
+                            background: isInv ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
+                            border: `1px solid ${isInv ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
+                          },
+                        }, isInv ? "Investor" : "Active Trader"));
+                      }
+                      if (mode) {
+                        chips.push(h("span", {
+                          key: "mode",
+                          style: {
+                            display: "inline-block", fontSize: "8px", fontWeight: "800",
+                            letterSpacing: "0.06em", textTransform: "uppercase",
+                            padding: "1px 5px", borderRadius: "4px", marginRight: "4px",
+                            color: mode === "doing" ? "#fdba74" : "#9ca3af",
+                            background: mode === "doing" ? "rgba(251,146,60,0.12)" : "transparent",
+                            border: `1px solid ${mode === "doing" ? "rgba(251,146,60,0.35)" : "rgba(255,255,255,0.12)"}`,
+                          },
+                        }, mode === "doing" ? "DOING" : "WATCHING"));
+                      }
+                      if (exec === "RECOMMENDED" || exec === "DONE") {
+                        chips.push(h("span", {
+                          key: "exec",
+                          style: {
+                            display: "inline-block", fontSize: "8px", fontWeight: "800",
+                            letterSpacing: "0.06em", textTransform: "uppercase",
+                            padding: "1px 5px", borderRadius: "4px", marginBottom: "3px",
+                            color: "#fde68a",
+                            background: "rgba(250,204,21,0.12)",
+                            border: "1px solid rgba(250,204,21,0.30)",
+                          },
+                        }, exec));
+                      }
+                      return chips.length ? h("div", { style: { marginBottom: "3px" } }, chips) : null;
                     })(),
                     h("div", {
                       style: {

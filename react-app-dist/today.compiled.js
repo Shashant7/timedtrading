@@ -64,6 +64,43 @@ function getDailyChange(t) {
 function safeArr(v) {
   return Array.isArray(v) ? v : [];
 }
+function isTickerScoredInUniverse(data, sym) {
+  const key = String(sym || "").toUpperCase();
+  const row = data?.[key];
+  if (!row || typeof row !== "object") return false;
+  return Number.isFinite(Number(row.score)) || !!row.state || !!row.kanban_stage || Number.isFinite(Number(row.htf_score));
+}
+function buildEarningsMap(events) {
+  const map = {};
+  const list = safeArr(events);
+  if (!list.length) return map;
+  let todayNy = "";
+  try {
+    todayNy = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+  } catch (_) {
+    return map;
+  }
+  const todayParts = todayNy.split("-").map(Number);
+  if (todayParts.length < 3) return map;
+  const todayDayNum = todayParts[0] * 10000 + todayParts[1] * 100 + todayParts[2];
+  for (const e of list) {
+    const sym = String(e?.symbol || "").toUpperCase();
+    if (!sym || !e?.date) continue;
+    const eParts = String(e.date).split("-").map(Number);
+    if (eParts.length < 3) continue;
+    const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
+    const calDays = eDayNum - todayDayNum;
+    if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
+      map[sym] = {
+        ...e,
+        _daysAway: calDays
+      };
+    }
+  }
+  return map;
+}
 function nyFmtDate() {
   try {
     return new Date().toLocaleDateString("en-US", {
@@ -406,7 +443,7 @@ function RegimeLine({
     return Number.isFinite(pct) ? pct : null;
   };
   const spyPct = quote("SPY");
-  const vixT = data?.VIX || data?.["VX1!"];
+  const vixT = data?.VIX || data?.VIXY || data?.["VX1!"];
   const vixPx = vixT ? Number(vixT._live_price ?? vixT.price ?? vixT.close) : null;
   const {
     regime,
@@ -808,6 +845,49 @@ function MarketPulseTile({
     }
   }));
 }
+function formatDayTradeSuppressLabel(s) {
+  if (!s || typeof s !== "object") return "unknown";
+  const lean = s.day_lean ? String(s.day_lean).toUpperCase() : "";
+  const conv = s.day_lean_conviction ? String(s.day_lean_conviction).toLowerCase() : "";
+  const mode = s.confluence_mode ? String(s.confluence_mode).toUpperCase() : "";
+  switch (String(s.reason || "")) {
+    case "day_lean_low_conviction":
+      return `playbook lean ${lean || "mixed"} but conviction is low${mode ? ` · fusion ${mode}` : ""}`;
+    case "no_directional_signal_low_vol":
+      return `no actionable day lean${lean ? ` (${lean}${conv ? ` · ${conv}` : ""})` : ""} and low vol · fusion ${mode || "WAIT"}`;
+    case "wait_no_directional_bet":
+      return `layer fusion is WAIT — no directional 0DTE bet${lean ? ` · playbook ${lean}` : ""}`;
+    default:
+      if (String(s.reason || "").startsWith("strike_drift")) {
+        return `strike drifted too far from spot (${String(s.reason).replace(/_/g, " ")})`;
+      }
+      return String(s.reason || "unknown").replace(/_/g, " ");
+  }
+}
+function dayTradeModelLevelsLine(p, flavor) {
+  const gp = p?.game_plan;
+  if (!gp) return null;
+  const fmt = n => Number.isFinite(Number(n)) && Number(n) > 0 ? `$${Number(n).toFixed(2)}` : null;
+  if (flavor === "call") {
+    const trig = fmt(gp.bull_trigger);
+    const tgt = fmt(gp.bull_target);
+    if (!trig && !tgt) return null;
+    return `Playbook: ${trig ? `reclaim ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
+  }
+  if (flavor === "put") {
+    const trig = fmt(gp.bear_trigger);
+    const tgt = fmt(gp.bear_target);
+    if (!trig && !tgt) return null;
+    return `Playbook: ${trig ? `break ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
+  }
+  if (flavor === "straddle") {
+    const up = fmt(gp.bull_target);
+    const dn = fmt(gp.bear_target);
+    if (!up && !dn) return null;
+    return `Playbook range: ${dn || "?"} – ${up || "?"}`;
+  }
+  return null;
+}
 function OptionsPlaysOfTheDay({
   onSelectTicker,
   layout = "grid"
@@ -1029,6 +1109,11 @@ function OptionsPlaysOfTheDay({
       const driftPct = strike && spot ? Math.abs(strike - spot) / spot * 100 : null;
       const driftLabel = driftPct == null ? null : driftPct < 0.5 ? "At the money" : `${driftPct.toFixed(1)}% from spot`;
       const driftColor = driftPct == null ? "var(--tt-text-dim)" : driftPct < 1 ? "#34d399" : driftPct < 2 ? "#fbbf24" : "#f87171";
+      const flavorSource = p.flavor_source || p.primary?._day_trade_flavor_source || null;
+      const dayLean = String(p.day_lean || p.primary?._day_trade_lean || "").toUpperCase();
+      const dayLeanConv = String(p.day_lean_conviction || "").toLowerCase();
+      const modelLine = dayTradeModelLevelsLine(p, flavor);
+      const sourceLabel = flavorSource === "day_lean" && dayLean ? `Playbook lean ${dayLean}${dayLeanConv ? ` (${dayLeanConv})` : ""}` : p.confluence_mode && p.confluence_mode !== "UNKNOWN" ? `Layer fusion ${p.confluence_mode}${Number.isFinite(Number(p.confluence_score)) ? ` · ${p.confluence_score}/100` : ""}` : null;
       return h("div", {
         key: `dt-${p.ticker}`,
         onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
@@ -1116,13 +1201,42 @@ function OptionsPlaysOfTheDay({
         style: {
           color: "var(--tt-text-dim)"
         }
-      }, `· as of ${asOfLabel}`)), p.primary?.max_loss_usd && h("div", {
+      }, `· as of ${asOfLabel}`)), sourceLabel && h("div", {
         style: {
           fontSize: 10,
-          color: "var(--tt-text-faint)",
+          color: "var(--tt-text-muted)",
+          lineHeight: 1.4,
+          marginBottom: 4
+        },
+        title: flavorSource === "day_lean" ? "0/1DTE flavor follows the same index playbook lean as Day Predictions" : "0/1DTE flavor follows multi-layer fusion alignment"
+      }, sourceLabel), modelLine && h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--tt-text)",
+          lineHeight: 1.4,
+          marginBottom: 6,
           fontFamily: "var(--tt-font-mono)"
         }
-      }, `Max loss $${p.primary.max_loss_usd}${p.primary.breakeven ? ` · BE $${p.primary.breakeven.toFixed(2)}` : p.primary.breakeven_up ? ` · BE $${p.primary.breakeven_down.toFixed(2)} / $${p.primary.breakeven_up.toFixed(2)}` : ""}`));
+      }, modelLine), p.primary?.max_loss_usd && h("div", {
+        style: {
+          fontSize: 10.5,
+          color: "var(--tt-text-muted)",
+          fontFamily: "var(--tt-font-mono)",
+          lineHeight: 1.4
+        }
+      }, "Max loss ", h("strong", {
+        style: {
+          color: "#f87171"
+        }
+      }, `$${p.primary.max_loss_usd}`), p.primary.breakeven ? h("span", null, " · BE ", h("strong", {
+        style: {
+          color: "var(--tt-text)"
+        }
+      }, `$${Number(p.primary.breakeven).toFixed(2)}`)) : p.primary.breakeven_up ? h("span", null, " · BE ", h("strong", {
+        style: {
+          color: "var(--tt-text)"
+        }
+      }, `$${Number(p.primary.breakeven_down).toFixed(2)} / $${Number(p.primary.breakeven_up).toFixed(2)}`)) : null));
     })), Array.isArray(dayTradeSuppressed) && dayTradeSuppressed.length > 0 && h("div", {
       style: {
         marginTop: 6,
@@ -1135,7 +1249,7 @@ function OptionsPlaysOfTheDay({
         borderRadius: 6
       },
       title: "Day-trade plays we considered but suppressed for one of: strike drifted too far from spot, after-close 0DTE expired, no clear directional signal at low vol."
-    }, "Suppressed: ", dayTradeSuppressed.map(s => `${s.ticker} (${String(s.reason).replace(/_/g, " ")})`).join(" · ")));
+    }, "Suppressed: ", dayTradeSuppressed.map(s => `${s.ticker} (${formatDayTradeSuppressLabel(s)})`).join(" · ")));
   };
   if (!plays || plays.length === 0) {
     if (isSidebar) {
@@ -2965,6 +3079,11 @@ function TickerLogo({
     }
   }, mono);
 }
+const MOVER_LIMIT = 10;
+const getExtMoverPct = t => {
+  const ext = window.TimedPriceUtils?.getExtChange?.(t);
+  return Number.isFinite(ext?.pct) ? ext.pct : NaN;
+};
 function MoverRow({
   rk,
   t,
@@ -2973,9 +3092,10 @@ function MoverRow({
   universe
 }) {
   const dc = getDailyChange(t);
-  const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
-  const price = mode === "ext" ? Number(t?._ah_price ?? t?.extended_price ?? t?._live_price ?? t?.price) : Number(t?.price);
-  const rthClose = mode === "ext" ? Number(t?.price) : null;
+  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
+  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+  const price = mode === "ext" ? Number(ext?.price ?? t?._ah_price ?? t?.extended_price) : Number(t?.price);
+  const rthClose = mode === "ext" ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price) : null;
   const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
   const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
@@ -3058,27 +3178,27 @@ function TopMovers({
       t,
       pct: Number(dc?.dayPct)
     };
-  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => b.pct - a.pct).slice(0, 5).map(x => x.t), [arr]);
+  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => b.pct - a.pct).slice(0, MOVER_LIMIT).map(x => x.t), [arr]);
   const rthLoss = useMemo(() => arr.map(t => {
     const dc = getDailyChange(t);
     return {
       t,
       pct: Number(dc?.dayPct)
     };
-  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t), [arr]);
+  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t), [arr]);
   const extGain = useMemo(() => {
     if (open) return [];
     return arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
       t,
-      pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
-    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => b.pct - a.pct).slice(0, 5).map(x => x.t);
+      pct: getExtMoverPct(t)
+    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => b.pct - a.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const extLoss = useMemo(() => {
     if (open) return [];
     return arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
       t,
-      pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
-    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t);
+      pct: getExtMoverPct(t)
+    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const hasExt = extGain.length > 0 || extLoss.length > 0;
   if (strip) {
@@ -3086,7 +3206,7 @@ function TopMovers({
       const sym = String(t.ticker || t.sym || "").toUpperCase();
       let pct;
       if (mode === "ext") {
-        pct = Number(t._ah_change_pct);
+        pct = getExtMoverPct(t);
       } else {
         const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
         pct = Number(dc?.dayPct);
@@ -3251,6 +3371,7 @@ function MacroEventsStrip() {
 function EarningsStrip({
   earnings,
   universe,
+  data,
   onSelectTicker,
   strip
 }) {
@@ -3290,6 +3411,13 @@ function EarningsStrip({
   };
   if (strip) {
     const chips = events.slice(0, 24);
+    const openEarningsTicker = ev => {
+      if (!onSelectTicker) return;
+      const sym = String(ev?.symbol || "").toUpperCase();
+      if (!sym) return;
+      const uni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
+      if (uni) onSelectTicker(sym);else onSelectTicker(sym, "CATALYSTS");
+    };
     return h("section", {
       className: "tt-row"
     }, h("div", {
@@ -3298,15 +3426,17 @@ function EarningsStrip({
       className: "tt-strip-scroll"
     }, chips.map((ev, i) => {
       const sym = String(ev?.symbol || "").toUpperCase();
-      const uni = uniSet.has(sym);
+      const uni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
       return h("button", {
         key: `${sym}-${i}`,
-        onClick: () => onSelectTicker && onSelectTicker(sym),
+        onClick: () => openEarningsTicker(ev),
         className: "tt-strip-chip",
-        title: `${sym} \u00b7 ${ev?.date || ""} ${ev?.hour || ""}`,
+        title: uni ? `${sym} · in TT universe · open ticker` : `${sym} · not in TT universe · earnings watch (Catalysts tab)`,
         style: uni ? {
           borderColor: "rgba(52,211,153,0.4)"
-        } : undefined
+        } : {
+          opacity: 0.88
+        }
       }, h(TickerLogo, {
         sym,
         size: 18
@@ -3355,19 +3485,20 @@ function EarningsStrip({
       const eps = Number(rawEps);
       const hasEps = Number.isFinite(eps) && eps !== 0;
       const sym = String(ev?.symbol || "").toUpperCase();
-      const isUni = uniSet.has(sym);
+      const isUni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
       const hcls = hourClass(ev?.hour);
       const hourLabel = (ev?.hour || "—").toUpperCase();
       const onClick = e => {
         e.preventDefault();
-        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+        if (typeof onSelectTicker !== "function") return;
+        if (isUni) onSelectTicker(sym);else onSelectTicker(sym, "CATALYSTS");
       };
       return h("button", {
         type: "button",
         key: `${sym}-${i}`,
         className: "tt-earn-row" + (isUni ? " is-universe" : ""),
         onClick,
-        title: isUni ? `Open ${sym} in the right rail \u00b7 in our universe` : `Open ${sym} in the right rail`
+        title: isUni ? `Open ${sym} in the right rail · in our universe` : `${sym} · not in TT universe · opens earnings context on Catalysts tab`
       }, h(TickerLogo, {
         sym
       }), h("span", {
@@ -3410,9 +3541,9 @@ const TT_NORM_TICKER = t => {
   return s;
 };
 const MARKET_PULSE_PUBLIC_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "VIX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 const INDEX_SYMS = ["SPY", "RSP", "QQQ", "IWM"];
-const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
 const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
 const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
@@ -3688,14 +3819,14 @@ function computeInsightChips(allTickers, opts) {
       pct
     };
   }).filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const moverSet = new Set([...rthArr.slice(0, 5).map(t => t.ticker), ...rthArr.slice(-5).map(t => t.ticker)]);
+  const moverSet = new Set([...rthArr.slice(0, 10).map(t => t.ticker), ...rthArr.slice(-10).map(t => t.ticker)]);
   chips.push({
     id: "top_movers",
     label: "Top Movers",
     count: moverSet.size,
     tickers: Array.from(moverSet),
     row: "context",
-    tooltip: "Top 5 gainers + top 5 losers on the session."
+    tooltip: "Top 10 gainers + top 10 losers on the session."
   });
   const idxTickers = allTickers.filter(t => INDEX_SYMS.includes(TT_NORM_TICKER(t?.ticker)));
   chips.push({
@@ -4304,10 +4435,7 @@ function Viewport({
   }, "VIEWPORT"), h("div", {
     className: "vp-count"
   }, `${ranked.length} tickers`)), h("div", {
-    className: "vp-list",
-    style: {
-      flex: "1 1 auto"
-    }
+    className: "vp-list"
   }, ranked.length === 0 ? h("div", {
     className: "vp-empty"
   }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => {
@@ -4896,18 +5024,45 @@ function UniverseHeatmap({
   onSelectTicker
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [sortMode, setSortMode] = useState("htf");
+  const stageLabel = t => {
+    const stage = String(t?.kanban_stage || "").toLowerCase();
+    if (stage === "trim") return "Trim";
+    if (stage === "defend") return "Def";
+    if (stage === "exit") return "Exit";
+    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return "Enter";
+    if (stage === "hold" || stage === "active" || stage === "just_entered") return "Hold";
+    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return "Setup";
+    return stage ? stage.slice(0, 5) : "";
+  };
   const items = useMemo(() => {
     const arr = visible.slice();
     arr.sort((a, b) => {
-      const sa = Number(a?.htf_score);
-      const sb = Number(b?.htf_score);
-      const va = Number.isFinite(sa) ? sa : -999;
-      const vb = Number.isFinite(sb) ? sb : -999;
-      if (va !== vb) return vb - va;
+      if (sortMode === "day") {
+        const pa = Number(getDailyChange(a)?.dayPct);
+        const pb = Number(getDailyChange(b)?.dayPct);
+        const va = Number.isFinite(pa) ? pa : -999;
+        const vb = Number.isFinite(pb) ? pb : -999;
+        if (va !== vb) return vb - va;
+      } else if (sortMode === "rank") {
+        const ra = Number(a?.rank_position ?? a?.rp);
+        const rb = Number(b?.rank_position ?? b?.rp);
+        const hasA = Number.isFinite(ra) && ra > 0;
+        const hasB = Number.isFinite(rb) && rb > 0;
+        if (hasA && hasB && ra !== rb) return ra - rb;
+        if (hasA !== hasB) return hasA ? -1 : 1;
+      } else {
+        const sa = Number(a?.htf_score);
+        const sb = Number(b?.htf_score);
+        const va = Number.isFinite(sa) ? sa : -999;
+        const vb = Number.isFinite(sb) ? sb : -999;
+        if (va !== vb) return vb - va;
+      }
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return arr;
-  }, [visible]);
+  }, [visible, sortMode]);
+  const sortSubtitle = sortMode === "day" ? "Sorted by today's move" : sortMode === "rank" ? "Sorted by universe rank (best first)" : "Sorted by HTF score";
   if (items.length === 0) {
     return h("section", {
       className: "tt-row"
@@ -4915,7 +5070,7 @@ function UniverseHeatmap({
       className: "tt-sec-title"
     }, "HEAT MAP"), h("div", {
       className: "tt-sec-h"
-    }, "Ranked by today’s score"), h("div", {
+    }, sortSubtitle), h("div", {
       className: "tt-card tt-card-pad",
       style: {
         textAlign: "center",
@@ -4942,21 +5097,44 @@ function UniverseHeatmap({
     className: "tt-sec-title"
   }, "HEAT MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Ranked by today’s score")), h("div", {
+  }, sortSubtitle)), h("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, ["htf", "day", "rank"].map(mode => h("button", {
+    key: mode,
+    type: "button",
+    className: `heat-sort-btn${sortMode === mode ? " is-active" : ""}`,
+    onClick: () => setSortMode(mode)
+  }, mode === "htf" ? "HTF" : mode === "day" ? "Day %" : "Rank")))), h("div", {
     style: {
       display: "flex",
       gap: 8,
       alignItems: "center",
       fontSize: 11,
-      color: "var(--tt-text-dim)"
+      color: "var(--tt-text-dim)",
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, h("span", null, "Border = trend state"), Object.entries(STATE_BUCKET_COLOR).slice(0, 4).map(([key, color]) => h("span", {
+    key,
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
     }
   }, h("span", {
-    className: "tt-pill up"
-  }, "Strong"), h("span", {
-    className: "tt-pill accent"
-  }, "Mid"), h("span", {
-    className: "tt-pill dn"
-  }, "Weak"))), h("div", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: color,
+      display: "inline-block"
+    }
+  }), key.replace(/_/g, " ")))), h("div", {
     className: "tt-card tt-card-pad"
   }, h("div", {
     className: "heat-grid"
@@ -4965,11 +5143,17 @@ function UniverseHeatmap({
     const dc = getDailyChange(t);
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const score = Number(t?.htf_score) || 0;
+    const ltf = Number(t?.ltf_score) || 0;
+    const rank = Number(t?.rank_position ?? t?.rp);
+    const bucket = classifyStateBucket(t?.state);
+    const bucketColor = STATE_BUCKET_COLOR[bucket] || STATE_BUCKET_COLOR.neutral;
+    const stage = stageLabel(t);
     const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
     const pdir = !Number.isFinite(pct) ? "flat" : Math.abs(pct) < 0.05 ? "flat" : pct > 0 ? "up" : "dn";
     const side = pdir === "flat" ? "flat" : pdir;
     const isMatch = q.length > 0 && sym.startsWith(q);
     const isDim = q.length > 0 && !isMatch;
+    const tip = [sym, pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% today` : "no day change", `HTF ${score.toFixed(1)} · LTF ${ltf.toFixed(1)}`, t?.state ? String(t.state).replace(/_/g, " ") : "", stage ? `Stage: ${stage}` : "", Number.isFinite(rank) && rank > 0 ? `Rank #${rank}` : ""].filter(Boolean).join(" · ");
     return h("a", {
       key: sym,
       className: `heat-cell ${lvl}`,
@@ -4980,12 +5164,13 @@ function UniverseHeatmap({
           onSelectTicker(sym);
         }
       },
-      title: `${sym} · ${pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "no change"} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+      title: tip,
       "data-side": side,
       style: {
         opacity: isDim ? 0.28 : 1,
         transition: "opacity 0.15s",
         "--heat-pct": pct != null ? pct : 0,
+        borderColor: bucketColor,
         ...(isMatch ? {
           outline: "1px solid #fff",
           outlineOffset: "-1px"
@@ -5009,7 +5194,20 @@ function UniverseHeatmap({
       className: "sym"
     }, sym)), h("span", {
       className: `pct ${pdir}`
-    }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"));
+    }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"), h("div", {
+      className: "heat-cell__foot"
+    }, h("div", {
+      className: "heat-cell__meta"
+    }, stage && h("span", {
+      className: "heat-cell__chip heat-cell__chip--stage",
+      title: "Kanban stage"
+    }, stage), Number.isFinite(rank) && rank > 0 && h("span", {
+      className: "heat-cell__chip heat-cell__chip--rank",
+      title: "Universe rank"
+    }, `R${rank}`)), h("span", {
+      className: "heat-cell__score",
+      title: "HTF score"
+    }, score.toFixed(0))));
   })), items.length > cap && h("div", {
     style: {
       textAlign: "center",
@@ -5107,7 +5305,12 @@ function TodayApp({
     addOns: new Set()
   });
   const _liveHooks = window.TimedLiveData;
-  if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+  if (_liveHooks?.usePriceFeed) {
+    const mktOpen = isNyRegularMarketOpen();
+    _liveHooks.usePriceFeed(data, setData, {
+      firstPollMs: mktOpen ? 2500 : 0
+    });
+  }
   if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
   if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
   useEffect(() => {
@@ -5165,6 +5368,14 @@ function TodayApp({
     const t = setTimeout(scrollToOpp, 600);
     return () => clearTimeout(t);
   }, [data]);
+  const earningsMap = useMemo(() => buildEarningsMap(earnings?.events), [earnings]);
+  useEffect(() => {
+    window._ttEarningsMap = earningsMap;
+    return () => {
+      if (window._ttEarningsMap === earningsMap) window._ttEarningsMap = null;
+    };
+  }, [earningsMap]);
+  const universeSet = useMemo(() => data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : new Set(), [data]);
   const isAdmin = !!window._ttIsAdmin;
   const tradeByTicker = useOpenTrades(!!data);
   const {
@@ -5232,13 +5443,18 @@ function TodayApp({
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
     if (found) return found;
     if (data && typeof data === "object" && data[key]) {
-      return data[key].ticker ? data[key] : {
+      const row = data[key].ticker ? data[key] : {
         ...data[key],
         ticker: key
       };
+      return isTickerScoredInUniverse(data, key) ? row : {
+        ...row,
+        _outsideUniverse: true
+      };
     }
     return {
-      ticker: key
+      ticker: key,
+      _outsideUniverse: true
     };
   }, [railTicker, allTickers, data]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
@@ -5255,7 +5471,10 @@ function TodayApp({
   const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
     const ticker = String(sym).toUpperCase();
-    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    let tab = initialTab ? String(initialTab).toUpperCase() : null;
+    if (!isTickerScoredInUniverse(data, ticker)) {
+      if (!tab || tab === "SNAPSHOT" || tab === "NOW" || tab === "ANALYSIS") tab = "CATALYSTS";
+    }
     if (typeof window.ttOpenTickerInRail === "function") {
       window.ttOpenTickerInRail({
         ticker,
@@ -5265,8 +5484,8 @@ function TodayApp({
       return;
     }
     setRailTicker(ticker);
-    if (tab) setRailInitialTab(tab);else setRailInitialTab(null);
-  }, []);
+    setRailInitialTab(tab);
+  }, [data]);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
     const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
@@ -5339,9 +5558,10 @@ function TodayApp({
     data
   }), h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
     earnings,
+    data,
     onSelectTicker,
     strip: true,
-    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
+    universe: universeSet
   }), data && h(FocusRail, {
     data,
     onSelectTicker
@@ -5394,6 +5614,7 @@ function TodayApp({
     ticker: railTickerObj,
     trade: railTickerObj._openTrade || null,
     allLoadedData: data,
+    earningsMap,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
     railOpenSource,
@@ -5512,7 +5733,7 @@ function BriefPlaceholder({
   let signalMode = useExt ? "ext" : "rth";
   let signal = useExt ? arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
     t,
-    pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
+    pct: getExtMoverPct(t)
   })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3) : arr.map(t => {
     const dc = getDailyChange(t);
     return {
@@ -5774,6 +5995,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782580302770:910715667
+// cache-bust:1782581133095:916843501
 
-// cache-bust:1782580302770:910715667
+// cache-bust:1782581133095:916843501

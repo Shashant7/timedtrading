@@ -256,10 +256,11 @@
       .tt-rail-shell--workspace {
         display: grid !important;
         grid-template-columns: 1fr 460px;
-        grid-template-rows: auto 1fr;
+        grid-template-rows: auto 1fr auto;
         grid-template-areas:
           "header header"
-          "left   right";
+          "left   right"
+          "footer footer";
         height: 100%; /* fill the mount; mount is positioned below nav */
         max-height: 100%;
         overflow: hidden;
@@ -285,6 +286,10 @@
         min-width: 0;
         min-height: 0;
         -webkit-overflow-scrolling: touch;
+      }
+      .tt-rail-shell--workspace > .tt-rail-footer {
+        grid-area: footer;
+        flex-shrink: 0;
       }
       /* Chart canvas height by breakpoint. Stable via CSS so the JSX
          does not re-evaluate window.innerWidth on every render.
@@ -332,8 +337,9 @@
         flex-direction: column;
       }
       .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-header { order: 0; flex: 0 0 auto; }
-      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-right-pane { order: 1; flex: 1 1 auto; min-height: 0; }
       .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
+      .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-footer { order: 3; flex: 0 0 auto; }
       .tt-rail-area-left-pane,
       .tt-rail-area-right-pane {
         display: block;
@@ -1182,7 +1188,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260610-verda3"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="shared-right-rail.compiled.js?v=20260610-verda3"></script>
+    <script src="shared-right-rail.compiled.js?v=20260623f"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
     <script type="text/babel">
       const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
@@ -3020,7 +3026,7 @@
           "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB",
           "XLE", "XLRE", "XLU", "XLV",
         ]),
-        Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD", "VX1!"]),
+        Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD"]),
       };
 
       // Load GRNY/GRNI/GRNJ dynamically from backend ETF sync
@@ -3648,7 +3654,7 @@
       // Market Pulse universes used by the dedicated Market Pulse pills/chips.
       const MARKET_PULSE_ADMIN_SYMBOLS = [
         "SPY", "RSP", "QQQ", "IWM",
-        "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!",
+        "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VIX", "CL1!", "GC1!", "SI1!",
         "BTCUSD", "ETHUSD",
         "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV",
       ];
@@ -13576,7 +13582,9 @@
 
         // ── VIX level + bucket (from VIXY proxy × 0.55 heuristic, or a VIX ticker if available)
         const vix = React.useMemo(() => {
-          const vixTkr = (data && typeof data === "object") ? (data["VIX"] || data["$VIX"] || data["^VIX"]) : null;
+          const vixTkr = (data && typeof data === "object")
+            ? (data["VIX"] || data["$VIX"] || data["^VIX"] || data["VX1!"])
+            : null;
           const vixy = (data && typeof data === "object") ? data["VIXY"] : null;
           let level = null;
           if (vixTkr) {

@@ -18,7 +18,7 @@ const TF_LABELS = {
   "15": "15m",
   "5": "5m"
 };
-const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "VX1!", "GC1!", "SI1!"]);
+const TV_TICKERS = new Set(["ES1!", "NQ1!", "GOLD", "SILVER", "US500", "GC1!", "SI1!"]);
 const COMPANY_NAMES = {
   AAPL: "Apple",
   AAPU: "Apple 2x ETF",
@@ -174,6 +174,8 @@ const COMPANY_NAMES = {
   SO: "Southern Company",
   SOFI: "SoFi",
   SOXL: "Semis 3x ETF",
+  SMH: "VanEck Semiconductor ETF",
+  SOXX: "iShares Semiconductor ETF",
   SPCX: "SPAC & New Issue ETF",
   SPGI: "S&P Global",
   SPG: "Simon Property",
@@ -266,6 +268,14 @@ const CONTEXT_FALLBACKS = {
     name: "Arm Holdings",
     industry: "Semiconductors"
   },
+  SMH: {
+    name: "VanEck Semiconductor ETF",
+    industry: "Semiconductor Sector ETF"
+  },
+  SOXX: {
+    name: "iShares Semiconductor ETF",
+    industry: "Semiconductor Sector ETF"
+  },
   "BRK-B": {
     name: "Berkshire Hathaway",
     industry: "Insurance - Diversified"
@@ -357,7 +367,7 @@ const GROUPS = {
   GRNJ: new Set(),
   GRNY: new Set(),
   SP_Sectors: new Set(["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"]),
-  Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD", "VX1!"])
+  Futures: new Set(["ES1!", "NQ1!", "RTY1!", "YM1!", "GC1!", "SI1!", "CL1!", "BTCUSD", "ETHUSD"])
 };
 let _etfWeightMap = {};
 const GROUP_ORDER = ["SP_Sectors", "Futures", "UPTICKS", "GRNI", "GRNJ", "GRNY"];
@@ -2024,6 +2034,6 @@ const _tickerApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(_tickerApp);
-// cache-bust:1782578570256:721537157
+// cache-bust:1782581133095:916843501
 
-// cache-bust:1782578570256:721537157
+// cache-bust:1782581133095:916843501

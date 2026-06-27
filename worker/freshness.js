@@ -20,9 +20,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import {
+  addDays,
   computeMarketSessionReference,
+  dayOfWeek,
   etDateStr,
   isNyRthOpenAt,
+  tradingDateUtcMs,
 } from "./foundation/trading-calendar.js";
 
 export const FRESHNESS_SLO_VERSION = 2;
@@ -33,7 +36,7 @@ export const GRADE_STALE = "STALE";
 
 /** Stream-blocklisted / continuous-future symbols — no live intraday ingest. */
 export const FRESHNESS_EXEMPT_TICKERS = new Set([
-  "BTCUSD", "ETHUSD", "US500", "US100", "US30", "US2000", "VX1!",
+  "BTCUSD", "ETHUSD", "US500", "US100", "US30", "US2000",
   "ES1!", "NQ1!", "YM1!", "RTY1!", "CL1!", "GC1!", "SI1!", "HG1!", "NG1!",
 ]);
 
@@ -133,6 +136,25 @@ export function freshnessSloMs(tf, marketOpen, nowMs = Date.now()) {
 export function effectiveCandleAgeMs(tf, ts, nowMs, marketOpen, sessionRef) {
   const candleTs = Number(ts) || 0;
   if (candleTs <= 0) return null;
+
+  // Monthly / weekly — calendar period (works with or without sessionRef).
+  if (String(tf) === "M") {
+    const barYm = etDateStr(candleTs).slice(0, 7);
+    const nowYm = etDateStr(nowMs).slice(0, 7);
+    if (barYm === nowYm) return 0;
+    const periodStart = tradingDateUtcMs(`${nowYm}-01`);
+    if (candleTs >= periodStart) return 0;
+    return Math.max(0, nowMs - periodStart);
+  }
+
+  if (String(tf) === "W") {
+    const nowDay = etDateStr(nowMs);
+    const dow = dayOfWeek(nowDay);
+    const daysFromMon = dow === 0 ? 6 : dow - 1;
+    const weekStartMs = tradingDateUtcMs(addDays(nowDay, -daysFromMon));
+    if (candleTs >= weekStartMs) return 0;
+    return Math.max(0, nowMs - weekStartMs);
+  }
 
   if (!sessionRef?.last_trading_day) {
     return Math.max(0, nowMs - candleTs);

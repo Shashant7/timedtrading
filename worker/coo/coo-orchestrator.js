@@ -528,6 +528,10 @@ export async function runScreenerAutoPromote(env, options = {}) {
           candidate_id: c.candidate_id,
           decision: "approve",
           decided_by: `ai_coo_auto`,
+          ctx: options.ctx,
+          ensureOnboard: typeof options.ensureOnboard === "function"
+            ? (sym, meta) => options.ensureOnboard(sym, meta)
+            : undefined,
         });
         if (decideRes?.ok) {
           promoted.push({

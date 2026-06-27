@@ -355,7 +355,7 @@
     SP_Sectors: new Set([
       "XLK","XLF","XLY","XLP","XLC","XLI","XLB","XLE","XLRE","XLU","XLV",
     ]),
-    Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD","VX1!"]),
+    Futures: new Set(["ES1!","NQ1!","RTY1!","YM1!","GC1!","SI1!","CL1!","BTCUSD","ETHUSD"]),
   };
   const GROUP_LABELS = {
     SP_Sectors: "S&P Sectors", Futures: "Futures", Other: "Other",
@@ -1135,6 +1135,18 @@
       monitor: { label: "MONITOR", color: "#6E867D", title: "Thesis signal only — not buying until the buy zone / trigger fires." },
       stale:   { label: "STALE",   color: "#f59e0b", title: "Signal active >7 days without a matching lot action." },
     },
+    /** Strip third-party source branding from user-facing rail copy. */
+    sanitizeUserFacingCopy(text) {
+      if (text == null || text === "") return text;
+      return String(text)
+        .replace(/\bFSD\s*\/\s*/gi, "")
+        .replace(/\bFSD\b/gi, "")
+        .replace(/Fundstrat Direct/gi, "")
+        .replace(/Fundstrat/gi, "")
+        .replace(/\s{2,}/g, " ")
+        .replace(/^\s*[·,\-–—]\s*/g, "")
+        .trim();
+    },
     /**
      * Single source for rail header + Snapshot investor POV.
      * displayStage = kanban lane (execution-aware); rawStage = classifier output.
@@ -1250,4 +1262,4 @@
   };
 })();
 
-// cache-bust:1782578570256:721537157
+// cache-bust:1782581133095:916843501

@@ -8,7 +8,7 @@
  *   3. Upload & trigger server-side analysis — uploads data, server runs lightweight runCalibrationAnalysis
  *
  * Usage:
- *   node scripts/calibrate.js [--lookback 400] [--since 2025-07-01] [--ticker AAPL] [--dry-run] [--skip-moves] [--skip-autopsy] [--no-sync]
+ *   node scripts/calibrate.js [--lookback 400] [--since 2025-07-01] [--ticker AAPL] [--live-only] [--dry-run] [--skip-moves] [--skip-autopsy] [--no-sync]
  *   Use --no-sync to skip delta sync before run.
  *   USE_D1=1 — Read from worker D1 (recommended): full trade set, matches Trade Autopsy and annotations.
  *   Without USE_D1 — Read from local SQLite (data/timed-local.db); run ./scripts/export-d1.sh first for a complete snapshot.
@@ -33,9 +33,13 @@ const DRY_RUN = hasFlag("dry-run");
 const SKIP_MOVES = hasFlag("skip-moves");
 const SKIP_AUTOPSY = hasFlag("skip-autopsy");
 const NO_SYNC = hasFlag("no-sync");
+const LIVE_ONLY = hasFlag("live-only");
 const CALIBRATION_SCOPE_ID = getArg("scope-id", `cal_scope_${Date.now()}`);
 const CALIBRATION_RUN_ID = getArg("run-id", null);
-const CALIBRATION_SCOPE_KIND = getArg("scope-kind", CALIBRATION_RUN_ID ? "run_diagnostic" : "diagnostic_active");
+const CALIBRATION_SCOPE_KIND = getArg(
+  "scope-kind",
+  LIVE_ONLY ? "live_diagnostic" : (CALIBRATION_RUN_ID ? "run_diagnostic" : "diagnostic_active"),
+);
 
 const API_BASE = process.env.API_BASE || "https://timed-trading-ingest.shashant.workers.dev";
 const API_KEY = process.env.TIMED_API_KEY || "AwesomeSauce";
@@ -480,7 +484,10 @@ if (!SKIP_AUTOPSY) {
   let tradeTable = "trades";
   let daTable = "direction_accuracy";
   let runFilter = "";
-  if (CALIBRATION_RUN_ID) {
+  if (LIVE_ONLY) {
+    runFilter = "AND (t.run_id IS NULL OR t.run_id = '')";
+    console.log("  Live-only filter: run_id IS NULL OR run_id = ''");
+  } else if (CALIBRATION_RUN_ID) {
     if (db) {
       try {
         const cnt = db.prepare("SELECT COUNT(*) AS cnt FROM backtest_run_trades WHERE run_id = ?").get(CALIBRATION_RUN_ID);

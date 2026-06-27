@@ -90,7 +90,7 @@ function BriefInfographic({
   const liveFor = (sym, fallback) => {
     if (!livePx) return fallback;
     const s = String(sym || "").toUpperCase();
-    const row = livePx[s] || (s === "ES" ? livePx["ES1!"] || livePx["ES"] : null);
+    const row = livePx[s];
     if (!row) return fallback;
     const ext = Number(row.ahp),
       p = Number(row.p);
@@ -732,11 +732,8 @@ function IndexOutlookSection({
   if (!hasOutlook) return null;
   const sectionTitle = isMorning ? "Index Outlook & Game Plan" : "Index Outlook & Scorecard";
   const predCards = [{
-    label: "ES Outlook",
-    body: brief.esPrediction
-  }, {
     label: "SPY Prediction",
-    body: brief.spyPrediction
+    body: brief.spyPrediction || brief.esPrediction
   }, {
     label: "QQQ Prediction",
     body: brief.qqqPrediction
@@ -779,6 +776,24 @@ function IndexOutlookSection({
     refreshedAt: brief.liveKeyLevelsAt,
     embedded: true
   }));
+}
+function SessionContextBanner({
+  sessionContext
+}) {
+  if (!sessionContext?.message) return null;
+  return React.createElement("div", {
+    className: "mb-4 rounded-lg border px-4 py-3 text-[13px] leading-relaxed",
+    style: {
+      borderColor: "rgba(245, 158, 11, 0.35)",
+      background: "rgba(245, 158, 11, 0.08)",
+      color: "#E8F2EC"
+    }
+  }, React.createElement("div", {
+    className: "text-[10px] font-semibold uppercase tracking-wider mb-1",
+    style: {
+      color: "#f59e0b"
+    }
+  }, "Live session update"), sessionContext.message);
 }
 function BriefCard({
   brief,
@@ -826,6 +841,8 @@ function BriefCard({
     }
   }, dateStr)), brief.infographic && React.createElement(BriefInfographic, {
     data: brief.infographic
+  }), isMorning && brief.sessionContext && React.createElement(SessionContextBanner, {
+    sessionContext: brief.sessionContext
   }), React.createElement("div", {
     className: "brief-content",
     dangerouslySetInnerHTML: {
@@ -995,8 +1012,7 @@ function ArchiveTree({
     }))));
   })))));
 }
-const _isAdminCharts = () => document.body.dataset.userRole === "admin";
-const CHART_SYMBOLS_PRIMARY_ADMIN = [{
+const CHART_SYMBOLS_PRIMARY = [{
   sym: "SPY",
   label: "SPY",
   color: "#38F2A1"
@@ -1009,35 +1025,9 @@ const CHART_SYMBOLS_PRIMARY_ADMIN = [{
   label: "IWM (Russell 2000)",
   color: "#f97316"
 }, {
-  sym: "VX1!",
-  label: "VIX Futures",
+  sym: "VIX",
+  label: "VIX",
   color: "#f59e0b"
-}];
-const CHART_SYMBOLS_PRIMARY_USER = [{
-  sym: "SPY",
-  label: "SPY",
-  color: "#38F2A1"
-}, {
-  sym: "QQQ",
-  label: "QQQ",
-  color: "#2196f3"
-}, {
-  sym: "IWM",
-  label: "IWM (Russell 2000)",
-  color: "#f97316"
-}, {
-  sym: "VIXY",
-  label: "VIXY (VIX ETF)",
-  color: "#f59e0b"
-}];
-const CHART_SYMBOLS_ADVANCED = [{
-  sym: "ES1!",
-  label: "ES (S&P Futures)",
-  color: "#a78bfa"
-}, {
-  sym: "NQ1!",
-  label: "NQ (Nasdaq Futures)",
-  color: "#6366f1"
 }];
 const TF_OPTIONS = [{
   value: "5",
@@ -1243,7 +1233,7 @@ function MiniChart({
       },
       localization: {
         priceFormatter: p => {
-          if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+          if (sym === "VIX") return p.toFixed(2);
           return p >= 1000 ? p.toFixed(2) : p.toFixed(2);
         },
         timeFormatter: time => {
@@ -1897,10 +1887,8 @@ function MarketCharts({
   briefIndices = null
 }) {
   const [tf, setTf] = useState("15");
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const tfConfig = TF_OPTIONS.find(t => t.value === tf) || TF_OPTIONS[0];
-  const isAdmin = _isAdminCharts();
-  const primarySymbols = isAdmin ? CHART_SYMBOLS_PRIMARY_ADMIN : CHART_SYMBOLS_PRIMARY_USER;
+  const primarySymbols = CHART_SYMBOLS_PRIMARY;
   const gamePlanBySym = useMemo(() => {
     const map = {};
     if (Array.isArray(briefIndices)) {
@@ -1929,10 +1917,7 @@ function MarketCharts({
     className: "text-[10px] text-[#51635A] font-normal"
   }, "Live Charts")), React.createElement("div", {
     className: "flex items-center gap-3"
-  }, isAdmin && React.createElement("button", {
-    onClick: () => setShowAdvanced(!showAdvanced),
-    className: `px-2 py-1 rounded-md text-[10px] font-medium transition-all border ${showAdvanced ? "bg-violet-500/15 border-violet-500/30 text-violet-300" : "bg-white/[0.02] border-white/[0.06] text-[#51635A] hover:text-[#8AA39A]"}`
-  }, showAdvanced ? "Hide" : "Show", " Futures"), React.createElement("div", {
+  }, React.createElement("div", {
     className: "flex items-center gap-1 bg-white/[0.02] rounded-lg p-0.5 border border-white/[0.04]"
   }, TF_OPTIONS.map(opt => React.createElement("button", {
     key: opt.value,
@@ -1965,19 +1950,6 @@ function MarketCharts({
     tf: tfConfig.value,
     limit: tfConfig.limit,
     gamePlanLevels: gamePlanBySym[sym] || null
-  }))), isAdmin && showAdvanced && React.createElement("div", {
-    className: "grid grid-cols-1 gap-4 mt-4"
-  }, CHART_SYMBOLS_ADVANCED.map(({
-    sym,
-    label,
-    color
-  }) => React.createElement(MiniChart, {
-    key: `${sym}-${tf}`,
-    sym: sym,
-    label: label,
-    accentColor: color,
-    tf: tfConfig.value,
-    limit: tfConfig.limit
   }))));
 }
 function IntradayPulse({
@@ -2119,9 +2091,9 @@ function IntradayFlash({
     sub: "small caps",
     accentColor: "#fbbf24"
   }, {
-    sym: "VIXY",
-    label: "VIXY",
-    sub: "vol proxy",
+    sym: "VIX",
+    label: "VIX",
+    sub: "volatility",
     accentColor: "#f87171"
   }], []);
   if (!entries || entries.length === 0) return null;
@@ -2187,7 +2159,7 @@ function IntradayFlash({
     }
   }, "Today's Tape"), React.createElement("span", {
     className: "text-[11px] text-[#6E867D]"
-  }, "SPY \xB7 QQQ \xB7 IWM \xB7 VIXY \xB7 15m \xB7 violet dots mark each flash")), React.createElement("div", {
+  }, "SPY \xB7 QQQ \xB7 IWM \xB7 VIX \xB7 15m \xB7 violet dots mark each flash")), React.createElement("div", {
     className: "grid grid-cols-1 md:grid-cols-2 gap-3"
   }, TODAYS_TAPE_TICKERS.map(t => React.createElement("div", {
     key: t.sym
@@ -2662,7 +2634,7 @@ function App({
     className: "ml-auto flex items-center gap-2"
   }, React.createElement("span", {
     className: "text-[11px] text-[#51635A]"
-  }, "ES Prediction:"), React.createElement("button", {
+  }, "SPY Prediction:"), React.createElement("button", {
     onClick: () => markPrediction(selectedArchive, 1),
     className: "text-[11px] px-2 py-0.5 rounded bg-[#38F2A1]/10 text-[#38F2A1] hover:bg-[#38F2A1]/20 transition-all"
   }, "Correct"), React.createElement("button", {
@@ -2757,6 +2729,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1782578570256:721537157
+// cache-bust:1782581133095:916843501
 
-// cache-bust:1782578570256:721537157
+// cache-bust:1782581133095:916843501
