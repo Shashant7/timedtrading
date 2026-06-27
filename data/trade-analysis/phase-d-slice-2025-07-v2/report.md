@@ -76,11 +76,18 @@ logic-path deviation.
 1. **Return parity, quality drop** — not safe to assume WR holds; monitor live
    July with lower WR expectation but similar PnL% ceiling if breadth stays high.
 2. **ATH path volume up** — confirm gate did not suppress ATH count vs anchor;
-   demotion keys not wired to admission matrix.
-3. **Index entries unlocked** — verify whether index ETF override keys are ON
-   in synced config (`deep_audit_pullback_*_index_etf*`).
+   demotion keys not wired to admission matrix. **Non-index ATH is +23% — do not
+   blanket demote ATH.**
+3. **Index entries unlocked** — primary damage (−4.59% on 15 trades). See
+   `docs/july-slice-v2-improvement-plan.md` for P0 config revert.
 4. **Force-exit churn** — 13 `tape_capitulation_force_exit` warrants block-chain
-   review vs anchor.
+   review vs anchor; mostly small scratches on index names.
+
+## Improvement plan
+
+See **`docs/july-slice-v2-improvement-plan.md`** — prioritized levers with
+counterfactual WR/pnl estimates. Top action: **revert index ETF unlocks** (est.
+45% → 59% WR, +25.6% → +30.2% pnl on existing ledger filter).
 
 ## Artifacts
 

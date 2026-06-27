@@ -194,6 +194,10 @@ Preprod replay with **493 production `model_config` keys synced** (2026-06-27).
 monitoring should expect **~45% WR with similar PnL% ceiling** if breadth holds —
 not the anchor's 76% WR profile.
 
+**Improvement path:** See `docs/july-slice-v2-improvement-plan.md`. Top lever:
+revert index ETF unlocks (P0) — counterfactual removes 15 trades at −4.59% and
+raises WR to 59% / pnl to +30.2% on the same ledger.
+
 ---
 
 ## Pre-July checklist (recommended)
