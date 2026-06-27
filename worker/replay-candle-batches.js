@@ -11,6 +11,7 @@ import {
   serializeSequenceTrailSnapshot,
   sequenceTrailSnapshotEnabled,
 } from "./foundation/sequence-snapshot.js";
+import { buildEarningsClusterWindowsFromEvents } from "./pipeline/earnings-cluster-gate.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -138,6 +139,16 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
   let tickerOffset = initialTickerOffset;
   let batchTickers = initialBatchTickers;
   let hasMore = initialHasMore;
+
+  if (!Array.isArray(replayEnv._earningsClusterWindows)) {
+    const _events = replayCtx?.cioMemoryCache?.marketEvents
+      || replayEnv?.cioMemoryCache?.marketEvents
+      || [];
+    replayEnv._earningsClusterWindows = buildEarningsClusterWindowsFromEvents(_events, {
+      minTickers: Number(replayEnv?._deepAuditConfig?.deep_audit_earnings_cluster_min_tickers) || 4,
+      windowDays: 3,
+    });
+  }
 
   let dayScored = 0;
   let dayTradesCreated = 0;

@@ -16,8 +16,8 @@ scripts/monthly-slice.sh --month=2025-07 --run-id=phase-d-slice-2025-07-v2 \
   --api-base=https://timed-trading-ingest-preprod.shashant.workers.dev
 ```
 
-**Status:** ✅ Completed 2026-06-27 on preprod (`phase-d-slice-2025-07-v2`).
-Full comparison: `data/trade-analysis/phase-d-slice-2025-07-v2/report.md`.
+**Status:** ✅ v3 completed 2026-06-27 (`phase-d-slice-2025-07-v3`) — see
+`data/trade-analysis/phase-d-slice-2025-07-v3/report.md`.
 
 ---
 
@@ -139,7 +139,24 @@ Changes since the Phase C / v16 July runs that **will change July replay output*
 
 ---
 
-## Phase D replay results (`phase-d-slice-2025-07-v2`)
+## Phase D replay v3 (`phase-d-slice-2025-07-v3`)
+
+After **index ETF model + demotion/cluster/capitulation gates** (PR branch
+`cursor/index-model-july-v3-dbdd`):
+
+| Metric | **v3** | v2 | v1 anchor |
+|--------|--------|-----|-----------|
+| Trades | **17** | 42 | 25 |
+| Win rate | **52.9%** | 45.2% | 76.0% |
+| Sum pnl_pct | **+14.72%** | +25.64% | +26.05% |
+| Index entries | **0** | 15 | 0 |
+| Capitulation exits | **1** | 13 | 0 |
+
+Quality vs v2 improved; PnL below anchor (TSLA/SWK HARD_LOSS_CAP losses).
+Index model strict — no July index entries (same as anchor). See
+`docs/index-etf-model.md`.
+
+---
 
 Preprod replay with **493 production `model_config` keys synced** (2026-06-27).
 22 sessions, ~58 min wall-clock. Same 24-ticker universe as Phase C anchor.
