@@ -310,6 +310,9 @@ playbook in `skills/security-auth-patterns.md`)**
 - External watchdog (`watchdog.yml`, 30-min) reads `/timed/health`
   (`cronTickAgeMin` + `cronFailures`) — new critical subsystems add
   their freshness to that ONE endpoint, not bespoke endpoints.
+- **tt-feed staleness**: watchdog only fails `prices_age_sec > 600` when
+  `operating_hours` AND `price_feed_cron_active` (from `/feed/health`) —
+  Saturday quiet windows intentionally stop `computeFeedWindow()` ticks.
 - **Tombstone semantics**: `recordCronSuccess` heals a tombstone by
   rewriting it with `count: 0` — the KV key persists 7 days. Anything
   counting `timed:cron:failure:*` MUST read values and count only
