@@ -95,6 +95,20 @@ export function checkEarningsClusterEntryBlock(args) {
     const tickers = Array.isArray(cluster?.tickers) ? cluster.tickers : [];
     if (tickers.length < minTickers) continue;
     if (!tickers.includes(tk)) continue;
+    // High-rank member block uses a wider pad than the standard cluster gate.
+    const blockHighRank = String(daCfg?.deep_audit_earnings_cluster_block_high_rank_members ?? "true") === "true";
+    const highRankFloor = Number(daCfg?.deep_audit_earnings_cluster_high_rank_floor) || 100;
+    const highRankPad = Number(daCfg?.deep_audit_earnings_cluster_high_rank_day_pad) || 3;
+    if (blockHighRank && rankScore >= highRankFloor) {
+      const wideDates = expandBlockDates(cluster.anchor, cluster.window_dates, highRankPad);
+      if (wideDates.has(dk)) {
+        return {
+          blocked: true,
+          reason: "earnings_cluster_high_rank_member_block",
+          cluster,
+        };
+      }
+    }
     const blockDates = expandBlockDates(cluster.anchor, cluster.window_dates, dayPad);
     if (!blockDates.has(dk)) continue;
     if (rankScore >= rankBypass) continue;
@@ -108,3 +122,17 @@ export function checkEarningsClusterEntryBlock(args) {
 }
 
 export { parseDateKey, expandBlockDates };
+
+/** July 2025 backdrop clusters — fallback when market_events is empty on preprod. */
+export const JULY_2025_EARNINGS_CLUSTER_FALLBACK = [
+  {
+    anchor: "2025-07-23",
+    window_dates: ["2025-07-23", "2025-07-24"],
+    tickers: ["FIX", "GOOGL", "TSLA"],
+  },
+  {
+    anchor: "2025-07-28",
+    window_dates: ["2025-07-28", "2025-07-29", "2025-07-30"],
+    tickers: ["CDNS", "META", "MSFT", "SWK"],
+  },
+];
