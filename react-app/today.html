@@ -25,6 +25,8 @@
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
     <script src="shared-price-utils.js?v=20260615a"></script>
+    <script src="tt-sparkline-config.js?v=20260624a"></script>
+    <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-lane-card.js?v=20260616a"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
@@ -85,6 +87,82 @@
       .tt-opp-meta { display: flex; flex-wrap: wrap; gap: 8px; font-family: var(--tt-font-mono); font-size: 10px; color: var(--tt-text-muted); }
       .tt-opp-why { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--tt-text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
       .tt-opp-dip { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--tt-up-soft); text-transform: uppercase; }
+      .tt-opp-zone { margin-top: 8px; }
+      .tt-opp-zone-labels {
+        display: flex;
+        justify-content: space-between;
+        gap: 4px;
+        font-size: 8.5px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--tt-text-faint);
+        margin-bottom: 4px;
+      }
+      .tt-opp-zone-track {
+        position: relative;
+        height: 8px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+      }
+      .tt-opp-zone-seg {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+      }
+      .tt-opp-zone-seg--inv { background: rgba(248,113,113,0.35); }
+      .tt-opp-zone-seg--pb { background: rgba(56,242,161,0.28); }
+      .tt-opp-zone-seg--tgt { background: rgba(245,194,92,0.32); }
+      .tt-opp-zone-marker {
+        position: absolute;
+        top: -3px;
+        width: 3px;
+        height: 14px;
+        border-radius: 2px;
+        background: var(--tt-text);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+        transform: translateX(-50%);
+        z-index: 2;
+      }
+      .tt-opp-zone-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        margin-top: 6px;
+        font-family: var(--tt-font-mono);
+        font-size: 9px;
+        color: var(--tt-text-dim);
+      }
+      .tt-opp-zone-prob { color: var(--tt-accent); font-weight: 700; }
+      .tt-pattern-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-muted);
+        white-space: nowrap;
+      }
+      .tt-pattern-chip--bull { border-color: rgba(56,242,161,0.35); color: var(--tt-up-soft); }
+      .tt-pattern-chip--bear { border-color: rgba(248,113,113,0.35); color: var(--tt-dn-soft); }
+      .tt-primed-badge {
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--tt-accent);
+        border: 1px solid rgba(245,194,92,0.45);
+        border-radius: 999px;
+        padding: 1px 6px;
+        background: rgba(245,194,92,0.1);
+      }
       :root {
         /* 2026-06-10 — VERDA MIGRATION (first page). The page-local token
            values are re-pointed at the Verda Finance palette (Ink / Bark /
@@ -158,19 +236,17 @@
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
-      /* Today hero — row 1: Daily Brief full width; row 2: Research Desk | PLM.
-         Prior layout squeezed Brief beside Desk and buried PLM in a cramped
-         full-width scroll with 300px cap + 2-col inner grid. */
+      /* Today hero — Daily Brief | Research Desk (PLM lives on Research Desk page). */
       .today-hero {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        grid-template-rows: auto auto;
+        grid-template-rows: auto;
         gap: 16px;
         margin-bottom: 16px;
         align-items: stretch;
       }
       .today-hero-brief-col {
-        grid-column: 1 / -1;
+        grid-column: 1;
         grid-row: 1;
         min-width: 0;
         display: flex;
@@ -178,16 +254,8 @@
         gap: 14px;
       }
       .today-hero-desk-col {
-        grid-column: 1;
-        grid-row: 2;
-        min-width: 0;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-      }
-      .today-hero-levels-col {
         grid-column: 2;
-        grid-row: 2;
+        grid-row: 1;
         min-width: 0;
         min-height: 0;
         display: flex;
@@ -236,8 +304,7 @@
           grid-template-rows: auto;
         }
         .today-hero-brief-col,
-        .today-hero-desk-col,
-        .today-hero-levels-col {
+        .today-hero-desk-col {
           grid-column: 1;
           grid-row: auto;
         }
@@ -1282,49 +1349,42 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* Row 2: Research Desk | PML — fixed equal height, scroll overflow */
-        .today-hero-desk-col,
-        .today-hero-levels-col {
-          align-self: start;
+        /* Brief | Research Desk — matched height, inner scroll */
+        .today-hero-desk-col {
+          align-self: stretch;
         }
-        .today-hero-desk-col .tt-desk-panel,
-        .today-hero-levels-col .tt-cto-panel {
+        .today-hero-desk-col .tt-desk-panel {
           height: min(520px, 62vh);
           max-height: min(520px, 62vh);
           min-height: 0;
           flex: none;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-feed-body,
-        .today-hero-levels-col .tt-cto-feed-body {
+        .today-hero-desk-col .tt-desk-feed-body {
           flex: 1;
           min-height: 0;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-scroll,
-        .today-hero-levels-col .tt-cto-map-scroll {
+        .today-hero-desk-col .tt-desk-scroll {
           flex: 1;
           min-height: 0;
         }
       }
       @media (max-width: 980px) {
         /* Stacked mobile: same fixed-height + scroll pattern, slightly shorter cap */
-        .today-hero-desk-col .tt-desk-panel,
-        .today-hero-levels-col .tt-cto-panel {
+        .today-hero-desk-col .tt-desk-panel {
           height: min(400px, 48vh);
           max-height: min(400px, 48vh);
           min-height: 0;
           flex: none;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-feed-body,
-        .today-hero-levels-col .tt-cto-feed-body {
+        .today-hero-desk-col .tt-desk-feed-body {
           flex: 1;
           min-height: 0;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-scroll,
-        .today-hero-levels-col .tt-cto-map-scroll {
+        .today-hero-desk-col .tt-desk-scroll {
           flex: 1;
           min-height: 0;
         }
@@ -2274,8 +2334,9 @@
         const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(tx) ?? tx.price);
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
 
-        // 1H sparkline (uses the same cache /active-trader and /investor use).
-        const sparkSrc = (window._dsSparklineCache && window._dsSparklineCache[SYM]) || null;
+        // Daily sparkline (uses the same cache /active-trader and /investor use).
+        const sparkRaw = (window._dsSparklineCache && window._dsSparklineCache[SYM]) || null;
+        const sparkSrc = sparkClosesFromCacheEntry(sparkRaw);
         useEffect(() => {
           if (typeof window._dsEnsureSparkline === "function") window._dsEnsureSparkline(SYM);
         }, [SYM]);
@@ -3197,7 +3258,7 @@
           style: {
             display: "grid",
             gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gridTemplateRows: "auto auto",
+            gridTemplateRows: "auto",
             gap: 16,
             marginBottom: 16,
             alignItems: "stretch",
@@ -3210,9 +3271,6 @@
           ),
           h("div", { className: "today-hero-desk-col" },
             h(ResearchDeskPanel, { onSelectTicker }),
-          ),
-          h("div", { className: "today-hero-levels-col" },
-            h(CTOLevelsPanel, { onSelectTicker }),
           ),
         );
       }
@@ -3576,6 +3634,87 @@
       // Same feed as /timed/investor/holdbook — surfaced on Today as ideas
       // the model tracks for dip-buy entry (not a core-hold ledger).
       const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
+      const CTO_FEED_URL = `${API_BASE}/timed/cto/feed?limit=120`;
+
+      function buildGrowthZoneModel(row, ctoItem) {
+        const price = Number(row?.price);
+        if (!Number.isFinite(price) || price <= 0) return null;
+        const down = ctoItem?.top_downside;
+        const up = ctoItem?.top_upside;
+        let inv = Number(down?.price);
+        let tgt = Number(up?.price);
+        const fv = Number(row?.fair_value_price);
+        if (!Number.isFinite(inv) || inv >= price) inv = price * 0.9;
+        if (!Number.isFinite(tgt) || tgt <= price) {
+          tgt = Number.isFinite(fv) && fv > price ? fv : price * 1.12;
+        }
+        if (inv >= tgt) {
+          inv = price * 0.92;
+          tgt = price * 1.1;
+        }
+        const span = tgt - inv;
+        const pbLo = inv + span * 0.28;
+        const pbHi = inv + span * 0.48;
+        const pad = span * 0.04 || price * 0.01;
+        const minPx = inv - pad;
+        const maxPx = tgt + pad;
+        const pct = (px) => Math.max(0, Math.min(100, ((px - minPx) / (maxPx - minPx)) * 100));
+        return {
+          inv,
+          tgt,
+          pbLo,
+          pbHi,
+          price,
+          invProb: Number(down?.adj_prob),
+          tgtProb: Number(up?.adj_prob),
+          pct,
+          minPx,
+          maxPx,
+        };
+      }
+
+      function GrowthZoneBar({ row, ctoItem }) {
+        const zm = buildGrowthZoneModel(row, ctoItem);
+        if (!zm) return null;
+        const fmtPx = (n) => `$${Number(n).toFixed(Number(n) >= 100 ? 0 : 2)}`;
+        const fmtProb = (p) => (Number.isFinite(p) ? `${Math.round(p * 100)}%` : null);
+        const invPct = zm.pct(zm.inv);
+        const pbLoPct = zm.pct(zm.pbLo);
+        const pbHiPct = zm.pct(zm.pbHi);
+        const tgtPct = zm.pct(zm.tgt);
+        const pricePct = zm.pct(zm.price);
+        return h("div", { className: "tt-opp-zone" },
+          h("div", { className: "tt-opp-zone-labels" },
+            h("span", null, "Invalidation"),
+            h("span", null, "Pullback"),
+            h("span", null, "Target"),
+          ),
+          h("div", { className: "tt-opp-zone-track", title: "Daily CTO levels — invalidation, pullback add zone, and upside target." },
+            h("div", {
+              className: "tt-opp-zone-seg tt-opp-zone-seg--inv",
+              style: { left: "0%", width: `${pbLoPct}%` },
+            }),
+            h("div", {
+              className: "tt-opp-zone-seg tt-opp-zone-seg--pb",
+              style: { left: `${pbLoPct}%`, width: `${Math.max(0, pbHiPct - pbLoPct)}%` },
+            }),
+            h("div", {
+              className: "tt-opp-zone-seg tt-opp-zone-seg--tgt",
+              style: { left: `${pbHiPct}%`, width: `${Math.max(0, 100 - pbHiPct)}%` },
+            }),
+            h("div", {
+              className: "tt-opp-zone-marker",
+              style: { left: `${pricePct}%` },
+              title: `Today ${fmtPx(zm.price)}`,
+            }),
+          ),
+          h("div", { className: "tt-opp-zone-meta" },
+            h("span", null, `Inv ${fmtPx(zm.inv)}`, fmtProb(zm.invProb) && h("span", { className: "tt-opp-zone-prob" }, ` · ${fmtProb(zm.invProb)} hit`)),
+            h("span", null, `PB ${fmtPx(zm.pbLo)}–${fmtPx(zm.pbHi)}`),
+            h("span", null, `Tgt ${fmtPx(zm.tgt)}`, fmtProb(zm.tgtProb) && h("span", { className: "tt-opp-zone-prob" }, ` · ${fmtProb(zm.tgtProb)} reach`)),
+          ),
+        );
+      }
 
       function GrowthIdeasStrip({ onSelectTicker, user }) {
         const [rows, setRows] = useState(() => {
@@ -3584,6 +3723,27 @@
           return list.length ? list.slice(0, 16) : null;
         });
         const [loadErr, setLoadErr] = useState(null);
+        const [ctoBySym, setCtoBySym] = useState({});
+
+        useEffect(() => {
+          let alive = true;
+          const loadCto = async () => {
+            try {
+              const j = window.TTFetchCache
+                ? await window.TTFetchCache.get(CTO_FEED_URL, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000, fetchOpts: { credentials: "include" } })
+                : await fetchJsonRetry(CTO_FEED_URL);
+              if (!alive || !j?.ok || !Array.isArray(j.items)) return;
+              const map = {};
+              for (const it of j.items) {
+                const sym = String(it?.ticker || "").toUpperCase();
+                if (sym) map[sym] = it;
+              }
+              setCtoBySym(map);
+            } catch (_) {}
+          };
+          const t = setTimeout(loadCto, 1800);
+          return () => { alive = false; clearTimeout(t); };
+        }, []);
 
         useEffect(() => {
           let cancelled = false;
@@ -3708,6 +3868,7 @@
                   row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`),
                 ),
                 row.dip_buy && h("div", { className: "tt-opp-dip" }, "Dip posture active"),
+                h(GrowthZoneBar, { row, ctoItem: ctoBySym[sym] }),
                 h("p", { className: "tt-opp-why" }, why),
               );
             }),
@@ -3721,34 +3882,34 @@
           const all = Object.entries(data)
             .map(([k, v]) => (v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) }))
             .filter((t) => t && t.ticker);
-          const TT = window.TimedBubbleChart || {};
-          const entryType = TT.entryType || (() => ({ corridor: false }));
-          const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
           return all
-            .filter((t) => {
-              const ent = entryType(t);
-              const stage = String(t.kanban_stage || "").toLowerCase();
-              return ent?.corridor && ENTRY_STAGES.has(stage);
-            })
-            .sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0))
-            .slice(0, 8);
+            .filter((t) => isReadyToBuyTicker(t))
+            .sort((a, b) => (Number(b.rank_score) || Number(b.rank) || 0) - (Number(a.rank_score) || Number(a.rank) || 0))
+            .slice(0, 12);
         }, [data]);
 
         if (items.length === 0) return null;
 
         return h("section", { className: "tt-row" },
-          h("div", { className: "tt-sec-title" }, "ENTRY ZONE"),
+          h("div", { className: "tt-sec-title" }, "READY TO BUY"),
+          h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginBottom: 8 } },
+            "LONG-bias names in the entry corridor — priming before the model enters. Filter Viewport with the ",
+            h("strong", { style: { color: "var(--tt-text)" } }, "Ready to Buy"),
+            " chip for the full list.",
+          ),
           h("div", { className: "tt-strip-scroll" },
             items.map((t) => {
               const sym = String(t.ticker || "").toUpperCase();
               const dc = (typeof getDailyChange === "function") ? getDailyChange(t) : null;
               const pct = Number(dc?.dayPct);
+              const stage = String(t.kanban_stage || "").toLowerCase();
               return h("button", {
                 key: sym, onClick: () => onSelectTicker && onSelectTicker(sym),
-                className: "tt-strip-chip", title: `${sym} — in corridor + entry stage`,
+                className: "tt-strip-chip", title: `${sym} — LONG primed · ${stage || "setup"}`,
               },
                 h(TickerLogo, { sym, size: 18 }),
                 h("span", { style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" } }, sym),
+                h("span", { className: "tt-primed-badge", style: { fontSize: 8, padding: "0 5px" } }, "LONG"),
                 Number.isFinite(pct) && h("span", { style: { fontSize: 11, fontWeight: 700, color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)", fontFamily: "var(--tt-font-mono)" } }, `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`),
               );
             }),
@@ -4241,6 +4402,35 @@
         "hold","trim","defend","exit",
       ]);
 
+      function isReadyToBuyTicker(t, entryTypeFn) {
+        const TT = window.TimedBubbleChart || {};
+        const entFn = entryTypeFn || TT.entryType || (() => ({ corridor: false }));
+        const ent = entFn(t);
+        const ks = String(t?.kanban_stage || "").toLowerCase();
+        const htf = Number(t?.htf_score);
+        const modelDir = (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection)
+          ? window.TimedPriceUtils.inferModelDirection(t)
+          : "";
+        const isLong = htf > 0 || modelDir === "LONG";
+        if (!isLong) return false;
+        if (!ent?.corridor) return false;
+        if (!ENTRY_STAGES.has(ks)) return false;
+        const openDir = String(t?._openTrade?.direction || "").toUpperCase();
+        if (openDir === "SHORT") return false;
+        return true;
+      }
+
+      function sparkClosesFromCacheEntry(entry) {
+        if (Array.isArray(entry)) return entry;
+        if (entry && Array.isArray(entry.closes)) return entry.closes;
+        return null;
+      }
+
+      function sparkCandlesFromCacheEntry(entry) {
+        if (entry && Array.isArray(entry.candles)) return entry.candles;
+        return null;
+      }
+
       // ── computeInsightChips — mirrors index-react.source.html lines 19357-19660 ─
       function computeInsightChips(allTickers, opts) {
         const isAdmin = !!(opts && opts.isAdmin);
@@ -4269,6 +4459,16 @@
           tickers: focusTickers.map((t) => t.ticker),
           row: "focus", isDefault: true,
           tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered.",
+        });
+
+        // ── Ready to Buy — LONG + entry corridor + priming stage ──
+        const readyToBuy = all.filter((t) => isReadyToBuyTicker(t, entryType))
+          .sort((a, b) => (Number(b.rank_score) || Number(b.rank) || 0) - (Number(a.rank_score) || Number(a.rank) || 0));
+        chips.push({
+          id: "ready_to_buy", label: "Ready to Buy", count: readyToBuy.length,
+          tickers: readyToBuy.map((t) => t.ticker),
+          row: "focus",
+          tooltip: "LONG-bias tickers in the entry corridor with a priming kanban stage — candidates to watch or buy before the model enters.",
         });
 
         // ── All — full scored universe (placeholders without HTF/LTF stay hidden
@@ -4923,12 +5123,22 @@
 
         // 1H sparkline — read from the cache; the card will re-render once
         // the fetch lands and updates the cache.
-        const sparkPoints = (sparkSrc && sparkSrc.length >= 2)
-          ? sparkSrc
+        const sparkPointsRaw = sparkClosesFromCacheEntry(sparkSrc);
+        const sparkPoints = (sparkPointsRaw && sparkPointsRaw.length >= 2)
+          ? sparkPointsRaw
           : [price || 0, price || 0];
         const sparkSvg = (window.DS && Number.isFinite(price) && price > 0)
           ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
           : "";
+
+        const patternChips = (() => {
+          const candles = sparkCandlesFromCacheEntry(sparkSrc);
+          const detect = window.TimedPatternDetect?.detectCandlePatterns;
+          if (!candles || !detect) return [];
+          return detect(candles).slice(0, 2);
+        })();
+
+        const isPrimed = isReadyToBuyTicker(t);
 
         // Match AT's cardStyle exactly (index-react.source.html line 13304):
         //  - textAlign: "left"        → keep the price + change left-aligned
@@ -4960,6 +5170,7 @@
           },
           isTTSel,
           chipRow: [
+            isPrimed && h("span", { className: "tt-primed-badge", title: "LONG bias, in entry corridor, priming stage — watch for add." }, "Primed"),
             h("span", {
               className: `ds-chip ds-chip--sm ${biasChipCls}`,
               style: { fontFamily: "var(--tt-font-mono)" },
@@ -4968,6 +5179,11 @@
             stageChip && h("span", {
               className: `ds-chip ds-chip--sm ${stageChip.cls}`,
             }, stageChip.label),
+            ...patternChips.map((p) => h("span", {
+              key: p.type,
+              className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
+              title: p.tooltip,
+            }, `${p.icon} ${p.type}`)),
           ],
           quote: { price, dayPct, dayChg, dir, extLine },
           sparkSvg,
@@ -5003,35 +5219,40 @@
         });
       }
 
-      // ── useSparklineCache — fetches 1H candles per visible symbol on
+      // ── useSparklineCache — fetches daily candles per visible symbol on
       //    demand, refreshes every 5 min. Exposes window._dsEnsureSparkline
       //    so cards (and any DS-driven render path) can read the cache.
       function useSparklineCache() {
         const [cache, setCache] = useState({});
+        const sparkCfg = window.TTSparklineConfig || {};
+        const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+        const toCloses = sparkCfg.closesFromCandles || ((candles) => (Array.isArray(candles) ? candles.map((c) => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []));
 
         const fetchSpark = useCallback(async (sym) => {
           try {
-            const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, { cache: "no-store" });
+            const r = await fetch(buildUrl(API_BASE, sym), { cache: "no-store" });
             // Don't try to parse a 4xx/5xx body — endpoint can return
             // 500 for tickers the candle store hasn't backfilled yet.
             if (!r.ok) return null;
             const j = await r.json();
             const candles = Array.isArray(j?.candles) ? j.candles : [];
-            return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+            const closes = toCloses(candles);
+            if (closes.length < 2) return null;
+            return { closes, candles };
           } catch (_) {
             return null;
           }
-        }, []);
+        }, [buildUrl, toCloses]);
 
         const ensure = useCallback((sym) => {
           if (!sym) return null;
           const upper = String(sym).toUpperCase();
-          if (cache[upper]) return cache[upper];
+          if (cache[upper]) return sparkClosesFromCacheEntry(cache[upper]);
           if (cache[upper] === undefined) {
-            setCache(prev => ({ ...prev, [upper]: null }));
-            fetchSpark(upper).then(arr => {
-              if (arr && arr.length >= 2) {
-                setCache(prev => ({ ...prev, [upper]: arr }));
+            setCache((prev) => ({ ...prev, [upper]: null }));
+            fetchSpark(upper).then((payload) => {
+              if (payload && payload.closes?.length >= 2) {
+                setCache((prev) => ({ ...prev, [upper]: payload }));
               }
             });
           }
@@ -5048,10 +5269,10 @@
         // Refresh on a 5-min interval.
         useEffect(() => {
           const interval = setInterval(() => {
-            const symbols = Object.keys(cache).filter((s) => Array.isArray(cache[s]));
+            const symbols = Object.keys(cache).filter((s) => sparkClosesFromCacheEntry(cache[s])?.length >= 2);
             symbols.forEach((sym) => {
-              fetchSpark(sym).then(arr => {
-                if (arr && arr.length >= 2) setCache(prev => ({ ...prev, [sym]: arr }));
+              fetchSpark(sym).then((payload) => {
+                if (payload && payload.closes?.length >= 2) setCache((prev) => ({ ...prev, [sym]: payload }));
               });
             });
           }, 5 * 60 * 1000);

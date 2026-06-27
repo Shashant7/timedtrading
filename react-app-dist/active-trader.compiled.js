@@ -191,37 +191,46 @@ function useSavedTickers() {
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
+  const sparkCfg = window.TTSparklineConfig || {};
+  const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+  const toCloses = sparkCfg.closesFromCandles || (candles => Array.isArray(candles) ? candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []);
+  const fromEntry = sparkCfg.sparkClosesFromCacheEntry || (entry => Array.isArray(entry) ? entry : entry?.closes || null);
   const fetchSpark = useCallback(async sym => {
     try {
-      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+      const r = await fetch(buildUrl(API_BASE, sym), {
         cache: "no-store"
       });
       if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
-      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+      const closes = toCloses(candles);
+      if (closes.length < 2) return null;
+      return {
+        closes,
+        candles
+      };
     } catch (_) {
       return null;
     }
-  }, []);
+  }, [buildUrl, toCloses]);
   const ensure = useCallback(sym => {
     if (!sym) return null;
     const upper = String(sym).toUpperCase();
-    if (cache[upper]) return cache[upper];
+    if (cache[upper]) return fromEntry(cache[upper]);
     if (cache[upper] === undefined) {
       setCache(prev => ({
         ...prev,
         [upper]: null
       }));
-      fetchSpark(upper).then(arr => {
-        if (arr && arr.length >= 2) setCache(prev => ({
+      fetchSpark(upper).then(payload => {
+        if (payload?.closes?.length >= 2) setCache(prev => ({
           ...prev,
-          [upper]: arr
+          [upper]: payload
         }));
       });
     }
     return null;
-  }, [cache, fetchSpark]);
+  }, [cache, fetchSpark, fromEntry]);
   useEffect(() => {
     window._dsEnsureSparkline = ensure;
     window._dsSparklineCache = cache;
@@ -452,13 +461,22 @@ function ATCard({
     }
     return null;
   })();
-  const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
+  const sparkPoints = (() => {
+    const closes = window.TTSparklineConfig?.sparkClosesFromCacheEntry?.(sparkSrc) || (Array.isArray(sparkSrc) ? sparkSrc : sparkSrc?.closes);
+    return closes && closes.length >= 2 ? closes : [price || 0, price || 0];
+  })();
   const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
     height: 44,
     direction: dir,
     strokeWidth: 1.4
   }) : "";
+  const patternChips = (() => {
+    const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(sparkSrc);
+    const detect = window.TimedPatternDetect?.detectCandlePatterns;
+    if (!candles || !detect) return [];
+    return detect(candles).slice(0, 2);
+  })();
   const hasOpen = !!resolvedOpen;
   const progressBarData = (() => {
     if (!hasOpen) return null;
@@ -651,7 +669,33 @@ function ATCard({
       title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
     }, cardBiasLabel), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`
-    }, stageChip.label)],
+    }, stageChip.label), ...patternChips.map(p => h("span", {
+      key: p.type,
+      className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
+      title: p.tooltip,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        padding: "1px 6px",
+        borderRadius: 999,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        border: "1px solid var(--tt-border)",
+        background: "var(--tt-bg-elev)",
+        color: "var(--tt-text-muted)",
+        whiteSpace: "nowrap",
+        ...(p.bias === "bullish" ? {
+          borderColor: "rgba(56,242,161,0.35)",
+          color: "var(--tt-up-soft)"
+        } : {}),
+        ...(p.bias === "bearish" ? {
+          borderColor: "rgba(248,113,113,0.35)",
+          color: "var(--tt-dn-soft)"
+        } : {})
+      }
+    }, `${p.icon} ${p.type}`))],
     quote: {
       price,
       dayPct,
@@ -1683,6 +1727,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782181309533:635345750
+// cache-bust:1782578570256:721537157
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782578570256:721537157
