@@ -495,6 +495,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                  Without these, the entry-gate consult silently no-ops. */
               _loop1AdvisoryByCombo: replayEnv._loop1AdvisoryByCombo || {},
               _loop2Pause: replayEnv._loop2Pause || { paused: false },
+              _earningsClusterWindows: replayEnv._earningsClusterWindows || [],
               /* Phase C — Stage 1 (2026-05-05) — Cluster throttle. */
               _clusterRecentEntries,
             };
