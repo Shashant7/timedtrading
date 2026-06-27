@@ -2981,7 +2981,7 @@ function FocusRail({
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => t && t.ticker);
-    return sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t)), null).slice(0, 12);
+    return sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t))).slice(0, 12);
   }, [data]);
   if (items.length === 0) return null;
   return h("section", {
@@ -2994,13 +2994,13 @@ function FocusRail({
     const sym = String(t.ticker || "").toUpperCase();
     const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
     const pct = Number(dc?.dayPct);
-    const stage = String(t.kanban_stage || "").toLowerCase();
-    const side = entryZoneSide(t) || "LONG";
+    const actionChips = viewportActionChips(t);
+    const actionLabel = actionChips.map(c => c.label).join(" · ") || "Primed";
     return h("button", {
       key: sym,
       onClick: () => onSelectTicker && onSelectTicker(sym),
       className: "tt-strip-chip",
-      title: `${sym} — ${side} entry setup · ${stage || "setup"}`
+      title: `${sym} — ${actionLabel}`
     }, h(TickerLogo, {
       sym,
       size: 18
@@ -3010,16 +3010,16 @@ function FocusRail({
         fontSize: 12,
         fontFamily: "var(--tt-font-mono)"
       }
-    }, sym), h("span", {
-      className: "tt-primed-badge",
+    }, sym), actionChips.map((chip, i) => h("span", {
+      key: `${chip.label}-${i}`,
+      className: `ds-chip ds-chip--sm ${chip.cls}`,
       style: {
         fontSize: 8,
         padding: "0 5px",
-        color: side === "SHORT" ? "var(--tt-dn-soft)" : "var(--tt-accent)",
-        borderColor: side === "SHORT" ? "rgba(248,113,113,0.45)" : "rgba(245,194,92,0.45)",
-        background: side === "SHORT" ? "rgba(248,113,113,0.1)" : "rgba(245,194,92,0.1)"
-      }
-    }, side), Number.isFinite(pct) && h("span", {
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: chip.title
+    }, chip.label)), Number.isFinite(pct) && h("span", {
       style: {
         fontSize: 11,
         fontWeight: 700,
@@ -3546,6 +3546,8 @@ const INDEX_SYMS = ["SPY", "RSP", "QQQ", "IWM"];
 const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
 const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
+const TRADER_WATCHLIST_STAGES = new Set(["setup", "setup_watch", "flip_watch"]);
+const TRADER_TRIGGER_STAGES = new Set(["in_review", "enter", "enter_now", "just_flipped"]);
 const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
 const KANBAN_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "just_entered", "hold", "trim", "defend", "exit"]);
 function entryZoneSide(t, entryTypeFn) {
@@ -3558,20 +3560,61 @@ function entryZoneSide(t, entryTypeFn) {
   if (!ent?.corridor || !ent?.side) return null;
   return String(ent.side).toUpperCase();
 }
-function isEntryZoneTicker(t, entryTypeFn) {
-  const side = entryZoneSide(t, entryTypeFn);
-  if (!side) return false;
-  const ks = String(t?.kanban_stage || "").toLowerCase();
-  if (!ENTRY_STAGES.has(ks)) return false;
-  const openDir = String(t?._openTrade?.direction || "").toUpperCase();
-  if (openDir) return false;
-  return true;
+function investorStageOf(t) {
+  return String(t?.investor_stage || t?.stage || "").toLowerCase();
 }
-function sortEntryZoneTickers(list, entryTypeFn) {
+function hasOpenTradeDir(t) {
+  return !!String(t?._openTrade?.direction || "").toUpperCase();
+}
+function isInvestorQueued(t) {
+  return investorStageOf(t) === "accumulate_queued";
+}
+function isTraderWatchlist(t) {
+  if (hasOpenTradeDir(t)) return false;
+  return TRADER_WATCHLIST_STAGES.has(String(t?.kanban_stage || "").toLowerCase());
+}
+function isTraderTriggerReady(t) {
+  if (hasOpenTradeDir(t)) return false;
+  return TRADER_TRIGGER_STAGES.has(String(t?.kanban_stage || "").toLowerCase());
+}
+function viewportActionChips(t) {
+  const chips = [];
+  if (isInvestorQueued(t)) {
+    chips.push({
+      label: "Queued",
+      cls: "ds-chip--accent",
+      title: "Investor lane — queued for next rebalance."
+    });
+  }
+  if (isTraderTriggerReady(t)) {
+    chips.push({
+      label: "Trigger Ready",
+      cls: "ds-chip--accent",
+      title: "Active Trader — trigger ready for review or entry."
+    });
+  } else if (isTraderWatchlist(t)) {
+    chips.push({
+      label: "Setup",
+      cls: "",
+      title: "Active Trader watchlist — setup forming, no action yet."
+    });
+  }
+  return chips;
+}
+function primedTickerPriority(t) {
+  if (isTraderTriggerReady(t)) return 3;
+  if (isInvestorQueued(t)) return 2;
+  if (isTraderWatchlist(t)) return 1;
+  return 0;
+}
+function isEntryZoneTicker(t) {
+  return isInvestorQueued(t) || isTraderWatchlist(t) || isTraderTriggerReady(t);
+}
+function sortEntryZoneTickers(list) {
   return (Array.isArray(list) ? list : []).slice().sort((a, b) => {
-    const longA = entryZoneSide(a, entryTypeFn) === "LONG" ? 1 : 0;
-    const longB = entryZoneSide(b, entryTypeFn) === "LONG" ? 1 : 0;
-    if (longA !== longB) return longB - longA;
+    const pa = primedTickerPriority(a);
+    const pb = primedTickerPriority(b);
+    if (pa !== pb) return pb - pa;
     const ra = Number(a.rank_score) || Number(a.rank) || Number(a.rank_position) || 0;
     const rb = Number(b.rank_score) || Number(b.rank) || Number(b.rank_position) || 0;
     if (ra !== rb) return rb - ra;
@@ -3616,14 +3659,14 @@ function computeInsightChips(allTickers, opts) {
     isDefault: true,
     tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
   });
-  const entryZone = sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t, entryType)), entryType);
+  const entryZone = sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t)));
   chips.push({
     id: "entry_zone",
     label: "Entry Zone",
     count: entryZone.length,
     tickers: entryZone.map(t => t.ticker),
     row: "focus",
-    tooltip: "Tickers in the entry corridor with a priming kanban stage — long or short setups worth considering before the model enters. Longs sort first."
+    tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Trigger Ready sorts first."
   });
   chips.push({
     id: "all",
@@ -4205,20 +4248,13 @@ function ViewportCard({
       label: "Exit",
       cls: "ds-chip--dn"
     };
-    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
-      label: "Enter",
-      cls: "ds-chip--accent"
-    };
     if (stage === "hold" || stage === "active" || stage === "just_entered") return {
       label: "Hold",
       cls: "ds-chip--up"
     };
-    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
-      label: "Setup",
-      cls: ""
-    };
     return null;
   })();
+  const actionChips = viewportActionChips(t);
   const isTTSel = typeof window !== "undefined" && typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
   const sparkPointsRaw = sparkClosesFromCacheEntry(sparkSrc);
   const sparkPoints = sparkPointsRaw && sparkPointsRaw.length >= 2 ? sparkPointsRaw : [price || 0, price || 0];
@@ -4234,8 +4270,6 @@ function ViewportCard({
     if (!candles || !detect) return [];
     return detect(candles).slice(0, 2);
   })();
-  const isInEntryZone = isEntryZoneTicker(t);
-  const entrySide = entryZoneSide(t);
   const cardBiasLabel = window.TTLaneCard?.compactBiasLabel ? window.TTLaneCard.compactBiasLabel(biasLabel) : biasLabel;
   const extLine = window.TTLaneCard?.extLineFromTicker ? window.TTLaneCard.extLineFromTicker(t) : null;
   const cardStyle = {
@@ -4254,21 +4288,17 @@ function ViewportCard({
       title: `Open ${sym} in Active Trader`
     },
     isTTSel,
-    chipRow: [isInEntryZone && entrySide && h("span", {
-      className: "tt-primed-badge",
-      title: `${entrySide} entry setup — in corridor with priming stage. The model may not have entered yet; Active Trader lanes use stricter criteria.`,
-      style: entrySide === "SHORT" ? {
-        color: "var(--tt-dn-soft)",
-        borderColor: "rgba(248,113,113,0.45)",
-        background: "rgba(248,113,113,0.1)"
-      } : undefined
-    }, entrySide), h("span", {
+    chipRow: [h("span", {
       className: `ds-chip ds-chip--sm ${biasChipCls}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: "Bias"
-    }, cardBiasLabel), stageChip && h("span", {
+      title: openTrade ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Model bias"
+    }, cardBiasLabel), ...actionChips.map((chip, i) => h("span", {
+      key: `${chip.label}-${i}`,
+      className: `ds-chip ds-chip--sm ${chip.cls}`,
+      title: chip.title
+    }, chip.label)), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`
     }, stageChip.label), ...patternChips.map(p => h("span", {
       key: p.type,
@@ -4399,7 +4429,7 @@ function Viewport({
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
     if (activeChip === "entry_zone") {
-      return sortEntryZoneTickers(list, null);
+      return sortEntryZoneTickers(list);
     }
     list.sort((a, b) => {
       const ra = rankedTickerPositions?.get?.(a.ticker);
@@ -5995,6 +6025,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782586128189:369129050
+// cache-bust:1782594822573:440976423
 
-// cache-bust:1782586128189:369129050
+// cache-bust:1782594822573:440976423
