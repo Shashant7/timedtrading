@@ -2867,35 +2867,26 @@ function FocusRail({
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => t && t.ticker);
-    return all.filter(t => isReadyToBuyTicker(t)).sort((a, b) => (Number(b.rank_score) || Number(b.rank) || 0) - (Number(a.rank_score) || Number(a.rank) || 0)).slice(0, 12);
+    return sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t)), null).slice(0, 12);
   }, [data]);
   if (items.length === 0) return null;
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
-  }, "READY TO BUY"), h("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--tt-text-muted)",
-      marginBottom: 8
-    }
-  }, "LONG-bias names in the entry corridor — priming before the model enters. Filter Viewport with the ", h("strong", {
-    style: {
-      color: "var(--tt-text)"
-    }
-  }, "Ready to Buy"), " chip for the full list."), h("div", {
+  }, "ENTRY ZONE"), h("div", {
     className: "tt-strip-scroll"
   }, items.map(t => {
     const sym = String(t.ticker || "").toUpperCase();
     const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
     const pct = Number(dc?.dayPct);
     const stage = String(t.kanban_stage || "").toLowerCase();
+    const side = entryZoneSide(t) || "LONG";
     return h("button", {
       key: sym,
       onClick: () => onSelectTicker && onSelectTicker(sym),
       className: "tt-strip-chip",
-      title: `${sym} — LONG primed · ${stage || "setup"}`
+      title: `${sym} — ${side} entry setup · ${stage || "setup"}`
     }, h(TickerLogo, {
       sym,
       size: 18
@@ -2909,9 +2900,12 @@ function FocusRail({
       className: "tt-primed-badge",
       style: {
         fontSize: 8,
-        padding: "0 5px"
+        padding: "0 5px",
+        color: side === "SHORT" ? "var(--tt-dn-soft)" : "var(--tt-accent)",
+        borderColor: side === "SHORT" ? "rgba(248,113,113,0.45)" : "rgba(245,194,92,0.45)",
+        background: side === "SHORT" ? "rgba(248,113,113,0.1)" : "rgba(245,194,92,0.1)"
       }
-    }, "LONG"), Number.isFinite(pct) && h("span", {
+    }, side), Number.isFinite(pct) && h("span", {
       style: {
         fontSize: 11,
         fontWeight: 700,
@@ -3420,25 +3414,38 @@ const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "US500", "ES1!",
 const INDEX_SYMS = ["SPY", "RSP", "QQQ", "IWM"];
 const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
 const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
+const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
 const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
 const KANBAN_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "just_entered", "hold", "trim", "defend", "exit"]);
-function isReadyToBuyTicker(t, entryTypeFn) {
+function entryZoneSide(t, entryTypeFn) {
   const TT = window.TimedBubbleChart || {};
   const entFn = entryTypeFn || TT.entryType || (() => ({
-    corridor: false
+    corridor: false,
+    side: null
   }));
   const ent = entFn(t);
+  if (!ent?.corridor || !ent?.side) return null;
+  return String(ent.side).toUpperCase();
+}
+function isEntryZoneTicker(t, entryTypeFn) {
+  const side = entryZoneSide(t, entryTypeFn);
+  if (!side) return false;
   const ks = String(t?.kanban_stage || "").toLowerCase();
-  const htf = Number(t?.htf_score);
-  const modelDir = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "";
-  const isLong = htf > 0 || modelDir === "LONG";
-  if (!isLong) return false;
-  if (!ent?.corridor) return false;
   if (!ENTRY_STAGES.has(ks)) return false;
   const openDir = String(t?._openTrade?.direction || "").toUpperCase();
-  if (openDir === "SHORT") return false;
+  if (openDir) return false;
   return true;
+}
+function sortEntryZoneTickers(list, entryTypeFn) {
+  return (Array.isArray(list) ? list : []).slice().sort((a, b) => {
+    const longA = entryZoneSide(a, entryTypeFn) === "LONG" ? 1 : 0;
+    const longB = entryZoneSide(b, entryTypeFn) === "LONG" ? 1 : 0;
+    if (longA !== longB) return longB - longA;
+    const ra = Number(a.rank_score) || Number(a.rank) || Number(a.rank_position) || 0;
+    const rb = Number(b.rank_score) || Number(b.rank) || Number(b.rank_position) || 0;
+    if (ra !== rb) return rb - ra;
+    return String(a.ticker).localeCompare(String(b.ticker));
+  });
 }
 function sparkClosesFromCacheEntry(entry) {
   if (Array.isArray(entry)) return entry;
@@ -3478,14 +3485,14 @@ function computeInsightChips(allTickers, opts) {
     isDefault: true,
     tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
   });
-  const readyToBuy = all.filter(t => isReadyToBuyTicker(t, entryType)).sort((a, b) => (Number(b.rank_score) || Number(b.rank) || 0) - (Number(a.rank_score) || Number(a.rank) || 0));
+  const entryZone = sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t, entryType)), entryType);
   chips.push({
-    id: "ready_to_buy",
-    label: "Ready to Buy",
-    count: readyToBuy.length,
-    tickers: readyToBuy.map(t => t.ticker),
+    id: "entry_zone",
+    label: "Entry Zone",
+    count: entryZone.length,
+    tickers: entryZone.map(t => t.ticker),
     row: "focus",
-    tooltip: "LONG-bias tickers in the entry corridor with a priming kanban stage — candidates to watch or buy before the model enters."
+    tooltip: "Tickers in the entry corridor with a priming kanban stage — long or short setups worth considering before the model enters. Longs sort first."
   });
   chips.push({
     id: "all",
@@ -4096,7 +4103,8 @@ function ViewportCard({
     if (!candles || !detect) return [];
     return detect(candles).slice(0, 2);
   })();
-  const isPrimed = isReadyToBuyTicker(t);
+  const isInEntryZone = isEntryZoneTicker(t);
+  const entrySide = entryZoneSide(t);
   const cardBiasLabel = window.TTLaneCard?.compactBiasLabel ? window.TTLaneCard.compactBiasLabel(biasLabel) : biasLabel;
   const extLine = window.TTLaneCard?.extLineFromTicker ? window.TTLaneCard.extLineFromTicker(t) : null;
   const cardStyle = {
@@ -4115,10 +4123,15 @@ function ViewportCard({
       title: `Open ${sym} in Active Trader`
     },
     isTTSel,
-    chipRow: [isPrimed && h("span", {
+    chipRow: [isInEntryZone && entrySide && h("span", {
       className: "tt-primed-badge",
-      title: "LONG bias, in entry corridor, priming stage — watch for add."
-    }, "Primed"), h("span", {
+      title: `${entrySide} entry setup — in corridor with priming stage. The model may not have entered yet; Active Trader lanes use stricter criteria.`,
+      style: entrySide === "SHORT" ? {
+        color: "var(--tt-dn-soft)",
+        borderColor: "rgba(248,113,113,0.45)",
+        background: "rgba(248,113,113,0.1)"
+      } : undefined
+    }, entrySide), h("span", {
       className: `ds-chip ds-chip--sm ${biasChipCls}`,
       style: {
         fontFamily: "var(--tt-font-mono)"
@@ -4245,7 +4258,8 @@ function Viewport({
   query,
   sparkCache,
   ensureSpark,
-  onSelectTicker
+  onSelectTicker,
+  activeChip
 }) {
   const {
     saved,
@@ -4253,6 +4267,9 @@ function Viewport({
   } = useSavedTickers();
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
+    if (activeChip === "entry_zone") {
+      return sortEntryZoneTickers(list, null);
+    }
     list.sort((a, b) => {
       const ra = rankedTickerPositions?.get?.(a.ticker);
       const rb = rankedTickerPositions?.get?.(b.ticker);
@@ -4265,7 +4282,7 @@ function Viewport({
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return list;
-  }, [visible, rankedTickerPositions]);
+  }, [visible, rankedTickerPositions, activeChip]);
   useEffect(() => {
     if (!ensureSpark) return;
     ranked.slice(0, 60).forEach(t => ensureSpark(t.ticker));
@@ -4402,7 +4419,8 @@ function BubbleMapViewportSplit({
     query,
     sparkCache,
     ensureSpark,
-    onSelectTicker
+    onSelectTicker,
+    activeChip: filters?.activeChip
   }), h("div", {
     className: "bmv-bubble"
   }, h(SharedBubbleMapSection, {
@@ -5756,6 +5774,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782578570256:721537157
+// cache-bust:1782580302770:910715667
 
-// cache-bust:1782578570256:721537157
+// cache-bust:1782580302770:910715667
