@@ -15,6 +15,14 @@ import {
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
 import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
+  evaluateIndexEtfModelEntry,
+  isIndexModelTicker,
+  isStockPathBlockedOnIndex,
+} from "./index-etf-model.js";
+import { checkSetupDemotion } from "./setup-demotion.js";
+import { checkEarningsClusterEntryBlock } from "./earnings-cluster-gate.js";
+import { parseDateKey } from "./earnings-cluster-gate.js";
+import {
   applyMomentumBreakoutConvictionCarveout,
   stampMomentumBreakoutEarly,
 } from "../lib/smart-gates.js";
@@ -404,6 +412,22 @@ export function evaluateEntry(ctx) {
     const effectiveDir = path?.endsWith?.("_short") ? "SHORT"
                        : path?.endsWith?.("_long")  ? "LONG"
                        : side;
+    const _pathTicker = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
+    if (isIndexModelTicker(_pathTicker, daCfg) && isStockPathBlockedOnIndex(path)) {
+      return rejectEntry("index_model_stock_path_blocked", {
+        ticker: _pathTicker,
+        path,
+        note: "SPY/QQQ/IWM must enter via tt_index_etf_swing only",
+      });
+    }
+    const _demotion = checkSetupDemotion(path, effectiveDir, daCfg, _pathTicker);
+    if (_demotion.blocked) {
+      return rejectEntry("setup_demotion_blocked", {
+        config_key: _demotion.key,
+        path,
+        direction: effectiveDir,
+      });
+    }
     // V15 P0.7.66 (2026-05-05) — Tier 1D: Block Speculative grade for ETFs.
     // ETF audit Path A: Speculative-grade ETF entries (e.g. ALB Mar-02 rank 58
     // -8.44%) bring the worst losses + lowest WR. ETFs require precision;
@@ -666,6 +690,24 @@ export function evaluateEntry(ctx) {
           });
         }
       }
+    }
+
+    // Phase-C T3 — dense earnings cluster entry block (anchor ±N days).
+    const _clusterWindows = ctx.earningsClusterWindows
+      || d?._env?._earningsClusterWindows
+      || [];
+    const _clusterBlock = checkEarningsClusterEntryBlock({
+      dateKey: parseDateKey(ctx.asOfTs || ctx.nowTs || d?.ts),
+      ticker: d?.ticker || ctx.ticker,
+      rank: rankScore,
+      daCfg,
+      clusterWindows: _clusterWindows,
+    });
+    if (_clusterBlock.blocked) {
+      return rejectEntry(_clusterBlock.reason || "earnings_cluster_entry_block", {
+        cluster: _clusterBlock.cluster,
+        rank: rankScore,
+      });
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -1452,6 +1494,29 @@ export function evaluateEntry(ctx) {
   ltfConfirm = side === "LONG"
     ? (ltfRecovering || hasRsiDivBull)
     : (scores.ltf < 10 || hasStFlipBear || hasEmaCrossBear || hasSqRelease || hasRsiDivBear);
+
+  // ── INDEX ETF MODEL — dedicated path for SPY/QQQ/IWM (no stock triggers) ──
+  if (isIndexModelTicker(_tickerUpperEarly, daCfg)) {
+    return evaluateIndexEtfModelEntry(ctx, {
+      qualifyEntry,
+      rejectEntry,
+      daCfg,
+      rankScore,
+      side,
+      c10_8,
+      tf,
+      baseSizing: {
+        pdz: 1.0,
+        meanRevert: 1.0,
+        regime: 1.0,
+        danger: 1.0,
+        rvol: 1.0,
+        spy: 1.0,
+        orb: 1.0,
+        internals: 1.0,
+      },
+    });
+  }
 
   // ── 3. ENTRY TRIGGERS ──
   momentumTrigger = side === "LONG"

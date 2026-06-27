@@ -132,6 +132,44 @@ function hasTrimSignalPending(ticker, trade) {
   const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
   return raw === "trim";
 }
+function isPricePastStop(openTr, ticker, price) {
+  const px = Number(price);
+  if (!openTr || !Number.isFinite(px) || px <= 0) return false;
+  const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
+  const sl = Number(openTr.sl ?? openTr.stop_loss);
+  if (!Number.isFinite(sl) || sl <= 0) return false;
+  if (dir === "LONG") return px <= sl;
+  if (dir === "SHORT") return px >= sl;
+  return false;
+}
+function hasExitSignalPending(ticker, trade, price) {
+  const openTr = resolveOpenTrade(trade);
+  if (!openTr || !traderBookIsOpen(openTr)) return false;
+  const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
+  if (raw === "exit" || raw === "exiting") return true;
+  const bucket = String(ticker?.kanban_meta?.bucket || "").toLowerCase();
+  if (bucket === "close_now") return true;
+  const exitReason = String(ticker?.__exit_reason || (Array.isArray(ticker?.kanban_meta?.reasons) ? ticker.kanban_meta.reasons[0] : "") || "").toLowerCase();
+  if (/sl_breach|sl_hit|max_loss|doctrine_force|v13_hard|hard_loss|critical/.test(exitReason)) {
+    return true;
+  }
+  const px = Number(price ?? ticker?.price ?? ticker?._live_price ?? ticker?.close ?? openTr?.mark_price ?? openTr?.current_price);
+  return isPricePastStop(openTr, ticker, px);
+}
+function exitSignalChipLabel(ticker, trade, price) {
+  const openTr = resolveOpenTrade(trade);
+  const px = Number(price ?? ticker?.price ?? ticker?._live_price ?? ticker?.close ?? openTr?.mark_price ?? openTr?.current_price);
+  if (isPricePastStop(openTr, ticker, px)) {
+    return {
+      label: "Stop breached",
+      title: "Price is at or past the stop — engine exit signal (card stays in Defend until the book closes)"
+    };
+  }
+  return {
+    label: "Exit signal",
+    title: "Engine recommends closing the position — exit not executed yet (card stays in Defend)"
+  };
+}
 const RECENT_EXIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 function useTraderBook(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
@@ -241,37 +279,46 @@ function useSavedTickers() {
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
+  const sparkCfg = window.TTSparklineConfig || {};
+  const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+  const toCloses = sparkCfg.closesFromCandles || (candles => Array.isArray(candles) ? candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []);
+  const fromEntry = sparkCfg.sparkClosesFromCacheEntry || (entry => Array.isArray(entry) ? entry : entry?.closes || null);
   const fetchSpark = useCallback(async sym => {
     try {
-      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+      const r = await fetch(buildUrl(API_BASE, sym), {
         cache: "no-store"
       });
       if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
-      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+      const closes = toCloses(candles);
+      if (closes.length < 2) return null;
+      return {
+        closes,
+        candles
+      };
     } catch (_) {
       return null;
     }
-  }, []);
+  }, [buildUrl, toCloses]);
   const ensure = useCallback(sym => {
     if (!sym) return null;
     const upper = String(sym).toUpperCase();
-    if (cache[upper]) return cache[upper];
+    if (cache[upper]) return fromEntry(cache[upper]);
     if (cache[upper] === undefined) {
       setCache(prev => ({
         ...prev,
         [upper]: null
       }));
-      fetchSpark(upper).then(arr => {
-        if (arr && arr.length >= 2) setCache(prev => ({
+      fetchSpark(upper).then(payload => {
+        if (payload?.closes?.length >= 2) setCache(prev => ({
           ...prev,
-          [upper]: arr
+          [upper]: payload
         }));
       });
     }
     return null;
-  }, [cache, fetchSpark]);
+  }, [cache, fetchSpark, fromEntry]);
   useEffect(() => {
     window._dsEnsureSparkline = ensure;
     window._dsSparklineCache = cache;
@@ -522,6 +569,14 @@ function ATCard({
         title: "Engine recommends taking partial profits — trim not executed yet (card stays in Hold)"
       };
     }
+    if (hasExitSignalPending(t, resolvedOpen, price)) {
+      const exitChip = exitSignalChipLabel(t, resolvedOpen, price);
+      return {
+        label: exitChip.label,
+        cls: "ds-chip--dn",
+        title: exitChip.title
+      };
+    }
     if (stage === "trim") return {
       label: "Trim",
       cls: "ds-chip--accent"
@@ -580,13 +635,22 @@ function ATCard({
     }
     return null;
   })();
-  const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
+  const sparkPoints = (() => {
+    const closes = window.TTSparklineConfig?.sparkClosesFromCacheEntry?.(sparkSrc) || (Array.isArray(sparkSrc) ? sparkSrc : sparkSrc?.closes);
+    return closes && closes.length >= 2 ? closes : [price || 0, price || 0];
+  })();
   const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
     height: 44,
     direction: dir,
     strokeWidth: 1.4
   }) : "";
+  const patternChips = (() => {
+    const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(sparkSrc);
+    const detect = window.TimedPatternDetect?.detectCandlePatterns;
+    if (!candles || !detect) return [];
+    return detect(candles).slice(0, 2);
+  })();
   const hasOpen = !!resolvedOpen;
   const progressBarData = (() => {
     if (!hasOpen) return null;
@@ -824,7 +888,33 @@ function ATCard({
     }, cardBiasLabel), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`,
       title: stageChip.title || undefined
-    }, stageChip.label)],
+    }, stageChip.label), ...patternChips.map(p => h("span", {
+      key: p.type,
+      className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
+      title: p.tooltip,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 3,
+        padding: "1px 6px",
+        borderRadius: 999,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+        border: "1px solid var(--tt-border)",
+        background: "var(--tt-bg-elev)",
+        color: "var(--tt-text-muted)",
+        whiteSpace: "nowrap",
+        ...(p.bias === "bullish" ? {
+          borderColor: "rgba(56,242,161,0.35)",
+          color: "var(--tt-up-soft)"
+        } : {}),
+        ...(p.bias === "bearish" ? {
+          borderColor: "rgba(248,113,113,0.35)",
+          color: "var(--tt-dn-soft)"
+        } : {})
+      }
+    }, `${p.icon} ${p.type}`))],
     quote: {
       price,
       dayPct,
@@ -1328,7 +1418,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — risk is being managed."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — tighten risk. Exit-signal / stop-breached cards stay here until the book closes."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1399,16 +1489,23 @@ function ActiveTraderApp() {
         _rawKanbanStage: rawKanban,
         kanban_stage: rawKanban
       }, trade);
+      const exitSignalPending = hasExitSignalPending({
+        ...t,
+        _rawKanbanStage: rawKanban,
+        kanban_stage: rawKanban
+      }, trade);
       const base = eff === rawKanban && !trade ? {
         ...t,
         _rawKanbanStage: rawKanban,
-        _trimSignalPending: trimSignalPending
+        _trimSignalPending: trimSignalPending,
+        _exitSignalPending: exitSignalPending
       } : {
         ...t,
         _openTrade: trade,
         _effectiveKanbanStage: eff,
         _rawKanbanStage: rawKanban,
         _trimSignalPending: trimSignalPending,
+        _exitSignalPending: exitSignalPending,
         kanban_stage: eff,
         ...(trade ? {
           has_open_position: true,
@@ -1493,6 +1590,7 @@ function ActiveTraderApp() {
         _effectiveKanbanStage: eff,
         _rawKanbanStage: String(stub.kanban_stage || "hold").toLowerCase(),
         _trimSignalPending: hasTrimSignalPending(stub, openTr),
+        _exitSignalPending: hasExitSignalPending(stub, openTr),
         _injectedOpenTrade: true
       });
     });
@@ -1947,6 +2045,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782584173435:856789580
+// cache-bust:1782586128189:369129050
 
-// cache-bust:1782584173435:856789580
+// cache-bust:1782586128189:369129050

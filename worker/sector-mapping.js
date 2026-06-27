@@ -1,6 +1,11 @@
 // Sector Mapping — 230-ticker active universe
 // Maps tickers to their GICS sectors
 
+import {
+  getEffectiveSectorRating,
+  getStrategyOverrideCache,
+} from "./cro/strategy-overrides.js";
+
 const SECTOR_MAP = {
   // Consumer Discretionary
   'AMZN': 'Consumer Discretionary',
@@ -326,7 +331,7 @@ function getSector(ticker) {
 }
 
 function getSectorRating(sector) {
-  return SECTOR_RATINGS[sector] || { rating: 'neutral', boost: 0 };
+  return getEffectiveSectorRating(sector, SECTOR_RATINGS, getStrategyOverrideCache());
 }
 
 function getTickersInSector(sector) {

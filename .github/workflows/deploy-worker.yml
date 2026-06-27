@@ -149,14 +149,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-        run: bash scripts/deploy-wrangler-retry.sh worker --env=
+        run: bash scripts/deploy-wrangler-retry.sh worker --env= --var ENGINE_GIT_SHA:${GITHUB_SHA:0:8}
 
       - name: Deploy worker — production env
         if: steps.cfsec.outputs.secrets-ok == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ env.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ env.CLOUDFLARE_ACCOUNT_ID }}
-        run: bash scripts/deploy-wrangler-retry.sh worker --env production
+        run: bash scripts/deploy-wrangler-retry.sh worker --env production --var ENGINE_GIT_SHA:${GITHUB_SHA:0:8}
 
       # Post-deploy smoke: the worker must answer /timed/health with
       # ok:true on both the workers.dev URL and the custom domain.

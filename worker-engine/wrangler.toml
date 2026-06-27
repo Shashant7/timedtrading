@@ -142,6 +142,10 @@ CF_ACCESS_TEAM_DOMAIN = "timedtrading"
 ADMIN_EMAIL = "shashant@gmail.com"
 EMAIL_ENABLED = "true"
 EMAIL_FROM = "notifications@timed-trading.com"
+# Provenance (Slice A): build identity stamped on every decision_record.
+# tt-engine runs the */5 scoring + lifecycle cron where trade decisions fire.
+# Deploy injects the real SHA: `wrangler deploy --var ENGINE_GIT_SHA:$(git rev-parse --short HEAD)`.
+ENGINE_GIT_SHA = "unset"
 COO_ENABLED = "true"
 COO_AUTO_APPLY_TIER1 = "true"
 COO_SELF_HEAL = "true"

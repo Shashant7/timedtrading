@@ -89,6 +89,7 @@ function buildExtractionPrompt(text, playbook) {
       "• Use ONLY these exact sector names: " + sectorKeys,
       "• Do NOT invent new theme or sector names — if a publication discusses a concept not in the list, omit it (or wedge it into the closest existing key).",
       "• A 'tactical' classification is the norm — daily / weekly publications almost always fall here. Only flag a publication 'structural' if it explicitly argues a sector or theme STANCE change (overweight ↔ neutral ↔ underweight).",
+      "• Whenever a publication states a sector or theme Overweight/Neutral/Underweight change — even in a daily note — populate sector_stance_changes[] and/or theme_stance_changes[] so the live model updates immediately. Use classification='tactical' unless it is the monthly Sector Allocation deck.",
       "• EXCEPTION — any 'Sector Allocation' monthly update MUST be classification='structural' with populated sector_stance_changes[] (and theme_stance_changes[] when the 15% sleeve rotates). Extract model weights and strategist Overweight/Neutral/Underweight ratings into sector_stance_changes.",
       "• tactical_signals_add must be COMPLETE — replace, not extend. The next apply replaces the whole TACTICAL_SIGNALS array.",
       "• Every tactical signal MUST include affected_tier1_themes (from the theme list above) OR affected_sectors_overweight (from the sector list). Empty for both is allowed only for index-level signals (e.g. an SPX-only observation).",
@@ -160,7 +161,7 @@ function buildExtractionPrompt(text, playbook) {
       '  "strategy_headline_revision": "<full new STRATEGY_HEADLINE prose, ≤600 chars> | null",',
       '  "strategy_phase_revision": null | { "label": "...", "tactical_overlay": "..." },',
       '  "sector_stance_changes": [',
-      "    { \"sector\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <number>, \"rationale_short\": \"...\" }",
+      "    { \"sector\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <playbook tilt ONLY: 0.85–1.25 e.g. 1.15 for OW, 1.00 for N, 0.85 for UW — NOT model weight % or delta>, \"rationale_short\": \"...\" }",
       "  ],",
       '  "theme_stance_changes": [',
       "    { \"theme\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <number> }",
@@ -272,19 +273,9 @@ export function assessProposalAutoApply(parsed, warnings, {
     String(w).startsWith("unknown_theme") || String(w).startsWith("unknown_sector")
     || String(w).startsWith("theme_update_unknown") || String(w).startsWith("sector_update_unknown"));
 
-  // 2026-06-09 — Trusted FSD: auto-apply unless taxonomy validation failed.
-  // Operator directive: FSD is trusted; timing matters; no manual gate.
+  // 2026-06-24 — Trusted FSD is the strategy arm: auto-apply stance/tilt/theme
+  // changes unless taxonomy validation failed.
   if (trustedFsd && !hasUnknownTaxonomy) {
-    if (category === "structural" && !allowStructural) {
-      return {
-        auto: false,
-        review_status: "needs_review",
-        reason: "structural_review_required",
-        confidence,
-        on_theme: onTheme,
-        category,
-      };
-    }
     return {
       auto: true,
       review_status: "auto_applied",
