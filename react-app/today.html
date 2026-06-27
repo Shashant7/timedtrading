@@ -1180,7 +1180,7 @@
       .tt-mover-compact {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-start;
         gap: 6px;
         width: 100%;
         padding: 4px 6px;
@@ -1195,8 +1195,8 @@
         background: rgba(255,255,255,0.04);
         border-color: var(--tt-border, rgba(255,255,255,0.06));
       }
-      .tt-mover-compact__sym { font-size: 11px; font-weight: 700; color: var(--tt-text); }
-      .tt-mover-compact__pct { font-size: 11px; font-weight: 700; }
+      .tt-mover-compact__sym { font-size: 11px; font-weight: 700; color: var(--tt-text); flex: 1; min-width: 0; }
+      .tt-mover-compact__pct { font-size: 11px; font-weight: 700; margin-left: auto; flex-shrink: 0; }
       .tt-mover-compact__pct.up { color: var(--tt-up-soft); }
       .tt-mover-compact__pct.dn { color: var(--tt-dn-soft); }
       .tt-mover-compact__pct.mut { color: var(--tt-text-dim); }
@@ -1243,6 +1243,34 @@
         gap: 4px !important;
         padding: 7px 9px !important;
       }
+      .tt-open-pos-chip__head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .tt-open-pos-chip__sym {
+        font-weight: 800;
+        font-size: 13px;
+        color: var(--tt-text);
+        letter-spacing: 0.02em;
+      }
+      /* Growth Ideas + lane/bubble map — one unified panel */
+      .tt-universe-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: 18px 20px 16px;
+      }
+      .tt-universe-panel__growth { margin: 0; }
+      .tt-universe-panel__divider {
+        height: 1px;
+        background: var(--tt-border, rgba(255,255,255,0.08));
+        margin: 16px 0 14px;
+      }
+      .tt-universe-panel .tt-lane-section { margin: 0; }
+      .tt-universe-panel .tt-lane-controls { margin-bottom: 8px; }
+      .tt-universe-panel .tt-opp-scroll { padding-bottom: 4px; }
       .tt-lane-controls {
         display: flex;
         flex-direction: column;
@@ -3382,7 +3410,10 @@
                 title: `${sym} ${dir} · ${stageDisplay} · open in detail`,
               },
                 h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 } },
-                  h("span", { style: { fontWeight: 800, fontSize: 13, color: "var(--tt-text)", letterSpacing: "0.02em" } }, sym),
+                  h("span", { className: "tt-open-pos-chip__head" },
+                    h(TickerLogo, { sym, size: 18 }),
+                    h("span", { className: "tt-open-pos-chip__sym" }, sym),
+                  ),
                   h("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } },
                     t?._mode === "trader" && h("span", {
                       style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
@@ -4056,7 +4087,7 @@
         );
       }
 
-      function GrowthIdeasStrip({ onSelectTicker, user }) {
+      function GrowthIdeasStrip({ onSelectTicker, user, embedded }) {
         const [rows, setRows] = useState(() => {
           const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
           const list = Array.isArray(cached?.holdings) ? cached.holdings : [];
@@ -4142,19 +4173,24 @@
           user?.expires_at,
         ]);
 
+        const wrap = (children) => {
+          if (embedded) return h("div", { className: "tt-universe-panel__growth", id: "opportunities" }, children);
+          return h("section", { id: "opportunities", className: "tt-row" }, children);
+        };
+
         if (rows === null) {
-          return h("section", { id: "opportunities", className: "tt-row" },
+          return wrap(h(React.Fragment, null,
             h("div", { className: "tt-sec-title" }, "GROWTH IDEAS"),
             h("div", { className: "tt-sec-h" }, "Loading growth watchlist…"),
-          );
+          ));
         }
         if (!rows.length) {
-          return h("section", { id: "opportunities", className: "tt-row" },
+          return wrap(h(React.Fragment, null,
             h("div", { className: "tt-sec-title" }, "GROWTH IDEAS"),
             h("div", { className: "tt-sec-h" },
               loadErr || "No growth ideas matched the current compounder filters.",
             ),
-          );
+          ));
         }
 
         const fmtPctOpp = (n) => {
@@ -4163,7 +4199,7 @@
           return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
         };
 
-        return h("section", { id: "opportunities", className: "tt-row" },
+        return wrap(h(React.Fragment, null,
           h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 4 } },
             h("div", null,
               h("div", { className: "tt-sec-title" }, "GROWTH IDEAS"),
@@ -4213,7 +4249,7 @@
               );
             }),
           ),
-        );
+        ));
       }
 
       function FocusRail({ data, onSelectTicker }) {
@@ -4390,6 +4426,7 @@
           },
           title: `Open ${sym}`,
         },
+          h(TickerLogo, { sym, size: 16 }),
           h("span", { className: "tt-mover-compact__sym" }, sym),
           h("span", { className: `tt-mover-compact__pct ${dir}` },
             Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—",
@@ -5879,8 +5916,8 @@
         );
       }
 
-      function TickerLaneSection({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters, tradeByTicker, chips, scoredCount }) {
-        return h("section", { className: "tt-row tt-lane-section" },
+      function TickerLaneSection({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters, tradeByTicker, chips, scoredCount, embedded }) {
+        const body = h(React.Fragment, null,
           h(LaneControls, {
             chips,
             totalCount: scoredCount,
@@ -5928,6 +5965,8 @@
             }),
           ),
         );
+        if (embedded) return h("div", { className: "tt-lane-section" }, body);
+        return h("section", { className: "tt-row tt-lane-section" }, body);
       }
 
       // ═══════════════════════════════════════════════════════════
@@ -6798,25 +6837,31 @@
             data
               ? h(MarketPulseWithMovers, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
-            h(GrowthIdeasStrip, { onSelectTicker, user }),
-            data
-              ? h(TickerLaneSection, {
-                  allTickers,
-                  visible,
-                  query: filters.query,
-                  data,
-                  rankedTickers,
-                  rankedTickerPositions,
-                  sparkCache,
-                  ensureSpark,
-                  onSelectTicker,
-                  filters,
-                  setFilters,
-                  tradeByTicker,
-                  chips,
-                  scoredCount,
-                })
-              : h(BubbleViewportSkeleton, null),
+            h("section", { className: "tt-row" },
+              h("div", { className: "tt-card tt-universe-panel" },
+                h(GrowthIdeasStrip, { onSelectTicker, user, embedded: true }),
+                h("div", { className: "tt-universe-panel__divider" }),
+                data
+                  ? h(TickerLaneSection, {
+                      allTickers,
+                      visible,
+                      query: filters.query,
+                      data,
+                      rankedTickers,
+                      rankedTickerPositions,
+                      sparkCache,
+                      ensureSpark,
+                      onSelectTicker,
+                      filters,
+                      setFilters,
+                      tradeByTicker,
+                      chips,
+                      scoredCount,
+                      embedded: true,
+                    })
+                  : h("div", { className: "tt-lane-section" }, h(BubbleViewportSkeleton, null)),
+              ),
+            ),
             marketSession.showDayTradeSections && h(Disclosure, {
               id: "daytrade",
               title: "Day-Trade Game Plan",
