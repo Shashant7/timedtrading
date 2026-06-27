@@ -75,6 +75,22 @@ describe("buildSectorRatingsPatch", () => {
     });
     expect(patch["Information Technology"].rating).toBe("neutral");
     expect(patch["Information Technology"].boost).toBe(0);
+    expect(patch["Information Technology"].delta).toBe(0);
+  });
+
+  it("ignores model weight percent mistaken for new_multiplier", () => {
+    const base = {
+      "Information Technology": { rating: "overweight", boost: 5, delta: 2.5 },
+    };
+    const patch = buildSectorRatingsPatch(base, {
+      sector_stance_changes: [{
+        sector: "Information Technology",
+        new_stance: "neutral",
+        new_multiplier: 0.314,
+      }],
+    });
+    expect(patch["Information Technology"].boost).toBe(0);
+    expect(patch["Information Technology"].rating).toBe("neutral");
   });
 });
 
@@ -92,9 +108,20 @@ describe("buildEffectiveThemeTilts", () => {
 });
 
 describe("stanceToBoost", () => {
-  it("derives boost from multiplier when provided", () => {
+  it("derives boost from playbook multiplier when in range", () => {
     expect(stanceToBoost("overweight", 1.15)).toBe(3);
     expect(stanceToBoost("neutral", 1.0)).toBe(0);
+  });
+
+  it("neutral always scores 0 even with mistaken model-weight multiplier", () => {
+    expect(stanceToBoost("neutral", 0.314)).toBe(0);
+    expect(stanceToBoost("neutral", 31.4)).toBe(0);
+    expect(stanceToBoost("neutral", 0.6)).toBe(0);
+  });
+
+  it("falls back to stance defaults when multiplier is out of playbook range", () => {
+    expect(stanceToBoost("overweight", 31.4)).toBe(5);
+    expect(stanceToBoost("underweight", 0.314)).toBe(-4);
   });
 });
 

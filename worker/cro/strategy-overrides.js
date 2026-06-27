@@ -17,6 +17,17 @@ const DEFAULT_MULTIPLIERS = {
   underweight: 0.85,
 };
 
+// Playbook tilt multipliers live in ~0.85–1.25. Model weights (31.4%) or
+// weight deltas (-2.5) must NOT flow into scoring boost via this formula.
+const PLAYBOOK_MULT_MIN = 0.75;
+const PLAYBOOK_MULT_MAX = 1.30;
+
+const STANCE_BOOST_DEFAULTS = {
+  overweight: 5,
+  neutral: 0,
+  underweight: -4,
+};
+
 let _overrideCache = null;
 let _overrideLoadedAt = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -27,14 +38,14 @@ export function resolveRatingSectorName(playbookSector) {
 }
 
 export function stanceToBoost(stance, multiplier = null) {
+  const s = String(stance || "neutral").toLowerCase();
+  if (s === "neutral") return 0;
+
   const m = Number(multiplier);
-  if (Number.isFinite(m)) {
+  if (Number.isFinite(m) && m >= PLAYBOOK_MULT_MIN && m <= PLAYBOOK_MULT_MAX) {
     return Math.max(-8, Math.min(8, Math.round((m - 1) * 20)));
   }
-  const s = String(stance || "neutral").toLowerCase();
-  if (s === "overweight") return 5;
-  if (s === "underweight") return -4;
-  return 0;
+  return STANCE_BOOST_DEFAULTS[s] ?? 0;
 }
 
 export function stanceToMultiplier(stance, newMultiplier = null) {
@@ -179,7 +190,7 @@ export function buildSectorRatingsPatch(baseRatings, override) {
     const row = {
       rating: stance,
       boost,
-      delta: base.delta ?? 0,
+      delta: stance === "neutral" ? 0 : (base.delta ?? 0),
       _fsd_source: true,
       _fsd_rationale: change.rationale_short || null,
     };

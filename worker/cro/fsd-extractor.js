@@ -161,7 +161,7 @@ function buildExtractionPrompt(text, playbook) {
       '  "strategy_headline_revision": "<full new STRATEGY_HEADLINE prose, ≤600 chars> | null",',
       '  "strategy_phase_revision": null | { "label": "...", "tactical_overlay": "..." },',
       '  "sector_stance_changes": [',
-      "    { \"sector\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <number>, \"rationale_short\": \"...\" }",
+      "    { \"sector\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <playbook tilt ONLY: 0.85–1.25 e.g. 1.15 for OW, 1.00 for N, 0.85 for UW — NOT model weight % or delta>, \"rationale_short\": \"...\" }",
       "  ],",
       '  "theme_stance_changes": [',
       "    { \"theme\": \"...\", \"new_stance\": \"overweight|neutral|underweight\", \"new_multiplier\": <number> }",
