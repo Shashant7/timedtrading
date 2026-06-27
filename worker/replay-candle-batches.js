@@ -145,11 +145,20 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
       || replayEnv?.cioMemoryCache?.marketEvents
       || [];
     replayEnv._earningsClusterWindows = buildEarningsClusterWindowsFromEvents(_events, {
-      minTickers: Number(replayEnv?._deepAuditConfig?.deep_audit_earnings_cluster_min_tickers) || 4,
+      minTickers: Number(replayEnv?._deepAuditConfig?.deep_audit_earnings_cluster_min_tickers) || 3,
       windowDays: 3,
     });
-    if (!replayEnv._earningsClusterWindows.length) {
-      replayEnv._earningsClusterWindows = JULY_2025_EARNINGS_CLUSTER_FALLBACK;
+    // Preprod often has sparse market_events — merge July backdrop clusters so
+    // rank-100 TSLA/SWK entries are blocked during earnings windows.
+    const _seen = new Set(
+      (replayEnv._earningsClusterWindows || []).map((c) => `${c.anchor}:${(c.tickers || []).join(",")}`),
+    );
+    for (const fb of JULY_2025_EARNINGS_CLUSTER_FALLBACK) {
+      const key = `${fb.anchor}:${(fb.tickers || []).join(",")}`;
+      if (!_seen.has(key)) {
+        replayEnv._earningsClusterWindows.push(fb);
+        _seen.add(key);
+      }
     }
   }
 

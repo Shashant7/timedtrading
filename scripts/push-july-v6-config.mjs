@@ -21,7 +21,7 @@ const UPDATES = [
   { key: "deep_audit_tape_capitulation_skip_index_swing", value: "true" },
   { key: "deep_audit_earnings_cluster_gate_enabled", value: "true" },
   { key: "deep_audit_earnings_cluster_rank_bypass", value: "93" },
-  { key: "deep_audit_earnings_cluster_block_high_rank_members", value: "true" },
+  { key: "deep_audit_earnings_cluster_min_tickers", value: "3" },
   { key: "deep_audit_earnings_cluster_high_rank_floor", value: "100" },
   { key: "deep_audit_earnings_cluster_high_rank_day_pad", value: "3" },
   { key: "deep_audit_doctrine_force_defer_bull_enabled", value: "true" },
