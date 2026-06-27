@@ -237,7 +237,7 @@
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
-      /* Today hero — Daily Brief | Research Desk (PLM lives on Research Desk page). */
+      /* Today hero — Open Positions | Research Desk. */
       .today-hero {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -253,6 +253,14 @@
         display: flex;
         flex-direction: column;
         gap: 14px;
+      }
+      .today-hero-pos-col {
+        grid-column: 1;
+        grid-row: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
       }
       .today-hero-desk-col {
         grid-column: 2;
@@ -304,6 +312,7 @@
           grid-template-columns: 1fr !important;
           grid-template-rows: auto;
         }
+        .today-hero-pos-col,
         .today-hero-brief-col,
         .today-hero-desk-col {
           grid-column: 1;
@@ -1102,6 +1111,61 @@
         min-height: 118px;
         height: auto;
       }
+      /* Horizontal ticker lane — scroll strip above bubble map */
+      .vp-lane-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+      }
+      .vp-lane {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        overflow-x: auto;
+        padding: 4px 2px 10px;
+        scroll-snap-type: x proximity;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.12) transparent;
+      }
+      .vp-lane::-webkit-scrollbar { height: 6px; }
+      .vp-lane::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
+      .vp-lane .ds-tickercard.tt-lane-card {
+        width: 280px !important;
+        flex: 0 0 280px;
+        scroll-snap-align: start;
+        min-height: 118px;
+        height: auto;
+      }
+      .tt-mp-panel { padding: 16px 18px; }
+      .tt-mp-divider {
+        height: 1px;
+        background: var(--tt-border, rgba(255,255,255,0.08));
+        margin: 16px 0;
+      }
+      .tt-lane-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .tt-lane-controls .ac-search { margin: 0; }
+      .tt-lane-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .tt-status .brief-archive-link {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--tt-text-muted);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .tt-status .brief-archive-link:hover { color: var(--tt-accent); }
 
       /* Skeleton */
       .sk {
@@ -2148,10 +2212,24 @@
             h("div", { className: "date" }, nyFmtDate()),
           ),
           h("div", { className: "session" },
-            h(SessionPill, { cal }),
-            briefDate && h("span", { className: "tt-pill" },
-              h("span", { className: "dot", style: { background: "var(--tt-accent)" } }),
-              "Brief: " + briefDate,
+            h("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 } },
+              h("div", { style: { display: "inline-flex", gap: 8, alignItems: "center", flexWrap: "wrap" } },
+                h(SessionPill, { cal }),
+                briefDate && h("span", { className: "tt-pill" },
+                  h("span", { className: "dot", style: { background: "var(--tt-accent)" } }),
+                  "Brief: " + briefDate,
+                ),
+              ),
+              h("a", {
+                href: "/daily-brief.html#archive",
+                className: "brief-archive-link",
+                title: "Open the daily brief archive",
+              },
+                "Browse past briefs",
+                h("svg", { width: 12, height: 12, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round" },
+                  h("line", { x1: 5, y1: 12, x2: 19, y2: 12 }), h("polyline", { points: "12 5 19 12 12 19" }),
+                ),
+              ),
             ),
           ),
           // Tier 1 of the morning read: one line that frames the session.
@@ -2989,7 +3067,8 @@
         return Number.isFinite(stored) ? stored : NaN;
       }
 
-      function OpenPositionsPreview({ onSelectTicker, allTickers }) {
+      function OpenPositionsPreview({ onSelectTicker, allTickers, variant }) {
+        const hero = variant === "hero";
         const [trades, setTrades] = useState([]);
         const [loading, setLoading] = useState(true);
         useEffect(() => {
@@ -3079,8 +3158,23 @@
           return () => { cancelled = true; clearTimeout(defer); };
         }, []);
 
-        if (loading) return null;
-        if (trades.length === 0) return null;
+        if (loading) {
+          if (!hero) return null;
+          return h("div", { className: "tt-card tt-card-pad", style: { minHeight: 180 } },
+            h("div", { className: "tt-sec-title" }, "OPEN POSITIONS · MODEL GUIDANCE"),
+            h("div", { className: "sk", style: { width: "70%", height: 14, marginTop: 12 } }),
+            h("div", { className: "sk-grid-4", style: { marginTop: 14 } },
+              [0, 1, 2, 3].map((i) => h("div", { key: i, className: "sk", style: { height: 72, borderRadius: 10 } })),
+            ),
+          );
+        }
+        if (trades.length === 0) {
+          if (!hero) return null;
+          return h("div", { className: "tt-card tt-card-pad" },
+            h("div", { className: "tt-sec-title" }, "OPEN POSITIONS · MODEL GUIDANCE"),
+            h("div", { className: "tt-sec-h", style: { fontSize: 14, marginTop: 6 } }, "No open positions — model is flat."),
+          );
+        }
 
         const tickerMeta = (() => {
           const px = new Map();
@@ -3113,11 +3207,11 @@
         const sorted = [...traderSorted, ...investorSorted];
 
         return h("section", {
-          className: "tt-card tt-card-pad tt-row",
-          style: { marginBottom: 14 },
+          className: hero ? "tt-card tt-card-pad" : "tt-card tt-card-pad tt-row",
+          style: hero ? { minHeight: 0, display: "flex", flexDirection: "column", flex: 1 } : { marginBottom: 14 },
         },
           h("div", { className: "tt-sec-title" }, "OPEN POSITIONS · MODEL GUIDANCE"),
-          h("div", { className: "tt-sec-h", style: { fontSize: 16, marginBottom: 8 } },
+          h("div", { className: "tt-sec-h", style: { fontSize: hero ? 14 : 16, marginBottom: 8 } },
             `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`,
           ),
           h("div", {
@@ -3126,9 +3220,10 @@
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))",
               gap: 10,
+              ...(hero ? { maxHeight: 320, overflowY: "auto", paddingRight: 2 } : {}),
             },
           },
-            sorted.slice(0, 12).map((t) => {
+            sorted.slice(0, hero ? 16 : 12).map((t) => {
               const sym = String(t?.ticker || "").toUpperCase();
               const dir = String(t?.direction || "").toUpperCase();
               const pnlPct = Number(t?.pnl_pct);
@@ -3383,18 +3478,7 @@
         );
       }
 
-      function TodayHero({ brief, briefSlot, data, earnings, onSelectTicker, cal }) {
-        // 2026-05-30 (v3) — Tighter layout per user feedback "still funky
-        // and has dead space". Two changes:
-        //   1. Quick Glance moved UP — directly below the Brief, above
-        //      Predictions. So the eye sees Brief → Pulse → Plan, with
-        //      the dense plan rows at the bottom of the hero (not the
-        //      tall blocking element).
-        //   2. Predictions render in COMPACT single-row mode (one row
-        //      per index, ~40px tall vs ~180px) so the hero hero stays
-        //      short enough for the Options sidebar on the right to feel
-        //      proportional. Full per-index narrative + scorecard still
-        //      live on the Daily Brief page for users who want depth.
+      function TodayHero({ onSelectTicker, allTickers }) {
         return h("div", {
           className: "today-hero",
           style: {
@@ -3406,10 +3490,8 @@
             alignItems: "stretch",
           },
         },
-          h("div", { className: "today-hero-brief-col" },
-            brief
-              ? h(BriefPreview, { brief, briefSlot })
-              : h(BriefPlaceholder, { data, earnings, onSelectTicker, cal }),
+          h("div", { className: "today-hero-pos-col" },
+            h(OpenPositionsPreview, { onSelectTicker, allTickers, variant: "hero" }),
           ),
           h("div", { className: "today-hero-desk-col" },
             h(ResearchDeskPanel, { onSelectTicker }),
@@ -3625,7 +3707,7 @@
         );
       }
 
-      function MarketState({ data, onSelectTicker }) {
+      function MarketState({ data, onSelectTicker, embedded }) {
         // Order mirrors the AT Market Pulse row: equity indices first,
         // VIX, crypto pair (BTC + ETH), then commodity ETFs (gold, oil).
         // User requested ETH and an oil-equivalent tile alongside the
@@ -3657,8 +3739,7 @@
           ? Object.entries(_latent.posterior).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ")
           : "";
 
-        return h("section", { className: "tt-row" },
-          h("div", { className: "tt-sec-title" }, "MARKET PULSE"),
+        const body = h(React.Fragment, null,
           h("div", {
             style: { display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" },
           },
@@ -3688,6 +3769,28 @@
             },
           },
             order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym], onSelectTicker })),
+          ),
+        );
+        if (embedded) {
+          return h("div", null,
+            h("div", { className: "tt-sec-title" }, "MARKET PULSE"),
+            body,
+          );
+        }
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-sec-title" }, "MARKET PULSE"),
+          body,
+        );
+      }
+
+      function MarketPulseWithMovers({ data, onSelectTicker }) {
+        if (!data) return h(MarketStateSkeleton);
+        const universe = new Set(Object.keys(data).map((s) => String(s).toUpperCase()));
+        return h("section", { className: "tt-row" },
+          h("div", { className: "tt-card tt-card-pad tt-mp-panel" },
+            h(MarketState, { data, onSelectTicker, embedded: true }),
+            h("div", { className: "tt-mp-divider" }),
+            h(TopMovers, { data, onSelectTicker, universe, embedded: true }),
           ),
         );
       }
@@ -4185,7 +4288,7 @@
               ),
         );
       }
-      function TopMovers({ data, onSelectTicker, universe, strip }) {
+      function TopMovers({ data, onSelectTicker, universe, strip, embedded }) {
         const arr = useMemo(() => {
           if (!data) return [];
           return Object.values(data).filter(t => t && t.ticker);
@@ -4233,6 +4336,25 @@
         }, [arr, open]);
 
         const hasExt = extGain.length > 0 || extLoss.length > 0;
+
+        if (embedded) {
+          return h("div", { className: "tt-mp-movers-embed" },
+            h("div", { className: "tt-sec-title", style: { marginBottom: 4 } }, "TOP MOVERS"),
+            h("div", { className: "tt-sec-h", style: { fontSize: 14, margin: "0 0 10px" } },
+              open
+                ? "Session RTH leaders — click a row to open the ticker."
+                : "RTH close plus extended-hours follow-through when available.",
+            ),
+            h("div", { className: "tt-grid tt-grid-2" },
+              h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker, universe }),
+              h(MoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth", onSelectTicker, universe }),
+            ),
+            hasExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 10 } },
+              h(MoversCol, { title: "EXT GAINERS", items: extGain, mode: "ext", onSelectTicker, universe }),
+              h(MoversCol, { title: "EXT LOSERS", items: extLoss, mode: "ext", onSelectTicker, universe }),
+            ),
+          );
+        }
 
         // 2026-06-05 — Compact horizontal STRIPS: one scrolling row PER
         // category (RTH gainers, RTH losers, and — only when the market is
@@ -4621,8 +4743,8 @@
       }
 
       function primedTickerPriority(t) {
-        if (isTraderTriggerReady(t)) return 3;
-        if (isInvestorQueued(t)) return 2;
+        if (isInvestorQueued(t)) return 3;
+        if (isTraderTriggerReady(t)) return 2;
         if (isTraderWatchlist(t)) return 1;
         return 0;
       }
@@ -4690,7 +4812,20 @@
           id: "entry_zone", label: "Entry Zone", count: entryZone.length,
           tickers: entryZone.map((t) => t.ticker),
           row: "focus",
-          tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Trigger Ready sorts first.",
+          tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Queued sorts first.",
+        });
+
+        // ── Open Positions — tickers the model is actively managing ──
+        const openPositions = allTickers.filter((t) => {
+          if (t?._openTrade || t?.has_open_position) return true;
+          const ks = String(t?.kanban_stage || "").toLowerCase();
+          return ["hold", "active", "just_entered", "trim", "defend", "exiting"].includes(ks);
+        });
+        chips.push({
+          id: "open_positions", label: "Open Positions", count: openPositions.length,
+          tickers: openPositions.map((t) => t.ticker),
+          row: "focus",
+          tooltip: "Tickers with an open trader or investor position.",
         });
 
         // ── All — full scored universe (placeholders without HTF/LTF stay hidden
@@ -5505,8 +5640,9 @@
         return { cache, ensure };
       }
 
-      function Viewport({ visible, rankedTickerPositions, query, sparkCache, ensureSpark, onSelectTicker, activeChip }) {
+      function Viewport({ visible, rankedTickerPositions, query, sparkCache, ensureSpark, onSelectTicker, activeChip, layout }) {
         const { saved, toggle: toggleSaved } = useSavedTickers();
+        const lane = layout === "lane";
 
         const ranked = useMemo(() => {
           const list = (visible || []).slice();
@@ -5542,15 +5678,18 @@
           window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
         };
 
-        return h("aside", { className: "vp-card", "aria-label": "Ticker viewport" },
-          h("div", { className: "vp-head" },
-            h("div", { className: "vp-title" }, "VIEWPORT"),
+        return h("aside", {
+          className: lane ? "vp-lane-wrap" : "vp-card",
+          "aria-label": "Ticker viewport",
+        },
+          h("div", { className: lane ? "vp-lane-head vp-head" : "vp-head" },
+            h("div", { className: "vp-title" }, lane ? "TICKER LANE" : "VIEWPORT"),
             h("div", { className: "vp-count" }, `${ranked.length} tickers`),
           ),
-          h("div", { className: "vp-list" },
+          h("div", { className: lane ? "vp-lane" : "vp-list" },
             ranked.length === 0
-              ? h("div", { className: "vp-empty" }, "No tickers match. Try a different filter or clear the search.")
-              : ranked.slice(0, 60).map((t) => {
+              ? h("div", { className: "vp-empty", style: lane ? { minWidth: 280 } : undefined }, "No tickers match. Try a different filter or clear the search.")
+              : ranked.slice(0, lane ? 40 : 60).map((t) => {
                   const SYM = String(t.ticker || "").toUpperCase();
                   return h(ViewportCard, {
                     key: t.ticker,
@@ -5563,8 +5702,116 @@
                   });
                 }),
           ),
-          ranked.length > 60 && h("div", { className: "vp-empty", style: { fontSize: 10 } },
-            `Showing 60 of ${ranked.length} — narrow the filter to see more.`,
+          ranked.length > (lane ? 40 : 60) && h("div", { className: "vp-empty", style: { fontSize: 10 } },
+            `Showing ${lane ? 40 : 60} of ${ranked.length} — narrow the filter to see more.`,
+          ),
+        );
+      }
+
+      const LANE_CHIP_IDS = ["entry_zone", "open_positions", "market_pulse", "top_movers", "saved", "tt_selected", "all"];
+
+      function LaneControls({ chips, totalCount, visibleCount, filters, setFilters }) {
+        const { query, activeChip } = filters;
+        const setQ = (v) => setFilters((f) => ({ ...f, query: v }));
+        const setChip = (id) => setFilters((f) => ({ ...f, activeChip: id, addOns: new Set() }));
+        const laneChips = LANE_CHIP_IDS
+          .map((id) => (chips || []).find((c) => c.id === id))
+          .filter(Boolean);
+        const isFiltered = (activeChip && activeChip !== "all") || String(query || "").trim().length > 0;
+        return h("div", { className: "tt-lane-controls" },
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" } },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "TICKER LANE"),
+              h("div", { className: "tt-sec-h" }, "Filter the lane and bubble map together"),
+            ),
+            h("div", { className: "ac-meta" },
+              isFiltered && h("button", {
+                className: "ac-clear",
+                onClick: () => setFilters({ activeChip: "entry_zone", query: "", addOns: new Set() }),
+                title: "Reset to Entry Zone · clear search",
+              }, "✕ Clear filters"),
+              h("span", null,
+                h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers",
+              ),
+            ),
+          ),
+          h("div", { className: "ac-search" },
+            h("span", { className: "ac-search-icon" }, "⌕"),
+            h("input", {
+              type: "search",
+              placeholder: "Search ticker (e.g. NBIS, AAPL, GOOGL, MSFT)",
+              value: query,
+              onChange: (e) => setQ(e.target.value),
+              spellCheck: false,
+              autoComplete: "off",
+              "aria-label": "Search ticker symbol",
+            }),
+            query && h("button", { className: "ac-search-clear", onClick: () => setQ("") }, "clear"),
+          ),
+          h("div", { className: "tt-lane-chip-row" },
+            laneChips.map((c) => {
+              const isActive = activeChip === c.id;
+              return h("button", {
+                key: c.id,
+                className: `ac-chip${isActive ? " active" : ""}${c.id === "entry_zone" && isActive ? " pull" : ""}`,
+                onClick: () => setChip(c.id),
+                title: c.tooltip || c.label,
+              },
+                c.label,
+                c.count != null && h("span", { className: "ac-count" }, c.count),
+              );
+            }),
+          ),
+        );
+      }
+
+      function TickerLaneSection({ allTickers, visible, query, data, rankedTickers, rankedTickerPositions, sparkCache, ensureSpark, onSelectTicker, filters, setFilters, tradeByTicker, chips, scoredCount }) {
+        return h("section", { className: "tt-row tt-lane-section" },
+          h(LaneControls, {
+            chips,
+            totalCount: scoredCount,
+            visibleCount: visible.length,
+            filters,
+            setFilters,
+          }),
+          h(Viewport, {
+            visible,
+            rankedTickerPositions,
+            query,
+            sparkCache,
+            ensureSpark,
+            onSelectTicker,
+            activeChip: filters?.activeChip,
+            layout: "lane",
+          }),
+          h(BubbleMapGuide, null),
+          h("div", { style: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", margin: "16px 0 8px" } },
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
+              h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum × trend"),
+            ),
+            h("div", { className: "bm-legend" },
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull aligned"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#34d399" } }), "Bull mixed"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f5c25c" } }), "Pullback"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#fb7185" } }), "Bear mixed"),
+              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear aligned"),
+            ),
+          ),
+          h("div", { className: "tt-bmap-block" },
+            h(SharedBubbleMapSection, {
+              allTickers,
+              visible,
+              query,
+              data,
+              rankedTickers,
+              rankedTickerPositions,
+              onSelectTicker,
+              filters,
+              setFilters,
+              tradeByTicker,
+              embedded: true,
+            }),
           ),
         );
       }
@@ -6167,7 +6414,7 @@
         // Selected and Saved should be additive filter options."
         const [filters, setFilters] = useState({
           query: "",
-          activeChip: "focus",
+          activeChip: "entry_zone",
           addOns: new Set(),
         });
 
@@ -6424,25 +6671,6 @@
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading today's data" }),
           h("main", null,
-            // 2026-06-10 — 3-tier morning read. Order top→bottom:
-            //   Tier 1: session + regime one-liner (StatusHeader + RegimeLine)
-            //   Tier 2: Daily Brief hero | Research Desk
-            //   Tier 3: Open Positions
-            //   Retained (operator feedback): Market Pulse, Cross-asset,
-            //     Macro events, Earnings, Entry Zone, Movers, Bubble Map.
-            //   Progressive disclosure: Day-Trade plan, Options plays,
-            //     Universe heat map.
-            h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
-            h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker, cal }),
-            // Tier 3 — what the model is currently managing.
-            h(OpenPositionsPreview, { onSelectTicker, allTickers }),
-            h(GrowthIdeasStrip, { onSelectTicker, user }),
-            // ── Retained informative sections ──
-            data
-              ? h(MarketState, { data, onSelectTicker })
-              : h(MarketStateSkeleton, null),
-            brief && h(MacroStrip, { brief, data }),
-            // Macro economic events (NFP/CPI/FOMC…) — curated + live-merged.
             h(MacroEventsStrip, null),
             earnings && h(EarningsStrip, {
               earnings,
@@ -6451,36 +6679,14 @@
               strip: true,
               universe: universeSet,
             }),
-            data && h(FocusRail, { data, onSelectTicker }),
-            data && h(TopMovers, {
-              data,
-              onSelectTicker,
-              strip: true,
-              universe: data ? new Set(Object.keys(data).map((s) => String(s).toUpperCase())) : null,
-            }),
-            // ── Progressive disclosure — deeper game-plan material (RTH only) ──
-            marketSession.showDayTradeSections && h(Disclosure, {
-              id: "daytrade",
-              title: "Day-Trade Game Plan",
-              sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade",
-            }, h(DayTradePredictions, { onSelectTicker })),
-            marketSession.showDayTradeSections && h(Disclosure, {
-              id: "options",
-              title: "Options Plays of the Day",
-              sub: "0/1DTE index plays + top swing structures",
-            }, h(OptionsPlaysOfTheDay, { onSelectTicker, layout: "row" })),
-            // ── Analysis (interactive) — bubble map is the centerpiece ──
+            h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
+            h(TodayHero, { onSelectTicker, allTickers }),
             data
-              ? h(AnalysisControls, {
-                  chips,
-                  totalCount: scoredCount,
-                  visibleCount: visible.length,
-                  filters,
-                  setFilters,
-                })
-              : h(AnalysisControlsSkeleton, null),
+              ? h(MarketPulseWithMovers, { data, onSelectTicker })
+              : h(MarketStateSkeleton, null),
+            h(GrowthIdeasStrip, { onSelectTicker, user }),
             data
-              ? h(BubbleMapViewportSplit, {
+              ? h(TickerLaneSection, {
                   allTickers,
                   visible,
                   query: filters.query,
@@ -6493,8 +6699,20 @@
                   filters,
                   setFilters,
                   tradeByTicker,
+                  chips,
+                  scoredCount,
                 })
               : h(BubbleViewportSkeleton, null),
+            marketSession.showDayTradeSections && h(Disclosure, {
+              id: "daytrade",
+              title: "Day-Trade Game Plan",
+              sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade",
+            }, h(DayTradePredictions, { onSelectTicker })),
+            marketSession.showDayTradeSections && h(Disclosure, {
+              id: "options",
+              title: "Options Plays of the Day",
+              sub: "0/1DTE index plays + top swing structures",
+            }, h(OptionsPlaysOfTheDay, { onSelectTicker, layout: "row" })),
             data && h(Disclosure, {
               id: "heatmap",
               title: "Universe Heat Map",

@@ -500,6 +500,20 @@ function StatusHeader({
     className: "date"
   }, nyFmtDate())), h("div", {
     className: "session"
+  }, h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      gap: 8
+    }
+  }, h("div", {
+    style: {
+      display: "inline-flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
   }, h(SessionPill, {
     cal
   }), briefDate && h("span", {
@@ -509,7 +523,27 @@ function StatusHeader({
     style: {
       background: "var(--tt-accent)"
     }
-  }), "Brief: " + briefDate)), h(RegimeLine, {
+  }), "Brief: " + briefDate)), h("a", {
+    href: "/daily-brief.html#archive",
+    className: "brief-archive-link",
+    title: "Open the daily brief archive"
+  }, "Browse past briefs", h("svg", {
+    width: 12,
+    height: 12,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, h("line", {
+    x1: 5,
+    y1: 12,
+    x2: 19,
+    y2: 12
+  }), h("polyline", {
+    points: "12 5 19 12 12 19"
+  }))))), h(RegimeLine, {
     brief,
     data
   }));
@@ -1536,8 +1570,10 @@ function computeOpenPositionPnlPct(tr, livePx) {
 }
 function OpenPositionsPreview({
   onSelectTicker,
-  allTickers
+  allTickers,
+  variant
 }) {
+  const hero = variant === "hero";
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -1615,8 +1651,50 @@ function OpenPositionsPreview({
       clearTimeout(defer);
     };
   }, []);
-  if (loading) return null;
-  if (trades.length === 0) return null;
+  if (loading) {
+    if (!hero) return null;
+    return h("div", {
+      className: "tt-card tt-card-pad",
+      style: {
+        minHeight: 180
+      }
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
+      className: "sk",
+      style: {
+        width: "70%",
+        height: 14,
+        marginTop: 12
+      }
+    }), h("div", {
+      className: "sk-grid-4",
+      style: {
+        marginTop: 14
+      }
+    }, [0, 1, 2, 3].map(i => h("div", {
+      key: i,
+      className: "sk",
+      style: {
+        height: 72,
+        borderRadius: 10
+      }
+    }))));
+  }
+  if (trades.length === 0) {
+    if (!hero) return null;
+    return h("div", {
+      className: "tt-card tt-card-pad"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
+      className: "tt-sec-h",
+      style: {
+        fontSize: 14,
+        marginTop: 6
+      }
+    }, "No open positions — model is flat."));
+  }
   const tickerMeta = (() => {
     const px = new Map();
     const stages = new Map();
@@ -1646,8 +1724,13 @@ function OpenPositionsPreview({
   const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
   const sorted = [...traderSorted, ...investorSorted];
   return h("section", {
-    className: "tt-card tt-card-pad tt-row",
-    style: {
+    className: hero ? "tt-card tt-card-pad" : "tt-card tt-card-pad tt-row",
+    style: hero ? {
+      minHeight: 0,
+      display: "flex",
+      flexDirection: "column",
+      flex: 1
+    } : {
       marginBottom: 14
     }
   }, h("div", {
@@ -1655,7 +1738,7 @@ function OpenPositionsPreview({
   }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
     className: "tt-sec-h",
     style: {
-      fontSize: 16,
+      fontSize: hero ? 14 : 16,
       marginBottom: 8
     }
   }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), h("div", {
@@ -1663,9 +1746,14 @@ function OpenPositionsPreview({
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))",
-      gap: 10
+      gap: 10,
+      ...(hero ? {
+        maxHeight: 320,
+        overflowY: "auto",
+        paddingRight: 2
+      } : {})
     }
-  }, sorted.slice(0, 12).map(t => {
+  }, sorted.slice(0, hero ? 16 : 12).map(t => {
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
     const pnlPct = Number(t?.pnl_pct);
@@ -2167,12 +2255,8 @@ function DayTradePredictions({
   }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. The matching 0/1DTE option play for each index is in “Options Plays · Day Trade Index ETFs” below. Educational, not advice."));
 }
 function TodayHero({
-  brief,
-  briefSlot,
-  data,
-  earnings,
   onSelectTicker,
-  cal
+  allTickers
 }) {
   return h("div", {
     className: "today-hero",
@@ -2185,15 +2269,11 @@ function TodayHero({
       alignItems: "stretch"
     }
   }, h("div", {
-    className: "today-hero-brief-col"
-  }, brief ? h(BriefPreview, {
-    brief,
-    briefSlot
-  }) : h(BriefPlaceholder, {
-    data,
-    earnings,
+    className: "today-hero-pos-col"
+  }, h(OpenPositionsPreview, {
     onSelectTicker,
-    cal
+    allTickers,
+    variant: "hero"
   })), h("div", {
     className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
@@ -2484,7 +2564,8 @@ function CTOLevelsPanel({
 }
 function MarketState({
   data,
-  onSelectTicker
+  onSelectTicker,
+  embedded
 }) {
   const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
   const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
@@ -2515,11 +2596,7 @@ function MarketState({
     label: _latent.state
   } : null;
   const _postSummary = _latent?.posterior ? Object.entries(_latent.posterior).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ") : "";
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "MARKET PULSE"), h("div", {
+  const body = h(React.Fragment, null, h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -2568,6 +2645,39 @@ function MarketState({
     t: data[sym],
     onSelectTicker
   }))));
+  if (embedded) {
+    return h("div", null, h("div", {
+      className: "tt-sec-title"
+    }, "MARKET PULSE"), body);
+  }
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "MARKET PULSE"), body);
+}
+function MarketPulseWithMovers({
+  data,
+  onSelectTicker
+}) {
+  if (!data) return h(MarketStateSkeleton);
+  const universe = new Set(Object.keys(data).map(s => String(s).toUpperCase()));
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-card-pad tt-mp-panel"
+  }, h(MarketState, {
+    data,
+    onSelectTicker,
+    embedded: true
+  }), h("div", {
+    className: "tt-mp-divider"
+  }), h(TopMovers, {
+    data,
+    onSelectTicker,
+    universe,
+    embedded: true
+  })));
 }
 function MacroStrip({
   brief,
@@ -3164,7 +3274,8 @@ function TopMovers({
   data,
   onSelectTicker,
   universe,
-  strip
+  strip,
+  embedded
 }) {
   const arr = useMemo(() => {
     if (!data) return [];
@@ -3201,6 +3312,53 @@ function TopMovers({
     })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const hasExt = extGain.length > 0 || extLoss.length > 0;
+  if (embedded) {
+    return h("div", {
+      className: "tt-mp-movers-embed"
+    }, h("div", {
+      className: "tt-sec-title",
+      style: {
+        marginBottom: 4
+      }
+    }, "TOP MOVERS"), h("div", {
+      className: "tt-sec-h",
+      style: {
+        fontSize: 14,
+        margin: "0 0 10px"
+      }
+    }, open ? "Session RTH leaders — click a row to open the ticker." : "RTH close plus extended-hours follow-through when available."), h("div", {
+      className: "tt-grid tt-grid-2"
+    }, h(MoversCol, {
+      title: "RTH GAINERS",
+      items: rthGain,
+      mode: "rth",
+      onSelectTicker,
+      universe
+    }), h(MoversCol, {
+      title: "RTH LOSERS",
+      items: rthLoss,
+      mode: "rth",
+      onSelectTicker,
+      universe
+    })), hasExt && h("div", {
+      className: "tt-grid tt-grid-2",
+      style: {
+        marginTop: 10
+      }
+    }, h(MoversCol, {
+      title: "EXT GAINERS",
+      items: extGain,
+      mode: "ext",
+      onSelectTicker,
+      universe
+    }), h(MoversCol, {
+      title: "EXT LOSERS",
+      items: extLoss,
+      mode: "ext",
+      onSelectTicker,
+      universe
+    })));
+  }
   if (strip) {
     const moverChip = (t, mode) => {
       const sym = String(t.ticker || t.sym || "").toUpperCase();
@@ -3602,8 +3760,8 @@ function viewportActionChips(t) {
   return chips;
 }
 function primedTickerPriority(t) {
-  if (isTraderTriggerReady(t)) return 3;
-  if (isInvestorQueued(t)) return 2;
+  if (isInvestorQueued(t)) return 3;
+  if (isTraderTriggerReady(t)) return 2;
   if (isTraderWatchlist(t)) return 1;
   return 0;
 }
@@ -3666,7 +3824,20 @@ function computeInsightChips(allTickers, opts) {
     count: entryZone.length,
     tickers: entryZone.map(t => t.ticker),
     row: "focus",
-    tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Trigger Ready sorts first."
+    tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Queued sorts first."
+  });
+  const openPositions = allTickers.filter(t => {
+    if (t?._openTrade || t?.has_open_position) return true;
+    const ks = String(t?.kanban_stage || "").toLowerCase();
+    return ["hold", "active", "just_entered", "trim", "defend", "exiting"].includes(ks);
+  });
+  chips.push({
+    id: "open_positions",
+    label: "Open Positions",
+    count: openPositions.length,
+    tickers: openPositions.map(t => t.ticker),
+    row: "focus",
+    tooltip: "Tickers with an open trader or investor position."
   });
   chips.push({
     id: "all",
@@ -4420,12 +4591,14 @@ function Viewport({
   sparkCache,
   ensureSpark,
   onSelectTicker,
-  activeChip
+  activeChip,
+  layout
 }) {
   const {
     saved,
     toggle: toggleSaved
   } = useSavedTickers();
+  const lane = layout === "lane";
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
     if (activeChip === "entry_zone") {
@@ -4456,19 +4629,22 @@ function Viewport({
     window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
   };
   return h("aside", {
-    className: "vp-card",
+    className: lane ? "vp-lane-wrap" : "vp-card",
     "aria-label": "Ticker viewport"
   }, h("div", {
-    className: "vp-head"
+    className: lane ? "vp-lane-head vp-head" : "vp-head"
   }, h("div", {
     className: "vp-title"
-  }, "VIEWPORT"), h("div", {
+  }, lane ? "TICKER LANE" : "VIEWPORT"), h("div", {
     className: "vp-count"
   }, `${ranked.length} tickers`)), h("div", {
-    className: "vp-list"
+    className: lane ? "vp-lane" : "vp-list"
   }, ranked.length === 0 ? h("div", {
-    className: "vp-empty"
-  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => {
+    className: "vp-empty",
+    style: lane ? {
+      minWidth: 280
+    } : undefined
+  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, lane ? 40 : 60).map(t => {
     const SYM = String(t.ticker || "").toUpperCase();
     return h(ViewportCard, {
       key: t.ticker,
@@ -4479,12 +4655,177 @@ function Viewport({
       isSaved: saved.has(SYM),
       onToggleSaved: toggleSaved
     });
-  })), ranked.length > 60 && h("div", {
+  })), ranked.length > (lane ? 40 : 60) && h("div", {
     className: "vp-empty",
     style: {
       fontSize: 10
     }
-  }, `Showing 60 of ${ranked.length} — narrow the filter to see more.`));
+  }, `Showing ${lane ? 40 : 60} of ${ranked.length} — narrow the filter to see more.`));
+}
+const LANE_CHIP_IDS = ["entry_zone", "open_positions", "market_pulse", "top_movers", "saved", "tt_selected", "all"];
+function LaneControls({
+  chips,
+  totalCount,
+  visibleCount,
+  filters,
+  setFilters
+}) {
+  const {
+    query,
+    activeChip
+  } = filters;
+  const setQ = v => setFilters(f => ({
+    ...f,
+    query: v
+  }));
+  const setChip = id => setFilters(f => ({
+    ...f,
+    activeChip: id,
+    addOns: new Set()
+  }));
+  const laneChips = LANE_CHIP_IDS.map(id => (chips || []).find(c => c.id === id)).filter(Boolean);
+  const isFiltered = activeChip && activeChip !== "all" || String(query || "").trim().length > 0;
+  return h("div", {
+    className: "tt-lane-controls"
+  }, h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "TICKER LANE"), h("div", {
+    className: "tt-sec-h"
+  }, "Filter the lane and bubble map together")), h("div", {
+    className: "ac-meta"
+  }, isFiltered && h("button", {
+    className: "ac-clear",
+    onClick: () => setFilters({
+      activeChip: "entry_zone",
+      query: "",
+      addOns: new Set()
+    }),
+    title: "Reset to Entry Zone · clear search"
+  }, "✕ Clear filters"), h("span", null, h("strong", null, visibleCount), " of ", h("strong", null, totalCount), " tickers"))), h("div", {
+    className: "ac-search"
+  }, h("span", {
+    className: "ac-search-icon"
+  }, "⌕"), h("input", {
+    type: "search",
+    placeholder: "Search ticker (e.g. NBIS, AAPL, GOOGL, MSFT)",
+    value: query,
+    onChange: e => setQ(e.target.value),
+    spellCheck: false,
+    autoComplete: "off",
+    "aria-label": "Search ticker symbol"
+  }), query && h("button", {
+    className: "ac-search-clear",
+    onClick: () => setQ("")
+  }, "clear")), h("div", {
+    className: "tt-lane-chip-row"
+  }, laneChips.map(c => {
+    const isActive = activeChip === c.id;
+    return h("button", {
+      key: c.id,
+      className: `ac-chip${isActive ? " active" : ""}${c.id === "entry_zone" && isActive ? " pull" : ""}`,
+      onClick: () => setChip(c.id),
+      title: c.tooltip || c.label
+    }, c.label, c.count != null && h("span", {
+      className: "ac-count"
+    }, c.count));
+  })));
+}
+function TickerLaneSection({
+  allTickers,
+  visible,
+  query,
+  data,
+  rankedTickers,
+  rankedTickerPositions,
+  sparkCache,
+  ensureSpark,
+  onSelectTicker,
+  filters,
+  setFilters,
+  tradeByTicker,
+  chips,
+  scoredCount
+}) {
+  return h("section", {
+    className: "tt-row tt-lane-section"
+  }, h(LaneControls, {
+    chips,
+    totalCount: scoredCount,
+    visibleCount: visible.length,
+    filters,
+    setFilters
+  }), h(Viewport, {
+    visible,
+    rankedTickerPositions,
+    query,
+    sparkCache,
+    ensureSpark,
+    onSelectTicker,
+    activeChip: filters?.activeChip,
+    layout: "lane"
+  }), h(BubbleMapGuide, null), h("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap",
+      margin: "16px 0 8px"
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where every ticker sits on momentum × trend")), h("div", {
+    className: "bm-legend"
+  }, h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#34d399"
+    }
+  }), "Bull mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f5c25c"
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#fb7185"
+    }
+  }), "Bear mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear aligned"))), h("div", {
+    className: "tt-bmap-block"
+  }, h(SharedBubbleMapSection, {
+    allTickers,
+    visible,
+    query,
+    data,
+    rankedTickers,
+    rankedTickerPositions,
+    onSelectTicker,
+    filters,
+    setFilters,
+    tradeByTicker,
+    embedded: true
+  })));
 }
 function BubbleMapGuide() {
   const storageKey = "tt-bubble-map-guide-dismissed";
@@ -5331,7 +5672,7 @@ function TodayApp({
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
     query: "",
-    activeChip: "focus",
+    activeChip: "entry_zone",
     addOns: new Set()
   });
   const _liveHooks = window.TimedLiveData;
@@ -5561,46 +5902,43 @@ function TodayApp({
     className: "tt-loadbar",
     role: "progressbar",
     "aria-label": "Loading today's data"
-  }), h("main", null, h(StatusHeader, {
+  }), h("main", null, h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
+    earnings,
+    data,
+    onSelectTicker,
+    strip: true,
+    universe: universeSet
+  }), h(StatusHeader, {
     cal,
     briefDate: brief?.date,
     brief,
     briefSlot,
     data
   }), h(TodayHero, {
-    brief,
-    briefSlot,
-    data,
-    earnings,
-    onSelectTicker,
-    cal
-  }), h(OpenPositionsPreview, {
     onSelectTicker,
     allTickers
-  }), h(GrowthIdeasStrip, {
+  }), data ? h(MarketPulseWithMovers, {
+    data,
+    onSelectTicker
+  }) : h(MarketStateSkeleton, null), h(GrowthIdeasStrip, {
     onSelectTicker,
     user
-  }), data ? h(MarketState, {
+  }), data ? h(TickerLaneSection, {
+    allTickers,
+    visible,
+    query: filters.query,
     data,
-    onSelectTicker
-  }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {
-    brief,
-    data
-  }), h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
-    earnings,
-    data,
+    rankedTickers,
+    rankedTickerPositions,
+    sparkCache,
+    ensureSpark,
     onSelectTicker,
-    strip: true,
-    universe: universeSet
-  }), data && h(FocusRail, {
-    data,
-    onSelectTicker
-  }), data && h(TopMovers, {
-    data,
-    onSelectTicker,
-    strip: true,
-    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), marketSession.showDayTradeSections && h(Disclosure, {
+    filters,
+    setFilters,
+    tradeByTicker,
+    chips,
+    scoredCount
+  }) : h(BubbleViewportSkeleton, null), marketSession.showDayTradeSections && h(Disclosure, {
     id: "daytrade",
     title: "Day-Trade Game Plan",
     sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade"
@@ -5613,26 +5951,7 @@ function TodayApp({
   }, h(OptionsPlaysOfTheDay, {
     onSelectTicker,
     layout: "row"
-  })), data ? h(AnalysisControls, {
-    chips,
-    totalCount: scoredCount,
-    visibleCount: visible.length,
-    filters,
-    setFilters
-  }) : h(AnalysisControlsSkeleton, null), data ? h(BubbleMapViewportSplit, {
-    allTickers,
-    visible,
-    query: filters.query,
-    data,
-    rankedTickers,
-    rankedTickerPositions,
-    sparkCache,
-    ensureSpark,
-    onSelectTicker,
-    filters,
-    setFilters,
-    tradeByTicker
-  }) : h(BubbleViewportSkeleton, null), data && h(Disclosure, {
+  })), data && h(Disclosure, {
     id: "heatmap",
     title: "Universe Heat Map",
     sub: "HTF-scored grid of the full universe"
@@ -6025,6 +6344,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782594822573:440976423
+// cache-bust:1782596381693:873375173
 
-// cache-bust:1782594822573:440976423
+// cache-bust:1782596381693:873375173
