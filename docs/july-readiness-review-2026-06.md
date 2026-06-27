@@ -4,13 +4,20 @@ July is the anchor month for the backtest ladder (Jul → Apr recovery complete)
 This review compares **July 2025 backtest baselines** to **today's live model** so
 the operator can spot logic drift before the first full month replay.
 
-Re-run July slice:
+Re-run July slice (preprod, current config):
 
 ```bash
+node scripts/sync-model-config-to-preprod.mjs
+curl -X DELETE -H "X-API-Key: $TIMED_API_KEY" \
+  https://timed-trading-ingest-preprod.shashant.workers.dev/timed/admin/cron-mute
 export TIMED_API_KEY=<admin-key>
 scripts/monthly-slice.sh --month=2025-07 --run-id=phase-d-slice-2025-07-v2 \
-  --label=phase-d-slice-2025-07-v2 --tickers=tier1-tier2 --block-chain
+  --label=phase-d-slice-2025-07-v2 --tickers=tier1-tier2 --block-chain \
+  --api-base=https://timed-trading-ingest-preprod.shashant.workers.dev
 ```
+
+**Status:** ✅ Completed 2026-06-27 on preprod (`phase-d-slice-2025-07-v2`).
+Full comparison: `data/trade-analysis/phase-d-slice-2025-07-v2/report.md`.
 
 ---
 
@@ -132,33 +139,80 @@ Changes since the Phase C / v16 July runs that **will change July replay output*
 
 ---
 
-## Deviation verdict
+## Phase D replay results (`phase-d-slice-2025-07-v2`)
 
-| Area | Drift vs July anchor | Risk |
-|------|---------------------|------|
-| Entry count | **Down** (more gates, demotions, avoid hours) | Miss July capture on ATH / support / lunch setups |
-| Entry quality | **Up** (adverse phase, ATH confirm, churn guard) | Fewer RIOT/NVDA-style bad entries |
-| Exit capture | **Mixed** (tighter SL + wider trail + RSI TP delay) | May trim AGQ/CDNS winners differently |
-| Index ETFs | **Still gated** unless override | SPY target WR not evaluable |
-| Regime fit | **Aligned** for Jul 2025 uptrend (LONG-heavy, block LATE_BULL low impact) | |
+Preprod replay with **493 production `model_config` keys synced** (2026-06-27).
+22 sessions, ~58 min wall-clock. Same 24-ticker universe as Phase C anchor.
 
-**Net:** Live model is **more defensive** than the July anchor. Expect **higher quality,
-fewer trades, possibly lower sum pnl_pct** on a straight replay unless index/ATH
-relaxations are intentionally enabled for July.
+### Headline vs Phase C anchor
+
+| Metric | **v2 (current config)** | **v1 anchor** | Δ |
+|--------|------------------------|---------------|---|
+| Trades | **42** | 25 | +17 (+68%) |
+| Win rate | **45.2%** | 76.0% | −30.8 pp |
+| Sum `pnl_pct` | **+25.64%** | +26.05% | −0.41 pp |
+| Big winners (≥5%) | 2 | 2 | — |
+| Clear losers (≤−1.5%) | 2 | 3 | −1 |
+| SPY+QQQ+IWM entries | **15** | 0 | +15 |
+
+**Verdict:** Return parity on equal-weight sum pnl_pct, but **much noisier**
+(+68% trade count, WR cut nearly in half). The pre-replay hypothesis
+("fewer trades, higher quality") was **wrong**.
+
+### What changed vs anchor
+
+| Dimension | v2 observation |
+|-----------|----------------|
+| Entry paths | ATH breakout **17** (dominant); pullback 13; support 8; range reversal 4 |
+| Index ETFs | **15 trades** (IWM 7, SPY 5, QQQ 3) — anchor had zero |
+| Exit mix | SL breach 13 + capitulation force 13 vs anchor MFE trail 6 + TP 3 |
+| Big winners | Still 2 — return held via breadth, not quality |
+
+### Why predictions missed
+
+1. **Setup demotion keys not wired** — `deep_audit_setup_demotion_*` in
+   `model_config` does not block admission; KV matrix still admits ATH/support.
+2. **Index ETF overrides likely ON** in synced config — unlocks SPY/QQQ/IWM
+   entries the anchor never produced.
+3. **Tighter SL (0.45 ATR)** raised `sl_breached` count but breadth compensated.
+4. **ATH confirm gate** did not suppress ATH volume — STRONG_BULL/EARLY_BULL
+   still admit ATH entries through the admission matrix.
+
+---
+
+## Deviation verdict (updated post-replay)
+
+| Area | Pre-replay guess | **Actual v2 replay** | Risk |
+|------|-----------------|----------------------|------|
+| Entry count | Down | **Up (+68%)** | More churn; lower live WR expectation |
+| Entry quality | Up | **Down (45% WR)** | Noise masked by breadth |
+| Exit capture | Mixed | **More SL + force exits** | Less MFE-trail profit-taking |
+| Index ETFs | Still gated | **15 entries unlocked** | Major logic-path deviation |
+| Sum pnl_pct | Possibly lower | **−0.41 pp (flat)** | Return OK; quality not OK |
+
+**Net:** Current config is **broader and noisier**, not more defensive. July live
+monitoring should expect **~45% WR with similar PnL% ceiling** if breadth holds —
+not the anchor's 76% WR profile.
+
+**Improvement path:** See `docs/july-slice-v2-improvement-plan.md`. Top lever:
+revert index ETF unlocks (P0) — counterfactual removes 15 trades at −4.59% and
+raises WR to 59% / pnl to +30.2% on the same ledger.
 
 ---
 
 ## Pre-July checklist (recommended)
 
-1. **Re-run July monthly slice** with current `model_config` → compare to
-   `phase-c-slice-2025-07-v1` on WR, trade count, exit mix, big winners.
+1. ~~**Re-run July monthly slice**~~ ✅ Done — see `phase-d-slice-2025-07-v2/report.md`.
 2. **Path scorecard** — gap reversal, pullback, ATH, support bounce separately.
-3. **Index probe** — confirm SPY/QQQ/IWM rejection reasons still logged
-   (`tt_pullback_not_deep_enough`, rank floor).
-4. **Wire setup demotion → admission matrix** OR merge demotion into KV matrix
-   before relying on demotion keys.
-5. **Hold OFF:** conviction fusion, bleeder shield until `decision_records` ≥ 50.
-6. **Monitor:** earnings-week entries (Jul 28–30 cluster pattern).
+3. **Index probe** — v2 shows 15 index entries; audit
+   `deep_audit_pullback_*_index_etf*` keys in synced config and block-chain
+   for admission reasons (override vs rank floor).
+4. **Wire setup demotion → admission matrix** — priority; demotion keys did
+   not reduce ATH volume in v2 replay.
+5. **Block-chain diff** — `compare-block-chains.js` on v1 vs v2 to explain
+   capitulation-force exit spike (13 vs anchor's 0).
+6. **Hold OFF:** conviction fusion, bleeder shield until `decision_records` ≥ 50.
+7. **Monitor:** earnings-week entries (Jul 28–30 cluster pattern).
 
 ---
 
