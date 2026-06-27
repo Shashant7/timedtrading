@@ -1812,13 +1812,13 @@ function OpenPositionsPreview({
         gap: 6
       }
     }, h("span", {
-      style: {
-        fontWeight: 800,
-        fontSize: 13,
-        color: "var(--tt-text)",
-        letterSpacing: "0.02em"
-      }
-    }, sym), h("span", {
+      className: "tt-open-pos-chip__head"
+    }, h(TickerLogo, {
+      sym,
+      size: 18
+    }), h("span", {
+      className: "tt-open-pos-chip__sym"
+    }, sym)), h("span", {
       style: {
         display: "inline-flex",
         alignItems: "center",
@@ -2882,7 +2882,8 @@ function GrowthZoneBar({
 }
 function GrowthIdeasStrip({
   onSelectTicker,
-  user
+  user,
+  embedded
 }) {
   const [rows, setRows] = useState(() => {
     const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
@@ -2968,35 +2969,36 @@ function GrowthIdeasStrip({
       cancelled = true;
     };
   }, [user?.email, user?.role, user?.tier, user?.subscription_status, user?.expires_at]);
-  if (rows === null) {
+  const wrap = children => {
+    if (embedded) return h("div", {
+      className: "tt-universe-panel__growth",
+      id: "opportunities"
+    }, children);
     return h("section", {
       id: "opportunities",
       className: "tt-row"
-    }, h("div", {
+    }, children);
+  };
+  if (rows === null) {
+    return wrap(h(React.Fragment, null, h("div", {
       className: "tt-sec-title"
     }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
-    }, "Loading growth watchlist…"));
+    }, "Loading growth watchlist…")));
   }
   if (!rows.length) {
-    return h("section", {
-      id: "opportunities",
-      className: "tt-row"
-    }, h("div", {
+    return wrap(h(React.Fragment, null, h("div", {
       className: "tt-sec-title"
     }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
-    }, loadErr || "No growth ideas matched the current compounder filters."));
+    }, loadErr || "No growth ideas matched the current compounder filters.")));
   }
   const fmtPctOpp = n => {
     if (!Number.isFinite(Number(n))) return null;
     const v = Number(n);
     return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   };
-  return h("section", {
-    id: "opportunities",
-    className: "tt-row"
-  }, h("div", {
+  return wrap(h(React.Fragment, null, h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -3071,7 +3073,7 @@ function GrowthIdeasStrip({
     }), h("p", {
       className: "tt-opp-why"
     }, why));
-  })));
+  }))));
 }
 function FocusRail({
   data,
@@ -3245,7 +3247,10 @@ function CompactMoverChip({
       if (typeof onSelectTicker === "function") onSelectTicker(sym);
     },
     title: `Open ${sym}`
-  }, h("span", {
+  }, h(TickerLogo, {
+    sym,
+    size: 16
+  }), h("span", {
     className: "tt-mover-compact__sym"
   }, sym), h("span", {
     className: `tt-mover-compact__pct ${dir}`
@@ -4767,11 +4772,10 @@ function TickerLaneSection({
   setFilters,
   tradeByTicker,
   chips,
-  scoredCount
+  scoredCount,
+  embedded
 }) {
-  return h("section", {
-    className: "tt-row tt-lane-section"
-  }, h(LaneControls, {
+  const body = h(React.Fragment, null, h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -4841,6 +4845,12 @@ function TickerLaneSection({
     tradeByTicker,
     embedded: true
   })));
+  if (embedded) return h("div", {
+    className: "tt-lane-section"
+  }, body);
+  return h("section", {
+    className: "tt-row tt-lane-section"
+  }, body);
 }
 function BubbleMapGuide() {
   const storageKey = "tt-bubble-map-guide-dismissed";
@@ -5935,9 +5945,16 @@ function TodayApp({
   }), data ? h(MarketPulseWithMovers, {
     data,
     onSelectTicker
-  }) : h(MarketStateSkeleton, null), h(GrowthIdeasStrip, {
+  }) : h(MarketStateSkeleton, null), h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-universe-panel"
+  }, h(GrowthIdeasStrip, {
     onSelectTicker,
-    user
+    user,
+    embedded: true
+  }), h("div", {
+    className: "tt-universe-panel__divider"
   }), data ? h(TickerLaneSection, {
     allTickers,
     visible,
@@ -5952,8 +5969,11 @@ function TodayApp({
     setFilters,
     tradeByTicker,
     chips,
-    scoredCount
-  }) : h(BubbleViewportSkeleton, null), marketSession.showDayTradeSections && h(Disclosure, {
+    scoredCount,
+    embedded: true
+  }) : h("div", {
+    className: "tt-lane-section"
+  }, h(BubbleViewportSkeleton, null)))), marketSession.showDayTradeSections && h(Disclosure, {
     id: "daytrade",
     title: "Day-Trade Game Plan",
     sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade"
@@ -6359,6 +6379,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782597372397:217801864
+// cache-bust:1782598695510:302271935
 
-// cache-bust:1782597372397:217801864
+// cache-bust:1782598695510:302271935
