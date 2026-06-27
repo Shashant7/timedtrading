@@ -200,6 +200,26 @@ export function evaluateIndexEtfModelEntry(ctx, helpers) {
     return rejectEntry("index_model_state_not_allowed", { index_model: diag });
   }
 
+  // Prevent churn: one index entry per ticker per cooldown window.
+  const cooldownH = Number(daCfg.deep_audit_index_model_reentry_cooldown_hours) || 48;
+  const nowTs = Number(ctx?.nowTs || ctx?.asOfTs || ctx?.raw?.ts) || Date.now();
+  const recent = Array.isArray(ctx?.recentTrades) ? ctx.recentTrades : [];
+  const sideUpper = String(side || "").toUpperCase();
+  for (const rt of recent) {
+    if (String(rt?.ticker || "").toUpperCase() !== ticker) continue;
+    if (String(rt?.direction || "").toUpperCase() !== sideUpper) continue;
+    const exitTs = Number(rt?.exit_ts) || 0;
+    if (!exitTs || exitTs >= nowTs) continue;
+    const ageH = (nowTs - exitTs) / 3600000;
+    if (ageH < cooldownH) {
+      return rejectEntry("index_model_reentry_cooldown", {
+        index_model: diag,
+        cooldown_hours: cooldownH,
+        hours_since_exit: ageH.toFixed(1),
+      });
+    }
+  }
+
   if (side === "LONG") {
     const structureOk = daily.bull_stack === true
       && daily.above_e200 === true

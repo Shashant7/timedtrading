@@ -96,8 +96,8 @@ DEFAULT_API_BASE="https://timed-trading-ingest.shashant.workers.dev"
 DEFAULT_INTERVAL_MINUTES=5
 DEFAULT_TICKER_BATCH=24
 DEFAULT_WATCHDOG_SECONDS=180
-DEFAULT_RETRIES_PER_DAY=3
-DEFAULT_RETRY_BACKOFF_SECONDS=8
+DEFAULT_RETRIES_PER_DAY=5
+DEFAULT_RETRY_BACKOFF_SECONDS=45
 
 # ---------------------------------------------------------------------------
 # Arg parsing

@@ -7,6 +7,7 @@ import {
   INDEX_TICKER_PROFILES,
 } from "./index-etf-model.js";
 import { checkSetupDemotion } from "./setup-demotion.js";
+import { checkEarningsClusterEntryBlock } from "./earnings-cluster-gate.js";
 import { getEtfProfile, isEtfRideRunnerMode } from "../etf-profile.js";
 
 describe("index-etf-model v4", () => {
@@ -76,5 +77,74 @@ describe("etf-profile per-index", () => {
   it("SPY has tighter TP than generic ETF default", () => {
     const spy = getEtfProfile("SPY");
     expect(spy.tp_ladder.trim_pct_target).toBe(0.005);
+  });
+});
+
+describe("earnings-cluster high-rank member block", () => {
+  const clusters = [{
+    anchor: "2025-07-28",
+    window_dates: ["2025-07-28", "2025-07-29", "2025-07-30"],
+    tickers: ["CDNS", "META", "MSFT", "SWK"],
+  }];
+  const daCfg = {
+    deep_audit_earnings_cluster_gate_enabled: "true",
+    deep_audit_earnings_cluster_rank_bypass: "93",
+    deep_audit_earnings_cluster_block_high_rank_members: "true",
+    deep_audit_earnings_cluster_high_rank_floor: "100",
+    deep_audit_earnings_cluster_high_rank_day_pad: "3",
+  };
+
+  it("blocks rank-100 SWK on Jul 25 (wide pad) but not CDNS rank 94 on Jul 28", () => {
+    expect(checkEarningsClusterEntryBlock({
+      dateKey: "2025-07-25",
+      ticker: "SWK",
+      rank: 100,
+      daCfg,
+      clusterWindows: clusters,
+    }).blocked).toBe(true);
+    expect(checkEarningsClusterEntryBlock({
+      dateKey: "2025-07-28",
+      ticker: "CDNS",
+      rank: 94,
+      daCfg,
+      clusterWindows: clusters,
+    }).blocked).toBe(false);
+  });
+});
+
+describe("index model reentry cooldown", () => {
+  it("rejects second SPY entry within 48h", () => {
+    let reason = null;
+    evaluateIndexEtfModelEntry(
+      {
+        ticker: "SPY",
+        state: "HTF_BULL_LTF_BULL",
+        daily: {
+          bull_stack: true,
+          above_e200: true,
+          pct_above_e48: 1.2,
+          e21_slope_5d_pct: 0.4,
+        },
+        rvol: { best: 0.5 },
+        raw: {},
+        nowTs: Date.parse("2025-07-10T14:00:00Z"),
+        recentTrades: [{
+          ticker: "SPY",
+          direction: "LONG",
+          exit_ts: Date.parse("2025-07-09T14:00:00Z"),
+        }],
+      },
+      {
+        qualifyEntry: () => ({ ok: true }),
+        rejectEntry: (r) => { reason = r; return { ok: false }; },
+        daCfg: { deep_audit_index_model_enabled: "true", deep_audit_index_model_reentry_cooldown_hours: "48" },
+        rankScore: 90,
+        side: "LONG",
+        c10_8: { inCloud: true },
+        tf: { m30: { ripster: { c8_9: { inCloud: true } } } },
+        baseSizing: {},
+      },
+    );
+    expect(reason).toBe("index_model_reentry_cooldown");
   });
 });
