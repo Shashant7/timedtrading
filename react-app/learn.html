@@ -86,7 +86,7 @@
       letter-spacing: -0.01em;
     }
     .nav-brand svg { width: 30px; height: 30px; }
-    .nav-actions { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nav-links { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .nav-link {
       font-size: 13px;
       color: var(--text-secondary);
@@ -96,20 +96,9 @@
       transition: all 0.15s;
     }
     .nav-link:hover { background: var(--bg-surface); color: var(--text-primary); }
-    .nav-cta {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 14px;
-      border-radius: 999px;
-      background: #38F2A1;
-      color: #06241A;
-      font-size: 13px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: all 0.15s;
-    }
-    .nav-cta:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(56,242,161,0.25); }
+    .nav-link.active { color: var(--accent); background: var(--accent-glow); font-weight: 600; }
+    .nav-link.learn { color: var(--c-accum); }
+    .nav-link.faq { color: var(--long); }
 
     /* ── Layout ───────────────────────────────────────────────── */
     main { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
@@ -813,31 +802,16 @@
     footer a { color: var(--text-muted); text-decoration: underline; }
     footer .disc { max-width: 800px; margin: 12px auto 0; line-height: 1.6; font-size: 11px; color: var(--text-dim); }
   </style>
+  <script src="auth-gate.js?v=20260601-nav-inject"></script>
+  <script src="investor-nav-badge.js?v=20260622a"></script>
+  <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
   <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
   <script src="tt-global-search.js?v=20260610-verda3" defer></script>
 </head>
 <body class="vf-page">
 
-  <!-- ── TOP NAV ─────────────────────────────────────────────── -->
-  <nav class="topnav">
-    <div class="nav-row">
-      <a href="/splash.html" class="nav-brand">
-        <svg viewBox="0 0 48 48" fill="none"><defs><linearGradient id="ng" x1="6" y1="42" x2="42" y2="6"><stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#67e8f9"/></linearGradient></defs><rect width="48" height="48" rx="11" fill="#000"/><circle cx="24" cy="24" r="17" stroke="url(#ng)" stroke-width="2.5" fill="none"/><line x1="19" y1="18.5" x2="16" y2="15.5" stroke="#636366" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="19" y2="18.5" stroke="#636366" stroke-width="3.5" stroke-linecap="round"/><line x1="29.5" y1="16.5" x2="32" y2="12.9" stroke="#30d158" stroke-width="1.2" stroke-linecap="round"/><line x1="24" y1="24" x2="29.5" y2="16.5" stroke="#30d158" stroke-width="4" stroke-linecap="round"/><circle cx="24" cy="24" r="3.2" fill="#30d158"/><circle cx="24" cy="24" r="1.3" fill="#000"/></svg>
-        Timed Trading
-      </a>
-      <div class="nav-actions">
-        <a href="/splash.html" class="nav-link">Home</a>
-        <a href="/proof.html" class="nav-link">Proof</a>
-        <a href="/faq.html" class="nav-link">FAQ</a>
-        <a href="/today.html" class="nav-cta">
-          Open dashboard
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
-          </svg>
-        </a>
-      </div>
-    </div>
-  </nav>
+  <div id="global-nav-root"></div>
+  <script src="shared-nav.js?v=20260611a"></script>
 
   <main>
     <!-- ── HERO ──────────────────────────────────────────────── -->
