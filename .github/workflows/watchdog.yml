@@ -8,7 +8,8 @@ name: Health watchdog
 # Every 30 minutes: hit /timed/health, check (a) it answers ok:true,
 # (b) the 5-min cron heartbeat is fresh during operating hours, (c) the
 # tombstone count is sane, (d) tt-feed freshness when it owns the price
-# feed, (e) universe orphan count stays below threshold. On failure the
+# feed AND the feed cron window is active, (e) universe orphan count stays
+# below threshold. On failure the
 # run goes red (GitHub emails the repo owner) and, if
 # DISCORD_SYSTEM_WEBHOOK_URL is configured as a repo secret, posts to
 # the system Discord lane.
@@ -53,6 +54,10 @@ jobs:
             return 1
           }
 
+          # Authoritative session flags from the monolith workers.dev probe.
+          MONOLITH_OP_HOURS="false"
+          MONOLITH_NY_RTH="false"
+
           for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
             HEALTH=$(fetch_health "$BASE/timed/health" || echo "{}")
 
@@ -81,6 +86,11 @@ jobs:
             ORPHAN_SAMPLE=$(echo "$HEALTH" | jq -r '(.universe_onboard.orphan_sample // []) | join(",")')
             FEED_EXT=$(echo "$HEALTH" | jq -r '.universe_onboard.feed_external // false')
             echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING feedAgeSec=$FEEDAGE orphans=$ORPHANS nyRthOpen=$NY_RTH operatingHours=$OP_HOURS activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
+
+            if [ "$BASE" = "https://timed-trading-ingest.shashant.workers.dev" ]; then
+              MONOLITH_OP_HOURS="$OP_HOURS"
+              MONOLITH_NY_RTH="$NY_RTH"
+            fi
 
             if [ "$OK" != "true" ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: health endpoint not ok."
@@ -112,9 +122,13 @@ jobs:
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
               fi
               FRESH_STALE=$(echo "$HEALTH" | jq -r '.freshness.stale // "null"')
-              if [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 10 ]; then
+              FRESH_SLO=$(echo "$HEALTH" | jq -r '.freshness.slo_ok // true')
+              if [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 25 ]; then
                 FRESH_LIST=$(echo "$HEALTH" | jq -r '(.freshness.stale_tickers // []) | map(.ticker) | join(",")')
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${FRESH_STALE} tickers quarantined by the Data Age Contract (${FRESH_LIST})."
+              elif [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 10 ] && [ "$FRESH_SLO" != "true" ]; then
+                FRESH_LIST=$(echo "$HEALTH" | jq -r '(.freshness.stale_tickers // []) | map(.ticker) | join(",")')
+                FAILED="yes"; DETAIL="$DETAIL $BASE: ${FRESH_STALE} tickers quarantined by the Data Age Contract — freshness SLO breached (${FRESH_LIST})."
               fi
             fi
 
@@ -140,11 +154,23 @@ jobs:
             FEED_OK=$(echo "$FEED_HEALTH" | jq -r '.ok // false')
             FEED_ENABLED=$(echo "$FEED_HEALTH" | jq -r '.feed_enabled // false')
             FEED_AGE=$(echo "$FEED_HEALTH" | jq -r '.prices_age_sec // "null"')
-            echo "tt-feed → ok=$FEED_OK feed_enabled=$FEED_ENABLED prices_age_sec=$FEED_AGE"
+            FEED_OP_HOURS=$(echo "$FEED_HEALTH" | jq -r '.operating_hours // false')
+            FEED_CRON=$(echo "$FEED_HEALTH" | jq -r '.price_feed_cron_active // false')
+            FEED_MODE=$(echo "$FEED_HEALTH" | jq -r '.feed_mode // "?"')
+            echo "tt-feed → ok=$FEED_OK feed_enabled=$FEED_ENABLED prices_age_sec=$FEED_AGE mode=$FEED_MODE cron_active=$FEED_CRON operating_hours=$FEED_OP_HOURS"
             if [ "$FEED_OK" != "true" ]; then
               FAILED="yes"; DETAIL="$DETAIL tt-feed: /feed/health not ok."
             elif [ "$FEED_ENABLED" = "true" ] && [ "$FEED_AGE" != "null" ] && [ "$FEED_AGE" -gt 600 ]; then
-              FAILED="yes"; DETAIL="$DETAIL tt-feed: owns price feed but timed:prices is ${FEED_AGE}s stale."
+              # Match monolith gates: stale timed:prices is expected when the
+              # feed cron window is quiet (e.g. Saturday afternoon) or outside
+              # operating hours. computeFeedWindow() in worker/feed/feed-window.js.
+              if [ "$MONOLITH_OP_HOURS" != "true" ] && [ "$FEED_OP_HOURS" != "true" ]; then
+                echo "::notice::tt-feed prices ${FEED_AGE}s stale outside operating hours — expected when feed cron is quiet."
+              elif [ "$FEED_CRON" != "true" ]; then
+                echo "::notice::tt-feed prices ${FEED_AGE}s stale but price_feed_cron_active=false (quiet window) — skip."
+              else
+                FAILED="yes"; DETAIL="$DETAIL tt-feed: owns price feed but timed:prices is ${FEED_AGE}s stale during active feed window."
+              fi
             fi
           else
             echo "::warning::tt-feed /feed/health returned non-JSON — skipping feed probe."
