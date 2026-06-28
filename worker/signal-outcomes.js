@@ -386,11 +386,27 @@ export async function resolveDueSignals(env, opts = {}) {
   const now = Number(opts.now) || Date.now();
   const limit = Math.max(1, Math.min(200, Number(opts.limit) || 100));
 
+  // 2026-06-28 — Fair scheduling across sources. `cto_level` writes thousands
+  // of price-level signals that resolve only on target/stop TOUCH (no horizon),
+  // so they sit `open` indefinitely and, under a single `ORDER BY published_at
+  // ASC LIMIT` scan, monopolized the budget — starving every horizon-based
+  // source (investor_action 73 logged / 0 resolved, fsd_tactical 3/40,
+  // options_play 0/5). Split the scan: pull ALL non-cto_level open signals
+  // first (the whole population is small, ~150), then fill remaining budget
+  // with the oldest open cto_level rows for touch/horizon resolution. This
+  // guarantees investor/FSD/options signals are graded every run.
+  const NON_CTO_SCAN_CAP = 300;
   let rows = [];
   try {
-    rows = (await db.prepare(
-      `SELECT * FROM ${TABLE} WHERE status = 'open' ORDER BY published_at ASC LIMIT ?1`
+    const nonCtoRows = (await db.prepare(
+      `SELECT * FROM ${TABLE} WHERE status = 'open' AND source != 'cto_level'
+        ORDER BY published_at ASC LIMIT ?1`
+    ).bind(NON_CTO_SCAN_CAP).all())?.results || [];
+    const ctoRows = (await db.prepare(
+      `SELECT * FROM ${TABLE} WHERE status = 'open' AND source = 'cto_level'
+        ORDER BY published_at ASC LIMIT ?1`
     ).bind(limit).all())?.results || [];
+    rows = [...nonCtoRows, ...ctoRows];
   } catch (e) {
     return { ok: false, error_kind: "read_failed", hint: String(e?.message || e).slice(0, 200) };
   }

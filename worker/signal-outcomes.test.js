@@ -8,6 +8,7 @@ import {
   fsdTacticalToSignals,
   isSignalDue,
   optionsPlayToSignal,
+  resolveDueSignals,
 } from "./signal-outcomes.js";
 
 const DAY = 86400000;
@@ -232,5 +233,61 @@ describe("optionsPlayToSignal", () => {
 
   it("returns null without a ticker", () => {
     expect(optionsPlayToSignal(play, {})).toBeNull();
+  });
+});
+
+describe("resolveDueSignals — fair scheduling (anti-starvation)", () => {
+  // 2026-06-28 regression: thousands of perpetually-open cto_level rows used to
+  // monopolize a single `ORDER BY published_at ASC LIMIT` scan, starving
+  // horizon-based sources (investor_action 73 logged / 0 resolved). The
+  // resolver must now scan non-cto_level sources in their own query so they
+  // are always graded.
+  function makeMockDb(capturedSql) {
+    const select = (sql) => {
+      const s = String(sql);
+      if (/source\s*!=\s*'cto_level'/.test(s)) {
+        // The investor signal is due (60d horizon, published 70d ago) but has
+        // no candles in this mock, so it stays open — we only assert it was
+        // SCANNED via its own query, which is the starvation fix.
+        return [{
+          signal_id: "invaction:entry:pos1:1", source: "investor_action", desk: "investor",
+          ticker: "CRDO", direction: "LONG", status: "open",
+          published_at: Date.now() - 70 * DAY, horizon_days: 60, expiry_ts: 0,
+          entry_price: 100, payload_json: null,
+        }];
+      }
+      if (/source\s*=\s*'cto_level'/.test(s)) {
+        return Array.from({ length: 150 }, (_, i) => ({
+          signal_id: `cto:X${i}`, source: "cto_level", desk: "research",
+          ticker: "SPY", direction: "LONG", status: "open",
+          published_at: Date.now() - (300 - i) * DAY, horizon_days: 0, expiry_ts: 0,
+          entry_price: 100, payload_json: null,
+        }));
+      }
+      return [];
+    };
+    return {
+      prepare(sql) {
+        capturedSql.push(String(sql));
+        return {
+          bind() { return this; },
+          async all() { return { results: select(sql) }; },
+          async run() { return { success: true }; },
+        };
+      },
+      async batch(stmts) { return stmts.map(() => ({ success: true })); },
+    };
+  }
+
+  it("issues a dedicated non-cto_level scan as well as a cto_level scan", async () => {
+    const capturedSql = [];
+    const env = { DB: makeMockDb(capturedSql) };
+    const res = await resolveDueSignals(env, { limit: 150, now: Date.now() });
+    expect(res.ok).toBe(true);
+    const selects = capturedSql.filter((s) => /FROM signal_outcomes WHERE status = 'open'/.test(s));
+    expect(selects.some((s) => /source\s*!=\s*'cto_level'/.test(s))).toBe(true);
+    expect(selects.some((s) => /source\s*=\s*'cto_level'/.test(s))).toBe(true);
+    // Both populations enter the scan set (1 investor + 150 cto).
+    expect(res.scanned).toBe(151);
   });
 });
