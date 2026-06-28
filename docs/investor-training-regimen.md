@@ -75,16 +75,15 @@ env returns **0 opens** (confirmed 2026-06-28: `investor-slice-2025-07-v1` opene
 0 across all 22 July days even though day-state existed).
 
 **Correct sequence to produce a real investor anchor:**
-1. Seed **investor-inclusive day-state** for the period — either a `candle-replay`
-   run WITHOUT `skipInvestor=1`, or a dedicated per-day investor scoring pass that
-   writes the investor stage into `timed:replay:daystate:{date}`.
-2. Run `investor-slice.sh --month=… --no-reset` so it **reuses** that day-state
+1. Run the trader `monthly-slice.sh` for the period (creates `timed:replay:daystate:{date}`).
+2. Seed investor inputs: `scripts/seed-investor-daystate.sh --month=…` (backfills
+   `monthly_bundle` from D1 M candles — Jul 2025 has ~13 unique months, below
+   replay's old 50-bar gate). Or pass `--seed-daystate` to `investor-slice.sh`.
+3. Run `investor-slice.sh --month=… --no-reset` so it **reuses** that day-state
    instead of wiping it.
 
-This is the open tooling gap for the investor regimen: the slice drives the
-replay + analysis correctly, but the upstream day-state must include investor
-scoring. Closing it (a `--seed-investor-daystate` step, or a monthly-slice flag
-to drop `skipInvestor`) is the next build before the first investor anchor.
+The seeder closes the tooling gap documented 2026-06-28; without it (or without
+`monthly_bundle` in day-state) investor-replay's D/W/M ST gate opens 0.
 
 ## Guardrails (learned the hard way)
 
