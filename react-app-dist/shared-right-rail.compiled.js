@@ -41,7 +41,13 @@
       overflowWrap: "break-word",
       wordBreak: "break-word"
     };
-    const sanitizeUserFacingCopy = text => typeof window !== "undefined" && window.TimedRailHelpers?.sanitizeUserFacingCopy ? window.TimedRailHelpers.sanitizeUserFacingCopy(text) : String(text || "").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim();
+    const sanitizeUserFacingCopy = text => {
+      if (typeof window !== "undefined" && window.TimedRailHelpers?.sanitizeUserFacingCopy) {
+        return window.TimedRailHelpers.sanitizeUserFacingCopy(text);
+      }
+      if (text == null || text === "") return text;
+      return String(text).replace(/\bfsd_macro_risk_off\b/gi, "macro_risk_off").replace(/\bfsd_macro_risk_on\b/gi, "macro_risk_on").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim();
+    };
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -21893,4 +21899,4 @@
   };
 })();
 
-// cache-bust:1782654301699:375125748
+// cache-bust:1782659013712:398587176
