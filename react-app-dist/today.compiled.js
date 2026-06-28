@@ -4684,12 +4684,7 @@ function Viewport({
       isSaved: saved.has(SYM),
       onToggleSaved: toggleSaved
     });
-  })), ranked.length > (lane ? 40 : 60) && h("div", {
-    className: "vp-empty",
-    style: {
-      fontSize: 10
-    }
-  }, `Showing ${lane ? 40 : 60} of ${ranked.length} — narrow the filter to see more.`));
+  })));
 }
 const LANE_CHIP_IDS = ["entry_zone", "open_positions", "market_pulse", "top_movers", "saved", "tt_selected", "all"];
 function LaneControls({
@@ -6379,6 +6374,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782599674979:478461006
+// cache-bust:1782605148499:5809974
 
-// cache-bust:1782599674979:478461006
+// cache-bust:1782605148499:5809974
