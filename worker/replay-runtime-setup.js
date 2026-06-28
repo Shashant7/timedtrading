@@ -587,6 +587,9 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_investor_fsd_core_score_relief",                 // default 6
   "deep_audit_investor_fsd_light_score_relief",                // default 3
   "deep_audit_investor_fsd_offlist_score_bump",                // default 0
+  "deep_audit_investor_fsd_removal_exit_enabled",              // default true
+  "deep_audit_investor_fsd_removal_exit_pct",                  // default 1.0
+  "deep_audit_investor_fsd_removal_window_days",               // default 14
   // Trajectory program — Phase 4 / 4.1 / 5 gates blob.
   // Stored as a JSON object so the owner can flip multiple gates from
   // one row without redeploy. Defaults all false / sensible-defaults in
