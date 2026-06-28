@@ -88,6 +88,19 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   auto_dca_on_accumulate: true,                        // (d) enable DCA tranches on new accumulate inits
   auto_dca_amount_pct: 0.02,                           // (d) 2% of capital per DCA tranche
   auto_dca_frequency: "monthly",                       // (d) tranche cadence
+
+  // 2026-06-28 (R7) — Post-loss re-entry cooldown. Operator: Investor Mode
+  // re-bought CRDO and MOD 2-3 days after EACH was stopped out on a
+  // PRIMARY_INVALIDATION_BREACH, catching the falling knife both times. The
+  // compute-layer post-exit cooldown (24h) had already expired by the
+  // re-entry. This EXECUTION-layer cooldown blocks a fresh OPEN of a name that
+  // just closed at a structural breach / realized loss until it has had time
+  // to base, and escalates to a longer ban for repeat losers (ASTS 6 entries /
+  // 0 wins, FSLR 4/0, TSLA 9 @ 11% WR). Reversible via the _enabled flag.
+  loss_reentry_cooldown_enabled: true,
+  loss_reentry_cooldown_days: 10,                      // single losing close → block re-entry for N calendar days
+  loser_cooldown_consec_losses: 2,                     // >= N consecutive losing closes → persistent-loser ban
+  loser_cooldown_days: 45,                             // persistent-loser ban window (>= cooldown_days)
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -192,7 +205,74 @@ export function loadInvestorConfig(daCfg) {
   if (typeof dcaFreq === "string" && ["weekly", "monthly", "quarterly"].includes(dcaFreq)) {
     cfg.auto_dca_frequency = dcaFreq;
   }
+  // 2026-06-28 (R7) — post-loss re-entry cooldown overrides.
+  const lrcEnabled = daCfg.deep_audit_investor_loss_reentry_cooldown_enabled;
+  if (lrcEnabled === true || lrcEnabled === false) cfg.loss_reentry_cooldown_enabled = lrcEnabled;
+  else if (lrcEnabled === "true") cfg.loss_reentry_cooldown_enabled = true;
+  else if (lrcEnabled === "false") cfg.loss_reentry_cooldown_enabled = false;
+  const lrcDays = Number(daCfg.deep_audit_investor_loss_reentry_cooldown_days);
+  if (Number.isFinite(lrcDays) && lrcDays >= 0 && lrcDays <= 365) cfg.loss_reentry_cooldown_days = lrcDays;
+  const lcConsec = Number(daCfg.deep_audit_investor_loser_cooldown_consec_losses);
+  if (Number.isFinite(lcConsec) && lcConsec >= 1 && lcConsec <= 10) cfg.loser_cooldown_consec_losses = lcConsec;
+  const lcDays = Number(daCfg.deep_audit_investor_loser_cooldown_days);
+  if (Number.isFinite(lcDays) && lcDays >= 0 && lcDays <= 365) cfg.loser_cooldown_days = lcDays;
   return cfg;
+}
+
+/**
+ * R7 (2026-06-28) — Post-loss re-entry cooldown predicate. Pure + unit-tested.
+ *
+ * Given a ticker's recent CLOSED-position rows (each with the closing SELL
+ * lot's `close_reason` and, when available, the EXIT ledger `exit_pnl`),
+ * decide whether a fresh OPEN should be blocked because the name just closed
+ * at a loss / structural breach.
+ *
+ * A close counts as a "loss" if its closing reason is a structural breach
+ * (PRIMARY_INVALIDATION_BREACH, monthly/weekly ST bearish, RS declining, score
+ * very low — see STRUCTURAL_INVESTOR_REDUCE_REASONS) OR the realized exit P&L
+ * is negative. Consecutive losing closes (most-recent-first) escalate the
+ * single-loss cooldown to the longer persistent-loser ban.
+ *
+ * @param {Array<{closed_at:number, close_reason?:string, exit_pnl?:number}>} closesForTicker
+ * @param {number} now - current epoch ms (live: Date.now(); replay: dayMs)
+ * @param {object} cfg - loadInvestorConfig() result
+ * @returns {null | {until_ts, cooldown_days, consec_losses, last_close_ts, last_reason, days_remaining}}
+ */
+export function shouldBlockInvestorReentry(closesForTicker, now, cfg) {
+  if (!cfg || cfg.loss_reentry_cooldown_enabled === false) return null;
+  const days = Number(cfg.loss_reentry_cooldown_days);
+  if (!Number.isFinite(days) || days <= 0) return null;
+  const rows = (closesForTicker || [])
+    .filter((r) => r && Number.isFinite(Number(r.closed_at)))
+    .sort((a, b) => Number(b.closed_at) - Number(a.closed_at));
+  if (rows.length === 0) return null;
+  const isLoss = (r) => {
+    const reason = String(r.close_reason || "").toLowerCase();
+    if (isStructuralInvestorReduce(reason)) return true;
+    if (/invalidation|breach|bearish|stop|score_very_low|rs_rank_declin|max_loss|deep_loss/.test(reason)) return true;
+    const pnl = Number(r.exit_pnl);
+    return Number.isFinite(pnl) && pnl < 0;
+  };
+  if (!isLoss(rows[0])) return null;
+  let consec = 0;
+  for (const r of rows) { if (isLoss(r)) consec += 1; else break; }
+  const consecThreshold = Number(cfg.loser_cooldown_consec_losses) || 2;
+  const loserDays = Number(cfg.loser_cooldown_days);
+  const cooldownDays = (consec >= consecThreshold && Number.isFinite(loserDays) && loserDays > days)
+    ? loserDays
+    : days;
+  const untilTs = Number(rows[0].closed_at) + cooldownDays * 86400000;
+  if (now < untilTs) {
+    return {
+      until_ts: untilTs,
+      cooldown_days: cooldownDays,
+      consec_losses: consec,
+      last_close_ts: Number(rows[0].closed_at),
+      last_reason: rows[0].close_reason || null,
+      days_remaining: Math.ceil((untilTs - now) / 86400000),
+    };
+  }
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
