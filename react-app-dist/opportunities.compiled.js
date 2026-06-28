@@ -176,7 +176,11 @@ function OpportunitiesApp({
   }, [applyRailOpen]);
   useEffect(() => {
     if (!RailOverlay) return;
-    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    if (typeof window.ttApplyPendingRailDeepLink === "function") {
+      window.ttApplyPendingRailDeepLink();
+    } else {
+      applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    }
   }, [RailOverlay, applyRailOpen]);
   const hero = h("header", {
     className: "hb-hero"
@@ -246,6 +250,6 @@ const app = AuthGate ? h(AuthGate, {
 });
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(app);
-// cache-bust:1782679868148:271337293
+// cache-bust:1782684841429:560144365
 
-// cache-bust:1782679868148:271337293
+// cache-bust:1782684841429:560144365

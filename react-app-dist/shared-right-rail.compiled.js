@@ -8764,6 +8764,7 @@
         }) : "";
         const _isWorkspace = layoutMode === "workspace";
         return React.createElement(React.Fragment, null, React.createElement("div", {
+          "data-tt-rail-root": "1",
           className: `w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""} ${chartExpanded && !_isWorkspace ? "tt-rail-chart-active" : ""}`,
           style: {
             background: "var(--ds-bg-canvas)",
@@ -8939,16 +8940,28 @@
           })(), React.createElement("button", {
             className: "ds-chip ds-chip--sm",
             onClick: async () => {
-              const url = `${window.location.origin}/?ticker=${encodeURIComponent(tickerSymbol)}`;
-              const title = `${tickerSymbol} \u2014 Timed Trading`;
+              const sym = String(tickerSymbol || "").toUpperCase();
+              const tab = String(v2RailTab || railTab || "SNAPSHOT").toUpperCase();
               try {
+                if (window.TimedRailShare?.shareRail) {
+                  await window.TimedRailShare.shareRail({
+                    ticker: sym,
+                    railTab: tab
+                  });
+                  return;
+                }
+                const url = window.TimedRailShare?.buildShareUrl ? window.TimedRailShare.buildShareUrl(sym, tab) : `${window.location.origin}/today.html?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
+                const label = window.TimedRailShare?.tabLabel?.(tab) || tab;
+                const title = `${sym} \u2014 ${label} \u2014 Timed Trading`;
+                const text = window.TimedRailShare?.buildShareText ? window.TimedRailShare.buildShareText(sym, label, url) : `${sym} · ${label} tab on Timed Trading\n\nOpen the link to sign in and view the full setup:\n${url}`;
                 if (navigator.share) {
                   await navigator.share({
                     title,
+                    text,
                     url
                   });
                 } else {
-                  await navigator.clipboard.writeText(url);
+                  await navigator.clipboard.writeText(text);
                   try {
                     const t = document.createElement("div");
                     t.textContent = "Link copied";
@@ -17365,6 +17378,7 @@
           pointerEvents: "none"
         } : undefined
       }, React.createElement("div", {
+        "data-tt-rail-root": "1",
         className: "bg-[#0B1410] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl",
         onClick: e => e.stopPropagation()
       }, React.createElement("div", {
@@ -17385,19 +17399,30 @@
       })()), React.createElement("div", {
         className: "flex items-center gap-0.5 shrink-0 ml-2"
       }, React.createElement("button", {
-        onClick: () => {
+        onClick: async () => {
           try {
-            const sym = String(ticker?.ticker || "").toUpperCase();
-            const url = `${window.location.origin}${window.location.pathname}#ticker=${encodeURIComponent(sym)}`;
+            const sym = String(ticker?.ticker || tickerSymbol || "").toUpperCase();
+            const tab = String(railTab || v2RailTab || "SNAPSHOT").toUpperCase();
+            if (window.TimedRailShare?.shareRail) {
+              await window.TimedRailShare.shareRail({
+                ticker: sym,
+                railTab: tab
+              });
+              return;
+            }
+            const url = window.TimedRailShare?.buildShareUrl ? window.TimedRailShare.buildShareUrl(sym, tab) : `${window.location.origin}/today.html?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
+            const label = window.TimedRailShare?.tabLabel?.(tab) || tab;
+            const text = window.TimedRailShare?.buildShareText ? window.TimedRailShare.buildShareText(sym, label, url) : `${sym} · ${label} tab\n\nOpen the link to sign in:\n${url}`;
             if (navigator.share) {
               navigator.share({
-                title: `${sym} — Timed Trading`,
+                title: `${sym} — ${label} — Timed Trading`,
+                text,
                 url
               }).catch(() => {
-                navigator.clipboard.writeText(url);
+                navigator.clipboard.writeText(text);
               });
             } else {
-              navigator.clipboard.writeText(url).then(() => {
+              navigator.clipboard.writeText(text).then(() => {
                 const btn = document.getElementById("share-toast-btn");
                 if (btn) {
                   btn.textContent = "Copied!";
@@ -21954,4 +21979,4 @@
   };
 })();
 
-// cache-bust:1782679868148:271337293
+// cache-bust:1782684841429:560144365

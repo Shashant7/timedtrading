@@ -432,8 +432,25 @@ function appendBuildMarkerToAllAssets() {
   walk(outputDir);
 }
 
+function ensurePwaIcons() {
+  const iconNames = ["apple-touch-icon.png", "icon-192.png", "icon-512.png"];
+  const missing = iconNames.filter((name) => !fs.existsSync(path.join(sourceDir, name)));
+  if (missing.length === 0) return;
+  try {
+    const iconGen = spawnSync(process.execPath, [path.join(repoRoot, "scripts", "generate-pwa-icons.js")], {
+      stdio: "inherit",
+    });
+    if (iconGen.status !== 0) {
+      console.warn("[build-frontend] generate-pwa-icons failed — continuing with existing icons");
+    }
+  } catch (e) {
+    console.warn("[build-frontend] generate-pwa-icons skipped:", e?.message || e);
+  }
+}
+
 function main() {
   removeOutputDir();
+  ensurePwaIcons();
   copyStaticTree(sourceDir, outputDir);
   compileSharedRightRail();
   compileSharedBubbleChart();

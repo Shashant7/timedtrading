@@ -27,6 +27,19 @@
     console.warn("[rail-bootstrap] React not loaded; bailing");
     return;
   }
+
+  (function ensureRailShare() {
+    try {
+      if (typeof document === "undefined") return;
+      if (document.querySelector('script[src*="shared-rail-share.js"]')) return;
+      const s = document.createElement("script");
+      s.src = "shared-rail-share.js?v=20260624c";
+      s.async = true;
+      s.dataset.injectedBy = "rail-bootstrap";
+      (document.head || document.documentElement).appendChild(s);
+    } catch (_) {}
+  })();
+
   if (typeof window.TickerDetailRightRailFactory !== "function") {
     console.warn("[rail-bootstrap] shared-right-rail.js not loaded; bailing");
     return;
@@ -327,4 +340,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1782679868148:271337293
+// cache-bust:1782684841429:560144365

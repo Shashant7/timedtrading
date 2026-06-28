@@ -833,7 +833,11 @@ function InvestorApp() {
       } catch (_) {}
     };
     window.addEventListener("tt-open-ticker", handler);
-    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    if (typeof window.ttApplyPendingRailDeepLink === "function") {
+      window.ttApplyPendingRailDeepLink();
+    } else {
+      applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    }
     return () => window.removeEventListener("tt-open-ticker", handler);
   }, [RailOverlay, applyRailOpen]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -919,6 +923,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782679868148:271337293
+// cache-bust:1782684841429:560144365
 
-// cache-bust:1782679868148:271337293
+// cache-bust:1782684841429:560144365

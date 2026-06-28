@@ -1012,20 +1012,29 @@ describe("buildOptionsLadder — profile differentiation + timing on singles", (
   it("Conservative headlines stock on WAIT high-vol while Speculator keeps straddle", () => {
     const confluence = { mode: "WAIT", side: "NEUTRAL", score: 22 };
     const conservative = buildOptionsLadder(TNA_WAIT, { profile: "conservative", confluence });
+    const moderate = buildOptionsLadder(TNA_WAIT, { profile: "moderate", confluence });
+    const aggressive = buildOptionsLadder(TNA_WAIT, { profile: "aggressive", confluence });
     const speculator = buildOptionsLadder(TNA_WAIT, { profile: "speculator", confluence });
     expect(conservative.primary?.archetype).toBe("stock_long");
+    expect(moderate.primary?.archetype).toBe("long_call");
+    expect(aggressive.primary?.archetype).toBe("long_call");
     expect(speculator.primary?.archetype).toBe("long_straddle");
-    expect(conservative.primary?.archetype).not.toBe(speculator.primary?.archetype);
+    expect(new Set([
+      conservative.primary?.archetype,
+      moderate.primary?.archetype,
+      aggressive.primary?.archetype,
+      speculator.primary?.archetype,
+    ]).size).toBeGreaterThanOrEqual(3);
   });
 
   it("allows NFLX long call on compression timing override despite WAIT", () => {
     const ladder = buildOptionsLadder(
       {
         ticker: "NFLX",
-        price: 900,
-        direction: "LONG",
-        sl: 870,
-        tp1: 940,
+        price: 73.54,
+        direction: "SHORT",
+        sl: 76.85,
+        tp1: 69.94,
         stage: "swing",
         atr_pct: 0.03,
         mode: "trader",
@@ -1041,5 +1050,21 @@ describe("buildOptionsLadder — profile differentiation + timing on singles", (
       },
     );
     expect(ladder.primary?.archetype).toMatch(/long_call|moonshot_call|leap_call/);
+    expect(ladder.primary?.rationale || "").not.toMatch(/Stop \$76\.85.*target \$69\.94/i);
+  });
+
+  it("compression call timing fires on SHORT contract when add_on_dips is set", () => {
+    const align = shouldAllowIndexDirectional({
+      verdictMode: "WAIT",
+      verdictSide: "NEUTRAL",
+      direction: "SHORT",
+      effectiveDirection: "SHORT",
+      confluence: {
+        timing: { call_opportunity: true, add_on_dips: true, compression_score: 58 },
+      },
+    });
+    expect(align.allow).toBe(true);
+    expect(align.timing_override).toBe(true);
+    expect(align.side).toBe("LONG");
   });
 });

@@ -70,6 +70,75 @@
     }
   })();
 
+  // PWA / home-screen / pinned-tab branding — injected on every auth-gated page.
+  (function ensurePwaHead() {
+    try {
+      if (typeof document === "undefined") return;
+      const head = document.head || document.documentElement;
+      if (!head) return;
+
+      function link(rel, href, extra) {
+        if (document.querySelector(`link[rel="${rel}"][href="${href}"]`)) return;
+        const el = document.createElement("link");
+        el.rel = rel;
+        el.href = href;
+        if (extra) Object.assign(el, extra);
+        head.appendChild(el);
+      }
+
+      function meta(name, content) {
+        if (document.querySelector(`meta[name="${name}"]`)) return;
+        const el = document.createElement("meta");
+        el.name = name;
+        el.content = content;
+        head.appendChild(el);
+      }
+
+      link("icon", "/logo.svg", { type: "image/svg+xml" });
+      link("apple-touch-icon", "/apple-touch-icon.png", { sizes: "180x180" });
+      link("manifest", "/site.webmanifest");
+      meta("theme-color", "#000000");
+      meta("apple-mobile-web-app-capable", "yes");
+      meta("apple-mobile-web-app-title", "Timed Trading");
+      meta("mobile-web-app-capable", "yes");
+    } catch (e) {
+      try { console.warn("[auth-gate] pwa-head inject failed:", String(e?.message || e).slice(0, 120)); } catch (_) {}
+    }
+  })();
+
+  // Offline app shell — register SW for caching (push flow also registers).
+  (function ensureServiceWorker() {
+    try {
+      if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+      navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+    } catch (_) {}
+  })();
+
+  // Subtle offline banner when connectivity drops (live prices need network).
+  (function ensureOfflineBanner() {
+    try {
+      if (typeof window === "undefined" || typeof document === "undefined") return;
+      let banner = null;
+      const show = () => {
+        if (banner || navigator.onLine !== false) return;
+        banner = document.createElement("div");
+        banner.id = "tt-offline-banner";
+        banner.textContent = "Offline — cached view only. Live prices refresh when reconnected.";
+        banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99998;padding:8px 14px;text-align:center;font:600 11px/1.4 Inter,system-ui,sans-serif;color:#fcd34d;background:rgba(120,53,15,0.92);border-bottom:1px solid rgba(251,191,36,0.35);padding-top:max(8px,env(safe-area-inset-top));";
+        document.body.appendChild(banner);
+      };
+      const hide = () => {
+        if (banner) {
+          banner.remove();
+          banner = null;
+        }
+      };
+      window.addEventListener("offline", show);
+      window.addEventListener("online", hide);
+      if (!navigator.onLine) show();
+    } catch (_) {}
+  })();
+
   // Unified signal grammar — shared chip/lane helpers for activity strip,
   // kanban cards, and notification bell tags.
   (function injectSignalGrammar() {
@@ -972,6 +1041,15 @@
       return () => { cancelled = true; };
     }, [user, apiBase, verifyAuth]);
 
+    // After SSO, reopen any shared-link rail target (ticker + tab).
+    useEffect(() => {
+      if (state !== "authenticated") return;
+      const cancel = scheduleIdleWork(() => {
+        try { window.ttApplyPendingRailDeepLink?.(); } catch (_) {}
+      }, 600);
+      return cancel;
+    }, [state]);
+
     const [signingIn, setSigningIn] = useState(false);
     const handleLogin = useCallback(() => {
       /* 2026-06-01 — Reworked to use the same proven top-level
@@ -1013,7 +1091,13 @@
         return;
       }
 
-      window.location.href = "/today.html?_auth=" + Date.now();
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set("_auth", String(Date.now()));
+        window.location.href = u.toString();
+      } catch (_) {
+        window.location.href = "/today.html?_auth=" + Date.now();
+      }
     }, [user, serverVerified]);
 
     // Set user role on body for CSS-based admin gating of nav links

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Offline — Timed Trading</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        font-family: Inter, system-ui, -apple-system, sans-serif;
+        background: #000;
+        color: #e8f0ec;
+      }
+      .card {
+        max-width: 420px;
+        text-align: center;
+        padding: 32px 28px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: #0b1410;
+      }
+      img { width: 56px; height: 56px; margin-bottom: 16px; }
+      h1 { font-size: 20px; margin: 0 0 8px; font-weight: 700; }
+      p { margin: 0 0 20px; font-size: 14px; line-height: 1.5; color: #8aa39a; }
+      a, button {
+        display: inline-block;
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: 1px solid rgba(56, 242, 161, 0.35);
+        background: rgba(56, 242, 161, 0.12);
+        color: #38f2a1;
+        font-weight: 600;
+        font-size: 13px;
+        text-decoration: none;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img src="/apple-touch-icon.png" alt="Timed Trading" width="56" height="56" />
+      <h1>Offline</h1>
+      <p>
+        Live market data and model scores need a connection. Cached pages may still load —
+        reconnect to refresh prices and alerts.
+      </p>
+      <a href="/today.html">Open Today</a>
+      <button type="button" onclick="location.reload()" style="margin-left:8px;background:transparent;color:#8aa39a;border-color:rgba(255,255,255,0.12);">Retry</button>
+    </div>
+  </body>
+</html>
+
+<!-- cache-bust:1782684841429:560144365 -->
