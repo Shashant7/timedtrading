@@ -20,7 +20,7 @@ self.addEventListener("push", (event) => {
 
   const options = {
     body: data.body || "",
-    icon: "/logo.svg",
+    icon: "/apple-touch-icon.png",
     badge: "/logo.svg",
     tag: data.tag || `timed-${Date.now()}`,
     data: {

@@ -434,6 +434,16 @@ function appendBuildMarkerToAllAssets() {
 
 function main() {
   removeOutputDir();
+  try {
+    const iconGen = spawnSync(process.execPath, [path.join(repoRoot, "scripts", "generate-pwa-icons.js")], {
+      stdio: "inherit",
+    });
+    if (iconGen.status !== 0) {
+      console.warn("[build-frontend] generate-pwa-icons failed — continuing with existing icons");
+    }
+  } catch (e) {
+    console.warn("[build-frontend] generate-pwa-icons skipped:", e?.message || e);
+  }
   copyStaticTree(sourceDir, outputDir);
   compileSharedRightRail();
   compileSharedBubbleChart();

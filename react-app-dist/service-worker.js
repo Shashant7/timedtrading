@@ -20,7 +20,7 @@ self.addEventListener("push", (event) => {
 
   const options = {
     body: data.body || "",
-    icon: "/logo.svg",
+    icon: "/apple-touch-icon.png",
     badge: "/logo.svg",
     tag: data.tag || `timed-${Date.now()}`,
     data: {
@@ -74,4 +74,4 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// cache-bust:1782679868148:271337293
+// cache-bust:1782681718644:643932303

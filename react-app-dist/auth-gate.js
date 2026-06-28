@@ -70,6 +70,42 @@
     }
   })();
 
+  // PWA / home-screen / pinned-tab branding — injected on every auth-gated page.
+  (function ensurePwaHead() {
+    try {
+      if (typeof document === "undefined") return;
+      const head = document.head || document.documentElement;
+      if (!head) return;
+
+      function link(rel, href, extra) {
+        if (document.querySelector(`link[rel="${rel}"][href="${href}"]`)) return;
+        const el = document.createElement("link");
+        el.rel = rel;
+        el.href = href;
+        if (extra) Object.assign(el, extra);
+        head.appendChild(el);
+      }
+
+      function meta(name, content) {
+        if (document.querySelector(`meta[name="${name}"]`)) return;
+        const el = document.createElement("meta");
+        el.name = name;
+        el.content = content;
+        head.appendChild(el);
+      }
+
+      link("icon", "/logo.svg", { type: "image/svg+xml" });
+      link("apple-touch-icon", "/apple-touch-icon.png", { sizes: "180x180" });
+      link("manifest", "/site.webmanifest");
+      meta("theme-color", "#000000");
+      meta("apple-mobile-web-app-capable", "yes");
+      meta("apple-mobile-web-app-title", "Timed Trading");
+      meta("mobile-web-app-capable", "yes");
+    } catch (e) {
+      try { console.warn("[auth-gate] pwa-head inject failed:", String(e?.message || e).slice(0, 120)); } catch (_) {}
+    }
+  })();
+
   // Unified signal grammar — shared chip/lane helpers for activity strip,
   // kanban cards, and notification bell tags.
   (function injectSignalGrammar() {
@@ -2857,4 +2893,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1782679868148:271337293
+// cache-bust:1782681718644:643932303

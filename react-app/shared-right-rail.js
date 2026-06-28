@@ -7574,6 +7574,7 @@
                   (header / chart / levels / tabnav / tabbody). In modal
                   mode (default) the same JSX flows as a single column. */}
               <div
+                data-tt-rail-root="1"
                 className={`w-full h-full flex flex-col tt-rail-shell ${_isWorkspace ? "tt-rail-shell--workspace" : ""} ${chartExpanded && !_isWorkspace ? "tt-rail-chart-active" : ""}`}
                 style={{ background: "var(--ds-bg-canvas)", borderRadius: "var(--ds-radius-lg)", border: "1px solid var(--ds-stroke)" }}
               >
@@ -7767,9 +7768,18 @@
                       <button
                         className="ds-chip ds-chip--sm"
                         onClick={async () => {
-                          const url = `${window.location.origin}/?ticker=${encodeURIComponent(tickerSymbol)}`;
-                          const title = `${tickerSymbol} \u2014 Timed Trading`;
+                          const sym = String(tickerSymbol || "").toUpperCase();
+                          const tab = String(v2RailTab || railTab || "SNAPSHOT").toUpperCase();
                           try {
+                            if (window.TimedRailShare?.shareRail) {
+                              await window.TimedRailShare.shareRail({ ticker: sym, railTab: tab });
+                              return;
+                            }
+                            const url = window.TimedRailShare?.buildShareUrl
+                              ? window.TimedRailShare.buildShareUrl(sym, tab)
+                              : `${window.location.origin}${window.location.pathname}?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
+                            const label = window.TimedRailShare?.tabLabel?.(tab) || tab;
+                            const title = `${sym} \u2014 ${label} \u2014 Timed Trading`;
                             if (navigator.share) {
                               await navigator.share({ title, url });
                             } else {
@@ -14000,6 +14010,7 @@
           <>
           <div className="w-full h-full flex flex-col" style={modalOnly ? { position: "absolute", width: 1, height: 1, overflow: "hidden", opacity: 0, pointerEvents: "none" } : undefined}>
             <div
+              data-tt-rail-root="1"
               className="bg-[#0B1410] border border-white/[0.04] rounded-xl w-full h-full flex flex-col shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
@@ -14021,10 +14032,15 @@
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0 ml-2">
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           try {
-                            const sym = String(ticker?.ticker || "").toUpperCase();
-                            const url = `${window.location.origin}${window.location.pathname}#ticker=${encodeURIComponent(sym)}`;
+                            const sym = String(ticker?.ticker || tickerSymbol || "").toUpperCase();
+                            const tab = String(railTab || v2RailTab || "SNAPSHOT").toUpperCase();
+                            if (window.TimedRailShare?.shareRail) {
+                              await window.TimedRailShare.shareRail({ ticker: sym, railTab: tab });
+                              return;
+                            }
+                            const url = `${window.location.origin}${window.location.pathname}?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
                             if (navigator.share) {
                               navigator.share({ title: `${sym} — Timed Trading`, url }).catch(() => {
                                 navigator.clipboard.writeText(url);
