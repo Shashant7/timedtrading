@@ -407,9 +407,20 @@ export function computeTimingOverlay(tickerData, confluence = null) {
   const dominantSignals = bias === "COMPRESSION" ? comp.signals : ext.signals;
   const vx = vixLevel(tickerData);
 
+  const weeklyBearStSloping = (() => {
+    const tfW = tickerData?.tf_tech?.W;
+    if (!tfW) return false;
+    const dir = Number(tfW.stDir);
+    const slope = Number(tfW.stSlope);
+    return Number.isFinite(dir) && dir > 0 && slope === -1;
+  })();
+
   const flash_headline = (() => {
     if (bias === "COMPRESSION") {
       if (comp.posture === "RALLY_WATCH") {
+        if (weeklyBearStSloping) {
+          return `Compression bounce watch at support — weekly ST bearish & sloping down (${compressions.length} capitulation signals). Fade rips; add only on defined dips.`;
+        }
         return `Compression rally watch — add on dips, fade selloffs (${compressions.length} capitulation signals)`;
       }
       if (comp.posture === "RISK_ON_BUY") {

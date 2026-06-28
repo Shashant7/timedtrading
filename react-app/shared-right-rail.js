@@ -66,6 +66,30 @@
         .replace(/\bFSD\b/gi, "")
         .trim();
     };
+    /** Posture-first direction for Key Levels / Trade Plan labels. */
+    const resolveRailLevelsDirection = (opts) => {
+      opts = opts || {};
+      const posture = opts.posture || {};
+      const postureDir = String(posture.direction || "").toUpperCase();
+      if (postureDir === "LONG" || postureDir === "SHORT") return postureDir;
+      const isExplicitNeutral = posture.strength === "neutral"
+        || posture.posture === "NEUTRAL"
+        || String(posture.label || "").toUpperCase() === "NEUTRAL";
+      if (isExplicitNeutral) {
+        const structural = opts.ticker && typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker
+          ? window.TimedPriceUtils.inferStructuralBiasFromTicker(opts.ticker)
+          : "";
+        if (structural === "LONG" || structural === "SHORT") return structural;
+        const timing = opts.timing || null;
+        if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
+        if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
+        const effOpt = String(opts.optionsEffectiveDir || "").toUpperCase();
+        if (effOpt === "LONG" || effOpt === "SHORT") return effOpt;
+        return "";
+      }
+      const fallback = String(opts.fallbackDir || "").toUpperCase();
+      return fallback === "LONG" || fallback === "SHORT" ? fallback : "";
+    };
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -1802,8 +1826,8 @@
           );
         })(),
 
-        // 2. Options Preferences — collapsed by default.
-        h("details", { style: { marginBottom: 4 } },
+        // 2. Options Preferences — expanded by default.
+        h("details", { open: true, style: { marginBottom: 4 } },
           h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Preferences · profile & horizon"),
           h(Panel, { title: "Options Preferences" },
           h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
@@ -6822,12 +6846,23 @@
           const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
           const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
           const v2PostureStrength = String(v2TraderPosture?.strength || "");
-          // Posture-aware reference for structure/technicals display. Contract
-          // direction (v2Dir) can diverge when HTF state says LONG but posture
-          // is LEAN_SHORT (USO / PR #686).
-          const v2StructureDir = v2PostureDir || v2Dir;
-          const v2StructureLabel = v2PostureLabel
-            || (v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : "Neutral");
+          const v2TimingOverlay = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+          // Posture-first reference for structure/technicals display. When
+          // posture is explicitly Neutral, do not fall back to contract
+          // direction (NFLX: Neutral chip + compression rally + long call
+          // was showing bearish Key Levels from a stale SHORT contract).
+          const v2StructureDir = resolveRailLevelsDirection({
+            posture: v2TraderPosture,
+            timing: v2TimingOverlay,
+            optionsEffectiveDir: optionsTabData?.effective_direction,
+            fallbackDir: v2Dir,
+            ticker,
+          });
+          const v2StructureLabel = v2StructureDir === "LONG"
+            ? "Bullish"
+            : v2StructureDir === "SHORT"
+              ? "Bearish"
+              : (v2PostureLabel || "Neutral");
           const v2Price = Number(
             window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
             ?? resolveDisplayPrice(priceSrc)
@@ -7580,7 +7615,16 @@
                     }
                     if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return { label: "ENTER", cls: "ds-chip--accent" };
                     if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "ACTIVE", cls: "ds-chip--up" };
-                    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return { label: "ENTRY WATCH", cls: "" };
+                    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") {
+                      const neutralPosture = v2TraderPosture?.strength === "neutral"
+                        || v2TraderPosture?.posture === "NEUTRAL"
+                        || !v2TraderPosture?.direction;
+                      if (neutralPosture && (stage === "setup" || stage === "setup_watch")) {
+                        return { label: "SETUP WATCH", cls: "" };
+                      }
+                      if (stage === "flip_watch") return { label: "FLIP WATCH", cls: "" };
+                      return { label: "ENTRY WATCH", cls: "" };
+                    }
                     return null;
                   })();
                   return (
@@ -11011,6 +11055,19 @@
                           const d = String(raw || "").toUpperCase();
                           return d === "LONG" || d === "SHORT" ? d : "";
                         };
+                        const resolveTimingAwareTraderDir = () => {
+                          const postureDir = resolveTraderCallDir(v2ModelPosture?.direction)
+                            || resolveTraderCallDir(v2TraderPosture?.direction);
+                          if (postureDir) return postureDir;
+                          const structural = typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker
+                            ? window.TimedPriceUtils.inferStructuralBiasFromTicker(ticker)
+                            : "";
+                          if (structural === "LONG" || structural === "SHORT") return structural;
+                          const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+                          if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
+                          if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
+                          return resolveTraderCallDir(optionsTabData?.effective_direction);
+                        };
                         const inferDirFromLevels = () => {
                           if (!(px > 0) || !(pcSL > 0)) return "";
                           const tpBelow = pcTargets.some((t) => Number(t?.price) > 0 && Number(t.price) < px);
@@ -11021,7 +11078,7 @@
                         };
                         const traderCallDir = (() => {
                           if (showModelPlanPanel) {
-                            return resolveTraderCallDir(v2ModelPosture?.direction)
+                            return resolveTimingAwareTraderDir()
                               || resolveTraderCallDir(pcDirRaw)
                               || resolveTraderCallDir(optionsTraderDir)
                               || inferDirFromLevels();
@@ -11029,7 +11086,8 @@
                           if (tradeIsOpen) {
                             return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
                           }
-                          return resolveTraderCallDir(pcDirRaw)
+                          return resolveTimingAwareTraderDir()
+                            || resolveTraderCallDir(pcDirRaw)
                             || resolveTraderCallDir(optionsTraderDir)
                             || inferDirFromLevels();
                         })();

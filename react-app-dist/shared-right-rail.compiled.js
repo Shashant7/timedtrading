@@ -48,6 +48,25 @@
       if (text == null || text === "") return text;
       return String(text).replace(/\bfsd_macro_risk_off\b/gi, "macro_risk_off").replace(/\bfsd_macro_risk_on\b/gi, "macro_risk_on").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim();
     };
+    const resolveRailLevelsDirection = opts => {
+      opts = opts || {};
+      const posture = opts.posture || {};
+      const postureDir = String(posture.direction || "").toUpperCase();
+      if (postureDir === "LONG" || postureDir === "SHORT") return postureDir;
+      const isExplicitNeutral = posture.strength === "neutral" || posture.posture === "NEUTRAL" || String(posture.label || "").toUpperCase() === "NEUTRAL";
+      if (isExplicitNeutral) {
+        const structural = opts.ticker && typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker ? window.TimedPriceUtils.inferStructuralBiasFromTicker(opts.ticker) : "";
+        if (structural === "LONG" || structural === "SHORT") return structural;
+        const timing = opts.timing || null;
+        if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
+        if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
+        const effOpt = String(opts.optionsEffectiveDir || "").toUpperCase();
+        if (effOpt === "LONG" || effOpt === "SHORT") return effOpt;
+        return "";
+      }
+      const fallback = String(opts.fallbackDir || "").toUpperCase();
+      return fallback === "LONG" || fallback === "SHORT" ? fallback : "";
+    };
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
     const entryType = deps.entryType;
@@ -2771,6 +2790,7 @@
           }
         }, "Invalidation: ", contract.invalidation.slice(0, 2).join(" · ")));
       })(), h("details", {
+        open: true,
         style: {
           marginBottom: 4
         }
@@ -8027,8 +8047,15 @@
         const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
         const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
         const v2PostureStrength = String(v2TraderPosture?.strength || "");
-        const v2StructureDir = v2PostureDir || v2Dir;
-        const v2StructureLabel = v2PostureLabel || (v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : "Neutral");
+        const v2TimingOverlay = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+        const v2StructureDir = resolveRailLevelsDirection({
+          posture: v2TraderPosture,
+          timing: v2TimingOverlay,
+          optionsEffectiveDir: optionsTabData?.effective_direction,
+          fallbackDir: v2Dir,
+          ticker
+        });
+        const v2StructureLabel = v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : v2PostureLabel || "Neutral";
         const v2Price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? resolveDisplayPrice(priceSrc)) || 0;
         const v2DayChange = (() => {
           const src = priceSrc;
@@ -8783,10 +8810,23 @@
               label: "ACTIVE",
               cls: "ds-chip--up"
             };
-            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
-              label: "ENTRY WATCH",
-              cls: ""
-            };
+            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") {
+              const neutralPosture = v2TraderPosture?.strength === "neutral" || v2TraderPosture?.posture === "NEUTRAL" || !v2TraderPosture?.direction;
+              if (neutralPosture && (stage === "setup" || stage === "setup_watch")) {
+                return {
+                  label: "SETUP WATCH",
+                  cls: ""
+                };
+              }
+              if (stage === "flip_watch") return {
+                label: "FLIP WATCH",
+                cls: ""
+              };
+              return {
+                label: "ENTRY WATCH",
+                cls: ""
+              };
+            }
             return null;
           })();
           return React.createElement("div", {
@@ -12881,6 +12921,16 @@
             const d = String(raw || "").toUpperCase();
             return d === "LONG" || d === "SHORT" ? d : "";
           };
+          const resolveTimingAwareTraderDir = () => {
+            const postureDir = resolveTraderCallDir(v2ModelPosture?.direction) || resolveTraderCallDir(v2TraderPosture?.direction);
+            if (postureDir) return postureDir;
+            const structural = typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker ? window.TimedPriceUtils.inferStructuralBiasFromTicker(ticker) : "";
+            if (structural === "LONG" || structural === "SHORT") return structural;
+            const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+            if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
+            if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
+            return resolveTraderCallDir(optionsTabData?.effective_direction);
+          };
           const inferDirFromLevels = () => {
             if (!(px > 0) || !(pcSL > 0)) return "";
             const tpBelow = pcTargets.some(t => Number(t?.price) > 0 && Number(t.price) < px);
@@ -12891,12 +12941,12 @@
           };
           const traderCallDir = (() => {
             if (showModelPlanPanel) {
-              return resolveTraderCallDir(v2ModelPosture?.direction) || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+              return resolveTimingAwareTraderDir() || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
             }
             if (tradeIsOpen) {
               return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
             }
-            return resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+            return resolveTimingAwareTraderDir() || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
           })();
           if (!traderCallDir) {
             if (predictionContractLoading) {
@@ -21904,4 +21954,4 @@
   };
 })();
 
-// cache-bust:1782661727826:332413349
+// cache-bust:1782679868148:271337293

@@ -177,6 +177,27 @@ describe("computeTimingOverlay — compression side", () => {
     expect(overlay.timing_primary).toBe("BOTTOM");
     expect(overlay.playbook).toBe("TIME_BOTTOM");
   });
+
+  it("uses bounce-at-support headline when weekly ST is bearish and sloping down", () => {
+    const overlay = computeTimingOverlay({
+      ticker: "NFLX",
+      td_sequential: {
+        per_tf: {
+          D: { bullish_prep_count: 9, td9_bullish: true },
+        },
+      },
+      tf_tech: {
+        W: { stDir: 1, stSlope: -1 },
+        D: { phase: { v: -140, z: "TRANSITION" }, rsi: { r5: 25 }, pdz: { zone: "discount" } },
+      },
+      regime_forecast: { p_1d: { HTF_BULL_LTF_BULL: 0.6, HTF_BEAR_LTF_BEAR: 0.1 } },
+      _vix: 28,
+      mean_revert_td9: { active: true, side: "LONG" },
+    });
+    expect(overlay.bias).toBe("COMPRESSION");
+    expect(String(overlay.flash_headline || "")).toMatch(/bounce watch at support/i);
+    expect(String(overlay.flash_headline || "")).toMatch(/weekly ST bearish/i);
+  });
 });
 
 describe("applyTimingOverlayToConfluence — trend catch suppressed at top", () => {

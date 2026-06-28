@@ -996,3 +996,50 @@ describe("buildOptionsModelReconciliation", () => {
     expect(recon.model_levels.exit).toBe(580);
   });
 });
+
+describe("buildOptionsLadder — profile differentiation + timing on singles", () => {
+  const TNA_WAIT = {
+    ticker: "TNA",
+    price: 40,
+    direction: "",
+    sl: 38,
+    tp1: 44,
+    stage: "swing",
+    atr_pct: 0.05,
+    mode: "trader",
+  };
+
+  it("Conservative headlines stock on WAIT high-vol while Speculator keeps straddle", () => {
+    const confluence = { mode: "WAIT", side: "NEUTRAL", score: 22 };
+    const conservative = buildOptionsLadder(TNA_WAIT, { profile: "conservative", confluence });
+    const speculator = buildOptionsLadder(TNA_WAIT, { profile: "speculator", confluence });
+    expect(conservative.primary?.archetype).toBe("stock_long");
+    expect(speculator.primary?.archetype).toBe("long_straddle");
+    expect(conservative.primary?.archetype).not.toBe(speculator.primary?.archetype);
+  });
+
+  it("allows NFLX long call on compression timing override despite WAIT", () => {
+    const ladder = buildOptionsLadder(
+      {
+        ticker: "NFLX",
+        price: 900,
+        direction: "LONG",
+        sl: 870,
+        tp1: 940,
+        stage: "swing",
+        atr_pct: 0.03,
+        mode: "trader",
+      },
+      {
+        profile: "speculator",
+        confluence: {
+          mode: "WAIT",
+          side: "NEUTRAL",
+          score: 30,
+          timing: { call_opportunity: true, add_on_dips: true, compression_score: 58 },
+        },
+      },
+    );
+    expect(ladder.primary?.archetype).toMatch(/long_call|moonshot_call|leap_call/);
+  });
+});
