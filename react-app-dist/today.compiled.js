@@ -1726,10 +1726,8 @@ function OpenPositionsPreview({
   return h("section", {
     className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
     style: hero ? {
-      minHeight: 0,
       display: "flex",
-      flexDirection: "column",
-      flex: 1
+      flexDirection: "column"
     } : {
       marginBottom: 14
     }
@@ -4770,7 +4768,13 @@ function TickerLaneSection({
   scoredCount,
   embedded
 }) {
-  const body = h(React.Fragment, null, h(LaneControls, {
+  const body = h(React.Fragment, null, h("div", {
+    className: "tt-viewport-map-head"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "VIEWPORT & BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Search and filter tickers — lane cards above, momentum map below")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -6374,6 +6378,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782605148499:5809974
+// cache-bust:1782608832719:957287170
 
-// cache-bust:1782605148499:5809974
+// cache-bust:1782608832719:957287170
