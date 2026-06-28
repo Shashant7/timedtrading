@@ -297,6 +297,41 @@
         lines: Array.isArray(inv?.invalidationLines) ? inv.invalidationLines : Array.isArray(investorData?.thesisInvalidation) ? investorData.thesisInvalidation : []
       };
     }
+    function buildInvestorKeyLevelRows(detail, livePx, invDisplay, accumZone, pos) {
+      const px = Number(livePx);
+      if (!(px > 0)) return null;
+      const seen = new Set();
+      const rows = [];
+      const add = (price, label, letter, color) => {
+        const p = Number(price);
+        if (!Number.isFinite(p) || p <= 0) return;
+        const key = p.toFixed(4);
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+          price: p,
+          label: String(label || "Level"),
+          letter: String(letter || "LV"),
+          color: color || "var(--ds-text-muted)",
+          dist_pct: (p - px) / px * 100
+        });
+      };
+      const fv = Number(detail?.fairValue?.fair_value ?? detail?._fair_value?.fair_value);
+      if (fv > 0) add(fv, "Fair value estimate", "FV", "#fbbf24");
+      if (Number(accumZone?.zoneTop) > 0) add(accumZone.zoneTop, "Buy zone high", "BZ", "#22d3ee");
+      if (Number(accumZone?.zoneBottom) > 0) add(accumZone.zoneBottom, "Buy zone low", "BZ", "#22d3ee");else if (Number(accumZone?.entryPrice) > 0) add(accumZone.entryPrice, "Buy zone", "BZ", "#22d3ee");
+      if (Number(pos?.avg_entry) > 0) add(pos.avg_entry, "Avg entry", "AVG", "#c4b5fd");
+      if (invDisplay?.thesisLevel?.price) {
+        add(invDisplay.thesisLevel.price, invDisplay.thesisLevel.label || "Thesis floor", "TH", "#a78bfa");
+      }
+      if (invDisplay?.price) add(invDisplay.price, invDisplay.label || "Invalidation", "INV", "#f87171");
+      if (!rows.length) return null;
+      return {
+        px,
+        above: rows.filter(r => r.price > px).sort((a, b) => a.price - b.price),
+        below: rows.filter(r => r.price <= px).sort((a, b) => b.price - a.price)
+      };
+    }
     function investorEntryActionFromSetup(setupRaw) {
       const s = String(setupRaw || "").toLowerCase();
       if (s.includes("buy_reduce") || s.includes("buy reduce") || s.includes("buy-reduce")) return "Accumulate on dips, trim into strength";
@@ -1077,7 +1112,6 @@
       const rsRank = Number(detail?.rsRank);
       const sector = detail?.sector || ticker?._sector || null;
       const thesis = detail?.thesis || null;
-      const invalidation = detail?.thesisInvalidation || null;
       const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
       const invDisplay = investorInvalidationDisplay(detail, livePx);
       const STAGE_LABEL = {
@@ -1300,16 +1334,7 @@
           return null;
         }
       })();
-      const keyLevels = [];
-      if (invDisplay) {
-        keyLevels.push(`Invalidation: close below ${fmtUsd(invDisplay.price)} (${invDisplay.label}).`);
-        if (invDisplay.thesisLevel) {
-          keyLevels.push(`Thesis floor: ${fmtUsd(invDisplay.thesisLevel.price)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : ""}).`);
-        }
-      }
-      if (invalidation && !invDisplay) {
-        keyLevels.push(String(invalidation));
-      }
+      const invLevelRows = buildInvestorKeyLevelRows(detail, livePx, invDisplay, accumZone, pos);
       return h("div", {
         style: railTabBodyWrapStyle
       }, (invCtx || stage !== "—") && h("div", {
@@ -1533,7 +1558,7 @@
           borderRadius: 8,
           background: "rgba(255,255,255,0.04)",
           border: "1px solid rgba(255,255,255,0.06)",
-          marginBottom: invCtx?.signalNote || keyLevels.length > 0 ? 8 : Number.isFinite(score) ? 8 : 0,
+          marginBottom: invCtx?.signalNote || invLevelRows ? 8 : Number.isFinite(score) ? 8 : 0,
           ...investorRailContainStyle
         }
       }, h("div", {
@@ -1565,48 +1590,10 @@
           fontSize: 11,
           color: "var(--ds-text-muted)",
           lineHeight: 1.45,
-          marginBottom: keyLevels.length > 0 ? 8 : Number.isFinite(score) ? 8 : 0,
+          marginBottom: Number.isFinite(score) ? 8 : 0,
           ...investorRailTextStyle
         }
-      }, sanitizeUserFacingCopy(invCtx.signalNote)), keyLevels.length > 0 && h("div", {
-        style: {
-          marginBottom: Number.isFinite(score) ? 8 : 0
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.06em",
-          marginBottom: 5
-        }
-      }, "KEY LEVELS"), h("div", {
-        style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: 4
-        }
-      }, keyLevels.map((line, i) => h("div", {
-        key: `inv-kl-${i}`,
-        style: {
-          display: "flex",
-          gap: 8,
-          fontSize: 12,
-          lineHeight: 1.45,
-          minWidth: 0
-        }
-      }, h("span", {
-        style: {
-          color: "var(--ds-text-muted)",
-          flexShrink: 0,
-          marginTop: 1
-        }
-      }, "·"), h("span", {
-        style: {
-          color: "var(--ds-text-body)",
-          ...investorRailTextStyle
-        }
-      }, sanitizeUserFacingCopy(line)))))), Number.isFinite(score) && h("div", {
+      }, sanitizeUserFacingCopy(invCtx.signalNote)), Number.isFinite(score) && h("div", {
         style: {
           display: "flex",
           gap: "var(--ds-space-2)"
@@ -1675,7 +1662,160 @@
           color: "var(--ds-text-muted)",
           marginTop: 2
         }
-      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), catalystEvent && h("div", {
+      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), invLevelRows && (() => {
+        const InvLevelRow = ({
+          row,
+          side
+        }) => h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "32px 1fr 64px 44px",
+            gap: "var(--ds-space-2)",
+            alignItems: "center",
+            padding: "5px 8px",
+            borderRadius: "var(--ds-radius-xs)",
+            background: "rgba(255,255,255,0.02)",
+            borderLeft: `3px solid ${row.color}`
+          },
+          title: row.label
+        }, h("span", {
+          style: {
+            fontSize: 9,
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            color: row.color,
+            letterSpacing: "0.06em",
+            textAlign: "center"
+          }
+        }, row.letter), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-body)",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, row.label), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-display)",
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            textAlign: "right"
+          }
+        }, fmtUsd(row.price)), h("span", {
+          style: {
+            fontSize: 9,
+            color: side === "above" ? "var(--ds-dn)" : "var(--ds-up)",
+            fontFamily: "var(--tt-font-mono)",
+            textAlign: "right"
+          }
+        }, `${row.dist_pct >= 0 ? "+" : ""}${row.dist_pct.toFixed(1)}%`));
+        const SectionLabel = (text, sub, color) => h("div", {
+          style: {
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            padding: "4px 4px 2px",
+            borderBottom: "1px dashed var(--ds-stroke)",
+            marginBottom: 2
+          }
+        }, h("span", {
+          style: {
+            fontSize: 9,
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color
+          }
+        }, text), sub && h("span", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, sub));
+        return h("div", {
+          style: {
+            marginBottom: "var(--ds-space-3)"
+          }
+        }, h(Panel, {
+          title: "Key Levels",
+          action: h("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.08em"
+            }
+          }, `${invLevelRows.above.length} above · ${invLevelRows.below.length} below`)
+        }, h("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 3
+          }
+        }, h("div", {
+          style: {
+            padding: "0 4px 6px",
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)",
+            lineHeight: 1.5,
+            fontStyle: "italic"
+          }
+        }, "Investor invalidation, buy zone, and cost basis — weekly/monthly horizon."), invLevelRows.above.length > 0 && SectionLabel("Above", "upside / trim zones", "var(--ds-dn)"), invLevelRows.above.slice().reverse().map((row, i) => h(InvLevelRow, {
+          key: `inv-ab-${i}-${row.price}`,
+          row,
+          side: "above"
+        })), h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "32px 1fr 64px 44px",
+            gap: "var(--ds-space-2)",
+            alignItems: "center",
+            padding: "8px 8px",
+            borderRadius: "var(--ds-radius-xs)",
+            background: "rgba(56,242,161,0.10)",
+            border: "1px solid rgba(56,242,161,0.30)",
+            margin: "2px 0"
+          }
+        }, h("span", {
+          style: {
+            fontSize: 9,
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            color: "var(--ds-accent)",
+            letterSpacing: "0.06em",
+            textAlign: "center"
+          }
+        }, "NOW"), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-accent)",
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700
+          }
+        }, "Current Price"), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-accent)",
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            textAlign: "right"
+          }
+        }, fmtUsd(invLevelRows.px)), h("span", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)",
+            textAlign: "right"
+          }
+        }, "—")), invLevelRows.below.length > 0 && SectionLabel("Below", "add zone / invalidation", "var(--ds-up)"), invLevelRows.below.map((row, i) => h(InvLevelRow, {
+          key: `inv-bl-${i}-${row.price}`,
+          row,
+          side: "below"
+        })))));
+      })(), catalystEvent && h("div", {
         style: {
           padding: "var(--ds-space-2)",
           background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
@@ -12466,7 +12606,7 @@
               ...investorRailTextStyle
             }
           }, signals.slice(0, 5).map(s => sanitizeUserFacingCopy(s)).filter(Boolean).join(" · ")));
-        })(), "})()}", (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
+        })(), (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
           title: "Setup"
         }, React.createElement("div", {
           style: {
@@ -21753,4 +21893,4 @@
   };
 })();
 
-// cache-bust:1782615542406:364365387
+// cache-bust:1782652078647:15525945

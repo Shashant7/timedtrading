@@ -1139,6 +1139,8 @@
     sanitizeUserFacingCopy(text) {
       if (text == null || text === "") return text;
       return String(text)
+        .replace(/\bfsd_macro_risk_off\b/gi, "macro_risk_off")
+        .replace(/\bfsd_macro_risk_on\b/gi, "macro_risk_on")
         .replace(/\bFSD\s*\/\s*/gi, "")
         .replace(/\bFSD\b/gi, "")
         .replace(/Fundstrat Direct/gi, "")
@@ -1262,4 +1264,4 @@
   };
 })();
 
-// cache-bust:1782615542406:364365387
+// cache-bust:1782652078647:15525945
