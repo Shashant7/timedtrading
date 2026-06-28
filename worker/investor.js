@@ -88,6 +88,48 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   auto_dca_on_accumulate: true,                        // (d) enable DCA tranches on new accumulate inits
   auto_dca_amount_pct: 0.02,                           // (d) 2% of capital per DCA tranche
   auto_dca_frequency: "monthly",                       // (d) tranche cadence
+
+  // 2026-06-28 (R7) — Post-loss re-entry cooldown. Operator: Investor Mode
+  // re-bought CRDO and MOD 2-3 days after EACH was stopped out on a
+  // PRIMARY_INVALIDATION_BREACH, catching the falling knife both times. The
+  // compute-layer post-exit cooldown (24h) had already expired by the
+  // re-entry. This EXECUTION-layer cooldown blocks a fresh OPEN of a name that
+  // just closed at a structural breach / realized loss until it has had time
+  // to base, and escalates to a longer ban for repeat losers (ASTS 6 entries /
+  // 0 wins, FSLR 4/0, TSLA 9 @ 11% WR). Reversible via the _enabled flag.
+  loss_reentry_cooldown_enabled: true,
+  loss_reentry_cooldown_days: 10,                      // single losing close → block re-entry for N calendar days
+  loser_cooldown_consec_losses: 2,                     // >= N consecutive losing closes → persistent-loser ban
+  loser_cooldown_days: 45,                             // persistent-loser ban window (>= cooldown_days)
+
+  // 2026-06-28 — Research-desk alignment at entry. Operator: "Investor Mode
+  // should get all the benefits of our system — Research desk, CTO, CIO."
+  // The desk's live sector/theme stance (getStrategyForTicker → the same
+  // overweight/underweight tilts the Active Trader rank + CIO use) now informs
+  // which fresh capital gets deployed: a candidate in a desk-HEADWIND
+  // (underweight) sector/theme must clear a higher conviction floor; a
+  // desk-TAILWIND (overweight) candidate may clear a modestly lower one. Soft,
+  // additive, and reversible. Live auto-rebalance only (no replay lookahead —
+  // the live tilt map must not be applied to historical entries).
+  research_alignment_enabled: true,
+  research_headwind_score_bump: 8,                     // sector-underweight (non-FSD) names need floor + this
+  research_headwind_multiplier_max: 0.97,              // strategy multiplier <= this = sector headwind
+  // FSD (GRNY/GRNJ/GRNI) conviction relief on the capital-deployment floor.
+  // An FSD pick has passed selection, so it clears the floor at a lower score
+  // (the engine's job becomes timing, not selection). Tiered by fund weight /
+  // multi-fund membership.
+  fsd_strong_score_relief: 10,                         // maxWeight >= 3% OR in >= 2 funds
+  fsd_core_score_relief: 6,                            // maxWeight >= 1%
+  fsd_light_score_relief: 3,                           // small/tail position
+  fsd_offlist_score_bump: 0,                           // extra conviction bar for non-FSD names (0 = neutral)
+
+  // 2026-06-28 — FSD-removal exit. Operator: "know when to exit." When
+  // Fundstrat drops a name from the GRNY/GRNJ/GRNI complex, that is the desk
+  // exiting its thesis — the investor lane exits too. Acts only on removals
+  // within the window (avoids churning on stale removals) and is reversible.
+  fsd_removal_exit_enabled: true,
+  fsd_removal_exit_pct: 1.0,                            // 1.0 = full exit; <1 = partial trim
+  fsd_removal_window_days: 14,                          // act on removals within N days of the rebalance
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -192,7 +234,186 @@ export function loadInvestorConfig(daCfg) {
   if (typeof dcaFreq === "string" && ["weekly", "monthly", "quarterly"].includes(dcaFreq)) {
     cfg.auto_dca_frequency = dcaFreq;
   }
+  // 2026-06-28 (R7) — post-loss re-entry cooldown overrides.
+  const lrcEnabled = daCfg.deep_audit_investor_loss_reentry_cooldown_enabled;
+  if (lrcEnabled === true || lrcEnabled === false) cfg.loss_reentry_cooldown_enabled = lrcEnabled;
+  else if (lrcEnabled === "true") cfg.loss_reentry_cooldown_enabled = true;
+  else if (lrcEnabled === "false") cfg.loss_reentry_cooldown_enabled = false;
+  const lrcDays = Number(daCfg.deep_audit_investor_loss_reentry_cooldown_days);
+  if (Number.isFinite(lrcDays) && lrcDays >= 0 && lrcDays <= 365) cfg.loss_reentry_cooldown_days = lrcDays;
+  const lcConsec = Number(daCfg.deep_audit_investor_loser_cooldown_consec_losses);
+  if (Number.isFinite(lcConsec) && lcConsec >= 1 && lcConsec <= 10) cfg.loser_cooldown_consec_losses = lcConsec;
+  const lcDays = Number(daCfg.deep_audit_investor_loser_cooldown_days);
+  if (Number.isFinite(lcDays) && lcDays >= 0 && lcDays <= 365) cfg.loser_cooldown_days = lcDays;
+  // 2026-06-28 — research-desk alignment overrides.
+  const raEnabled = daCfg.deep_audit_investor_research_alignment_enabled;
+  if (raEnabled === true || raEnabled === false) cfg.research_alignment_enabled = raEnabled;
+  else if (raEnabled === "true") cfg.research_alignment_enabled = true;
+  else if (raEnabled === "false") cfg.research_alignment_enabled = false;
+  const rhBump = Number(daCfg.deep_audit_investor_research_headwind_score_bump);
+  if (Number.isFinite(rhBump) && rhBump >= 0 && rhBump <= 40) cfg.research_headwind_score_bump = rhBump;
+  const fsdStrong = Number(daCfg.deep_audit_investor_fsd_strong_score_relief);
+  if (Number.isFinite(fsdStrong) && fsdStrong >= 0 && fsdStrong <= 40) cfg.fsd_strong_score_relief = fsdStrong;
+  const fsdCore = Number(daCfg.deep_audit_investor_fsd_core_score_relief);
+  if (Number.isFinite(fsdCore) && fsdCore >= 0 && fsdCore <= 40) cfg.fsd_core_score_relief = fsdCore;
+  const fsdLight = Number(daCfg.deep_audit_investor_fsd_light_score_relief);
+  if (Number.isFinite(fsdLight) && fsdLight >= 0 && fsdLight <= 40) cfg.fsd_light_score_relief = fsdLight;
+  const fsdOff = Number(daCfg.deep_audit_investor_fsd_offlist_score_bump);
+  if (Number.isFinite(fsdOff) && fsdOff >= 0 && fsdOff <= 40) cfg.fsd_offlist_score_bump = fsdOff;
+  const frEnabled = daCfg.deep_audit_investor_fsd_removal_exit_enabled;
+  if (frEnabled === true || frEnabled === false) cfg.fsd_removal_exit_enabled = frEnabled;
+  else if (frEnabled === "true") cfg.fsd_removal_exit_enabled = true;
+  else if (frEnabled === "false") cfg.fsd_removal_exit_enabled = false;
+  const frPct = Number(daCfg.deep_audit_investor_fsd_removal_exit_pct);
+  if (Number.isFinite(frPct) && frPct > 0 && frPct <= 1) cfg.fsd_removal_exit_pct = frPct;
+  const frWin = Number(daCfg.deep_audit_investor_fsd_removal_window_days);
+  if (Number.isFinite(frWin) && frWin >= 0 && frWin <= 180) cfg.fsd_removal_window_days = frWin;
   return cfg;
+}
+
+/**
+ * 2026-06-28 — Classify a ticker's FSD (Fundstrat Granny Shots) conviction
+ * from the ETF weight map. GRNY/GRNJ/GRNI holdings ARE what FSD is buying, so
+ * membership is the strongest "the desk has already selected this" signal.
+ * Pure + tested.
+ *
+ * @param {{etfs?:Array<{symbol:string,weight:number}>, maxWeight?:number, etfCount?:number}|null} weightData
+ * @returns {{ isPick:boolean, tier:"strong"|"core"|"light"|"none", maxWeight:number, etfCount:number, etfs:string[] }}
+ */
+export function classifyFsdPick(weightData) {
+  const maxWeight = Number(weightData?.maxWeight);
+  if (!weightData || !Number.isFinite(maxWeight) || maxWeight <= 0) {
+    return { isPick: false, tier: "none", maxWeight: 0, etfCount: 0, etfs: [] };
+  }
+  const etfsArr = Array.isArray(weightData.etfs) ? weightData.etfs : [];
+  const etfCount = Number(weightData.etfCount) || etfsArr.length;
+  let tier;
+  if (maxWeight >= 3 || etfCount >= 2) tier = "strong";   // top-weight or multi-fund conviction
+  else if (maxWeight >= 1.0) tier = "core";               // a real position
+  else tier = "light";                                    // small / tail position
+  return {
+    isPick: true,
+    tier,
+    maxWeight: Math.round(maxWeight * 100) / 100,
+    etfCount,
+    etfs: etfsArr.map((e) => e.symbol).filter(Boolean),
+  };
+}
+
+/**
+ * Build the {etfs,maxWeight,etfCount} shape classifyFsdPick expects from a raw
+ * weight-map row (`{ GRNY: 2.5, GRNI: 2.55 }`). Returns null when not held.
+ */
+export function fsdWeightShapeFromRaw(rawRow) {
+  if (!rawRow || typeof rawRow !== "object") return null;
+  const etfs = Object.entries(rawRow)
+    .map(([symbol, weight]) => ({ symbol, weight: Number(weight) }))
+    .filter((e) => Number.isFinite(e.weight) && e.weight > 0);
+  if (etfs.length === 0) return null;
+  return { etfs, maxWeight: Math.max(...etfs.map((e) => e.weight)), etfCount: etfs.length };
+}
+
+/**
+ * 2026-06-28 — Investor entry conviction floor. Operator directive: "FSD and the
+ * TT Selected Tickers are essentially for Investors. GRNY/GRNJ rep what FSD is
+ * buying. Follow those specifically and time the best entries / know when to
+ * exit. Half the job [selection] is done."
+ *
+ * FSD membership is the PRIMARY desk-conviction signal: an FSD pick has already
+ * passed selection, so it clears the capital-deployment score floor with
+ * conviction relief (the engine's remaining job is timing). A non-FSD name has
+ * no desk backing, so it keeps the base floor (optionally a higher bar). The
+ * sector/theme strategy stance is a secondary signal for non-FSD names.
+ *
+ * @param {{ fsd?:object|null, strategy?:object|null, baseFloor:number, cfg:object }} opts
+ * @returns {{ effectiveFloor:number, alignment:string, delta:number, source:string|null }}
+ */
+export function investorEntryFloorAdjustment({ fsd, strategy, baseFloor, cfg } = {}) {
+  const floor = Number(baseFloor);
+  if (!cfg || cfg.research_alignment_enabled === false || !Number.isFinite(floor)) {
+    return { effectiveFloor: floor, alignment: "neutral", delta: 0, source: null };
+  }
+  // Primary: FSD (GRNY/GRNJ/GRNI) membership.
+  if (fsd && fsd.isPick) {
+    const relief = fsd.tier === "strong"
+      ? Number(cfg.fsd_strong_score_relief ?? 10)
+      : fsd.tier === "core"
+        ? Number(cfg.fsd_core_score_relief ?? 6)
+        : Number(cfg.fsd_light_score_relief ?? 3);
+    return { effectiveFloor: Math.max(0, floor - relief), alignment: "fsd_pick", delta: -relief, source: `fsd_${fsd.tier}` };
+  }
+  // Secondary: sector/theme strategy stance for non-FSD names (headwind only).
+  if (strategy) {
+    const mult = Number(strategy.multiplier);
+    const stance = String(strategy.stance || "neutral");
+    const headMax = Number(cfg.research_headwind_multiplier_max ?? 0.97);
+    const bump = Number(cfg.research_headwind_score_bump ?? 8);
+    if (stance === "underweight" || (Number.isFinite(mult) && mult <= headMax)) {
+      return { effectiveFloor: floor + bump, alignment: "headwind", delta: bump, source: "sector_underweight" };
+    }
+  }
+  // Off-list (not an FSD pick): optional extra conviction bar (default 0).
+  const offBump = Number(cfg.fsd_offlist_score_bump ?? 0);
+  if (offBump > 0) {
+    return { effectiveFloor: floor + offBump, alignment: "offlist", delta: offBump, source: "not_fsd_pick" };
+  }
+  return { effectiveFloor: floor, alignment: "neutral", delta: 0, source: null };
+}
+
+/**
+ * R7 (2026-06-28) — Post-loss re-entry cooldown predicate. Pure + unit-tested.
+ *
+ * Given a ticker's recent CLOSED-position rows (each with the closing SELL
+ * lot's `close_reason` and, when available, the EXIT ledger `exit_pnl`),
+ * decide whether a fresh OPEN should be blocked because the name just closed
+ * at a loss / structural breach.
+ *
+ * A close counts as a "loss" if its closing reason is a structural breach
+ * (PRIMARY_INVALIDATION_BREACH, monthly/weekly ST bearish, RS declining, score
+ * very low — see STRUCTURAL_INVESTOR_REDUCE_REASONS) OR the realized exit P&L
+ * is negative. Consecutive losing closes (most-recent-first) escalate the
+ * single-loss cooldown to the longer persistent-loser ban.
+ *
+ * @param {Array<{closed_at:number, close_reason?:string, exit_pnl?:number}>} closesForTicker
+ * @param {number} now - current epoch ms (live: Date.now(); replay: dayMs)
+ * @param {object} cfg - loadInvestorConfig() result
+ * @returns {null | {until_ts, cooldown_days, consec_losses, last_close_ts, last_reason, days_remaining}}
+ */
+export function shouldBlockInvestorReentry(closesForTicker, now, cfg) {
+  if (!cfg || cfg.loss_reentry_cooldown_enabled === false) return null;
+  const days = Number(cfg.loss_reentry_cooldown_days);
+  if (!Number.isFinite(days) || days <= 0) return null;
+  const rows = (closesForTicker || [])
+    .filter((r) => r && Number.isFinite(Number(r.closed_at)))
+    .sort((a, b) => Number(b.closed_at) - Number(a.closed_at));
+  if (rows.length === 0) return null;
+  const isLoss = (r) => {
+    const reason = String(r.close_reason || "").toLowerCase();
+    if (isStructuralInvestorReduce(reason)) return true;
+    if (/invalidation|breach|bearish|stop|score_very_low|rs_rank_declin|max_loss|deep_loss/.test(reason)) return true;
+    const pnl = Number(r.exit_pnl);
+    return Number.isFinite(pnl) && pnl < 0;
+  };
+  if (!isLoss(rows[0])) return null;
+  let consec = 0;
+  for (const r of rows) { if (isLoss(r)) consec += 1; else break; }
+  const consecThreshold = Number(cfg.loser_cooldown_consec_losses) || 2;
+  const loserDays = Number(cfg.loser_cooldown_days);
+  const cooldownDays = (consec >= consecThreshold && Number.isFinite(loserDays) && loserDays > days)
+    ? loserDays
+    : days;
+  const untilTs = Number(rows[0].closed_at) + cooldownDays * 86400000;
+  if (now < untilTs) {
+    return {
+      until_ts: untilTs,
+      cooldown_days: cooldownDays,
+      consec_losses: consec,
+      last_close_ts: Number(rows[0].closed_at),
+      last_reason: rows[0].close_reason || null,
+      days_remaining: Math.ceil((untilTs - now) / 86400000),
+    };
+  }
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

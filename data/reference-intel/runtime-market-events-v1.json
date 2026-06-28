@@ -34137,13 +34137,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 47.5506
+        "sql_duration_ms": 34.6424
       },
-      "duration": 47.5506,
+      "duration": 34.6424,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 18406,
       "changed_db": false,
-      "size_after": 4435484672,
+      "size_after": 4273975296,
       "rows_read": 3792,
       "rows_written": 0,
       "total_attempts": 1

@@ -247,7 +247,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               else hi = mid - 1;
             }
             const endIdx = hi + 1;
-            if (endIdx >= 50) {
+            // M needs fewer bars for investor monthly_bundle (Jul 2025 has ~13
+            // unique months in D1; the old 50-bar gate left monthly_bundle null
+            // and investor-replay opened 0). computeTfBundle accepts >=15.
+            const minBarsForTf = tf === "M" ? 15 : 50;
+            if (endIdx >= minBarsForTf) {
               const cacheKey = `${ticker}:${tf}`;
               const cached = bundleCache[cacheKey];
               if (cached && cached.endIdx === endIdx) {

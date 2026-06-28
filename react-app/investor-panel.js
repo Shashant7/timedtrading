@@ -420,6 +420,21 @@
           },
           title: cardStatusChip.title,
         }, cardStatusChip.label),
+        // FSD (Granny Shots) holding — what Fundstrat is actually buying. The
+        // investor lane is anchored on this buy-list, so flag membership and
+        // fund conviction prominently.
+        t.fsd?.isPick && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            color: t.fsd.tier === "strong" ? "rgb(56,242,161)" : "var(--tt-text-muted)",
+            background: t.fsd.tier === "strong" ? "rgba(56,242,161,0.16)" : "rgba(56,242,161,0.07)",
+            borderColor: "rgba(56,242,161,0.45)",
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+          },
+          title: `Fundstrat Granny Shots holding (${(t.fsd.etfs || []).join(", ") || "FSD"}${t.fsd.maxWeight ? ` · ${t.fsd.maxWeight}%` : ""}) — what FSD is buying. Investor entries are anchored on this list.`,
+        }, t.fsd.maxWeight ? `FSD ${t.fsd.maxWeight}%` : "FSD"),
         isOwned && isEnteredToday(t) && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {

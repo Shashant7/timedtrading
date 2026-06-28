@@ -8,6 +8,8 @@ import {
   fsdTacticalToSignals,
   isSignalDue,
   optionsPlayToSignal,
+  resolveDueSignals,
+  expireStaleSignals,
 } from "./signal-outcomes.js";
 
 const DAY = 86400000;
@@ -232,5 +234,153 @@ describe("optionsPlayToSignal", () => {
 
   it("returns null without a ticker", () => {
     expect(optionsPlayToSignal(play, {})).toBeNull();
+  });
+});
+
+describe("resolveDueSignals — fair scheduling (anti-starvation)", () => {
+  // 2026-06-28 regression: thousands of perpetually-open cto_level rows used to
+  // monopolize a single `ORDER BY published_at ASC LIMIT` scan, starving
+  // horizon-based sources (investor_action 73 logged / 0 resolved). The
+  // resolver must now scan non-cto_level sources in their own query so they
+  // are always graded.
+  function makeMockDb(capturedSql) {
+    const select = (sql) => {
+      const s = String(sql);
+      if (/source\s*!=\s*'cto_level'/.test(s)) {
+        // The investor signal is due (60d horizon, published 70d ago) but has
+        // no candles in this mock, so it stays open — we only assert it was
+        // SCANNED via its own query, which is the starvation fix.
+        return [{
+          signal_id: "invaction:entry:pos1:1", source: "investor_action", desk: "investor",
+          ticker: "CRDO", direction: "LONG", status: "open",
+          published_at: Date.now() - 70 * DAY, horizon_days: 60, expiry_ts: 0,
+          entry_price: 100, payload_json: null,
+        }];
+      }
+      if (/source\s*=\s*'cto_level'/.test(s)) {
+        return Array.from({ length: 150 }, (_, i) => ({
+          signal_id: `cto:X${i}`, source: "cto_level", desk: "research",
+          ticker: "SPY", direction: "LONG", status: "open",
+          published_at: Date.now() - (300 - i) * DAY, horizon_days: 0, expiry_ts: 0,
+          entry_price: 100, payload_json: null,
+        }));
+      }
+      return [];
+    };
+    return {
+      prepare(sql) {
+        capturedSql.push(String(sql));
+        return {
+          bind() { return this; },
+          async all() { return { results: select(sql) }; },
+          async run() { return { success: true }; },
+        };
+      },
+      async batch(stmts) { return stmts.map(() => ({ success: true })); },
+    };
+  }
+
+  it("issues a dedicated non-cto_level scan as well as a cto_level scan", async () => {
+    const capturedSql = [];
+    const env = { DB: makeMockDb(capturedSql) };
+    const res = await resolveDueSignals(env, { limit: 150, now: Date.now() });
+    expect(res.ok).toBe(true);
+    const selects = capturedSql.filter((s) => /FROM signal_outcomes WHERE status = 'open'/.test(s));
+    expect(selects.some((s) => /source\s*!=\s*'cto_level'/.test(s))).toBe(true);
+    expect(selects.some((s) => /source\s*=\s*'cto_level'/.test(s))).toBe(true);
+    // Both populations enter the scan set (1 investor + 150 cto).
+    expect(res.scanned).toBe(151);
+  });
+});
+
+describe("expireStaleSignals — bound the backlog (pit-stop heal)", () => {
+  it("issues a bulk UPDATE retiring stale horizon-less open rows", async () => {
+    const captured = [];
+    const env = {
+      DB: {
+        prepare(sql) {
+          captured.push(String(sql));
+          return {
+            bind(...args) { this._args = args; return this; },
+            async run() { return { meta: { changes: 3742 } }; },
+            async all() { return { results: [] }; },
+          };
+        },
+      },
+    };
+    const res = await expireStaleSignals(env, { now: Date.now(), maxAgeDays: 30 });
+    expect(res.ok).toBe(true);
+    expect(res.expired).toBe(3742);
+    const upd = captured.find((s) => /UPDATE signal_outcomes/.test(s));
+    expect(upd).toBeTruthy();
+    expect(/status = 'expired'/.test(upd)).toBe(true);
+    // Targets only horizon-less (no expiry, no horizon) open rows past the cutoff.
+    expect(/expiry_ts IS NULL OR expiry_ts <= 0/.test(upd)).toBe(true);
+    expect(/horizon_days IS NULL OR horizon_days <= 0/.test(upd)).toBe(true);
+    expect(/published_at < /.test(upd)).toBe(true);
+  });
+
+  it("is a no-op when maxAgeDays is not set", async () => {
+    let called = false;
+    const env = { DB: { prepare() { called = true; return { bind() { return this; }, async run() { return {}; } }; } } };
+    const res = await expireStaleSignals(env, { now: Date.now() });
+    expect(res.expired).toBe(0);
+    expect(called).toBe(false);
+  });
+});
+
+describe("resolveDueSignals — drain mode (pit-stop heal)", () => {
+  it("expires stale levels then loops the scan until a pass makes no progress", async () => {
+    const DAY = 86400000;
+    const now = Date.parse("2026-06-28T22:00:00Z");
+    let expireCalls = 0;
+    let scanRound = 0;
+    // First scan round returns a due investor signal (resolves with no candles →
+    // stays open, but counts as scanned); to exercise the loop we make round 1
+    // resolve via a touched cto level, then round 2 returns empty → stop.
+    const env = {
+      DB: {
+        prepare(sql) {
+          const s = String(sql);
+          return {
+            bind() { return this; },
+            async run() {
+              if (/UPDATE signal_outcomes\s+SET status = 'expired'/.test(s)) { expireCalls++; return { meta: { changes: 1200 } }; }
+              return { meta: { changes: 0 } };
+            },
+            async all() {
+              if (/source = 'cto_level'/.test(s)) {
+                scanRound++;
+                // Round 1: a horizoned, DUE cto level (resolves). Round 2+: empty → stop.
+                if (scanRound === 1) {
+                  return { results: [{
+                    signal_id: "cto:AAA", source: "cto_level", desk: "research",
+                    ticker: "AAA", direction: "LONG", status: "open",
+                    published_at: now - 30 * DAY, horizon_days: 14, expiry_ts: 0,
+                    entry_price: 100, target_price: 105, stop_price: 95, payload_json: null,
+                  }] };
+                }
+                return { results: [] };
+              }
+              if (/source != 'cto_level'/.test(s)) return { results: [] };
+              if (/ticker_candles/.test(s)) {
+                // A bar inside the [publish, publish+14d] window that touches the
+                // target (105) → early-resolve win.
+                return { results: [{ ts: now - 20 * DAY, h: 106, l: 99, c: 105 }] };
+              }
+              return { results: [] };
+            },
+            async batch() { return []; },
+          };
+        },
+        async batch() { return []; },
+      },
+    };
+    const res = await resolveDueSignals(env, { drain: true, expireStaleDays: 30, now });
+    expect(res.ok).toBe(true);
+    expect(res.expired).toBe(1200);   // bulk-expiry ran
+    expect(expireCalls).toBe(1);
+    expect(res.resolved).toBe(1);     // the touched cto level graded
+    expect(res.batches).toBeGreaterThanOrEqual(2); // looped past the productive round
   });
 });
