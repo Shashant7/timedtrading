@@ -64,6 +64,27 @@ From `scripts/investor-accuracy-report.mjs` (the analyzer the slice runs):
 - **Signal-outcome loop** — `investor_action` forward-return grades mature at
   the 60-day horizon (resolver pit-stop heal keeps them current).
 
+## Day-state dependency (READ BEFORE running)
+
+`investor-replay` scores the investor universe from `timed:replay:daystate:{date}`.
+That day-state is written by the **trader** `candle-replay`, which the trader
+`monthly-slice.sh` runs with **`skipInvestor=1`** — so it carries trader scoring
+but **not** the investor inputs (monthly bundle / accumulate stage) the investor
+entry gate needs. Consequence: a standalone investor slice on a freshly-reset
+env returns **0 opens** (confirmed 2026-06-28: `investor-slice-2025-07-v1` opened
+0 across all 22 July days even though day-state existed).
+
+**Correct sequence to produce a real investor anchor:**
+1. Run the trader `monthly-slice.sh` for the period (creates `timed:replay:daystate:{date}`).
+2. Seed investor inputs: `scripts/seed-investor-daystate.sh --month=…` (backfills
+   `monthly_bundle` from D1 M candles — Jul 2025 has ~13 unique months, below
+   replay's old 50-bar gate). Or pass `--seed-daystate` to `investor-slice.sh`.
+3. Run `investor-slice.sh --month=… --no-reset` so it **reuses** that day-state
+   instead of wiping it.
+
+The seeder closes the tooling gap documented 2026-06-28; without it (or without
+`monthly_bundle` in day-state) investor-replay's D/W/M ST gate opens 0.
+
 ## Guardrails (learned the hard way)
 
 - **Pre-prod only.** `investor-slice.sh` defaults to

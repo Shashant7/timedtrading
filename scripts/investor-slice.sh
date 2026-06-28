@@ -23,7 +23,7 @@
 #     --month=2025-07 \
 #     [--run-id=investor-slice-2025-07-v1] \
 #     [--api-base=https://timed-trading-ingest-preprod.shashant.workers.dev] \
-#     [--resume] [--no-reset] [--dry-run]
+#     [--resume] [--no-reset] [--seed-daystate] [--dry-run]
 #
 # Exit codes: 0 ok · 2 usage · 3 single-writer guard · 5 worker error · 6 lock IO
 
@@ -34,7 +34,7 @@ RETRIES_PER_DAY=5
 RETRY_BACKOFF_SECONDS=30
 WATCHDOG_SECONDS=120
 
-MONTH=""; START=""; END=""; RUN_ID=""; RESUME=false; DRY_RUN=false; RESET_ON_FRESH=true
+MONTH=""; START=""; END=""; RUN_ID=""; RESUME=false; DRY_RUN=false; RESET_ON_FRESH=true; SEED_DAYSTATE=false
 API_BASE="$DEFAULT_API_BASE"
 API_KEY="${TIMED_API_KEY:-${TIMED_TRADING_API_KEY:-}}"
 
@@ -52,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --api-base=*) API_BASE="${arg#*=}" ;;
     --resume) RESUME=true ;;
     --no-reset) RESET_ON_FRESH=false ;;
+    --seed-daystate) SEED_DAYSTATE=true ;;
     --dry-run) DRY_RUN=true ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     *) die_usage "unknown arg: $arg" ;;
@@ -82,7 +83,7 @@ is_holiday() { [[ " $NYSE_HOLIDAYS " == *" $1 "* ]]; }
 next_day() { date -u -d "$1 + 1 day" '+%Y-%m-%d'; }
 
 log "=== Investor training slice ==="
-log "period=$START → $END  run_id=$RUN_ID  base=$API_BASE  resume=$RESUME  reset=$RESET_ON_FRESH"
+log "period=$START → $END  run_id=$RUN_ID  base=$API_BASE  resume=$RESUME  reset=$RESET_ON_FRESH  seed=$SEED_DAYSTATE"
 
 # Build trading-day list
 DAYS=(); cur="$START"
@@ -110,6 +111,15 @@ if $RESET_ON_FRESH && ! $RESUME; then
   log "reset replay lane: $(echo "$R" | jq -c '{ok}' 2>/dev/null || echo "$R" | head -c 120)"
 fi
 
+# Optional: patch monthly_bundle onto existing trader day-state before replay.
+if $SEED_DAYSTATE; then
+  log "=== Seeding investor day-state (monthly_bundle backfill) ==="
+  SEED_ARGS=(--start="$START" --end="$END" --api-base="$API_BASE")
+  TIMED_API_KEY="$API_KEY" "$REPO_ROOT/scripts/seed-investor-daystate.sh" "${SEED_ARGS[@]}" || {
+    log "ERROR: seed-investor-daystate failed"; exit 5;
+  }
+fi
+
 # Walk the period.
 OPENED=0; CLOSED=0; ERR=0
 for d in "${DAYS[@]}"; do
@@ -130,6 +140,23 @@ for d in "${DAYS[@]}"; do
   $ok || { log "  ERROR $d failed after $RETRIES_PER_DAY"; ERR=$((ERR + 1)); }
 done
 log "Replay complete: opened=$OPENED closed=$CLOSED errors=$ERR"
+
+# Day-state dependency guard. investor-replay reads timed:replay:daystate:{date}
+# and scores the investor universe from it. The trader monthly-slice writes that
+# day-state with skipInvestor=1, so it carries TRADER scoring but not the
+# investor inputs (monthly bundle / accumulate stage) the investor ST-alignment
+# gate needs — investor-replay then opens 0. A standalone investor slice on a
+# freshly-reset env therefore cannot produce entries.
+if [[ "$OPENED" == "0" && "$CLOSED" == "0" ]]; then
+  log "WARN: 0 opens/closes across the whole period."
+  log "      investor-replay needs INVESTOR-scored day-state. The trader"
+  log "      monthly-slice writes day-state with skipInvestor=1 (trader-only),"
+  log "      which lacks the investor inputs the entry gate requires."
+  log "      Fix path: seed investor-inclusive day-state first (a candle-replay"
+  log "      WITHOUT skipInvestor, or a per-day investor scoring pass) and run"
+  log "      this slice with --no-reset so it reuses that day-state."
+  log "      See docs/investor-training-regimen.md › Day-state dependency."
+fi
 
 # Accuracy report (WR / P&L / payoff by FSD tier) against the same env.
 log "=== Accuracy report ==="
