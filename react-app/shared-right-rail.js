@@ -5469,11 +5469,14 @@
           else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
             tab = "SNAPSHOT";
           }
-          if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY") {
+          const isDeepLinkOpen = String(railOpenSource || "").toLowerCase() === "deeplink";
+          // Share/deep links carry an explicit tab — honor it while data loads
+          // and after. Outside-universe redirect to Catalysts is for in-app picks only.
+          if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY" && !isDeepLinkOpen) {
             tab = "CATALYSTS";
           }
           setRailTab(tab);
-        }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse]);
+        }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse, railOpenSource]);
 
         // Trade History: default chart selection to first trade when trades load
         useEffect(() => {

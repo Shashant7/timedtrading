@@ -6746,11 +6746,12 @@
         if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (raw === "NOW") tab = "SNAPSHOT";else if (raw === "TRADE") tab = "SETUP";else if (raw === "INVEST") tab = "INVESTOR";else if (raw === "CONTEXT") tab = "TECHNICALS";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
           tab = "SNAPSHOT";
         }
-        if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY") {
+        const isDeepLinkOpen = String(railOpenSource || "").toLowerCase() === "deeplink";
+        if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY" && !isDeepLinkOpen) {
           tab = "CATALYSTS";
         }
         setRailTab(tab);
-      }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse]);
+      }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse, railOpenSource]);
       useEffect(() => {
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
         if (isHistoryTab && ledgerTrades.length > 0 && !tradeChartSelection) {
@@ -21979,4 +21980,4 @@
   };
 })();
 
-// cache-bust:1782686018458:97707811
+// cache-bust:1782686321399:240535600

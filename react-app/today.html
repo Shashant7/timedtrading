@@ -6856,7 +6856,9 @@
             const row = data[key].ticker ? data[key] : { ...data[key], ticker: key };
             return isTickerScoredInUniverse(data, key) ? row : { ...row, _outsideUniverse: true };
           }
-          // Fallback 2: minimal stub — earnings-watch tickers outside universe
+          // Stub until /timed/all lands — do not assume outside-universe yet
+          // (share deep links open before payload load and were forced to Catalysts).
+          if (!data) return { ticker: key };
           return { ticker: key, _outsideUniverse: true };
         }, [railTicker, allTickers, data]);
         // V15 P0.7.181 — Reactive RailOverlay state so card clicks
