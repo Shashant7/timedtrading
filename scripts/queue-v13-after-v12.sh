@@ -7,7 +7,7 @@ REPO="${REPO_ROOT:-/workspace}"
 V12_LOG="$REPO/data/trade-analysis/run-v12-retry-2025-07.log"
 V13_LOG="$REPO/data/trade-analysis/run-v13-phase-a-iteration.log"
 POLL_SECONDS="${POLL_SECONDS:-60}"
-MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-7200}"
+MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-14400}"
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
