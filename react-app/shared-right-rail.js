@@ -992,9 +992,14 @@
         if (r.startsWith("timing_top:")) {
           return "Extension timing is dominant — trim into strength; avoid new long exposure until the top resolves.";
         }
-        return REASON_TRANSLATIONS[r]
-          || r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        return sanitizeUserFacingCopy(
+          REASON_TRANSLATIONS[r]
+            || r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+        );
       })();
+      const stageReasonCode = stageReason
+        ? sanitizeUserFacingCopy(String(stageReason))
+        : null;
 
       const COMPONENT_DEFS = {
         weeklyTrend:        { label: "Weekly Trend",        max: 25, why: "Direction + slope of the weekly price action over recent weeks." },
@@ -1013,6 +1018,7 @@
       // Inline Panel (the rail's local helper isn't accessible at module scope).
       const Panel = ({ title, action, children }) => h("div", {
         style: {
+          ...investorRailContainStyle,
           background: "var(--ds-surface-1, rgba(255,255,255,0.02))",
           border: "1px solid var(--ds-border-faint, rgba(255,255,255,0.06))",
           borderRadius: "var(--ds-radius-lg, 12px)",
@@ -1287,8 +1293,17 @@
           h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", marginTop: "var(--ds-space-2)" } },
 
         reasonProse && h(Panel, { title: "Why this classification" },
-          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5 } }, reasonProse),
-          stageReason && h("div", { style: { marginTop: 8, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" } }, "code: ", stageReason),
+          h("div", { style: { fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: 1.5, ...investorRailTextStyle } }, reasonProse),
+          stageReasonCode && h("div", {
+            style: {
+              marginTop: 8,
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              ...investorRailTextStyle,
+              overflowWrap: "anywhere",
+            },
+          }, "code: ", stageReasonCode),
         ),
 
         // 3. Score breakdown
@@ -1328,7 +1343,9 @@
               style: { fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-body)", padding: "6px 10px", background: "rgba(52,211,153,0.06)", border: "1px solid rgba(52,211,153,0.20)", borderRadius: 6 },
             },
               h("span", { style: { color: "#34d399", marginRight: 6 } }, "✓"),
-              typeof s === "string" ? s.replace(/_/g, " ") : (s?.name || s?.label || String(s)),
+              typeof s === "string"
+                ? sanitizeUserFacingCopy(s.replace(/_/g, " "))
+                : sanitizeUserFacingCopy(String(s?.name || s?.label || s)),
             )),
           ),
         ),

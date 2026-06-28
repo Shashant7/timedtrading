@@ -1225,8 +1225,9 @@
         if (r.startsWith("timing_top:")) {
           return "Extension timing is dominant — trim into strength; avoid new long exposure until the top resolves.";
         }
-        return REASON_TRANSLATIONS[r] || r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        return sanitizeUserFacingCopy(REASON_TRANSLATIONS[r] || r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
       })();
+      const stageReasonCode = stageReason ? sanitizeUserFacingCopy(String(stageReason)) : null;
       const COMPONENT_DEFS = {
         weeklyTrend: {
           label: "Weekly Trend",
@@ -1275,6 +1276,7 @@
         children
       }) => h("div", {
         style: {
+          ...investorRailContainStyle,
           background: "var(--ds-surface-1, rgba(255,255,255,0.02))",
           border: "1px solid var(--ds-border-faint, rgba(255,255,255,0.06))",
           borderRadius: "var(--ds-radius-lg, 12px)",
@@ -1877,16 +1879,19 @@
         style: {
           fontSize: "var(--ds-fs-body)",
           color: "var(--ds-text-body)",
-          lineHeight: 1.5
+          lineHeight: 1.5,
+          ...investorRailTextStyle
         }
-      }, reasonProse), stageReason && h("div", {
+      }, reasonProse), stageReasonCode && h("div", {
         style: {
           marginTop: 8,
           fontSize: 10,
           color: "var(--ds-text-faint)",
-          fontFamily: "var(--tt-font-mono)"
+          fontFamily: "var(--tt-font-mono)",
+          ...investorRailTextStyle,
+          overflowWrap: "anywhere"
         }
-      }, "code: ", stageReason)), components && Object.keys(components).length > 0 && h(Panel, {
+      }, "code: ", stageReasonCode)), components && Object.keys(components).length > 0 && h(Panel, {
         title: "Score Breakdown",
         action: h("span", {
           style: {
@@ -1988,7 +1993,7 @@
           color: "#34d399",
           marginRight: 6
         }
-      }, "✓"), typeof s === "string" ? s.replace(/_/g, " ") : s?.name || s?.label || String(s))))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
+      }, "✓"), typeof s === "string" ? sanitizeUserFacingCopy(s.replace(/_/g, " ")) : sanitizeUserFacingCopy(String(s?.name || s?.label || s)))))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
         title: "Strength + Sector Context"
       }, h("div", {
         style: {
@@ -21899,4 +21904,4 @@
   };
 })();
 
-// cache-bust:1782659013712:398587176
+// cache-bust:1782661727826:332413349
