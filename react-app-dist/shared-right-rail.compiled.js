@@ -55,6 +55,8 @@
       if (postureDir === "LONG" || postureDir === "SHORT") return postureDir;
       const isExplicitNeutral = posture.strength === "neutral" || posture.posture === "NEUTRAL" || String(posture.label || "").toUpperCase() === "NEUTRAL";
       if (isExplicitNeutral) {
+        const structural = opts.ticker && typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker ? window.TimedPriceUtils.inferStructuralBiasFromTicker(opts.ticker) : "";
+        if (structural === "LONG" || structural === "SHORT") return structural;
         const timing = opts.timing || null;
         if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
         if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
@@ -8050,7 +8052,8 @@
           posture: v2TraderPosture,
           timing: v2TimingOverlay,
           optionsEffectiveDir: optionsTabData?.effective_direction,
-          fallbackDir: v2Dir
+          fallbackDir: v2Dir,
+          ticker
         });
         const v2StructureLabel = v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : v2PostureLabel || "Neutral";
         const v2Price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? resolveDisplayPrice(priceSrc)) || 0;
@@ -12921,6 +12924,8 @@
           const resolveTimingAwareTraderDir = () => {
             const postureDir = resolveTraderCallDir(v2ModelPosture?.direction) || resolveTraderCallDir(v2TraderPosture?.direction);
             if (postureDir) return postureDir;
+            const structural = typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker ? window.TimedPriceUtils.inferStructuralBiasFromTicker(ticker) : "";
+            if (structural === "LONG" || structural === "SHORT") return structural;
             const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
             if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
             if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
@@ -21949,4 +21954,4 @@
   };
 })();
 
-// cache-bust:1782679546630:94435560
+// cache-bust:1782679868148:271337293
