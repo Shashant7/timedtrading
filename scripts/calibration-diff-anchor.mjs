@@ -34,10 +34,11 @@ if (!API_KEY) {
 }
 
 async function fetchRunConfig(runId) {
-  const url = `${PREPROD}/timed/admin/runs/config?run_id=${encodeURIComponent(runId)}&key=${encodeURIComponent(API_KEY)}`;
+  const liveBase = process.env.LIVE_BASE || "https://timed-trading-ingest.shashant.workers.dev";
+  const url = `${liveBase}/timed/admin/runs/config?run_id=${encodeURIComponent(runId)}&key=${encodeURIComponent(API_KEY)}`;
   const res = await fetch(url);
   const data = await res.json();
-  if (!data.ok) throw new Error(`anchor config fetch failed: ${JSON.stringify(data)}`);
+  if (!data.ok) throw new Error(`anchor config fetch failed (${liveBase}): ${JSON.stringify(data)}`);
   return data.config || {};
 }
 

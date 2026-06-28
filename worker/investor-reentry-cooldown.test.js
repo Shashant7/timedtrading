@@ -19,9 +19,9 @@ const NOW = Date.parse("2026-06-26T14:00:00Z"); // matches the CRDO/MOD re-entry
 describe("R7 cooldown — defaults + overrides", () => {
   it("ships the operator-intended defaults", () => {
     expect(DEFAULT_INVESTOR_CONFIG.loss_reentry_cooldown_enabled).toBe(true);
-    expect(DEFAULT_INVESTOR_CONFIG.loss_reentry_cooldown_days).toBe(10);
-    expect(DEFAULT_INVESTOR_CONFIG.loser_cooldown_consec_losses).toBe(2);
-    expect(DEFAULT_INVESTOR_CONFIG.loser_cooldown_days).toBe(45);
+    expect(DEFAULT_INVESTOR_CONFIG.loss_reentry_cooldown_days).toBe(5);
+    expect(DEFAULT_INVESTOR_CONFIG.loser_cooldown_consec_losses).toBe(3);
+    expect(DEFAULT_INVESTOR_CONFIG.loser_cooldown_days).toBe(21);
   });
 
   it("applies bounds-checked overrides from daCfg", () => {
@@ -43,9 +43,9 @@ describe("R7 cooldown — defaults + overrides", () => {
       deep_audit_investor_loser_cooldown_consec_losses: "0",
       deep_audit_investor_loser_cooldown_days: "9999",
     });
-    expect(c.loss_reentry_cooldown_days).toBe(10);
-    expect(c.loser_cooldown_consec_losses).toBe(2);
-    expect(c.loser_cooldown_days).toBe(45);
+    expect(c.loss_reentry_cooldown_days).toBe(5);
+    expect(c.loser_cooldown_consec_losses).toBe(3);
+    expect(c.loser_cooldown_days).toBe(21);
   });
 });
 
@@ -59,7 +59,7 @@ describe("R7 cooldown — predicate", () => {
     const block = shouldBlockInvestorReentry(closes, NOW, cfg);
     expect(block).toBeTruthy();
     expect(block.consec_losses).toBe(1);
-    expect(block.cooldown_days).toBe(10);
+    expect(block.cooldown_days).toBe(5);
     expect(block.days_remaining).toBeGreaterThan(0);
   });
 
@@ -84,9 +84,9 @@ describe("R7 cooldown — predicate", () => {
     expect(shouldBlockInvestorReentry(closes, NOW, cfg)).toBeNull();
   });
 
-  it("escalates to the persistent-loser ban after >= 2 consecutive losses (ASTS pattern)", () => {
+  it("escalates to the persistent-loser ban after >= 3 consecutive losses (ASTS pattern)", () => {
     // ASTS-style: repeated losing closes. Most recent 12 days ago — past the
-    // 10-day single-loss cooldown but inside the 45-day persistent-loser ban.
+    // 5-day single-loss cooldown but inside the 21-day persistent-loser ban.
     const closes = [
       { closed_at: NOW - 12 * DAY, close_reason: "PRIMARY_INVALIDATION_BREACH", exit_pnl: -200 },
       { closed_at: NOW - 25 * DAY, close_reason: "weekly_supertrend_bearish", exit_pnl: -180 },
@@ -95,7 +95,18 @@ describe("R7 cooldown — predicate", () => {
     const block = shouldBlockInvestorReentry(closes, NOW, cfg);
     expect(block).toBeTruthy();
     expect(block.consec_losses).toBe(3);
-    expect(block.cooldown_days).toBe(45);
+    expect(block.cooldown_days).toBe(21);
+  });
+
+  it("uses the shorter cooldown for only 2 consecutive losses", () => {
+    const closes = [
+      { closed_at: NOW - 3 * DAY, close_reason: "PRIMARY_INVALIDATION_BREACH", exit_pnl: -200 },
+      { closed_at: NOW - 10 * DAY, close_reason: "PRIMARY_INVALIDATION_BREACH", exit_pnl: -180 },
+    ];
+    const block = shouldBlockInvestorReentry(closes, NOW, cfg);
+    expect(block).toBeTruthy();
+    expect(block.consec_losses).toBe(2);
+    expect(block.cooldown_days).toBe(5);
   });
 
   it("consecutive count stops at the first non-loss (a win breaks the streak)", () => {
@@ -107,7 +118,7 @@ describe("R7 cooldown — predicate", () => {
     const block = shouldBlockInvestorReentry(closes, NOW, cfg);
     expect(block).toBeTruthy();
     expect(block.consec_losses).toBe(1); // streak broken by the win
-    expect(block.cooldown_days).toBe(10);
+    expect(block.cooldown_days).toBe(5);
   });
 
   it("returns null when disabled", () => {

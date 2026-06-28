@@ -17,7 +17,7 @@ import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   evaluateIndexEtfModelEntry,
   isIndexModelTicker,
-  isStockPathBlockedOnIndex,
+  shouldBlockStockPathOnIndexTicker,
 } from "./index-etf-model.js";
 import { checkSetupDemotion } from "./setup-demotion.js";
 import { checkEarningsClusterEntryBlock } from "./earnings-cluster-gate.js";
@@ -413,11 +413,11 @@ export function evaluateEntry(ctx) {
                        : path?.endsWith?.("_long")  ? "LONG"
                        : side;
     const _pathTicker = String(d?.ticker || d?.sym || ctx.ticker || "").trim().toUpperCase();
-    if (isIndexModelTicker(_pathTicker, daCfg) && isStockPathBlockedOnIndex(path)) {
+    if (shouldBlockStockPathOnIndexTicker(_pathTicker, path, daCfg)) {
       return rejectEntry("index_model_stock_path_blocked", {
         ticker: _pathTicker,
         path,
-        note: "SPY/QQQ/IWM must enter via tt_index_etf_swing only",
+        note: "SPY/QQQ/IWM must not use stock entry paths (index model path only when enabled)",
       });
     }
     const _demotion = checkSetupDemotion(path, effectiveDir, daCfg, _pathTicker);

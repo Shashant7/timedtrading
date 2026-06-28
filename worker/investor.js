@@ -98,9 +98,9 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   // to base, and escalates to a longer ban for repeat losers (ASTS 6 entries /
   // 0 wins, FSLR 4/0, TSLA 9 @ 11% WR). Reversible via the _enabled flag.
   loss_reentry_cooldown_enabled: true,
-  loss_reentry_cooldown_days: 10,                      // single losing close → block re-entry for N calendar days
-  loser_cooldown_consec_losses: 2,                     // >= N consecutive losing closes → persistent-loser ban
-  loser_cooldown_days: 45,                             // persistent-loser ban window (>= cooldown_days)
+  loss_reentry_cooldown_days: 5,                       // single losing close → block re-entry (was 10; operator: excessive)
+  loser_cooldown_consec_losses: 3,                     // >= N consecutive losing closes → persistent-loser ban (was 2)
+  loser_cooldown_days: 21,                             // persistent-loser ban window (was 45; toned down)
 
   // 2026-06-28 — Research-desk alignment at entry. Operator: "Investor Mode
   // should get all the benefits of our system — Research desk, CTO, CIO."
@@ -130,6 +130,13 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   fsd_removal_exit_enabled: true,
   fsd_removal_exit_pct: 1.0,                            // 1.0 = full exit; <1 = partial trim
   fsd_removal_window_days: 14,                          // act on removals within N days of the rebalance
+
+  // 2026-06-28 — 4H SuperTrend *slope* gate for capital deployment. Block only
+  // when ST is actively sloping against the long (stSlopeDn). Flat-but-opposing
+  // direction is allowed — timing, not direction flip alone.
+  investor_st_slope_gate_enabled: true,
+  /** @deprecated alias — use investor_st_slope_gate_enabled */
+  investor_4h_gate_enabled: true,
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -268,6 +275,17 @@ export function loadInvestorConfig(daCfg) {
   if (Number.isFinite(frPct) && frPct > 0 && frPct <= 1) cfg.fsd_removal_exit_pct = frPct;
   const frWin = Number(daCfg.deep_audit_investor_fsd_removal_window_days);
   if (Number.isFinite(frWin) && frWin >= 0 && frWin <= 180) cfg.fsd_removal_window_days = frWin;
+  const h4Gate = daCfg.deep_audit_investor_st_slope_gate_enabled ?? daCfg.deep_audit_investor_4h_gate_enabled;
+  if (h4Gate === true || h4Gate === false) {
+    cfg.investor_st_slope_gate_enabled = h4Gate;
+    cfg.investor_4h_gate_enabled = h4Gate;
+  } else if (h4Gate === "true") {
+    cfg.investor_st_slope_gate_enabled = true;
+    cfg.investor_4h_gate_enabled = true;
+  } else if (h4Gate === "false") {
+    cfg.investor_st_slope_gate_enabled = false;
+    cfg.investor_4h_gate_enabled = false;
+  }
   return cfg;
 }
 
@@ -361,6 +379,121 @@ export function investorEntryFloorAdjustment({ fsd, strategy, baseFloor, cfg } =
 }
 
 /**
+ * 4H SuperTrend slope snapshot for Investor capital-deployment timing.
+ * Pine stDir: -1 = bull, +1 = bear. Gate uses opposing *slope* only (stSlopeDn).
+ */
+export function resolveInvestor4hTiming(tickerData) {
+  const tf4H = tickerData?.tf_tech?.["4H"] || tickerData?.tf_tech?.["240"] || {};
+  const stDir = Number(tf4H.stDir ?? tf4H.atr?.xs) || 0;
+  const stSlope = Number(tf4H.stSlope);
+  const stSlopeDn = tf4H.stSlopeDn === true
+    || (Number.isFinite(stSlope) && stSlope < 0);
+  const stSlopeUp = tf4H.stSlopeUp === true
+    || (Number.isFinite(stSlope) && stSlope > 0);
+  const stSlopeFlat = !stSlopeDn && !stSlopeUp;
+  const opposingSlope = stSlopeDn;
+  return {
+    timeframe: "4H",
+    stDir,
+    stSlope: Number.isFinite(stSlope) ? stSlope : null,
+    is4hBull: stDir === -1,
+    is4hBear: stDir === 1,
+    stSlopeDn,
+    stSlopeUp,
+    stSlopeFlat,
+    opposingSlope,
+  };
+}
+
+export function isInvestorStSlopeGateEnabled(cfg = DEFAULT_INVESTOR_CONFIG) {
+  if (!cfg) return true;
+  if (cfg.investor_st_slope_gate_enabled === false) return false;
+  if (cfg.investor_4h_gate_enabled === false) return false;
+  return true;
+}
+
+/**
+ * Returns a block descriptor when 4H SuperTrend is actively sloping against
+ * the long (down). Flat-but-bearish ST is allowed. Null = timing OK.
+ */
+export function investor4hCapitalDeploymentBlock(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
+  if (!isInvestorStSlopeGateEnabled(cfg)) return null;
+  const snap = resolveInvestor4hTiming(tickerData);
+  if (!snap.opposingSlope) return null;
+  return { reason: "supertrend_opposing_slope", ...snap };
+}
+
+/** Monthly + D/W/M structural alignment; no opposing 4H ST slope for act_now. */
+export function computeInvestorSimEligible(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
+  const _stDirD = tickerData?.tf_tech?.D?.stDir ?? 0;
+  const _stDirW = tickerData?.tf_tech?.W?.stDir ?? 0;
+  const _stDirM = tickerData?.monthly_bundle?.supertrend_dir ?? 0;
+  const _stDirBullCount = (_stDirD === -1 ? 1 : 0)
+    + (_stDirW === -1 ? 1 : 0)
+    + (_stDirM === -1 ? 1 : 0);
+  const structural = (_stDirM === -1) && (_stDirBullCount >= 2);
+  if (!structural || !isInvestorStSlopeGateEnabled(cfg)) return structural;
+  return !resolveInvestor4hTiming(tickerData).opposingSlope;
+}
+
+/**
+ * Stage gate — downgrade accumulate/core_hold to watch when ST slope blocks adds.
+ * Chained after applyInvestorTimingGate inside classifyInvestorStage.
+ */
+export function applyInvestor4hStageGate(stageResult, tickerData, ctx = {}) {
+  if (!stageResult || !tickerData) return stageResult;
+  const cfg = ctx.cfg || DEFAULT_INVESTOR_CONFIG;
+  if (!isInvestorStSlopeGateEnabled(cfg)) return stageResult;
+  const owned = !!ctx.existingPosition;
+  const stage = String(stageResult.stage || "");
+  const block = investor4hCapitalDeploymentBlock(tickerData, cfg);
+  if (!block) return stageResult;
+  const blocksNew = !owned && stage === "accumulate";
+  const blocksAdd = owned && (stage === "accumulate" || stage === "core_hold");
+  if (!blocksNew && !blocksAdd) return stageResult;
+  return {
+    ...stageResult,
+    stage: "watch",
+    reason: `${owned ? "st_slope_no_add" : "st_slope_block"}:${block.reason}:${stageResult.reason}`,
+    timing_4h: block,
+  };
+}
+
+/**
+ * Rich provenance payload for investor decision_records (parity with trader meta_json).
+ */
+export function buildInvestorDecisionInputs(opts = {}) {
+  const h4 = opts.h4 || (opts.tickerData ? resolveInvestor4hTiming(opts.tickerData) : null);
+  return {
+    engine: "investor",
+    action: opts.action || null,
+    event: opts.event || opts.eventType || null,
+    ticker: opts.ticker ? String(opts.ticker).toUpperCase() : null,
+    ts: Number(opts.ts) || null,
+    price: opts.price != null ? Number(opts.price) : null,
+    shares: opts.shares != null ? Number(opts.shares) : null,
+    value: opts.value != null ? Number(opts.value) : null,
+    lot_id: opts.lotId || null,
+    position_id: opts.positionId || null,
+    reason: opts.reason || null,
+    stage: opts.stage || null,
+    stage_reason: opts.stageReason || opts.stage_reason || null,
+    score: opts.score != null ? Number(opts.score) : null,
+    components: opts.components || null,
+    accum_zone: opts.accumZone || opts.accum_zone || null,
+    fsd: opts.fsd || null,
+    entry_floor: opts.floorInfo || opts.entry_floor || null,
+    action_tier: opts.actionTier || opts.action_tier || null,
+    sim_eligible: opts.simEligible ?? opts.sim_eligible ?? null,
+    timing_overlay: opts.timing || opts.timing_overlay || null,
+    h4_timing: h4,
+    market_health: opts.marketHealth ?? opts.market_health ?? null,
+    auto_rebalance: opts.autoRebalance || opts.auto_rebalance || null,
+    gate_trace: Array.isArray(opts.gateTrace) ? opts.gateTrace : (opts.gate_trace || null),
+  };
+}
+
+/**
  * R7 (2026-06-28) — Post-loss re-entry cooldown predicate. Pure + unit-tested.
  *
  * Given a ticker's recent CLOSED-position rows (each with the closing SELL
@@ -397,7 +530,7 @@ export function shouldBlockInvestorReentry(closesForTicker, now, cfg) {
   if (!isLoss(rows[0])) return null;
   let consec = 0;
   for (const r of rows) { if (isLoss(r)) consec += 1; else break; }
-  const consecThreshold = Number(cfg.loser_cooldown_consec_losses) || 2;
+  const consecThreshold = Number(cfg.loser_cooldown_consec_losses) || 3;
   const loserDays = Number(cfg.loser_cooldown_days);
   const cooldownDays = (consec >= consecThreshold && Number.isFinite(loserDays) && loserDays > days)
     ? loserDays
@@ -613,6 +746,13 @@ export function computeInvestorScore(tickerData, opts = {}) {
 
   components.momentumHealth = Math.max(-10, Math.min(5, components.momentumHealth));
 
+  // ── 4H SuperTrend slope timing (opposing slope only — not direction/EMA) ──
+  components.fourHourTiming = 0;
+  const _h4 = resolveInvestor4hTiming(tickerData);
+  if (_h4.opposingSlope) components.fourHourTiming -= 5;
+  else if (_h4.stSlopeUp) components.fourHourTiming += 2;
+  components.fourHourTiming = Math.max(-6, Math.min(3, components.fourHourTiming));
+
   // ── Daily SuperTrend Alignment (bonus up to +5 pts) ──
   components.dailySuperTrendBonus = 0;
   const dStDir = tickerData?.tf_tech?.D?.stDir;
@@ -635,6 +775,7 @@ export function computeInvestorScore(tickerData, opts = {}) {
     components.sectorContext +
     components.ichimokuConfirm +
     components.momentumHealth +
+    components.fourHourTiming +
     components.dailySuperTrendBonus
   ));
 
@@ -1132,7 +1273,7 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
   const _stDirBullCount = (_stDirD === -1 ? 1 : 0)
     + (_stDirW === -1 ? 1 : 0)
     + (_stDirM === -1 ? 1 : 0);
-  const simEligible = (_stDirM === -1) && (_stDirBullCount >= 2);
+  const simEligible = computeInvestorSimEligible(td, cfg);
   const actionTier = computeInvestorActionTier({
     stage: stage.stage,
     score,
@@ -1265,9 +1406,15 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   } = opts;
   const timing = resolveInvestorTimingOverlay(tickerData);
   const dipBuy = dipBuyOpt || detectCompounderDipBuy(tickerData, timing, accumZone);
-  const finalize = (result) => applyInvestorTimingGate(result, timing, {
-    existingPosition, investorScore, accumZone, marketHealth, cfg, compounder, dipBuy,
-  });
+  const finalize = (result) => {
+    let r = applyInvestorTimingGate(result, timing, {
+      existingPosition, investorScore, accumZone, marketHealth, cfg, compounder, dipBuy,
+    });
+    r = applyInvestor4hStageGate(r, tickerData, {
+      existingPosition, investorScore, accumZone, marketHealth, cfg, compounder, dipBuy,
+    });
+    return r;
+  };
   const mb = tickerData.monthly_bundle;
   const wStDir = tickerData.tf_tech?.W?.atr?.xs;
   // 2026-06-01 — Surface tf_tech.D / tf_tech.W at function scope so the

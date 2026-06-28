@@ -3759,13 +3759,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 3.4616
+        "sql_duration_ms": 6.2735
       },
-      "duration": 3.4616,
+      "duration": 6.2735,
       "changes": 0,
-      "last_row_id": 18406,
+      "last_row_id": 18531,
       "changed_db": false,
-      "size_after": 4273975296,
+      "size_after": 4274302976,
       "rows_read": 250,
       "rows_written": 0,
       "total_attempts": 1
