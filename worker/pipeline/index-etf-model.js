@@ -87,6 +87,13 @@ export function isStockPathBlockedOnIndex(path) {
   return STOCK_PATHS_BLOCKED_ON_INDEX.has(String(path || "").toLowerCase());
 }
 
+/** SPY/QQQ/IWM must not use stock triggers — even when index model is OFF. */
+export function shouldBlockStockPathOnIndexTicker(ticker, path, daCfg) {
+  const tk = String(ticker || "").trim().toUpperCase();
+  if (!tk || !parseIndexModelTickerSet(daCfg).has(tk)) return false;
+  return isStockPathBlockedOnIndex(path);
+}
+
 export function getIndexTickerProfile(ticker, daCfg) {
   const tk = String(ticker || "").trim().toUpperCase();
   const base = INDEX_TICKER_PROFILES[tk];
