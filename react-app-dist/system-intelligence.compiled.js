@@ -450,6 +450,311 @@ function EngineTab({
     className: `si-trade-row__pnl ${t.pnl >= 0 ? "si-trade-row__pnl--up" : "si-trade-row__pnl--dn"}`
   }, fmtMoneyDelta(t.pnl)))))));
 }
+const ENGINE_FLOW_TRADER = [{
+  id: "setup",
+  title: "Setup",
+  subtitle: "5m scoring tick · kanban setup / in_review",
+  signals: [{
+    name: "Rank (0–100)",
+    desc: "Composite edge; min-rank gates per path"
+  }, {
+    name: "Focus conviction",
+    desc: "Tier A/B/C quality from TA stack"
+  }, {
+    name: "Regime",
+    desc: "HTF/LTF bull/bear/pullback state"
+  }, {
+    name: "Phase %",
+    desc: "Saty cycle position for entry/exit timing"
+  }, {
+    name: "Squeeze release",
+    desc: "30m/1h expansion after compression"
+  }, {
+    name: "EMA / Ripster clouds",
+    desc: "Pullback depth, structure hold"
+  }]
+}, {
+  id: "entry",
+  title: "Entry",
+  subtitle: "tt_core path + admission matrix + SL/TP ladder",
+  signals: [{
+    name: "Entry path",
+    desc: "gap_reversal → n_test → range → ATH → momentum → pullback"
+  }, {
+    name: "Admission matrix",
+    desc: "Blocks toxic path × regime × grade combos"
+  }, {
+    name: "Calibration guards",
+    desc: "ATH confirm, adverse phase, churn, liquidity cap"
+  }, {
+    name: "AI CIO",
+    desc: "Optional entry review gate"
+  }, {
+    name: "Size + SL/TP",
+    desc: "ATR-based stop; trim 33% / exit 67% / runner"
+  }]
+}, {
+  id: "manage",
+  title: "Manage",
+  subtitle: "Kanban: just_entered → defend → trim",
+  signals: [{
+    name: "Defend",
+    desc: "Adverse move, bias flip, bleeder shield hold"
+  }, {
+    name: "Trim",
+    desc: "RSI extreme, PDZ, phase fuel, Ripster partial"
+  }, {
+    name: "Trend hold",
+    desc: "Suppress soft exits when HTF intact"
+  }, {
+    name: "MFE ratchet",
+    desc: "Unsuppressible profit floor"
+  }, {
+    name: "Phase leave",
+    desc: "Peak decline → trim or defer to defend"
+  }]
+}, {
+  id: "exit",
+  title: "Exit",
+  subtitle: "SL / TP / phase / doctrine → decision_record",
+  signals: [{
+    name: "Hard SL",
+    desc: "sl_breached + max-loss fuse + sl-hard-exit"
+  }, {
+    name: "Profit take",
+    desc: "TP tiers, RSI fuse, MFE proportional trail"
+  }, {
+    name: "Structural",
+    desc: "4H ST flip, cloud break, regime reversal"
+  }, {
+    name: "Event / time",
+    desc: "Pre-earnings de-risk, max hold cap"
+  }, {
+    name: "Provenance",
+    desc: "decision_record with config_hash + git SHA"
+  }]
+}];
+const ENGINE_FLOW_INVESTOR = [{
+  id: "setup",
+  title: "Setup",
+  subtitle: "Hourly score · stage classification",
+  signals: [{
+    name: "Investor score",
+    desc: "Weekly/monthly structure + RS vs SPY"
+  }, {
+    name: "Stage",
+    desc: "accumulate / watch / core_hold / reduce / exited"
+  }, {
+    name: "Accumulation zone",
+    desc: "Mean-reversion or momentum-runner dip"
+  }, {
+    name: "Market health",
+    desc: "Skip new init when health < 25"
+  }, {
+    name: "Timing overlay",
+    desc: "Blocks TOP accumulate unless compounder dip"
+  }]
+}, {
+  id: "entry",
+  title: "Entry",
+  subtitle: "Auto-rebalance BUY · no tt_* paths",
+  signals: [{
+    name: "Auto-init",
+    desc: "accumulate or watch stage → open lot"
+  }, {
+    name: "Sizing",
+    desc: "5% base · 7% strong · 2% watch starter"
+  }, {
+    name: "Caps",
+    desc: "20 positions · 3 new/day · 8% max alloc"
+  }, {
+    name: "DCA schedule",
+    desc: "Optional tranches on new accumulate"
+  }]
+}, {
+  id: "manage",
+  title: "Manage",
+  subtitle: "Stage downgrade · trim · DCA",
+  signals: [{
+    name: "Reduce trim",
+    desc: "30% after 2-session confirm"
+  }, {
+    name: "Structural reduce",
+    desc: "Monthly/weekly ST bearish — no CIO defer"
+  }, {
+    name: "Exhaustion",
+    desc: "≥2 warnings → stop adds"
+  }, {
+    name: "DCA tranches",
+    desc: "Monthly 2% with RVOL gates"
+  }]
+}, {
+  id: "exit",
+  title: "Exit",
+  subtitle: "Invalidation · ST breaks · full close",
+  signals: [{
+    name: "Primary invalidation",
+    desc: "Sticky price floor breach"
+  }, {
+    name: "ST breaks",
+    desc: "Monthly or weekly supertrend flip"
+  }, {
+    name: "Score collapse",
+    desc: "Score < 30 on owned name"
+  }, {
+    name: "Regime exit",
+    desc: "CHOPPY + PnL < −8%"
+  }]
+}];
+const FLOW_LIVE_KEYS = [{
+  key: "deep_audit_ath_breakout_confirm_gate_enabled",
+  label: "ATH confirm gate"
+}, {
+  key: "deep_audit_range_reversal_block_adverse_phase",
+  label: "Range-reversal adverse phase"
+}, {
+  key: "deep_audit_repeat_churn_guard_enabled",
+  label: "Repeat churn guard"
+}, {
+  key: "deep_audit_block_regime",
+  label: "Block regime"
+}, {
+  key: "deep_audit_conviction_fusion_enabled",
+  label: "Conviction fusion"
+}, {
+  key: "deep_audit_bleeder_shield_enabled",
+  label: "Bleeder shield"
+}];
+function EngineFlowTab() {
+  const [engine, setEngine] = React.useState("trader");
+  const [activeStage, setActiveStage] = React.useState("setup");
+  const [liveCfg, setLiveCfg] = React.useState(null);
+  const stages = engine === "trader" ? ENGINE_FLOW_TRADER : ENGINE_FLOW_INVESTOR;
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/timed/admin/model-config?prefix=deep_audit_`, {
+      credentials: "include"
+    }).then(r => r.json()).then(d => {
+      if (!cancelled && d.ok) setLiveCfg(d.config || {});
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const detail = stages.find(s => s.id === activeStage) || stages[0];
+  return React.createElement("div", {
+    className: "si-flow"
+  }, React.createElement("div", {
+    className: "si-flow__toolbar"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Engine architecture"), React.createElement("div", {
+    className: "si-card__title"
+  }, "Setup \u2192 Entry \u2192 Manage \u2192 Exit"), React.createElement("div", {
+    className: "si-card__subtitle",
+    style: {
+      marginTop: 4
+    }
+  }, "Interactive flow for Active Trader and Investor. See repo doc ", React.createElement("code", {
+    style: {
+      fontSize: "11px"
+    }
+  }, "docs/engine-flow-one-pager.md"), ".")), React.createElement("div", {
+    className: "si-subtabs"
+  }, React.createElement("button", {
+    type: "button",
+    className: `si-subtabs__item ${engine === "trader" ? "si-subtabs__item--active" : ""}`,
+    onClick: () => {
+      setEngine("trader");
+      setActiveStage("setup");
+    }
+  }, "Active Trader"), React.createElement("button", {
+    type: "button",
+    className: `si-subtabs__item ${engine === "investor" ? "si-subtabs__item--active" : ""}`,
+    onClick: () => {
+      setEngine("investor");
+      setActiveStage("setup");
+    }
+  }, "Investor"))), React.createElement("div", {
+    className: "si-flow__pipeline"
+  }, stages.map((st, i) => React.createElement("div", {
+    key: st.id,
+    style: {
+      position: "relative"
+    }
+  }, React.createElement("div", {
+    className: `si-flow__stage ${activeStage === st.id ? "si-flow__stage--active" : ""}`,
+    onClick: () => setActiveStage(st.id),
+    role: "button",
+    tabIndex: 0,
+    onKeyDown: e => {
+      if (e.key === "Enter" || e.key === " ") setActiveStage(st.id);
+    }
+  }, React.createElement("div", {
+    className: "si-flow__stage-num"
+  }, i + 1), React.createElement("div", {
+    className: "si-flow__stage-title"
+  }, st.title), React.createElement("div", {
+    className: "si-flow__stage-sub"
+  }, st.subtitle)), i < stages.length - 1 && React.createElement("div", {
+    className: "si-flow__connector",
+    "aria-hidden": "true"
+  })))), React.createElement("div", {
+    className: "si-card si-flow__detail"
+  }, React.createElement("div", {
+    className: "si-card__head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, engine === "trader" ? "Active Trader" : "Investor", " \xB7 ", detail.title), React.createElement("div", {
+    className: "si-card__title"
+  }, "Key signals & actions"))), React.createElement("div", {
+    className: "si-flow__signals"
+  }, detail.signals.map(sig => React.createElement("div", {
+    key: sig.name,
+    className: "si-flow__signal"
+  }, React.createElement("div", {
+    className: "si-flow__signal-name"
+  }, sig.name), React.createElement("div", {
+    className: "si-flow__signal-desc"
+  }, sig.desc)))), engine === "trader" && liveCfg && React.createElement("div", {
+    className: "si-flow__live"
+  }, React.createElement("span", {
+    style: {
+      fontSize: "10px",
+      fontWeight: 700,
+      letterSpacing: "0.1em",
+      textTransform: "uppercase",
+      color: "var(--ds-text-muted)",
+      marginRight: 4
+    }
+  }, "Live flags"), FLOW_LIVE_KEYS.map(({
+    key,
+    label
+  }) => {
+    const raw = liveCfg[key];
+    const on = raw === "true" || raw === true || key === "deep_audit_block_regime" && raw && raw !== '""';
+    return React.createElement("span", {
+      key: key,
+      className: `si-flow__pill ${on ? "si-flow__pill--on" : "si-flow__pill--off"}`
+    }, on ? "ON" : "OFF", " \xB7 ", label);
+  }))), React.createElement("div", {
+    className: "si-card",
+    style: {
+      borderLeft: "3px solid var(--ds-accent)"
+    }
+  }, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "July readiness"), React.createElement("div", {
+    className: "si-card__subtitle",
+    style: {
+      lineHeight: 1.5
+    }
+  }, "July 2025 was 82% HTF_BULL \u2014 long-biased. Current model is more defensive (ATH confirm, adverse phase gate, tighter SL). See repo doc ", React.createElement("code", {
+    style: {
+      fontSize: "11px"
+    }
+  }, "docs/july-readiness-review-2026-06.md"), " before replay.")));
+}
 function DashboardTab({
   dashboard
 }) {
@@ -7604,6 +7909,9 @@ function App() {
     id: "engine",
     label: "Engine"
   }, {
+    id: "flow",
+    label: "How It Works"
+  }, {
     id: "analysis",
     label: "Analysis"
   }, ...(isAdmin ? [{
@@ -7692,7 +8000,7 @@ function App() {
     className: "mt-4"
   }, React.createElement(DashboardTab, {
     dashboard: dashboard
-  })))), tab === "analysis" && React.createElement("div", {
+  })))), tab === "flow" && React.createElement(EngineFlowTab, null), tab === "analysis" && React.createElement("div", {
     className: "space-y-5"
   }, React.createElement(AnalysisAutomationBar, {
     isAdmin: isAdmin,
@@ -7748,6 +8056,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293

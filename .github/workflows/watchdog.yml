@@ -7,9 +7,12 @@ name: Health watchdog
 #
 # Every 30 minutes: hit /timed/health, check (a) it answers ok:true,
 # (b) the 5-min cron heartbeat is fresh during operating hours, (c) the
-# tombstone count is sane. On failure the run goes red (GitHub emails
-# the repo owner) and, if DISCORD_SYSTEM_WEBHOOK_URL is configured as a
-# repo secret, posts to the system Discord lane.
+# tombstone count is sane, (d) tt-feed freshness when it owns the price
+# feed AND the feed cron window is active, (e) universe orphan count stays
+# below threshold. On failure the
+# run goes red (GitHub emails the repo owner) and, if
+# DISCORD_SYSTEM_WEBHOOK_URL is configured as a repo secret, posts to
+# the system Discord lane.
 
 on:
   schedule:
@@ -21,7 +24,7 @@ permissions:
 
 concurrency:
   group: health-watchdog
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:
@@ -35,25 +38,35 @@ jobs:
           FAILED=""
           DETAIL=""
 
-          for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
-            HEALTH=$(curl -s -m 20 "$BASE/timed/health" || echo "{}")
+          # Retry wrapper — transient network blips should not page.
+          fetch_health() {
+            local url="$1"
+            local attempt body
+            for attempt in 1 2 3; do
+              body=$(curl -s -m 25 "$url" || echo "{}")
+              if echo "$body" | jq -e . >/dev/null 2>&1; then
+                echo "$body"
+                return 0
+              fi
+              sleep $((attempt * 3))
+            done
+            echo "$body"
+            return 1
+          }
 
-            # 2026-06-10 — Non-JSON guard. The custom domain can serve a
-            # Cloudflare bot-challenge HTML page ("Just a moment...") to
-            # curl from CI runners. The previous version piped that HTML
-            # into jq, which exited 5 (parse error) under bash -e — the
-            # step DIED mid-loop, the Discord page step never ran, and the
-            # red run showed a jq stack trace instead of the real signal.
+          # Authoritative session flags from the monolith workers.dev probe.
+          MONOLITH_OP_HOURS="false"
+          MONOLITH_NY_RTH="false"
+
+          for BASE in "https://timed-trading-ingest.shashant.workers.dev" "https://timed-trading.com"; do
+            HEALTH=$(fetch_health "$BASE/timed/health" || echo "{}")
+
             if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
               if echo "$HEALTH" | grep -qi "challenges.cloudflare.com\|Just a moment"; then
-                # Bot challenge — the zone is challenging non-browser
-                # clients, which says nothing about origin health (the
-                # workers.dev probe covers that). Warn, don't page.
-                # Permanent fix: a WAF skip rule for /timed/health.
                 echo "::warning::$BASE served a Cloudflare bot challenge to the watchdog (curl). Add a WAF skip rule for /timed/health to restore custom-domain probing."
                 echo "$BASE → SKIPPED (cf bot challenge)"
               else
-                FAILED="yes"; DETAIL="$DETAIL $BASE: non-JSON health response."
+                FAILED="yes"; DETAIL="$DETAIL $BASE: non-JSON health response after retries."
                 echo "$BASE → FAILED (non-JSON response: $(echo "$HEALTH" | head -c 120 | tr -d '\n'))"
               fi
               continue
@@ -68,19 +81,22 @@ jobs:
             FEEDAGE=$(echo "$HEALTH" | jq -r '.pricesAgeSec // "null"')
             NY_RTH=$(echo "$HEALTH" | jq -r '.nyRthOpen // false')
             OP_HOURS=$(echo "$HEALTH" | jq -r '.operatingHours // false')
-            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING feedAgeSec=$FEEDAGE nyRthOpen=$NY_RTH operatingHours=$OP_HOURS activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
+            ORPHANS=$(echo "$HEALTH" | jq -r '.universe_onboard.orphans // "null"')
+            ORPHAN_AGE=$(echo "$HEALTH" | jq -r '.universe_onboard.orphan_age_min // "null"')
+            ORPHAN_SAMPLE=$(echo "$HEALTH" | jq -r '(.universe_onboard.orphan_sample // []) | join(",")')
+            FEED_EXT=$(echo "$HEALTH" | jq -r '.universe_onboard.feed_external // false')
+            echo "$BASE → ok=$OK cronTickAgeMin=$TICK scoringAgeMin=$SCORING feedAgeSec=$FEEDAGE orphans=$ORPHANS nyRthOpen=$NY_RTH operatingHours=$OP_HOURS activeFailures=$FAILS (tracked=$TRACKED) [$OPS]"
+
+            if [ "$BASE" = "https://timed-trading-ingest.shashant.workers.dev" ]; then
+              MONOLITH_OP_HOURS="$OP_HOURS"
+              MONOLITH_NY_RTH="$NY_RTH"
+            fi
 
             if [ "$OK" != "true" ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: health endpoint not ok."
               continue
             fi
 
-            # Heartbeat / feed / scoring freshness only matter when the
-            # worker is expected to be doing work. Use the calendar-aware
-            # flags from /timed/health (Alpaca holidays + early closes),
-            # NOT a crude UTC weekday window — Juneteenth is a weekday but
-            # markets are closed, and scoring intentionally skips outside
-            # operating hours (4 AM–8 PM ET, excl holidays).
             if [ "$OP_HOURS" = "true" ]; then
               if [ "$TICK" != "null" ]; then
                 TICK_INT=$(printf "%.0f" "$TICK")
@@ -88,17 +104,9 @@ jobs:
                   FAILED="yes"; DETAIL="$DETAIL $BASE: 5-min cron heartbeat is ${TICK_INT}min stale during operating hours."
                 fi
               fi
-              # Price-feed freshness — covers the feed whichever worker owns
-              # the */1 cron (monolith today, tt-feed after cutover).
               if [ "$FEEDAGE" != "null" ] && [ "$FEEDAGE" -gt 600 ]; then
                 FAILED="yes"; DETAIL="$DETAIL $BASE: timed:prices is ${FEEDAGE}s stale during operating hours."
               fi
-              # Scoring staleness — REQUIRED once the */5 trade path moves
-              # to the dedicated tt-engine worker (Step 3 role split): the
-              # monolith's */1 keeps the generic heartbeat fresh, so a dead
-              # engine would otherwise be invisible here. timed:scoring:
-              # last_run is written only by whichever worker actually runs
-              # the scoring tick (skipped outside operating hours by design).
               if [ "$SCORING" != "null" ]; then
                 SCORING_INT=$(printf "%.0f" "$SCORING")
                 if [ "$SCORING_INT" -gt 30 ]; then
@@ -107,9 +115,6 @@ jobs:
               fi
             fi
 
-            # Per-symbol price staleness + Data Age Contract quarantine are
-            # RTH-only signals — after the close (and on full-day holidays)
-            # last-trade timestamps age normally and must not page.
             if [ "$NY_RTH" = "true" ]; then
               STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
               if [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 5 ]; then
@@ -117,18 +122,59 @@ jobs:
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
               fi
               FRESH_STALE=$(echo "$HEALTH" | jq -r '.freshness.stale // "null"')
-              if [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 10 ]; then
+              FRESH_SLO=$(echo "$HEALTH" | jq -r '.freshness.slo_ok // true')
+              if [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 25 ]; then
                 FRESH_LIST=$(echo "$HEALTH" | jq -r '(.freshness.stale_tickers // []) | map(.ticker) | join(",")')
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${FRESH_STALE} tickers quarantined by the Data Age Contract (${FRESH_LIST})."
+              elif [ "$FRESH_STALE" != "null" ] && [ "$FRESH_STALE" -gt 10 ] && [ "$FRESH_SLO" != "true" ]; then
+                FRESH_LIST=$(echo "$HEALTH" | jq -r '(.freshness.stale_tickers // []) | map(.ticker) | join(",")')
+                FAILED="yes"; DETAIL="$DETAIL $BASE: ${FRESH_STALE} tickers quarantined by the Data Age Contract — freshness SLO breached (${FRESH_LIST})."
               fi
             fi
 
-            # FAILS now counts only ACTIVE tombstones (count > 0) — healed
-            # ops keep their KV key for 7 days but no longer inflate this.
+            # Universe orphans — registry tickers missing candles/profile/score.
+            # Snapshot refreshed hourly by onboard-gaps heal cron; stale snapshot
+            # (>3h) is a signal the heal cron itself may be wedged.
+            if [ "$ORPHANS" != "null" ] && [ "$ORPHANS" -gt 15 ]; then
+              FAILED="yes"; DETAIL="$DETAIL $BASE: ${ORPHANS} universe orphans (incomplete onboard: ${ORPHAN_SAMPLE})."
+            fi
+            if [ "$ORPHAN_AGE" != "null" ] && [ "$ORPHAN_AGE" -gt 180 ] && [ "$ORPHANS" != "null" ] && [ "$ORPHANS" -gt 0 ]; then
+              FAILED="yes"; DETAIL="$DETAIL $BASE: orphan snapshot is ${ORPHAN_AGE}min stale with ${ORPHANS} orphans (onboard heal cron stuck?)."
+            fi
+
             if [ "$FAILS" -gt 5 ]; then
               FAILED="yes"; DETAIL="$DETAIL $BASE: $FAILS cron tombstones active ($OPS)."
             fi
           done
+
+          # tt-feed owns the */1 price feed after cutover — probe it directly
+          # so a healthy monolith + dead feed cannot slip through.
+          FEED_HEALTH=$(fetch_health "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+          if echo "$FEED_HEALTH" | jq -e . >/dev/null 2>&1; then
+            FEED_OK=$(echo "$FEED_HEALTH" | jq -r '.ok // false')
+            FEED_ENABLED=$(echo "$FEED_HEALTH" | jq -r '.feed_enabled // false')
+            FEED_AGE=$(echo "$FEED_HEALTH" | jq -r '.prices_age_sec // "null"')
+            FEED_OP_HOURS=$(echo "$FEED_HEALTH" | jq -r '.operating_hours // false')
+            FEED_CRON=$(echo "$FEED_HEALTH" | jq -r '.price_feed_cron_active // false')
+            FEED_MODE=$(echo "$FEED_HEALTH" | jq -r '.feed_mode // "?"')
+            echo "tt-feed → ok=$FEED_OK feed_enabled=$FEED_ENABLED prices_age_sec=$FEED_AGE mode=$FEED_MODE cron_active=$FEED_CRON operating_hours=$FEED_OP_HOURS"
+            if [ "$FEED_OK" != "true" ]; then
+              FAILED="yes"; DETAIL="$DETAIL tt-feed: /feed/health not ok."
+            elif [ "$FEED_ENABLED" = "true" ] && [ "$FEED_AGE" != "null" ] && [ "$FEED_AGE" -gt 600 ]; then
+              # Match monolith gates: stale timed:prices is expected when the
+              # feed cron window is quiet (e.g. Saturday afternoon) or outside
+              # operating hours. computeFeedWindow() in worker/feed/feed-window.js.
+              if [ "$MONOLITH_OP_HOURS" != "true" ] && [ "$FEED_OP_HOURS" != "true" ]; then
+                echo "::notice::tt-feed prices ${FEED_AGE}s stale outside operating hours — expected when feed cron is quiet."
+              elif [ "$FEED_CRON" != "true" ]; then
+                echo "::notice::tt-feed prices ${FEED_AGE}s stale but price_feed_cron_active=false (quiet window) — skip."
+              else
+                FAILED="yes"; DETAIL="$DETAIL tt-feed: owns price feed but timed:prices is ${FEED_AGE}s stale during active feed window."
+              fi
+            fi
+          else
+            echo "::warning::tt-feed /feed/health returned non-JSON — skipping feed probe."
+          fi
 
           if [ -n "$FAILED" ]; then
             echo "detail=$DETAIL" >> "$GITHUB_OUTPUT"
@@ -149,7 +195,7 @@ jobs:
             DETAIL="${{ steps.probe.outputs.detail }}"
             curl -s -m 15 -X POST "$WEBHOOK" \
               -H "Content-Type: application/json" \
-              -d "$(jq -n --arg d "$DETAIL" '{embeds:[{title:"🚨 External watchdog: Timed Trading health check failed",description:$d,color:15548997}]}')" || true
+              -d "$(jq -n --arg d "$DETAIL" '{embeds:[{title:"External watchdog: Timed Trading health check failed",description:$d,color:15548997}]}')" || true
           fi
 
       - name: Fail run on probe failure

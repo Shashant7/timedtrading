@@ -234,6 +234,10 @@ export function buildTradeContext(tickerData, asOfTs = null) {
     progression,
     eventRisk,
 
+    earningsClusterWindows: Array.isArray(env._earningsClusterWindows)
+      ? env._earningsClusterWindows
+      : [],
+
     fvg: { D: d.fvg_D || {} },
     liq: { D: d.liq_D || {}, h4: d.liq_4h || {} },
 

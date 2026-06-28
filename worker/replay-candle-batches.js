@@ -11,6 +11,7 @@ import {
   serializeSequenceTrailSnapshot,
   sequenceTrailSnapshotEnabled,
 } from "./foundation/sequence-snapshot.js";
+import { buildEarningsClusterWindowsFromEvents, JULY_2025_EARNINGS_CLUSTER_FALLBACK } from "./pipeline/earnings-cluster-gate.js";
 
 // ─────────────────────────────────────────────────────────────────────────
 // V13 Focus Tier — helpers
@@ -139,6 +140,28 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
   let batchTickers = initialBatchTickers;
   let hasMore = initialHasMore;
 
+  if (!Array.isArray(replayEnv._earningsClusterWindows)) {
+    const _events = replayCtx?.cioMemoryCache?.marketEvents
+      || replayEnv?.cioMemoryCache?.marketEvents
+      || [];
+    replayEnv._earningsClusterWindows = buildEarningsClusterWindowsFromEvents(_events, {
+      minTickers: Number(replayEnv?._deepAuditConfig?.deep_audit_earnings_cluster_min_tickers) || 3,
+      windowDays: 3,
+    });
+    // Preprod often has sparse market_events — merge July backdrop clusters so
+    // rank-100 TSLA/SWK entries are blocked during earnings windows.
+    const _seen = new Set(
+      (replayEnv._earningsClusterWindows || []).map((c) => `${c.anchor}:${(c.tickers || []).join(",")}`),
+    );
+    for (const fb of JULY_2025_EARNINGS_CLUSTER_FALLBACK) {
+      const key = `${fb.anchor}:${(fb.tickers || []).join(",")}`;
+      if (!_seen.has(key)) {
+        replayEnv._earningsClusterWindows.push(fb);
+        _seen.add(key);
+      }
+    }
+  }
+
   let dayScored = 0;
   let dayTradesCreated = 0;
   let daySkipped = 0;
@@ -224,7 +247,11 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
               else hi = mid - 1;
             }
             const endIdx = hi + 1;
-            if (endIdx >= 50) {
+            // M needs fewer bars for investor monthly_bundle (Jul 2025 has ~13
+            // unique months in D1; the old 50-bar gate left monthly_bundle null
+            // and investor-replay opened 0). computeTfBundle accepts >=15.
+            const minBarsForTf = tf === "M" ? 15 : 50;
+            if (endIdx >= minBarsForTf) {
               const cacheKey = `${ticker}:${tf}`;
               const cached = bundleCache[cacheKey];
               if (cached && cached.endIdx === endIdx) {
@@ -472,6 +499,7 @@ export async function executeCandleReplayBatches(args = {}, deps = {}) {
                  Without these, the entry-gate consult silently no-ops. */
               _loop1AdvisoryByCombo: replayEnv._loop1AdvisoryByCombo || {},
               _loop2Pause: replayEnv._loop2Pause || { paused: false },
+              _earningsClusterWindows: replayEnv._earningsClusterWindows || [],
               /* Phase C — Stage 1 (2026-05-05) — Cluster throttle. */
               _clusterRecentEntries,
             };

@@ -1,6 +1,11 @@
 // Sector Mapping — 230-ticker active universe
 // Maps tickers to their GICS sectors
 
+import {
+  getEffectiveSectorRating,
+  getStrategyOverrideCache,
+} from "./cro/strategy-overrides.js";
+
 const SECTOR_MAP = {
   // Consumer Discretionary
   'AMZN': 'Consumer Discretionary',
@@ -249,6 +254,8 @@ const SECTOR_MAP = {
   'QQQ': 'Index ETF',
   'IWM': 'Index ETF',
   'DIA': 'Index ETF',
+  // CBOE VIX — canonical UI key; timed:latest + prices mirror VX1! (see futures-proxy.js)
+  'VIX': 'Index ETF',
   'SOXL': 'Index ETF',
   'TNA': 'Index ETF',
   'SPHB': 'Index ETF',
@@ -268,12 +275,17 @@ const SECTOR_MAP = {
   'XLV': 'Sector ETF',
   'XLY': 'Sector ETF',
   'XHB': 'Sector ETF',
+  // 2026-06-24 — VanEck / iShares semiconductor sector ETFs (admin add SMH).
+  'SMH': 'Sector ETF',
+  'SOXX': 'Sector ETF',
 
   // Thematic ETFs (biotech, lithium, inflation, granny shots etc.)
   'GRNJ': 'Thematic ETF',
   'GRNI': 'Thematic ETF',
   'SPCX': 'Thematic ETF', // 2026-06-12 — SPAC & New Issue ETF; thin history, live quote OK
   'IBB':  'Thematic ETF',
+  'IGV':  'Thematic ETF', // iShares Expanded Tech-Software — IGV/SMH RS pair
+  'KWEB': 'Thematic ETF',
   'INFL': 'Thematic ETF',
   'LIT':  'Thematic ETF',
 
@@ -319,7 +331,7 @@ function getSector(ticker) {
 }
 
 function getSectorRating(sector) {
-  return SECTOR_RATINGS[sector] || { rating: 'neutral', boost: 0 };
+  return getEffectiveSectorRating(sector, SECTOR_RATINGS, getStrategyOverrideCache());
 }
 
 function getTickersInSector(sector) {

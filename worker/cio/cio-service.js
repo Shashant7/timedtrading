@@ -12,6 +12,10 @@ import {
 } from "./cio-prompts.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 
+// Right Rail + email render full reasoning; Discord chunks at 1024. Persist
+// enough for the rail (legacy rows were capped at 300 and read truncated).
+const CIO_REASONING_MAX_CHARS = 4000;
+
 // ── Model Resolver ────────────────────────────────────────────────────────
 // 2026-05-28 — Make the CIO model operator-configurable. Three call sites:
 //   ENTRY (text only)            → resolveCioModel(env, "entry", false)
@@ -861,7 +865,7 @@ export async function evaluateWithAICIO(env, proposal, memory, chartSvg = null, 
     return {
       decision,
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
-      reasoning: String(parsed.reasoning || "").slice(0, 300),
+      reasoning: String(parsed.reasoning || "").slice(0, CIO_REASONING_MAX_CHARS),
       adjustments: decision === "ADJUST" ? {
         sl: Number.isFinite(Number(parsed.adjustments?.sl)) ? Number(parsed.adjustments.sl) : null,
         tp: Number.isFinite(Number(parsed.adjustments?.tp)) ? Number(parsed.adjustments.tp) : null,
@@ -959,7 +963,7 @@ export async function evaluateCIOLifecycle(env, proposal, memory, chartSvg = nul
     return {
       decision,
       confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0.5)),
-      reasoning: String(parsed.reasoning || "").slice(0, 300),
+      reasoning: String(parsed.reasoning || "").slice(0, CIO_REASONING_MAX_CHARS),
       override: decision === "OVERRIDE" ? {
         trim_pct: Number.isFinite(Number(parsed.override?.trim_pct)) ? Math.max(0, Math.min(1, Number(parsed.override.trim_pct))) : null,
         trail_stop_pct: Number.isFinite(Number(parsed.override?.trail_stop_pct)) ? Number(parsed.override.trail_stop_pct) : null,

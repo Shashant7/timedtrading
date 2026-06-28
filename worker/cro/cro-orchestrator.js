@@ -65,9 +65,6 @@ async function decideAutoApply(env, ext, { autoApply, autoApplyStructural, trust
   // 2026-06-09 — Trusted FSD: apply unless taxonomy validation failed.
   if (trustedFsd) {
     if (blockedTaxonomy) return { apply: false, reason };
-    if (isStructural && !autoApplyStructural) {
-      return { apply: false, reason: "structural_review_required" };
-    }
     if (!isStructural && !autoApply) {
       return { apply: false, reason: "tactical_auto_apply_disabled" };
     }

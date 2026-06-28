@@ -10,37 +10,40 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1782181309533" />
-    <script defer src="/vendor/react.production.min.js?v=1782181309533"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1782181309533"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1782181309533" />
-<script defer src="/vendor/marked.min.js?v=1782181309533"></script>
-    <script defer src="auth-gate.js?v=1782181309533"></script>
-    <script defer src="tt-fetch-cache.js?v=1782181309533"></script>
-    <script defer src="tt-live-data.js?v=1782181309533"></script>
-    <script src="tt-bottom-nav.js?v=1782181309533" defer></script>
-    <script src="tt-nav-extras.js?v=1782181309533" defer></script>
-    <script src="tt-global-search.js?v=1782181309533" defer></script>
-    <script src="tt-rail-bridge.js?v=1782181309533" defer></script>
-    <script src="tt-activity-strip.js?v=1782181309533" defer></script>
-    <script defer src="shared-price-utils.js?v=1782181309533"></script>
-    <script defer src="shared-lane-card.js?v=1782181309533"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1782679868148" />
+    <script defer src="/vendor/react.production.min.js?v=1782679868148"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1782679868148"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1782679868148" />
+<script defer src="/vendor/marked.min.js?v=1782679868148"></script>
+    <script defer src="auth-gate.js?v=1782679868148"></script>
+    <script defer src="tt-fetch-cache.js?v=1782679868148"></script>
+    <script defer src="tt-live-data.js?v=1782679868148"></script>
+    <script src="tt-bottom-nav.js?v=1782679868148" defer></script>
+    <script defer src="investor-nav-badge.js?v=1782679868148"></script>
+    <script src="tt-nav-extras.js?v=1782679868148" defer></script>
+    <script src="tt-global-search.js?v=1782679868148" defer></script>
+    <script src="tt-rail-bridge.js?v=1782679868148" defer></script>
+    <script src="tt-activity-strip.js?v=1782679868148" defer></script>
+    <script defer src="shared-price-utils.js?v=1782679868148"></script>
+    <script defer src="tt-sparkline-config.js?v=1782679868148"></script>
+    <script defer src="tt-pattern-detect.js?v=1782679868148"></script>
+    <script defer src="shared-lane-card.js?v=1782679868148"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
-    <script defer src="ds-components.js?v=1782181309533"></script>
+    <script defer src="ds-components.js?v=1782679868148"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
-    <script defer src="tt-bubble-search-utils.js?v=1782181309533"></script>
-    <script defer src="shared-bubble-chart.compiled.js?v=1782181309533"></script>
+    <script defer src="tt-bubble-search-utils.js?v=1782679868148"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1782679868148"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1782181309533"></script>
-    <script defer src="shared-rail-helpers.js?v=1782181309533"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1782181309533"></script>
-    <script defer src="ticker-spider-chart.js?v=1782181309533"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1782181309533"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1782679868148"></script>
+    <script defer src="shared-rail-helpers.js?v=1782679868148"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1782679868148"></script>
+    <script defer src="ticker-spider-chart.js?v=1782679868148"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1782679868148"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -84,6 +87,85 @@
       .tt-opp-meta { display: flex; flex-wrap: wrap; gap: 8px; font-family: var(--tt-font-mono); font-size: 10px; color: var(--tt-text-muted); }
       .tt-opp-why { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--tt-text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
       .tt-opp-dip { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--tt-up-soft); text-transform: uppercase; }
+      .tt-opp-zone { margin-top: 8px; }
+      .tt-opp-zone-labels {
+        display: flex;
+        justify-content: space-between;
+        gap: 4px;
+        font-size: 8.5px;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--tt-text-faint);
+        margin-bottom: 4px;
+      }
+      .tt-opp-zone-labels span:nth-child(1) { color: #fca5a5; }
+      .tt-opp-zone-labels span:nth-child(2) { color: #6ee7b7; }
+      .tt-opp-zone-labels span:nth-child(3) { color: #fcd34d; }
+      .tt-opp-zone-track {
+        position: relative;
+        height: 8px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: var(--tt-bg-elev);
+        border: 1px solid var(--tt-border);
+      }
+      .tt-opp-zone-seg {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+      }
+      .tt-opp-zone-seg--inv { background: rgba(248,113,113,0.72); }
+      .tt-opp-zone-seg--pb { background: rgba(56,242,161,0.62); }
+      .tt-opp-zone-seg--tgt { background: rgba(245,194,92,0.68); }
+      .tt-opp-zone-marker {
+        position: absolute;
+        top: -3px;
+        width: 3px;
+        height: 14px;
+        border-radius: 2px;
+        background: var(--tt-text);
+        box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+        transform: translateX(-50%);
+        z-index: 2;
+      }
+      .tt-opp-zone-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+        margin-top: 6px;
+        font-family: var(--tt-font-mono);
+        font-size: 9px;
+        color: var(--tt-text-dim);
+      }
+      .tt-opp-zone-prob { color: var(--tt-accent); font-weight: 700; }
+      .tt-pattern-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        border: 1px solid var(--tt-border);
+        background: var(--tt-bg-elev);
+        color: var(--tt-text-muted);
+        white-space: nowrap;
+      }
+      .tt-pattern-chip--bull { border-color: rgba(56,242,161,0.35); color: var(--tt-up-soft); }
+      .tt-pattern-chip--bear { border-color: rgba(248,113,113,0.35); color: var(--tt-dn-soft); }
+      .tt-primed-badge {
+        font-size: 8.5px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--tt-accent);
+        border: 1px solid rgba(245,194,92,0.45);
+        border-radius: 999px;
+        padding: 1px 6px;
+        background: rgba(245,194,92,0.1);
+      }
       :root {
         /* 2026-06-10 — VERDA MIGRATION (first page). The page-local token
            values are re-pointed at the Verda Finance palette (Ink / Bark /
@@ -157,36 +239,34 @@
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
-      /* Today hero — row 1: Daily Brief full width; row 2: Research Desk | PLM.
-         Prior layout squeezed Brief beside Desk and buried PLM in a cramped
-         full-width scroll with 300px cap + 2-col inner grid. */
+      /* Today hero — Open Positions | Research Desk. */
       .today-hero {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-        grid-template-rows: auto auto;
+        grid-template-rows: auto;
         gap: 16px;
         margin-bottom: 16px;
         align-items: stretch;
       }
       .today-hero-brief-col {
-        grid-column: 1 / -1;
+        grid-column: 1;
         grid-row: 1;
         min-width: 0;
         display: flex;
         flex-direction: column;
         gap: 14px;
       }
-      .today-hero-desk-col {
+      .today-hero-pos-col {
         grid-column: 1;
-        grid-row: 2;
+        grid-row: 1;
         min-width: 0;
-        min-height: 0;
         display: flex;
         flex-direction: column;
+        min-height: 0;
       }
-      .today-hero-levels-col {
+      .today-hero-desk-col {
         grid-column: 2;
-        grid-row: 2;
+        grid-row: 1;
         min-width: 0;
         min-height: 0;
         display: flex;
@@ -234,12 +314,15 @@
           grid-template-columns: 1fr !important;
           grid-template-rows: auto;
         }
+        .today-hero-pos-col,
         .today-hero-brief-col,
-        .today-hero-desk-col,
-        .today-hero-levels-col {
+        .today-hero-desk-col {
           grid-column: 1;
           grid-row: auto;
         }
+        /* Mobile stack: Research Desk first, Open Positions second */
+        .today-hero-desk-col { order: 1; }
+        .today-hero-pos-col { order: 2; }
       }
       .tt-sec-title {
         font-size: 11px;
@@ -680,6 +763,34 @@
       .heat-cell.lvl-strong  { border-color: rgba(34,197,94,0.40); }
       .heat-cell.lvl-mid     { border-color: rgba(245,194,92,0.30); }
       .heat-cell.lvl-weak    { border-color: rgba(244,63,94,0.40); }
+      .heat-cell__foot {
+        display: flex; align-items: center; justify-content: space-between; gap: 4px;
+        min-width: 0; margin-top: 2px;
+      }
+      .heat-cell__meta {
+        display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1;
+      }
+      .heat-cell__chip {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+        padding: 1px 4px; border-radius: 4px; line-height: 1.3;
+        background: rgba(255,255,255,0.06); color: var(--tt-text-dim);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52px;
+      }
+      .heat-cell__chip--stage { color: var(--tt-accent); background: rgba(245,194,92,0.12); }
+      .heat-cell__chip--rank { font-family: var(--tt-font-mono); color: var(--tt-up-soft); background: rgba(34,197,94,0.10); }
+      .heat-cell__score {
+        font-family: var(--tt-font-mono); font-size: 10px; font-weight: 700;
+        color: var(--tt-text-muted); flex-shrink: 0;
+      }
+      .heat-sort-btn {
+        padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600;
+        background: transparent; border: 1px solid var(--tt-border);
+        color: var(--tt-text-dim); cursor: pointer;
+      }
+      .heat-sort-btn.is-active {
+        background: rgba(245,194,92,0.12); border-color: rgba(245,194,92,0.35);
+        color: var(--tt-accent);
+      }
       /* ── Analysis header (unified controls for Bubble Map + Heat Map) ── */
       .analysis-controls {
         margin-bottom: 22px;
@@ -959,6 +1070,7 @@
         flex-direction: column;
         gap: 10px;
         max-height: 720px;
+        min-height: 0;
       }
       .vp-head {
         display: flex;
@@ -974,6 +1086,9 @@
         gap: 10px;
         overflow-y: auto;
         padding-right: 4px;
+        flex: 1 1 auto;
+        min-height: 0;
+        align-content: flex-start;
         scrollbar-width: thin;
         scrollbar-color: rgba(255,255,255,0.12) transparent;
       }
@@ -993,13 +1108,294 @@
          strip. With flex-shrink: 1 (default) every card collapsed to
          ~28px and clipped its content via .ds-tickercard {overflow:hidden}.
          Pin flex-shrink: 0 + a sane min-height so cards stay readable. */
-      .vp-list .ds-tickercard {
+      .vp-list .ds-tickercard.tt-lane-card {
         width: 100% !important;
         box-sizing: border-box;
         margin: 0;
         flex: 0 0 auto;
         min-height: 118px;
+        height: auto;
       }
+      /* Horizontal ticker lane — scroll strip above bubble map */
+      .vp-lane-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+      }
+      .vp-lane {
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+        overflow-x: auto;
+        padding: 0 0 6px;
+        scroll-snap-type: x proximity;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255,255,255,0.12) transparent;
+      }
+      .vp-lane::-webkit-scrollbar { height: 6px; }
+      .vp-lane::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
+      .vp-lane .ds-tickercard.tt-lane-card {
+        width: 280px !important;
+        flex: 0 0 280px;
+        scroll-snap-align: start;
+        min-height: 118px;
+        height: auto;
+      }
+      .tt-mp-panel { padding: 16px 18px; }
+      .tt-mp-divider {
+        height: 1px;
+        background: var(--tt-border, rgba(255,255,255,0.08));
+        margin: 12px 0;
+      }
+      /* Market Pulse — 8 tiles on one row at desktop */
+      .tt-mp-tiles-row {
+        display: grid;
+        grid-template-columns: repeat(8, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 10px;
+      }
+      @media (max-width: 1100px) {
+        .tt-mp-tiles-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      }
+      /* Mobile — horizontal scroll row (avoid squished 4-up grid) */
+      @media (max-width: 900px) {
+        .tt-mp-tiles-row {
+          display: flex;
+          flex-direction: row;
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          gap: 10px;
+          padding-bottom: 6px;
+          scroll-snap-type: x proximity;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255,255,255,0.12) transparent;
+          -webkit-overflow-scrolling: touch;
+        }
+        .tt-mp-tiles-row::-webkit-scrollbar { height: 6px; }
+        .tt-mp-tiles-row::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.10);
+          border-radius: 6px;
+        }
+        .tt-mp-tiles-row .ds-tickercard {
+          flex: 0 0 152px;
+          min-width: 152px;
+          width: 152px !important;
+          scroll-snap-align: start;
+          padding: 12px !important;
+        }
+      }
+      @media (min-width: 901px) {
+        .tt-mp-tiles-row .ds-tickercard {
+          min-width: 0;
+          padding: 10px !important;
+        }
+      }
+      /* Compact Top Movers under Market Pulse */
+      .tt-mp-movers-compact-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .tt-mp-movers-compact-grid.has-ext {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      @media (max-width: 900px) {
+        .tt-mp-movers-compact-grid.has-ext { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      .tt-mover-compact-col__title {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: var(--tt-text-dim);
+        margin-bottom: 6px;
+      }
+      .tt-mover-compact-list { display: flex; flex-direction: column; gap: 3px; }
+      .tt-mover-compact {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 6px;
+        width: 100%;
+        padding: 4px 6px;
+        border-radius: 6px;
+        border: 1px solid transparent;
+        background: transparent;
+        cursor: pointer;
+        font-family: var(--tt-font-mono);
+        text-align: left;
+      }
+      .tt-mover-compact:hover {
+        background: rgba(255,255,255,0.04);
+        border-color: var(--tt-border, rgba(255,255,255,0.06));
+      }
+      .tt-mover-compact__sym { font-size: 11px; font-weight: 700; color: var(--tt-text); flex: 1; min-width: 0; }
+      .tt-mover-compact__pct { font-size: 11px; font-weight: 700; margin-left: auto; flex-shrink: 0; }
+      .tt-mover-compact__pct.up { color: var(--tt-up-soft); }
+      .tt-mover-compact__pct.dn { color: var(--tt-dn-soft); }
+      .tt-mover-compact__pct.mut { color: var(--tt-text-dim); }
+      .tt-mover-compact__ext { font-size: 8px; opacity: 0.75; margin-left: 2px; }
+      .tt-mover-compact-empty { font-size: 11px; color: var(--tt-text-faint); font-style: italic; }
+      /* Open Positions hero — match Research Desk height on desktop; natural height on mobile */
+      @media (min-width: 981px) {
+        .today-hero-pos-col .tt-open-pos-hero {
+          flex: 1;
+          min-height: 0;
+          height: min(520px, 62vh);
+          max-height: min(520px, 62vh);
+          padding: 14px 14px 8px;
+          overflow: hidden;
+          display: flex;
+          flex-direction: column;
+          box-sizing: border-box;
+        }
+        .today-hero-pos-col .tt-open-pos-grid,
+        .today-hero-pos-col .tt-open-pos-split {
+          flex: 1;
+          min-height: 0;
+          max-height: none;
+          overflow-y: auto;
+          padding-bottom: 4px;
+          align-content: start;
+        }
+      }
+      @media (max-width: 980px) {
+        .today-hero-pos-col .tt-open-pos-hero {
+          height: auto;
+          max-height: none;
+          min-height: 0;
+          padding: 16px 14px 14px;
+          overflow: visible;
+          display: flex;
+          flex-direction: column;
+        }
+        .today-hero-pos-col .tt-open-pos-grid,
+        .today-hero-pos-col .tt-open-pos-split {
+          flex: none;
+          min-height: 0;
+          max-height: none;
+          overflow-y: visible;
+          padding-bottom: 0;
+        }
+      }
+      @media (max-width: 720px) {
+        .tt-open-pos-split {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          align-items: start;
+        }
+        .tt-open-pos-col {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
+        }
+        .tt-open-pos-col__label {
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--tt-text-dim);
+          margin-bottom: 2px;
+        }
+        .tt-open-pos-col--trader .tt-open-pos-col__label { color: #67e8f9; }
+        .tt-open-pos-col--investor .tt-open-pos-col__label { color: #c4b5fd; }
+        .tt-open-pos-col__empty {
+          font-size: 10px;
+          color: var(--tt-text-faint);
+          font-style: italic;
+          padding: 6px 0;
+        }
+        .tt-open-pos-split .tt-open-pos-chip__mode { display: none; }
+        .tt-open-pos-chip {
+          padding: 10px 11px !important;
+          min-height: 72px;
+        }
+        .tt-open-pos-chip__sym {
+          font-size: 14px;
+        }
+      }
+      @media (min-width: 721px) {
+        .tt-open-pos-split {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+          gap: 8px;
+        }
+        .tt-open-pos-col {
+          display: contents;
+        }
+        .tt-open-pos-col__label,
+        .tt-open-pos-col__empty {
+          display: none;
+        }
+      }
+      .tt-open-pos-chip {
+        gap: 4px !important;
+        padding: 7px 9px !important;
+      }
+      .tt-open-pos-chip__head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .tt-open-pos-chip__sym {
+        font-weight: 800;
+        font-size: 13px;
+        color: var(--tt-text);
+        letter-spacing: 0.02em;
+      }
+      /* Growth Ideas + lane/bubble map — one unified panel */
+      .tt-universe-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: 18px 20px 16px;
+      }
+      .tt-universe-panel__growth { margin: 0; }
+      .tt-universe-panel__divider {
+        height: 1px;
+        background: var(--tt-border, rgba(255,255,255,0.08));
+        margin: 16px 0 14px;
+      }
+      .tt-universe-panel .tt-lane-section { margin: 0; }
+      .tt-universe-panel .tt-lane-controls { margin-bottom: 8px; }
+      .tt-universe-panel .tt-opp-scroll { padding-bottom: 4px; }
+      .tt-viewport-map-head {
+        margin-bottom: 12px;
+      }
+      .tt-viewport-map-head .tt-sec-h {
+        margin-bottom: 0;
+        font-size: 15px;
+      }
+      .tt-lane-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 6px;
+      }
+      .tt-lane-section .vp-lane-wrap { margin-bottom: 0; gap: 0; }
+      .tt-lane-section .tt-bmap-block { margin-top: 0; }
+      .tt-lane-section .tt-bmap-guide { margin: 0 0 4px; }
+      .tt-lane-section .tt-bmap-head { margin: 2px 0 4px; }
+      .tt-lane-controls .ac-search { margin: 0; }
+      .tt-lane-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .tt-status .brief-archive-link {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--tt-text-muted);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .tt-status .brief-archive-link:hover { color: var(--tt-accent); }
 
       /* Skeleton */
       .sk {
@@ -1281,49 +1677,43 @@
           flex: 1;
           margin-bottom: 12px;
         }
-        /* Row 2: Research Desk | PML — fixed equal height, scroll overflow */
-        .today-hero-desk-col,
-        .today-hero-levels-col {
-          align-self: start;
+        /* Open Positions | Research Desk — matched height, inner scroll */
+        .today-hero-pos-col,
+        .today-hero-desk-col {
+          align-self: stretch;
         }
-        .today-hero-desk-col .tt-desk-panel,
-        .today-hero-levels-col .tt-cto-panel {
+        .today-hero-desk-col .tt-desk-panel {
           height: min(520px, 62vh);
           max-height: min(520px, 62vh);
           min-height: 0;
           flex: none;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-feed-body,
-        .today-hero-levels-col .tt-cto-feed-body {
+        .today-hero-desk-col .tt-desk-feed-body {
           flex: 1;
           min-height: 0;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-scroll,
-        .today-hero-levels-col .tt-cto-map-scroll {
+        .today-hero-desk-col .tt-desk-scroll {
           flex: 1;
           min-height: 0;
         }
       }
       @media (max-width: 980px) {
         /* Stacked mobile: same fixed-height + scroll pattern, slightly shorter cap */
-        .today-hero-desk-col .tt-desk-panel,
-        .today-hero-levels-col .tt-cto-panel {
+        .today-hero-desk-col .tt-desk-panel {
           height: min(400px, 48vh);
           max-height: min(400px, 48vh);
           min-height: 0;
           flex: none;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-feed-body,
-        .today-hero-levels-col .tt-cto-feed-body {
+        .today-hero-desk-col .tt-desk-feed-body {
           flex: 1;
           min-height: 0;
           overflow: hidden;
         }
-        .today-hero-desk-col .tt-desk-scroll,
-        .today-hero-levels-col .tt-cto-map-scroll {
+        .today-hero-desk-col .tt-desk-scroll {
           flex: 1;
           min-height: 0;
         }
@@ -1624,7 +2014,7 @@
   <body>
 
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1782181309533"></script>
+    <script defer src="shared-nav.js?v=1782679868148"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
@@ -1640,7 +2030,7 @@
       </main>
     </div>
 
-    <script defer src="today.compiled.js?v=1782181309533"></script>
+    <script defer src="today.compiled.js?v=1782679868148"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -1649,4 +2039,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1782181309533:635345750 -->
+<!-- cache-bust:1782679868148:271337293 -->

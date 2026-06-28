@@ -64,6 +64,43 @@ function getDailyChange(t) {
 function safeArr(v) {
   return Array.isArray(v) ? v : [];
 }
+function isTickerScoredInUniverse(data, sym) {
+  const key = String(sym || "").toUpperCase();
+  const row = data?.[key];
+  if (!row || typeof row !== "object") return false;
+  return Number.isFinite(Number(row.score)) || !!row.state || !!row.kanban_stage || Number.isFinite(Number(row.htf_score));
+}
+function buildEarningsMap(events) {
+  const map = {};
+  const list = safeArr(events);
+  if (!list.length) return map;
+  let todayNy = "";
+  try {
+    todayNy = new Date().toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+  } catch (_) {
+    return map;
+  }
+  const todayParts = todayNy.split("-").map(Number);
+  if (todayParts.length < 3) return map;
+  const todayDayNum = todayParts[0] * 10000 + todayParts[1] * 100 + todayParts[2];
+  for (const e of list) {
+    const sym = String(e?.symbol || "").toUpperCase();
+    if (!sym || !e?.date) continue;
+    const eParts = String(e.date).split("-").map(Number);
+    if (eParts.length < 3) continue;
+    const eDayNum = eParts[0] * 10000 + eParts[1] * 100 + eParts[2];
+    const calDays = eDayNum - todayDayNum;
+    if (!map[sym] || Math.abs(calDays) < Math.abs(map[sym]._daysAway)) {
+      map[sym] = {
+        ...e,
+        _daysAway: calDays
+      };
+    }
+  }
+  return map;
+}
 function nyFmtDate() {
   try {
     return new Date().toLocaleDateString("en-US", {
@@ -406,7 +443,7 @@ function RegimeLine({
     return Number.isFinite(pct) ? pct : null;
   };
   const spyPct = quote("SPY");
-  const vixT = data?.VIX || data?.["VX1!"];
+  const vixT = data?.VIX || data?.VIXY || data?.["VX1!"];
   const vixPx = vixT ? Number(vixT._live_price ?? vixT.price ?? vixT.close) : null;
   const {
     regime,
@@ -463,6 +500,20 @@ function StatusHeader({
     className: "date"
   }, nyFmtDate())), h("div", {
     className: "session"
+  }, h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "flex-end",
+      gap: 8
+    }
+  }, h("div", {
+    style: {
+      display: "inline-flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
   }, h(SessionPill, {
     cal
   }), briefDate && h("span", {
@@ -472,7 +523,27 @@ function StatusHeader({
     style: {
       background: "var(--tt-accent)"
     }
-  }), "Brief: " + briefDate)), h(RegimeLine, {
+  }), "Brief: " + briefDate)), h("a", {
+    href: "/daily-brief.html#archive",
+    className: "brief-archive-link",
+    title: "Open the daily brief archive"
+  }, "Browse past briefs", h("svg", {
+    width: 12,
+    height: 12,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }, h("line", {
+    x1: 5,
+    y1: 12,
+    x2: 19,
+    y2: 12
+  }), h("polyline", {
+    points: "12 5 19 12 12 19"
+  }))))), h(RegimeLine, {
     brief,
     data
   }));
@@ -702,7 +773,8 @@ function MarketPulseTile({
   const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(tx) ?? tx.price);
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const sparkSrc = window._dsSparklineCache && window._dsSparklineCache[SYM] || null;
+  const sparkRaw = window._dsSparklineCache && window._dsSparklineCache[SYM] || null;
+  const sparkSrc = sparkClosesFromCacheEntry(sparkRaw);
   useEffect(() => {
     if (typeof window._dsEnsureSparkline === "function") window._dsEnsureSparkline(SYM);
   }, [SYM]);
@@ -806,6 +878,49 @@ function MarketPulseTile({
       __html: sparkSvg
     }
   }));
+}
+function formatDayTradeSuppressLabel(s) {
+  if (!s || typeof s !== "object") return "unknown";
+  const lean = s.day_lean ? String(s.day_lean).toUpperCase() : "";
+  const conv = s.day_lean_conviction ? String(s.day_lean_conviction).toLowerCase() : "";
+  const mode = s.confluence_mode ? String(s.confluence_mode).toUpperCase() : "";
+  switch (String(s.reason || "")) {
+    case "day_lean_low_conviction":
+      return `playbook lean ${lean || "mixed"} but conviction is low${mode ? ` · fusion ${mode}` : ""}`;
+    case "no_directional_signal_low_vol":
+      return `no actionable day lean${lean ? ` (${lean}${conv ? ` · ${conv}` : ""})` : ""} and low vol · fusion ${mode || "WAIT"}`;
+    case "wait_no_directional_bet":
+      return `layer fusion is WAIT — no directional 0DTE bet${lean ? ` · playbook ${lean}` : ""}`;
+    default:
+      if (String(s.reason || "").startsWith("strike_drift")) {
+        return `strike drifted too far from spot (${String(s.reason).replace(/_/g, " ")})`;
+      }
+      return String(s.reason || "unknown").replace(/_/g, " ");
+  }
+}
+function dayTradeModelLevelsLine(p, flavor) {
+  const gp = p?.game_plan;
+  if (!gp) return null;
+  const fmt = n => Number.isFinite(Number(n)) && Number(n) > 0 ? `$${Number(n).toFixed(2)}` : null;
+  if (flavor === "call") {
+    const trig = fmt(gp.bull_trigger);
+    const tgt = fmt(gp.bull_target);
+    if (!trig && !tgt) return null;
+    return `Playbook: ${trig ? `reclaim ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
+  }
+  if (flavor === "put") {
+    const trig = fmt(gp.bear_trigger);
+    const tgt = fmt(gp.bear_target);
+    if (!trig && !tgt) return null;
+    return `Playbook: ${trig ? `break ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
+  }
+  if (flavor === "straddle") {
+    const up = fmt(gp.bull_target);
+    const dn = fmt(gp.bear_target);
+    if (!up && !dn) return null;
+    return `Playbook range: ${dn || "?"} – ${up || "?"}`;
+  }
+  return null;
 }
 function OptionsPlaysOfTheDay({
   onSelectTicker,
@@ -1028,6 +1143,11 @@ function OptionsPlaysOfTheDay({
       const driftPct = strike && spot ? Math.abs(strike - spot) / spot * 100 : null;
       const driftLabel = driftPct == null ? null : driftPct < 0.5 ? "At the money" : `${driftPct.toFixed(1)}% from spot`;
       const driftColor = driftPct == null ? "var(--tt-text-dim)" : driftPct < 1 ? "#34d399" : driftPct < 2 ? "#fbbf24" : "#f87171";
+      const flavorSource = p.flavor_source || p.primary?._day_trade_flavor_source || null;
+      const dayLean = String(p.day_lean || p.primary?._day_trade_lean || "").toUpperCase();
+      const dayLeanConv = String(p.day_lean_conviction || "").toLowerCase();
+      const modelLine = dayTradeModelLevelsLine(p, flavor);
+      const sourceLabel = flavorSource === "day_lean" && dayLean ? `Playbook lean ${dayLean}${dayLeanConv ? ` (${dayLeanConv})` : ""}` : p.confluence_mode && p.confluence_mode !== "UNKNOWN" ? `Layer fusion ${p.confluence_mode}${Number.isFinite(Number(p.confluence_score)) ? ` · ${p.confluence_score}/100` : ""}` : null;
       return h("div", {
         key: `dt-${p.ticker}`,
         onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
@@ -1115,13 +1235,42 @@ function OptionsPlaysOfTheDay({
         style: {
           color: "var(--tt-text-dim)"
         }
-      }, `· as of ${asOfLabel}`)), p.primary?.max_loss_usd && h("div", {
+      }, `· as of ${asOfLabel}`)), sourceLabel && h("div", {
         style: {
           fontSize: 10,
-          color: "var(--tt-text-faint)",
+          color: "var(--tt-text-muted)",
+          lineHeight: 1.4,
+          marginBottom: 4
+        },
+        title: flavorSource === "day_lean" ? "0/1DTE flavor follows the same index playbook lean as Day Predictions" : "0/1DTE flavor follows multi-layer fusion alignment"
+      }, sourceLabel), modelLine && h("div", {
+        style: {
+          fontSize: 10,
+          color: "var(--tt-text)",
+          lineHeight: 1.4,
+          marginBottom: 6,
           fontFamily: "var(--tt-font-mono)"
         }
-      }, `Max loss $${p.primary.max_loss_usd}${p.primary.breakeven ? ` · BE $${p.primary.breakeven.toFixed(2)}` : p.primary.breakeven_up ? ` · BE $${p.primary.breakeven_down.toFixed(2)} / $${p.primary.breakeven_up.toFixed(2)}` : ""}`));
+      }, modelLine), p.primary?.max_loss_usd && h("div", {
+        style: {
+          fontSize: 10.5,
+          color: "var(--tt-text-muted)",
+          fontFamily: "var(--tt-font-mono)",
+          lineHeight: 1.4
+        }
+      }, "Max loss ", h("strong", {
+        style: {
+          color: "#f87171"
+        }
+      }, `$${p.primary.max_loss_usd}`), p.primary.breakeven ? h("span", null, " · BE ", h("strong", {
+        style: {
+          color: "var(--tt-text)"
+        }
+      }, `$${Number(p.primary.breakeven).toFixed(2)}`)) : p.primary.breakeven_up ? h("span", null, " · BE ", h("strong", {
+        style: {
+          color: "var(--tt-text)"
+        }
+      }, `$${Number(p.primary.breakeven_down).toFixed(2)} / $${Number(p.primary.breakeven_up).toFixed(2)}`)) : null));
     })), Array.isArray(dayTradeSuppressed) && dayTradeSuppressed.length > 0 && h("div", {
       style: {
         marginTop: 6,
@@ -1134,7 +1283,7 @@ function OptionsPlaysOfTheDay({
         borderRadius: 6
       },
       title: "Day-trade plays we considered but suppressed for one of: strike drifted too far from spot, after-close 0DTE expired, no clear directional signal at low vol."
-    }, "Suppressed: ", dayTradeSuppressed.map(s => `${s.ticker} (${String(s.reason).replace(/_/g, " ")})`).join(" · ")));
+    }, "Suppressed: ", dayTradeSuppressed.map(s => `${s.ticker} (${formatDayTradeSuppressLabel(s)})`).join(" · ")));
   };
   if (!plays || plays.length === 0) {
     if (isSidebar) {
@@ -1421,8 +1570,10 @@ function computeOpenPositionPnlPct(tr, livePx) {
 }
 function OpenPositionsPreview({
   onSelectTicker,
-  allTickers
+  allTickers,
+  variant
 }) {
+  const hero = variant === "hero";
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -1500,8 +1651,50 @@ function OpenPositionsPreview({
       clearTimeout(defer);
     };
   }, []);
-  if (loading) return null;
-  if (trades.length === 0) return null;
+  if (loading) {
+    if (!hero) return null;
+    return h("div", {
+      className: "tt-card tt-card-pad",
+      style: {
+        minHeight: 180
+      }
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
+      className: "sk",
+      style: {
+        width: "70%",
+        height: 14,
+        marginTop: 12
+      }
+    }), h("div", {
+      className: "sk-grid-4",
+      style: {
+        marginTop: 14
+      }
+    }, [0, 1, 2, 3].map(i => h("div", {
+      key: i,
+      className: "sk",
+      style: {
+        height: 72,
+        borderRadius: 10
+      }
+    }))));
+  }
+  if (trades.length === 0) {
+    if (!hero) return null;
+    return h("div", {
+      className: "tt-card tt-card-pad"
+    }, h("div", {
+      className: "tt-sec-title"
+    }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
+      className: "tt-sec-h",
+      style: {
+        fontSize: 14,
+        marginTop: 6
+      }
+    }, "No open positions — model is flat."));
+  }
   const tickerMeta = (() => {
     const px = new Map();
     const stages = new Map();
@@ -1530,27 +1723,7 @@ function OpenPositionsPreview({
   const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlMag);
   const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
   const sorted = [...traderSorted, ...investorSorted];
-  return h("section", {
-    className: "tt-card tt-card-pad tt-row",
-    style: {
-      marginBottom: 14
-    }
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
-    className: "tt-sec-h",
-    style: {
-      fontSize: 16,
-      marginBottom: 8
-    }
-  }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), h("div", {
-    className: "tt-open-pos-grid",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))",
-      gap: 10
-    }
-  }, sorted.slice(0, 12).map(t => {
+  const renderOpenPosChip = t => {
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
     const pnlPct = Number(t?.pnl_pct);
@@ -1582,15 +1755,13 @@ function OpenPositionsPreview({
       if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
     };
     return h("button", {
-      key: t?.trade_id || sym,
+      key: `${t?._mode || "t"}:${t?.trade_id || sym}`,
       onClick,
       className: "tt-open-pos-chip",
       style: {
         display: "flex",
         flexDirection: "column",
         alignItems: "stretch",
-        gap: 6,
-        padding: "10px 12px",
         borderRadius: 10,
         cursor: "pointer",
         textAlign: "left",
@@ -1616,20 +1787,40 @@ function OpenPositionsPreview({
         gap: 6
       }
     }, h("span", {
+      className: "tt-open-pos-chip__head"
+    }, h(TickerLogo, {
+      sym,
+      size: 18
+    }), h("span", {
+      className: "tt-open-pos-chip__sym"
+    }, sym)), h("span", {
       style: {
-        fontWeight: 800,
-        fontSize: 13,
-        color: "var(--tt-text)",
-        letterSpacing: "0.02em"
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5
       }
-    }, sym), h("span", {
+    }, t?._mode === "trader" && h("span", {
+      className: "tt-open-pos-chip__mode",
+      style: {
+        fontSize: 8,
+        color: "var(--tt-text-faint)",
+        letterSpacing: "0.1em"
+      }
+    }, "TRADER"), t?._mode === "investor" && h("span", {
+      className: "tt-open-pos-chip__mode",
+      style: {
+        fontSize: 8,
+        color: "var(--tt-text-faint)",
+        letterSpacing: "0.1em"
+      }
+    }, "INVESTOR"), h("span", {
       style: {
         fontSize: 9,
         fontWeight: 700,
         color: dirColor,
         letterSpacing: "0.08em"
       }
-    }, dir)), h("div", {
+    }, dir))), h("div", {
       style: {
         display: "flex",
         alignItems: "center",
@@ -1645,7 +1836,7 @@ function OpenPositionsPreview({
       }
     }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`), h("span", {
       style: {
-        padding: "2px 7px",
+        padding: "1px 6px",
         borderRadius: 999,
         fontSize: 9,
         fontWeight: 700,
@@ -1655,22 +1846,47 @@ function OpenPositionsPreview({
         border: `1px solid ${stageMeta.color}40`,
         marginLeft: "auto"
       }
-    }, stageDisplay)), t?._mode === "trader" && h("span", {
-      style: {
-        fontSize: 8,
-        color: "var(--tt-text-faint)",
-        letterSpacing: "0.1em",
-        alignSelf: "flex-start"
-      }
-    }, "TRADER"), t?._mode === "investor" && h("span", {
-      style: {
-        fontSize: 8,
-        color: "var(--tt-text-faint)",
-        letterSpacing: "0.1em",
-        alignSelf: "flex-start"
-      }
-    }, "INVESTOR"));
-  })));
+    }, stageDisplay)));
+  };
+  const positionsBody = hero ? h("div", {
+    className: "tt-open-pos-split"
+  }, h("div", {
+    className: "tt-open-pos-col tt-open-pos-col--trader"
+  }, h("div", {
+    className: "tt-open-pos-col__label"
+  }, "Trader"), traderSorted.length ? traderSorted.map(renderOpenPosChip) : h("div", {
+    className: "tt-open-pos-col__empty"
+  }, "None")), h("div", {
+    className: "tt-open-pos-col tt-open-pos-col--investor"
+  }, h("div", {
+    className: "tt-open-pos-col__label"
+  }, "Investor"), investorSorted.length ? investorSorted.map(renderOpenPosChip) : h("div", {
+    className: "tt-open-pos-col__empty"
+  }, "None"))) : h("div", {
+    className: "tt-open-pos-grid",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
+      gap: 8
+    }
+  }, sorted.map(renderOpenPosChip));
+  return h("section", {
+    className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
+    style: hero ? {
+      display: "flex",
+      flexDirection: "column"
+    } : {
+      marginBottom: 14
+    }
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: hero ? 14 : 16,
+      marginBottom: 6
+    }
+  }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), positionsBody);
 }
 function ResearchDeskPanel({
   onSelectTicker
@@ -2052,40 +2268,28 @@ function DayTradePredictions({
   }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. The matching 0/1DTE option play for each index is in “Options Plays · Day Trade Index ETFs” below. Educational, not advice."));
 }
 function TodayHero({
-  brief,
-  briefSlot,
-  data,
-  earnings,
   onSelectTicker,
-  cal
+  allTickers
 }) {
   return h("div", {
     className: "today-hero",
     style: {
       display: "grid",
       gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-      gridTemplateRows: "auto auto",
+      gridTemplateRows: "auto",
       gap: 16,
       marginBottom: 16,
       alignItems: "stretch"
     }
   }, h("div", {
-    className: "today-hero-brief-col"
-  }, brief ? h(BriefPreview, {
-    brief,
-    briefSlot
-  }) : h(BriefPlaceholder, {
-    data,
-    earnings,
+    className: "today-hero-pos-col"
+  }, h(OpenPositionsPreview, {
     onSelectTicker,
-    cal
+    allTickers,
+    variant: "hero"
   })), h("div", {
     className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
-    onSelectTicker
-  })), h("div", {
-    className: "today-hero-levels-col"
-  }, h(CTOLevelsPanel, {
     onSelectTicker
   })));
 }
@@ -2373,7 +2577,8 @@ function CTOLevelsPanel({
 }
 function MarketState({
   data,
-  onSelectTicker
+  onSelectTicker,
+  embedded
 }) {
   const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
   const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
@@ -2404,11 +2609,7 @@ function MarketState({
     label: _latent.state
   } : null;
   const _postSummary = _latent?.posterior ? Object.entries(_latent.posterior).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ") : "";
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "MARKET PULSE"), h("div", {
+  const body = h(React.Fragment, null, h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -2445,18 +2646,46 @@ function MarketState({
       boxShadow: `0 0 0 2px ${_latentMeta.color}33`
     }
   }), `MARKET REGIME · ${_latentMeta.label}`)), h("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-      gap: 12,
-      marginTop: 10
-    }
+    className: "tt-mp-tiles-row"
   }, order.map(sym => h(MarketPulseTile, {
     key: sym,
     sym,
     t: data[sym],
     onSelectTicker
   }))));
+  if (embedded) {
+    return h("div", null, h("div", {
+      className: "tt-sec-title"
+    }, "MARKET PULSE"), body);
+  }
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "MARKET PULSE"), body);
+}
+function MarketPulseWithMovers({
+  data,
+  onSelectTicker
+}) {
+  if (!data) return h(MarketStateSkeleton);
+  const universe = new Set(Object.keys(data).map(s => String(s).toUpperCase()));
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-card-pad tt-mp-panel"
+  }, h(MarketState, {
+    data,
+    onSelectTicker,
+    embedded: true
+  }), h("div", {
+    className: "tt-mp-divider"
+  }), h(TopMovers, {
+    data,
+    onSelectTicker,
+    universe,
+    embedded: true
+  })));
 }
 function MacroStrip({
   brief,
@@ -2578,9 +2807,99 @@ function MacroStrip({
   }, "Rotation to mind: "), themeCallout, ".")));
 }
 const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
+const CTO_FEED_URL = `${API_BASE}/timed/cto/feed?limit=120`;
+function buildGrowthZoneModel(row, ctoItem) {
+  const price = Number(row?.price);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const down = ctoItem?.top_downside;
+  const up = ctoItem?.top_upside;
+  let inv = Number(down?.price);
+  let tgt = Number(up?.price);
+  const fv = Number(row?.fair_value_price);
+  if (!Number.isFinite(inv) || inv >= price) inv = price * 0.9;
+  if (!Number.isFinite(tgt) || tgt <= price) {
+    tgt = Number.isFinite(fv) && fv > price ? fv : price * 1.12;
+  }
+  if (inv >= tgt) {
+    inv = price * 0.92;
+    tgt = price * 1.1;
+  }
+  const span = tgt - inv;
+  const pbLo = inv + span * 0.28;
+  const pbHi = inv + span * 0.48;
+  const pad = span * 0.04 || price * 0.01;
+  const minPx = inv - pad;
+  const maxPx = tgt + pad;
+  const pct = px => Math.max(0, Math.min(100, (px - minPx) / (maxPx - minPx) * 100));
+  return {
+    inv,
+    tgt,
+    pbLo,
+    pbHi,
+    price,
+    invProb: Number(down?.adj_prob),
+    tgtProb: Number(up?.adj_prob),
+    pct,
+    minPx,
+    maxPx
+  };
+}
+function GrowthZoneBar({
+  row,
+  ctoItem
+}) {
+  const zm = buildGrowthZoneModel(row, ctoItem);
+  if (!zm) return null;
+  const fmtPx = n => `$${Number(n).toFixed(Number(n) >= 100 ? 0 : 2)}`;
+  const fmtProb = p => Number.isFinite(p) ? `${Math.round(p * 100)}%` : null;
+  const invPct = zm.pct(zm.inv);
+  const pbLoPct = zm.pct(zm.pbLo);
+  const pbHiPct = zm.pct(zm.pbHi);
+  const tgtPct = zm.pct(zm.tgt);
+  const pricePct = zm.pct(zm.price);
+  return h("div", {
+    className: "tt-opp-zone"
+  }, h("div", {
+    className: "tt-opp-zone-labels"
+  }, h("span", null, "Invalidation"), h("span", null, "Pullback"), h("span", null, "Target")), h("div", {
+    className: "tt-opp-zone-track",
+    title: "Daily CTO levels — invalidation, pullback add zone, and upside target."
+  }, h("div", {
+    className: "tt-opp-zone-seg tt-opp-zone-seg--inv",
+    style: {
+      left: "0%",
+      width: `${pbLoPct}%`
+    }
+  }), h("div", {
+    className: "tt-opp-zone-seg tt-opp-zone-seg--pb",
+    style: {
+      left: `${pbLoPct}%`,
+      width: `${Math.max(0, pbHiPct - pbLoPct)}%`
+    }
+  }), h("div", {
+    className: "tt-opp-zone-seg tt-opp-zone-seg--tgt",
+    style: {
+      left: `${pbHiPct}%`,
+      width: `${Math.max(0, 100 - pbHiPct)}%`
+    }
+  }), h("div", {
+    className: "tt-opp-zone-marker",
+    style: {
+      left: `${pricePct}%`
+    },
+    title: `Today ${fmtPx(zm.price)}`
+  })), h("div", {
+    className: "tt-opp-zone-meta"
+  }, h("span", null, `Inv ${fmtPx(zm.inv)}`, fmtProb(zm.invProb) && h("span", {
+    className: "tt-opp-zone-prob"
+  }, ` · ${fmtProb(zm.invProb)} hit`)), h("span", null, `PB ${fmtPx(zm.pbLo)}–${fmtPx(zm.pbHi)}`), h("span", null, `Tgt ${fmtPx(zm.tgt)}`, fmtProb(zm.tgtProb) && h("span", {
+    className: "tt-opp-zone-prob"
+  }, ` · ${fmtProb(zm.tgtProb)} reach`))));
+}
 function GrowthIdeasStrip({
   onSelectTicker,
-  user
+  user,
+  embedded
 }) {
   const [rows, setRows] = useState(() => {
     const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
@@ -2588,6 +2907,33 @@ function GrowthIdeasStrip({
     return list.length ? list.slice(0, 16) : null;
   });
   const [loadErr, setLoadErr] = useState(null);
+  const [ctoBySym, setCtoBySym] = useState({});
+  useEffect(() => {
+    let alive = true;
+    const loadCto = async () => {
+      try {
+        const j = window.TTFetchCache ? await window.TTFetchCache.get(CTO_FEED_URL, {
+          ttlMs: 5 * 60 * 1000,
+          maxAgeMs: 30 * 60 * 1000,
+          fetchOpts: {
+            credentials: "include"
+          }
+        }) : await fetchJsonRetry(CTO_FEED_URL);
+        if (!alive || !j?.ok || !Array.isArray(j.items)) return;
+        const map = {};
+        for (const it of j.items) {
+          const sym = String(it?.ticker || "").toUpperCase();
+          if (sym) map[sym] = it;
+        }
+        setCtoBySym(map);
+      } catch (_) {}
+    };
+    const t = setTimeout(loadCto, 1800);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
@@ -2639,35 +2985,36 @@ function GrowthIdeasStrip({
       cancelled = true;
     };
   }, [user?.email, user?.role, user?.tier, user?.subscription_status, user?.expires_at]);
-  if (rows === null) {
+  const wrap = children => {
+    if (embedded) return h("div", {
+      className: "tt-universe-panel__growth",
+      id: "opportunities"
+    }, children);
     return h("section", {
       id: "opportunities",
       className: "tt-row"
-    }, h("div", {
+    }, children);
+  };
+  if (rows === null) {
+    return wrap(h(React.Fragment, null, h("div", {
       className: "tt-sec-title"
     }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
-    }, "Loading growth watchlist…"));
+    }, "Loading growth watchlist…")));
   }
   if (!rows.length) {
-    return h("section", {
-      id: "opportunities",
-      className: "tt-row"
-    }, h("div", {
+    return wrap(h(React.Fragment, null, h("div", {
       className: "tt-sec-title"
     }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
-    }, loadErr || "No growth ideas matched the current compounder filters."));
+    }, loadErr || "No growth ideas matched the current compounder filters.")));
   }
   const fmtPctOpp = n => {
     if (!Number.isFinite(Number(n))) return null;
     const v = Number(n);
     return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   };
-  return h("section", {
-    id: "opportunities",
-    className: "tt-row"
-  }, h("div", {
+  return wrap(h(React.Fragment, null, h("div", {
     style: {
       display: "flex",
       alignItems: "baseline",
@@ -2736,10 +3083,13 @@ function GrowthIdeasStrip({
       }
     }, fmtPctOpp(pct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`)), row.dip_buy && h("div", {
       className: "tt-opp-dip"
-    }, "Dip posture active"), h("p", {
+    }, "Dip posture active"), h(GrowthZoneBar, {
+      row,
+      ctoItem: ctoBySym[sym]
+    }), h("p", {
       className: "tt-opp-why"
     }, why));
-  })));
+  }))));
 }
 function FocusRail({
   data,
@@ -2751,16 +3101,7 @@ function FocusRail({
       ticker: String(k).toUpperCase(),
       ...(v || {})
     }).filter(t => t && t.ticker);
-    const TT = window.TimedBubbleChart || {};
-    const entryType = TT.entryType || (() => ({
-      corridor: false
-    }));
-    const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
-    return all.filter(t => {
-      const ent = entryType(t);
-      const stage = String(t.kanban_stage || "").toLowerCase();
-      return ent?.corridor && ENTRY_STAGES.has(stage);
-    }).sort((a, b) => (Number(b.rank_score) || 0) - (Number(a.rank_score) || 0)).slice(0, 8);
+    return sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t))).slice(0, 12);
   }, [data]);
   if (items.length === 0) return null;
   return h("section", {
@@ -2773,11 +3114,13 @@ function FocusRail({
     const sym = String(t.ticker || "").toUpperCase();
     const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
     const pct = Number(dc?.dayPct);
+    const actionChips = viewportActionChips(t);
+    const actionLabel = actionChips.map(c => c.label).join(" · ") || "Primed";
     return h("button", {
       key: sym,
       onClick: () => onSelectTicker && onSelectTicker(sym),
       className: "tt-strip-chip",
-      title: `${sym} — in corridor + entry stage`
+      title: `${sym} — ${actionLabel}`
     }, h(TickerLogo, {
       sym,
       size: 18
@@ -2787,7 +3130,16 @@ function FocusRail({
         fontSize: 12,
         fontFamily: "var(--tt-font-mono)"
       }
-    }, sym), Number.isFinite(pct) && h("span", {
+    }, sym), actionChips.map((chip, i) => h("span", {
+      key: `${chip.label}-${i}`,
+      className: `ds-chip ds-chip--sm ${chip.cls}`,
+      style: {
+        fontSize: 8,
+        padding: "0 5px",
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: chip.title
+    }, chip.label)), Number.isFinite(pct) && h("span", {
       style: {
         fontSize: 11,
         fontWeight: 700,
@@ -2847,6 +3199,11 @@ function TickerLogo({
     }
   }, mono);
 }
+const MOVER_LIMIT = 10;
+const getExtMoverPct = t => {
+  const ext = window.TimedPriceUtils?.getExtChange?.(t);
+  return Number.isFinite(ext?.pct) ? ext.pct : NaN;
+};
 function MoverRow({
   rk,
   t,
@@ -2855,9 +3212,10 @@ function MoverRow({
   universe
 }) {
   const dc = getDailyChange(t);
-  const pct = mode === "ext" ? Number(t?._ah_change_pct ?? t?.extended_percent_change) : Number(dc?.dayPct);
-  const price = mode === "ext" ? Number(t?._ah_price ?? t?.extended_price ?? t?._live_price ?? t?.price) : Number(t?.price);
-  const rthClose = mode === "ext" ? Number(t?.price) : null;
+  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
+  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+  const price = mode === "ext" ? Number(ext?.price ?? t?._ah_price ?? t?.extended_price) : Number(t?.price);
+  const rthClose = mode === "ext" ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price) : null;
   const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
   const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
@@ -2886,6 +3244,56 @@ function MoverRow({
   }, Number.isFinite(pct) ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "—"), showRthSub && h("span", {
     className: "tt-trow__sub"
   }, "RTH " + fmtUsd(rthClose))));
+}
+function CompactMoverChip({
+  t,
+  mode,
+  onSelectTicker
+}) {
+  const dc = getDailyChange(t);
+  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
+  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+  const sym = String(t?.ticker || "").toUpperCase();
+  const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
+  return h("button", {
+    type: "button",
+    className: "tt-mover-compact",
+    onClick: e => {
+      e.preventDefault();
+      if (typeof onSelectTicker === "function") onSelectTicker(sym);
+    },
+    title: `Open ${sym}`
+  }, h(TickerLogo, {
+    sym,
+    size: 16
+  }), h("span", {
+    className: "tt-mover-compact__sym"
+  }, sym), h("span", {
+    className: `tt-mover-compact__pct ${dir}`
+  }, Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—", mode === "ext" && h("span", {
+    className: "tt-mover-compact__ext"
+  }, " EXT")));
+}
+function CompactMoversCol({
+  title,
+  items,
+  mode,
+  onSelectTicker
+}) {
+  return h("div", {
+    className: "tt-mover-compact-col"
+  }, h("div", {
+    className: "tt-mover-compact-col__title"
+  }, title), items.length === 0 ? h("div", {
+    className: "tt-mover-compact-empty"
+  }, "—") : h("div", {
+    className: "tt-mover-compact-list"
+  }, items.slice(0, 5).map((t, i) => h(CompactMoverChip, {
+    key: t.ticker || i,
+    t,
+    mode,
+    onSelectTicker
+  }))));
 }
 function MoversCol({
   title,
@@ -2926,7 +3334,8 @@ function TopMovers({
   data,
   onSelectTicker,
   universe,
-  strip
+  strip,
+  embedded
 }) {
   const arr = useMemo(() => {
     if (!data) return [];
@@ -2940,35 +3349,67 @@ function TopMovers({
       t,
       pct: Number(dc?.dayPct)
     };
-  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => b.pct - a.pct).slice(0, 5).map(x => x.t), [arr]);
+  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => b.pct - a.pct).slice(0, MOVER_LIMIT).map(x => x.t), [arr]);
   const rthLoss = useMemo(() => arr.map(t => {
     const dc = getDailyChange(t);
     return {
       t,
       pct: Number(dc?.dayPct)
     };
-  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t), [arr]);
+  }).filter(x => Number.isFinite(x.pct)).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t), [arr]);
   const extGain = useMemo(() => {
     if (open) return [];
     return arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
       t,
-      pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
-    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => b.pct - a.pct).slice(0, 5).map(x => x.t);
+      pct: getExtMoverPct(t)
+    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => b.pct - a.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const extLoss = useMemo(() => {
     if (open) return [];
     return arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
       t,
-      pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
-    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, 5).map(x => x.t);
+      pct: getExtMoverPct(t)
+    })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
   const hasExt = extGain.length > 0 || extLoss.length > 0;
+  if (embedded) {
+    return h("div", {
+      className: "tt-mp-movers-embed"
+    }, h("div", {
+      className: "tt-sec-title",
+      style: {
+        marginBottom: 4
+      }
+    }, "TOP MOVERS"), h("div", {
+      className: `tt-mp-movers-compact-grid${hasExt ? " has-ext" : ""}`
+    }, h(CompactMoversCol, {
+      title: "RTH GAINERS",
+      items: rthGain,
+      mode: "rth",
+      onSelectTicker
+    }), h(CompactMoversCol, {
+      title: "RTH LOSERS",
+      items: rthLoss,
+      mode: "rth",
+      onSelectTicker
+    }), hasExt && h(CompactMoversCol, {
+      title: "EXT GAINERS",
+      items: extGain,
+      mode: "ext",
+      onSelectTicker
+    }), hasExt && h(CompactMoversCol, {
+      title: "EXT LOSERS",
+      items: extLoss,
+      mode: "ext",
+      onSelectTicker
+    })));
+  }
   if (strip) {
     const moverChip = (t, mode) => {
       const sym = String(t.ticker || t.sym || "").toUpperCase();
       let pct;
       if (mode === "ext") {
-        pct = Number(t._ah_change_pct);
+        pct = getExtMoverPct(t);
       } else {
         const dc = typeof getDailyChange === "function" ? getDailyChange(t) : null;
         pct = Number(dc?.dayPct);
@@ -3133,6 +3574,7 @@ function MacroEventsStrip() {
 function EarningsStrip({
   earnings,
   universe,
+  data,
   onSelectTicker,
   strip
 }) {
@@ -3172,6 +3614,13 @@ function EarningsStrip({
   };
   if (strip) {
     const chips = events.slice(0, 24);
+    const openEarningsTicker = ev => {
+      if (!onSelectTicker) return;
+      const sym = String(ev?.symbol || "").toUpperCase();
+      if (!sym) return;
+      const uni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
+      if (uni) onSelectTicker(sym);else onSelectTicker(sym, "CATALYSTS");
+    };
     return h("section", {
       className: "tt-row"
     }, h("div", {
@@ -3180,15 +3629,17 @@ function EarningsStrip({
       className: "tt-strip-scroll"
     }, chips.map((ev, i) => {
       const sym = String(ev?.symbol || "").toUpperCase();
-      const uni = uniSet.has(sym);
+      const uni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
       return h("button", {
         key: `${sym}-${i}`,
-        onClick: () => onSelectTicker && onSelectTicker(sym),
+        onClick: () => openEarningsTicker(ev),
         className: "tt-strip-chip",
-        title: `${sym} \u00b7 ${ev?.date || ""} ${ev?.hour || ""}`,
+        title: uni ? `${sym} · in TT universe · open ticker` : `${sym} · not in TT universe · earnings watch (Catalysts tab)`,
         style: uni ? {
           borderColor: "rgba(52,211,153,0.4)"
-        } : undefined
+        } : {
+          opacity: 0.88
+        }
       }, h(TickerLogo, {
         sym,
         size: 18
@@ -3237,19 +3688,20 @@ function EarningsStrip({
       const eps = Number(rawEps);
       const hasEps = Number.isFinite(eps) && eps !== 0;
       const sym = String(ev?.symbol || "").toUpperCase();
-      const isUni = uniSet.has(sym);
+      const isUni = uniSet.has(sym) && isTickerScoredInUniverse(data, sym);
       const hcls = hourClass(ev?.hour);
       const hourLabel = (ev?.hour || "—").toUpperCase();
       const onClick = e => {
         e.preventDefault();
-        if (typeof onSelectTicker === "function") onSelectTicker(sym);
+        if (typeof onSelectTicker !== "function") return;
+        if (isUni) onSelectTicker(sym);else onSelectTicker(sym, "CATALYSTS");
       };
       return h("button", {
         type: "button",
         key: `${sym}-${i}`,
         className: "tt-earn-row" + (isUni ? " is-universe" : ""),
         onClick,
-        title: isUni ? `Open ${sym} in the right rail \u00b7 in our universe` : `Open ${sym} in the right rail`
+        title: isUni ? `Open ${sym} in the right rail · in our universe` : `${sym} · not in TT universe · opens earnings context on Catalysts tab`
       }, h(TickerLogo, {
         sym
       }), h("span", {
@@ -3292,13 +3744,95 @@ const TT_NORM_TICKER = t => {
   return s;
 };
 const MARKET_PULSE_PUBLIC_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "GLD", "SLV", "USO", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
+const MARKET_PULSE_ADMIN_SYMBOLS = ["SPY", "RSP", "QQQ", "IWM", "VIX", "US500", "ES1!", "NQ1!", "RTY1!", "YM1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD", "XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
 const INDEX_SYMS = ["SPY", "RSP", "QQQ", "IWM"];
-const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "VX1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
+const FUTURES_SYMS = ["ES1!", "NQ1!", "RTY1!", "YM1!", "CL1!", "GC1!", "SI1!", "BTCUSD", "ETHUSD"];
 const SP_ETF_SYMS = ["XLK", "XLF", "XLY", "XLP", "XLC", "XLI", "XLB", "XLE", "XLRE", "XLU", "XLV"];
-const ENTRY_STAGES = new Set(["setup", "setup_watch", "enter", "enter_now", "flip_watch", "just_flipped"]);
+const ENTRY_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped"]);
+const TRADER_WATCHLIST_STAGES = new Set(["setup", "setup_watch", "flip_watch"]);
+const TRADER_TRIGGER_STAGES = new Set(["in_review", "enter", "enter_now", "just_flipped"]);
 const ACTIONABLE_STAGES = new Set(["enter", "enter_now", "trim", "exit", "defend"]);
 const KANBAN_STAGES = new Set(["setup", "setup_watch", "flip_watch", "in_review", "enter", "enter_now", "just_flipped", "just_entered", "hold", "trim", "defend", "exit"]);
+function entryZoneSide(t, entryTypeFn) {
+  const TT = window.TimedBubbleChart || {};
+  const entFn = entryTypeFn || TT.entryType || (() => ({
+    corridor: false,
+    side: null
+  }));
+  const ent = entFn(t);
+  if (!ent?.corridor || !ent?.side) return null;
+  return String(ent.side).toUpperCase();
+}
+function investorStageOf(t) {
+  return String(t?.investor_stage || t?.stage || "").toLowerCase();
+}
+function hasOpenTradeDir(t) {
+  return !!String(t?._openTrade?.direction || "").toUpperCase();
+}
+function isInvestorQueued(t) {
+  return investorStageOf(t) === "accumulate_queued";
+}
+function isTraderWatchlist(t) {
+  if (hasOpenTradeDir(t)) return false;
+  return TRADER_WATCHLIST_STAGES.has(String(t?.kanban_stage || "").toLowerCase());
+}
+function isTraderTriggerReady(t) {
+  if (hasOpenTradeDir(t)) return false;
+  return TRADER_TRIGGER_STAGES.has(String(t?.kanban_stage || "").toLowerCase());
+}
+function viewportActionChips(t) {
+  const chips = [];
+  if (isInvestorQueued(t)) {
+    chips.push({
+      label: "Queued",
+      cls: "ds-chip--accent",
+      title: "Investor lane — queued for next rebalance."
+    });
+  }
+  if (isTraderTriggerReady(t)) {
+    chips.push({
+      label: "Trigger Ready",
+      cls: "ds-chip--accent",
+      title: "Active Trader — trigger ready for review or entry."
+    });
+  } else if (isTraderWatchlist(t)) {
+    chips.push({
+      label: "Setup",
+      cls: "",
+      title: "Active Trader watchlist — setup forming, no action yet."
+    });
+  }
+  return chips;
+}
+function primedTickerPriority(t) {
+  if (isInvestorQueued(t)) return 3;
+  if (isTraderTriggerReady(t)) return 2;
+  if (isTraderWatchlist(t)) return 1;
+  return 0;
+}
+function isEntryZoneTicker(t) {
+  return isInvestorQueued(t) || isTraderWatchlist(t) || isTraderTriggerReady(t);
+}
+function sortEntryZoneTickers(list) {
+  return (Array.isArray(list) ? list : []).slice().sort((a, b) => {
+    const pa = primedTickerPriority(a);
+    const pb = primedTickerPriority(b);
+    if (pa !== pb) return pb - pa;
+    const ra = Number(a.rank_score) || Number(a.rank) || Number(a.rank_position) || 0;
+    const rb = Number(b.rank_score) || Number(b.rank) || Number(b.rank_position) || 0;
+    if (ra !== rb) return rb - ra;
+    return String(a.ticker).localeCompare(String(b.ticker));
+  });
+}
+function sparkClosesFromCacheEntry(entry) {
+  if (Array.isArray(entry)) return entry;
+  if (entry && Array.isArray(entry.closes)) return entry.closes;
+  return null;
+}
+function sparkCandlesFromCacheEntry(entry) {
+  if (entry && Array.isArray(entry.candles)) return entry.candles;
+  return null;
+}
 function computeInsightChips(allTickers, opts) {
   const isAdmin = !!(opts && opts.isAdmin);
   const savedSet = (opts && opts.savedSet) instanceof Set ? opts.savedSet : new Set();
@@ -3327,6 +3861,28 @@ function computeInsightChips(allTickers, opts) {
     row: "focus",
     isDefault: true,
     tooltip: "Default view — Kanban lanes + Market Pulse. Keeps the chart actionable, not cluttered."
+  });
+  const entryZone = sortEntryZoneTickers(all.filter(t => isEntryZoneTicker(t)));
+  chips.push({
+    id: "entry_zone",
+    label: "Entry Zone",
+    count: entryZone.length,
+    tickers: entryZone.map(t => t.ticker),
+    row: "focus",
+    tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Queued sorts first."
+  });
+  const openPositions = allTickers.filter(t => {
+    if (t?._openTrade || t?.has_open_position) return true;
+    const ks = String(t?.kanban_stage || "").toLowerCase();
+    return ["hold", "active", "just_entered", "trim", "defend", "exiting"].includes(ks);
+  });
+  chips.push({
+    id: "open_positions",
+    label: "Open Positions",
+    count: openPositions.length,
+    tickers: openPositions.map(t => t.ticker),
+    row: "focus",
+    tooltip: "Tickers with an open trader or investor position."
   });
   chips.push({
     id: "all",
@@ -3522,14 +4078,14 @@ function computeInsightChips(allTickers, opts) {
       pct
     };
   }).filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const moverSet = new Set([...rthArr.slice(0, 5).map(t => t.ticker), ...rthArr.slice(-5).map(t => t.ticker)]);
+  const moverSet = new Set([...rthArr.slice(0, 10).map(t => t.ticker), ...rthArr.slice(-10).map(t => t.ticker)]);
   chips.push({
     id: "top_movers",
     label: "Top Movers",
     count: moverSet.size,
     tickers: Array.from(moverSet),
     row: "context",
-    tooltip: "Top 5 gainers + top 5 losers on the session."
+    tooltip: "Top 10 gainers + top 10 losers on the session."
   });
   const idxTickers = allTickers.filter(t => INDEX_SYMS.includes(TT_NORM_TICKER(t?.ticker)));
   chips.push({
@@ -3908,28 +4464,28 @@ function ViewportCard({
       label: "Exit",
       cls: "ds-chip--dn"
     };
-    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
-      label: "Enter",
-      cls: "ds-chip--accent"
-    };
     if (stage === "hold" || stage === "active" || stage === "just_entered") return {
       label: "Hold",
       cls: "ds-chip--up"
     };
-    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
-      label: "Setup",
-      cls: ""
-    };
     return null;
   })();
+  const actionChips = viewportActionChips(t);
   const isTTSel = typeof window !== "undefined" && typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
-  const sparkPoints = sparkSrc && sparkSrc.length >= 2 ? sparkSrc : [price || 0, price || 0];
+  const sparkPointsRaw = sparkClosesFromCacheEntry(sparkSrc);
+  const sparkPoints = sparkPointsRaw && sparkPointsRaw.length >= 2 ? sparkPointsRaw : [price || 0, price || 0];
   const sparkSvg = window.DS && Number.isFinite(price) && price > 0 ? window.DS.sparklineSvg(sparkPoints, {
     width: 280,
     height: 44,
     direction: dir,
     strokeWidth: 1.4
   }) : "";
+  const patternChips = (() => {
+    const candles = sparkCandlesFromCacheEntry(sparkSrc);
+    const detect = window.TimedPatternDetect?.detectCandlePatterns;
+    if (!candles || !detect) return [];
+    return detect(candles).slice(0, 2);
+  })();
   const cardBiasLabel = window.TTLaneCard?.compactBiasLabel ? window.TTLaneCard.compactBiasLabel(biasLabel) : biasLabel;
   const extLine = window.TTLaneCard?.extLineFromTicker ? window.TTLaneCard.extLineFromTicker(t) : null;
   const cardStyle = {
@@ -3953,10 +4509,18 @@ function ViewportCard({
       style: {
         fontFamily: "var(--tt-font-mono)"
       },
-      title: "Bias"
-    }, cardBiasLabel), stageChip && h("span", {
+      title: openTrade ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Model bias"
+    }, cardBiasLabel), ...actionChips.map((chip, i) => h("span", {
+      key: `${chip.label}-${i}`,
+      className: `ds-chip ds-chip--sm ${chip.cls}`,
+      title: chip.title
+    }, chip.label)), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`
-    }, stageChip.label)],
+    }, stageChip.label), ...patternChips.map(p => h("span", {
+      key: p.type,
+      className: `tt-pattern-chip ${p.bias === "bullish" ? "tt-pattern-chip--bull" : p.bias === "bearish" ? "tt-pattern-chip--bear" : ""}`,
+      title: p.tooltip
+    }, `${p.icon} ${p.type}`))],
     quote: {
       price,
       dayPct,
@@ -4001,33 +4565,41 @@ function ViewportCard({
 }
 function useSparklineCache() {
   const [cache, setCache] = useState({});
+  const sparkCfg = window.TTSparklineConfig || {};
+  const buildUrl = sparkCfg.buildSparklineUrl || ((base, sym) => `${base}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=D&limit=20`);
+  const toCloses = sparkCfg.closesFromCandles || (candles => Array.isArray(candles) ? candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite) : []);
   const fetchSpark = useCallback(async sym => {
     try {
-      const r = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=60&limit=24`, {
+      const r = await fetch(buildUrl(API_BASE, sym), {
         cache: "no-store"
       });
       if (!r.ok) return null;
       const j = await r.json();
       const candles = Array.isArray(j?.candles) ? j.candles : [];
-      return candles.map(c => Number(c?.c ?? c?.close)).filter(Number.isFinite);
+      const closes = toCloses(candles);
+      if (closes.length < 2) return null;
+      return {
+        closes,
+        candles
+      };
     } catch (_) {
       return null;
     }
-  }, []);
+  }, [buildUrl, toCloses]);
   const ensure = useCallback(sym => {
     if (!sym) return null;
     const upper = String(sym).toUpperCase();
-    if (cache[upper]) return cache[upper];
+    if (cache[upper]) return sparkClosesFromCacheEntry(cache[upper]);
     if (cache[upper] === undefined) {
       setCache(prev => ({
         ...prev,
         [upper]: null
       }));
-      fetchSpark(upper).then(arr => {
-        if (arr && arr.length >= 2) {
+      fetchSpark(upper).then(payload => {
+        if (payload && payload.closes?.length >= 2) {
           setCache(prev => ({
             ...prev,
-            [upper]: arr
+            [upper]: payload
           }));
         }
       });
@@ -4040,12 +4612,12 @@ function useSparklineCache() {
   }, [ensure, cache]);
   useEffect(() => {
     const interval = setInterval(() => {
-      const symbols = Object.keys(cache).filter(s => Array.isArray(cache[s]));
+      const symbols = Object.keys(cache).filter(s => sparkClosesFromCacheEntry(cache[s])?.length >= 2);
       symbols.forEach(sym => {
-        fetchSpark(sym).then(arr => {
-          if (arr && arr.length >= 2) setCache(prev => ({
+        fetchSpark(sym).then(payload => {
+          if (payload && payload.closes?.length >= 2) setCache(prev => ({
             ...prev,
-            [sym]: arr
+            [sym]: payload
           }));
         });
       });
@@ -4063,14 +4635,20 @@ function Viewport({
   query,
   sparkCache,
   ensureSpark,
-  onSelectTicker
+  onSelectTicker,
+  activeChip,
+  layout
 }) {
   const {
     saved,
     toggle: toggleSaved
   } = useSavedTickers();
+  const lane = layout === "lane";
   const ranked = useMemo(() => {
     const list = (visible || []).slice();
+    if (activeChip === "entry_zone") {
+      return sortEntryZoneTickers(list);
+    }
     list.sort((a, b) => {
       const ra = rankedTickerPositions?.get?.(a.ticker);
       const rb = rankedTickerPositions?.get?.(b.ticker);
@@ -4083,7 +4661,7 @@ function Viewport({
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return list;
-  }, [visible, rankedTickerPositions]);
+  }, [visible, rankedTickerPositions, activeChip]);
   useEffect(() => {
     if (!ensureSpark) return;
     ranked.slice(0, 60).forEach(t => ensureSpark(t.ticker));
@@ -4096,22 +4674,22 @@ function Viewport({
     window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
   };
   return h("aside", {
-    className: "vp-card",
+    className: lane ? "vp-lane-wrap" : "vp-card",
     "aria-label": "Ticker viewport"
-  }, h("div", {
+  }, !lane && h("div", {
     className: "vp-head"
   }, h("div", {
     className: "vp-title"
   }, "VIEWPORT"), h("div", {
     className: "vp-count"
   }, `${ranked.length} tickers`)), h("div", {
-    className: "vp-list",
-    style: {
-      flex: "1 1 auto"
-    }
+    className: lane ? "vp-lane" : "vp-list"
   }, ranked.length === 0 ? h("div", {
-    className: "vp-empty"
-  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, 60).map(t => {
+    className: "vp-empty",
+    style: lane ? {
+      minWidth: 280
+    } : undefined
+  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, lane ? 40 : 60).map(t => {
     const SYM = String(t.ticker || "").toUpperCase();
     return h(ViewportCard, {
       key: t.ticker,
@@ -4122,12 +4700,174 @@ function Viewport({
       isSaved: saved.has(SYM),
       onToggleSaved: toggleSaved
     });
-  })), ranked.length > 60 && h("div", {
-    className: "vp-empty",
+  })));
+}
+const LANE_CHIP_IDS = ["entry_zone", "open_positions", "market_pulse", "top_movers", "saved", "tt_selected", "all"];
+function LaneControls({
+  chips,
+  totalCount,
+  visibleCount,
+  filters,
+  setFilters
+}) {
+  const {
+    query,
+    activeChip
+  } = filters;
+  const setQ = v => setFilters(f => ({
+    ...f,
+    query: v
+  }));
+  const setChip = id => setFilters(f => ({
+    ...f,
+    activeChip: id,
+    addOns: new Set()
+  }));
+  const laneChips = LANE_CHIP_IDS.map(id => (chips || []).find(c => c.id === id)).filter(Boolean);
+  return h("div", {
+    className: "tt-lane-controls"
+  }, h("div", {
+    className: "ac-search"
+  }, h("span", {
+    className: "ac-search-icon"
+  }, "⌕"), h("input", {
+    type: "search",
+    placeholder: "Search ticker (e.g. NBIS, AAPL, GOOGL, MSFT)",
+    value: query,
+    onChange: e => setQ(e.target.value),
+    spellCheck: false,
+    autoComplete: "off",
+    "aria-label": "Search ticker symbol"
+  }), query && h("button", {
+    className: "ac-search-clear",
+    onClick: () => setQ("")
+  }, "clear")), h("div", {
     style: {
-      fontSize: 10
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 8,
+      flexWrap: "wrap"
     }
-  }, `Showing 60 of ${ranked.length} — narrow the filter to see more.`));
+  }, h("div", {
+    className: "tt-lane-chip-row"
+  }, laneChips.map(c => {
+    const isActive = activeChip === c.id;
+    return h("button", {
+      key: c.id,
+      className: `ac-chip${isActive ? " active" : ""}${c.id === "entry_zone" && isActive ? " pull" : ""}`,
+      onClick: () => setChip(c.id),
+      title: c.tooltip || c.label
+    }, c.label, c.count != null && h("span", {
+      className: "ac-count"
+    }, c.count));
+  })), h("span", {
+    className: "ac-meta",
+    style: {
+      fontSize: 11,
+      whiteSpace: "nowrap"
+    }
+  }, h("strong", null, visibleCount), " of ", h("strong", null, totalCount))));
+}
+function TickerLaneSection({
+  allTickers,
+  visible,
+  query,
+  data,
+  rankedTickers,
+  rankedTickerPositions,
+  sparkCache,
+  ensureSpark,
+  onSelectTicker,
+  filters,
+  setFilters,
+  tradeByTicker,
+  chips,
+  scoredCount,
+  embedded
+}) {
+  const body = h(React.Fragment, null, h("div", {
+    className: "tt-viewport-map-head"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "TECHNICAL SETUPS"), h("div", {
+    className: "tt-sec-h"
+  }, "Easy Search & Filter")), h(LaneControls, {
+    chips,
+    totalCount: scoredCount,
+    visibleCount: visible.length,
+    filters,
+    setFilters
+  }), h(Viewport, {
+    visible,
+    rankedTickerPositions,
+    query,
+    sparkCache,
+    ensureSpark,
+    onSelectTicker,
+    activeChip: filters?.activeChip,
+    layout: "lane"
+  }), h(BubbleMapGuide, null), h("div", {
+    className: "tt-bmap-head",
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "BUBBLE MAP"), h("div", {
+    className: "tt-sec-h"
+  }, "Where every ticker sits on momentum × trend")), h("div", {
+    className: "bm-legend"
+  }, h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#34d399"
+    }
+  }), "Bull mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f5c25c"
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#fb7185"
+    }
+  }), "Bear mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear aligned"))), h("div", {
+    className: "tt-bmap-block"
+  }, h(SharedBubbleMapSection, {
+    allTickers,
+    visible,
+    query,
+    data,
+    rankedTickers,
+    rankedTickerPositions,
+    onSelectTicker,
+    filters,
+    setFilters,
+    tradeByTicker,
+    embedded: true
+  })));
+  if (embedded) return h("div", {
+    className: "tt-lane-section"
+  }, body);
+  return h("section", {
+    className: "tt-row tt-lane-section"
+  }, body);
 }
 function BubbleMapGuide() {
   const storageKey = "tt-bubble-map-guide-dismissed";
@@ -4220,7 +4960,8 @@ function BubbleMapViewportSplit({
     query,
     sparkCache,
     ensureSpark,
-    onSelectTicker
+    onSelectTicker,
+    activeChip: filters?.activeChip
   }), h("div", {
     className: "bmv-bubble"
   }, h(SharedBubbleMapSection, {
@@ -4696,18 +5437,45 @@ function UniverseHeatmap({
   onSelectTicker
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [sortMode, setSortMode] = useState("htf");
+  const stageLabel = t => {
+    const stage = String(t?.kanban_stage || "").toLowerCase();
+    if (stage === "trim") return "Trim";
+    if (stage === "defend") return "Def";
+    if (stage === "exit") return "Exit";
+    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return "Enter";
+    if (stage === "hold" || stage === "active" || stage === "just_entered") return "Hold";
+    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return "Setup";
+    return stage ? stage.slice(0, 5) : "";
+  };
   const items = useMemo(() => {
     const arr = visible.slice();
     arr.sort((a, b) => {
-      const sa = Number(a?.htf_score);
-      const sb = Number(b?.htf_score);
-      const va = Number.isFinite(sa) ? sa : -999;
-      const vb = Number.isFinite(sb) ? sb : -999;
-      if (va !== vb) return vb - va;
+      if (sortMode === "day") {
+        const pa = Number(getDailyChange(a)?.dayPct);
+        const pb = Number(getDailyChange(b)?.dayPct);
+        const va = Number.isFinite(pa) ? pa : -999;
+        const vb = Number.isFinite(pb) ? pb : -999;
+        if (va !== vb) return vb - va;
+      } else if (sortMode === "rank") {
+        const ra = Number(a?.rank_position ?? a?.rp);
+        const rb = Number(b?.rank_position ?? b?.rp);
+        const hasA = Number.isFinite(ra) && ra > 0;
+        const hasB = Number.isFinite(rb) && rb > 0;
+        if (hasA && hasB && ra !== rb) return ra - rb;
+        if (hasA !== hasB) return hasA ? -1 : 1;
+      } else {
+        const sa = Number(a?.htf_score);
+        const sb = Number(b?.htf_score);
+        const va = Number.isFinite(sa) ? sa : -999;
+        const vb = Number.isFinite(sb) ? sb : -999;
+        if (va !== vb) return vb - va;
+      }
       return String(a.ticker).localeCompare(String(b.ticker));
     });
     return arr;
-  }, [visible]);
+  }, [visible, sortMode]);
+  const sortSubtitle = sortMode === "day" ? "Sorted by today's move" : sortMode === "rank" ? "Sorted by universe rank (best first)" : "Sorted by HTF score";
   if (items.length === 0) {
     return h("section", {
       className: "tt-row"
@@ -4715,7 +5483,7 @@ function UniverseHeatmap({
       className: "tt-sec-title"
     }, "HEAT MAP"), h("div", {
       className: "tt-sec-h"
-    }, "Ranked by today’s score"), h("div", {
+    }, sortSubtitle), h("div", {
       className: "tt-card tt-card-pad",
       style: {
         textAlign: "center",
@@ -4742,21 +5510,44 @@ function UniverseHeatmap({
     className: "tt-sec-title"
   }, "HEAT MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Ranked by today’s score")), h("div", {
+  }, sortSubtitle)), h("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      alignItems: "center",
+      flexWrap: "wrap"
+    }
+  }, ["htf", "day", "rank"].map(mode => h("button", {
+    key: mode,
+    type: "button",
+    className: `heat-sort-btn${sortMode === mode ? " is-active" : ""}`,
+    onClick: () => setSortMode(mode)
+  }, mode === "htf" ? "HTF" : mode === "day" ? "Day %" : "Rank")))), h("div", {
     style: {
       display: "flex",
       gap: 8,
       alignItems: "center",
       fontSize: 11,
-      color: "var(--tt-text-dim)"
+      color: "var(--tt-text-dim)",
+      marginBottom: 10,
+      flexWrap: "wrap"
+    }
+  }, h("span", null, "Border = trend state"), Object.entries(STATE_BUCKET_COLOR).slice(0, 4).map(([key, color]) => h("span", {
+    key,
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4
     }
   }, h("span", {
-    className: "tt-pill up"
-  }, "Strong"), h("span", {
-    className: "tt-pill accent"
-  }, "Mid"), h("span", {
-    className: "tt-pill dn"
-  }, "Weak"))), h("div", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: color,
+      display: "inline-block"
+    }
+  }), key.replace(/_/g, " ")))), h("div", {
     className: "tt-card tt-card-pad"
   }, h("div", {
     className: "heat-grid"
@@ -4765,11 +5556,17 @@ function UniverseHeatmap({
     const dc = getDailyChange(t);
     const pct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
     const score = Number(t?.htf_score) || 0;
+    const ltf = Number(t?.ltf_score) || 0;
+    const rank = Number(t?.rank_position ?? t?.rp);
+    const bucket = classifyStateBucket(t?.state);
+    const bucketColor = STATE_BUCKET_COLOR[bucket] || STATE_BUCKET_COLOR.neutral;
+    const stage = stageLabel(t);
     const lvl = score >= 20 ? "lvl-strong" : score <= -15 ? "lvl-weak" : Math.abs(score) >= 5 ? "lvl-mid" : "";
     const pdir = !Number.isFinite(pct) ? "flat" : Math.abs(pct) < 0.05 ? "flat" : pct > 0 ? "up" : "dn";
     const side = pdir === "flat" ? "flat" : pdir;
     const isMatch = q.length > 0 && sym.startsWith(q);
     const isDim = q.length > 0 && !isMatch;
+    const tip = [sym, pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}% today` : "no day change", `HTF ${score.toFixed(1)} · LTF ${ltf.toFixed(1)}`, t?.state ? String(t.state).replace(/_/g, " ") : "", stage ? `Stage: ${stage}` : "", Number.isFinite(rank) && rank > 0 ? `Rank #${rank}` : ""].filter(Boolean).join(" · ");
     return h("a", {
       key: sym,
       className: `heat-cell ${lvl}`,
@@ -4780,12 +5577,13 @@ function UniverseHeatmap({
           onSelectTicker(sym);
         }
       },
-      title: `${sym} · ${pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : "no change"} · HTF ${score.toFixed(1)} · LTF ${(Number(t?.ltf_score) || 0).toFixed(1)} · ${t?.state || ""}`,
+      title: tip,
       "data-side": side,
       style: {
         opacity: isDim ? 0.28 : 1,
         transition: "opacity 0.15s",
         "--heat-pct": pct != null ? pct : 0,
+        borderColor: bucketColor,
         ...(isMatch ? {
           outline: "1px solid #fff",
           outlineOffset: "-1px"
@@ -4809,7 +5607,20 @@ function UniverseHeatmap({
       className: "sym"
     }, sym)), h("span", {
       className: `pct ${pdir}`
-    }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"));
+    }, pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(1) + "%" : "—"), h("div", {
+      className: "heat-cell__foot"
+    }, h("div", {
+      className: "heat-cell__meta"
+    }, stage && h("span", {
+      className: "heat-cell__chip heat-cell__chip--stage",
+      title: "Kanban stage"
+    }, stage), Number.isFinite(rank) && rank > 0 && h("span", {
+      className: "heat-cell__chip heat-cell__chip--rank",
+      title: "Universe rank"
+    }, `R${rank}`)), h("span", {
+      className: "heat-cell__score",
+      title: "HTF score"
+    }, score.toFixed(0))));
   })), items.length > cap && h("div", {
     style: {
       textAlign: "center",
@@ -4903,11 +5714,16 @@ function TodayApp({
   const [error, setError] = useState(null);
   const [filters, setFilters] = useState({
     query: "",
-    activeChip: "focus",
+    activeChip: "entry_zone",
     addOns: new Set()
   });
   const _liveHooks = window.TimedLiveData;
-  if (_liveHooks?.usePriceFeed) _liveHooks.usePriceFeed(data, setData);
+  if (_liveHooks?.usePriceFeed) {
+    const mktOpen = isNyRegularMarketOpen();
+    _liveHooks.usePriceFeed(data, setData, {
+      firstPollMs: mktOpen ? 2500 : 0
+    });
+  }
   if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
   if (_liveHooks?.useTickerRefresh) _liveHooks.useTickerRefresh(data, setData);
   useEffect(() => {
@@ -4965,6 +5781,14 @@ function TodayApp({
     const t = setTimeout(scrollToOpp, 600);
     return () => clearTimeout(t);
   }, [data]);
+  const earningsMap = useMemo(() => buildEarningsMap(earnings?.events), [earnings]);
+  useEffect(() => {
+    window._ttEarningsMap = earningsMap;
+    return () => {
+      if (window._ttEarningsMap === earningsMap) window._ttEarningsMap = null;
+    };
+  }, [earningsMap]);
+  const universeSet = useMemo(() => data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : new Set(), [data]);
   const isAdmin = !!window._ttIsAdmin;
   const tradeByTicker = useOpenTrades(!!data);
   const {
@@ -5032,13 +5856,18 @@ function TodayApp({
     const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
     if (found) return found;
     if (data && typeof data === "object" && data[key]) {
-      return data[key].ticker ? data[key] : {
+      const row = data[key].ticker ? data[key] : {
         ...data[key],
         ticker: key
       };
+      return isTickerScoredInUniverse(data, key) ? row : {
+        ...row,
+        _outsideUniverse: true
+      };
     }
     return {
-      ticker: key
+      ticker: key,
+      _outsideUniverse: true
     };
   }, [railTicker, allTickers, data]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
@@ -5055,7 +5884,10 @@ function TodayApp({
   const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
     const ticker = String(sym).toUpperCase();
-    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    let tab = initialTab ? String(initialTab).toUpperCase() : null;
+    if (!isTickerScoredInUniverse(data, ticker)) {
+      if (!tab || tab === "SNAPSHOT" || tab === "NOW" || tab === "ANALYSIS") tab = "CATALYSTS";
+    }
     if (typeof window.ttOpenTickerInRail === "function") {
       window.ttOpenTickerInRail({
         ticker,
@@ -5065,8 +5897,8 @@ function TodayApp({
       return;
     }
     setRailTicker(ticker);
-    if (tab) setRailInitialTab(tab);else setRailInitialTab(null);
-  }, []);
+    setRailInitialTab(tab);
+  }, [data]);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
     const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
@@ -5112,45 +5944,53 @@ function TodayApp({
     className: "tt-loadbar",
     role: "progressbar",
     "aria-label": "Loading today's data"
-  }), h("main", null, h(StatusHeader, {
+  }), h("main", null, h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
+    earnings,
+    data,
+    onSelectTicker,
+    strip: true,
+    universe: universeSet
+  }), h(StatusHeader, {
     cal,
     briefDate: brief?.date,
     brief,
     briefSlot,
     data
   }), h(TodayHero, {
-    brief,
-    briefSlot,
-    data,
-    earnings,
-    onSelectTicker,
-    cal
-  }), h(OpenPositionsPreview, {
     onSelectTicker,
     allTickers
-  }), h(GrowthIdeasStrip, {
-    onSelectTicker,
-    user
-  }), data ? h(MarketState, {
+  }), data ? h(MarketPulseWithMovers, {
     data,
     onSelectTicker
-  }) : h(MarketStateSkeleton, null), brief && h(MacroStrip, {
-    brief,
-    data
-  }), h(MacroEventsStrip, null), earnings && h(EarningsStrip, {
-    earnings,
+  }) : h(MarketStateSkeleton, null), h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-card tt-universe-panel"
+  }, h(GrowthIdeasStrip, {
     onSelectTicker,
-    strip: true,
-    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), data && h(FocusRail, {
+    user,
+    embedded: true
+  }), h("div", {
+    className: "tt-universe-panel__divider"
+  }), data ? h(TickerLaneSection, {
+    allTickers,
+    visible,
+    query: filters.query,
     data,
-    onSelectTicker
-  }), data && h(TopMovers, {
-    data,
+    rankedTickers,
+    rankedTickerPositions,
+    sparkCache,
+    ensureSpark,
     onSelectTicker,
-    strip: true,
-    universe: data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : null
-  }), marketSession.showDayTradeSections && h(Disclosure, {
+    filters,
+    setFilters,
+    tradeByTicker,
+    chips,
+    scoredCount,
+    embedded: true
+  }) : h("div", {
+    className: "tt-lane-section"
+  }, h(BubbleViewportSkeleton, null)))), marketSession.showDayTradeSections && h(Disclosure, {
     id: "daytrade",
     title: "Day-Trade Game Plan",
     sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade"
@@ -5163,26 +6003,7 @@ function TodayApp({
   }, h(OptionsPlaysOfTheDay, {
     onSelectTicker,
     layout: "row"
-  })), data ? h(AnalysisControls, {
-    chips,
-    totalCount: scoredCount,
-    visibleCount: visible.length,
-    filters,
-    setFilters
-  }) : h(AnalysisControlsSkeleton, null), data ? h(BubbleMapViewportSplit, {
-    allTickers,
-    visible,
-    query: filters.query,
-    data,
-    rankedTickers,
-    rankedTickerPositions,
-    sparkCache,
-    ensureSpark,
-    onSelectTicker,
-    filters,
-    setFilters,
-    tradeByTicker
-  }) : h(BubbleViewportSkeleton, null), data && h(Disclosure, {
+  })), data && h(Disclosure, {
     id: "heatmap",
     title: "Universe Heat Map",
     sub: "HTF-scored grid of the full universe"
@@ -5194,6 +6015,7 @@ function TodayApp({
     ticker: railTickerObj,
     trade: railTickerObj._openTrade || null,
     allLoadedData: data,
+    earningsMap,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
     railOpenSource,
@@ -5312,7 +6134,7 @@ function BriefPlaceholder({
   let signalMode = useExt ? "ext" : "rth";
   let signal = useExt ? arr.filter(t => !CRYPTO.has(String(t.ticker).toUpperCase())).map(t => ({
     t,
-    pct: Number(t?._ah_change_pct ?? t?.extended_percent_change)
+    pct: getExtMoverPct(t)
   })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) >= 0.1).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3) : arr.map(t => {
     const dc = getDailyChange(t);
     return {
@@ -5574,6 +6396,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293

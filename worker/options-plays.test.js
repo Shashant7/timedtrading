@@ -29,6 +29,8 @@ import {
   optionsPlayEmailHtml,
   buildOptionsLadder,
   buildDayTradePlay,
+  explainDayTradeSuppression,
+  summarizeDayTradeGamePlan,
   pickExpirationForProfile,
   pickDayTradeExpiration,
   validateDayTradePlay,
@@ -39,6 +41,12 @@ import {
   shouldAllowIndexDirectional,
   buildOptionsSetupGuidance,
   buildOptionsModelDisposition,
+  contractToLadderInput,
+  resolveLadderSpotPrice,
+  pickExitTargetPrice,
+  pickSpreadShortStrikePrice,
+  refineStrikeWithModelLevels,
+  buildOptionsModelReconciliation,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -552,6 +560,51 @@ describe("index ETF profile alignment", () => {
   });
 });
 
+describe("explainDayTradeSuppression", () => {
+  it("labels low-conviction day lean separately from generic low-vol WAIT", () => {
+    const lowLean = explainDayTradeSuppression({
+      ticker: "QQQ",
+      price: 520,
+      direction: "LONG",
+      dayLean: "SHORT",
+      dayLeanConviction: "low",
+      atrPct: 0.011,
+      verdict: { mode: "WAIT", side: "LONG" },
+      profile: "speculator",
+    });
+    expect(lowLean.reason).toBe("day_lean_low_conviction");
+    expect(lowLean.day_lean).toBe("SHORT");
+
+    const lowVol = explainDayTradeSuppression({
+      ticker: "QQQ",
+      price: 520,
+      direction: "LONG",
+      atrPct: 0.011,
+      verdict: { mode: "WAIT", side: "NEUTRAL" },
+      profile: "speculator",
+    });
+    expect(lowVol.reason).toBe("no_directional_signal_low_vol");
+  });
+});
+
+describe("summarizeDayTradeGamePlan", () => {
+  it("normalizes snake_case and camelCase game plan fields", () => {
+    const out = summarizeDayTradeGamePlan({
+      lean: "SHORT",
+      leanConviction: "high",
+      bearTrigger: 732.5,
+      bearTarget: 728.0,
+      bullTrigger: 736.0,
+      bullTarget: 740.0,
+    });
+    expect(out.lean).toBe("SHORT");
+    expect(out.lean_conviction).toBe("high");
+    expect(out.bear_trigger).toBe(732.5);
+    expect(out.bear_target).toBe(728);
+    expect(out.bull_target).toBe(740);
+  });
+});
+
 describe("shouldAllowIndexDirectional — compression call timing", () => {
   it("allows LONG call when timing overlay fires on WAIT split", () => {
     const align = shouldAllowIndexDirectional({
@@ -773,5 +826,245 @@ describe("optionsPlayEmailHtml — live-exit projection", () => {
     expect(html).toMatch(/If TP hit/);
     expect(html).toMatch(/-\$518/);
     expect(html).toMatch(/TP below breakeven/);
+  });
+});
+
+describe("contractToLadderInput — prediction contract alignment", () => {
+  const traderContract = {
+    ticker: "CVNA",
+    direction: "SHORT",
+    stage: "swing",
+    setup_tier: "A",
+    setup_tier_risk_pct: 0.01,
+    risk: {
+      stop_loss: 420.5,
+      stop_loss_raw: 380.0,
+      stop_loss_corrected: true,
+      rr: 2.4,
+    },
+    targets: [
+      { label: "Trim", price: 350.0 },
+      { label: "Exit", price: 320.0 },
+      { label: "Runner", price: 280.0 },
+    ],
+    invalidation: ["Close above $420.50 (stop)"],
+    levels: [{ price: 415, label: "Recent Swing High", weight: 9 }],
+  };
+  const rawSnapshot = {
+    ticker: "CVNA",
+    price: 360,
+    sl: 380,
+    tp_trim: 340,
+    tp_exit: 310,
+    tp_runner: 270,
+    direction: "SHORT",
+  };
+
+  it("maps corrected stop_loss and targets[], not raw snapshot sl/tp", () => {
+    const input = contractToLadderInput(traderContract, rawSnapshot, { ticker: "CVNA" });
+    expect(input.sl).toBe(420.5);
+    expect(input.tp1).toBe(350.0);
+    expect(input.tp2).toBe(320.0);
+    expect(input.tp3).toBe(280.0);
+    expect(input.rr).toBe(2.4);
+    expect(input.tier).toBe("A");
+    expect(input.riskPct).toBe(0.01);
+    expect(input.invalidation).toContain("Close above $420.50 (stop)");
+    expect(input.levels.length).toBe(1);
+  });
+
+  it("prefers live KV spot over snapshot price", () => {
+    const input = contractToLadderInput(traderContract, rawSnapshot, {
+      ticker: "CVNA",
+      pricesMap: { CVNA: { p: 358.25 } },
+      marketOpen: true,
+    });
+    expect(input.price).toBe(358.25);
+    expect(input.price_source).toBe("live_kv");
+  });
+
+  it("investor mode uses thesis invalidation + derived targets", () => {
+    const input = contractToLadderInput(
+      { ticker: "CRS", mode: "investor", direction: "LONG", targets: [], risk: { stop_loss: null } },
+      { ticker: "CRS", price: 100 },
+      {
+        ticker: "CRS",
+        mode: "investor",
+        investorData: { thesisInvalidationPrice: 88, price: 100 },
+      },
+    );
+    expect(input.sl).toBe(88);
+    expect(input.tp1).toBeGreaterThan(100);
+    expect(input.tp2).toBeGreaterThan(input.tp1);
+    expect(input.direction).toBe("LONG");
+    expect(input.stage).toBe("investor");
+  });
+});
+
+describe("pickExitTargetPrice / spread anchor", () => {
+  it("prefers Exit (tp2) over Trim for long P&L projection", () => {
+    const ctx = { price: 540, direction: "LONG", tp1: 560, tp2: 580 };
+    expect(pickExitTargetPrice(ctx)).toBe(580);
+    expect(pickSpreadShortStrikePrice(ctx)).toBe(580);
+  });
+
+  it("falls back to Trim when Exit missing", () => {
+    const ctx = { price: 540, direction: "LONG", tp1: 560 };
+    expect(pickExitTargetPrice(ctx)).toBe(560);
+  });
+});
+
+describe("refineStrikeWithModelLevels", () => {
+  it("snaps delta strike to nearest model level within tolerance", () => {
+    const refined = refineStrikeWithModelLevels(512.4, [
+      { price: 510, weight: 9 },
+      { price: 540, weight: 7 },
+    ]);
+    expect(refined).toBe(510);
+  });
+});
+
+describe("buildOptionsLadder — index timing wiring", () => {
+  it("allows SPY long call on compression timing override despite WAIT", () => {
+    const ladder = buildOptionsLadder(
+      { ...SPY_CONTRACT, ticker: "SPY" },
+      {
+        profile: "speculator",
+        confluence: {
+          mode: "WAIT",
+          side: "SHORT",
+          score: 18,
+          timing: { call_opportunity: true, long_opportunity: true },
+          supertrend_trigger: { freshness: "fresh", side: "LONG" },
+        },
+      },
+    );
+    expect(ladder.primary).not.toBeNull();
+    expect(ladder.direction_alignment?.timing_override).toBe(true);
+    expect(["long_call", "moonshot_call"].includes(ladder.primary?.archetype)).toBe(true);
+  });
+
+  it("uses Exit target for vertical spread short leg when tp2 present", () => {
+    const ladder = buildOptionsLadder(
+      {
+        ticker: "AAPL",
+        price: 200,
+        direction: "LONG",
+        sl: 190,
+        tp1: 210,
+        tp2: 220,
+        stage: "swing",
+        atr_pct: 0.025,
+        mode: "trader",
+      },
+      {
+        profile: "aggressive",
+        confluence: { mode: "DRIFT", side: "LONG", score: 55, supertrend_trigger: { freshness: "in_motion", side: "LONG" } },
+      },
+    );
+    const spread = (ladder.ladder || []).find((p) => p.archetype === "vertical_spread");
+    expect(spread).toBeTruthy();
+    expect(spread.strikes?.short).toBeGreaterThan(spread.strikes?.long || 0);
+    expect(spread.rationale).toMatch(/220/);
+  });
+
+  it("echoes model_reconciliation with model levels", () => {
+    const ladder = buildOptionsLadder(
+      { ...SPY_CONTRACT, tp1: 560, tp2: 580, sl: 530, price_source: "live_kv" },
+      {
+        profile: "speculator",
+        confluence: { mode: "RIDE", side: "LONG", score: 72, supertrend_trigger: { freshness: "fresh", side: "LONG" } },
+      },
+    );
+    expect(ladder.model_reconciliation?.model_levels?.stop).toBe(530);
+    expect(ladder.model_reconciliation?.model_levels?.exit).toBe(580);
+    expect(ladder.contract?.tp2).toBe(580);
+  });
+});
+
+describe("buildOptionsModelReconciliation", () => {
+  it("documents signal split between contract and layers", () => {
+    const recon = buildOptionsModelReconciliation({
+      contractDirection: "LONG",
+      confluenceSide: "SHORT",
+      effectiveDirection: "SHORT",
+      directionFlipped: true,
+      contract: { sl: 530, tp1: 560, tp2: 580, price: 540, price_source: "live_kv" },
+    });
+    expect(recon.signal_split).toBe(true);
+    expect(recon.lines.join(" ")).toMatch(/FADE|SHORT|LONG/);
+    expect(recon.model_levels.exit).toBe(580);
+  });
+});
+
+describe("buildOptionsLadder — profile differentiation + timing on singles", () => {
+  const TNA_WAIT = {
+    ticker: "TNA",
+    price: 40,
+    direction: "",
+    sl: 38,
+    tp1: 44,
+    stage: "swing",
+    atr_pct: 0.05,
+    mode: "trader",
+  };
+
+  it("Conservative headlines stock on WAIT high-vol while Speculator keeps straddle", () => {
+    const confluence = { mode: "WAIT", side: "NEUTRAL", score: 22 };
+    const conservative = buildOptionsLadder(TNA_WAIT, { profile: "conservative", confluence });
+    const moderate = buildOptionsLadder(TNA_WAIT, { profile: "moderate", confluence });
+    const aggressive = buildOptionsLadder(TNA_WAIT, { profile: "aggressive", confluence });
+    const speculator = buildOptionsLadder(TNA_WAIT, { profile: "speculator", confluence });
+    expect(conservative.primary?.archetype).toBe("stock_long");
+    expect(moderate.primary?.archetype).toBe("long_call");
+    expect(aggressive.primary?.archetype).toBe("long_call");
+    expect(speculator.primary?.archetype).toBe("long_straddle");
+    expect(new Set([
+      conservative.primary?.archetype,
+      moderate.primary?.archetype,
+      aggressive.primary?.archetype,
+      speculator.primary?.archetype,
+    ]).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("allows NFLX long call on compression timing override despite WAIT", () => {
+    const ladder = buildOptionsLadder(
+      {
+        ticker: "NFLX",
+        price: 73.54,
+        direction: "SHORT",
+        sl: 76.85,
+        tp1: 69.94,
+        stage: "swing",
+        atr_pct: 0.03,
+        mode: "trader",
+      },
+      {
+        profile: "speculator",
+        confluence: {
+          mode: "WAIT",
+          side: "NEUTRAL",
+          score: 30,
+          timing: { call_opportunity: true, add_on_dips: true, compression_score: 58 },
+        },
+      },
+    );
+    expect(ladder.primary?.archetype).toMatch(/long_call|moonshot_call|leap_call/);
+    expect(ladder.primary?.rationale || "").not.toMatch(/Stop \$76\.85.*target \$69\.94/i);
+  });
+
+  it("compression call timing fires on SHORT contract when add_on_dips is set", () => {
+    const align = shouldAllowIndexDirectional({
+      verdictMode: "WAIT",
+      verdictSide: "NEUTRAL",
+      direction: "SHORT",
+      effectiveDirection: "SHORT",
+      confluence: {
+        timing: { call_opportunity: true, add_on_dips: true, compression_score: 58 },
+      },
+    });
+    expect(align.allow).toBe(true);
+    expect(align.timing_override).toBe(true);
+    expect(align.side).toBe("LONG");
   });
 });

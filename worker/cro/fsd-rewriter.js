@@ -28,6 +28,15 @@
 //  run yet (cold pubs, LLM failure, etc.).
 
 import { loadPublicationText } from "./fsd-ingestion.js";
+import {
+  MEMORY_THEME_TICKERS,
+  buildSpxIndexContextBlock,
+  loadCTOLineForTicker,
+  memoryThemeHeaderLine,
+  publicationMentionsMemoryStocks,
+  publicationMentionsSpx,
+  tickersIncludeMemoryTheme,
+} from "./fsd-model-context.js";
 
 const REWRITES_TABLE = "cro_publication_rewrites";
 const PUBLICATION_TICKERS_TABLE = "cro_publication_tickers";
@@ -90,49 +99,57 @@ async function loadTickerModelContext(env, sym, snap) {
   const S = String(sym || "").toUpperCase();
   if (!S) return null;
   let t = snap?.data?.[S] || null;
-  if (t) return summarizeTickerForPrompt(S, t);
+  let summary = null;
+  if (t) summary = summarizeTickerForPrompt(S, t);
   // Fallback: ticker_latest / timed:latest (same payload the right rail uses).
-  try {
-    if (env?.DB) {
-      const row = await env.DB.prepare(
-        `SELECT payload_json FROM ticker_latest WHERE ticker = ?1`,
-      ).bind(S).first();
-      if (row?.payload_json) {
-        t = JSON.parse(String(row.payload_json));
-        const summary = summarizeTickerForPrompt(S, t);
-        if (summary) return summary;
+  if (!summary) {
+    try {
+      if (env?.DB) {
+        const row = await env.DB.prepare(
+          `SELECT payload_json FROM ticker_latest WHERE ticker = ?1`,
+        ).bind(S).first();
+        if (row?.payload_json) {
+          t = JSON.parse(String(row.payload_json));
+          summary = summarizeTickerForPrompt(S, t);
+        }
       }
-    }
-  } catch (_) {}
-  try {
-    const raw = await env?.KV?.get(`timed:latest:${S}`);
-    if (raw) {
-      t = JSON.parse(raw);
-      const summary = summarizeTickerForPrompt(S, t);
-      if (summary && !summary.endsWith(`${S}:`)) return summary;
-    }
-  } catch (_) {}
-  try {
-    const pricesRaw = await env?.KV?.get("timed:prices");
-    if (pricesRaw) {
-      const prices = JSON.parse(pricesRaw);
-      const p = prices?.[S];
-      if (p && Number.isFinite(Number(p.p ?? p.price))) {
-        const px = Number(p.p ?? p.price);
-        const dc = Number(p.dc ?? p.day_change);
-        const dp = Number(p.dp ?? p.day_change_pct);
-        const parts = [`${S}:`, `px=$${px.toFixed(2)}`];
-        if (Number.isFinite(dp)) parts.push(`day=${dp.toFixed(2)}%`);
-        else if (Number.isFinite(dc) && px > 0) parts.push(`day=${((dc / px) * 100).toFixed(2)}%`);
-        parts.push("(live price — full desk snapshot syncing)");
-        return parts.join(" ");
+    } catch (_) {}
+  }
+  if (!summary) {
+    try {
+      const raw = await env?.KV?.get(`timed:latest:${S}`);
+      if (raw) {
+        t = JSON.parse(raw);
+        summary = summarizeTickerForPrompt(S, t);
       }
-    }
-  } catch (_) {}
-  return null;
+    } catch (_) {}
+  }
+  if (!summary) {
+    try {
+      const pricesRaw = await env?.KV?.get("timed:prices");
+      if (pricesRaw) {
+        const prices = JSON.parse(pricesRaw);
+        const p = prices?.[S];
+        if (p && Number.isFinite(Number(p.p ?? p.price))) {
+          const px = Number(p.p ?? p.price);
+          const dc = Number(p.dc ?? p.day_change);
+          const dp = Number(p.dp ?? p.day_change_pct);
+          const parts = [`${S}:`, `px=$${px.toFixed(2)}`];
+          if (Number.isFinite(dp)) parts.push(`day=${dp.toFixed(2)}%`);
+          else if (Number.isFinite(dc) && px > 0) parts.push(`day=${((dc / px) * 100).toFixed(2)}%`);
+          parts.push("(live price — full desk snapshot syncing)");
+          summary = parts.join(" ");
+        }
+      }
+    } catch (_) {}
+  }
+  const ctoLine = await loadCTOLineForTicker(env, S);
+  if (summary && ctoLine) return `${summary}\n  ${ctoLine}`;
+  if (ctoLine) return ctoLine;
+  return summary;
 }
 
-async function loadModelContextForTickers(env, tickers, { focusTicker = null } = {}) {
+async function loadModelContextForTickers(env, tickers, { focusTicker = null, sourceText = null } = {}) {
   const ordered = [];
   const seen = new Set();
   const focus = String(focusTicker || "").toUpperCase();
@@ -143,10 +160,43 @@ async function loadModelContextForTickers(env, tickers, { focusTicker = null } =
     seen.add(S);
     ordered.push(S);
   }
-  if (ordered.length === 0) return "(no tickers extracted from publication)";
+
+  const srcBlob = String(sourceText || "");
+  const wantsMemory = tickersIncludeMemoryTheme(ordered) || publicationMentionsMemoryStocks(srcBlob);
+  if (wantsMemory) {
+    for (const m of MEMORY_THEME_TICKERS) {
+      if (!seen.has(m)) {
+        seen.add(m);
+        ordered.push(m);
+      }
+    }
+  }
+
+  const mentionsSpx = publicationMentionsSpx(srcBlob)
+    || ordered.some((s) => ["SPX", "SPX500", "US500"].includes(s));
+  if (mentionsSpx && !seen.has("SPY")) {
+    seen.add("SPY");
+    ordered.unshift("SPY");
+  }
+
+  if (ordered.length === 0 && !mentionsSpx) return "(no tickers extracted from publication)";
+
   const snap = await loadAllSnapshot(env);
   const lines = [];
-  for (const sym of ordered.slice(0, 4)) {
+
+  if (wantsMemory) lines.push(memoryThemeHeaderLine());
+
+  if (mentionsSpx) {
+    const spyLine = await loadTickerModelContext(env, "SPY", snap);
+    const spyCto = await loadCTOLineForTicker(env, "SPY");
+    lines.push(await buildSpxIndexContextBlock(env, {
+      spyScoringLine: spyLine,
+      spyCtoLine: spyCto,
+    }));
+  }
+
+  for (const sym of ordered.slice(0, 6)) {
+    if (mentionsSpx && sym === "SPY" && lines.some((l) => l.includes("SPY (tradeable proxy)"))) continue;
     const summary = await loadTickerModelContext(env, sym, snap);
     if (summary) lines.push(summary);
     else lines.push(`${sym}: (limited model data — treat source levels as primary until desk snapshot refreshes)`);
@@ -197,6 +247,8 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext
       "• When the model DISAGREES (e.g. source long but our regime BEAR_TREND, or source level below our stop), surface the conflict honestly: 'Source sees support at X; our model has us watching <our trigger> instead — the two disagree by Y%.'",
       "• When TT MODEL CONTEXT includes price/regime/score for a ticker, that ticker IS on the desk — blend source + model. Never claim a ticker is 'not in our active universe' when context lines exist for it.",
       "• Only when context explicitly says 'limited model data' for a ticker, present the source view and note the desk snapshot is still syncing.",
+      "• MEMORY STOCKS (MU, WDC, STX, SNDK, HIMX): the desk tracks these under ai_infra_memory with scoring + CTO magnets. When CTO or price lines exist, cite them as actionable levels. Never write that the model lacks memory-stock levels.",
+      "• SPX / US500 (cash index): TT has no SPX feed — desk tracks SPY (+ ES). When the SPX/SPY block shows a live ratio, convert source ^SPX levels to SPY in tt_key_points (SPY ≈ SPX ÷ ratio). Never use fixed 10:1 math; ratio drifts with dividends/expense. Blend against SPY model context.",
       "• The result must be MORE VALUABLE than either input alone. Users pay for the synthesis, not the relay.",
       "",
       "ABSOLUTE CONSTRAINTS:",
@@ -323,7 +375,10 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
   // (no parallel KV layout, no duplicate fetches). Reads
   // `timed:all:snapshot.data[SYM]` for each tagged ticker on the pub.
   const taggedTickers = await loadTickersForPub(env, pubId);
-  const modelContext = await loadModelContextForTickers(env, taggedTickers, { focusTicker });
+  const modelContext = await loadModelContextForTickers(env, taggedTickers, {
+    focusTicker,
+    sourceText: text.text_full,
+  });
   const { system, user } = buildRewritePrompt(
     text.text_full,
     meta?.title || "",

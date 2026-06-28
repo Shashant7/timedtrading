@@ -299,7 +299,7 @@ function computeExtensionSide(tickerData, confluence, warnings) {
   const vx = vixLevel(tickerData);
   if (vx != null && vx >= 22) { score += 8; signals.push(`VIX elevated (${vx.toFixed(1)})`); }
   if (vx != null && vx >= 28) { score += 10; signals.push(`VIX risk-off (${vx.toFixed(1)})`); }
-  if (fsdRiskOffHint(tickerData)) { score += 8; signals.push("FSD / macro risk-off context"); }
+  if (fsdRiskOffHint(tickerData)) { score += 8; signals.push("Macro risk-off context"); }
   if (tickerData?.mean_revert_td9?.active && String(tickerData.mean_revert_td9.side || "").toUpperCase() !== "LONG") {
     score += 16;
     signals.push("Mean-revert TD9 aligned (short)");
@@ -351,7 +351,7 @@ function computeCompressionSide(tickerData, confluence, compressions) {
   if (markovBullish(tickerData)) { score += 14; signals.push("Markov 1d bullish"); }
   const vx = vixLevel(tickerData);
   if (vx != null && vx >= 25) { score += 8; signals.push(`VIX spike capitulation (${vx.toFixed(1)})`); }
-  if (fsdRiskOnHint(tickerData)) { score += 8; signals.push("FSD / macro risk-on context"); }
+  if (fsdRiskOnHint(tickerData)) { score += 8; signals.push("Macro risk-on context"); }
   if (tickerData?.mean_revert_td9?.active && String(tickerData.mean_revert_td9.side || "").toUpperCase() === "LONG") {
     score += 16;
     signals.push("Mean-revert TD9 aligned (long)");
@@ -407,9 +407,20 @@ export function computeTimingOverlay(tickerData, confluence = null) {
   const dominantSignals = bias === "COMPRESSION" ? comp.signals : ext.signals;
   const vx = vixLevel(tickerData);
 
+  const weeklyBearStSloping = (() => {
+    const tfW = tickerData?.tf_tech?.W;
+    if (!tfW) return false;
+    const dir = Number(tfW.stDir);
+    const slope = Number(tfW.stSlope);
+    return Number.isFinite(dir) && dir > 0 && slope === -1;
+  })();
+
   const flash_headline = (() => {
     if (bias === "COMPRESSION") {
       if (comp.posture === "RALLY_WATCH") {
+        if (weeklyBearStSloping) {
+          return `Compression bounce watch at support — weekly ST bearish & sloping down (${compressions.length} capitulation signals). Fade rips; add only on defined dips.`;
+        }
         return `Compression rally watch — add on dips, fade selloffs (${compressions.length} capitulation signals)`;
       }
       if (comp.posture === "RISK_ON_BUY") {

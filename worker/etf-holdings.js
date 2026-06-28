@@ -26,6 +26,11 @@ const KV_PREFIX_HOLDINGS = "timed:etf:holdings:";
 const KV_GROUPS = "timed:etf:groups";
 const KV_WEIGHT_MAP = "timed:etf:weight-map";
 const KV_SYNC_META = "timed:etf:sync-meta";
+// 2026-06-28 — tickers Fundstrat REMOVED from the GRNY/GRNJ/GRNI union, keyed
+// ticker → removal epoch-ms. The investor lane reads this as a "FSD exited the
+// thesis → time to exit" signal. Pruned to the last 90 days on each sync.
+const KV_REMOVED = "timed:etf:removed";
+const FSD_REMOVED_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 
 // ═══════════════════════════════════════════════════════════════════════
 // HTML Parser — extracts holdings table from grannyshots.com pages
@@ -260,6 +265,10 @@ export async function syncAllETFHoldings(env, opts = {}) {
   const allGroups = {};
   const weightMap = {};
   const rebalanceEmbeds = [];
+  // Union of holdings BEFORE this sync — used to detect names dropped from the
+  // whole FSD complex (removed from every fund), which is the investor exit
+  // signal (distinct from a single-fund reweight).
+  const prevUnion = new Set();
 
   for (const symbol of Object.keys(ETF_SOURCES)) {
     console.log(`[ETF SYNC] Fetching ${symbol}...`);
@@ -274,6 +283,10 @@ export async function syncAllETFHoldings(env, opts = {}) {
     // Load previous holdings for diff
     const prevHoldings = await kvGetJSON(KV, `${KV_PREFIX_HOLDINGS}${symbol}`);
     const prevTickers = (prevHoldings?.holdings || []);
+    for (const h of prevTickers) {
+      const tk = String(h?.ticker || "").toUpperCase();
+      if (tk) prevUnion.add(tk);
+    }
 
     // Diff for rebalance detection
     const diff = diffHoldings(prevTickers, result.holdings);
@@ -335,6 +348,29 @@ export async function syncAllETFHoldings(env, opts = {}) {
     for (const t of tickers) allETFTickers.add(t);
   }
 
+  // ── FSD-removal signal (2026-06-28) ──────────────────────────────────────
+  // Names in the prior union but absent from the new union = Fundstrat dropped
+  // them from every fund. Persist ticker → removal-ts so the investor
+  // auto-rebalance can exit positions FSD has exited. Only meaningful once a
+  // prior union existed (skip the very first sync). Merge + prune to 90 days.
+  let fsdRemoved = [];
+  if (prevUnion.size > 0) {
+    fsdRemoved = [...prevUnion].filter((t) => !allETFTickers.has(t));
+    try {
+      const existing = (await kvGetJSON(KV, KV_REMOVED)) || {};
+      const nowTs = Date.now();
+      for (const t of fsdRemoved) existing[t] = nowTs;          // (re-)stamp current removals
+      for (const t of allETFTickers) { if (existing[t]) delete existing[t]; } // re-added → clear
+      for (const [t, ts] of Object.entries(existing)) {
+        if (!Number.isFinite(Number(ts)) || (nowTs - Number(ts)) > FSD_REMOVED_RETENTION_MS) delete existing[t];
+      }
+      await kvPutJSON(KV, KV_REMOVED, existing);
+      if (fsdRemoved.length > 0) console.log(`[ETF SYNC] FSD removed from union: ${fsdRemoved.join(", ")}`);
+    } catch (e) {
+      console.warn("[ETF SYNC] FSD-removed write failed:", String(e?.message || e).slice(0, 160));
+    }
+  }
+
   let autoAdded = [];
   if (typeof opts.addToUniverse === "function" && allETFTickers.size > 0) {
     try {
@@ -356,6 +392,7 @@ export async function syncAllETFHoldings(env, opts = {}) {
     elapsed: Date.now() - start,
     results,
     autoAdded,
+    fsdRemoved,
   });
 
   // Send Discord notifications for rebalances
@@ -439,6 +476,28 @@ export async function loadETFWeightMap(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return {};
   return (await kvGetJSON(KV, KV_WEIGHT_MAP)) || {};
+}
+
+/**
+ * Load the FSD-removed map: { TICKER: removalEpochMs, ... } — names Fundstrat
+ * dropped from the GRNY/GRNJ/GRNI union (the investor exit signal).
+ */
+export async function loadFsdRemovedMap(env) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return {};
+  return (await kvGetJSON(KV, KV_REMOVED)) || {};
+}
+
+/**
+ * Pure predicate: was `ticker` removed from the FSD complex within
+ * `windowDays`? Returns { removed, removed_at, days_ago } or null.
+ */
+export function fsdRemovalSignal(ticker, removedMap, nowMs = Date.now(), windowDays = 14) {
+  const ts = Number(removedMap?.[String(ticker || "").toUpperCase()]);
+  if (!Number.isFinite(ts) || ts <= 0) return null;
+  const daysAgo = (nowMs - ts) / (24 * 60 * 60 * 1000);
+  if (windowDays > 0 && daysAgo > windowDays) return null;
+  return { removed: true, removed_at: ts, days_ago: Math.round(daysAgo * 10) / 10 };
 }
 
 // ═══════════════════════════════════════════════════════════════════════

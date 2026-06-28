@@ -269,6 +269,10 @@
         dp: ticker.dp ?? fullPayload.dp,
         day_change: ticker.day_change ?? fullPayload.day_change,
         day_change_pct: ticker.day_change_pct ?? fullPayload.day_change_pct,
+        // Investor lane scalars — parent /timed/all may carry these while
+        // /timed/latest D1 rows omit them until the investor overlay runs.
+        investor_stage: ticker.investor_stage ?? fullPayload.investor_stage,
+        investor_score: ticker.investor_score ?? fullPayload.investor_score,
         // Ensure ticker symbol field is preserved (some /timed/latest
         // payloads don't include a top-level `ticker` field).
         ticker: ticker.ticker || fullPayload.ticker || tickerSym,
@@ -323,4 +327,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293

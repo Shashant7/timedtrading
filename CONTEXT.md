@@ -133,6 +133,29 @@ root redirect lives in `react-app/_worker.js`.
 <script src="shared-rail-bootstrap.js?v=..."></script>
 ```
 
+**Right rail IA (2026-06-23):** five top-level pills — Now / Trade / Options /
+Invest / Context. Trade is Setup-only; Options is its own pill (not a
+Trade sub-tab). On Trade, **Sequence (shadow)** is the **last** panel
+(admin-gated); compact mode dedupes posture/stage chips vs Entry Decision.
+Handoff: `tasks/2026-06-23-journey-ux-handoff.md`.
+
+**Active Trader kanban (2026-06-23):** four DOING lanes — Holding, Defending,
+Trimming (trim **today** only via `tradeTrimmedToday()`), Closed. Exiting
+lane removed; engine `exit`/`exiting` → Defending.
+
+**Investor kanban (2026-06-23):** DOING band above WATCHING; bubble map has
+lane filter chips (On Radar, Queued, Hold & Watch, etc.). After shared-JS
+merges always run full `npm run build:frontend` or browsers keep stale `?v=`.
+
+**VIX (2026-06-23):** Canonical symbol is `VIX` (TwelveData CBOE index).
+VX1! TV futures removed from feed overlays; Daily Brief / Today charts use
+VIX not VIXY. Legacy `VX1!` KV reads kept as fallback only. Handoff:
+`tasks/2026-06-23-vix-monthly-handoff.md`.
+
+**Monthly candle freshness (2026-06-23):** M/W ages in `/timed/health` use
+calendar-period logic (current-month M bar = age 0). One-shot heal:
+`POST /timed/admin/wm-bootstrap`. See `skills/backfill-candles.md`.
+
 **CF Access policy regex (User Pages) must list every authenticated HTML page**
 or users hit a login loop. **Public (do not require Access):** `splash.html`,
 `terms.html`, `logout.html`, `proof.html`, `faq.html`, `learn.html`. **Admin
@@ -164,6 +187,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 - **`tasks/todo.md`** — current live work (read every session).
 - **`AGENTS.md`** + **`skills/README.md`** — onboarding and copy-paste playbooks.
+- **`docs/self-calibrating-loop.md`** — the version-pinned `decision_records`
+  provenance keystone + conviction fusion + bleeder guard (PR #851, 2026-06-26).
+  Both behavior levers (`deep_audit_conviction_fusion_enabled`,
+  `deep_audit_bleeder_shield_enabled`) ship **OFF**; flip only after the forward
+  validation clears. Includes the operator verification + flip runbook.
+- **`docs/week-calibration-2026-06-26.md`** — first live-week scorecard +
+  calibration recommendations (Jun 20–26); re-run via
+  `node scripts/analyze-week-activity.mjs --days 7`.
 - **`tasks/archive/2026-pre-may/`** — historical plans. **Jul→Apr recovery is
   complete** (engine backtested and promoted to live); do not reopen unless
   starting a deliberate new validation lane. Key archives:
@@ -279,6 +310,9 @@ playbook in `skills/security-auth-patterns.md`)**
 - External watchdog (`watchdog.yml`, 30-min) reads `/timed/health`
   (`cronTickAgeMin` + `cronFailures`) — new critical subsystems add
   their freshness to that ONE endpoint, not bespoke endpoints.
+- **tt-feed staleness**: watchdog only fails `prices_age_sec > 600` when
+  `operating_hours` AND `price_feed_cron_active` (from `/feed/health`) —
+  Saturday quiet windows intentionally stop `computeFeedWindow()` ticks.
 - **Tombstone semantics**: `recordCronSuccess` heals a tombstone by
   rewriting it with `count: 0` — the KV key persists 7 days. Anything
   counting `timed:cron:failure:*` MUST read values and count only
@@ -541,6 +575,7 @@ Entry and exit engines switched from frozen `ripster_core` references to `tt_cor
 - Runner management: trim at exhaustion, hold runner if 34/50 structure + 30m SuperTrend intact
 - Runner trailing: exit on structure break or breakeven stop (MFE >= 1%, PnL <= 0.1%)
 - Safety nets: regime reversal, SL breach, max loss, DOA, time exits, bias flip
+- **Published SL enforcement** (`worker/feed/sl-hard-exit.js`): backfill SL from entry history onto trade row; stop checks use worst-case of all price prints + PnL-implied mark; fresh quote when headline disagrees with loss past stop; hard SL bypasses 30m cadence (NVDA Jun 2026).
 
 **Dispatcher**: `exit-engine.js` dispatches to `tt-core-exit.js` in `classifyKanbanStage`. Inline legacy code preserved as fallback.
 

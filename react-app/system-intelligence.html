@@ -16,6 +16,7 @@
     <script src="ds-components.js?v=20260503a"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="investor-nav-badge.js?v=20260622a"></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
     <script src="tt-global-search.js?v=20260610-verda3" defer></script>
     <script>
@@ -303,6 +304,77 @@
       }
       .si-subtabs__item:hover { color: var(--ds-text-body); background: var(--ds-bg-glass-hi); }
       .si-subtabs__item--active { background: var(--ds-accent-dim); color: var(--ds-accent); }
+
+      /* Engine flow diagram (How It Works tab) */
+      .si-flow { display: flex; flex-direction: column; gap: var(--ds-space-4); }
+      .si-flow__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .si-flow__pipeline {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0;
+        position: relative;
+      }
+      @media (max-width: 900px) {
+        .si-flow__pipeline { grid-template-columns: 1fr; gap: 12px; }
+        .si-flow__connector { display: none; }
+      }
+      .si-flow__stage {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        padding: 14px 14px 12px;
+        position: relative;
+        cursor: pointer;
+        transition: border-color var(--ds-dur-fast), box-shadow var(--ds-dur-fast);
+      }
+      .si-flow__stage:hover { border-color: rgba(16,185,129,0.35); }
+      .si-flow__stage--active {
+        border-color: var(--ds-accent);
+        box-shadow: 0 0 0 1px rgba(16,185,129,0.15);
+      }
+      .si-flow__stage-num {
+        font-size: 10px; font-weight: 800; letter-spacing: 0.14em;
+        text-transform: uppercase; color: var(--ds-accent);
+      }
+      .si-flow__stage-title {
+        font-size: var(--ds-fs-emph); font-weight: 600;
+        color: var(--ds-text-display); margin-top: 4px;
+      }
+      .si-flow__stage-sub {
+        font-size: var(--ds-fs-meta); color: var(--ds-text-muted);
+        margin-top: 4px; line-height: 1.4;
+      }
+      .si-flow__connector {
+        position: absolute; top: 50%; right: -8px; width: 16px; height: 2px;
+        background: linear-gradient(90deg, var(--ds-accent-dim), var(--ds-stroke));
+        z-index: 1;
+      }
+      .si-flow__connector::after {
+        content: ""; position: absolute; right: -1px; top: -4px;
+        border: 5px solid transparent; border-left-color: var(--ds-accent);
+      }
+      .si-flow__detail { margin-top: var(--ds-space-3); }
+      .si-flow__signals { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+      .si-flow__signal {
+        background: var(--ds-bg-surface);
+        border: 1px solid var(--ds-stroke-soft);
+        border-radius: 8px; padding: 10px 12px;
+      }
+      .si-flow__signal-name { font-size: var(--ds-fs-meta); font-weight: 600; color: var(--ds-text-display); }
+      .si-flow__signal-desc { font-size: var(--ds-fs-caption); color: var(--ds-text-muted); margin-top: 3px; line-height: 1.35; }
+      .si-flow__live {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--ds-space-3);
+      }
+      .si-flow__pill {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 4px 10px; border-radius: 999px;
+        font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+        border: 1px solid var(--ds-stroke);
+        background: var(--ds-bg-glass);
+        color: var(--ds-text-muted);
+      }
+      .si-flow__pill--on { color: var(--ds-up); border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.08); }
+      .si-flow__pill--off { color: var(--ds-text-muted); opacity: 0.7; }
 
       .si-table-wrap {
         background: var(--ds-bg-glass);
@@ -738,6 +810,212 @@ function EngineTab({ snapshot, onRefresh, refreshing, lastFetched, error }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TAB: How It Works — live engine flow diagram
+// ═══════════════════════════════════════════════════════════════
+const ENGINE_FLOW_TRADER = [
+  {
+    id: "setup",
+    title: "Setup",
+    subtitle: "5m scoring tick · kanban setup / in_review",
+    signals: [
+      { name: "Rank (0–100)", desc: "Composite edge; min-rank gates per path" },
+      { name: "Focus conviction", desc: "Tier A/B/C quality from TA stack" },
+      { name: "Regime", desc: "HTF/LTF bull/bear/pullback state" },
+      { name: "Phase %", desc: "Saty cycle position for entry/exit timing" },
+      { name: "Squeeze release", desc: "30m/1h expansion after compression" },
+      { name: "EMA / Ripster clouds", desc: "Pullback depth, structure hold" },
+    ],
+  },
+  {
+    id: "entry",
+    title: "Entry",
+    subtitle: "tt_core path + admission matrix + SL/TP ladder",
+    signals: [
+      { name: "Entry path", desc: "gap_reversal → n_test → range → ATH → momentum → pullback" },
+      { name: "Admission matrix", desc: "Blocks toxic path × regime × grade combos" },
+      { name: "Calibration guards", desc: "ATH confirm, adverse phase, churn, liquidity cap" },
+      { name: "AI CIO", desc: "Optional entry review gate" },
+      { name: "Size + SL/TP", desc: "ATR-based stop; trim 33% / exit 67% / runner" },
+    ],
+  },
+  {
+    id: "manage",
+    title: "Manage",
+    subtitle: "Kanban: just_entered → defend → trim",
+    signals: [
+      { name: "Defend", desc: "Adverse move, bias flip, bleeder shield hold" },
+      { name: "Trim", desc: "RSI extreme, PDZ, phase fuel, Ripster partial" },
+      { name: "Trend hold", desc: "Suppress soft exits when HTF intact" },
+      { name: "MFE ratchet", desc: "Unsuppressible profit floor" },
+      { name: "Phase leave", desc: "Peak decline → trim or defer to defend" },
+    ],
+  },
+  {
+    id: "exit",
+    title: "Exit",
+    subtitle: "SL / TP / phase / doctrine → decision_record",
+    signals: [
+      { name: "Hard SL", desc: "sl_breached + max-loss fuse + sl-hard-exit" },
+      { name: "Profit take", desc: "TP tiers, RSI fuse, MFE proportional trail" },
+      { name: "Structural", desc: "4H ST flip, cloud break, regime reversal" },
+      { name: "Event / time", desc: "Pre-earnings de-risk, max hold cap" },
+      { name: "Provenance", desc: "decision_record with config_hash + git SHA" },
+    ],
+  },
+];
+
+const ENGINE_FLOW_INVESTOR = [
+  {
+    id: "setup",
+    title: "Setup",
+    subtitle: "Hourly score · stage classification",
+    signals: [
+      { name: "Investor score", desc: "Weekly/monthly structure + RS vs SPY" },
+      { name: "Stage", desc: "accumulate / watch / core_hold / reduce / exited" },
+      { name: "Accumulation zone", desc: "Mean-reversion or momentum-runner dip" },
+      { name: "Market health", desc: "Skip new init when health < 25" },
+      { name: "Timing overlay", desc: "Blocks TOP accumulate unless compounder dip" },
+    ],
+  },
+  {
+    id: "entry",
+    title: "Entry",
+    subtitle: "Auto-rebalance BUY · no tt_* paths",
+    signals: [
+      { name: "Auto-init", desc: "accumulate or watch stage → open lot" },
+      { name: "Sizing", desc: "5% base · 7% strong · 2% watch starter" },
+      { name: "Caps", desc: "20 positions · 3 new/day · 8% max alloc" },
+      { name: "DCA schedule", desc: "Optional tranches on new accumulate" },
+    ],
+  },
+  {
+    id: "manage",
+    title: "Manage",
+    subtitle: "Stage downgrade · trim · DCA",
+    signals: [
+      { name: "Reduce trim", desc: "30% after 2-session confirm" },
+      { name: "Structural reduce", desc: "Monthly/weekly ST bearish — no CIO defer" },
+      { name: "Exhaustion", desc: "≥2 warnings → stop adds" },
+      { name: "DCA tranches", desc: "Monthly 2% with RVOL gates" },
+    ],
+  },
+  {
+    id: "exit",
+    title: "Exit",
+    subtitle: "Invalidation · ST breaks · full close",
+    signals: [
+      { name: "Primary invalidation", desc: "Sticky price floor breach" },
+      { name: "ST breaks", desc: "Monthly or weekly supertrend flip" },
+      { name: "Score collapse", desc: "Score < 30 on owned name" },
+      { name: "Regime exit", desc: "CHOPPY + PnL < −8%" },
+    ],
+  },
+];
+
+const FLOW_LIVE_KEYS = [
+  { key: "deep_audit_ath_breakout_confirm_gate_enabled", label: "ATH confirm gate" },
+  { key: "deep_audit_range_reversal_block_adverse_phase", label: "Range-reversal adverse phase" },
+  { key: "deep_audit_repeat_churn_guard_enabled", label: "Repeat churn guard" },
+  { key: "deep_audit_block_regime", label: "Block regime" },
+  { key: "deep_audit_conviction_fusion_enabled", label: "Conviction fusion" },
+  { key: "deep_audit_bleeder_shield_enabled", label: "Bleeder shield" },
+];
+
+function EngineFlowTab() {
+  const [engine, setEngine] = React.useState("trader");
+  const [activeStage, setActiveStage] = React.useState("setup");
+  const [liveCfg, setLiveCfg] = React.useState(null);
+  const stages = engine === "trader" ? ENGINE_FLOW_TRADER : ENGINE_FLOW_INVESTOR;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/timed/admin/model-config?prefix=deep_audit_`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled && d.ok) setLiveCfg(d.config || {}); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const detail = stages.find((s) => s.id === activeStage) || stages[0];
+
+  return (
+    <div className="si-flow">
+      <div className="si-flow__toolbar">
+        <div>
+          <div className="si-card__eyebrow">Engine architecture</div>
+          <div className="si-card__title">Setup → Entry → Manage → Exit</div>
+          <div className="si-card__subtitle" style={{ marginTop: 4 }}>
+            Interactive flow for Active Trader and Investor. See repo doc <code style={{ fontSize: "11px" }}>docs/engine-flow-one-pager.md</code>.
+          </div>
+        </div>
+        <div className="si-subtabs">
+          <button type="button" className={`si-subtabs__item ${engine === "trader" ? "si-subtabs__item--active" : ""}`} onClick={() => { setEngine("trader"); setActiveStage("setup"); }}>Active Trader</button>
+          <button type="button" className={`si-subtabs__item ${engine === "investor" ? "si-subtabs__item--active" : ""}`} onClick={() => { setEngine("investor"); setActiveStage("setup"); }}>Investor</button>
+        </div>
+      </div>
+
+      <div className="si-flow__pipeline">
+        {stages.map((st, i) => (
+          <div key={st.id} style={{ position: "relative" }}>
+            <div
+              className={`si-flow__stage ${activeStage === st.id ? "si-flow__stage--active" : ""}`}
+              onClick={() => setActiveStage(st.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setActiveStage(st.id); }}
+            >
+              <div className="si-flow__stage-num">{i + 1}</div>
+              <div className="si-flow__stage-title">{st.title}</div>
+              <div className="si-flow__stage-sub">{st.subtitle}</div>
+            </div>
+            {i < stages.length - 1 && <div className="si-flow__connector" aria-hidden="true" />}
+          </div>
+        ))}
+      </div>
+
+      <div className="si-card si-flow__detail">
+        <div className="si-card__head">
+          <div>
+            <div className="si-card__eyebrow">{engine === "trader" ? "Active Trader" : "Investor"} · {detail.title}</div>
+            <div className="si-card__title">Key signals & actions</div>
+          </div>
+        </div>
+        <div className="si-flow__signals">
+          {detail.signals.map((sig) => (
+            <div key={sig.name} className="si-flow__signal">
+              <div className="si-flow__signal-name">{sig.name}</div>
+              <div className="si-flow__signal-desc">{sig.desc}</div>
+            </div>
+          ))}
+        </div>
+        {engine === "trader" && liveCfg && (
+          <div className="si-flow__live">
+            <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--ds-text-muted)", marginRight: 4 }}>Live flags</span>
+            {FLOW_LIVE_KEYS.map(({ key, label }) => {
+              const raw = liveCfg[key];
+              const on = raw === "true" || raw === true || (key === "deep_audit_block_regime" && raw && raw !== '""');
+              return (
+                <span key={key} className={`si-flow__pill ${on ? "si-flow__pill--on" : "si-flow__pill--off"}`}>
+                  {on ? "ON" : "OFF"} · {label}
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="si-card" style={{ borderLeft: "3px solid var(--ds-accent)" }}>
+        <div className="si-card__eyebrow">July readiness</div>
+        <div className="si-card__subtitle" style={{ lineHeight: 1.5 }}>
+          July 2025 was 82% HTF_BULL — long-biased. Current model is more defensive (ATH confirm, adverse phase gate, tighter SL).
+          See repo doc <code style={{ fontSize: "11px" }}>docs/july-readiness-review-2026-06.md</code> before replay.
+        </div>
+      </div>
     </div>
   );
 }
@@ -6063,6 +6341,7 @@ function App() {
   // (calibration history + pattern library + context).
   const tabs = [
     { id: "engine", label: "Engine" },
+    { id: "flow", label: "How It Works" },
     { id: "analysis", label: "Analysis" },
     ...(isAdmin ? [{ id: "runs", label: "Runs" }] : []),
     { id: "discovery", label: "Discovery" },
@@ -6136,6 +6415,7 @@ function App() {
                 </details>
               </div>
             )}
+            {tab === "flow" && <EngineFlowTab />}
             {tab === "analysis" && (
               <div className="space-y-5">
                 {/* P2: Run Analysis CTA + Proposed Calibration panel. */}

@@ -11,11 +11,20 @@
 //
 //  The current vintage codifies the Fundstrat Direct 2026 thesis published
 //  5/28/2026 by Tom Lee, Mark Newton, and Ken Xuan — TT's editorial
-//  inspiration. When FSD publishes an updated deck, edit this file (bump
-//  VINTAGE, update tilts/themes/risks) and redeploy. Everything downstream
+//  inspiration. FSD publications auto-merge via cro:tactical_overrides KV
+//  (sector/theme stance changes + tactical overlay). The in-code tilts are
+//  the fallback baseline when no override is active.
+
+import {
+  buildEffectiveSectorTilts,
+  buildEffectiveThemeTilts,
+  getStrategyOverrideCache,
+  loadStrategyOverrideCache,
+} from "./cro/strategy-overrides.js";
+
+export { loadStrategyOverrideCache };
 //  reads through `getStrategyDigest()` so callers stay decoupled from the
 //  schema details.
-//
 //  ── Vintage history ──────────────────────────────────────────────────────
 //   2026-06-11 (current)
 //     June 2026 Sector Allocation model refresh. Structural stance updates
@@ -518,6 +527,14 @@ export const EDUCATION_SNIPPETS = [
 
 // ── 10. Public API ─────────────────────────────────────────────────────────
 
+function getEffectiveSectorTiltsMap() {
+  return buildEffectiveSectorTilts(SECTOR_TILTS, getStrategyOverrideCache());
+}
+
+function getEffectiveThemeTiltsMap() {
+  return buildEffectiveThemeTilts(THEME_TILTS, getStrategyOverrideCache());
+}
+
 /**
  * Returns the strategy alignment for a given ticker, joining sector + theme
  * tilts. Used by:
@@ -548,8 +565,9 @@ export function getStrategyForTicker(sym, tickerData = null, themeResolver = nul
   let themeTier = null;
   let themePlaybook = null;
   let matchedThemes = [];
+  const effectiveThemeTilts = getEffectiveThemeTiltsMap();
   for (const t of themes) {
-    const tilt = THEME_TILTS[t];
+    const tilt = effectiveThemeTilts[t];
     if (!tilt) continue;
     matchedThemes.push({ theme: t, stance: tilt.stance, tier: tilt.tier, playbook: tilt.playbook });
     if (Math.abs(tilt.multiplier - 1.0) > Math.abs(themeMultiplier - 1.0)) {
@@ -562,7 +580,8 @@ export function getStrategyForTicker(sym, tickerData = null, themeResolver = nul
 
   // Sector-level alignment.
   const sectorName = tickerData?.sector || tickerData?._ticker_profile?.sector || null;
-  const sectorTilt = sectorName ? SECTOR_TILTS[sectorName] : null;
+  const effectiveSectorTilts = getEffectiveSectorTiltsMap();
+  const sectorTilt = sectorName ? effectiveSectorTilts[sectorName] : null;
   const sectorStance = sectorTilt?.stance || "neutral";
   const sectorMultiplier = sectorTilt?.multiplier || 1.0;
 
@@ -613,13 +632,14 @@ export function getStrategyForTicker(sym, tickerData = null, themeResolver = nul
  * Strings only — no nested objects. ~1.5KB.
  */
 export function getStrategyBrief() {
-  const overweightSectors = Object.entries(SECTOR_TILTS)
+  const effectiveSectorTilts = getEffectiveSectorTiltsMap();
+  const overweightSectors = Object.entries(effectiveSectorTilts)
     .filter(([, v]) => v.stance === "overweight")
     .map(([k, v]) => `${k} (${v.rationale_short})`);
-  const underweightSectors = Object.entries(SECTOR_TILTS)
+  const underweightSectors = Object.entries(effectiveSectorTilts)
     .filter(([, v]) => v.stance === "underweight")
     .map(([k, v]) => `${k} (${v.rationale_short})`);
-  const tier1Themes = Object.entries(THEME_TILTS)
+  const tier1Themes = Object.entries(getEffectiveThemeTiltsMap())
     .filter(([, v]) => v.tier === "tier_1" && v.stance === "overweight")
     .map(([k, v]) => `${k} — ${v.playbook}`);
   const risks = ACTIVE_RISKS.map(r => `${r.name} (${r.severity}): ${r.note}`);
@@ -692,11 +712,16 @@ export function getStrategyDigest() {
  * Merges the live CRO tactical overlay when `cro:tactical_overrides` exists.
  */
 export async function getStrategyDigestAsync(env) {
+  await loadStrategyOverrideCache(env);
   const base = getStrategyDigest();
   const tact = await getTacticalSignalsAsync(env);
   const override = await loadCROOverride(env);
+  const effectiveSectorTilts = getEffectiveSectorTiltsMap();
+  const effectiveThemeTilts = getEffectiveThemeTiltsMap();
   return {
     ...base,
+    sector_tilts: effectiveSectorTilts,
+    theme_tilts: effectiveThemeTilts,
     tactical: {
       vintage: tact.vintage,
       source: tact.override_applied ? (override?.source || "cro_auto_apply") : STRATEGY_TACTICAL_SOURCE,
@@ -716,6 +741,8 @@ export async function getStrategyDigestAsync(env) {
       pub_id: override.pub_id || null,
       tactical_title: override.tactical_title || null,
       tactical_overlay: override.tactical_overlay || null,
+      sector_stance_changes: override.sector_stance_changes || [],
+      theme_stance_changes: override.theme_stance_changes || [],
     } : { active: false },
   };
 }
@@ -760,10 +787,8 @@ export function getTacticalSignals() {
 // 2026-06-03 — Phase 4 of the AI CRO automation. Reads the CRO tactical
 // override blob written by worker/cro/cro-apply.js from KV
 // (`cro:tactical_overrides`). When present, the override REPLACES the
-// in-code TACTICAL_SIGNALS and overrides the tactical vintage/title/source.
-// The structural sector/theme tilts (stances + multipliers) stay
-// unchanged — those still require a Year-Ahead-deck-style structural
-// proposal flow.
+// in-code TACTICAL_SIGNALS and merges sector/theme stance changes onto
+// the structural playbook at read time (scoring + CIO + promotion queue).
 //
 // The async variants exist so callers that have an `env` (CIO memory,
 // Daily Brief, /timed/strategy endpoint) automatically pick up the
@@ -789,6 +814,7 @@ async function loadCROOverride(env) {
  * the in-code TACTICAL_SIGNALS when no override exists or env is missing.
  */
 export async function getTacticalSignalsAsync(env) {
+  await loadStrategyOverrideCache(env);
   const override = await loadCROOverride(env);
   if (!override) return getTacticalSignals();
 
@@ -826,16 +852,17 @@ export async function getTacticalSignalsAsync(env) {
  * "what changed today" context next to the structural stance.
  */
 export async function getStrategyBriefAsync(env) {
+  await loadStrategyOverrideCache(env);
   const tact = await getTacticalSignalsAsync(env);
   const override = await loadCROOverride(env);
-  // Build the same brief shape, but swap the tactical block.
-  const overweightSectors = Object.entries(SECTOR_TILTS)
+  const effectiveSectorTilts = getEffectiveSectorTiltsMap();
+  const overweightSectors = Object.entries(effectiveSectorTilts)
     .filter(([, v]) => v.stance === "overweight")
     .map(([k, v]) => `${k} (${v.rationale_short})`);
-  const underweightSectors = Object.entries(SECTOR_TILTS)
+  const underweightSectors = Object.entries(effectiveSectorTilts)
     .filter(([, v]) => v.stance === "underweight")
     .map(([k, v]) => `${k} (${v.rationale_short})`);
-  const tier1Themes = Object.entries(THEME_TILTS)
+  const tier1Themes = Object.entries(getEffectiveThemeTiltsMap())
     .filter(([, v]) => v.tier === "tier_1" && v.stance === "overweight")
     .map(([k, v]) => {
       const overrideNote = (override?.theme_notes || []).find((n) => n.theme === k);
@@ -885,7 +912,8 @@ export async function getStrategyBriefAsync(env) {
  * Convenience helper for the AI CIO + Daily Brief.
  */
 export function getSectorStance(sectorName) {
-  const t = SECTOR_TILTS[sectorName];
+  const effective = getEffectiveSectorTiltsMap();
+  const t = effective[sectorName];
   if (!t) return { stance: "neutral", multiplier: 1.0, rationale_short: null };
   return {
     stance: t.stance,

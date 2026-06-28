@@ -8,15 +8,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1782181309533" />
-    <script defer src="/vendor/react.production.min.js?v=1782181309533"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1782181309533"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1782181309533" />
-<script defer src="ds-components.js?v=1782181309533"></script>
-    <script defer src="auth-gate.js?v=1782181309533"></script>
-    <script src="tt-bottom-nav.js?v=1782181309533" defer></script>
-    <script src="tt-nav-extras.js?v=1782181309533" defer></script>
-    <script src="tt-global-search.js?v=1782181309533" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1782679868148" />
+    <script defer src="/vendor/react.production.min.js?v=1782679868148"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1782679868148"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1782679868148" />
+<script defer src="ds-components.js?v=1782679868148"></script>
+    <script defer src="auth-gate.js?v=1782679868148"></script>
+    <script src="tt-bottom-nav.js?v=1782679868148" defer></script>
+    <script defer src="investor-nav-badge.js?v=1782679868148"></script>
+    <script src="tt-nav-extras.js?v=1782679868148" defer></script>
+    <script src="tt-global-search.js?v=1782679868148" defer></script>
 <style>
       body { font-family: "Inter", system-ui, sans-serif; background: #0b0e11; color: #e5e7eb; -webkit-font-smoothing: antialiased; letter-spacing: -0.01em; }
       @keyframes spin { to { transform: rotate(360deg); } }
@@ -298,6 +299,77 @@
       .si-subtabs__item:hover { color: var(--ds-text-body); background: var(--ds-bg-glass-hi); }
       .si-subtabs__item--active { background: var(--ds-accent-dim); color: var(--ds-accent); }
 
+      /* Engine flow diagram (How It Works tab) */
+      .si-flow { display: flex; flex-direction: column; gap: var(--ds-space-4); }
+      .si-flow__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+      .si-flow__pipeline {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0;
+        position: relative;
+      }
+      @media (max-width: 900px) {
+        .si-flow__pipeline { grid-template-columns: 1fr; gap: 12px; }
+        .si-flow__connector { display: none; }
+      }
+      .si-flow__stage {
+        background: var(--ds-bg-glass);
+        border: 1px solid var(--ds-stroke);
+        border-radius: var(--ds-radius);
+        padding: 14px 14px 12px;
+        position: relative;
+        cursor: pointer;
+        transition: border-color var(--ds-dur-fast), box-shadow var(--ds-dur-fast);
+      }
+      .si-flow__stage:hover { border-color: rgba(16,185,129,0.35); }
+      .si-flow__stage--active {
+        border-color: var(--ds-accent);
+        box-shadow: 0 0 0 1px rgba(16,185,129,0.15);
+      }
+      .si-flow__stage-num {
+        font-size: 10px; font-weight: 800; letter-spacing: 0.14em;
+        text-transform: uppercase; color: var(--ds-accent);
+      }
+      .si-flow__stage-title {
+        font-size: var(--ds-fs-emph); font-weight: 600;
+        color: var(--ds-text-display); margin-top: 4px;
+      }
+      .si-flow__stage-sub {
+        font-size: var(--ds-fs-meta); color: var(--ds-text-muted);
+        margin-top: 4px; line-height: 1.4;
+      }
+      .si-flow__connector {
+        position: absolute; top: 50%; right: -8px; width: 16px; height: 2px;
+        background: linear-gradient(90deg, var(--ds-accent-dim), var(--ds-stroke));
+        z-index: 1;
+      }
+      .si-flow__connector::after {
+        content: ""; position: absolute; right: -1px; top: -4px;
+        border: 5px solid transparent; border-left-color: var(--ds-accent);
+      }
+      .si-flow__detail { margin-top: var(--ds-space-3); }
+      .si-flow__signals { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+      .si-flow__signal {
+        background: var(--ds-bg-surface);
+        border: 1px solid var(--ds-stroke-soft);
+        border-radius: 8px; padding: 10px 12px;
+      }
+      .si-flow__signal-name { font-size: var(--ds-fs-meta); font-weight: 600; color: var(--ds-text-display); }
+      .si-flow__signal-desc { font-size: var(--ds-fs-caption); color: var(--ds-text-muted); margin-top: 3px; line-height: 1.35; }
+      .si-flow__live {
+        display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--ds-space-3);
+      }
+      .si-flow__pill {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 4px 10px; border-radius: 999px;
+        font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+        border: 1px solid var(--ds-stroke);
+        background: var(--ds-bg-glass);
+        color: var(--ds-text-muted);
+      }
+      .si-flow__pill--on { color: var(--ds-up); border-color: rgba(16,185,129,0.25); background: rgba(16,185,129,0.08); }
+      .si-flow__pill--off { color: var(--ds-text-muted); opacity: 0.7; }
+
       .si-table-wrap {
         background: var(--ds-bg-glass);
         border: 1px solid var(--ds-stroke);
@@ -406,8 +478,8 @@
   <body class="vf-page">
     <script defer src="tt-topnav-scaffold.js"></script>
     <div id="root"></div>
-    <script defer src="system-intelligence.compiled.js?v=1782181309533"></script>
+    <script defer src="system-intelligence.compiled.js?v=1782679868148"></script>
   </body>
 </html>
 
-<!-- cache-bust:1782181309533:635345750 -->
+<!-- cache-bust:1782679868148:271337293 -->

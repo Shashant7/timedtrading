@@ -53,7 +53,7 @@
         transform: translate3d(0,0,0); will-change: transform;
       }
       .tt-activity-strip__inner {
-        max-width: 1600px; margin: 0 auto; padding: 8px 24px;
+        max-width: 1600px; margin: 0 auto; padding: 11px 24px;
         display: flex; align-items: center; gap: 12px;
       }
       @media (max-width: 720px) {
@@ -62,29 +62,41 @@
            above force position:static so the strip flows under the
            nav within the sticky container. */
         .tt-activity-strip { position: sticky; top: var(--tt-nav-h, 52px); left: 0; right: 0; }
-        .tt-activity-strip__inner { padding: 8px 12px; gap: 8px; }
+        .tt-activity-strip__inner { padding: 10px 12px; gap: 8px; }
       }
       .tt-activity-strip__label {
-        font-size: 10.5px; font-weight: 700; letter-spacing: 0.10em;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.10em;
         color: var(--tt-text-dim, #6E867D); text-transform: uppercase; flex-shrink: 0;
       }
-      .tt-activity-strip__hint { font-size: 10px; color: var(--tt-text-faint); display: none; flex-shrink: 0; }
+      .tt-activity-strip__hint { font-size: 10.5px; color: var(--tt-text-faint); display: none; flex-shrink: 0; }
       @media (min-width: 900px) { .tt-activity-strip__hint { display: block; } }
       .tt-activity-strip__scroll { flex: 1; overflow-x: auto; scrollbar-width: none; }
       .tt-activity-strip__scroll::-webkit-scrollbar { display: none; }
       .tt-activity-strip__row { display: inline-flex; gap: 10px; align-items: center; }
       .tt-activity-pill {
-        display: inline-flex; align-items: center; gap: 5px;
-        padding: 4px 10px; border-radius: 8px; font-size: 11px;
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 6px 12px; border-radius: 9px; font-size: 12.5px;
         font-family: var(--tt-font-mono, ui-monospace, monospace);
         background: var(--tt-bg-elev, rgba(255,255,255,0.04));
         border: 1px solid var(--tt-border, rgba(255,255,255,0.06));
         color: var(--tt-text-muted, #8AA39A); white-space: nowrap; cursor: pointer;
-        max-width: min(420px, 92vw); text-align: left;
+        max-width: min(560px, 96vw); text-align: left; flex-shrink: 0;
       }
       .tt-activity-pill:hover { border-color: var(--tt-border-hi, rgba(255,255,255,0.12)); }
+      /* Brand logo to the left of the ticker — monogram fallback until the
+         real logo async-loads (mirrors ds-components tickerLogo). */
+      .tt-activity-pill .ev-logo {
+        width: 18px; height: 18px; flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; overflow: hidden;
+        font-size: 8px; font-weight: 700; letter-spacing: 0.02em;
+        color: #fff; line-height: 1;
+      }
+      .tt-activity-pill .ev-logo img {
+        width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+      }
       .tt-activity-pill .ev-scope {
-        font-size: 8px; font-weight: 800; letter-spacing: 0.06em;
+        font-size: 9px; font-weight: 800; letter-spacing: 0.06em;
         text-transform: uppercase; padding: 1px 4px; border-radius: 4px;
         border: 1px solid transparent; line-height: 1.3;
       }
@@ -94,20 +106,52 @@
       .tt-activity-pill .ev-scope--investor {
         color: #c4b5fd; background: rgba(167,139,250,0.12); border-color: rgba(167,139,250,0.30);
       }
-      .tt-activity-pill .ev-type { font-weight: 700; font-size: 10px; text-transform: uppercase; }
-      .tt-activity-pill .ev-sym { font-weight: 700; color: var(--tt-text, #E8F2EC); }
-      .tt-activity-pill .ev-dir { font-size: 9px; font-weight: 600; }
+      .tt-activity-pill .ev-type { font-weight: 700; font-size: 11px; text-transform: uppercase; }
+      .tt-activity-pill .ev-sym { font-weight: 700; font-size: 12.5px; color: var(--tt-text, #E8F2EC); }
+      .tt-activity-pill .ev-dir { font-size: 10px; font-weight: 600; }
       .tt-activity-pill .ev-dir--long { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill .ev-dir--short { color: var(--tt-dn-soft, #fb7185); }
-      .tt-activity-pill .ev-detail { font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
-      .tt-activity-pill .ev-pnl { font-size: 10px; font-weight: 600; }
+      .tt-activity-pill .ev-detail { font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+      .tt-activity-pill .ev-pnl { font-size: 11px; font-weight: 600; }
       .tt-activity-pill .ev-pnl--up { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill .ev-pnl--dn { color: var(--tt-dn-soft, #fb7185); }
-      .tt-activity-pill .ev-time { font-size: 9px; opacity: 0.65; }
+      .tt-activity-pill .ev-time { font-size: 10px; opacity: 0.65; }
       .tt-activity-pill.ev-entry .ev-type { color: var(--tt-up-soft, #34d399); }
       .tt-activity-pill.ev-trim .ev-type { color: #fbbf24; }
       .tt-activity-pill.ev-exit .ev-type { color: var(--tt-dn-soft, #fb7185); }
-      .tt-activity-strip__empty { font-size: 11.5px; color: var(--tt-text-faint); font-style: italic; }
+      .tt-activity-pill.ev-watching {
+        background: transparent;
+        border-style: dashed;
+        opacity: 0.82;
+      }
+      .tt-activity-pill.ev-doing,
+      .tt-activity-pill.ev-recommended {
+        background: rgba(251,146,60,0.10);
+        border-color: rgba(251,146,60,0.35);
+      }
+      .tt-activity-strip__filters {
+        display: inline-flex; gap: 4px; flex-shrink: 0;
+      }
+      .tt-activity-strip__filter {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+        text-transform: uppercase; padding: 3px 7px; border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.08); background: transparent;
+        color: var(--tt-text-dim); cursor: pointer;
+      }
+      .tt-activity-strip__filter.is-active {
+        color: var(--tt-text, #E8F2EC);
+        border-color: rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.06);
+      }
+      .tt-activity-pill[data-scope="investor"] {
+        border-color: rgba(167,139,250,0.28);
+        background: rgba(167,139,250,0.06);
+      }
+      .tt-activity-pill[data-scope="trader"] {
+        border-color: rgba(103,232,249,0.22);
+        background: rgba(103,232,249,0.04);
+      }
+      .tt-activity-strip__empty { font-size: 12.5px; color: var(--tt-text-faint); font-style: italic; }
     `;
     document.head.appendChild(el);
   }
@@ -142,6 +186,82 @@
     const v = Number(n);
     if (!Number.isFinite(v)) return "";
     return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+  }
+
+  // Strip display: mode + enter/exit/trim only (ADD/BOUGHT/WATCH/QUEUE → enter).
+  function normalizeDisplayAction(meta) {
+    const label = String(meta?.label || "").toUpperCase();
+    const evType = String(meta?.evType || "").toUpperCase();
+    if (label === "TRIM" || evType === "TRIM" || label === "REDUCE" || evType.indexOf("TRIM") >= 0) return "TRIM";
+    if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return "EXIT";
+    return "ENTER";
+  }
+
+  function scopeDisplayLabel(scope) {
+    return scope === "investor" ? "Inv" : "Trader";
+  }
+
+  // Brand logo (monogram fallback → async real logo swap). Mirrors the
+  // ds-components / today.html TickerLogo so the strip matches cards.
+  function buildTickerLogo(sym) {
+    const SYM = String(sym || "").toUpperCase();
+    const el = document.createElement("span");
+    el.className = "ev-logo";
+    if (!SYM) return el;
+    const mono = SYM.slice(0, 2);
+    el.textContent = mono;
+    let hash = 0;
+    for (let i = 0; i < SYM.length; i++) hash = ((hash << 5) - hash) + SYM.charCodeAt(i);
+    el.style.background = `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+    const url = (window.DS && typeof window.DS.tickerLogoUrl === "function")
+      ? window.DS.tickerLogoUrl(SYM)
+      : `${API_BASE}/timed/logo/${encodeURIComponent(SYM)}.png`;
+    if (url) {
+      const img = new Image();
+      img.src = url;
+      img.alt = SYM;
+      img.onload = () => {
+        // White plate so transparent-PNG ETF logos stay visible on dark.
+        while (el.firstChild) el.removeChild(el.firstChild);
+        el.style.background = "#ffffff";
+        el.style.color = "transparent";
+        el.appendChild(img);
+      };
+      img.onerror = () => { /* keep monogram + colored background */ };
+    }
+    return el;
+  }
+
+  // Client-side dedupe guard (belt-and-braces on top of the server's
+  // buildMergedActivityFeed dedupe). The same investor action can surface via
+  // both a D1 lot row and a KV signal append; collapse them by ticker + coarse
+  // action class + 10-min bucket so the strip never shows duplicate
+  // RIOT/CRDO exits even if a stale cache slips through.
+  function actionClass(ev) {
+    const a = String(ev?.action || ev?.investor_alert_type || ev?.type || ev?.event || "").toUpperCase();
+    if (/SELL|TRIM|REDUCE|CLOSE|EXIT/.test(a)) return "sell";
+    if (/BUY|ADD|ACCUMULAT|QUEUE|OPEN|ENTRY|ENTER/.test(a)) return "buy";
+    return "other";
+  }
+  function dedupeKeys(ev) {
+    const keys = [];
+    if (ev?.lot_id) keys.push(`lot:${ev.lot_id}`);
+    const sym = String(ev?.ticker || ev?.symbol || "").toUpperCase();
+    const tsN = Number(ev?.ts ?? ev?.timestamp ?? 0);
+    const tsMs = tsN > 1e12 ? tsN : tsN * 1000;
+    if (sym) keys.push(`${scopeOf(ev, String(ev?.type || "").toUpperCase())}:${sym}:${actionClass(ev)}:${Math.floor(tsMs / 600000)}`);
+    return keys;
+  }
+  function dedupeEvents(list) {
+    const seen = new Set();
+    const out = [];
+    for (const ev of (Array.isArray(list) ? list : [])) {
+      const keys = dedupeKeys(ev);
+      if (keys.length && keys.some((k) => seen.has(k))) continue;
+      for (const k of keys) seen.add(k);
+      out.push(ev);
+    }
+    return out;
   }
 
   // Display-layer only — raw execution_actions.reason values stay unchanged
@@ -217,25 +337,98 @@
     return "trader";
   }
 
+  function classifyInvestorExecution(ev) {
+    const invT = String(ev?.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") {
+      return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (invT === "position_trim") {
+      return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (invT === "position_close") {
+      return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
+    }
+    // Belt-and-braces: D1 lots always set action verb — parse when alert_type
+    // is missing but mode/engine marks this as an executed investor lot.
+    const modeRaw = String(ev?.mode || ev?.alert_class || ev?.engine || "").toLowerCase();
+    const isInvLane = modeRaw === "investor" || modeRaw === "doing" || !!ev?.lot_id || ev?.source === "d1_lots";
+    if (!isInvLane) return null;
+    const act = String(ev?.action || "").toUpperCase();
+    if (act.includes("EXIT")) {
+      return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (act.includes("TRIM")) {
+      return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
+    }
+    if (act.includes("ADD") && (Number(ev?.shares) > 0 || Number(ev?.qty) > 0)) {
+      return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
+    }
+    return null;
+  }
+
+  function resolveEvType(ev, c) {
+    if (c && c.evType) return c.evType;
+    const SG = window.TimedSignalGrammar;
+    if (SG && typeof SG.investorEvType === "function") {
+      const inv = SG.investorEvType(ev);
+      if (inv) return inv;
+    }
+    const invT = String(ev?.investor_alert_type || "").toLowerCase();
+    if (invT === "position_add") return "ADD";
+    if (invT === "position_trim") return "TRIM";
+    if (invT === "position_close") return "EXIT";
+    return String(ev?.type || ev?.event || "").toUpperCase() || "EVENT";
+  }
+
   function classifyEvent(ev) {
-    const t = String(ev?.type || ev?.event || "").toUpperCase();
-    const scope = scopeOf(ev, t);
-    if (t === "TRADE_ENTRY") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
-    if (t === "TRADE_EXIT" || t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit", label: "EXIT", evType: "EXIT", scope };
-    if (t === "TRADE_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
-    if (t === "INVESTOR_SIGNAL") return { cls: "ev-entry", label: String(ev?.action || "INVESTOR").toUpperCase().replace(/^MODEL\s*·\s*/, ""), evType: "INVESTOR_SIGNAL", scope: "investor" };
-    // D5 (2026-06-11) — resolution-time grading events from the Signal
-    // Outcome Ledger: every published call shows its grade on the strip
-    // the night it resolves. Wins read green, losses red, flats neutral.
-    if (t === "SIGNAL_GRADED") {
-      const oc = String(ev?.outcome || "").toLowerCase();
+    const invExec = classifyInvestorExecution(ev);
+    if (invExec) return invExec;
+    const SG = window.TimedSignalGrammar;
+    if (SG && typeof SG.classifyActivityEvent === "function") {
+      const c = SG.classifyActivityEvent(ev);
+      const evType = resolveEvType(ev, c);
+      const invOverride = classifyInvestorExecution(ev);
+      if (invOverride) return invOverride;
+      const rawType = String(ev?.type || ev?.event || "").toUpperCase();
+      const execFromEv = String(ev?.exec_state || ev?.execState || "").toLowerCase();
+      const isExitRecommended = c.execState === "recommended"
+        || execFromEv === "recommended"
+        || rawType === "TRADE_EXIT_SIGNAL";
+      const label = (c.label && c.label !== "UPDATE" && c.label !== "WATCH")
+        ? c.label
+        : (evType === "ADD" || evType === "TRIM" || evType === "EXIT" ? evType : (c.label || evType || "UPDATE"));
       return {
-        cls: oc === "win" ? "ev-entry" : oc === "loss" ? "ev-exit" : "ev-trim",
-        label: `GRADED ${String(ev?.grade || "").toUpperCase()}`.trim(),
-        evType: "SIGNAL_GRADED",
-        scope,
+        cls: c.cls || (isExitRecommended ? "ev-exit ev-recommended ev-doing" : ""),
+        label,
+        evType,
+        scope: c.scope || scopeOf(ev, String(ev?.type || "").toUpperCase()),
+        mode: (c.mode === "doing" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "doing" : (c.mode || "doing"),
+        execState: isExitRecommended
+          ? "recommended"
+          : ((c.execState === "done" || evType === "ADD" || evType === "TRIM" || evType === "EXIT") ? "done" : (c.execState || "done")),
       };
     }
+    const t = String(ev?.type || ev?.event || "").toUpperCase();
+    const scope = scopeOf(ev, t);
+    if (t === "TRADE_ENTRY") return { cls: "ev-entry ev-doing", label: "ENTER", evType: "ENTRY", scope, mode: "doing", execState: "done" };
+    if (t === "TRADE_EXIT_SIGNAL") return { cls: "ev-exit ev-recommended ev-doing", label: "EXIT", evType: "EXIT", scope, mode: "doing", execState: "recommended" };
+    if (t === "TRADE_EXIT") return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope, mode: "doing", execState: "done" };
+    if (t === "TRADE_TRIM") return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope, mode: "doing", execState: "done" };
+    if (t === "INVESTOR_SIGNAL") {
+      const invT = String(ev?.investor_alert_type || "").toLowerCase();
+      if (invT === "position_close") {
+        return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
+      }
+      if (invT === "position_trim") {
+        return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
+      }
+      if (invT === "position_add") {
+        return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
+      }
+      const verb = String(ev?.action || "INVESTOR").toUpperCase().replace(/^MODEL\s*·\s*/, "");
+      return { cls: "ev-entry", label: verb || "INVESTOR", evType: "INVESTOR_SIGNAL", scope: "investor", mode: "watching", execState: "watching" };
+    }
+    // D5 (2026-06-11) — resolution-time grading events belong on /alerts.html only.
     if (t === "ENTRY" || t === "ENTER") return { cls: "ev-entry", label: "ENTER", evType: "ENTRY", scope };
     if (t === "ADD" || t === "ADD_ENTRY") return { cls: "ev-entry", label: "ADD", evType: "ADD_ENTRY", scope };
     if (t === "TRIM" || t === "TP_HIT_TRIM") return { cls: "ev-trim", label: "TRIM", evType: "TRIM", scope };
@@ -246,63 +439,93 @@
   function buildPillDetail(ev, meta) {
     const price = Number(ev?.price);
     const qty = Number(ev?.qty);
+    const shares = Number(ev?.shares);
     const parts = [];
     const t = meta.evType;
-    if (Number.isFinite(price) && price > 0) {
-      if (t === "ENTRY" || t === "ADD_ENTRY") {
-        parts.push(qty > 0 ? `${qty % 1 === 0 ? qty : qty.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
-      } else {
-        parts.push(`@ ${fmtUsd(price)}`);
+    const shareN = Number.isFinite(shares) && shares > 0 ? shares : qty;
+    if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD" || t === "INVESTOR_SIGNAL") {
+      if (Number.isFinite(price) && price > 0) {
+        parts.push(shareN > 0 ? `${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
+      } else if (shareN > 0) {
+        parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
       }
+      const reason = shortReason(ev?.reason || ev?.action);
+      if (reason) parts.push(reason);
+      if (ev?.setup_grade) parts.push(String(ev.setup_grade));
+      return parts.join(" · ");
     }
+    if (t === "EXIT" || t === "TRIM") {
+      if (shareN > 0) parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
+      if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
+      const remain = Number(ev?.remaining ?? ev?.remaining_shares ?? ev?.total_shares);
+      if (Number.isFinite(remain) && remain >= 0 && t === "TRIM") parts.push(`${remain % 1 === 0 ? remain : remain.toFixed(1)} sh left`);
+      const reason = shortReason(ev?.reason || ev?.action);
+      if (reason) parts.push(reason);
+      return parts.join(" · ");
+    }
+    if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
     if (ev?.setup_grade && (t === "ENTRY" || t === "ADD_ENTRY")) parts.push(String(ev.setup_grade));
     const reason = shortReason(ev?.reason);
-    if (reason && (t === "EXIT" || t === "TRIM")) parts.push(reason);
-    if (t === "SIGNAL_GRADED") {
-      const pct = Number(ev?.outcome_pct);
-      if (Number.isFinite(pct)) parts.push(`${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`);
-      if (ev?.source) parts.push(String(ev.source).replace(/_/g, " "));
-    }
+    if (reason) parts.push(reason);
     return parts.join(" · ");
   }
 
-  function isJourneyRailPage() {
-    try {
-      const p = String(window.location.pathname || "").toLowerCase();
-      return p.includes("active-trader") || p.includes("today") || p.includes("investor") || p.includes("portfolio");
-    } catch (_) { return false; }
+  function isActionableActivityEvent(ev) {
+    const SG = window.TimedSignalGrammar;
+    const meta = classifyEvent(ev);
+    if (SG && typeof SG.isActionableFeedEvent === "function") {
+      return SG.isActionableFeedEvent(ev, meta);
+    }
+    const sym = String(ev?.ticker || ev?.symbol || "").toUpperCase();
+    if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
+    const t = String(ev?.type || ev?.event || "").toUpperCase();
+    if (t === "SIGNAL_GRADED") return false;
+    if (t === "TRADE_EXIT_SIGNAL") return true;
+    const traderTypes = new Set([
+      "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM",
+      "EXIT", "TP_HIT_EXIT", "SL_HIT",
+      "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT",
+    ]);
+    if (traderTypes.has(t)) return true;
+    const invT = String(ev?.investor_alert_type || "").toLowerCase();
+    if (invT === "position_open" || invT === "position_add" || invT === "position_trim" || invT === "position_close") return true;
+    if (t === "INVESTOR_SIGNAL") {
+      const act = String(ev?.action || "").toUpperCase();
+      if (act.includes("ON RADAR") || act.includes("WATCH") || act.includes("INFO")) return false;
+      if (act.includes("QUEUE") || act.includes("ACCUMULATE") || act.includes("BOUGHT")
+          || act.includes("REDUCE") || act.includes("REVIEW")) return true;
+      return meta.mode === "doing" && meta.label !== "WATCH";
+    }
+    return false;
   }
 
   function openActivityEvent(ev, sym, meta) {
     const ticker = String(sym || "").toUpperCase();
     if (!ticker) return;
     const tradeId = ev?.trade_id || ev?.tradeId || null;
-    const evType = meta.evType || "";
-    const openAutopsy = evType === "EXIT" || evType === "TRIM";
-
-    try {
-      if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ticker);
-      else window._ttGlobalSearchLastHandled = ticker;
-    } catch (_) {}
-
+    const payload = {
+      ticker,
+      tradeId,
+      evType: meta.evType,
+      scope: meta.scope,
+      activityEvent: ev,
+      source: "activity-strip",
+    };
+    if (typeof window.ttOpenActivityInRail === "function") {
+      window.ttOpenActivityInRail(payload);
+      return;
+    }
+    const initialRailTab = typeof window.ttResolveActivityRailTab === "function"
+      ? window.ttResolveActivityRailTab(ev, { scope: meta.scope, evType: meta.evType })
+      : "HISTORY";
     if (typeof window.ttOpenTickerInRail === "function") {
-      window.ttOpenTickerInRail({ ticker, initialRailTab: "HISTORY", tradeId, evType, openAutopsy, activityEvent: ev, source: "activity-strip" });
+      window.ttOpenTickerInRail({ ...payload, initialRailTab });
     } else {
       window.dispatchEvent(new CustomEvent("tt-open-ticker", {
-        detail: { ticker, initialRailTab: "HISTORY", tradeId, openAutopsy, activityEvent: ev, source: "activity-strip" },
+        detail: { ...payload, initialRailTab, openAutopsy: initialRailTab === "HISTORY" },
         bubbles: true,
       }));
     }
-
-    setTimeout(() => {
-      if (window._ttGlobalSearchLastHandled === ticker) return;
-      if (isJourneyRailPage()) return;
-      const q = new URLSearchParams({ ticker, railTab: "HISTORY" });
-      if (tradeId) q.set("trade_id", tradeId);
-      if (openAutopsy) q.set("autopsy", "1");
-      if (evType) q.set("ev", evType);
-      window.location.href = `/active-trader.html?${q.toString()}`;
-    }, 400);
   }
 
   // 2026-05-31 — Tracks the live nav height as a CSS variable so the
@@ -336,12 +559,16 @@
   }
 
   function render(host, events) {
-    const arr = (Array.isArray(events) ? events : []).slice();
+    const arr = (Array.isArray(events) ? events : [])
+      .filter(isActionableActivityEvent)
+      .slice();
     arr.sort((a, b) => {
       const norm = (x) => { const n = Number(x?.ts ?? x?.timestamp ?? 0); return n > 1e12 ? n : n * 1000; };
       return norm(b) - norm(a);
     });
-    const visible = arr.slice(0, 20);
+    // Collapse cross-channel duplicates (D1 lot + KV signal append) — sorted
+    // newest-first so the freshest copy of an action wins.
+    const visible = dedupeEvents(arr).slice(0, 20);
 
     if (!host._row) {
       const inner = document.createElement("div");
@@ -351,7 +578,7 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Click → History";
+      hint.textContent = "Mode · action · ticker · bias · size @ price · when · why";
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
@@ -367,7 +594,7 @@
     if (!visible.length) {
       const empty = document.createElement("span");
       empty.className = "tt-activity-strip__empty";
-      empty.textContent = "No recent system events.";
+      empty.textContent = "No recent model actions.";
       row.appendChild(empty);
       return;
     }
@@ -383,21 +610,23 @@
 
       const pill = document.createElement("button");
       pill.type = "button";
-      pill.className = `tt-activity-pill ${meta.cls}`;
-      const scopeLabel = meta.scope === "investor" ? "INVESTOR" : "TRADER";
-      pill.title = [scopeLabel, meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      pill.className = `tt-activity-pill ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
+      pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
+      const actionLabel = normalizeDisplayAction(meta);
+      const scopeLabel = scopeDisplayLabel(meta.scope);
+      pill.title = [scopeLabel, actionLabel, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
 
-      // Scope chip — Investor vs Active Trader at a glance (operator request).
       const scopeEl = document.createElement("span");
       scopeEl.className = `ev-scope ev-scope--${meta.scope === "investor" ? "investor" : "trader"}`;
-      scopeEl.textContent = meta.scope === "investor" ? "INV" : "TRADE";
+      scopeEl.textContent = scopeLabel;
       pill.appendChild(scopeEl);
 
       const typeEl = document.createElement("span");
       typeEl.className = "ev-type";
-      typeEl.textContent = meta.label;
+      typeEl.textContent = actionLabel;
       pill.appendChild(typeEl);
       if (sym) {
+        pill.appendChild(buildTickerLogo(sym));
         const symEl = document.createElement("span");
         symEl.className = "ev-sym";
         symEl.textContent = sym;
@@ -432,6 +661,7 @@
   }
 
   let _events = [];
+
   function isAdmin() {
     return window._ttIsAdmin === true || document.body?.dataset?.isAdmin === "true";
   }
@@ -473,15 +703,10 @@
       return;
     }
     setHostVisible(host, true);
-    const adminEndpoint = "/timed/admin/activity-feed";
-    const publicEndpoint = "/timed/activity";
-    let endpoint = isAdmin() ? adminEndpoint : publicEndpoint;
+    const endpoint = "/timed/activity";
+    const fetchLimit = 50;
     try {
-      let r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, { cache: "no-store", credentials: "include" });
-      if (isAdmin() && (r.status === 401 || r.status === 403)) {
-        endpoint = publicEndpoint;
-        r = await fetch(`${API_BASE}${endpoint}?limit=20&_t=${Date.now()}`, { cache: "no-store", credentials: "include" });
-      }
+      const r = await fetch(`${API_BASE}${endpoint}?limit=${fetchLimit}&_t=${Date.now()}`, { cache: "no-store", credentials: "include" });
       if (r.ok) {
         const j = await r.json();
         if (j?.ok && Array.isArray(j.events)) _events = j.events;
@@ -530,6 +755,15 @@
     ensureMobileSpacer(host);
     refresh(host);
     window.addEventListener("tt-auth-bootstrap-updated", () => refresh(host));
+    // Re-render once signal grammar loads (auth-gate injects it async).
+    let _grammarPoll = 0;
+    const grammarPoll = setInterval(() => {
+      if (window.TimedSignalGrammar && host) {
+        clearInterval(grammarPoll);
+        refresh(host);
+      }
+      if (++_grammarPoll > 60) clearInterval(grammarPoll);
+    }, 100);
     setInterval(() => { if (document.visibilityState !== "hidden") refresh(host); }, 60000);
     document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") refresh(host); });
     return host;
@@ -539,4 +773,4 @@
   else mount();
 })();
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293

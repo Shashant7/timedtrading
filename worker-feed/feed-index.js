@@ -225,6 +225,14 @@ export default {
         tickerCount = raw?.ticker_count ?? null;
         source = raw?._source ?? null;
       } catch (_) {}
+      const win = computeFeedWindow(new Date());
+      let operatingHours = null;
+      let nyRthOpen = null;
+      try {
+        const cal = await loadCalendar(env);
+        operatingHours = calIsWithinOH(cal);
+        nyRthOpen = calIsNyRegularMarketOpen(cal);
+      } catch (_) { /* best-effort — watchdog falls back to monolith flags */ }
       return new Response(JSON.stringify({
         ok: true,
         worker: "tt-feed",
@@ -232,6 +240,10 @@ export default {
         prices_age_sec: priceAgeSec,
         ticker_count: tickerCount,
         source,
+        operating_hours: operatingHours,
+        ny_rth_open: nyRthOpen,
+        price_feed_cron_active: win.isPriceFeedCron,
+        feed_mode: win.isPriceFeedCron ? (win.isLightweight ? "lightweight" : "full") : "quiet",
       }), { headers: { "Content-Type": "application/json" } });
     }
 

@@ -12,7 +12,7 @@
      in-zone strong score; monitor = lane label only; stale = signal >7d. */
   const ACTION_TIER_ORDER = { act_now: 0, ready: 1, monitor: 2, stale: 3 };
   const ACTION_TIER_META = {
-    act_now: { label: "ACT NOW", color: "#22c55e", title: "Execution-ready — price in buy zone with trend alignment. The Investor simulator would open or add on the next rebalance; not a manual buy instruction." },
+    act_now: { label: "REBALANCE", color: "#22c55e", title: "Execution-ready — the model portfolio would open or add this name at the next scheduled rebalance. Independent of whether this account buys manually." },
     ready: { label: "READY", color: "#4ade80", title: "Structural alignment or in-zone — rebalance candidate" },
     monitor: { label: "MONITOR", color: "#6E867D", title: "Accumulate lane signal — not execution-ready yet" },
     stale: { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" },
@@ -20,6 +20,15 @@
   function isExecuteReady(t) {
     const tier = deriveActionTier(t);
     return tier === "act_now" || tier === "ready";
+  }
+
+  /** Model has an investor lot from a prior rebalance (ate its own dog food). */
+  function isAccumulateEntered(t) {
+    const pos = t?.position;
+    if (!pos?.owned || !(Number(pos.shares) > 0)) return false;
+    const lastType = String(pos.last_action_type || "").toUpperCase();
+    if (["BUY", "DCA_BUY", "ADD"].includes(lastType)) return true;
+    return (Number(pos.first_entry_ts) || 0) > 0;
   }
 
   function investorRsFields(t) {
@@ -44,6 +53,8 @@
     }
     if (stage === "accumulate" && !isExecuteReady(t)) {
       stage = owned ? "watch" : "research_on_watch";
+    } else if (stage === "accumulate" && isExecuteReady(t)) {
+      stage = isAccumulateEntered(t) ? "accumulate_entered" : "accumulate_queued";
     }
     return stage;
   }
@@ -84,6 +95,22 @@
     if (Date.now() - lastTs > FRESH_SIGNAL_WINDOW_MS) return false;
     const lastType = String(t?.position?.last_action_type || "").toUpperCase();
     return ["BUY", "DCA_BUY", "SELL", "TRIM", "ADD"].includes(lastType);
+  }
+
+  // 2026-06-23 — "entered today" = position opened during the current ET
+  // session. Surfaces a TODAY chip so a same-day entry is obvious at a glance
+  // (operator: "add a chip for anything entered on the present day").
+  function _etDateKey(ts) {
+    if (!Number.isFinite(ts) || ts <= 0) return null;
+    try {
+      return new Date(ts).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+    } catch (_) { return null; }
+  }
+  function isEnteredToday(t) {
+    const firstTs = Number(t?.position?.first_entry_ts) || 0;
+    if (firstTs <= 0) return false;
+    const today = _etDateKey(Date.now());
+    return !!today && _etDateKey(firstTs) === today;
   }
 
   function ScoreBar({ score, max }) {
@@ -224,15 +251,26 @@
       return null;
     })();
 
-    /* 1H sparkline: same shared cache the Active Trader cards use. */
-    const cachedSpark = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
-      ? window._dsEnsureSparkline(sym) : null;
+    /* Daily sparkline: same shared cache the Active Trader cards use. */
+    const cachedSparkEntry = (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function")
+      ? window._dsSparklineCache?.[sym] : null;
+    if (typeof window !== "undefined" && typeof window._dsEnsureSparkline === "function") {
+      window._dsEnsureSparkline(sym);
+    }
+    const cachedSpark = window.TTSparklineConfig?.sparkClosesFromCacheEntry?.(cachedSparkEntry)
+      || (Array.isArray(cachedSparkEntry) ? cachedSparkEntry : cachedSparkEntry?.closes);
     const sparkPoints = (cachedSpark && cachedSpark.length >= 2)
       ? cachedSpark
       : (Array.isArray(t._sparkline) && t._sparkline.length >= 2 ? t._sparkline : [price || 0, price || 0]);
     const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0)
       ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
       : "";
+    const patternChips = (() => {
+      const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(cachedSparkEntry);
+      const detect = window.TimedPatternDetect?.detectCandlePatterns;
+      if (!candles || !detect) return [];
+      return detect(candles).slice(0, 2);
+    })();
 
     /* TT Selected highlight — same gold accent as DsCompactCard. */
     const isTTSel = (typeof window !== "undefined" && typeof window.isTickerTTSelected === "function")
@@ -245,7 +283,7 @@
                     : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
 
     const cardStyle = {
-      width: 280,
+      width: "100%",
       textAlign: "left",
       padding: "var(--ds-space-3)",
       // 2026-06-06 — execution-ready accumulate cards get a green left rail.
@@ -282,91 +320,83 @@
     const LC = window.TTLaneCard;
     const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
 
-    const midBody = React.createElement(React.Fragment, null,
-      isOwned && React.createElement("div", {
-        style: {
-          display: "flex", alignItems: "center", gap: "var(--ds-space-1)",
-          marginTop: "var(--ds-space-1)",
-          padding: "4px 6px",
-          borderRadius: "4px",
-          background: "rgba(167,139,250,0.07)",
-          border: "1px solid rgba(167,139,250,0.18)",
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: 11,
-          flexWrap: "wrap",
-          zIndex: 2,
-          position: "relative",
-        },
+    const midBody = isOwned && React.createElement(React.Fragment, null,
+      React.createElement("div", {
+        className: "tt-lane-card__pos",
         title: posShares > 0 && posAvg > 0 && livePnlPct != null
           ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} sh @ $${posAvg.toFixed(2)} → live $${(price ?? 0).toFixed(2)} (${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(2)}%)`
           : "Open investor position",
       },
-        React.createElement("span", {
-          style: { color: "rgb(196,181,253)", fontWeight: 600, letterSpacing: "0.04em" },
-        }, "POS"),
-        React.createElement("span", { style: { color: "var(--ds-text-muted)" } },
+        React.createElement("span", { className: "tt-lane-card__pos-label" }, "POS"),
+        React.createElement("span", { className: "tt-lane-card__pos-muted" },
           posShares > 0 ? `${posShares >= 10 ? posShares.toFixed(1) : posShares.toFixed(4)} sh` : "—"),
-        React.createElement("span", { style: { color: "var(--ds-text-muted)" } },
+        React.createElement("span", { className: "tt-lane-card__pos-muted" },
           posAvg > 0 ? `@ $${posAvg.toFixed(2)}` : ""),
         livePnlPct != null && React.createElement("span", {
-          style: {
-            marginLeft: "auto",
-            color: pnlDir === "up" ? "var(--ds-up, rgb(74,222,128))"
-                 : pnlDir === "dn" ? "var(--ds-dn, rgb(248,113,113))"
-                 : "var(--ds-text-muted)",
-            fontWeight: 700,
-          },
+          className: `tt-lane-card__pos-pnl tt-lane-card__pos-pnl--${pnlDir}`,
         }, `${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(1)}%`),
-        livePnlAbs != null && Math.abs(livePnlAbs) >= 1 && React.createElement("span", {
-          style: {
-            color: pnlDir === "up" ? "var(--ds-up, rgb(74,222,128))"
-                 : pnlDir === "dn" ? "var(--ds-dn, rgb(248,113,113))"
-                 : "var(--ds-text-muted)",
-            opacity: 0.85,
-          },
-        }, `(${livePnlAbs >= 0 ? "+" : ""}$${Math.abs(livePnlAbs).toFixed(0)})`),
       ),
-      isOwned && (watchingLabel || lastActionAgoLabel) && React.createElement("div", {
-        style: { marginTop: 4, display: "flex", flexDirection: "column", gap: 2, zIndex: 2, position: "relative" },
-      },
+      React.createElement("div", { className: "tt-lane-card__trace" },
         watchingLabel && React.createElement("div", {
-          style: {
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "3px 6px",
-            borderRadius: "4px",
-            background: isStaleSignal ? "rgba(245,158,11,0.10)" : "rgba(96,165,250,0.06)",
-            border: `1px solid ${isStaleSignal ? "rgba(245,158,11,0.30)" : "rgba(96,165,250,0.18)"}`,
-            fontFamily: "var(--tt-font-mono)",
-            fontSize: 10,
-            color: isStaleSignal ? "rgb(252,211,77)" : "rgb(147,197,253)",
-            lineHeight: 1.2,
-          },
+          className: `tt-lane-card__trace-row tt-lane-card__trace-row--watch${isStaleSignal ? " tt-lane-card__trace-row--stale" : ""}`,
           title: `Model recommends "${stage}" \u2014 watching for the trigger condition. Last lot action was ${lastActionType || "none"}${lastActionTs ? ` on ${new Date(lastActionTs).toLocaleDateString()}` : ""}.${isStaleSignal ? " Signal is stale (>7d) — trailing-stop / consecutive-day trigger has not yet fired." : ""}`,
         },
-          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, isStaleSignal ? "STALE" : "WATCHING"),
-          React.createElement("span", { style: { opacity: 0.95 } }, watchingLabel),
+          React.createElement("span", { className: "tt-lane-card__trace-label" }, isStaleSignal ? "STALE" : "WATCHING"),
+          React.createElement("span", { className: "tt-lane-card__trace-text" }, watchingLabel),
         ),
         lastActionAgoLabel && React.createElement("div", {
-          style: {
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "3px 6px",
-            borderRadius: "4px",
-            background: "rgba(167,139,250,0.05)",
-            border: "1px solid rgba(167,139,250,0.14)",
-            fontFamily: "var(--tt-font-mono)",
-            fontSize: 10,
-            color: "var(--ds-text-muted)",
-            lineHeight: 1.2,
-          },
+          className: "tt-lane-card__trace-row tt-lane-card__trace-row--last",
           title: `Last model action: ${lastActionType} ${lastActionShares > 0 ? lastActionShares.toFixed(2) + " sh" : ""} on ${new Date(lastActionTs).toLocaleString()}.`,
         },
-          React.createElement("span", { style: { fontWeight: 700, letterSpacing: "0.04em" } }, "LAST"),
-          React.createElement("span", { style: { opacity: 0.95 } },
+          React.createElement("span", { className: "tt-lane-card__trace-label" }, "LAST"),
+          React.createElement("span", { className: "tt-lane-card__trace-text" },
             `${lastActionType === "DCA_BUY" ? "DCA" : lastActionType}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
-          React.createElement("span", { style: { marginLeft: "auto", opacity: 0.75 } }, lastActionAgoLabel),
+          React.createElement("span", { className: "tt-lane-card__trace-ago" }, lastActionAgoLabel),
         ),
       ),
     );
+
+    const displayStage = resolveKanbanStage(t);
+    const recentlyExited = t.recentlyExited && typeof t.recentlyExited === "object" ? t.recentlyExited : null;
+    const cardStatusChip = (() => {
+      if (_entryPaused) {
+        return {
+          label: `PAUSED · ${entryPosture.eventKey || "EVENT"}`,
+          color: "#f59e0b",
+          title: entryPosture.guidance || "The model is holding new entries ahead of a macro event.",
+        };
+      }
+      if (recentlyExited) {
+        const closedTs = Number(recentlyExited.closed_at) || 0;
+        const hrs = closedTs > 0 ? Math.max(1, Math.round((Date.now() - closedTs) / 3600000)) : null;
+        return {
+          label: hrs != null ? `EXITED ${hrs}h` : "EXITED",
+          color: "#fb923c",
+          title: "The model closed this position recently — held on Radar through a cooldown before it can re-enter the Accumulate lane (avoids exit→buy whipsaw).",
+        };
+      }
+      if (isStaleSignal) {
+        return { label: "STALE", color: "#f59e0b", title: "Signal active >7d without a matching lot action" };
+      }
+      if (displayStage === "accumulate_queued") {
+        return {
+          label: "QUEUED",
+          color: "#94a3b8",
+          title: "Execution-ready accumulate — the model has not entered yet. It opens on the next rebalance if still qualified. New entries are tranched (max 3 new positions per day), so a queued name may wait for the next session.",
+        };
+      }
+      if (displayStage === "accumulate_entered") {
+        return {
+          label: "ENTERED",
+          color: "#22c55e",
+          title: "Model opened or added this position on a prior rebalance.",
+        };
+      }
+      if (displayStage === "reduce" && tierMeta) {
+        return { label: tierMeta.label, color: tierMeta.color, title: tierMeta.title };
+      }
+      return null;
+    })();
 
     return LC.create({
       sym,
@@ -374,63 +404,49 @@
         onClick: () => onSelect && onSelect(sym),
         onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect && onSelect(sym); } },
         style: cardStyle,
+        className: isOwned ? "tt-lane-card--owned" : "",
       },
       isTTSel,
       chipRow: [
-        isFreshSignal && React.createElement("span", {
+        cardStatusChip && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
             fontFamily: "var(--tt-font-mono)",
-            color: "rgb(103,232,249)",
-            background: "rgba(103,232,249,0.14)",
-            borderColor: "rgba(103,232,249,0.45)",
-            fontWeight: 800,
-            letterSpacing: "0.05em",
-          },
-          title: "The model acted on this position within the last 72h — fresh signal.",
-        }, "NEW SIGNAL"),
-        tierMeta && React.createElement("span", {
-          className: "ds-chip ds-chip--sm",
-          style: {
-            fontFamily: "var(--tt-font-mono)",
-            color: tierMeta.color,
-            background: `${tierMeta.color}18`,
-            borderColor: `${tierMeta.color}55`,
+            color: cardStatusChip.color,
+            background: `${cardStatusChip.color}18`,
+            borderColor: `${cardStatusChip.color}55`,
             fontWeight: 700,
             letterSpacing: "0.04em",
           },
-          title: tierMeta.title,
-        }, tierMeta.label),
-        isOwned && React.createElement("span", {
+          title: cardStatusChip.title,
+        }, cardStatusChip.label),
+        // FSD (Granny Shots) holding — what Fundstrat is actually buying. The
+        // investor lane is anchored on this buy-list, so flag membership and
+        // fund conviction prominently.
+        t.fsd?.isPick && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
             fontFamily: "var(--tt-font-mono)",
-            color: "rgb(196,181,253)",
-            background: "rgba(167,139,250,0.15)",
-            borderColor: "rgba(167,139,250,0.45)",
+            color: t.fsd.tier === "strong" ? "rgb(56,242,161)" : "var(--tt-text-muted)",
+            background: t.fsd.tier === "strong" ? "rgba(56,242,161,0.16)" : "rgba(56,242,161,0.07)",
+            borderColor: "rgba(56,242,161,0.45)",
+            fontWeight: 800,
+            letterSpacing: "0.04em",
           },
-          title: posShares > 0 && posAvg > 0
-            ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} shares @ avg $${posAvg.toFixed(2)}`
-            : "Open investor position",
-        }, "OWNED"),
-        (() => {
-          const firstTs = isOwned ? Number(pos?.first_entry_ts) || 0 : 0;
-          if (!firstTs) return null;
-          const ageMs = Date.now() - firstTs;
-          if (ageMs < 0 || ageMs > 30 * 60 * 1000) return null;
-          const ageMin = Math.max(1, Math.floor(ageMs / 60000));
-          return React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              color: "rgb(134,239,172)",
-              background: "rgba(34,197,94,0.18)",
-              borderColor: "rgba(34,197,94,0.55)",
-              animation: "tt-pulse 1.8s ease-in-out infinite",
-            },
-            title: `Position opened ${ageMin} min ago — matches the Discord entry alert`,
-          }, "JUST OPENED");
-        })(),
+          title: `Fundstrat Granny Shots holding (${(t.fsd.etfs || []).join(", ") || "FSD"}${t.fsd.maxWeight ? ` · ${t.fsd.maxWeight}%` : ""}) — what FSD is buying. Investor entries are anchored on this list.`,
+        }, t.fsd.maxWeight ? `FSD ${t.fsd.maxWeight}%` : "FSD"),
+        isOwned && isEnteredToday(t) && React.createElement("span", {
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            color: "rgb(134,239,172)",
+            background: "rgba(34,197,94,0.16)",
+            borderColor: "rgba(34,197,94,0.5)",
+            fontWeight: 800,
+            letterSpacing: "0.05em",
+          },
+          title: "The model opened this position today.",
+        }, "TODAY"),
         t.rs?.rsNewHigh3m && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           style: { fontFamily: "var(--tt-font-mono)" },
@@ -441,9 +457,22 @@
           style: { fontFamily: "var(--tt-font-mono)" },
           title: `Earnings ${earnings?.date || ""} ${earnings?.hour || ""}`,
         }, `EPS ${earnLabel}`),
-      ],
+        ...patternChips.map((p) => React.createElement("span", {
+          key: p.type,
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            color: p.bias === "bullish" ? "var(--tt-up-soft, #34d399)" : p.bias === "bearish" ? "var(--tt-dn-soft, #f87171)" : "var(--tt-text-muted)",
+            borderColor: p.bias === "bullish" ? "rgba(56,242,161,0.35)" : p.bias === "bearish" ? "rgba(248,113,113,0.35)" : undefined,
+          },
+          title: p.tooltip,
+        }, `${p.icon} ${p.type}`)),
+      ].filter(Boolean),
       quote: { price, dayPct, dayChg, dir, extLine },
-      midBody: (isOwned || (watchingLabel || lastActionAgoLabel)) ? midBody : null,
+      midBody: isOwned ? midBody : null,
       sparkSvg,
       metrics: [
         Number.isFinite(score) && score > 0 && React.createElement("span", {
@@ -454,36 +483,29 @@
         t.rsRank != null && React.createElement("span", {
           className: `ds-chip ds-chip--sm ${Number(t.rsRank) >= 80 ? "ds-chip--up" : Number(t.rsRank) >= 50 ? "" : "ds-chip--solid"}`,
           style: { fontFamily: "var(--tt-font-mono)" },
-          title: "Relative strength percentile (vs universe)",
+          title: `Relative strength percentile${rsFields.rs1m != null ? ` · 1M ${Number(rsFields.rs1m) >= 0 ? "+" : ""}${Number(rsFields.rs1m).toFixed(1)}%` : ""}${rsFields.rs3m != null ? ` · 3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%` : ""}`,
         }, `RS ${t.rsRank}`),
-        rsFields.rs1m != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(rsFields.rs1m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: "1-month return vs SPY",
-        }, `1M ${Number(rsFields.rs1m) >= 0 ? "+" : ""}${Number(rsFields.rs1m).toFixed(1)}%`),
-        rsFields.rs3m != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(rsFields.rs3m) >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: "3-month return vs SPY",
-        }, `3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%`),
-        liveStagePending && (() => {
-          const _friendly = {
-            research_avoid: "Avoid", research_low: "Low Conviction",
-            research_on_watch: "On Radar", accumulate: "Accumulate",
-            core_hold: "Core Hold", watch: "Hold & Watch", reduce: "Reduce",
-          };
-          const _ps = String(liveStagePending.stage || "");
-          const _label = _friendly[_ps] || _ps.replace(/^research_/, "").replace(/_/g, " ");
-          return React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--solid",
-            style: { fontFamily: "var(--tt-font-mono)", color: "#f59e0b", borderColor: "rgba(245,158,11,0.35)" },
-            title: `Heads up: the latest live score (S${Math.round(Number(liveStagePending.score) || 0)}) reclassifies this as "${_label}". The lane shown is the last committed classification — it moves to ${_label} on the next investor refresh.`,
-          }, `NEXT → ${_label.toUpperCase()}`);
-        })(),
       ],
       isSaved,
       onToggleSaved: toggleSavedTicker,
     });
+  }
+
+  function InvestorKanbanBandHeader({ band, label, hint }) {
+    return React.createElement("div", {
+      className: `at-kanban-band at-kanban-band--${band}`,
+      style: { margin: "12px 0 6px", padding: "0 4px" },
+    },
+      React.createElement("span", {
+        style: {
+          fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase",
+          color: band === "doing" ? "#fdba74" : "#6E867D",
+        },
+      }, label),
+      hint && React.createElement("span", {
+        style: { fontSize: 11, color: "#51635A", marginLeft: 10 },
+      }, hint),
+    );
   }
 
   function InvestorKanbanColumn({ laneKey, title, hint, action, actionColor, icon, color, count, items, renderCard, laneScrollRef }) {
@@ -503,7 +525,7 @@
     // the Active Trader pattern (active-trader.html .lane media query
     // at line ~274) and frees ~88px of width per card on phones.
     // Desktop unchanged — gutter on the left.
-    return React.createElement("div", { className: "flex flex-col md:flex-row items-stretch gap-0 mb-2 md:mb-0.5 kanban-lane" },
+    return React.createElement("div", { className: "flex flex-col md:flex-row items-stretch gap-0 mb-2 md:mb-0.5 kanban-lane inv-kanban-lane", "data-lane": laneKey },
       // V15 P0.7.144/.152 — gutter shows lane title + action chip +
       // count. On desktop: vertical column on the left. On mobile:
       // horizontal strip on top so the cards below get the full width.
@@ -542,12 +564,14 @@
         },
       },
         Array.isArray(items) && items.length > 0
-          ? React.createElement("div", { className: "flex gap-1.5" },
-              items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "w-[280px] shrink-0 kanban-card" }, renderCard(t))),
+          ? React.createElement("div", { className: "flex gap-1.5 items-stretch inv-kanban-cards" },
+              items.slice(0, 80).map(t => React.createElement("div", { key: t.ticker, className: "kanban-card inv-kanban-card shrink-0" }, renderCard(t))),
             )
           : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" },
-              laneKey === "accumulate"
-                ? "No execution-ready names — monitor-tier accumulate signals appear in On Radar or Hold & Watch"
+              laneKey === "accumulate_queued"
+                ? "No queued accumulate names — monitor-tier signals sit in On Radar or Hold & Watch"
+                : laneKey === "accumulate_entered"
+                ? "No entered accumulate positions yet this cycle"
                 : "No tickers"),
       ),
     );
@@ -565,20 +589,21 @@
        through "I own it and the model is managing it" through "the
        model has cooled off on this".
     */
-    const stages = ["research_on_watch", "accumulate", "core_hold", "watch", "reduce", "research_low", "research_avoid"];
+    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_low", "research_avoid"];
     /* V15 P0.7.144/.152 — lane labels + per-lane action chip.
        The action chip ("BUY NOW" / "HOLDING" / etc.) sits next to
        the lane title so a new user can answer "what should I do
        with this lane?" in 1 second without reading the tooltip.
     */
     const stageMeta = {
-      research_on_watch: { label: "On Radar", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
-      accumulate:        { label: "Accumulate", action: "BUY NOW", actionColor: "#22c55e", title: "Execution-ready — buy zone + valid score + trend alignment. Model would open or add on the next rebalance." },
-      core_hold:         { label: "Core Hold", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
-      watch:             { label: "Hold & Watch", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
-      reduce:            { label: "Reduce", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
-      research_low:      { label: "Low Conviction", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — low conviction. Not actionable yet." },
-      research_avoid:    { label: "Avoid", action: "SKIP", actionColor: "#6E867D", title: "Not owned — weak signals. System advises caution." },
+      research_on_watch: { label: "On Radar", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — moderate score. Worth tracking; revisit if it moves into Accumulate." },
+      accumulate_queued: { label: "Queued", band: "doing", action: "NEXT REBAL", actionColor: "#94a3b8", title: "Execution-ready accumulate — model has not entered yet. Waits for the next rebalance if still qualified." },
+      accumulate_entered: { label: "Entered", band: "doing", action: "HELD", actionColor: "#22c55e", title: "Model opened or added this position on a prior rebalance." },
+      core_hold:         { label: "Core Hold", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
+      watch:             { label: "Hold & Watch", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
+      reduce:            { label: "Reducing", band: "doing", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
+      research_low:      { label: "Low Conviction", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — low conviction. Not actionable yet." },
+      research_avoid:    { label: "Avoid", band: "watching", action: "SKIP", actionColor: "#6E867D", title: "Not owned — weak signals. System advises caution." },
     };
     const grouped = {};
     for (const s of stages) grouped[s] = [];
@@ -599,7 +624,7 @@
         const aFresh = hasFreshSignal(a);
         const bFresh = hasFreshSignal(b);
         if (aFresh !== bFresh) return aFresh ? -1 : 1;
-        if (s === "accumulate" || s === "reduce") {
+        if (s === "accumulate_queued" || s === "accumulate_entered" || s === "reduce") {
           const aTier = ACTION_TIER_ORDER[deriveActionTier(a)] ?? 9;
           const bTier = ACTION_TIER_ORDER[deriveActionTier(b)] ?? 9;
           if (aTier !== bTier) return aTier - bTier;
@@ -617,7 +642,7 @@
        focuses on the actionable rows. Always-show core_hold + accumulate
        + reduce + watch (the "decision-making" lanes); collapse the
        research_* lanes when empty. */
-    const ALWAYS_SHOW = new Set(["accumulate", "core_hold", "watch", "reduce"]);
+    const ALWAYS_SHOW = new Set(["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce"]);
     const visibleStages = stages.filter(s => ALWAYS_SHOW.has(s) || grouped[s].length > 0);
 
     /* 2026-06-01 — owned-aware lane counts.
@@ -631,7 +656,7 @@
     const HOLDING_LANES = new Set(["core_hold", "watch", "reduce"]);
     const laneCount = (stage) => {
       const items = grouped[stage] || [];
-      if (stage === "accumulate" || stage === "reduce") {
+      if (stage === "accumulate_queued" || stage === "accumulate_entered" || stage === "reduce") {
         const act = items.filter((t) => {
           const tier = deriveActionTier(t);
           return tier === "act_now" || tier === "ready";
@@ -646,16 +671,40 @@
       return `${owned}/${items.length}`;
     };
     return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
-      ...visibleStages.map(stage =>
+      React.createElement(InvestorKanbanBandHeader, {
+        band: "doing",
+        label: "DOING",
+        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
+      }),
+      ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
         React.createElement(InvestorKanbanColumn, {
           key: stage,
           laneKey: stage,
           title: stageMeta[stage].label,
-          hint: (stage === "accumulate" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          // During a pre-event hold the Accumulate lane chip flips from "BUY NOW"
-          // (green) to "PAUSED · <event>" (amber) — the model isn't buying yet.
-          action: (stage === "accumulate" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+          icon: stageMeta[stage].icon,
+          color: stageMeta[stage].color,
+          count: laneCount(stage),
+          items: grouped[stage],
+          renderCard,
+          laneScrollRef,
+        }),
+      ),
+      React.createElement(InvestorKanbanBandHeader, {
+        band: "watching",
+        label: "WATCHING",
+        hint: "Monitoring — no action expected yet",
+      }),
+      ...visibleStages.filter((s) => stageMeta[s]?.band === "watching").map(stage =>
+        React.createElement(InvestorKanbanColumn, {
+          key: stage,
+          laneKey: stage,
+          title: stageMeta[stage].label,
+          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
           icon: stageMeta[stage].icon,
           color: stageMeta[stage].color,
           count: laneCount(stage),
@@ -732,7 +781,66 @@
     );
   }
 
-  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup, allowedTickerSet, pendingTickerSymbols = [] }) {
+  /* Search + filter row — rendered directly above the kanban lanes so
+     operators can narrow the board without scrolling past account stats. */
+  function InvestorSearchRow({ searchQuery, onSearchQueryChange, filterGroup, onFilterGroupChange, chipCounts, savedCount }) {
+    const q = searchQuery || "";
+    return React.createElement("section", { className: "tt-row inv-controls", style: { marginTop: 8, marginBottom: 12 } },
+      React.createElement("div", { className: "inv-search-wrap" },
+        React.createElement("svg", {
+          width: 14, height: 14, viewBox: "0 0 24 24", fill: "none",
+          stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
+          className: "inv-search-icon",
+        },
+          React.createElement("circle", { cx: 11, cy: 11, r: 8 }),
+          React.createElement("line", { x1: 21, y1: 21, x2: 16.65, y2: 16.65 }),
+        ),
+        React.createElement("input", {
+          type: "text",
+          className: "inv-search",
+          placeholder: "Search tickers (e.g. NVDA or NVDA, MSFT, TSLA)",
+          value: q,
+          onChange: (e) => onSearchQueryChange && onSearchQueryChange(e.target.value),
+          "aria-label": "Search Investor tickers",
+        }),
+        q && React.createElement("button", {
+          className: "inv-search-clear",
+          onClick: () => onSearchQueryChange && onSearchQueryChange(""),
+          "aria-label": "Clear search",
+          title: "Clear",
+        }, "\u00D7"),
+      ),
+      React.createElement("div", { className: "inv-filter-chips" },
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === null ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange(null),
+        }, "All"),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "INVESTOR_ACTIONABLE" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("INVESTOR_ACTIONABLE"),
+          title: "Tickers in Accumulate or Reduce — the model has an active recommendation",
+        }, `Actionable${chipCounts.actionable > 0 ? ` (${chipCounts.actionable})` : ""}`),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "EXECUTE_READY" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("EXECUTE_READY"),
+          title: "Accumulate/Reduce names the model would prioritize — ACT NOW or READY",
+        }, `Execute-ready${chipCounts.executeReady > 0 ? ` (${chipCounts.executeReady})` : ""}`),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "SIM_ELIGIBLE" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("SIM_ELIGIBLE"),
+          title: "Subset of Actionable the simulator would buy — Monthly SuperTrend bullish + \u22652 of (D, W, M) bullish",
+        }, `Sim-eligible${(chipCounts.simEligible + chipCounts.simUnknown) > 0 ? ` (${chipCounts.simEligible}${chipCounts.simUnknown > 0 ? `+${chipCounts.simUnknown}?` : ""})` : ""}`),
+        React.createElement("button", {
+          className: "inv-chip" + (filterGroup === "SAVED" ? " active" : ""),
+          onClick: () => onFilterGroupChange && onFilterGroupChange("SAVED"),
+          title: "Saved tickers (star icon on any card)",
+          disabled: !savedCount,
+        }, `Saved${savedCount > 0 ? ` (${savedCount})` : ""}`),
+      ),
+    );
+  }
+
+  function InvestorPanel({ apiBase, onSelectTicker, savedTickers, toggleSavedTicker, selectedTicker, tickerData, searchQuery, filterGroup, onSearchQueryChange, onFilterGroupChange, allowedTickerSet, pendingTickerSymbols = [] }) {
     const [scores, setScores] = useState(null);
     const [health, setHealth] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -1014,8 +1122,31 @@
 
     const actionCount = useMemo(() => allTickers.filter((t) => {
       const s = resolveKanbanStage(t);
-      return s === "accumulate" || s === "reduce" || s === "core_hold" || s === "watch";
+      return s === "accumulate_queued" || s === "accumulate_entered" || s === "reduce" || s === "core_hold" || s === "watch";
     }).length, [allTickers]);
+
+    const chipCounts = useMemo(() => {
+      let actionable = 0, simEligible = 0, simUnknown = 0, executeReady = 0;
+      const list = Array.isArray(scores?.tickers) ? scores.tickers : [];
+      const countNav = window.TTCountInvestorNavBadge;
+      if (typeof countNav === "function") actionable = countNav(list);
+      for (const row of list) {
+        const stage = String(row?.stage || row?.investor_stage || "").toLowerCase();
+        if (stage !== "accumulate" && stage !== "reduce") continue;
+        if (typeof countNav !== "function") {
+          if (stage === "reduce") actionable++;
+          else if (stage === "accumulate") {
+            const tier = String(row?.actionTier || "").toLowerCase();
+            if (tier === "act_now" || tier === "ready") actionable++;
+          }
+        }
+        const tier = row?.actionTier;
+        if (tier === "act_now" || tier === "ready") executeReady++;
+        if (row?.simEligible === true) simEligible++;
+        else if (row?.simEligible == null) simUnknown++;
+      }
+      return { actionable, simEligible, simUnknown, executeReady };
+    }, [scores]);
 
     /* V2.1 round 5 (2026-05-01) — Investor narrative.
        Per user: "we need to provide some additional narrative, much like the
@@ -1032,7 +1163,7 @@
        off at narrow widths). */
     const narrative = useMemo(() => {
       if (!allTickers.length) return null;
-      const counts = { accumulate: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
+      const counts = { accumulate_queued: 0, accumulate_entered: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
       const buyZone = [];
       const rsHigh = [];
       const recentActions = [];
@@ -1050,7 +1181,7 @@
         // positions — model handles adds via auto-rebalance, suggesting
         // them as fresh buys is misleading.
         const _isOwned = !!t.position?.owned;
-        if (s === "accumulate" && isExecuteReady(t) && t.accumZone?.inZone && !_isOwned) {
+        if (s === "accumulate_queued" && isExecuteReady(t) && t.accumZone?.inZone && !_isOwned) {
           buyZone.push(t.ticker);
         }
         // RS-new-high stays as-is (pure technical watchlist signal,
@@ -1075,9 +1206,10 @@
       const breadthPct = Number(health?.breadth?.pctAboveD200);
       const marketLine = `Market is ${regimeWord}${Number.isFinite(score) ? ` (Health ${Math.round(score)}/100)` : ""}` +
         `${Number.isFinite(breadthPct) ? `, with ${Math.round(breadthPct)}% of stocks above their 200-day MA` : ""}.`;
-      const actionable = counts.accumulate + counts.reduce;
+      const accumulateTotal = counts.accumulate_queued + counts.accumulate_entered;
+      const actionable = accumulateTotal + counts.reduce;
       const actionLine = actionable > 0
-        ? `${actionable} ${actionable === 1 ? "name is" : "names are"} actionable — ${counts.accumulate} in Buy Zone, ${counts.reduce} flagged for Reduce. ${counts.core_hold} core hold${counts.core_hold === 1 ? "" : "s"}.`
+        ? `${actionable} ${actionable === 1 ? "name is" : "names are"} actionable — ${counts.accumulate_queued} queued for rebalance, ${counts.accumulate_entered} entered, ${counts.reduce} flagged for Reduce. ${counts.core_hold} core hold${counts.core_hold === 1 ? "" : "s"}.`
         : `No actionable Buy Zone or Reduce signals right now — model is letting current positions run.`;
       const formatAgo = (ms) => {
         const d = Math.floor(ms / 86400000);
@@ -1206,6 +1338,14 @@
           ),
         ),
       ),
+      (onSearchQueryChange || onFilterGroupChange) && React.createElement(InvestorSearchRow, {
+        searchQuery,
+        onSearchQueryChange,
+        filterGroup,
+        onFilterGroupChange,
+        chipCounts,
+        savedCount: savedTickers?.size || 0,
+      }),
       allTickers.length > 0
         ? React.createElement(ActionKanban, {
             tickers: allTickers,
@@ -1238,8 +1378,14 @@
   }
 
   window.InvestorPanel = InvestorPanel;
-  window.TTInvestorLane = { deriveActionTier, isExecuteReady, resolveKanbanStage, countInvestorNavBadge };
+  window.TTInvestorLane = Object.assign({}, window.TTInvestorLane, {
+    deriveActionTier,
+    isExecuteReady,
+    isAccumulateEntered,
+    resolveKanbanStage,
+    countInvestorNavBadge,
+  });
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293

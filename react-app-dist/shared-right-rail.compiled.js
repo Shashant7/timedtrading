@@ -25,7 +25,47 @@
       flexDirection: "column",
       gap: "var(--ds-space-3)",
       paddingBottom: RAIL_TAB_SCROLL_PAD,
-      WebkitOverflowScrolling: "touch"
+      WebkitOverflowScrolling: "touch",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box"
+    };
+    const investorRailContainStyle = {
+      width: "100%",
+      minWidth: 0,
+      maxWidth: "100%",
+      boxSizing: "border-box"
+    };
+    const investorRailTextStyle = {
+      ...investorRailContainStyle,
+      overflowWrap: "break-word",
+      wordBreak: "break-word"
+    };
+    const sanitizeUserFacingCopy = text => {
+      if (typeof window !== "undefined" && window.TimedRailHelpers?.sanitizeUserFacingCopy) {
+        return window.TimedRailHelpers.sanitizeUserFacingCopy(text);
+      }
+      if (text == null || text === "") return text;
+      return String(text).replace(/\bfsd_macro_risk_off\b/gi, "macro_risk_off").replace(/\bfsd_macro_risk_on\b/gi, "macro_risk_on").replace(/\bFSD\s*\/\s*/gi, "").replace(/\bFSD\b/gi, "").trim();
+    };
+    const resolveRailLevelsDirection = opts => {
+      opts = opts || {};
+      const posture = opts.posture || {};
+      const postureDir = String(posture.direction || "").toUpperCase();
+      if (postureDir === "LONG" || postureDir === "SHORT") return postureDir;
+      const isExplicitNeutral = posture.strength === "neutral" || posture.posture === "NEUTRAL" || String(posture.label || "").toUpperCase() === "NEUTRAL";
+      if (isExplicitNeutral) {
+        const structural = opts.ticker && typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker ? window.TimedPriceUtils.inferStructuralBiasFromTicker(opts.ticker) : "";
+        if (structural === "LONG" || structural === "SHORT") return structural;
+        const timing = opts.timing || null;
+        if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
+        if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
+        const effOpt = String(opts.optionsEffectiveDir || "").toUpperCase();
+        if (effOpt === "LONG" || effOpt === "SHORT") return effOpt;
+        return "";
+      }
+      const fallback = String(opts.fallbackDir || "").toUpperCase();
+      return fallback === "LONG" || fallback === "SHORT" ? fallback : "";
     };
     const getDailyChange = deps.getDailyChange;
     const isPrimeBubble = deps.isPrimeBubble;
@@ -110,9 +150,9 @@
         laneLabel: "Reduce"
       },
       research_on_watch: {
-        actionLine: "TT Model lane: On Watch — research only.",
-        doNow: "The model tracks the name; no capital deployment until Accumulate lane.",
-        laneLabel: "On Watch"
+        actionLine: "TT Model lane: On Radar — tracking until execution-ready.",
+        doNow: "The model tracks the name; no capital deployment until execution-ready.",
+        laneLabel: "On Radar"
       },
       research_low: {
         actionLine: "TT Model lane: Low conviction — no action.",
@@ -135,10 +175,128 @@
       return INVESTOR_STAGE_GUIDANCE[key] || INVESTOR_STAGE_GUIDANCE.watch;
     }
     function buildInvestorDisplayContext(opts) {
-      if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
-        return window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+      try {
+        if (typeof window !== "undefined" && window.TimedRailHelpers?.buildInvestorDisplayContext) {
+          const ctx = window.TimedRailHelpers.buildInvestorDisplayContext(opts);
+          if (ctx) return ctx;
+        }
+      } catch (_) {}
+      opts = opts || {};
+      const sym = String(opts.tickerSymbol || opts.ticker?.ticker || opts.latestTicker?.ticker || "").trim().toUpperCase();
+      const invRaw = opts.investorData;
+      const investorData = invRaw && String(invRaw.ticker || sym || "").toUpperCase() === sym ? invRaw : null;
+      const rawStage = String(investorData?.stage || opts.ticker?.investor_stage || opts.latestTicker?.investor_stage || "").toLowerCase();
+      if (!rawStage || rawStage === "—") return null;
+      const H = window.TimedRailHelpers || {};
+      const owned = !!(opts.effectiveInvestorTrade || investorData?.position?.owned);
+      const row = {
+        stage: rawStage,
+        score: Number(investorData?.score ?? opts.ticker?.investor_score ?? opts.latestTicker?.investor_score) || 0,
+        actionTier: investorData?.actionTier || null,
+        simEligible: investorData?.simEligible === true,
+        accumZone: investorData?.accumZone || null,
+        position: {
+          ...(investorData?.position || {}),
+          owned,
+          last_action_ts: investorData?.position?.last_action_ts,
+          last_action_type: investorData?.position?.last_action_type
+        }
+      };
+      const resolveKanban = H.resolveInvestorKanbanStage || function (r) {
+        let stage = String(r?.stage || "research_avoid");
+        if (stage === "research") stage = "research_avoid";
+        const o = !!r?.position?.owned;
+        if (!o) {
+          if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";else if (stage === "reduce") stage = "research_low";
+        }
+        const tier = H.deriveInvestorActionTier ? H.deriveInvestorActionTier(r) : null;
+        const execReady = tier === "act_now" || tier === "ready";
+        if (stage === "accumulate" && !execReady) stage = o ? "watch" : "research_on_watch";
+        return stage;
+      };
+      const deriveTier = H.deriveInvestorActionTier || function () {
+        return null;
+      };
+      const displayStage = resolveKanban(row);
+      const actionTier = row.actionTier || deriveTier(row);
+      const executeReady = actionTier === "act_now" || actionTier === "ready";
+      const laneMeta = H.INVESTOR_LANE_CHIP_META && H.INVESTOR_LANE_CHIP_META[displayStage] || {
+        label: "On Radar",
+        chip: "ds-chip--solid",
+        title: "Investor lane",
+        style: {
+          color: "#a78bfa"
+        }
+      };
+      const tierMeta = actionTier && H.INVESTOR_TIER_CHIP_META ? H.INVESTOR_TIER_CHIP_META[actionTier] : null;
+      const LANE_GUIDANCE = {
+        accumulate: {
+          laneLabel: "Accumulate",
+          doNow: "The model scales in over 2–3 tranches inside the buy zone; no chasing extended moves."
+        },
+        core_hold: {
+          laneLabel: "Core Hold",
+          doNow: "The model holds the core; adds only on meaningful pullbacks if the buy zone triggers again."
+        },
+        watch: {
+          laneLabel: "Hold & Watch",
+          doNow: "The model holds flat and monitors signals; invalidation floor stays visible on the chart."
+        },
+        reduce: {
+          laneLabel: "Reduce",
+          doNow: "The model trims ~30% per reduce cycle (or exits fully on invalidation breach)."
+        },
+        research_on_watch: {
+          laneLabel: "On Radar",
+          doNow: "The model tracks the name; no capital deployment until execution-ready."
+        },
+        research_low: {
+          laneLabel: "Low Conviction",
+          doNow: "The model passes — better setups elsewhere in the universe."
+        },
+        research_avoid: {
+          laneLabel: "Avoid",
+          doNow: "The model skips — multiple red flags; no initiate or add."
+        },
+        exited: {
+          laneLabel: "Exited",
+          doNow: "The model monitors for a fresh Accumulate signal before re-entry."
+        }
+      };
+      const displayGuide = LANE_GUIDANCE[displayStage] || LANE_GUIDANCE.watch;
+      const inBuyZone = !!investorData?.accumZone?.inZone;
+      let signalNote = null;
+      if (rawStage === "accumulate" && displayStage !== "accumulate") {
+        signalNote = owned ? "Accumulate thesis — owned but not execution-ready; shown in Hold & Watch until the buy zone triggers." : "Accumulate thesis — tracking on On Radar until price enters the buy zone with trend alignment.";
       }
-      return null;
+      const statusLine = (() => {
+        if (!owned && rawStage === "accumulate" && !executeReady) {
+          if (inBuyZone) return "In buy zone but not fully aligned — model is monitoring, not buying yet.";
+          return "Waiting for buy zone entry — no model position opened yet.";
+        }
+        if (owned && rawStage === "accumulate" && !executeReady) {
+          return "Owned — accumulate signal active but model is not adding until the next trigger.";
+        }
+        return displayGuide.doNow;
+      })();
+      const laneLabel = displayGuide.laneLabel;
+      return {
+        sym,
+        rawStage,
+        displayStage,
+        displayGuide,
+        actionTier,
+        executeReady,
+        laneMeta,
+        tierMeta,
+        signalNote,
+        statusLine,
+        inBuyZone,
+        owned,
+        laneLabel,
+        displayLabel: laneLabel,
+        headerChipText: `Investor – ${laneLabel}`
+      };
     }
     function investorInvalidationDisplay(investorData, livePx) {
       const inv = investorData?.primaryInvalidation;
@@ -162,6 +320,41 @@
           note: thesis.note
         } : null,
         lines: Array.isArray(inv?.invalidationLines) ? inv.invalidationLines : Array.isArray(investorData?.thesisInvalidation) ? investorData.thesisInvalidation : []
+      };
+    }
+    function buildInvestorKeyLevelRows(detail, livePx, invDisplay, accumZone, pos) {
+      const px = Number(livePx);
+      if (!(px > 0)) return null;
+      const seen = new Set();
+      const rows = [];
+      const add = (price, label, letter, color) => {
+        const p = Number(price);
+        if (!Number.isFinite(p) || p <= 0) return;
+        const key = p.toFixed(4);
+        if (seen.has(key)) return;
+        seen.add(key);
+        rows.push({
+          price: p,
+          label: String(label || "Level"),
+          letter: String(letter || "LV"),
+          color: color || "var(--ds-text-muted)",
+          dist_pct: (p - px) / px * 100
+        });
+      };
+      const fv = Number(detail?.fairValue?.fair_value ?? detail?._fair_value?.fair_value);
+      if (fv > 0) add(fv, "Fair value estimate", "FV", "#fbbf24");
+      if (Number(accumZone?.zoneTop) > 0) add(accumZone.zoneTop, "Buy zone high", "BZ", "#22d3ee");
+      if (Number(accumZone?.zoneBottom) > 0) add(accumZone.zoneBottom, "Buy zone low", "BZ", "#22d3ee");else if (Number(accumZone?.entryPrice) > 0) add(accumZone.entryPrice, "Buy zone", "BZ", "#22d3ee");
+      if (Number(pos?.avg_entry) > 0) add(pos.avg_entry, "Avg entry", "AVG", "#c4b5fd");
+      if (invDisplay?.thesisLevel?.price) {
+        add(invDisplay.thesisLevel.price, invDisplay.thesisLevel.label || "Thesis floor", "TH", "#a78bfa");
+      }
+      if (invDisplay?.price) add(invDisplay.price, invDisplay.label || "Invalidation", "INV", "#f87171");
+      if (!rows.length) return null;
+      return {
+        px,
+        above: rows.filter(r => r.price > px).sort((a, b) => a.price - b.price),
+        below: rows.filter(r => r.price <= px).sort((a, b) => b.price - a.price)
       };
     }
     function investorEntryActionFromSetup(setupRaw) {
@@ -944,7 +1137,6 @@
       const rsRank = Number(detail?.rsRank);
       const sector = detail?.sector || ticker?._sector || null;
       const thesis = detail?.thesis || null;
-      const invalidation = detail?.thesisInvalidation || null;
       const livePx = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
       const invDisplay = investorInvalidationDisplay(detail, livePx);
       const STAGE_LABEL = {
@@ -1052,8 +1244,9 @@
         if (r.startsWith("timing_top:")) {
           return "Extension timing is dominant — trim into strength; avoid new long exposure until the top resolves.";
         }
-        return REASON_TRANSLATIONS[r] || r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        return sanitizeUserFacingCopy(REASON_TRANSLATIONS[r] || r.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
       })();
+      const stageReasonCode = stageReason ? sanitizeUserFacingCopy(String(stageReason)) : null;
       const COMPONENT_DEFS = {
         weeklyTrend: {
           label: "Weekly Trend",
@@ -1102,6 +1295,7 @@
         children
       }) => h("div", {
         style: {
+          ...investorRailContainStyle,
           background: "var(--ds-surface-1, rgba(255,255,255,0.02))",
           border: "1px solid var(--ds-border-faint, rgba(255,255,255,0.06))",
           borderRadius: "var(--ds-radius-lg, 12px)",
@@ -1133,11 +1327,47 @@
         source: Math.abs(ahPct) > Math.abs(dailyPct) ? "extended hours" : "regular session",
         warning: "Investor classification uses weekly/monthly trends and is slow to digest catalysts of this size. The next score refresh (hourly) will reflect today's move."
       } : null;
+      const laneColor = stageInfo.color;
+      const tradeOpen = (() => {
+        try {
+          return window.TimedPriceUtils?.isTradeOpen?.(effectiveTrade) ?? false;
+        } catch (_) {
+          return false;
+        }
+      })();
+      const holdingTrade = tradeOpen ? effectiveTrade : null;
+      const hasHolding = !!(pos?.owned || invCtx?.owned || holdingTrade);
+      const thesisText = sanitizeUserFacingCopy(String(thesis || "").trim());
+      const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? pos?.avg_entry);
+      const liveForPos = Number.isFinite(livePx) && livePx > 0 ? livePx : null;
+      const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? pos?.shares);
+      const costBasis = Number(pos?.cost_basis);
+      const pnlPct = (() => {
+        if (Number.isFinite(Number(pos?.unrealized_pct))) return Number(pos.unrealized_pct);
+        if (!(entryPx > 0) || !(liveForPos > 0)) return null;
+        return (liveForPos - entryPx) / entryPx * 100;
+      })();
+      const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+      const entryWhen = (() => {
+        const t = Number(holdingTrade?.entry_ts ?? pos?.last_action_ts);
+        if (!Number.isFinite(t)) return null;
+        try {
+          return new Date(t).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+          });
+        } catch (_) {
+          return null;
+        }
+      })();
+      const invLevelRows = buildInvestorKeyLevelRows(detail, livePx, invDisplay, accumZone, pos);
       return h("div", {
         style: railTabBodyWrapStyle
-      }, invCtx && h("div", {
+      }, (invCtx || stage !== "—") && h("div", {
         style: {
-          padding: "var(--ds-space-3)",
+          ...investorRailContainStyle,
+          padding: "14px 14px 12px",
           marginBottom: "var(--ds-space-3)",
           background: stageInfo.bg,
           border: `1px solid ${stageInfo.border}`,
@@ -1147,195 +1377,250 @@
         style: {
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          gap: 8,
+          gap: 6,
           flexWrap: "wrap",
-          marginBottom: 8
+          marginBottom: 8,
+          minWidth: 0,
+          maxWidth: "100%"
         }
-      }, h("div", {
+      }, h("span", {
         style: {
-          fontSize: 15,
+          fontSize: 11,
           fontWeight: 700,
-          color: stageInfo.color
+          color: laneColor,
+          letterSpacing: "0.02em",
+          ...investorRailTextStyle
         }
-      }, laneHeaderText), invCtx.tierMeta && h("span", {
+      }, sanitizeUserFacingCopy(laneHeaderText)), hasHolding && h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          padding: "2px 7px",
+          borderRadius: 4,
+          color: laneColor,
+          background: `${laneColor}18`,
+          border: `1px solid ${laneColor}44`,
+          letterSpacing: "0.05em"
+        }
+      }, "HOLDING"), invCtx?.tierMeta && h("span", {
         style: {
           fontSize: 10,
           fontWeight: 700,
           letterSpacing: "0.05em",
-          padding: "2px 8px",
-          borderRadius: 999,
+          padding: "2px 7px",
+          borderRadius: 4,
           color: invCtx.tierMeta.color,
           background: `${invCtx.tierMeta.color}18`,
           border: `1px solid ${invCtx.tierMeta.color}44`
         }
       }, invCtx.tierMeta.label)), h("div", {
         style: {
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 10,
+          flexWrap: "wrap",
+          minWidth: 0,
+          maxWidth: "100%"
+        }
+      }, h("span", {
+        style: {
+          fontSize: 18,
+          fontWeight: 800,
+          color: laneColor,
+          letterSpacing: "0.02em",
+          lineHeight: 1,
+          ...investorRailTextStyle
+        }
+      }, stageInfo.label), liveForPos && h("span", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          color: "var(--ds-text-body)",
+          fontWeight: 600
+        }
+      }, fmtUsd(liveForPos))), thesisText && h("div", {
+        style: {
+          marginBottom: 10,
+          padding: "10px 12px",
+          borderLeft: `3px solid ${laneColor}`,
+          background: "rgba(255,255,255,0.04)",
+          borderRadius: "0 8px 8px 0",
+          ...investorRailContainStyle
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: laneColor,
+          letterSpacing: "0.06em",
+          marginBottom: 4
+        }
+      }, "THESIS"), h("div", {
+        style: {
           fontSize: 13,
           color: "var(--ds-text-body)",
           lineHeight: 1.5,
-          fontWeight: 600
+          ...investorRailTextStyle
         }
-      }, invCtx.statusLine), invCtx.signalNote && h("div", {
+      }, thesisText.slice(0, 600))), hasHolding && h("div", {
         style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.45,
-          marginTop: 8
-        }
-      }, invCtx.signalNote)), catalystEvent && h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
-          border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
-          borderRadius: "var(--ds-radius-md)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: catalystEvent.direction === "up" ? "#34d399" : "#f87171",
-          letterSpacing: "0.05em",
-          marginBottom: 4
-        }
-      }, "⚡ CATALYST EVENT DETECTED"), h("div", {
-        style: {
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          fontWeight: 600,
-          marginBottom: 4
-        }
-      }, `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`), h("div", {
-        style: {
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.4
-        }
-      }, catalystEvent.warning)), h(Panel, {
-        title: `Investor Lane · ${invCtx?.laneLabel || stageInfo.label}`,
-        action: h("span", {
-          style: {
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            flexWrap: "wrap",
-            justifyContent: "flex-end"
-          }
-        }, invCtx?.tierMeta && h("span", {
-          style: {
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            color: invCtx.tierMeta.color,
-            background: `${invCtx.tierMeta.color}18`,
-            border: `1px solid ${invCtx.tierMeta.color}44`
-          }
-        }, invCtx.tierMeta.label), h("span", {
-          style: {
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.05em",
-            padding: "2px 8px",
-            borderRadius: 999,
-            color: stageInfo.color,
-            background: stageInfo.bg,
-            border: `1px solid ${stageInfo.border}`
-          }
-        }, invCtx?.laneLabel || stageInfo.label))
-      }, invCtx?.signalNote && h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.45,
-          marginBottom: "var(--ds-space-2)",
-          padding: "8px 10px",
-          background: "rgba(255,255,255,0.03)",
-          borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.06)"
-        }
-      }, invCtx.signalNote), h("div", {
-        style: {
-          padding: "var(--ds-space-2)",
-          background: stageInfo.bg,
-          border: `1px solid ${stageInfo.border}`,
-          borderRadius: "var(--ds-radius-md)",
-          marginBottom: "var(--ds-space-2)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em",
-          marginBottom: 4
-        }
-      }, "WHAT TO DO"), h("div", {
-        style: {
-          fontSize: 15,
-          fontWeight: 700,
-          color: stageInfo.color
-        }
-      }, invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : invCtx?.statusLine || stageInfo.action), h("div", {
-        style: {
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-body)",
-          marginTop: 4,
-          lineHeight: 1.4
-        }
-      }, invCtx?.statusLine || stageInfo.desc, invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") ? ` Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).` : "")), invDisplay && (stage === "reduce" || stage === "watch" || stage === "core_hold") && h("div", {
-        style: {
-          marginBottom: "var(--ds-space-2)",
+          marginBottom: 10,
           padding: "10px 12px",
-          background: "rgba(248,113,113,0.06)",
-          border: "1px solid rgba(248,113,113,0.22)",
-          borderRadius: "var(--ds-radius-md)"
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.05)",
+          border: `1px solid ${laneColor}33`
         }
+      }, h("div", {
+        style: {
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 8,
+          marginBottom: 6,
+          flexWrap: "wrap"
+        }
+      }, h("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: laneColor,
+          letterSpacing: "0.06em"
+        }
+      }, "OPEN POSITION"), pnlPct != null && h("span", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 13,
+          fontWeight: 700,
+          color: pnlColor
+        }
+      }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`)), (entryPx > 0 || liveForPos > 0) && h("div", {
+        style: {
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.5,
+          marginBottom: Number.isFinite(shares) || costBasis > 0 ? 8 : 0
+        }
+      }, entryPx > 0 ? `Entry ${fmtUsd(entryPx)}` : null, liveForPos > 0 ? ` → ${fmtUsd(liveForPos)}` : null, entryWhen && h("span", {
+        style: {
+          color: "var(--ds-text-faint)"
+        }
+      }, ` · entered ${entryWhen}`)), (Number.isFinite(shares) || costBasis > 0) && h("div", {
+        style: {
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+          gap: 8,
+          minWidth: 0
+        }
+      }, Number.isFinite(shares) && h("div", {
+        style: investorRailContainStyle
       }, h("div", {
         style: {
           fontSize: 9,
           fontWeight: 700,
-          color: "#f87171",
-          letterSpacing: "0.06em",
-          marginBottom: 4
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
         }
-      }, "INVALIDATION LEVEL"), h("div", {
+      }, "SHARES"), h("div", {
         style: {
           fontFamily: "var(--tt-font-mono)",
-          fontSize: 14,
-          fontWeight: 700,
-          color: "var(--ds-text-0)"
-        }
-      }, `$${invDisplay.price.toFixed(2)}`, h("span", {
-        style: {
-          fontSize: 11,
-          fontWeight: 500,
-          color: "var(--ds-text-muted)",
-          marginLeft: 8
-        }
-      }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : "")), h("div", {
-        style: {
-          fontSize: 11,
+          fontSize: 12,
           color: "var(--ds-text-body)",
-          marginTop: 4,
-          lineHeight: 1.45
+          marginTop: 2,
+          ...investorRailTextStyle
         }
-      }, invDisplay.condition), invDisplay.thesisLevel && h("div", {
+      }, shares.toFixed(2))), entryPx > 0 && h("div", {
+        style: investorRailContainStyle
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "AVG ENTRY"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          marginTop: 2,
+          ...investorRailTextStyle
+        }
+      }, fmtUsd(entryPx))), costBasis > 0 && h("div", {
+        style: investorRailContainStyle
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em"
+        }
+      }, "COST BASIS"), h("div", {
+        style: {
+          fontFamily: "var(--tt-font-mono)",
+          fontSize: 12,
+          color: "var(--ds-text-body)",
+          marginTop: 2,
+          ...investorRailTextStyle
+        }
+      }, fmtUsd(costBasis)))), pos?.last_action_type && pos?.last_action_ts && h("div", {
         style: {
           marginTop: 8,
           paddingTop: 8,
           borderTop: "1px solid rgba(255,255,255,0.06)",
           fontSize: 11,
-          color: "var(--ds-text-muted)",
-          lineHeight: 1.45
+          color: "var(--ds-text-muted)"
         }
-      }, h("span", {
+      }, "Last: ", h("strong", {
         style: {
-          fontWeight: 700,
-          color: "var(--ds-text-faint)"
+          color: "var(--ds-text-body)"
         }
-      }, "THESIS FLOOR "), `$${invDisplay.thesisLevel.price.toFixed(2)} (${invDisplay.thesisLevel.label}${invDisplay.thesisLevel.distText ? ` · ${invDisplay.thesisLevel.distText}` : ""})`, invDisplay.thesisLevel.note ? ` — ${invDisplay.thesisLevel.note}` : "")), Number.isFinite(score) && h("div", {
+      }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric"
+      }))), h("div", {
+        style: {
+          padding: "10px 12px",
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          marginBottom: invCtx?.signalNote || invLevelRows ? 8 : Number.isFinite(score) ? 8 : 0,
+          ...investorRailContainStyle
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#38F2A1",
+          letterSpacing: "0.06em",
+          marginBottom: 4
+        }
+      }, "WHAT TO DO"), h("div", {
+        style: {
+          fontSize: 13,
+          color: "var(--ds-text-body)",
+          lineHeight: 1.45,
+          fontWeight: 600,
+          ...investorRailTextStyle
+        }
+      }, sanitizeUserFacingCopy(invCtx?.executeReady && displayStage === "accumulate" ? stageInfo.action : invCtx?.statusLine || stageInfo.action)), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.45,
+          marginTop: 6,
+          ...investorRailTextStyle
+        }
+      }, sanitizeUserFacingCopy(invCtx?.statusLine || stageInfo.desc))), invCtx?.signalNote && h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.45,
+          marginBottom: Number.isFinite(score) ? 8 : 0,
+          ...investorRailTextStyle
+        }
+      }, sanitizeUserFacingCopy(invCtx.signalNote)), Number.isFinite(score) && h("div", {
         style: {
           display: "flex",
           gap: "var(--ds-space-2)"
@@ -1404,23 +1689,229 @@
           color: "var(--ds-text-muted)",
           marginTop: 2
         }
-      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), reasonProse && h(Panel, {
-        title: "🧠 Why this classification"
+      }, accumZone.inZone ? `${accumZone.confidence || 0}% confidence` : "Not in zone")))), invLevelRows && (() => {
+        const InvLevelRow = ({
+          row,
+          side
+        }) => h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "32px 1fr 64px 44px",
+            gap: "var(--ds-space-2)",
+            alignItems: "center",
+            padding: "5px 8px",
+            borderRadius: "var(--ds-radius-xs)",
+            background: "rgba(255,255,255,0.02)",
+            borderLeft: `3px solid ${row.color}`
+          },
+          title: row.label
+        }, h("span", {
+          style: {
+            fontSize: 9,
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            color: row.color,
+            letterSpacing: "0.06em",
+            textAlign: "center"
+          }
+        }, row.letter), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-body)",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, row.label), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-meta)",
+            color: "var(--ds-text-display)",
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            textAlign: "right"
+          }
+        }, fmtUsd(row.price)), h("span", {
+          style: {
+            fontSize: 9,
+            color: side === "above" ? "var(--ds-dn)" : "var(--ds-up)",
+            fontFamily: "var(--tt-font-mono)",
+            textAlign: "right"
+          }
+        }, `${row.dist_pct >= 0 ? "+" : ""}${row.dist_pct.toFixed(1)}%`));
+        const SectionLabel = (text, sub, color) => h("div", {
+          style: {
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            padding: "4px 4px 2px",
+            borderBottom: "1px dashed var(--ds-stroke)",
+            marginBottom: 2
+          }
+        }, h("span", {
+          style: {
+            fontSize: 9,
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color
+          }
+        }, text), sub && h("span", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)"
+          }
+        }, sub));
+        return h("div", {
+          style: {
+            marginBottom: "var(--ds-space-3)"
+          }
+        }, h(Panel, {
+          title: "Key Levels",
+          action: h("span", {
+            style: {
+              fontSize: 9,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.08em"
+            }
+          }, `${invLevelRows.above.length} above · ${invLevelRows.below.length} below`)
+        }, h("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: 3
+          }
+        }, h("div", {
+          style: {
+            padding: "0 4px 6px",
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)",
+            lineHeight: 1.5,
+            fontStyle: "italic"
+          }
+        }, "Investor invalidation, buy zone, and cost basis — weekly/monthly horizon."), invLevelRows.above.length > 0 && SectionLabel("Above", "upside / trim zones", "var(--ds-dn)"), invLevelRows.above.slice().reverse().map((row, i) => h(InvLevelRow, {
+          key: `inv-ab-${i}-${row.price}`,
+          row,
+          side: "above"
+        })), h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "32px 1fr 64px 44px",
+            gap: "var(--ds-space-2)",
+            alignItems: "center",
+            padding: "8px 8px",
+            borderRadius: "var(--ds-radius-xs)",
+            background: "rgba(56,242,161,0.10)",
+            border: "1px solid rgba(56,242,161,0.30)",
+            margin: "2px 0"
+          }
+        }, h("span", {
+          style: {
+            fontSize: 9,
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            color: "var(--ds-accent)",
+            letterSpacing: "0.06em",
+            textAlign: "center"
+          }
+        }, "NOW"), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-accent)",
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700
+          }
+        }, "Current Price"), h("span", {
+          style: {
+            fontSize: "var(--ds-fs-body)",
+            color: "var(--ds-accent)",
+            fontFamily: "var(--tt-font-mono)",
+            fontWeight: 700,
+            textAlign: "right"
+          }
+        }, fmtUsd(invLevelRows.px)), h("span", {
+          style: {
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            fontFamily: "var(--tt-font-mono)",
+            textAlign: "right"
+          }
+        }, "—")), invLevelRows.below.length > 0 && SectionLabel("Below", "add zone / invalidation", "var(--ds-up)"), invLevelRows.below.map((row, i) => h(InvLevelRow, {
+          key: `inv-bl-${i}-${row.price}`,
+          row,
+          side: "below"
+        })))));
+      })(), catalystEvent && h("div", {
+        style: {
+          padding: "var(--ds-space-2)",
+          background: catalystEvent.direction === "up" ? "rgba(52,211,153,0.08)" : "rgba(248,113,113,0.08)",
+          border: `1px solid ${catalystEvent.direction === "up" ? "rgba(52,211,153,0.30)" : "rgba(248,113,113,0.30)"}`,
+          borderRadius: "var(--ds-radius-md)"
+        }
+      }, h("div", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: catalystEvent.direction === "up" ? "#34d399" : "#f87171",
+          letterSpacing: "0.05em",
+          marginBottom: 4
+        }
+      }, "CATALYST EVENT"), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-body)",
+          color: "var(--ds-text-body)",
+          fontWeight: 600,
+          marginBottom: 4
+        }
+      }, `${catalystEvent.direction === "up" ? "+" : "−"}${catalystEvent.pct.toFixed(1)}% in ${catalystEvent.source}`), h("div", {
+        style: {
+          fontSize: "var(--ds-fs-meta)",
+          color: "var(--ds-text-muted)",
+          lineHeight: 1.4
+        }
+      }, catalystEvent.warning)), h("details", {
+        open: true,
+        style: {
+          marginBottom: "var(--ds-space-3)"
+        }
+      }, h("summary", {
+        style: {
+          fontSize: 11,
+          fontWeight: 700,
+          color: "var(--ds-text-muted)",
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          padding: "6px 0",
+          userSelect: "none"
+        }
+      }, "More detail — classification, score, context"), h("div", {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--ds-space-3)",
+          marginTop: "var(--ds-space-2)"
+        }
+      }, reasonProse && h(Panel, {
+        title: "Why this classification"
       }, h("div", {
         style: {
           fontSize: "var(--ds-fs-body)",
           color: "var(--ds-text-body)",
-          lineHeight: 1.5
+          lineHeight: 1.5,
+          ...investorRailTextStyle
         }
-      }, reasonProse), stageReason && h("div", {
+      }, reasonProse), stageReasonCode && h("div", {
         style: {
           marginTop: 8,
           fontSize: 10,
           color: "var(--ds-text-faint)",
-          fontFamily: "var(--tt-font-mono)"
+          fontFamily: "var(--tt-font-mono)",
+          ...investorRailTextStyle,
+          overflowWrap: "anywhere"
         }
-      }, "code: ", stageReason)), components && Object.keys(components).length > 0 && h(Panel, {
-        title: "📊 Score Breakdown",
+      }, "code: ", stageReasonCode)), components && Object.keys(components).length > 0 && h(Panel, {
+        title: "Score Breakdown",
         action: h("span", {
           style: {
             fontSize: 10,
@@ -1488,7 +1979,7 @@
           }
         }, def.why));
       }))), accumZone?.inZone && Array.isArray(accumZone?.signals) && accumZone.signals.length > 0 && h(Panel, {
-        title: "🎯 Buy Zone Signals",
+        title: "Buy Zone Signals",
         action: h("span", {
           style: {
             fontSize: 10,
@@ -1521,87 +2012,8 @@
           color: "#34d399",
           marginRight: 6
         }
-      }, "✓"), typeof s === "string" ? s.replace(/_/g, " ") : s?.name || s?.label || String(s))))), pos && h(Panel, {
-        title: "💼 Your Position"
-      }, h("div", {
-        style: {
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 8
-        }
-      }, h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "SHARES"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          marginTop: 2
-        }
-      }, Number(pos.shares || 0).toFixed(2))), h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "AVG ENTRY"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          marginTop: 2
-        }
-      }, fmtUsd(Number(pos.avg_entry) || 0))), h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "COST BASIS"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          marginTop: 2
-        }
-      }, fmtUsd(Number(pos.cost_basis) || 0))), h("div", null, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em"
-        }
-      }, "UNREALIZED"), h("div", {
-        style: {
-          fontFamily: "var(--tt-font-mono)",
-          fontSize: "var(--ds-fs-body)",
-          marginTop: 2,
-          color: Number(pos.unrealized_pct) >= 0 ? "#34d399" : "#f87171"
-        }
-      }, pos.unrealized_pct != null ? `${pos.unrealized_pct >= 0 ? "+" : ""}${Number(pos.unrealized_pct).toFixed(2)}%` : "—"))), pos.last_action_type && pos.last_action_ts && h("div", {
-        style: {
-          marginTop: 8,
-          paddingTop: 8,
-          borderTop: "1px solid rgba(255,255,255,0.06)",
-          fontSize: "var(--ds-fs-meta)",
-          color: "var(--ds-text-muted)"
-        }
-      }, "Last: ", h("strong", {
-        style: {
-          color: "var(--ds-text-body)"
-        }
-      }, pos.last_action_type), pos.last_action_shares ? ` ${Number(pos.last_action_shares).toFixed(2)} shares` : "", " on ", new Date(Number(pos.last_action_ts)).toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric"
-      }))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
-        title: "📈 Strength + Sector Context"
+      }, "✓"), typeof s === "string" ? sanitizeUserFacingCopy(s.replace(/_/g, " ")) : sanitizeUserFacingCopy(String(s?.name || s?.label || s)))))), (Number.isFinite(rsRank) || rs || sector) && h(Panel, {
+        title: "Strength + Sector Context"
       }, h("div", {
         style: {
           display: "flex",
@@ -1665,7 +2077,7 @@
           color: "#34d399",
           fontWeight: 700
         }
-      }, "🚀 New RS High")), sector && h("div", {
+      }, "New RS High")), sector && h("div", {
         style: {
           fontSize: "var(--ds-fs-meta)",
           color: "var(--ds-text-muted)"
@@ -1674,37 +2086,7 @@
         style: {
           color: "var(--ds-text-body)"
         }
-      }, sector)))), thesis && h(Panel, {
-        title: "💡 Thesis"
-      }, h("div", {
-        style: {
-          fontSize: "var(--ds-fs-body)",
-          color: "var(--ds-text-body)",
-          lineHeight: 1.5
-        }
-      }, String(thesis).slice(0, 600)), invalidation && h("div", {
-        style: {
-          marginTop: 10,
-          padding: 10,
-          background: "rgba(248,113,113,0.05)",
-          border: "1px solid rgba(248,113,113,0.20)",
-          borderRadius: 6,
-          fontSize: "var(--ds-fs-meta)"
-        }
-      }, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "#f87171",
-          letterSpacing: "0.05em",
-          marginBottom: 4
-        }
-      }, "INVALIDATION"), h("div", {
-        style: {
-          color: "var(--ds-text-body)",
-          lineHeight: 1.4
-        }
-      }, String(invalidation)))), loading && !detail && h(Panel, {
+      }, sector)))))), loading && !detail && h(Panel, {
         title: "Loading…"
       }, h("div", {
         style: {
@@ -2236,7 +2618,179 @@
           color: "var(--ds-text-body)",
           flex: "1 1 200px"
         }
-      }, setupGuidance.action || setupGuidance.headline || "—")), h("details", {
+      }, setupGuidance.action || setupGuidance.headline || "—")), (() => {
+        const recon = data?.model_reconciliation || null;
+        const levels = recon?.model_levels || {};
+        const hasLevels = [levels.stop, levels.trim, levels.exit, levels.runner].some(v => Number.isFinite(v) && v > 0);
+        if (!hasLevels && !(recon?.lines || []).length && !_callVsLeanConflict && !_dirFlipped) return null;
+        const fmtPx = n => Number.isFinite(n) ? "$" + Number(n).toFixed(2) : "—";
+        return h(Panel, {
+          title: "Model Levels & Bias",
+          color: "#60a5fa"
+        }, h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 8,
+            marginBottom: 8
+          }
+        }, h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(248,113,113,0.05)",
+            border: "1px solid rgba(248,113,113,0.20)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "#f87171",
+            letterSpacing: "0.05em"
+          }
+        }, "STOP / INVALIDATION"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.stop))), h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(255,255,255,0.03)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "SPOT"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.price), levels.price_source === "live_kv" && h("span", {
+          style: {
+            fontSize: 9,
+            color: "#34d399",
+            marginLeft: 4
+          }
+        }, "LIVE"))), Number.isFinite(levels.trim) && levels.trim > 0 && h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(255,255,255,0.03)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "var(--ds-text-faint)",
+            letterSpacing: "0.05em"
+          }
+        }, "TRIM"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.trim))), Number.isFinite(levels.exit) && levels.exit > 0 && h("div", {
+          style: {
+            padding: 8,
+            background: "rgba(52,211,153,0.05)",
+            border: "1px solid rgba(52,211,153,0.20)",
+            borderRadius: 6
+          }
+        }, h("div", {
+          style: {
+            fontSize: 9,
+            fontWeight: 700,
+            color: "#34d399",
+            letterSpacing: "0.05em"
+          }
+        }, "EXIT (SPREAD / P&L)"), h("div", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ds-text-body)",
+            marginTop: 2
+          }
+        }, fmtPx(levels.exit)))), h("div", {
+          style: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginBottom: 8
+          }
+        }, _contractDir && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: _callColor,
+            background: _callColor + "18",
+            border: `1px solid ${_callColor}44`
+          }
+        }, "Contract ", _contractDir), _layerLean && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: _layerLean === "SHORT" ? "#fb7185" : _layerLean === "LONG" ? "#34d399" : "var(--ds-text-muted)",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid var(--ds-stroke)"
+          }
+        }, "Layers ", _layerLean), _effDir && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: "#a78bfa",
+            background: "rgba(167,139,250,0.12)",
+            border: "1px solid rgba(167,139,250,0.35)"
+          }
+        }, "Play ", _effDir), _dirFlipped && h("span", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 8px",
+            borderRadius: 999,
+            color: "#f5c25c",
+            background: "rgba(245,194,92,0.12)",
+            border: "1px solid rgba(245,194,92,0.35)"
+          }
+        }, "FADE FLIP")), (recon?.lines || []).slice(0, 4).map((line, i) => h("div", {
+          key: "recon-" + i,
+          style: {
+            fontSize: 11,
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.5,
+            marginBottom: i < 3 ? 4 : 0
+          }
+        }, line)), Array.isArray(contract?.invalidation) && contract.invalidation.length > 0 && h("div", {
+          style: {
+            marginTop: 8,
+            fontSize: 11,
+            color: "var(--ds-text-faint)",
+            lineHeight: 1.45
+          }
+        }, "Invalidation: ", contract.invalidation.slice(0, 2).join(" · ")));
+      })(), h("details", {
+        open: true,
         style: {
           marginBottom: 4
         }
@@ -2589,7 +3143,42 @@
           color: "var(--ds-text-body)",
           fontFamily: "var(--tt-font-mono)"
         }
-      }, "$" + primary.breakeven.toFixed(2))), (() => {
+      }, "$" + primary.breakeven.toFixed(2))), (primary.est_at_tp || primary.est_at_sl) && h("div", {
+        style: {
+          marginTop: 10,
+          padding: "10px 12px",
+          background: "rgba(255,255,255,0.03)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: 8
+        }
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.06em",
+          marginBottom: 6
+        }
+      }, "LIVE EXIT PROJECTIONS"), primary.est_at_tp && primary.est_at_tp.total_pl_usd != null && h("div", {
+        style: {
+          fontSize: 11,
+          color: primary.est_at_tp.total_pl_usd >= 0 ? "#34d399" : "#f87171",
+          fontFamily: "var(--tt-font-mono)",
+          marginBottom: 4
+        }
+      }, "If Exit target hit (~", primary.est_at_tp.hold_days, "d): est. P&L ", fmtUsd(primary.est_at_tp.total_pl_usd), primary.est_at_tp.est_premium != null ? ` · premium ≈ $${Number(primary.est_at_tp.est_premium).toFixed(2)}` : ""), primary.est_at_sl && primary.est_at_sl.total_pl_usd != null && h("div", {
+        style: {
+          fontSize: 11,
+          color: primary.est_at_sl.total_pl_usd >= 0 ? "#34d399" : "#f87171",
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, "If stop hit (~", primary.est_at_sl.hold_days, "d): est. P&L ", fmtUsd(primary.est_at_sl.total_pl_usd)), primary.target_clears_breakeven === false && h("div", {
+        style: {
+          fontSize: 10,
+          color: "#f87171",
+          marginTop: 6
+        }
+      }, "Exit target is below option breakeven — hold-to-target may still lose on premium decay.")), (() => {
         const arch = String(primary.archetype || "").toLowerCase();
         const legs = Array.isArray(primary.legs) ? primary.legs : [];
         const exp = primary.expiration?.label || primary.expiration?.iso || "expiry";
@@ -3322,7 +3911,7 @@
           localization: {
             priceFormatter: p => {
               const sym = String(propTicker?.ticker || "").toUpperCase();
-              if (sym === "VX1!" || sym === "VIX") return p.toFixed(2);
+              if (sym === "VIX") return p.toFixed(2);
               return p.toFixed(2);
             },
             timeFormatter: time => {
@@ -4707,16 +5296,22 @@
       const [ledgerTrades, setLedgerTrades] = useState([]);
       const [ledgerTradesLoading, setLedgerTradesLoading] = useState(false);
       const [ledgerTradesError, setLedgerTradesError] = useState(null);
+      const isTradeOpenSafe = tr => {
+        try {
+          return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
+        } catch (_) {
+          return false;
+        }
+      };
       const effectiveTrade = useMemo(() => {
-        if (trade) return trade;
+        if (trade && isTradeOpenSafe(trade)) return trade;
         if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
         const symUp = tickerSymbol.toUpperCase();
         if (!symUp) return null;
         let candidate = null;
         for (const t of ledgerTrades) {
           if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
-          const st = String(t?.status || "").toUpperCase();
-          if (st === "WIN" || st === "LOSS") continue;
+          if (!isTradeOpenSafe(t)) continue;
           if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
             candidate = t;
           }
@@ -4724,15 +5319,8 @@
         return candidate;
       }, [trade, ledgerTrades, tickerSymbol]);
       const effectiveTraderTrade = useMemo(() => {
-        const isOpen = tr => {
-          try {
-            return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
-          } catch (_) {
-            return false;
-          }
-        };
-        if (trade && trade._source_mode !== "investor" && isOpen(trade)) return trade;
-        if (ticker?._openTrade && isOpen(ticker._openTrade)) return ticker._openTrade;
+        if (trade && trade._source_mode !== "investor" && isTradeOpenSafe(trade)) return trade;
+        if (ticker?._openTrade && isTradeOpenSafe(ticker._openTrade)) return ticker._openTrade;
         if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
         const symUp = tickerSymbol.toUpperCase();
         if (!symUp) return null;
@@ -4740,7 +5328,7 @@
         for (const t of ledgerTrades) {
           if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
           if (t?._source_mode === "investor") continue;
-          if (!isOpen(t)) continue;
+          if (!isTradeOpenSafe(t)) continue;
           if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
             candidate = t;
           }
@@ -4748,7 +5336,7 @@
         return candidate;
       }, [trade, ticker?._openTrade, ledgerTrades, tickerSymbol]);
       const effectiveInvestorTrade = useMemo(() => {
-        if (trade && trade._source_mode === "investor") return trade;
+        if (trade && trade._source_mode === "investor" && isTradeOpenSafe(trade)) return trade;
         if (!Array.isArray(ledgerTrades) || ledgerTrades.length === 0) return null;
         const symUp = tickerSymbol.toUpperCase();
         if (!symUp) return null;
@@ -4756,8 +5344,7 @@
         for (const t of ledgerTrades) {
           if (String(t?.ticker || "").toUpperCase() !== symUp) continue;
           if (t?._source_mode !== "investor") continue;
-          const st = String(t?.status || "").toUpperCase();
-          if (st === "WIN" || st === "LOSS") continue;
+          if (!isTradeOpenSafe(t)) continue;
           if (!candidate || Number(t?.entry_ts || 0) > Number(candidate?.entry_ts || 0)) {
             candidate = t;
           }
@@ -4773,7 +5360,7 @@
       const RAIL_TAB_GROUP_OF = {
         SNAPSHOT: "NOW",
         SETUP: "TRADE",
-        OPTIONS: "TRADE",
+        OPTIONS: "OPTIONS",
         INVESTOR: "INVEST",
         TECHNICALS: "CONTEXT",
         FUNDAMENTALS: "CONTEXT",
@@ -4860,6 +5447,123 @@
       const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
       const [cioVerdictError, setCioVerdictError] = useState(null);
       const cioVerdictCacheRef = useRef({});
+      const renderCioPositionBlock = (opts = {}) => {
+        const compact = !!opts.compact;
+        if (cioVerdictLoading && !cioVerdict) {
+          return React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-faint)",
+              fontStyle: "italic",
+              marginTop: compact ? "var(--ds-space-2)" : 0
+            }
+          }, "Loading AI CIO verdict\u2026");
+        }
+        if (cioVerdictError) {
+          return React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-dn)",
+              marginTop: compact ? "var(--ds-space-2)" : 0
+            }
+          }, "AI CIO unavailable (", cioVerdictError, ")");
+        }
+        if (!cioVerdict) return null;
+        const _decisionIcon = cioVerdict.decision === "APPROVE" ? "✅" : cioVerdict.decision === "ADJUST" ? "⚙️" : "🛑";
+        const _decisionColor = cioVerdict.decision === "APPROVE" ? "#22c55e" : cioVerdict.decision === "ADJUST" ? "#f59e0b" : "#ef4444";
+        return React.createElement("div", {
+          style: {
+            marginTop: "var(--ds-space-2)",
+            paddingTop: compact ? "var(--ds-space-2)" : "var(--ds-space-3)",
+            borderTop: "1px solid var(--ds-stroke)"
+          }
+        }, React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ds-space-2)",
+            marginBottom: "var(--ds-space-2)",
+            flexWrap: "wrap"
+          }
+        }, React.createElement("span", {
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "var(--ds-text-faint)"
+          }
+        }, "AI CIO"), React.createElement("span", {
+          style: {
+            color: _decisionColor,
+            fontWeight: 700,
+            fontSize: "var(--ds-fs-body)"
+          }
+        }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.matched_by === "ticker_lifecycle" && React.createElement("span", {
+          title: "Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)",
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.12em",
+            padding: "1px 6px",
+            borderRadius: 4,
+            background: "rgba(96,165,250,0.12)",
+            color: "var(--ds-text-muted)",
+            border: "1px solid var(--ds-stroke)"
+          }
+        }, "LATEST"), cioVerdict.confidence > 0 && React.createElement("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text-muted)"
+          }
+        }, (cioVerdict.confidence * 100).toFixed(0), "% conf"), cioVerdict.edge_score > 0 && React.createElement("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text-muted)"
+          }
+        }, "edge ", (cioVerdict.edge_score * 100).toFixed(0), "%"), cioVerdict.shadow && React.createElement("span", {
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.12em",
+            padding: "1px 6px",
+            borderRadius: 4,
+            background: "rgba(168,162,158,0.15)",
+            color: "var(--ds-text-muted)",
+            border: "1px solid var(--ds-stroke)"
+          }
+        }, "SHADOW"), cioVerdict.model && React.createElement("span", {
+          style: {
+            fontFamily: "var(--tt-font-mono)",
+            fontSize: 9,
+            color: "var(--ds-text-faint)",
+            marginLeft: "auto"
+          }
+        }, cioVerdict.model)), cioVerdict.reasoning && React.createElement("div", {
+          style: {
+            fontSize: "var(--ds-fs-caption)",
+            color: "var(--ds-text)",
+            lineHeight: 1.55,
+            whiteSpace: "pre-wrap"
+          }
+        }, cioVerdict.reasoning), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
+          style: {
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 4,
+            marginTop: "var(--ds-space-2)"
+          }
+        }, cioVerdict.risk_flags.map((flag, i) => React.createElement("span", {
+          key: `cio-flag-${i}`,
+          className: "ds-chip ds-chip--sm",
+          style: {
+            fontSize: 9,
+            letterSpacing: "0.04em",
+            background: "rgba(239,68,68,0.10)",
+            color: "var(--ds-dn)",
+            borderColor: "rgba(239,68,68,0.30)"
+          }
+        }, flag))));
+      };
       const [setupShadowDiag, setSetupShadowDiag] = useState(null);
       const [setupShadowLoading, setSetupShadowLoading] = useState(false);
       const [setupShadowError, setSetupShadowError] = useState(null);
@@ -6042,8 +6746,11 @@
         if (raw === "INVESTOR") tab = "INVESTOR";else if (raw === "TRADE_HISTORY" || raw === "HISTORY") tab = "HISTORY";else if (raw === "ANALYSIS" || raw === "SNAPSHOT") tab = "SNAPSHOT";else if (raw === "NOW") tab = "SNAPSHOT";else if (raw === "TRADE") tab = "SETUP";else if (raw === "INVEST") tab = "INVESTOR";else if (raw === "CONTEXT") tab = "TECHNICALS";else if (!["SNAPSHOT", "SETUP", "TECHNICALS", "FUNDAMENTALS", "HISTORY", "CHART", "JOURNEY", "MODEL", "CATALYSTS", "OPTIONS"].includes(raw)) {
           tab = "SNAPSHOT";
         }
+        if (ticker?._outsideUniverse && raw !== "CATALYSTS" && raw !== "HISTORY") {
+          tab = "CATALYSTS";
+        }
         setRailTab(tab);
-      }, [tickerSymbol, initialRailTab]);
+      }, [tickerSymbol, initialRailTab, ticker?._outsideUniverse]);
       useEffect(() => {
         const isHistoryTab = railTab === "TRADE_HISTORY" || railTab === "HISTORY";
         if (isHistoryTab && ledgerTrades.length > 0 && !tradeChartSelection) {
@@ -6064,6 +6771,17 @@
           setInvestorError(null);
           setInvestorLoading(false);
           return;
+        }
+        const seedStage = String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
+        const seedScore = Number(ticker?.investor_score ?? latestTicker?.investor_score);
+        if (seedStage && seedStage !== "—") {
+          setInvestorData({
+            ticker: sym,
+            stage: seedStage,
+            score: seedScore
+          });
+        } else {
+          setInvestorData(null);
         }
         let cancelled = false;
         const fetchInvestor = async () => {
@@ -6088,7 +6806,15 @@
             });
           } catch (e) {
             if (!cancelled) {
-              if (showLoading) setInvestorData(null);
+              if (seedStage && seedStage !== "—") {
+                setInvestorData({
+                  ticker: sym,
+                  stage: seedStage,
+                  score: seedScore
+                });
+              } else if (showLoading) {
+                setInvestorData(null);
+              }
               if (showLoading) setInvestorError(String(e?.message || e));
             }
           } finally {
@@ -6099,7 +6825,7 @@
         return () => {
           cancelled = true;
         };
-      }, [tickerSymbol, API_BASE]);
+      }, [tickerSymbol, API_BASE, ticker?.investor_stage, ticker?.investor_score, latestTicker?.investor_stage, latestTicker?.investor_score]);
       useEffect(() => {
         const sym = String(tickerSymbol || "").trim().toUpperCase();
         if (!sym) {
@@ -6387,9 +7113,8 @@
         };
       }, [tickerSymbol]);
       useEffect(() => {
-        if (railTab !== "SETUP") return;
-        const _t = effectiveTrade;
-        if (!_t) {
+        const _t = effectiveTraderTrade;
+        if (!_t || !isTradeOpenSafe(_t)) {
           setCioVerdict(null);
           setCioVerdictError(null);
           setCioVerdictLoading(false);
@@ -6433,7 +7158,7 @@
         return () => {
           cancelled = true;
         };
-      }, [railTab, effectiveTrade?.trade_id, effectiveTrade?.id]);
+      }, [effectiveTraderTrade?.trade_id, effectiveTraderTrade?.id]);
       const countActiveShadowSequences = diag => {
         if (!diag || diag.empty) return 0;
         if (Array.isArray(diag.active_sequences)) {
@@ -6993,19 +7718,31 @@
       const safeTicker = ticker && typeof ticker === "object" ? ticker : null;
       const patternFlags = safeTicker?.flags || {};
       const detectedPatterns = React.useMemo(() => detectPatterns(bubbleJourney, patternFlags || {}), [bubbleJourney, patternFlags]);
+      const isOutsideScoredUniverse = React.useMemo(() => {
+        if (ticker?._outsideUniverse) return true;
+        if (!tickerSymbol) return false;
+        const row = allLoadedData && allLoadedData[tickerSymbol] || ticker;
+        const scored = Number.isFinite(Number(row?.score)) || !!row?.state || !!row?.kanban_stage || Number.isFinite(Number(row?.htf_score));
+        if (scored) return false;
+        if (latestTickerLoading) return false;
+        if (latestTicker && (latestTicker.state || Number.isFinite(Number(latestTicker.score)))) {
+          return false;
+        }
+        return !!(latestTickerError || !latestTicker && !latestTickerLoading);
+      }, [ticker, tickerSymbol, allLoadedData, latestTicker, latestTickerLoading, latestTickerError]);
       if (!safeTicker || !tickerSymbol) return null;
       const resolvedDir = (() => {
         if (predictionContract?.direction) {
           const pcDir = String(predictionContract.direction).toUpperCase();
           if (pcDir === "LONG" || pcDir === "SHORT") return pcDir;
         }
-        const posDirStr = String(ticker?.position_direction || "").toUpperCase();
-        if (ticker?.has_open_position && (posDirStr === "LONG" || posDirStr === "SHORT")) return posDirStr;
+        if (isTradeOpenSafe(effectiveTraderTrade)) {
+          const tradeDirStr = String(effectiveTraderTrade?.direction || "").toUpperCase();
+          if (tradeDirStr === "LONG" || tradeDirStr === "SHORT") return tradeDirStr;
+        }
         const trade = effectiveTrade;
         const tradeDirStr = String(trade?.direction || "").toUpperCase();
-        const tradeStatus = String(trade?.status || "").toUpperCase();
-        const tradeIsOpen = trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS");
-        if (tradeIsOpen && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
+        if (isTradeOpenSafe(trade) && (tradeDirStr === "LONG" || tradeDirStr === "SHORT")) return tradeDirStr;
         const state = String(ticker?.state || "");
         if (state.startsWith("HTF_BULL")) return "LONG";
         if (state.startsWith("HTF_BEAR")) return "SHORT";
@@ -7113,7 +7850,7 @@
             if (d === "LONG" || d === "SHORT") return d;
           }
           const posDir = String(ticker?.position_direction || "").toUpperCase();
-          if (ticker?.has_open_position && (posDir === "LONG" || posDir === "SHORT")) return posDir;
+          if (isTradeOpenSafe(effectiveTraderTrade) && (posDir === "LONG" || posDir === "SHORT")) return posDir;
           try {
             const md = window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(ticker) : "";
             if (md === "LONG" || md === "SHORT") return md;
@@ -7125,15 +7862,8 @@
         })();
         const v2Dir = v2BiasDirection;
         const v2TraderPosture = (() => {
-          const isOpen = tr => {
-            try {
-              return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
-            } catch (_) {
-              return false;
-            }
-          };
-          const openTr = effectiveTraderTrade || ticker?._openTrade;
-          if (isOpen(openTr)) {
+          const openTr = effectiveTraderTrade;
+          if (isTradeOpenSafe(openTr)) {
             const odir = String(openTr.direction || "").toUpperCase();
             if (odir === "LONG" || odir === "SHORT") {
               return {
@@ -7198,9 +7928,9 @@
             if (helper) {
               return helper({
                 ...ticker,
-                _openTrade: effectiveTraderTrade || ticker?._openTrade,
-                has_open_position: !!(effectiveTraderTrade || ticker?.has_open_position),
-                position_direction: effectiveTraderTrade?.direction || ticker?.position_direction
+                _openTrade: effectiveTraderTrade || null,
+                has_open_position: isTradeOpenSafe(effectiveTraderTrade),
+                position_direction: effectiveTraderTrade?.direction || undefined
               });
             }
           } catch (_) {}
@@ -7221,11 +7951,111 @@
             reason: "fallback"
           };
         })();
+        const v2ModelPosture = (() => {
+          if (predictionContract && railTab !== "INVESTOR") {
+            const raw = String(predictionContract.trader_posture || predictionContract.posture || "").toUpperCase();
+            const label = String(predictionContract.posture_label || "").trim();
+            const labelUpper = label.toUpperCase();
+            const dir = String(predictionContract.posture_direction || predictionContract.direction || "").toUpperCase();
+            if (raw === "OPEN_LONG" || labelUpper === "OPEN LONG") return {
+              posture: "OPEN_LONG",
+              label: "Open Long",
+              direction: "LONG",
+              strength: "open",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "OPEN_SHORT" || labelUpper === "OPEN SHORT") return {
+              posture: "OPEN_SHORT",
+              label: "Open Short",
+              direction: "SHORT",
+              strength: "open",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "NEUTRAL" || labelUpper === "NEUTRAL") return {
+              posture: "NEUTRAL",
+              label: "Neutral",
+              direction: "",
+              strength: "neutral",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "LEAN_LONG" || labelUpper === "LEANING BULLISH" || labelUpper === "LEAN LONG") return {
+              posture: "LEAN_LONG",
+              label: "Leaning bullish",
+              direction: "LONG",
+              strength: "lean",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (raw === "LEAN_SHORT" || labelUpper === "LEANING BEARISH" || labelUpper === "LEAN SHORT") return {
+              posture: "LEAN_SHORT",
+              label: "Leaning bearish",
+              direction: "SHORT",
+              strength: "lean",
+              reason: predictionContract.posture_reason || "contract"
+            };
+            if (dir === "LONG" || dir === "SHORT") return {
+              posture: dir,
+              label: dir === "LONG" ? "Bullish" : "Bearish",
+              direction: dir,
+              strength: "confirmed",
+              reason: "contract"
+            };
+          }
+          try {
+            const helper = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture;
+            if (helper) {
+              return helper({
+                ...ticker,
+                _openTrade: null,
+                has_open_position: false,
+                position_direction: undefined
+              });
+            }
+          } catch (_) {}
+          if (v2Dir === "LONG" || v2Dir === "SHORT") {
+            return {
+              posture: v2Dir === "LONG" ? "LEAN_LONG" : "LEAN_SHORT",
+              label: v2Dir === "LONG" ? "Leaning bullish" : "Leaning bearish",
+              direction: v2Dir,
+              strength: "lean",
+              reason: "direction_fallback"
+            };
+          }
+          return {
+            posture: "NEUTRAL",
+            label: "Neutral",
+            direction: "",
+            strength: "neutral",
+            reason: "fallback"
+          };
+        })();
+        const v2PositionConflict = (() => {
+          const openTr = effectiveTraderTrade;
+          if (!isTradeOpenSafe(openTr)) return null;
+          const posDir = String(openTr.direction || "").toUpperCase();
+          const modelDir = String(v2ModelPosture?.direction || "").toUpperCase();
+          if (posDir !== "LONG" && posDir !== "SHORT") return null;
+          if (modelDir !== "LONG" && modelDir !== "SHORT") return null;
+          if (posDir === modelDir) return null;
+          const rthOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
+          return {
+            positionDir: posDir,
+            modelDir,
+            modelLabel: String(v2ModelPosture?.label || "").trim() || (modelDir === "SHORT" ? "Leaning bearish" : "Leaning bullish"),
+            awaitingRth: !rthOpen
+          };
+        })();
         const v2PostureDir = String(v2TraderPosture?.direction || "").toUpperCase();
         const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
         const v2PostureStrength = String(v2TraderPosture?.strength || "");
-        const v2StructureDir = v2PostureDir || v2Dir;
-        const v2StructureLabel = v2PostureLabel || (v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : "Neutral");
+        const v2TimingOverlay = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+        const v2StructureDir = resolveRailLevelsDirection({
+          posture: v2TraderPosture,
+          timing: v2TimingOverlay,
+          optionsEffectiveDir: optionsTabData?.effective_direction,
+          fallbackDir: v2Dir,
+          ticker
+        });
+        const v2StructureLabel = v2StructureDir === "LONG" ? "Bullish" : v2StructureDir === "SHORT" ? "Bearish" : v2PostureLabel || "Neutral";
         const v2Price = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? resolveDisplayPrice(priceSrc)) || 0;
         const v2DayChange = (() => {
           const src = priceSrc;
@@ -7276,8 +8106,9 @@
         }, title && React.createElement("div", {
           className: "ds-glass__title"
         }, title), action), children);
-        const renderSequenceShadowPanel = () => {
+        const renderSequenceShadowPanel = (opts = {}) => {
           if (typeof window === "undefined" || !window._ttIsAdmin) return null;
+          const compact = opts.compact === true || v2RailTab === "SETUP";
           const humanizeKey = k => {
             if (!k) return "";
             return String(k).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -7417,7 +8248,7 @@
             if (!Number.isFinite(n) || n <= 0) return null;
             return `$${n.toFixed(2)}`;
           };
-          const renderSequenceStageJourney = (seq, eventById, accentColor, dir) => {
+          const renderSequenceStageJourney = (seq, eventById, accentColor, dir, journeyCompact = false) => {
             const seqId = seq?.sequence_id ? String(seq.sequence_id) : String(seq?.direction || "seq");
             const currentStage = Number(seq?.stage) || 0;
             const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
@@ -7508,10 +8339,10 @@
               style: {
                 fontSize: 10,
                 color: "var(--ds-text-faint)",
-                marginBottom: 8,
+                marginBottom: journeyCompact ? 0 : 8,
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, "Stage ", currentStage, " of ", maxStage), React.createElement("div", {
+            }, "Stage ", currentStage, " of ", maxStage, journeyCompact && nextDef && currentStage < maxStage ? ` · Next: ${nextDef.label}` : ""), !journeyCompact && React.createElement("div", {
               style: {
                 display: "flex",
                 flexDirection: "column",
@@ -7652,7 +8483,10 @@
           })();
           return React.createElement(Panel, {
             title: "Sequence (shadow)",
-            action: React.createElement("div", {
+            action: compact ? React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--solid",
+              title: "Shadow-only \u2014 does not affect live entry or kanban"
+            }, "SHADOW") : React.createElement("div", {
               style: {
                 display: "flex",
                 gap: 4,
@@ -7688,7 +8522,7 @@
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-dn)"
             }
-          }, "Shadow diagnostics unavailable (", setupShadowError === "sign_in_required" ? "admin session required — hard refresh after login" : setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, React.createElement("p", {
+          }, "Shadow diagnostics unavailable (", setupShadowError === "sign_in_required" ? "admin session required — hard refresh after login" : setupShadowError, ")"), setupShadowDiag && !setupShadowError && React.createElement(React.Fragment, null, !compact && React.createElement("p", {
             style: {
               margin: "0 0 var(--ds-space-2) 0",
               fontSize: "var(--ds-fs-caption)",
@@ -7701,97 +8535,198 @@
               fontSize: "var(--ds-fs-caption)",
               color: "var(--ds-text-faint)"
             }
-          }, "No trail snapshots in the lookback window yet.", setupShadowDiag.hint ? ` ${setupShadowDiag.hint}` : " Fresh scoring or backfill will populate this panel."), !setupShadowDiag.empty && React.createElement(React.Fragment, null, React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "var(--ds-space-1)",
-              marginBottom: active.length ? "var(--ds-space-2)" : 0
-            }
-          }, ctx.vix_regime && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--solid",
-            title: "VIX regime context"
-          }, "VIX ", ctx.vix_regime), ctx.index_posture && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--solid",
-            title: "Index posture context"
-          }, "Index ", ctx.index_posture), ctx.ticker_personality && React.createElement("span", {
-            className: "ds-chip ds-chip--sm ds-chip--accent",
-            title: "Ticker personality"
-          }, String(ctx.ticker_personality).replace(/_/g, " ")), setupShadowDiag.snapshot_source && React.createElement("span", {
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 9
-            },
-            title: "Trail snapshot source"
-          }, setupShadowDiag.snapshot_count || 0, " snaps \xB7 ", setupShadowDiag.snapshot_source, setupShadowDiag.inline_from_payload ? " · live payload" : ""), setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates && React.createElement(React.Fragment, null, setupShadowDiag.setup_gates.stack_full_confirm && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid"}`,
-            title: "Shadow: stack_full_confirm (120h lookback)"
-          }, "Confirm ", setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"), setupShadowDiag.setup_gates.gate_runway_full && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid"}`,
-            title: "Shadow: TD9 + RSI div + confirm stack (120h lookback)"
-          }, "Runway ", setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"))), active.length > 0 ? React.createElement("div", {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: "var(--ds-space-2)"
-            }
-          }, sortedActive.slice(0, 3).map(seq => {
-            const dir = String(seq?.direction || "").toUpperCase();
-            const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
-            const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
-            const journeyColor = headlineColor;
-            const pf = seq?.path_forecast;
-            const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
-            const isPrimary = !!(primarySeqId && seqId && primarySeqId === seqId);
-            return React.createElement("div", {
-              key: seq.sequence_id || `${seq.sequence_type}-${seq.stage}`,
-              style: {
-                padding: "var(--ds-space-2)",
-                borderRadius: 8,
-                border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
-                background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)"
-              }
-            }, React.createElement("div", {
+          }, "No trail snapshots in the lookback window yet.", setupShadowDiag.hint ? ` ${setupShadowDiag.hint}` : " Fresh scoring or backfill will populate this panel."), !setupShadowDiag.empty && React.createElement(React.Fragment, null, (() => {
+            const ctxChips = [ctx.vix_regime && {
+              key: "vix",
+              label: `VIX ${ctx.vix_regime}`,
+              cls: "ds-chip--solid",
+              title: "VIX regime context"
+            }, ctx.index_posture && {
+              key: "idx",
+              label: `Index ${ctx.index_posture}`,
+              cls: "ds-chip--solid",
+              title: "Index posture context"
+            }, ctx.ticker_personality && {
+              key: "pers",
+              label: String(ctx.ticker_personality).replace(/_/g, " "),
+              cls: "ds-chip--accent",
+              title: "Ticker personality"
+            }, setupShadowDiag.snapshot_source && {
+              key: "snaps",
+              label: `${setupShadowDiag.snapshot_count || 0} snaps · ${setupShadowDiag.snapshot_source}${setupShadowDiag.inline_from_payload ? " · live payload" : ""}`,
+              cls: "",
+              title: "Trail snapshot source",
+              mono: true
+            }, setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.stack_full_confirm && {
+              key: "confirm",
+              label: `Confirm ${setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ON" : "off"}`,
+              cls: setupShadowDiag.setup_gates.stack_full_confirm.fires ? "ds-chip--accent" : "ds-chip--solid",
+              title: "Shadow: stack_full_confirm (120h lookback)"
+            }, setupShadowDiag.setup_gate_shadow && setupShadowDiag.setup_gates?.gate_runway_full && {
+              key: "runway",
+              label: `Runway ${setupShadowDiag.setup_gates.gate_runway_full.fires ? "ON" : "off"}`,
+              cls: setupShadowDiag.setup_gates.gate_runway_full.fires ? "ds-chip--accent" : "ds-chip--solid",
+              title: "Shadow: TD9 + RSI div + confirm stack (120h lookback)"
+            }].filter(Boolean);
+            if (!ctxChips.length) return null;
+            const chipRow = React.createElement("div", {
               style: {
                 display: "flex",
                 flexWrap: "wrap",
-                gap: "var(--ds-space-1)",
-                alignItems: "center",
-                marginBottom: 6
+                gap: "var(--ds-space-1)"
               }
-            }, React.createElement("span", {
-              className: `ds-chip ds-chip--sm ${dirCls}`
-            }, dir || "—"), React.createElement("span", {
+            }, ctxChips.map(c => React.createElement("span", {
+              key: c.key,
+              className: `ds-chip ds-chip--sm ${c.cls || ""}`,
+              style: c.mono ? {
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 9
+              } : undefined,
+              title: c.title
+            }, c.label)));
+            if (!compact) {
+              return React.createElement("div", {
+                style: {
+                  marginBottom: active.length ? "var(--ds-space-2)" : 0
+                }
+              }, chipRow);
+            }
+            return React.createElement("details", {
               style: {
-                fontSize: "var(--ds-fs-body)",
-                fontWeight: 700,
-                color: headlineColor
+                marginBottom: active.length ? "var(--ds-space-2)" : 0
               }
-            }, sequenceHeadline(dir)), isPrimary && React.createElement("span", {
-              className: "ds-chip ds-chip--sm ds-chip--accent",
-              title: "Highest-stage active sequence drives trader posture"
-            }, "Primary"), !isPrimary && active.length > 1 && React.createElement("span", {
-              className: "ds-chip ds-chip--sm ds-chip--solid",
-              title: "Alternate direction still forming in shadow"
-            }, "Alternate"), seq.status && React.createElement("span", {
-              className: "ds-chip ds-chip--sm ds-chip--solid"
-            }, String(seq.status))), renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir), seq.posture && React.createElement("div", {
+            }, React.createElement("summary", {
               style: {
-                fontSize: "var(--ds-fs-body)",
-                color: "var(--ds-text-body)",
+                cursor: "pointer",
+                fontSize: 10,
+                color: "var(--ds-text-faint)",
+                letterSpacing: "0.06em",
                 fontWeight: 600,
-                marginTop: 8,
                 marginBottom: 4
               }
-            }, seq.posture), pf?.primary_path && React.createElement("div", {
+            }, "Context & diagnostics"), chipRow);
+          })(), active.length > 0 ? (() => {
+            const primarySeq = sortedActive.find(s => {
+              const id = s?.sequence_id ? String(s.sequence_id) : "";
+              return !!(primarySeqId && id && primarySeqId === id);
+            }) || sortedActive[0] || null;
+            const alternateSeqs = sortedActive.filter(s => s !== primarySeq);
+            const renderSeqCard = (seq, {
+              full = true,
+              isPrimary = false
+            } = {}) => {
+              const dir = String(seq?.direction || "").toUpperCase();
+              const dirCls = dir === "LONG" ? "ds-chip--up" : dir === "SHORT" ? "ds-chip--dn" : "ds-chip--solid";
+              const headlineColor = dir === "LONG" ? "var(--ds-up)" : dir === "SHORT" ? "var(--ds-dn)" : "var(--ds-text-body)";
+              const journeyColor = headlineColor;
+              const pf = seq?.path_forecast;
+              const seqId = seq.sequence_id ? String(seq.sequence_id) : "";
+              const stageNum = Number(seq?.stage) || 0;
+              const maxStage = Number(seq?.max_stage) || SEQUENCE_STAGE_DEFS.length;
+              const currentDef = SEQUENCE_STAGE_DEFS.find(d => d.stage === stageNum);
+              return React.createElement("div", {
+                key: seq.sequence_id || `${seq.sequence_type}-${seq.stage}-${full ? "full" : "alt"}`,
+                style: {
+                  padding: "var(--ds-space-2)",
+                  borderRadius: 8,
+                  border: `1px solid ${isPrimary ? "rgba(255,255,255,0.18)" : "var(--ds-stroke)"}`,
+                  background: isPrimary ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.02)"
+                }
+              }, React.createElement("div", {
+                style: {
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "var(--ds-space-1)",
+                  alignItems: "center",
+                  marginBottom: full ? 6 : 0
+                }
+              }, React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${dirCls}`
+              }, dir || "—"), React.createElement("span", {
+                style: {
+                  fontSize: "var(--ds-fs-body)",
+                  fontWeight: 700,
+                  color: headlineColor
+                }
+              }, sequenceHeadline(dir)), isPrimary && React.createElement("span", {
+                className: "ds-chip ds-chip--sm ds-chip--accent",
+                title: "Highest-stage active sequence drives trader posture"
+              }, "Primary"), isPrimary && seq?.sequence_type && React.createElement("span", {
+                className: "ds-chip ds-chip--sm ds-chip--accent",
+                title: "Setup sequence archetype"
+              }, sequenceArchetypeLabel(seq.sequence_type)), isPrimary && Number.isFinite(Number(tp?.stage)) && Number(tp.stage) > 0 && compact && React.createElement("span", {
+                className: "ds-chip ds-chip--sm",
+                style: {
+                  fontFamily: "var(--tt-font-mono)"
+                },
+                title: "Active sequence stage"
+              }, "S", Number(tp.stage)), isPrimary && postureLabel && postureLabel !== "Neutral" && compact && React.createElement("span", {
+                className: `ds-chip ds-chip--sm ${postureChipCls}`,
+                title: "Derived trader posture from setup sequences"
+              }, postureLabel), !isPrimary && React.createElement("span", {
+                className: "ds-chip ds-chip--sm ds-chip--solid",
+                title: "Alternate direction still forming in shadow"
+              }, "Alternate"), seq.status && React.createElement("span", {
+                className: "ds-chip ds-chip--sm ds-chip--solid"
+              }, String(seq.status)), !full && React.createElement("span", {
+                style: {
+                  marginLeft: "auto",
+                  fontFamily: "var(--tt-font-mono)",
+                  fontSize: 10,
+                  color: "var(--ds-text-muted)"
+                }
+              }, "S", stageNum, "/", maxStage, currentDef ? ` · ${currentDef.label}` : "")), full && renderSequenceStageJourney(seq, shadowEventById, journeyColor, dir, compact), full && !compact && seq.posture && React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-body)",
+                  color: "var(--ds-text-body)",
+                  fontWeight: 600,
+                  marginTop: 8,
+                  marginBottom: 4
+                }
+              }, seq.posture), full && pf?.primary_path && !compact && React.createElement("div", {
+                style: {
+                  fontSize: "var(--ds-fs-caption)",
+                  color: "var(--ds-text-muted)",
+                  lineHeight: 1.45
+                }
+              }, "Path: ", humanizeKey(pf.primary_path), Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""));
+            };
+            return React.createElement("div", {
               style: {
-                fontSize: "var(--ds-fs-caption)",
-                color: "var(--ds-text-muted)",
-                lineHeight: 1.45
+                display: "flex",
+                flexDirection: "column",
+                gap: "var(--ds-space-2)"
               }
-            }, "Path: ", humanizeKey(pf.primary_path), Number.isFinite(Number(pf.confidence)) ? ` (${Math.round(Number(pf.confidence) * 100)}%)` : ""));
-          })) : React.createElement("p", {
+            }, primarySeq && renderSeqCard(primarySeq, {
+              full: true,
+              isPrimary: true
+            }), alternateSeqs.length > 0 && React.createElement("div", {
+              style: {
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--ds-stroke)",
+                background: "rgba(255,255,255,0.02)"
+              }
+            }, React.createElement("div", {
+              style: {
+                fontSize: 9,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "var(--ds-text-faint)",
+                marginBottom: 6,
+                fontWeight: 700
+              }
+            }, "Also tracking in shadow (", alternateSeqs.length, ")"), React.createElement("div", {
+              style: {
+                display: "flex",
+                flexDirection: "column",
+                gap: 6
+              }
+            }, alternateSeqs.map(seq => renderSeqCard(seq, {
+              full: false,
+              isPrimary: false
+            })))));
+          })() : React.createElement("p", {
             style: {
               margin: 0,
               fontSize: "var(--ds-fs-caption)",
@@ -7804,18 +8739,20 @@
         const v2Conv = Number(ticker?.focus_conviction_score ?? ticker?.__focus_conviction_score) || null;
         const v2Tier = String(ticker?.focus_tier ?? ticker?.__focus_tier ?? "").toUpperCase();
         const v2Pos = (() => {
-          if (!trade) return null;
-          const ep = Number(trade.entry_price ?? trade.entryPrice) || null;
+          const tr = effectiveTraderTrade;
+          if (!isTradeOpenSafe(tr)) return null;
+          const ep = Number(tr.entry_price ?? tr.entryPrice) || null;
           if (!ep) return null;
           const cur = v2Price || ep;
-          const isLong = String(trade.direction || "LONG").toUpperCase() === "LONG";
+          const isLong = String(tr.direction || "LONG").toUpperCase() === "LONG";
           const pnlPct = isLong ? (cur - ep) / ep * 100 : (ep - cur) / ep * 100;
           return {
             entry: ep,
             current: cur,
             pnlPct,
-            sl: Number(trade.sl) || null,
-            tp: Number(trade.tp) || null
+            sl: Number(tr.sl) || null,
+            tp: Number(tr.tp) || null,
+            trade: tr
           };
         })();
         const v2SparkDir = v2DayPct > 0.05 ? "up" : v2DayPct < -0.05 ? "dn" : "flat";
@@ -7840,9 +8777,12 @@
           const earnLabel = earnDays === 0 ? "Today" : earnDays === 1 ? "Tomorrow" : earnDays != null && earnDays > 0 ? `${earnDays}d` : null;
           const stage = String(ticker?.kanban_stage || "").toLowerCase();
           const _hdrTrade = effectiveTraderTrade;
-          const _hdrTradeIsOpen = !!window.TimedPriceUtils?.isTradeOpen?.(_hdrTrade);
+          const _hdrTradeIsOpen = isTradeOpenSafe(_hdrTrade);
+          const _hdrPosDir = String(_hdrTrade?.direction || "").toUpperCase();
+          const _hdrPosChipCls = _hdrPosDir === "SHORT" ? "ds-chip--dn" : _hdrPosDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
+          const _hdrPosLabel = _hdrPosDir === "SHORT" ? "Open Short" : _hdrPosDir === "LONG" ? "Open Long" : "Open";
           const _mgmtStage = ["trim", "hold", "active", "just_entered", "defend"].includes(stage);
-          const _hdrPosturePending = ledgerTradesLoading && !_hdrTradeIsOpen && (_mgmtStage || !!(ticker?._openTrade || ticker?.has_open_position || trade));
+          const _hdrPosturePending = ledgerTradesLoading && !_hdrTradeIsOpen && (_mgmtStage || !!trade);
           const stageChip = (() => {
             if (stage === "trim") return {
               label: "TRIM",
@@ -7870,10 +8810,23 @@
               label: "ACTIVE",
               cls: "ds-chip--up"
             };
-            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
-              label: "ENTRY WATCH",
-              cls: ""
-            };
+            if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") {
+              const neutralPosture = v2TraderPosture?.strength === "neutral" || v2TraderPosture?.posture === "NEUTRAL" || !v2TraderPosture?.direction;
+              if (neutralPosture && (stage === "setup" || stage === "setup_watch")) {
+                return {
+                  label: "SETUP WATCH",
+                  cls: ""
+                };
+              }
+              if (stage === "flip_watch") return {
+                label: "FLIP WATCH",
+                cls: ""
+              };
+              return {
+                label: "ENTRY WATCH",
+                cls: ""
+              };
+            }
             return null;
           })();
           return React.createElement("div", {
@@ -7919,9 +8872,16 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? v2DirChip : v2TraderChipCls}`,
-            title: _hdrTradeIsOpen ? `Active ${v2Dir} trade — currently in position (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
-          }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrTrade?.direction === "SHORT" || v2Dir === "SHORT" ? "Open Short" : "Open Long" : v2TraderPosture?.label || v2Dir), (() => {
+            className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`,
+            title: _hdrTradeIsOpen ? `Active ${_hdrPosDir || "trader"} position — ledger truth (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
+          }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrPosLabel : v2TraderPosture?.label || v2Dir), v2PositionConflict && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: [`Open ${v2PositionConflict.positionDir} position vs model ${v2PositionConflict.modelLabel}.`, v2PositionConflict.awaitingRth ? "Waiting for regular session open to assess and execute exit." : "Model direction conflicts with the open position — review exit plan."].join(" "),
+            style: {
+              background: "rgba(239,68,68,0.12)",
+              borderColor: "rgba(239,68,68,0.35)"
+            }
+          }, "CONFLICT \xB7 Model ", v2PositionConflict.modelLabel), (() => {
             const invSym = String(tickerSymbol || "").trim().toUpperCase();
             const ctx = buildInvestorDisplayContext({
               investorData,
@@ -7957,7 +8917,7 @@
             className: `ds-chip ds-chip--sm ${stageChip.cls}`
           }, stageChip.label), strategyAlignment && strategyAlignment.stance && strategyAlignment.stance !== "neutral" && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${strategyAlignment.stance === "overweight" ? "ds-chip--up" : "ds-chip--dn"}`,
-            title: [`Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`, strategyAlignment.reason ? `Reason: ${strategyAlignment.reason}` : "", strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "", "See Insights → Active Strategy for full detail."].filter(Boolean).join(" · "),
+            title: [`Active playbook: ${strategyAlignment.stance.toUpperCase()}${strategyAlignment.tier ? ` · ${strategyAlignment.tier}` : ""}`, strategyAlignment.reason ? `Reason: ${sanitizeUserFacingCopy(strategyAlignment.reason)}` : "", strategyAlignment.vintage ? `Vintage: ${strategyAlignment.vintage}` : "", "See Insights → Active Strategy for full detail."].filter(Boolean).join(" · "),
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
@@ -8211,7 +9171,22 @@
               },
               title: "Behavior personality (engine classification)"
             }, String(personality).replace(/_/g, " "))));
-          })(), React.createElement("div", {
+          })(), isOutsideScoredUniverse && React.createElement("div", {
+            style: {
+              margin: "0 var(--ds-space-3) var(--ds-space-2)",
+              padding: "10px 12px",
+              borderRadius: "var(--ds-radius-md)",
+              border: "1px solid rgba(245,158,11,0.35)",
+              background: "rgba(245,158,11,0.08)",
+              fontSize: 11,
+              lineHeight: 1.55,
+              color: "var(--ds-text-body)"
+            }
+          }, React.createElement("strong", {
+            style: {
+              color: "#fcd34d"
+            }
+          }, tickerSymbol), " ", "is outside the Timed Trading scored universe. Model scores, trade plans, and investor lanes are unavailable here \u2014 use the Catalysts tab for earnings context."), React.createElement("div", {
             className: "ds-tab tt-rail-tabs tt-rail-area-tabnav",
             role: "tablist",
             style: {
@@ -8229,7 +9204,11 @@
             }, {
               key: "TRADE",
               label: "Trade",
-              tabs: [["SETUP", "Setup"], ["OPTIONS", "Options"]]
+              tabs: [["SETUP", "Setup"]]
+            }, {
+              key: "OPTIONS",
+              label: "Options",
+              tabs: [["OPTIONS", "Options"]]
             }, {
               key: "INVEST",
               label: "Invest",
@@ -8825,7 +9804,9 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement(React.Fragment, null, React.createElement("div", {
+        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement("div", {
+          style: railTabBodyWrapStyle
+        }, React.createElement("div", {
           style: {
             display: "flex",
             gap: 0,
@@ -8833,7 +9814,9 @@
             borderRadius: 10,
             border: "1px solid var(--ds-stroke)",
             overflow: "hidden",
-            background: "rgba(255,255,255,0.03)"
+            background: "rgba(255,255,255,0.03)",
+            minWidth: 0,
+            maxWidth: "100%"
           }
         }, ["trader", "investor"].map(mode => {
           const active = snapshotViewMode === mode;
@@ -8843,6 +9826,7 @@
             onClick: () => setSnapshotViewMode(mode),
             style: {
               flex: 1,
+              minWidth: 0,
               padding: "8px 12px",
               border: 0,
               cursor: "pointer",
@@ -8872,10 +9856,7 @@
           const isLong = displayDir === "LONG";
           const isShort = displayDir === "SHORT";
           const traderTrade = effectiveTraderTrade;
-          const tradeOpen = !!(traderTrade && (() => {
-            const s = String(traderTrade?.status || "").toUpperCase();
-            return s === "OPEN" || s === "TP_HIT_TRIM" || !(traderTrade?.exit_ts ?? traderTrade?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
-          })());
+          const tradeOpen = isTradeOpenSafe(traderTrade);
           const verdict = (() => {
             if (tradeOpen) {
               if (stage === "trim") return {
@@ -9113,6 +10094,35 @@
               lineHeight: 1
             }
           }, verdict.word), (() => {
+            if (tradeOpen) {
+              const posDir = String(traderTrade?.direction || "").toUpperCase();
+              if (posDir !== "LONG" && posDir !== "SHORT") return null;
+              const chipLabel = posDir === "SHORT" ? "Open Short" : "Open Long";
+              return React.createElement(React.Fragment, null, React.createElement("span", {
+                style: {
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  color: posDir === "SHORT" ? "#fb7185" : "#34d399",
+                  background: posDir === "SHORT" ? "rgba(244,63,94,0.10)" : "rgba(52,211,153,0.10)",
+                  letterSpacing: "0.05em"
+                },
+                title: "Open trader position \u2014 ledger truth"
+              }, chipLabel), v2PositionConflict && React.createElement("span", {
+                style: {
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  color: "#f87171",
+                  background: "rgba(239,68,68,0.12)",
+                  border: "1px solid rgba(239,68,68,0.35)",
+                  letterSpacing: "0.05em"
+                },
+                title: `Open ${v2PositionConflict.positionDir} vs model ${v2PositionConflict.modelLabel}`
+              }, "Model ", v2PositionConflict.modelLabel));
+            }
             if (v2PostureStrength === "lean") return null;
             const chipLabel = v2PostureStrength === "open" ? postureDir === "SHORT" ? "Open Short" : "Open Long" : postureLabel || (postureDir === "SHORT" ? "Bearish" : postureDir === "LONG" ? "Bullish" : "");
             if (!chipLabel || !postureDir) return null;
@@ -9257,15 +10267,18 @@
             tickerSymbol: cardSym
           });
           const ip = investorPrediction;
-          const ipDir = String(ip?.direction || "").toUpperCase();
-          const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
+          const ipThesis = sanitizeUserFacingCopy(String(ip?.thesis || ip?.actionable_summary || "").trim());
+          const ipReason = sanitizeUserFacingCopy(String(ip?.why_now || "").trim());
+          const detailThesis = sanitizeUserFacingCopy(String(investorData?.thesis || "").trim());
+          const thesisText = ipThesis || detailThesis;
           const ipStop = Number(ip?.risk?.stop_loss);
           const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
           const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
           const livePx = Number(v2Price) || Number(ticker?.price);
           const invDisplay = investorInvalidationDisplay(investorData, livePx);
-          const holding = effectiveInvestorTrade;
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
+          const invPos = investorData?.position?.owned ? investorData.position : null;
+          const holdingTrade = effectiveInvestorTrade && isTradeOpenSafe(effectiveInvestorTrade) ? effectiveInvestorTrade : null;
+          const hasHolding = !!(holdingTrade || invPos?.owned || ctx?.owned);
           if (!ctx) {
             return React.createElement("div", {
               style: {
@@ -9288,12 +10301,36 @@
             word: ctx.laneLabel,
             color: laneColor,
             bg: laneBg,
-            line: ctx.statusLine,
+            line: sanitizeUserFacingCopy(ctx.statusLine),
             action: ctx.executeReady && ctx.displayStage === "accumulate" ? "The model would scale in on the next rebalance." : ctx.owned ? "Follow lane guidance for the open model position." : "No model position — track on the Investor board until execution-ready.",
             urgency: ctx.displayStage === "reduce" ? "now" : ctx.executeReady ? "watch" : "context"
           };
+          const signalNote = sanitizeUserFacingCopy(ctx.signalNote);
+          const entryPx = Number(holdingTrade?.entryPrice ?? holdingTrade?.entry_price ?? invPos?.avg_entry);
+          const liveForPos = livePx || Number(ticker?._live_price || ticker?.price || latestTicker?.price);
+          const shares = Number(holdingTrade?.shares ?? holdingTrade?.qty ?? invPos?.shares);
+          const costBasis = Number(invPos?.cost_basis);
+          const pnlPct = (() => {
+            if (Number.isFinite(Number(invPos?.unrealized_pct))) return Number(invPos.unrealized_pct);
+            if (!(entryPx > 0) || !(liveForPos > 0)) return null;
+            return (liveForPos - entryPx) / entryPx * 100;
+          })();
+          const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
+          const entryWhen = (() => {
+            const t = Number(holdingTrade?.entry_ts);
+            if (!Number.isFinite(t)) return null;
+            try {
+              return new Date(t).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric"
+              });
+            } catch (_) {
+              return null;
+            }
+          })();
           const triggers = [];
-          if (invDisplay && (verdict.urgency === "monitor" || verdict.urgency === "now")) {
+          if (invDisplay) {
             triggers.push({
               tone: "neutral",
               text: `Invalidation: close below ${formatPx(invDisplay.price)} (${invDisplay.label}).`
@@ -9313,6 +10350,7 @@
           }
           return React.createElement("div", {
             style: {
+              ...investorRailContainStyle,
               padding: "14px 14px 12px",
               marginBottom: "var(--ds-space-3)",
               background: verdict.bg,
@@ -9325,16 +10363,30 @@
               alignItems: "center",
               gap: 6,
               marginBottom: 8,
-              flexWrap: "wrap"
+              flexWrap: "wrap",
+              minWidth: 0,
+              maxWidth: "100%"
             }
           }, React.createElement("span", {
             style: {
               fontSize: 11,
               fontWeight: 700,
               color: laneColor,
-              letterSpacing: "0.02em"
+              letterSpacing: "0.02em",
+              ...investorRailTextStyle
             }
-          }, ctx.headerChipText || `Investor – ${ctx.laneLabel}`), ctx.tierMeta && React.createElement("span", {
+          }, sanitizeUserFacingCopy(ctx.headerChipText || `Investor – ${ctx.laneLabel}`)), hasHolding && React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "2px 7px",
+              borderRadius: 4,
+              color: laneColor,
+              background: `${laneColor}18`,
+              border: `1px solid ${laneColor}44`,
+              letterSpacing: "0.05em"
+            }
+          }, "HOLDING"), ctx.tierMeta && React.createElement("span", {
             style: {
               fontSize: 10,
               fontWeight: 700,
@@ -9344,25 +10396,16 @@
               background: `${ctx.tierMeta.color}18`,
               letterSpacing: "0.05em"
             }
-          }, ctx.tierMeta.label), ipDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: ipColor,
-              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-              letterSpacing: "0.05em",
-              marginLeft: "auto"
-            }
-          }, ipDir)), React.createElement("div", {
+          }, ctx.tierMeta.label)), React.createElement("div", {
             style: {
               display: "flex",
               alignItems: "baseline",
               justifyContent: "space-between",
               gap: 8,
               marginBottom: 10,
-              flexWrap: "wrap"
+              flexWrap: "wrap",
+              minWidth: 0,
+              maxWidth: "100%"
             }
           }, React.createElement("span", {
             style: {
@@ -9370,22 +10413,165 @@
               fontWeight: 800,
               color: verdict.color,
               letterSpacing: "0.02em",
-              lineHeight: 1
+              lineHeight: 1,
+              ...investorRailTextStyle
             }
-          }, verdict.word), livePx && React.createElement("span", {
+          }, verdict.word), livePx > 0 && React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
               fontSize: 13,
               color: "var(--ds-text-body)",
               fontWeight: 600
             }
-          }, "$", livePx.toFixed(2))), React.createElement("div", {
+          }, "$", livePx.toFixed(2))), thesisText && React.createElement("div", {
+            style: {
+              marginBottom: 10,
+              padding: "10px 12px",
+              borderLeft: `3px solid ${laneColor}`,
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: "0 8px 8px 0",
+              ...investorRailContainStyle
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: laneColor,
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "THESIS"), React.createElement("div", {
+            style: {
+              fontSize: 13,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.5,
+              ...investorRailTextStyle
+            }
+          }, thesisText), ipReason && React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.45,
+              marginTop: 6,
+              ...investorRailTextStyle
+            }
+          }, React.createElement("span", {
+            style: {
+              fontWeight: 700,
+              color: "var(--ds-text-faint)"
+            }
+          }, "Why now:"), " ", ipReason)), hasHolding && React.createElement("div", {
+            style: {
+              marginBottom: 10,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.05)",
+              border: `1px solid ${laneColor}33`
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 8,
+              marginBottom: 6,
+              flexWrap: "wrap"
+            }
+          }, React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: laneColor,
+              letterSpacing: "0.06em"
+            }
+          }, "OPEN POSITION"), pnlPct != null && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 13,
+              fontWeight: 700,
+              color: pnlColor
+            }
+          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%")), (entryPx > 0 || liveForPos > 0) && React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.5,
+              marginBottom: Number.isFinite(shares) || costBasis > 0 ? 8 : 0
+            }
+          }, entryPx > 0 ? React.createElement(React.Fragment, null, "Entry ", formatPx(entryPx)) : null, liveForPos > 0 ? React.createElement(React.Fragment, null, " \u2192 ", React.createElement("span", {
+            style: {
+              color: pnlColor
+            }
+          }, formatPx(liveForPos))) : null, entryWhen && React.createElement("span", {
+            style: {
+              color: "var(--ds-text-faint)"
+            }
+          }, " \xB7 entered ", entryWhen)), (Number.isFinite(shares) || costBasis > 0) && React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))",
+              gap: 8,
+              minWidth: 0
+            }
+          }, Number.isFinite(shares) && React.createElement("div", {
+            style: investorRailContainStyle
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "SHARES"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              marginTop: 2,
+              ...investorRailTextStyle
+            }
+          }, shares.toFixed(2))), entryPx > 0 && React.createElement("div", {
+            style: investorRailContainStyle
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "AVG ENTRY"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              marginTop: 2,
+              ...investorRailTextStyle
+            }
+          }, formatPx(entryPx))), costBasis > 0 && React.createElement("div", {
+            style: investorRailContainStyle
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "COST BASIS"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              marginTop: 2,
+              ...investorRailTextStyle
+            }
+          }, formatPx(costBasis))))), React.createElement("div", {
             style: {
               padding: "10px 12px",
               borderRadius: 8,
               background: "rgba(255,255,255,0.04)",
               border: "1px solid rgba(255,255,255,0.06)",
-              marginBottom: ctx.signalNote || triggers.length > 0 || ipThesis ? 8 : 0
+              marginBottom: signalNote || triggers.length > 0 ? 8 : 0,
+              ...investorRailContainStyle
             }
           }, React.createElement("div", {
             style: {
@@ -9400,31 +10586,26 @@
               fontSize: 13,
               color: "var(--ds-text-body)",
               lineHeight: 1.45,
-              fontWeight: 600
+              fontWeight: 600,
+              ...investorRailTextStyle
             }
           }, verdict.line), React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-muted)",
               lineHeight: 1.45,
-              marginTop: 6
+              marginTop: 6,
+              ...investorRailTextStyle
             }
-          }, verdict.action)), ctx.signalNote && React.createElement("div", {
+          }, verdict.action)), signalNote && React.createElement("div", {
             style: {
               fontSize: 11,
               color: "var(--ds-text-muted)",
               lineHeight: 1.45,
-              marginBottom: triggers.length > 0 ? 8 : 0
+              marginBottom: triggers.length > 0 ? 8 : 0,
+              ...investorRailTextStyle
             }
-          }, ctx.signalNote), ipThesis && React.createElement("div", {
-            style: {
-              fontSize: 12,
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.5,
-              marginTop: 8,
-              marginBottom: triggers.length > 0 ? 8 : 0
-            }
-          }, ipThesis), triggers.length > 0 && React.createElement("div", {
+          }, signalNote), triggers.length > 0 && React.createElement("div", {
             style: {
               marginTop: 4
             }
@@ -9448,7 +10629,8 @@
               display: "flex",
               gap: 8,
               fontSize: 12,
-              lineHeight: 1.45
+              lineHeight: 1.45,
+              minWidth: 0
             }
           }, React.createElement("span", {
             style: {
@@ -9458,191 +10640,14 @@
             }
           }, "\xB7"), React.createElement("span", {
             style: {
-              color: "var(--ds-text-body)"
-            }
-          }, tr.text))))));
-        })(), effectiveInvestorTrade && snapshotViewMode !== "trader" && (() => {
-          const it = effectiveInvestorTrade;
-          const dir = String(it?.direction || "LONG").toUpperCase();
-          const isLong = dir !== "SHORT";
-          const entry = Number(it?.entryPrice ?? it?.entry_price);
-          const live = Number(ticker?._live_price || ticker?.price || latestTicker?.price);
-          const pnlPct = entry > 0 && live > 0 ? (isLong ? live - entry : entry - live) / entry * 100 : null;
-          const pnlColor = pnlPct == null ? "var(--ds-text-muted)" : pnlPct >= 0 ? "#34d399" : "#f87171";
-          const entryWhen = (() => {
-            const t = Number(it?.entry_ts);
-            if (!Number.isFinite(t)) return null;
-            try {
-              return new Date(t).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric"
-              });
-            } catch (_) {
-              return null;
-            }
-          })();
-          const setupRaw = String(it?.setupName || it?.setup_name || "").trim();
-          const entryAction = investorEntryActionFromSetup(setupRaw);
-          const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-          const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-          const liveGuide = liveStage ? investorGuidanceForStage(liveStage) : null;
-          const currentAction = liveGuide?.actionLine || entryAction;
-          const invDisplay = investorInvalidationDisplay(investorData, live);
-          const doNow = (() => {
-            const base = liveGuide?.doNow || null;
-            if (!base) return null;
-            if (invDisplay && (liveStage === "reduce" || liveStage === "watch" || liveStage === "core_hold")) {
-              return `${base} Invalidation: close below $${invDisplay.price.toFixed(2)} (${invDisplay.label}).`;
-            }
-            return base;
-          })();
-          const stageMoved = !!(liveStage && setupRaw && !setupRaw.toLowerCase().includes(liveStage));
-          return React.createElement("div", {
-            style: {
-              padding: "14px 14px 12px",
-              marginBottom: "var(--ds-space-3)",
-              background: "rgba(59,130,246,0.06)",
-              border: "1px solid rgba(59,130,246,0.30)",
-              borderRadius: 12
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              gap: 8,
-              marginBottom: 6,
-              flexWrap: "wrap"
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "baseline",
-              gap: 8
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: "#93c5fd",
-              background: "rgba(59,130,246,0.12)",
-              letterSpacing: "0.06em"
-            }
-          }, "INVESTOR PORTFOLIO"), React.createElement("span", {
-            style: {
-              fontSize: 13,
-              fontWeight: 800,
-              color: "#93c5fd",
-              letterSpacing: "0.02em"
-            }
-          }, "HOLDING ", dir)), pnlPct != null && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 13,
-              fontWeight: 700,
-              color: pnlColor
-            }
-          }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "%")), React.createElement("div", {
-            style: {
-              fontSize: 12,
               color: "var(--ds-text-body)",
-              lineHeight: 1.5,
-              marginBottom: 8
+              ...investorRailTextStyle
             }
-          }, "Entry ", entry > 0 ? `$${entry.toFixed(2)}` : "—", live > 0 ? React.createElement(React.Fragment, null, " \u2192 ", React.createElement("span", {
-            style: {
-              color: pnlColor
-            }
-          }, "$", live.toFixed(2))) : null, entryWhen && React.createElement("span", {
-            style: {
-              color: "var(--ds-text-faint)"
-            }
-          }, " \xB7 entered ", entryWhen)), doNow && React.createElement("div", {
-            style: {
-              marginTop: 8,
-              padding: "10px 12px",
-              background: "rgba(255,255,255,0.04)",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.06)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "#38F2A1",
-              letterSpacing: "0.06em",
-              marginBottom: 4
-            }
-          }, "WHAT TO DO NOW"), React.createElement("div", {
-            style: {
-              fontSize: 13,
-              fontWeight: 600,
-              color: "var(--ds-text-0)",
-              lineHeight: 1.45
-            }
-          }, doNow), liveGuide?.laneLabel && React.createElement("div", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-faint)",
-              marginTop: 6
-            }
-          }, "Current lane: ", liveGuide.laneLabel, stageMoved && entryWhen ? ` · entered ${entryWhen} under ${entryAction}` : "")), invDisplay && React.createElement("div", {
-            style: {
-              marginTop: 8,
-              padding: "10px 12px",
-              background: "rgba(248,113,113,0.06)",
-              borderRadius: 8,
-              border: "1px solid rgba(248,113,113,0.22)"
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "#f87171",
-              letterSpacing: "0.06em",
-              marginBottom: 4
-            }
-          }, "INVALIDATION LEVEL"), React.createElement("div", {
-            style: {
-              fontSize: 13,
-              fontWeight: 700,
-              color: "var(--ds-text-0)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "$", invDisplay.price.toFixed(2), React.createElement("span", {
-            style: {
-              fontSize: 11,
-              fontWeight: 500,
-              color: "var(--ds-text-muted)",
-              marginLeft: 8
-            }
-          }, invDisplay.label, invDisplay.distText ? ` · ${invDisplay.distText}` : ""))), React.createElement("div", {
-            style: {
-              marginTop: 8
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              color: "var(--ds-text-faint)",
-              letterSpacing: "0.06em",
-              marginBottom: 4
-            }
-          }, "INVESTOR ACTION"), React.createElement("div", {
-            style: {
-              fontSize: 12,
-              color: "var(--ds-text-body)",
-              lineHeight: 1.4
-            }
-          }, currentAction)));
+          }, sanitizeUserFacingCopy(tr.text)))))));
         })(), effectiveTraderTrade && snapshotViewMode !== "investor" && (() => {
           const tt = effectiveTraderTrade;
+          if (!isTradeOpenSafe(tt)) return null;
           const st = String(tt?.status || "").toUpperCase();
-          const isOpen = st === "OPEN" || st === "TP_HIT_TRIM" || !(tt?.exit_ts ?? tt?.exitTs) && st !== "WIN" && st !== "LOSS" && st !== "FLAT" && st !== "ARCHIVED";
-          if (!isOpen) return null;
           const dir = String(tt?.direction || "LONG").toUpperCase();
           const isLong = dir !== "SHORT";
           const entry = Number(tt?.entryPrice ?? tt?.entry_price);
@@ -9927,132 +10932,6 @@
               lineHeight: 1.5
             }
           }, "\xB7 ", String(ev).replace(/ \(\+\d+\)$/, "")))));
-        })(), snapshotViewMode === "investor" && investorPrediction && (() => {
-          const ip = investorPrediction;
-          const ipDir = String(ip?.direction || "").toUpperCase();
-          const ipAction = String(ip?.action_label || "").toUpperCase();
-          const ipThesis = String(ip?.thesis || ip?.actionable_summary || "").trim();
-          const ipStop = Number(ip?.risk?.stop_loss);
-          const ipTargets = Array.isArray(ip?.targets) ? ip.targets : [];
-          const ipTp1 = ipTargets[0]?.price ? Number(ipTargets[0].price) : null;
-          const ipTp1Label = ipTargets[0]?.label || (ipTargets[0]?.kind ? String(ipTargets[0].kind).toUpperCase() : "TP1");
-          const ipReason = String(ip?.why_now || "").trim();
-          const ipLaneCtx = buildInvestorDisplayContext({
-            investorData,
-            ticker,
-            latestTicker,
-            effectiveInvestorTrade,
-            tickerSymbol
-          });
-          const ipActionLine = ipLaneCtx?.statusLine || (() => {
-            const cardSym = String(tickerSymbol || "").trim().toUpperCase();
-            const liveStage = investorData?.ticker === cardSym ? String(investorData?.stage || "").toLowerCase() : String(ticker?.investor_stage || latestTicker?.investor_stage || "").toLowerCase();
-            if (liveStage) {
-              const g = investorGuidanceForStage(liveStage);
-              if (g?.actionLine) return g.actionLine;
-            }
-            const a = ipAction.toLowerCase();
-            if (a.includes("hold")) return "Hold — no add, no trim. Let the thesis play out.";
-            if (a.includes("buy") && a.includes("reduc")) return "Accumulate on dips, trim into strength.";
-            if (a.includes("buy") || a.includes("accumulate") || a.includes("add")) return "Accumulate — add to position on weakness.";
-            if (a.includes("trim") || a.includes("reduc")) return "Reduce on strength — taking profits.";
-            if (a.includes("sell") || a.includes("exit") || a.includes("close")) return "Exit recommended — close or trim aggressively.";
-            if (a.includes("watch") || a.includes("monitor")) return "Monitor — no position change recommended.";
-            if (a.includes("avoid")) return "Avoid — investor lane sees no edge here.";
-            if (ipAction) return ipAction;
-            return ipDir === "LONG" ? "Constructive — investor lane leans long over weeks/months." : ipDir === "SHORT" ? "Cautious — investor lane leans defensive on this ticker." : "Neutral — investor lane has no strong directional view.";
-          })();
-          const ipColor = ipDir === "LONG" ? "#34d399" : ipDir === "SHORT" ? "#fb7185" : "#8AA39A";
-          return React.createElement("div", {
-            style: {
-              padding: "12px 14px",
-              marginBottom: "var(--ds-space-3)",
-              background: "rgba(99,102,241,0.05)",
-              border: "1px solid rgba(99,102,241,0.25)",
-              borderRadius: 12
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 6,
-              flexWrap: "wrap"
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: "#a5b4fc",
-              background: "rgba(99,102,241,0.12)",
-              letterSpacing: "0.06em"
-            }
-          }, ipLaneCtx?.headerChipText || "Investor model detail"), React.createElement("span", {
-            style: {
-              fontSize: 10,
-              color: "var(--ds-text-faint)"
-            }
-          }, "long-horizon weeks-to-months view"), ipDir && React.createElement("span", {
-            style: {
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "2px 7px",
-              borderRadius: 4,
-              color: ipColor,
-              background: ipDir === "SHORT" ? "rgba(244,63,94,0.10)" : ipDir === "LONG" ? "rgba(52,211,153,0.10)" : "rgba(255,255,255,0.04)",
-              letterSpacing: "0.05em",
-              marginLeft: "auto"
-            }
-          }, ipDir)), React.createElement("div", {
-            style: {
-              fontSize: 13,
-              color: "var(--ds-text-body)",
-              lineHeight: 1.5,
-              marginBottom: 8,
-              fontWeight: 600
-            }
-          }, ipActionLine), ipThesis && React.createElement("div", {
-            style: {
-              fontSize: 12,
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.5,
-              marginBottom: ipReason || ipTp1 || ipStop ? 8 : 0
-            }
-          }, ipThesis), ipReason && React.createElement("div", {
-            style: {
-              fontSize: 11,
-              color: "var(--ds-text-muted)",
-              lineHeight: 1.45,
-              marginBottom: ipTp1 || ipStop ? 8 : 0
-            }
-          }, React.createElement("span", {
-            style: {
-              color: "var(--ds-text-faint)",
-              fontWeight: 700
-            }
-          }, "Why now:"), " ", ipReason), (ipTp1 || ipStop) && React.createElement("div", {
-            style: {
-              display: "flex",
-              gap: 12,
-              flexWrap: "wrap",
-              paddingTop: 8,
-              borderTop: "1px solid rgba(255,255,255,0.04)",
-              fontSize: 11,
-              color: "var(--ds-text-muted)"
-            }
-          }, ipTp1 && React.createElement("span", null, ipTp1Label, ": ", React.createElement("strong", {
-            style: {
-              color: "var(--ds-text-body)",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "$", ipTp1.toFixed(2))), ipStop && React.createElement("span", null, "Invalidates: ", React.createElement("strong", {
-            style: {
-              color: "#fb7185",
-              fontFamily: "var(--tt-font-mono)"
-            }
-          }, "$", ipStop.toFixed(2)))));
         })(), (ticker?.regime_class || ticker?.state || ticker?.kanban_stage) && React.createElement(Panel, {
           title: "Today"
         }, React.createElement("div", {
@@ -10819,18 +11698,18 @@
         })()), snapshotViewMode === "trader" && v2Pos && React.createElement(Panel, {
           title: "Position",
           action: React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${v2DirChip}`,
+            className: `ds-chip ds-chip--sm ${String(v2Pos.trade?.direction || "LONG").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`,
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, trade?.direction || v2Dir)
+          }, v2Pos.trade?.direction || "LONG")
         }, (() => {
           const entry = v2Pos.entry;
           const current = v2Pos.current;
           const sl = v2Pos.sl;
           const tp = v2Pos.tp;
           if (!entry) return null;
-          const isLong = String(trade?.direction || "LONG").toUpperCase() === "LONG";
+          const isLong = String(v2Pos.trade?.direction || "LONG").toUpperCase() === "LONG";
           const allPx = [entry, current, sl, tp].filter(p => Number.isFinite(p) && p > 0);
           if (allPx.length < 2) return null;
           const min = Math.min(...allPx);
@@ -10936,7 +11815,30 @@
           value: Number(ticker.rr).toFixed(2),
           delta: Number(ticker.rr) >= 2 ? "Strong" : "OK",
           deltaClass: Number(ticker.rr) >= 2 ? "up" : "accent"
-        }))), window.TickerSpiderChartFactory && (() => {
+        })), v2PositionConflict && React.createElement("div", {
+          style: {
+            marginTop: "var(--ds-space-3)",
+            padding: "8px 10px",
+            background: "rgba(239,68,68,0.08)",
+            border: "1px solid rgba(239,68,68,0.32)",
+            borderRadius: "var(--ds-radius-xs)",
+            fontSize: "var(--ds-fs-meta)"
+          }
+        }, React.createElement("div", {
+          style: {
+            color: "var(--ds-dn)",
+            fontWeight: 700,
+            marginBottom: 4,
+            letterSpacing: "0.02em"
+          }
+        }, "POSITION CONFLICT \xB7 Open ", v2PositionConflict.positionDir, " vs model ", v2PositionConflict.modelLabel), React.createElement("div", {
+          style: {
+            color: "var(--ds-text-muted)",
+            lineHeight: 1.45
+          }
+        }, v2PositionConflict.awaitingRth ? "The model wants out of this side. Waiting for regular session open to assess and execute." : "The model direction conflicts with this open position. Review the exit plan before the next session.")), renderCioPositionBlock({
+          compact: true
+        })), window.TickerSpiderChartFactory && (() => {
           const SpiderC = window.TickerSpiderChartFactory({
             React
           });
@@ -10951,21 +11853,15 @@
             size: 240,
             showLegend: true
           }));
-        })()))), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, renderSequenceShadowPanel(), (() => {
+        })()))), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
-            const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && (() => {
-              const s = String(x?.status || "").toUpperCase();
-              return s === "OPEN" || s === "TP_HIT_TRIM" || !(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
-            })());
+            const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && isTradeOpenSafe(x));
             if (traderOpen.length > 0) return {
               kind: "trader",
               t: traderOpen[0]
             };
-            const investorOpen = arr.find(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && x?._source_mode === "investor" && (() => {
-              const s = String(x?.status || "").toUpperCase();
-              return s === "OPEN" || s === "TP_HIT_TRIM" || !(x?.exit_ts ?? x?.exitTs) && s !== "WIN" && s !== "LOSS" && s !== "FLAT" && s !== "ARCHIVED";
-            })());
+            const investorOpen = arr.find(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && x?._source_mode === "investor" && isTradeOpenSafe(x));
             if (investorOpen) return {
               kind: "investor",
               t: investorOpen
@@ -11030,9 +11926,8 @@
             }, "Investor tab"), " to manage the holding."));
           }
           const t = candidates.t;
+          if (!isTradeOpenSafe(t)) return null;
           const _trStatus = String(t.status || "").toUpperCase();
-          const _isOpen = _trStatus === "OPEN" || _trStatus === "TP_HIT_TRIM" || !(t.exit_ts ?? t.exitTs) && _trStatus !== "WIN" && _trStatus !== "LOSS" && _trStatus !== "FLAT" && _trStatus !== "ARCHIVED";
-          if (!_isOpen) return null;
           const dirRaw = String(t.direction || "").toUpperCase();
           const isLong = dirRaw !== "SHORT";
           const dirColor = dirRaw === "SHORT" ? "#f87171" : "#34d399";
@@ -11076,8 +11971,29 @@
             maximumFractionDigits: 2
           }).format(n) : "—";
           const _openLabel = _trStatus === "TP_HIT_TRIM" ? "TRIMMED" : "OPEN";
+          const _setupName = t?.setupName || t?.setup_name || null;
+          const _setupGrade = t?.setupGrade || t?.setup_grade || null;
+          const _risk = Number(t?.riskBudget || t?.risk_budget) || null;
+          const _rr = Number(t?.rr) || null;
+          const _rank = Number(t?.rank) || null;
+          const _entryEt = (() => {
+            const ts = Number(t?.entry_ts);
+            if (!Number.isFinite(ts)) return null;
+            try {
+              return new Date(ts).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+                hour12: true,
+                timeZone: "America/New_York"
+              }) + " ET";
+            } catch (_) {
+              return null;
+            }
+          })();
           return React.createElement(Panel, {
-            title: "\uD83D\uDCCD Current Open Position",
+            title: "Entry Decision \xB7 Open Position",
             action: React.createElement("span", {
               style: {
                 fontSize: 10,
@@ -11091,6 +12007,115 @@
               }
             }, dirRaw, " \xB7 ", _openLabel)
           }, React.createElement("div", {
+            style: {
+              marginBottom: "var(--ds-space-3)",
+              paddingBottom: "var(--ds-space-3)",
+              borderBottom: "1px solid rgba(255,255,255,0.06)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "baseline",
+              gap: "var(--ds-space-2)",
+              marginBottom: _setupName || _setupGrade || _risk || _rr || _rank ? "var(--ds-space-2)" : 0
+            }
+          }, Number.isFinite(entry) && entry > 0 && React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body-lg, 14px)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, "Entry $", entry.toFixed(2)), _entryEt && React.createElement("span", {
+            style: {
+              fontSize: "var(--ds-fs-caption)",
+              color: "var(--ds-text-muted)"
+            }
+          }, "\xB7 filled ", _entryEt), React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 9,
+              letterSpacing: "0.12em",
+              color: "var(--ds-accent)",
+              background: "var(--ds-accent-dim)",
+              borderColor: "var(--ds-accent)",
+              marginLeft: "auto"
+            }
+          }, "ACTIVE")), (_setupName || _setupGrade || _risk || _rr || _rank) && React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-2)"
+            }
+          }, _setupName && React.createElement("div", {
+            style: {
+              flex: "1 1 auto",
+              minWidth: 140
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "Setup"), React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " "), _setupGrade && React.createElement("span", {
+            style: {
+              marginLeft: 6,
+              color: "var(--ds-text-muted)",
+              fontSize: "var(--ds-fs-caption)"
+            }
+          }, "(", _setupGrade, ")"))), _risk != null && _risk > 0 && React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "Risk"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, _risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`)), Number.isFinite(_rr) && _rr > 0 && React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "R:R"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, _rr.toFixed(2), ":1")), Number.isFinite(_rank) && _rank > 0 && React.createElement("div", null, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              letterSpacing: "0.16em",
+              textTransform: "uppercase",
+              color: "var(--ds-text-faint)"
+            }
+          }, "Rank"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              color: "var(--ds-text)",
+              fontWeight: 600
+            }
+          }, Math.round(_rank))))), React.createElement("div", {
             style: {
               display: "grid",
               gridTemplateColumns: "1fr 1fr",
@@ -11219,7 +12244,30 @@
             style: {
               color: "var(--ds-accent)"
             }
-          }, Math.round(_trimPct), "%"))), (() => {
+          }, Math.round(_trimPct), "%"))), v2PositionConflict && React.createElement("div", {
+            style: {
+              marginTop: 10,
+              padding: "8px 10px",
+              background: "rgba(239,68,68,0.08)",
+              border: "1px solid rgba(239,68,68,0.32)",
+              borderRadius: "var(--ds-radius-xs)",
+              fontSize: "var(--ds-fs-meta)"
+            }
+          }, React.createElement("div", {
+            style: {
+              color: "#f87171",
+              fontWeight: 700,
+              marginBottom: 4,
+              letterSpacing: "0.02em"
+            }
+          }, "POSITION CONFLICT \xB7 Open ", v2PositionConflict.positionDir, " vs model ", v2PositionConflict.modelLabel), React.createElement("div", {
+            style: {
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.45
+            }
+          }, v2PositionConflict.awaitingRth ? "The model wants out of this side. Waiting for regular session open to assess and execute." : "The model direction conflicts with this open position. Review the exit plan before the next session.")), renderCioPositionBlock({
+            compact: true
+          }), (() => {
             const _exhAZ = ticker?.accumZone || latestTicker?.accumZone;
             const _exhW = Array.isArray(_exhAZ?.exhaustionWarnings) ? _exhAZ.exhaustionWarnings : [];
             if (_exhW.length === 0) return null;
@@ -11268,352 +12316,347 @@
               }
             }, "+", _exhW.length - 6, " more")));
           })());
-          {}
-          {
-            (() => {
-              const conf = optionsTabData?.confluence_verdict || null;
-              if (!conf || !conf.mode) return null;
-              return null;
-              const traderCall = String(predictionContract?.posture_label || v2TraderPosture?.label || predictionContract?.direction || optionsTabData?.contract?.direction || "").trim();
-              const traderPostureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
-              const layerLean = String(conf.side || "").toUpperCase();
-              const traderCallIsShort = traderPostureDir === "SHORT";
-              const layerLeanIsShort = layerLean === "SHORT";
-              const callColor = traderCallIsShort ? "#fb7185" : traderPostureDir === "LONG" ? "#34d399" : "#8AA39A";
-              const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#8AA39A";
-              const callVsLeanConflict = (traderPostureDir === "LONG" || traderPostureDir === "SHORT") && (layerLean === "LONG" || layerLean === "SHORT") && traderPostureDir !== layerLean;
-              const longLayers = Number(conf.long_agree);
-              const shortLayers = Number(conf.short_agree);
-              const layerSplitLabel = Number.isFinite(longLayers) && Number.isFinite(shortLayers) ? `${longLayers}L · ${shortLayers}S` : "—";
-              const META = {
-                RIDE: {
-                  c: "#34d399",
-                  b: "rgba(52,211,153,0.10)",
-                  border: "rgba(52,211,153,0.30)",
-                  i: "🚀",
-                  action: traderCallIsShort ? "Ride the short" : "Ride the trend",
-                  desc: traderCallIsShort ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops." : "Trader call is LONG with aligned layers. Press while structure holds; trail stops."
-                },
-                READY: {
-                  c: "#38F2A1",
-                  b: "rgba(56,242,161,0.10)",
-                  border: "rgba(56,242,161,0.30)",
-                  i: "⏳",
-                  action: "Setup forming",
-                  desc: "Confluence building but the entry trigger has not fired. Wait — do not chase."
-                },
-                DRIFT: {
-                  c: "#60a5fa",
-                  b: "rgba(96,165,250,0.10)",
-                  border: "rgba(96,165,250,0.30)",
-                  i: "🌊",
-                  action: "Drift — chop",
-                  desc: "Mixed signals, no clean directional edge. Fade extremes or sit out."
-                },
-                FADE: {
-                  c: "#a78bfa",
-                  b: "rgba(167,139,250,0.10)",
-                  border: "rgba(167,139,250,0.30)",
-                  i: "↩️",
-                  action: traderCallIsShort ? "Fade the rip" : "Fade the dip",
-                  desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only."
-                },
-                WAIT: {
-                  c: "#8AA39A",
-                  b: "rgba(156,163,175,0.10)",
-                  border: "rgba(156,163,175,0.30)",
-                  i: "⏸",
-                  action: "Wait — no trade",
-                  desc: "Layers disagree, no edge from the engine right now. Pass on this name."
-                }
-              };
-              const m = META[conf.mode] || META.WAIT;
-              const scoreNum = Number(conf.score);
-              const summary = String(conf.actionable_summary || "").trim();
-              const whyLine = summary && summary.length > 0 ? summary.length > 160 ? summary.slice(0, 158) + "…" : summary : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 · layer split ${layerSplitLabel}.`;
-              return React.createElement(Panel, {
-                title: "\uD83D\uDCE1 Trader Root Verdict",
-                action: React.createElement("span", {
-                  style: {
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: "0.05em",
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    color: m.c,
-                    background: m.b,
-                    border: `1px solid ${m.border}`
-                  }
-                }, m.i, " ", conf.mode)
-              }, React.createElement("div", {
-                style: {
-                  padding: "var(--ds-space-2)",
-                  background: m.b,
-                  border: `1px solid ${m.border}`,
-                  borderRadius: "var(--ds-radius-md)",
-                  marginBottom: "var(--ds-space-2)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: "var(--ds-text-faint)",
-                  letterSpacing: "0.05em",
-                  marginBottom: 4
-                }
-              }, "WHAT TO DO"), React.createElement("div", {
-                style: {
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: m.c
-                }
-              }, m.action), React.createElement("div", {
-                style: {
-                  fontSize: "var(--ds-fs-meta)",
-                  color: "var(--ds-text-body)",
-                  marginTop: 4,
-                  lineHeight: 1.4
-                }
-              }, m.desc)), callVsLeanConflict && React.createElement("div", {
-                style: {
-                  marginBottom: "var(--ds-space-2)",
-                  padding: "var(--ds-space-2)",
-                  background: "rgba(56,242,161,0.08)",
-                  border: "1px solid rgba(56,242,161,0.30)",
-                  borderRadius: "var(--ds-radius-md)",
-                  fontSize: 12,
-                  color: "var(--ds-text-body)",
-                  lineHeight: 1.45
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: "#38F2A1",
-                  letterSpacing: "0.05em",
-                  marginBottom: 4
-                }
-              }, "SIGNAL SPLIT \u2014 NOT STALE"), "Trader posture is ", React.createElement("strong", {
-                style: {
-                  color: callColor
-                }
-              }, traderCall), " (header chip) but the 8-layer fusion leans ", React.createElement("strong", {
-                style: {
-                  color: leanColor
-                }
-              }, layerLean), " (", layerSplitLabel, "). Until these align, treat the trader contract as the lane call and the layer lean as context \u2014 not a reason to flip direction."), React.createElement("div", {
-                style: {
-                  display: "grid",
-                  gridTemplateColumns: "repeat(3, 1fr)",
-                  gap: "var(--ds-space-2)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  padding: "var(--ds-space-2)",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  borderRadius: "var(--ds-radius-md)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 9,
-                  fontWeight: 700,
-                  color: "var(--ds-text-faint)",
-                  letterSpacing: "0.05em"
-                }
-              }, "CONFLUENCE"), React.createElement("div", {
-                style: {
-                  fontFamily: "var(--tt-font-mono)",
-                  fontWeight: 700,
-                  marginTop: 2,
-                  fontSize: 18,
-                  color: Number.isFinite(scoreNum) && scoreNum >= 65 ? "#34d399" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171"
-                }
-              }, Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—", React.createElement("span", {
-                style: {
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: "var(--ds-text-muted)"
-                }
-              }, "/100")), React.createElement("div", {
-                style: {
-                  fontSize: 10,
-                  color: "var(--ds-text-muted)",
-                  marginTop: 2
-                }
-              }, Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak")), React.createElement("div", {
-                style: {
-                  padding: "var(--ds-space-2)",
-                  background: "rgba(255,255,255,0.03)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  borderRadius: "var(--ds-radius-md)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 9,
-                  fontWeight: 700,
-                  color: "var(--ds-text-faint)",
-                  letterSpacing: "0.05em"
-                }
-              }, "LAYER SPLIT"), React.createElement("div", {
-                style: {
-                  fontFamily: "var(--tt-font-mono)",
-                  fontWeight: 700,
-                  marginTop: 2,
-                  fontSize: 18,
-                  color: "var(--ds-text-body)"
-                }
-              }, layerSplitLabel), React.createElement("div", {
-                style: {
-                  fontSize: 10,
-                  color: "var(--ds-text-muted)",
-                  marginTop: 2
-                }
-              }, "Fusion leans ", layerLean || "—")), React.createElement("div", {
-                style: {
-                  padding: "var(--ds-space-2)",
-                  background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  borderRadius: "var(--ds-radius-md)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 9,
-                  fontWeight: 700,
-                  color: "var(--ds-text-faint)",
-                  letterSpacing: "0.05em"
-                }
-              }, "TRADER POSTURE"), React.createElement("div", {
-                style: {
-                  fontFamily: "var(--tt-font-mono)",
-                  fontWeight: 700,
-                  marginTop: 2,
-                  fontSize: 18,
-                  color: callColor
-                }
-              }, traderCall || "—"))), whyLine && React.createElement("div", {
-                style: {
-                  marginTop: "var(--ds-space-2)",
-                  paddingTop: "var(--ds-space-2)",
-                  borderTop: "1px solid rgba(255,255,255,0.04)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: "var(--ds-text-faint)",
-                  letterSpacing: "0.06em",
-                  marginBottom: 4
-                }
-              }, "WHY"), React.createElement("div", {
-                style: {
-                  fontSize: 12,
-                  color: "var(--ds-text-body)",
-                  lineHeight: 1.45
-                }
-              }, whyLine)));
-            })();
-          }
-          {
-            (() => {
-              const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
-              const verdict = optionsTabData?.confluence_verdict || null;
-              if (!timing || !timing.flash_headline) return null;
-              const bias = String(timing.bias || "EXTENSION").toUpperCase();
-              const isBottom = bias === "COMPRESSION";
-              const posture = String(timing.posture || "").toUpperCase();
-              const postureColor = isBottom ? posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#8AA39A" : posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#38F2A1" : "#8AA39A";
-              const score = isBottom ? timing.compression_score : timing.extension_score;
-              const signals = isBottom ? Array.isArray(timing.compressions) ? timing.compressions : [] : Array.isArray(timing.warnings) ? timing.warnings : [];
-              const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
-              const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(56,242,161,0.08)";
-              const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(56,242,161,0.28)";
-              const playbook = verdict?.playbook || timing.playbook || null;
-              return React.createElement(Panel, {
-                title: panelTitle,
-                action: React.createElement("span", {
-                  style: {
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    padding: "2px 8px",
-                    borderRadius: 999,
-                    color: postureColor,
-                    background: `${postureColor}18`,
-                    border: `1px solid ${postureColor}55`
-                  }
-                }, posture.replace(/_/g, " "), " \xB7 ", score, "/100")
-              }, React.createElement("div", {
-                style: {
-                  padding: "var(--ds-space-2)",
-                  background: panelBg,
-                  border: `1px solid ${panelBorder}`,
-                  borderRadius: "var(--ds-radius-md)",
-                  marginBottom: "var(--ds-space-2)"
-                }
-              }, React.createElement("div", {
-                style: {
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "var(--ds-text-display)",
-                  lineHeight: 1.4
-                }
-              }, timing.flash_headline), timing.flash_detail && React.createElement("div", {
-                style: {
-                  fontSize: 12,
-                  color: "var(--ds-text-muted)",
-                  marginTop: 6,
-                  lineHeight: 1.45
-                }
-              }, timing.flash_detail), playbook === "TREND_CATCH" && React.createElement("div", {
-                style: {
-                  fontSize: 11,
-                  color: "var(--ds-text-faint)",
-                  marginTop: 6,
-                  lineHeight: 1.45
-                }
-              }, "Trend catch (secondary) \u2014 primary edge is timing tops and bottoms.")), React.createElement("div", {
-                style: {
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 6,
-                  marginBottom: signals.length ? 8 : 0
-                }
-              }, isBottom ? React.createElement(React.Fragment, null, timing.add_on_dips && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--up"
-              }, "Add on dips"), timing.long_opportunity && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--up"
-              }, "Long / fade timing"), timing.call_opportunity && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--up"
-              }, "Call window"), (timing.td_daily_bull >= 7 || timing.td_weekly_bull >= 7) && React.createElement("span", {
-                className: "ds-chip ds-chip--sm",
-                style: {
-                  fontFamily: "var(--tt-font-mono)"
-                }
-              }, "TD D", timing.td_daily_bull, "/W", timing.td_weekly_bull)) : React.createElement(React.Fragment, null, timing.trim_winners && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--accent"
-              }, "Trim winners"), timing.short_opportunity && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--dn"
-              }, "Short / fade timing"), timing.put_opportunity && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--dn"
-              }, "Put window"), (timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && React.createElement("span", {
-                className: "ds-chip ds-chip--sm",
-                style: {
-                  fontFamily: "var(--tt-font-mono)"
-                }
-              }, "TD D", timing.td_daily_bear, "/W", timing.td_weekly_bear), timing.vix != null && Number(timing.vix) >= 20 && React.createElement("span", {
-                className: "ds-chip ds-chip--sm"
-              }, "VIX ", Number(timing.vix).toFixed(1))), timing.timing_primary && React.createElement("span", {
-                className: "ds-chip ds-chip--sm ds-chip--accent"
-              }, "Time ", timing.timing_primary === "BOTTOM" ? "bottom" : "top")), signals.length > 0 && React.createElement("div", {
-                style: {
-                  fontSize: 11,
-                  color: "var(--ds-text-faint)",
-                  lineHeight: 1.45
-                }
-              }, signals.slice(0, 5).join(" · ")));
-            })();
-          }
+        })(), (() => {
+          const conf = optionsTabData?.confluence_verdict || null;
+          if (!conf || !conf.mode) return null;
+          return null;
+          const traderCall = String(predictionContract?.posture_label || v2TraderPosture?.label || predictionContract?.direction || optionsTabData?.contract?.direction || "").trim();
+          const traderPostureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || predictionContract?.direction || optionsTabData?.contract?.direction || "").toUpperCase();
+          const layerLean = String(conf.side || "").toUpperCase();
+          const traderCallIsShort = traderPostureDir === "SHORT";
+          const layerLeanIsShort = layerLean === "SHORT";
+          const callColor = traderCallIsShort ? "#fb7185" : traderPostureDir === "LONG" ? "#34d399" : "#8AA39A";
+          const leanColor = layerLeanIsShort ? "#fb7185" : layerLean === "LONG" ? "#34d399" : "#8AA39A";
+          const callVsLeanConflict = (traderPostureDir === "LONG" || traderPostureDir === "SHORT") && (layerLean === "LONG" || layerLean === "SHORT") && traderPostureDir !== layerLean;
+          const longLayers = Number(conf.long_agree);
+          const shortLayers = Number(conf.short_agree);
+          const layerSplitLabel = Number.isFinite(longLayers) && Number.isFinite(shortLayers) ? `${longLayers}L · ${shortLayers}S` : "—";
+          const META = {
+            RIDE: {
+              c: "#34d399",
+              b: "rgba(52,211,153,0.10)",
+              border: "rgba(52,211,153,0.30)",
+              i: "🚀",
+              action: traderCallIsShort ? "Ride the short" : "Ride the trend",
+              desc: traderCallIsShort ? "Trader call is SHORT with aligned layers. Press while structure holds; trail stops." : "Trader call is LONG with aligned layers. Press while structure holds; trail stops."
+            },
+            READY: {
+              c: "#38F2A1",
+              b: "rgba(56,242,161,0.10)",
+              border: "rgba(56,242,161,0.30)",
+              i: "⏳",
+              action: "Setup forming",
+              desc: "Confluence building but the entry trigger has not fired. Wait — do not chase."
+            },
+            DRIFT: {
+              c: "#60a5fa",
+              b: "rgba(96,165,250,0.10)",
+              border: "rgba(96,165,250,0.30)",
+              i: "🌊",
+              action: "Drift — chop",
+              desc: "Mixed signals, no clean directional edge. Fade extremes or sit out."
+            },
+            FADE: {
+              c: "#a78bfa",
+              b: "rgba(167,139,250,0.10)",
+              border: "rgba(167,139,250,0.30)",
+              i: "↩️",
+              action: traderCallIsShort ? "Fade the rip" : "Fade the dip",
+              desc: "Counter-trend setup. Smaller size, tighter stops; mean-reversion play only."
+            },
+            WAIT: {
+              c: "#8AA39A",
+              b: "rgba(156,163,175,0.10)",
+              border: "rgba(156,163,175,0.30)",
+              i: "⏸",
+              action: "Wait — no trade",
+              desc: "Layers disagree, no edge from the engine right now. Pass on this name."
+            }
+          };
+          const m = META[conf.mode] || META.WAIT;
+          const scoreNum = Number(conf.score);
+          const summary = String(conf.actionable_summary || "").trim();
+          const whyLine = summary && summary.length > 0 ? summary.length > 160 ? summary.slice(0, 158) + "…" : summary : `Confluence ${Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—"}/100 · layer split ${layerSplitLabel}.`;
+          return React.createElement(Panel, {
+            title: "\uD83D\uDCE1 Trader Root Verdict",
+            action: React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.05em",
+                padding: "2px 8px",
+                borderRadius: 999,
+                color: m.c,
+                background: m.b,
+                border: `1px solid ${m.border}`
+              }
+            }, m.i, " ", conf.mode)
+          }, React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: m.b,
+              border: `1px solid ${m.border}`,
+              borderRadius: "var(--ds-radius-md)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em",
+              marginBottom: 4
+            }
+          }, "WHAT TO DO"), React.createElement("div", {
+            style: {
+              fontSize: 15,
+              fontWeight: 700,
+              color: m.c
+            }
+          }, m.action), React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-body)",
+              marginTop: 4,
+              lineHeight: 1.4
+            }
+          }, m.desc)), callVsLeanConflict && React.createElement("div", {
+            style: {
+              marginBottom: "var(--ds-space-2)",
+              padding: "var(--ds-space-2)",
+              background: "rgba(56,242,161,0.08)",
+              border: "1px solid rgba(56,242,161,0.30)",
+              borderRadius: "var(--ds-radius-md)",
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.45
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "#38F2A1",
+              letterSpacing: "0.05em",
+              marginBottom: 4
+            }
+          }, "SIGNAL SPLIT \u2014 NOT STALE"), "Trader posture is ", React.createElement("strong", {
+            style: {
+              color: callColor
+            }
+          }, traderCall), " (header chip) but the 8-layer fusion leans ", React.createElement("strong", {
+            style: {
+              color: leanColor
+            }
+          }, layerLean), " (", layerSplitLabel, "). Until these align, treat the trader contract as the lane call and the layer lean as context \u2014 not a reason to flip direction."), React.createElement("div", {
+            style: {
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "CONFLUENCE"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: 18,
+              color: Number.isFinite(scoreNum) && scoreNum >= 65 ? "#34d399" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "var(--ds-text-body)" : "#f87171"
+            }
+          }, Number.isFinite(scoreNum) ? scoreNum.toFixed(0) : "—", React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 600,
+              color: "var(--ds-text-muted)"
+            }
+          }, "/100")), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, Number.isFinite(scoreNum) && scoreNum >= 65 ? "Strong" : Number.isFinite(scoreNum) && scoreNum >= 40 ? "Mixed" : "Weak")), React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "LAYER SPLIT"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: 18,
+              color: "var(--ds-text-body)"
+            }
+          }, layerSplitLabel), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, "Fusion leans ", layerLean || "—")), React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: traderCallIsShort ? "rgba(244,63,94,0.06)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.06)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${traderCallIsShort ? "rgba(244,63,94,0.25)" : traderPostureDir === "LONG" ? "rgba(52,211,153,0.25)" : "rgba(255,255,255,0.06)"}`,
+              borderRadius: "var(--ds-radius-md)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "TRADER POSTURE"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontWeight: 700,
+              marginTop: 2,
+              fontSize: 18,
+              color: callColor
+            }
+          }, traderCall || "—"))), whyLine && React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-2)",
+              paddingTop: "var(--ds-space-2)",
+              borderTop: "1px solid rgba(255,255,255,0.04)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.06em",
+              marginBottom: 4
+            }
+          }, "WHY"), React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-body)",
+              lineHeight: 1.45
+            }
+          }, whyLine)));
+        })(), (() => {
+          const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+          const verdict = optionsTabData?.confluence_verdict || null;
+          if (!timing || !timing.flash_headline) return null;
+          const bias = String(timing.bias || "EXTENSION").toUpperCase();
+          const isBottom = bias === "COMPRESSION";
+          const posture = String(timing.posture || "").toUpperCase();
+          const postureColor = isBottom ? posture === "RALLY_WATCH" ? "#34d399" : posture === "RISK_ON_BUY" ? "#60a5fa" : "#8AA39A" : posture === "DUMP_WATCH" ? "#f87171" : posture === "RISK_OFF" ? "#fbbf24" : posture === "CAUTION" ? "#38F2A1" : "#8AA39A";
+          const score = isBottom ? timing.compression_score : timing.extension_score;
+          const signals = isBottom ? Array.isArray(timing.compressions) ? timing.compressions : [] : Array.isArray(timing.warnings) ? timing.warnings : [];
+          const panelTitle = isBottom ? "Timing — Compression Watch" : "Timing — Extension Watch";
+          const panelBg = isBottom ? "rgba(52,211,153,0.08)" : "rgba(56,242,161,0.08)";
+          const panelBorder = isBottom ? "rgba(52,211,153,0.28)" : "rgba(56,242,161,0.28)";
+          const playbook = verdict?.playbook || timing.playbook || null;
+          return React.createElement(Panel, {
+            title: panelTitle,
+            action: React.createElement("span", {
+              style: {
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                padding: "2px 8px",
+                borderRadius: 999,
+                color: postureColor,
+                background: `${postureColor}18`,
+                border: `1px solid ${postureColor}55`
+              }
+            }, posture.replace(/_/g, " "), " \xB7 ", score, "/100")
+          }, React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: panelBg,
+              border: `1px solid ${panelBorder}`,
+              borderRadius: "var(--ds-radius-md)",
+              marginBottom: "var(--ds-space-2)"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 14,
+              fontWeight: 700,
+              color: "var(--ds-text-display)",
+              lineHeight: 1.4
+            }
+          }, timing.flash_headline), timing.flash_detail && React.createElement("div", {
+            style: {
+              fontSize: 12,
+              color: "var(--ds-text-muted)",
+              marginTop: 6,
+              lineHeight: 1.45,
+              ...investorRailTextStyle
+            }
+          }, sanitizeUserFacingCopy(timing.flash_detail)), playbook === "TREND_CATCH" && React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-faint)",
+              marginTop: 6,
+              lineHeight: 1.45
+            }
+          }, "Trend catch (secondary) \u2014 primary edge is timing tops and bottoms.")), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              marginBottom: signals.length ? 8 : 0
+            }
+          }, isBottom ? React.createElement(React.Fragment, null, timing.add_on_dips && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Add on dips"), timing.long_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Long / fade timing"), timing.call_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up"
+          }, "Call window"), (timing.td_daily_bull >= 7 || timing.td_weekly_bull >= 7) && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "TD D", timing.td_daily_bull, "/W", timing.td_weekly_bull)) : React.createElement(React.Fragment, null, timing.trim_winners && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent"
+          }, "Trim winners"), timing.short_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn"
+          }, "Short / fade timing"), timing.put_opportunity && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn"
+          }, "Put window"), (timing.td_daily_bear >= 7 || timing.td_weekly_bear >= 7) && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            style: {
+              fontFamily: "var(--tt-font-mono)"
+            }
+          }, "TD D", timing.td_daily_bear, "/W", timing.td_weekly_bear), timing.vix != null && Number(timing.vix) >= 20 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm"
+          }, "VIX ", Number(timing.vix).toFixed(1))), timing.timing_primary && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent"
+          }, "Time ", timing.timing_primary === "BOTTOM" ? "bottom" : "top")), signals.length > 0 && React.createElement("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.45,
+              ...investorRailTextStyle
+            }
+          }, signals.slice(0, 5).map(s => sanitizeUserFacingCopy(s)).filter(Boolean).join(" · ")));
         })(), (ticker?.entry_path || ticker?.setup_name) && React.createElement(Panel, {
           title: "Setup"
         }, React.createElement("div", {
@@ -11871,9 +12914,22 @@
           const optionsTraderDir = String(optionsTabData?.contract?.direction || "").toUpperCase();
           const tradeStatus = String(trade?.status || "").toUpperCase();
           const tradeIsOpen = !!(trade && (tradeStatus === "OPEN" || tradeStatus === "TP_HIT_TRIM" || !(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS"));
+          const hasPositionConflict = !!v2PositionConflict && tradeIsOpen;
+          const showModelPlanPanel = hasPositionConflict;
+          const panelTitle = showModelPlanPanel ? "Model Plan" : tradeIsOpen ? "Position Plan" : "Trade Plan";
           const resolveTraderCallDir = raw => {
             const d = String(raw || "").toUpperCase();
             return d === "LONG" || d === "SHORT" ? d : "";
+          };
+          const resolveTimingAwareTraderDir = () => {
+            const postureDir = resolveTraderCallDir(v2ModelPosture?.direction) || resolveTraderCallDir(v2TraderPosture?.direction);
+            if (postureDir) return postureDir;
+            const structural = typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker ? window.TimedPriceUtils.inferStructuralBiasFromTicker(ticker) : "";
+            if (structural === "LONG" || structural === "SHORT") return structural;
+            const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+            if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
+            if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
+            return resolveTraderCallDir(optionsTabData?.effective_direction);
           };
           const inferDirFromLevels = () => {
             if (!(px > 0) || !(pcSL > 0)) return "";
@@ -11884,15 +12940,18 @@
             return pcSL > px ? "SHORT" : "LONG";
           };
           const traderCallDir = (() => {
+            if (showModelPlanPanel) {
+              return resolveTimingAwareTraderDir() || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+            }
             if (tradeIsOpen) {
               return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
             }
-            return resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+            return resolveTimingAwareTraderDir() || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
           })();
           if (!traderCallDir) {
             if (predictionContractLoading) {
               return React.createElement(Panel, {
-                title: "Trade Plan"
+                title: panelTitle
               }, React.createElement("p", {
                 style: {
                   margin: 0,
@@ -11907,6 +12966,10 @@
           const dir = traderCallDir;
           const isLong = dir === "LONG";
           const sl = (() => {
+            if (showModelPlanPanel) {
+              if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
+              return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
+            }
             if (tradeIsOpen) {
               const tSl = Number(trade?.sl);
               if (Number.isFinite(tSl) && tSl > 0) return tSl;
@@ -11914,9 +12977,21 @@
             if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
             return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
           })();
-          const entry = tradeIsOpen ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
+          const entry = tradeIsOpen && !showModelPlanPanel ? Number(trade?.entry_price ?? trade?.entryPrice) || 0 : 0;
           const tps = (() => {
             const list = [];
+            if (showModelPlanPanel && pcTargets.length > 0) {
+              pcTargets.forEach((tp, i) => {
+                const tpPx = Number(tp?.price);
+                if (!Number.isFinite(tpPx) || tpPx <= 0) return;
+                list.push({
+                  label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                  desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                  px: tpPx
+                });
+              });
+              return list;
+            }
             if (tradeIsOpen && Array.isArray(trade?.tpArray) && trade.tpArray.length > 0) {
               trade.tpArray.forEach((tp, i) => {
                 const tpPx = Number(tp?.price ?? tp);
@@ -11982,9 +13057,9 @@
           }
           above.sort((a, b) => a.px - b.px);
           below.sort((a, b) => b.px - a.px);
-          const tradeIsProposed = !tradeIsOpen;
-          const eyebrow = tradeIsProposed ? "PROPOSED" : "ACTIVE";
-          const eyebrowColor = tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
+          const tradeIsProposed = !tradeIsOpen || showModelPlanPanel;
+          const eyebrow = showModelPlanPanel ? "MODEL" : tradeIsProposed ? "PROPOSED" : "ACTIVE";
+          const eyebrowColor = showModelPlanPanel ? "var(--ds-dn)" : tradeIsProposed ? "var(--ds-text-muted)" : "var(--ds-accent)";
           const labelOfTp = (label, desc) => `${label} · ${desc}`;
           const TpRow = ({
             row,
@@ -12071,10 +13146,10 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             },
-            title: tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"
+            title: showModelPlanPanel ? "Model reward-to-risk (conflicts with open position)" : tradeIsProposed ? "Model-derived reward-to-risk — entry not triggered" : "Active reward-to-risk for the open trade"
           }, "R:R ", _rr.toFixed(2)) : null;
           return React.createElement(Panel, {
-            title: "Trade Plan",
+            title: panelTitle,
             action: React.createElement("span", {
               style: {
                 display: "flex",
@@ -12086,8 +13161,11 @@
               }
             }, React.createElement("span", {
               className: `ds-chip ds-chip--sm ${isLong ? "ds-chip--up" : "ds-chip--dn"}`,
-              title: "Trader call"
-            }, dir), _rrChip, React.createElement("span", {
+              title: showModelPlanPanel ? "Model call (conflicts with open position)" : "Trader call"
+            }, dir), _rrChip, showModelPlanPanel && React.createElement("span", {
+              className: "ds-chip ds-chip--sm ds-chip--dn",
+              title: `Open ${v2PositionConflict?.positionDir || ""} position vs model ${v2PositionConflict?.modelLabel || dir}`
+            }, "CONFLICT"), React.createElement("span", {
               style: {
                 color: eyebrowColor,
                 fontWeight: 700
@@ -12204,255 +13282,7 @@
               lineHeight: 1.5,
               fontStyle: "italic"
             }
-          }, tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
-        })(), (() => {
-          const _t = effectiveTraderTrade;
-          if (!_t) return null;
-          const _status = String(_t?.status || "").toUpperCase();
-          const _isOpen = _status === "OPEN" || _status === "TP_HIT_TRIM" || !(_t?.exit_ts ?? _t?.exitTs) && _status !== "WIN" && _status !== "LOSS";
-          if (!_isOpen) return null;
-          const _entryPx = Number(_t?.entry_price ?? _t?.entryPrice);
-          const _entryTs = Number(_t?.entry_ts);
-          const _setupName = _t?.setupName || _t?.setup_name || null;
-          const _setupGrade = _t?.setupGrade || _t?.setup_grade || null;
-          const _risk = Number(_t?.riskBudget || _t?.risk_budget) || null;
-          const _rr = Number(_t?.rr) || null;
-          const _rank = Number(_t?.rank) || null;
-          const _dir = String(_t?.direction || "").toUpperCase();
-          const _entryEt = (() => {
-            if (!Number.isFinite(_entryTs)) return null;
-            try {
-              return new Date(_entryTs).toLocaleString("en-US", {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-                hour12: true,
-                timeZone: "America/New_York"
-              }) + " ET";
-            } catch (_) {
-              return null;
-            }
-          })();
-          const _decisionIcon = cioVerdict ? cioVerdict.decision === "APPROVE" ? "✅" : cioVerdict.decision === "ADJUST" ? "⚙️" : "🛑" : null;
-          const _decisionColor = cioVerdict ? cioVerdict.decision === "APPROVE" ? "#22c55e" : cioVerdict.decision === "ADJUST" ? "#f59e0b" : "#ef4444" : "var(--ds-text-muted)";
-          return React.createElement(Panel, {
-            title: "Entry Decision",
-            action: React.createElement("span", {
-              className: "ds-chip ds-chip--sm",
-              style: {
-                fontFamily: "var(--tt-font-mono)",
-                fontSize: 9,
-                letterSpacing: "0.12em",
-                color: "var(--ds-accent)",
-                background: "var(--ds-accent-dim)",
-                borderColor: "var(--ds-accent)"
-              }
-            }, "ACTIVE")
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "baseline",
-              gap: "var(--ds-space-2)",
-              marginBottom: "var(--ds-space-3)"
-            }
-          }, _dir && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-caption)",
-              fontWeight: 700,
-              letterSpacing: "0.12em",
-              color: _dir === "LONG" ? "var(--ds-up)" : "var(--ds-dn)"
-            }
-          }, _dir), Number.isFinite(_entryPx) && _entryPx > 0 && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body-lg, 14px)",
-              color: "var(--ds-text)",
-              fontWeight: 600
-            }
-          }, "Entry $", _entryPx.toFixed(2)), _entryEt && React.createElement("span", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "\xB7 filled ", _entryEt)), (_setupName || _setupGrade || _risk || _rr || _rank) && React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "var(--ds-space-2)",
-              marginBottom: "var(--ds-space-3)"
-            }
-          }, _setupName && React.createElement("div", {
-            style: {
-              flex: "1 1 auto",
-              minWidth: 140
-            }
-          }, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--ds-text-faint)"
-            }
-          }, "Setup"), React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text)",
-              fontWeight: 600
-            }
-          }, typeof _formatPath === "function" ? _formatPath(_setupName) : String(_setupName).replace(/_/g, " "), _setupGrade && React.createElement("span", {
-            style: {
-              marginLeft: 6,
-              color: "var(--ds-text-muted)",
-              fontSize: "var(--ds-fs-caption)"
-            }
-          }, "(", _setupGrade, ")"))), _risk != null && _risk > 0 && React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--ds-text-faint)"
-            }
-          }, "Risk"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text)",
-              fontWeight: 600
-            }
-          }, _risk < 1 ? `${(_risk * 100).toFixed(2)}%` : `$${_risk.toFixed(0)}`)), Number.isFinite(_rr) && _rr > 0 && React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--ds-text-faint)"
-            }
-          }, "R:R"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: _rr >= 2 ? "var(--ds-up)" : "var(--ds-text)",
-              fontWeight: 600
-            }
-          }, _rr.toFixed(2), ":1")), Number.isFinite(_rank) && _rank > 0 && React.createElement("div", null, React.createElement("div", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--ds-text-faint)"
-            }
-          }, "Rank"), React.createElement("div", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-body)",
-              color: "var(--ds-text)",
-              fontWeight: 600
-            }
-          }, Math.round(_rank)))), cioVerdictLoading && !cioVerdict && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-faint)",
-              fontStyle: "italic"
-            }
-          }, "Loading AI CIO verdict\u2026"), cioVerdictError && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-dn)"
-            }
-          }, "AI CIO unavailable (", cioVerdictError, ")"), cioVerdict && React.createElement("div", {
-            style: {
-              marginTop: "var(--ds-space-2)",
-              paddingTop: "var(--ds-space-3)",
-              borderTop: "1px solid var(--ds-stroke)"
-            }
-          }, React.createElement("div", {
-            style: {
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--ds-space-2)",
-              marginBottom: "var(--ds-space-2)",
-              flexWrap: "wrap"
-            }
-          }, React.createElement("span", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: "var(--ds-text-faint)"
-            }
-          }, "AI CIO"), React.createElement("span", {
-            style: {
-              color: _decisionColor,
-              fontWeight: 700,
-              fontSize: "var(--ds-fs-body)"
-            }
-          }, _decisionIcon, " ", cioVerdict.decision), cioVerdict.matched_by === "ticker_lifecycle" && React.createElement("span", {
-            title: "Latest CIO lifecycle decision for this position (entry verdict not recorded for this trade)",
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.12em",
-              padding: "1px 6px",
-              borderRadius: 4,
-              background: "rgba(96,165,250,0.12)",
-              color: "var(--ds-text-muted)",
-              border: "1px solid var(--ds-stroke)"
-            }
-          }, "LATEST"), cioVerdict.confidence > 0 && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-muted)"
-            }
-          }, (cioVerdict.confidence * 100).toFixed(0), "% conf"), cioVerdict.edge_score > 0 && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text-muted)"
-            }
-          }, "edge ", (cioVerdict.edge_score * 100).toFixed(0), "%"), cioVerdict.shadow && React.createElement("span", {
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.12em",
-              padding: "1px 6px",
-              borderRadius: 4,
-              background: "rgba(168,162,158,0.15)",
-              color: "var(--ds-text-muted)",
-              border: "1px solid var(--ds-stroke)"
-            }
-          }, "SHADOW"), cioVerdict.model && React.createElement("span", {
-            style: {
-              fontFamily: "var(--tt-font-mono)",
-              fontSize: 9,
-              color: "var(--ds-text-faint)",
-              marginLeft: "auto"
-            }
-          }, cioVerdict.model)), cioVerdict.reasoning && React.createElement("div", {
-            style: {
-              fontSize: "var(--ds-fs-caption)",
-              color: "var(--ds-text)",
-              lineHeight: 1.55,
-              whiteSpace: "pre-wrap"
-            }
-          }, cioVerdict.reasoning), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 4,
-              marginTop: "var(--ds-space-2)"
-            }
-          }, cioVerdict.risk_flags.map((flag, i) => React.createElement("span", {
-            key: `cio-flag-${i}`,
-            className: "ds-chip ds-chip--sm",
-            style: {
-              fontSize: 9,
-              letterSpacing: "0.04em",
-              background: "rgba(239,68,68,0.10)",
-              color: "var(--ds-dn)",
-              borderColor: "rgba(239,68,68,0.30)"
-            }
-          }, flag)))));
+          }, showModelPlanPanel ? `Model ${dir} plan while holding an open ${String(v2PositionConflict?.positionDir || "").toUpperCase()} position — rare conflict. Position SL/TP are in Entry Decision · Open Position above. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE." : "Targets sit ABOVE price; stop sits BELOW."}` : tradeIsProposed ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}` : `Active ${dir} position plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`, " ", "Reference Levels below add S/R context (52W high, prior session, pivots).")));
         })(), Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
           if (!(px > 0)) return null;
@@ -12813,7 +13643,9 @@
           className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
         }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--dn"
-        }, "RISK"))))), v2RailTab === "TECHNICALS" && React.createElement("div", {
+        }, "RISK")))), renderSequenceShadowPanel({
+          compact: true
+        })), v2RailTab === "TECHNICALS" && React.createElement("div", {
           style: railTabBodyWrapStyle
         }, (() => {
           const tfm = ticker?.tf_tech || {};
@@ -16059,13 +16891,15 @@
         })(), v2RailTab === "INVESTOR" && React.createElement(InvestorTabPanel, {
           ticker: ticker,
           latestTicker: latestTicker,
-          effectiveTrade: effectiveTrade,
+          effectiveTrade: effectiveInvestorTrade,
           tickerSymbol: tickerSymbol,
           API_BASE: API_BASE
         }), v2RailTab === "OPTIONS" && React.createElement(OptionsTabPanel, {
           tickerSymbol: tickerSymbol,
           API_BASE: API_BASE
-        }), v2RailTab === "HISTORY" && React.createElement(React.Fragment, null, (() => {
+        }), v2RailTab === "HISTORY" && React.createElement("div", {
+          style: railTabBodyWrapStyle
+        }, (() => {
           const traderTrades = ledgerTrades.filter(t => t._source_mode !== "investor");
           const invTrades = ledgerTrades.filter(t => t._source_mode === "investor");
           const traderClosed = traderTrades.filter(t => {
@@ -16258,7 +17092,7 @@
             fontSize: "var(--ds-fs-body)",
             color: "var(--ds-text-muted)"
           }
-        }, "No prior trades on this ticker.", (ticker?.has_open_position || latestTicker?.has_open_position) && React.createElement("div", {
+        }, "No prior trades on this ticker.", isTradeOpenSafe(effectiveTraderTrade) && React.createElement("div", {
           style: {
             marginTop: "var(--ds-space-2)",
             padding: "var(--ds-space-2)",
@@ -16502,6 +17336,7 @@
             deltaClass: n >= 0 ? "up" : "dn"
           });
         }))))), v2RailTab !== "CHART" && React.createElement("div", {
+          className: "tt-rail-footer",
           style: {
             borderTop: "1px solid var(--ds-stroke)",
             padding: "var(--ds-space-3) var(--ds-space-4)",
@@ -16881,7 +17716,7 @@
       }, "Upgrade to Pro")) : railTab === "INVESTOR" ? React.createElement(InvestorTabPanel, {
         ticker: ticker,
         latestTicker: latestTicker,
-        effectiveTrade: effectiveTrade,
+        effectiveTrade: effectiveInvestorTrade,
         tickerSymbol: tickerSymbol,
         API_BASE: API_BASE
       }) : railTab === "OPTIONS" ? React.createElement(OptionsTabPanel, {
@@ -21119,4 +21954,4 @@
   };
 })();
 
-// cache-bust:1782181309533:635345750
+// cache-bust:1782679868148:271337293

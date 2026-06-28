@@ -1147,55 +1147,26 @@ export async function decideOnCandidate(env, opts = {}) {
             { expirationTtl: 90 * 86400 },
           );
         } catch (_) { /* best-effort */ }
-        // 2026-05-29 — Fast-onboard hook. The user reported that
-        // newly approved tickers had thin technicals data for a
-        // while because the next scoring cron tick (every 5 min)
-        // hadn't run yet, especially when approval happens during
-        // extended-hours sessions when the data feed is slower.
-        //
-        // We set a "needs_fast_onboard" flag in KV that the
-        // freshness monitor / scoring cron can read to prioritise
-        // this ticker on its very next pass. We also kick off a
-        // best-effort backfill request so candle data exists when
-        // scoring runs. Both are fire-and-forget — never block
-        // the operator's approve action.
+        // Fast-onboard flag — scoring cron prioritises this ticker on
+        // its next pass even if the full pipeline below is still running.
         try {
           await KV.put(
             `timed:fast_onboard:${ticker}`,
             JSON.stringify({ added_at: now, decided_by: decidedBy }),
-            { expirationTtl: 24 * 60 * 60 }, // 24h flag; expires after one full session cycle
+            { expirationTtl: 24 * 60 * 60 },
           );
         } catch (_) { /* best-effort */ }
-        // Trigger candle backfill. 2026-05-29 — bumped from 30d to
-        // 365d for the all-tf pass and added a separate W backfill at
-        // 730d, because the prior 30-day window only produced ~21
-        // daily candles per ticker — not enough for HTF scoring
-        // (which needs 50+ D bars) OR the investor weekly/monthly
-        // classification (which needs the W ladder). Live verified:
-        // after extending to 365d the recent 8 tickers all got 251 D
-        // bars and 104 W bars, enough to fully onboard.
-        try {
-          const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
-          const _apiKey = env?.TIMED_API_KEY;
-          if (_apiKey) {
-            const _enc = encodeURIComponent(ticker);
-            // P1.8 — prefer in-process dispatch (cron path) over network
-            // self-fetch; fall back to fetch+header for HTTP-invoked paths.
-            const _fire = (path) => {
-              if (typeof env?._selfDispatch === "function") {
-                return env._selfDispatch(path, { method: "POST" }).catch(() => {});
-              }
-              return fetch(`${_workerUrl}${path}`, {
-                method: "POST", headers: { "X-API-Key": _apiKey },
-              }).catch(() => {});
-            };
-            // 1. Intraday + daily, 1 year (~250 D bars).
-            _fire(`/timed/admin/alpaca-backfill?ticker=${_enc}&tf=all&sinceDays=365`);
-            // 2. Weekly, 2 years (~100 W bars). Separate call so the
-            // W backfill doesn't get cut off by the all-tf time budget.
-            _fire(`/timed/admin/alpaca-backfill?ticker=${_enc}&tf=W&sinceDays=730`);
+        // 2026-06-25 — Full onboard pipeline (same as admin/universe and
+        // watchlist/add). The prior backfill-only self-fetch left registry
+        // orphans: KV timed:tickers without D1 profiles, sector_map, or
+        // scored timed:latest stubs.
+        if (typeof opts.ensureOnboard === "function") {
+          try {
+            await opts.ensureOnboard(ticker, { decidedBy, now, ctx: opts.ctx });
+          } catch (e) {
+            console.warn(`[PROMOTION] ensureOnboard failed for ${ticker}:`, String(e?.message || e).slice(0, 200));
           }
-        } catch (_) { /* best-effort */ }
+        }
       } catch (e) {
         console.warn(`[PROMOTION] universe add failed for ${ticker}:`, String(e?.message || e).slice(0, 200));
       }

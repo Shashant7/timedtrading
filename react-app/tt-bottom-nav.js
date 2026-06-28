@@ -343,11 +343,17 @@
       fetchOpenTradeCount(),
       fetchInvestorActionableCount(),
     ]);
-    if (trader != null) setBottomBadge("trader", trader);
-    if (investor != null) setBottomBadge("investor", investor);
+    setBottomBadge("trader", trader);
+    setBottomBadge("investor", investor);
   }
   applyBadges();
   setInterval(applyBadges, 60 * 1000);
+  window.addEventListener("tt-nav-badges-updated", (ev) => {
+    const d = ev && ev.detail;
+    if (!d || typeof d !== "object") return;
+    setBottomBadge("trader", d.trader);
+    setBottomBadge("investor", d.investor);
+  });
 
   // ── iOS Safari compact URL bar — keep nav above it ──────────
   // 2026-06-01 (v2) — Root cause of "bottom nav missing on mobile":

@@ -10,6 +10,24 @@ export const REPLAY_DA_KEYS = [
   // floors, extended continuation_trigger to accept PULLBACK state, gap-
   // reversal anti-falling-knife filter.
   "deep_audit_thesis_flip_skip_same_day",
+  // Slice B — conviction fusion. Default absent => OFF (shadow-stamped only).
+  // Flip ON only after corpus walk-forward validation (Slice E).
+  "deep_audit_conviction_fusion_enabled",
+  // Slice B Part 2 — bleeder guard: shield soft force/fast-cut exits when
+  // structure holds. Default absent => OFF. Never shields hard SL/max-loss.
+  "deep_audit_bleeder_shield_enabled",
+  // Week-calibration guards (2026-06-26) — path gates + repeat churn + pullback cap
+  "deep_audit_range_reversal_block_adverse_phase",
+  "deep_audit_ath_breakout_confirm_gate_enabled",
+  "deep_audit_ath_breakout_min_confirm_minutes",
+  "deep_audit_ath_breakout_min_confirm_count",
+  "deep_audit_repeat_churn_max_same_day_sl",
+  "deep_audit_repeat_churn_cooldown_hours",
+  "deep_audit_repeat_churn_guard_global",
+  "deep_audit_pullback_low_liquidity_cap_enabled",
+  "deep_audit_pullback_low_liquidity_min_avg_vol",
+  "deep_audit_pullback_low_liquidity_max_notional_pct_adv",
+  "deep_audit_pullback_low_liquidity_max_notional_floor",
   "deep_audit_ripster_5_12_trim_min_pnl_pct",
   "deep_audit_ripster_34_50_trim_min_pnl_pct",
   "deep_audit_continuation_trigger_accept_pullback",
@@ -63,6 +81,36 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_index_etf_swing_e21_slope_min",
   "deep_audit_index_etf_swing_e21_slope_max",
   "deep_audit_index_etf_swing_rvol_min",
+  // Index model (2026-06) — dedicated SPY/QQQ/IWM entry path
+  "deep_audit_index_model_enabled",
+  "deep_audit_index_model_tickers",
+  "deep_audit_index_model_min_rank",
+  "deep_audit_index_model_rvol_min",
+  "deep_audit_index_model_pct_above_e48_min",
+  "deep_audit_index_model_pct_above_e48_max",
+  "deep_audit_index_model_pct_below_e48_min",
+  "deep_audit_index_model_pct_below_e48_max",
+  "deep_audit_index_model_e21_slope_min",
+  "deep_audit_index_model_e21_slope_max",
+  "deep_audit_index_model_require_m30_reclaim",
+  "deep_audit_index_model_pullback_state_only",
+  // Setup demotion + earnings cluster + tape capitulation tuning
+  "deep_audit_setup_demotion_enforce_paths",
+  "deep_audit_setup_demotion_index_only",
+  "deep_audit_earnings_cluster_gate_enabled",
+  "deep_audit_earnings_cluster_min_tickers",
+  "deep_audit_earnings_cluster_rank_bypass",
+  "deep_audit_earnings_cluster_day_pad",
+  "deep_audit_earnings_cluster_block_high_rank_members",
+  "deep_audit_earnings_cluster_high_rank_floor",
+  "deep_audit_earnings_cluster_high_rank_day_pad",
+  "deep_audit_index_model_reentry_cooldown_hours",
+  "deep_audit_doctrine_force_defer_bull_enabled",
+  "deep_audit_doctrine_force_defer_min_rank",
+  "deep_audit_doctrine_force_defer_max_loss_pct",
+  "deep_audit_tape_capitulation_min_loss_pct",
+  "deep_audit_tape_capitulation_skip_if_mfe_pct",
+  "deep_audit_tape_capitulation_skip_index_swing",
   "deep_audit_d_ema_overextension_gate_enabled",
   "deep_audit_d_ema_long_max_above_e48_pct",
   "deep_audit_d_ema_long_max_e21_slope_pct",
@@ -526,6 +574,22 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_investor_auto_dca_on_accumulate",                // default true
   "deep_audit_investor_auto_dca_amount_pct",                   // default 0.02
   "deep_audit_investor_auto_dca_frequency",                    // default monthly
+  // R7 (2026-06-28) — post-loss re-entry cooldown (CRDO/MOD falling-knife fix).
+  "deep_audit_investor_loss_reentry_cooldown_enabled",         // default true
+  "deep_audit_investor_loss_reentry_cooldown_days",            // default 10
+  "deep_audit_investor_loser_cooldown_consec_losses",          // default 2
+  "deep_audit_investor_loser_cooldown_days",                   // default 45
+  // 2026-06-28 — FSD-anchored entry conviction (live auto-rebalance only;
+  // GRNY/GRNJ/GRNI membership is current-holdings data, not replayable).
+  "deep_audit_investor_research_alignment_enabled",            // default true
+  "deep_audit_investor_research_headwind_score_bump",          // default 8
+  "deep_audit_investor_fsd_strong_score_relief",               // default 10
+  "deep_audit_investor_fsd_core_score_relief",                 // default 6
+  "deep_audit_investor_fsd_light_score_relief",                // default 3
+  "deep_audit_investor_fsd_offlist_score_bump",                // default 0
+  "deep_audit_investor_fsd_removal_exit_enabled",              // default true
+  "deep_audit_investor_fsd_removal_exit_pct",                  // default 1.0
+  "deep_audit_investor_fsd_removal_window_days",               // default 14
   // Trajectory program — Phase 4 / 4.1 / 5 gates blob.
   // Stored as a JSON object so the owner can flip multiple gates from
   // one row without redeploy. Defaults all false / sensible-defaults in

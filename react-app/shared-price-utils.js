@@ -475,7 +475,9 @@
     if (!hasDistinctExtPx) return null;
     if (!(px > 0)) return null;
 
-    // Cross-session stale guard (e.g. CRDO/MU extended_price lagging RTH).
+    // Cross-session stale guard (e.g. CRDO extended_price lagging RTH).
+    // Suppress only when the extended print disagrees with today's session
+    // direction — large same-direction AH pops (earnings AMC) must pass.
     if (headline > 0) {
       var driftPct = ((px - headline) / headline) * 100;
       var absDrift = Math.abs(driftPct);
@@ -483,7 +485,7 @@
       var dirDisagree = Number.isFinite(dayPct)
         && Math.abs(dayPct) > 1.5
         && Math.sign(dayPct) !== Math.sign(driftPct);
-      if (absDrift > 4 && (absDrift > 6 || dirDisagree)) return null;
+      if (absDrift > 4 && dirDisagree) return null;
     }
 
     return {
@@ -756,6 +758,42 @@
     return resolveBubblePosture(t, openTrade).direction || "";
   }
 
+  /**
+   * Higher-TF structural bias for Key Levels / Trade Plan labels.
+   * Weekly ST direction + slope beats tactical compression timing when posture
+   * is Neutral (e.g. NFLX: bearish weekly ST sloping down at 233 EMA support).
+   */
+  function inferStructuralBiasFromTicker(t) {
+    if (!t || typeof t !== "object") return "";
+    const tfm = t.tf_tech || {};
+    const tfW = tfm.W || null;
+    const tfD = tfm.D || null;
+
+    const stDir = (row) => Number(row?.stDir);
+    const stSlope = (row) => Number(row?.stSlope);
+
+    const wDir = stDir(tfW);
+    const wSlope = stSlope(tfW);
+    if (Number.isFinite(wDir) && wDir > 0 && wSlope === -1) return "SHORT";
+    if (Number.isFinite(wDir) && wDir < 0 && wSlope === 1) return "LONG";
+    if (Number.isFinite(wDir) && wDir > 0 && Math.abs(wSlope) !== 1) return "SHORT";
+    if (Number.isFinite(wDir) && wDir < 0 && Math.abs(wSlope) !== 1) return "LONG";
+
+    const phaseZ = String(tfD?.phase?.z || t.phase_zone || "").toUpperCase();
+    if (phaseZ.includes("DISTRIBUTION") || phaseZ === "EXTREME_UP" || phaseZ.includes("MARKDOWN")) {
+      return "SHORT";
+    }
+    if (phaseZ.includes("ACCUMULATION") || phaseZ === "EXTREME_DOWN") {
+      return "LONG";
+    }
+
+    const state = String(t.state || "").toUpperCase();
+    if (state.startsWith("HTF_BEAR")) return "SHORT";
+    if (state.startsWith("HTF_BULL")) return "LONG";
+
+    return inferModelDirection(t);
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -768,6 +806,7 @@
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
     inferModelDirection: inferModelDirection,
+    inferStructuralBiasFromTicker: inferStructuralBiasFromTicker,
     inferTraderPosture: inferTraderPosture,
     resolveBubblePosture: resolveBubblePosture,
     getBubbleBiasDirection: getBubbleBiasDirection,

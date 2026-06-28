@@ -40,6 +40,51 @@ const ETF_BROAD_INDEX = new Set([
   "MDY", "SPLG",
 ]);
 
+/** Per-index management overrides — slower moves, tighter ranges than stocks. */
+const INDEX_ETF_OVERRIDES = {
+  SPY: {
+    tp_ladder: {
+      trim_pct_target: 0.005,
+      exit_pct_target: 0.010,
+      runner_pct_target: 0.020,
+    },
+    stop_loss: { max_distance_pct: 0.005 },
+    doctrine_overrides: {
+      ride_runner_lock_pct: 0.45,
+      ride_runner_trail_pct: 0.55,
+      gave_back_giveback_pct: 0.75,
+      gave_back_min_mfe: 0.5,
+    },
+    ride_runner_mfe_pct: 0.6,
+  },
+  QQQ: {
+    tp_ladder: {
+      trim_pct_target: 0.006,
+      exit_pct_target: 0.012,
+      runner_pct_target: 0.022,
+    },
+    stop_loss: { max_distance_pct: 0.006 },
+    doctrine_overrides: {
+      ride_runner_lock_pct: 0.48,
+      ride_runner_trail_pct: 0.58,
+    },
+    ride_runner_mfe_pct: 0.7,
+  },
+  IWM: {
+    tp_ladder: {
+      trim_pct_target: 0.007,
+      exit_pct_target: 0.014,
+      runner_pct_target: 0.025,
+    },
+    stop_loss: { max_distance_pct: 0.007 },
+    doctrine_overrides: {
+      ride_runner_lock_pct: 0.50,
+      ride_runner_trail_pct: 0.60,
+    },
+    ride_runner_mfe_pct: 0.8,
+  },
+};
+
 // Sector ETFs (S&P sector spiders)
 const ETF_SECTOR = new Set([
   "XLE", "XLF", "XLK", "XLV", "XLY", "XLP", "XLU", "XLI", "XLRE", "XLB", "XLC",
@@ -200,11 +245,20 @@ export function isEtfProfileTicker(ticker) {
 
 /**
  * Get the full ETF profile if the ticker matches, else null.
- * Callers should null-check before using overrides.
+ * Broad index tickers (SPY/QQQ/IWM) merge per-ticker slow-range overrides.
  */
 export function getEtfProfile(ticker) {
   if (!isEtfProfileTicker(ticker)) return null;
-  return ETF_PROFILE;
+  const tk = String(ticker).toUpperCase();
+  const idx = INDEX_ETF_OVERRIDES[tk];
+  if (!idx) return ETF_PROFILE;
+  return {
+    ...ETF_PROFILE,
+    tp_ladder: { ...ETF_PROFILE.tp_ladder, ...(idx.tp_ladder || {}) },
+    stop_loss: { ...ETF_PROFILE.stop_loss, ...(idx.stop_loss || {}) },
+    doctrine_overrides: { ...ETF_PROFILE.doctrine_overrides, ...(idx.doctrine_overrides || {}) },
+    ride_runner_mfe_pct: idx.ride_runner_mfe_pct ?? 1.0,
+  };
 }
 
 /**
@@ -301,13 +355,11 @@ export function isEtfRideRunnerMode(ticker, mfePct, currentPnlPct) {
   if (!profile) return null;
   const _mfe = Number(mfePct) || 0;
   const _pnl = Number(currentPnlPct) || 0;
-  // Activate when MFE has cleared 1% AND pnl is still positive (didn't
-  // round-trip yet). This protects winning runners from getting cut by
-  // legacy stock-tuned rules.
-  if (_mfe >= 1.0 && _pnl > 0) {
+  const threshold = Number(profile.ride_runner_mfe_pct) || 1.0;
+  if (_mfe >= threshold && _pnl > 0) {
     return {
       active: true,
-      reason: `etf_ride_runner: mfe=${_mfe.toFixed(2)}%>=1.0 AND pnl=${_pnl.toFixed(2)}%>0`,
+      reason: `etf_ride_runner: mfe=${_mfe.toFixed(2)}%>=${threshold} AND pnl=${_pnl.toFixed(2)}%>0`,
     };
   }
   return { active: false, reason: `etf_not_ride_runner: mfe=${_mfe.toFixed(2)}% pnl=${_pnl.toFixed(2)}%` };
