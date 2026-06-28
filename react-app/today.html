@@ -321,6 +321,9 @@
           grid-column: 1;
           grid-row: auto;
         }
+        /* Mobile stack: Research Desk first, Open Positions second */
+        .today-hero-desk-col { order: 1; }
+        .today-hero-pos-col { order: 2; }
       }
       .tt-sec-title {
         font-size: 11px;
@@ -1247,7 +1250,8 @@
           flex-direction: column;
           box-sizing: border-box;
         }
-        .today-hero-pos-col .tt-open-pos-grid {
+        .today-hero-pos-col .tt-open-pos-grid,
+        .today-hero-pos-col .tt-open-pos-split {
           flex: 1;
           min-height: 0;
           max-height: none;
@@ -1266,7 +1270,8 @@
           display: flex;
           flex-direction: column;
         }
-        .today-hero-pos-col .tt-open-pos-grid {
+        .today-hero-pos-col .tt-open-pos-grid,
+        .today-hero-pos-col .tt-open-pos-split {
           flex: none;
           min-height: 0;
           max-height: none;
@@ -1275,16 +1280,55 @@
         }
       }
       @media (max-width: 720px) {
-        .today-hero-pos-col .tt-open-pos-grid {
-          grid-template-columns: 1fr !important;
-          gap: 12px;
+        .tt-open-pos-split {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px;
+          align-items: start;
         }
+        .tt-open-pos-col {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
+        }
+        .tt-open-pos-col__label {
+          font-size: 9px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--tt-text-dim);
+          margin-bottom: 2px;
+        }
+        .tt-open-pos-col--trader .tt-open-pos-col__label { color: #67e8f9; }
+        .tt-open-pos-col--investor .tt-open-pos-col__label { color: #c4b5fd; }
+        .tt-open-pos-col__empty {
+          font-size: 10px;
+          color: var(--tt-text-faint);
+          font-style: italic;
+          padding: 6px 0;
+        }
+        .tt-open-pos-split .tt-open-pos-chip__mode { display: none; }
         .tt-open-pos-chip {
-          padding: 12px 14px !important;
-          min-height: 76px;
+          padding: 10px 11px !important;
+          min-height: 72px;
         }
         .tt-open-pos-chip__sym {
-          font-size: 15px;
+          font-size: 14px;
+        }
+      }
+      @media (min-width: 721px) {
+        .tt-open-pos-split {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+          gap: 8px;
+        }
+        .tt-open-pos-col {
+          display: contents;
+        }
+        .tt-open-pos-col__label,
+        .tt-open-pos-col__empty {
+          display: none;
         }
       }
       .tt-open-pos-chip {
@@ -3393,6 +3437,116 @@
         const traderSorted = enriched.filter((t) => t._mode === "trader").sort(byPnlMag);
         const investorSorted = enriched.filter((t) => t._mode === "investor").sort(byPnlMag);
         const sorted = [...traderSorted, ...investorSorted];
+        const perColLimit = hero ? 8 : 6;
+
+        const renderOpenPosChip = (t) => {
+          const sym = String(t?.ticker || "").toUpperCase();
+          const dir = String(t?.direction || "").toUpperCase();
+          const pnlPct = Number(t?.pnl_pct);
+          const pnlColor = !Number.isFinite(pnlPct) ? "var(--tt-text-muted)"
+                        : pnlPct >= 0 ? "var(--tt-up)" : "var(--tt-dn)";
+          const stage = String(t?.kanban_stage || t?.status || "OPEN").toUpperCase();
+          const stageDisplay = stage === "CORE_HOLD" ? "HOLD"
+                              : stage === "ACCUMULATE" ? "ACCUMULATE"
+                              : stage === "REDUCE" ? "REDUCE"
+                              : stage === "WATCH" ? "WATCH"
+                              : stage.replace(/_/g, " ");
+          const stageMeta = stage === "DEFEND" || stage === "REDUCE" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
+                          : stage === "TRIM"   ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
+                          : stage === "EXIT"   ? { color: "var(--tt-dn)", bg: "rgba(248,113,113,0.10)" }
+                          : stage === "WATCH"  ? { color: "var(--tt-text-muted)", bg: "rgba(156,163,175,0.10)" }
+                          : stage === "ACCUMULATE" ? { color: "var(--tt-up)", bg: "rgba(52,211,153,0.15)" }
+                          : { color: "var(--tt-up)", bg: "rgba(52,211,153,0.10)" };
+          const dirColor = dir === "LONG" ? "var(--tt-up)" : dir === "SHORT" ? "var(--tt-dn)" : "var(--tt-text-muted)";
+          const onClick = (e) => {
+            e.preventDefault();
+            if (typeof onSelectTicker === "function") onSelectTicker(sym);
+            else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
+          };
+          return h("button", {
+            key: `${t?._mode || "t"}:${t?.trade_id || sym}`,
+            onClick,
+            className: "tt-open-pos-chip",
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "stretch",
+              borderRadius: 10,
+              cursor: "pointer",
+              textAlign: "left",
+              background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
+              border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
+              fontFamily: "var(--tt-font-mono)",
+              transition: "border-color 0.15s, background 0.15s",
+            },
+            onMouseEnter: (e) => {
+              e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))";
+              e.currentTarget.style.background = "rgba(255,255,255,0.045)";
+            },
+            onMouseLeave: (e) => {
+              e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))";
+              e.currentTarget.style.background = "var(--tt-bg-elev, rgba(255,255,255,0.03))";
+            },
+            title: `${sym} ${dir} · ${stageDisplay} · open in detail`,
+          },
+            h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 } },
+              h("span", { className: "tt-open-pos-chip__head" },
+                h(TickerLogo, { sym, size: 18 }),
+                h("span", { className: "tt-open-pos-chip__sym" }, sym),
+              ),
+              h("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } },
+                t?._mode === "trader" && h("span", {
+                  className: "tt-open-pos-chip__mode",
+                  style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
+                }, "TRADER"),
+                t?._mode === "investor" && h("span", {
+                  className: "tt-open-pos-chip__mode",
+                  style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
+                }, "INVESTOR"),
+                h("span", { style: { fontSize: 9, fontWeight: 700, color: dirColor, letterSpacing: "0.08em" } }, dir),
+              ),
+            ),
+            h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flexWrap: "wrap" } },
+              Number.isFinite(pnlPct) && h("span", {
+                style: { color: pnlColor, fontWeight: 700, fontSize: 12 },
+              }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
+              h("span", {
+                style: {
+                  padding: "1px 6px", borderRadius: 999, fontSize: 9, fontWeight: 700,
+                  letterSpacing: "0.06em", color: stageMeta.color, background: stageMeta.bg,
+                  border: `1px solid ${stageMeta.color}40`,
+                  marginLeft: "auto",
+                },
+              }, stageDisplay),
+            ),
+          );
+        };
+
+        const positionsBody = hero
+          ? h("div", { className: "tt-open-pos-split" },
+              h("div", { className: "tt-open-pos-col tt-open-pos-col--trader" },
+                h("div", { className: "tt-open-pos-col__label" }, "Trader"),
+                traderSorted.length
+                  ? traderSorted.slice(0, perColLimit).map(renderOpenPosChip)
+                  : h("div", { className: "tt-open-pos-col__empty" }, "None"),
+              ),
+              h("div", { className: "tt-open-pos-col tt-open-pos-col--investor" },
+                h("div", { className: "tt-open-pos-col__label" }, "Investor"),
+                investorSorted.length
+                  ? investorSorted.slice(0, perColLimit).map(renderOpenPosChip)
+                  : h("div", { className: "tt-open-pos-col__empty" }, "None"),
+              ),
+            )
+          : h("div", {
+              className: "tt-open-pos-grid",
+              style: {
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
+                gap: 8,
+              },
+            },
+              sorted.slice(0, 12).map(renderOpenPosChip),
+            );
 
         return h("section", {
           className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
@@ -3402,99 +3556,7 @@
           h("div", { className: "tt-sec-h", style: { fontSize: hero ? 14 : 16, marginBottom: 6 } },
             `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`,
           ),
-          h("div", {
-            className: "tt-open-pos-grid",
-            style: {
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
-              gap: 8,
-            },
-          },
-            sorted.slice(0, hero ? 16 : 12).map((t) => {
-              const sym = String(t?.ticker || "").toUpperCase();
-              const dir = String(t?.direction || "").toUpperCase();
-              const pnlPct = Number(t?.pnl_pct);
-              const pnlColor = !Number.isFinite(pnlPct) ? "var(--tt-text-muted)"
-                            : pnlPct >= 0 ? "var(--tt-up)" : "var(--tt-dn)";
-              const stage = String(t?.kanban_stage || t?.status || "OPEN").toUpperCase();
-              // 2026-05-29 — Investor stage labels (accumulate / core_hold / reduce
-              // / watch / research_*) map to the same visual treatment as the
-              // Active Trader Kanban (defend/trim/exit) so the strip reads
-              // consistently across modes.
-              const stageDisplay = stage === "CORE_HOLD" ? "HOLD"
-                                  : stage === "ACCUMULATE" ? "ACCUMULATE"
-                                  : stage === "REDUCE" ? "REDUCE"
-                                  : stage === "WATCH" ? "WATCH"
-                                  : stage.replace(/_/g, " ");
-              const stageMeta = stage === "DEFEND" || stage === "REDUCE" ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
-                              : stage === "TRIM"   ? { color: "var(--tt-accent, #f5c25c)", bg: "rgba(245,194,92,0.10)" }
-                              : stage === "EXIT"   ? { color: "var(--tt-dn)", bg: "rgba(248,113,113,0.10)" }
-                              : stage === "WATCH"  ? { color: "var(--tt-text-muted)", bg: "rgba(156,163,175,0.10)" }
-                              : stage === "ACCUMULATE" ? { color: "var(--tt-up)", bg: "rgba(52,211,153,0.15)" }
-                              : { color: "var(--tt-up)", bg: "rgba(52,211,153,0.10)" };
-              const dirColor = dir === "LONG" ? "var(--tt-up)" : dir === "SHORT" ? "var(--tt-dn)" : "var(--tt-text-muted)";
-              const onClick = (e) => {
-                e.preventDefault();
-                if (typeof onSelectTicker === "function") onSelectTicker(sym);
-                else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
-              };
-              return h("button", {
-                key: t?.trade_id || sym,
-                onClick,
-                className: "tt-open-pos-chip",
-                style: {
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "stretch",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  textAlign: "left",
-                  background: "var(--tt-bg-elev, rgba(255,255,255,0.03))",
-                  border: "1px solid var(--tt-border, rgba(255,255,255,0.06))",
-                  fontFamily: "var(--tt-font-mono)",
-                  transition: "border-color 0.15s, background 0.15s",
-                },
-                onMouseEnter: (e) => {
-                  e.currentTarget.style.borderColor = "var(--tt-border-hi, rgba(255,255,255,0.14))";
-                  e.currentTarget.style.background = "rgba(255,255,255,0.045)";
-                },
-                onMouseLeave: (e) => {
-                  e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))";
-                  e.currentTarget.style.background = "var(--tt-bg-elev, rgba(255,255,255,0.03))";
-                },
-                title: `${sym} ${dir} · ${stageDisplay} · open in detail`,
-              },
-                h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 } },
-                  h("span", { className: "tt-open-pos-chip__head" },
-                    h(TickerLogo, { sym, size: 18 }),
-                    h("span", { className: "tt-open-pos-chip__sym" }, sym),
-                  ),
-                  h("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } },
-                    t?._mode === "trader" && h("span", {
-                      style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
-                    }, "TRADER"),
-                    t?._mode === "investor" && h("span", {
-                      style: { fontSize: 8, color: "var(--tt-text-faint)", letterSpacing: "0.1em" },
-                    }, "INVESTOR"),
-                    h("span", { style: { fontSize: 9, fontWeight: 700, color: dirColor, letterSpacing: "0.08em" } }, dir),
-                  ),
-                ),
-                h("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, flexWrap: "wrap" } },
-                  Number.isFinite(pnlPct) && h("span", {
-                    style: { color: pnlColor, fontWeight: 700, fontSize: 12 },
-                  }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
-                  h("span", {
-                    style: {
-                      padding: "1px 6px", borderRadius: 999, fontSize: 9, fontWeight: 700,
-                      letterSpacing: "0.06em", color: stageMeta.color, background: stageMeta.bg,
-                      border: `1px solid ${stageMeta.color}40`,
-                      marginLeft: "auto",
-                    },
-                  }, stageDisplay),
-                ),
-              );
-            }),
-          ),
+          positionsBody,
         );
       }
 
