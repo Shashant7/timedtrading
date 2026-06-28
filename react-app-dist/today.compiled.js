@@ -1723,30 +1723,8 @@ function OpenPositionsPreview({
   const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlMag);
   const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
   const sorted = [...traderSorted, ...investorSorted];
-  return h("section", {
-    className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
-    style: hero ? {
-      display: "flex",
-      flexDirection: "column"
-    } : {
-      marginBottom: 14
-    }
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
-    className: "tt-sec-h",
-    style: {
-      fontSize: hero ? 14 : 16,
-      marginBottom: 6
-    }
-  }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), h("div", {
-    className: "tt-open-pos-grid",
-    style: {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
-      gap: 8
-    }
-  }, sorted.slice(0, hero ? 16 : 12).map(t => {
+  const perColLimit = hero ? 8 : 6;
+  const renderOpenPosChip = t => {
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
     const pnlPct = Number(t?.pnl_pct);
@@ -1778,7 +1756,7 @@ function OpenPositionsPreview({
       if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
     };
     return h("button", {
-      key: t?.trade_id || sym,
+      key: `${t?._mode || "t"}:${t?.trade_id || sym}`,
       onClick,
       className: "tt-open-pos-chip",
       style: {
@@ -1823,12 +1801,14 @@ function OpenPositionsPreview({
         gap: 5
       }
     }, t?._mode === "trader" && h("span", {
+      className: "tt-open-pos-chip__mode",
       style: {
         fontSize: 8,
         color: "var(--tt-text-faint)",
         letterSpacing: "0.1em"
       }
     }, "TRADER"), t?._mode === "investor" && h("span", {
+      className: "tt-open-pos-chip__mode",
       style: {
         fontSize: 8,
         color: "var(--tt-text-faint)",
@@ -1868,7 +1848,46 @@ function OpenPositionsPreview({
         marginLeft: "auto"
       }
     }, stageDisplay)));
-  })));
+  };
+  const positionsBody = hero ? h("div", {
+    className: "tt-open-pos-split"
+  }, h("div", {
+    className: "tt-open-pos-col tt-open-pos-col--trader"
+  }, h("div", {
+    className: "tt-open-pos-col__label"
+  }, "Trader"), traderSorted.length ? traderSorted.slice(0, perColLimit).map(renderOpenPosChip) : h("div", {
+    className: "tt-open-pos-col__empty"
+  }, "None")), h("div", {
+    className: "tt-open-pos-col tt-open-pos-col--investor"
+  }, h("div", {
+    className: "tt-open-pos-col__label"
+  }, "Investor"), investorSorted.length ? investorSorted.slice(0, perColLimit).map(renderOpenPosChip) : h("div", {
+    className: "tt-open-pos-col__empty"
+  }, "None"))) : h("div", {
+    className: "tt-open-pos-grid",
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
+      gap: 8
+    }
+  }, sorted.slice(0, 12).map(renderOpenPosChip));
+  return h("section", {
+    className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
+    style: hero ? {
+      display: "flex",
+      flexDirection: "column"
+    } : {
+      marginBottom: 14
+    }
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "OPEN POSITIONS · MODEL GUIDANCE"), h("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: hero ? 14 : 16,
+      marginBottom: 6
+    }
+  }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), positionsBody);
 }
 function ResearchDeskPanel({
   onSelectTicker
@@ -6378,6 +6397,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782608832719:957287170
+// cache-bust:1782609270821:47004784
 
-// cache-bust:1782608832719:957287170
+// cache-bust:1782609270821:47004784
