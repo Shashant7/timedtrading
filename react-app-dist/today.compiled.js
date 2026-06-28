@@ -4791,9 +4791,9 @@ function TickerLaneSection({
     className: "tt-viewport-map-head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "VIEWPORT & BUBBLE MAP"), h("div", {
+  }, "TECHNICAL SETUPS"), h("div", {
     className: "tt-sec-h"
-  }, "Search and filter tickers — lane cards above, momentum map below")), h(LaneControls, {
+  }, "Easy Search & Filter")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -6397,6 +6397,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782609270821:47004784
+// cache-bust:1782620317995:207950267
 
-// cache-bust:1782609270821:47004784
+// cache-bust:1782620317995:207950267
