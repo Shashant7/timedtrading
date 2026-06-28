@@ -33,9 +33,12 @@ async function main() {
 
   for (const { name, size } of sizes) {
     const out = path.join(outDir, name);
+    // Full-bleed opaque PNG — iOS home screen ignores transparent icons and
+    // `fit: contain` shrinks the mark inside a black frame on some devices.
     await sharp(svg)
-      .resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 1 } })
-      .png({ compressionLevel: 9 })
+      .resize(size, size)
+      .flatten({ background: { r: 0, g: 0, b: 0 } })
+      .png({ compressionLevel: 9, palette: false })
       .toFile(out);
     console.log(`[generate-pwa-icons] wrote ${out}`);
   }
