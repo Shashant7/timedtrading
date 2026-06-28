@@ -288,7 +288,9 @@ function SetupBreakdown({
 function CIOWatchlist({
   allMeta,
   summary,
-  history
+  history,
+  hideHeader,
+  hideLearnings
 }) {
   const data = allMeta?.data || {};
   const prettySetup = raw => {
@@ -491,22 +493,14 @@ function CIOWatchlist({
     return computeLearningRanges(arr);
   }, [summary, history]);
   if (!allMeta && !summary) {
-    return h("section", {
-      className: "tt-row"
-    }, h("div", {
-      className: "tt-sec-title"
-    }, "AI CIO · CURRENT VIEW"), h("h2", {
-      className: "tt-sec-h2"
-    }, "What the desk is weighing in on"), h("div", {
+    return h("div", {
       className: "tt-card tt-card-pad",
       style: {
         color: "var(--tt-text-dim)"
       }
-    }, "Loading\u2026"));
+    }, "Loading\u2026");
   }
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
+  return h(React.Fragment, null, !hideHeader && h(React.Fragment, null, h("div", {
     className: "tt-sec-title"
   }, "AI CIO · CURRENT VIEW"), h("h2", {
     className: "tt-sec-h2"
@@ -515,7 +509,7 @@ function CIOWatchlist({
     style: {
       marginBottom: 14
     }
-  }, "Live board posture, names on deck for confirmation, and setup-level learnings the CIO has already acted on. ", "This is guidance from the playbook and open risk — not a trade signal."), h("div", {
+  }, "Live board posture, names on deck for confirmation, and setup-level learnings the CIO has already acted on. ", "This is guidance from the playbook and open risk — not a trade signal.")), h("div", {
     className: "cio-grid"
   }, h("div", {
     className: "cio-card"
@@ -620,7 +614,7 @@ function CIOWatchlist({
     }, `R${rank}`), rr != null && h("span", {
       className: "cio-watch-rr"
     }, `${rr.toFixed(1)}R`));
-  }))), h("div", {
+  }))), !hideLearnings && h("div", {
     className: "cio-card cio-card--learnings"
   }, h("div", {
     className: "cio-card-l"
@@ -672,8 +666,103 @@ function computeLearningRanges(rows) {
     worst
   };
 }
+function useCioLearnings(summary, history) {
+  const prettySetup = raw => {
+    if (!raw) return "Unknown";
+    let s = String(raw);
+    s = s.replace(/^TT\s+/i, "");
+    s = s.replace(/^Tt\s+/i, "");
+    s = s.replace(/^tt[_\s]+/i, "");
+    return s || "Unknown";
+  };
+  return useMemo(() => {
+    const rows = summary?.breakdown?.bySetup;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      if (!Array.isArray(history)) return null;
+      const byBucket = new Map();
+      for (const t of history) {
+        const raw = t?.setup_name || t?.entry_path || t?.entryPath || "";
+        const key = prettySetup(raw);
+        const pnl = Number(t?.pnl);
+        const closed = Number.isFinite(pnl) && (t?.exit_ts || t?.exitTs);
+        if (!closed) continue;
+        const row = byBucket.get(key) || {
+          setup: key,
+          n: 0,
+          w: 0,
+          l: 0,
+          pnl: 0
+        };
+        row.n += 1;
+        if (pnl > 0) row.w += 1;else if (pnl < 0) row.l += 1;
+        row.pnl += pnl;
+        byBucket.set(key, row);
+      }
+      const arr = Array.from(byBucket.values()).filter(r => r.n >= 5);
+      return computeLearningRanges(arr);
+    }
+    const arr = rows.map(r => ({
+      setup: prettySetup(r?.bucket || r?.setup || ""),
+      n: Number(r?.n) || 0,
+      w: Number(r?.wins) || 0,
+      l: Number(r?.losses) || 0,
+      pnl: Number(r?.pnl) || 0
+    })).filter(r => r.n >= 5);
+    return computeLearningRanges(arr);
+  }, [summary, history]);
+}
+function CIOLearningsPanel({
+  summary,
+  history
+}) {
+  const learnings = useCioLearnings(summary, history);
+  return h("div", {
+    className: "cio-card cio-card--learnings",
+    style: {
+      marginTop: 0
+    }
+  }, !learnings || learnings.best.length === 0 && learnings.worst.length === 0 ? h("p", {
+    className: "cio-card-sub",
+    style: {
+      margin: 0
+    }
+  }, "Need at least 5 closed trades per setup before the CIO has a read.") : h("div", {
+    className: "cio-learn-grid"
+  }, h("div", null, h("div", {
+    className: "cio-learn-h cio-learn-h--up"
+  }, "Paying off"), learnings.best.length === 0 ? h("p", {
+    className: "cio-card-sub"
+  }, "No setup has a clear edge yet.") : learnings.best.map(r => h("div", {
+    key: r.setup,
+    className: "cio-learn-row"
+  }, h("span", {
+    className: "cio-learn-name"
+  }, r.setup), h("span", {
+    className: "cio-learn-stats"
+  }, h("strong", {
+    className: "up"
+  }, `${r.pnl >= 0 ? "+" : "-"}$${Math.abs(r.pnl).toFixed(0)}`), h("span", {
+    className: "cio-learn-wr"
+  }, `${(r.w / Math.max(1, r.n) * 100).toFixed(0)}% · n=${r.n}`))))), h("div", null, h("div", {
+    className: "cio-learn-h cio-learn-h--dn"
+  }, "Getting tightened"), learnings.worst.length === 0 ? h("p", {
+    className: "cio-card-sub"
+  }, "Nothing is bleeding.") : learnings.worst.map(r => h("div", {
+    key: r.setup,
+    className: "cio-learn-row"
+  }, h("span", {
+    className: "cio-learn-name"
+  }, r.setup), h("span", {
+    className: "cio-learn-stats"
+  }, h("strong", {
+    className: "dn"
+  }, `${r.pnl >= 0 ? "+" : "-"}$${Math.abs(r.pnl).toFixed(0)}`), h("span", {
+    className: "cio-learn-wr"
+  }, `${(r.w / Math.max(1, r.n) * 100).toFixed(0)}% · n=${r.n}`)))))));
+}
 function UniverseChanges({
-  events
+  events,
+  embedded
 }) {
   const rolled = useMemo(() => {
     if (!Array.isArray(events) || events.length === 0) return [];
@@ -709,19 +798,13 @@ function UniverseChanges({
     })).sort((a, b) => a.date < b.date ? 1 : -1);
   }, [events]);
   if (rolled.length === 0) {
-    return h("section", {
-      className: "tt-row"
-    }, h("div", {
-      className: "tt-sec-title"
-    }, "TT UNIVERSE CHANGES"), h("div", {
-      className: "tt-sec-h"
-    }, "Adds, removes, and rebalances over the last 30 days"), h("div", {
+    return h("div", {
       className: "tt-card tt-card-pad",
       style: {
         color: "var(--tt-text-dim)",
         fontSize: 13
       }
-    }, "No universe changes in the last 30 days. When the universe is refreshed or an admin adds / removes a ticker, those events will appear here."));
+    }, "No universe changes in the last 30 days. When the universe is refreshed or an admin adds / removes a ticker, those events will appear here.");
   }
   const fmtDate = d => String(d || "—");
   const renderTickers = (arr, limit = 999) => arr.slice(0, limit).map((a, i) => {
@@ -766,13 +849,7 @@ function UniverseChanges({
       className: "rw-arrow"
     }, arrow), " ", deltaStr));
   });
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    className: "tt-sec-title"
-  }, "TT UNIVERSE CHANGES"), h("div", {
-    className: "tt-sec-h"
-  }, `Adds, removes, and rebalances · last 30 days (${rolled.length})`), h("div", {
+  const list = h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -871,7 +948,58 @@ function UniverseChanges({
     }, renderReweighted(e.reweighted), e.reweighted.length > 8 && h("span", {
       className: "rw-more"
     }, `+${e.reweighted.length - 8} more`)));
-  })())))));
+  })()))));
+  if (embedded) return list;
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "TT UNIVERSE CHANGES"), h("div", {
+    className: "tt-sec-h"
+  }, `Adds, removes, and rebalances · last 30 days (${rolled.length})`), list);
+}
+function StoryNav() {
+  const links = [{
+    href: "#chapter-playbook",
+    label: "1 · Playbook"
+  }, {
+    href: "#chapter-desk",
+    label: "2 · Desk now"
+  }, {
+    href: "#chapter-risk",
+    label: "3 · Risk map"
+  }, {
+    href: "#chapter-context",
+    label: "4 · Background"
+  }];
+  return h("nav", {
+    className: "ins-spine",
+    "aria-label": "Insights sections"
+  }, links.map(l => h("a", {
+    key: l.href,
+    href: l.href,
+    className: "ins-spine-link"
+  }, l.label)));
+}
+function Chapter({
+  id,
+  num,
+  title,
+  lede,
+  children
+}) {
+  return h("section", {
+    className: "ins-chapter",
+    id
+  }, h("header", {
+    className: "ins-chapter-head"
+  }, h("div", {
+    className: "ins-chapter-num"
+  }, num), h("h2", {
+    className: "ins-chapter-title"
+  }, title), lede && h("p", {
+    className: "ins-chapter-lede"
+  }, lede)), children);
 }
 function StretchedNamesPanel({
   apiBase
@@ -928,41 +1056,28 @@ function StretchedNamesPanel({
     }
   }, "Stretched names panel: " + err));
   if (!data || data.length === 0) {
-    return h("section", {
-      className: "tt-row"
-    }, h("div", {
+    return h("div", {
       className: "tt-card tt-card-pad"
     }, h("div", {
       style: {
         display: "flex",
-        alignItems: "baseline",
+        alignItems: "center",
         gap: 10,
-        marginBottom: 6,
         flexWrap: "wrap"
       }
     }, h("span", {
       style: {
-        fontSize: 18
+        fontSize: 14,
+        color: "var(--tt-text)"
       }
-    }, "⚠️"), h("h3", {
-      style: {
-        margin: 0
-      }
-    }, "Stretched Names"), h("span", {
+    }, "No names flagged right now."), h("span", {
       className: "ds-chip ds-chip--sm ds-chip--up",
       style: {
         marginLeft: "auto"
       }
-    }, "0 flagged · clean")), h("div", {
-      style: {
-        color: "var(--tt-text-2)",
-        fontSize: 13
-      }
-    }, "No tickers currently flagged as exhausted-momentum. Universe trends look continuation-healthy.")));
+    }, "Universe looks continuation-healthy")));
   }
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
+  return h("div", {
     className: "tt-card tt-card-pad"
   }, h("div", {
     style: {
@@ -973,26 +1088,18 @@ function StretchedNamesPanel({
       flexWrap: "wrap"
     }
   }, h("span", {
-    style: {
-      fontSize: 18
-    }
-  }, "⚠️"), h("h3", {
-    style: {
-      margin: 0
-    }
-  }, "Stretched Names"), h("span", {
     className: "ds-chip ds-chip--sm ds-chip--accent",
     style: {
       marginLeft: "auto"
     }
   }, `${data.length} flagged`)), h("div", {
     style: {
-      color: "var(--tt-text-2)",
+      color: "var(--tt-text-muted)",
       fontSize: 12,
       marginBottom: 12,
       lineHeight: 1.5
     }
-  }, "Names where the trend is still up but ≥ 2 exhaustion signals are firing simultaneously (TD9 setup count 7+, Phase EXTREME, monthly/weekly RSI overbought, RS deteriorating, bearish divergence). ", "Auto-rebalance will NOT add to these. Owned positions trigger a 20% lock-in trim on the next cycle (with 20h cooldown)."), h("div", {
+  }, "Exhaustion signals are stacking (extended phase, overbought RSI, TD9 counts, RS roll-off). The desk avoids new entries here; owned names may see a trim on the next rebalance cycle."), h("div", {
     style: {
       overflowX: "auto"
     }
@@ -1113,10 +1220,11 @@ function StretchedNamesPanel({
       fontFamily: "var(--tt-font-mono)",
       fontSize: 10
     }
-  }, t.exhaustionWarnings.slice(0, 3).join(", ") + (t.exhaustionWarnings.length > 3 ? ` +${t.exhaustionWarnings.length - 3}` : "")))))))));
+  }, t.exhaustionWarnings.slice(0, 3).join(", ") + (t.exhaustionWarnings.length > 3 ? ` +${t.exhaustionWarnings.length - 3}` : ""))))))));
 }
 function ActiveStrategyPanel({
-  data
+  data,
+  embedded
 }) {
   if (!data) return null;
   const phase = data.phase || {};
@@ -1142,11 +1250,9 @@ function ActiveStrategyPanel({
       marginBottom: 6
     }
   }, s);
-  return h("section", {
-    className: "tt-row",
-    id: "active-strategy"
-  }, h("div", {
+  const card = h("div", {
     className: "tt-card tt-card-pad",
+    id: "active-strategy",
     style: {
       display: "flex",
       flexDirection: "column",
@@ -1161,16 +1267,17 @@ function ActiveStrategyPanel({
       gap: 8
     }
   }, h("div", null, h("div", {
-    className: "tt-sec-title"
-  }, "ACTIVE STRATEGY · PLAYBOOK"), h("div", {
-    className: "tt-sec-h"
-  }, data.title || "Active Strategy")), h("div", {
+    className: "tt-sec-h2",
+    style: {
+      marginBottom: 4
+    }
+  }, data.title || "Active Strategy"), h("div", {
     style: {
       fontSize: 11,
       color: "var(--tt-text-muted)",
       fontFamily: "var(--tt-font-mono)"
     }
-  }, "Vintage ", data.vintage || "—", " · ", data.source || "")), headline && h("p", {
+  }, "Vintage ", data.vintage || "—", data.source ? ` · ${data.source}` : ""))), headline && h("p", {
     style: {
       fontSize: 14,
       color: "var(--tt-text)",
@@ -1256,7 +1363,11 @@ function ActiveStrategyPanel({
       color: "var(--tt-text)",
       fontFamily: "var(--tt-font-mono)"
     }
-  }, h("div", null, "Grind higher  ", h("strong", null, `${Math.round((scenarios.grind_higher_to_target || 0) * 100)}%`)), h("div", null, "Round-trip    ", h("strong", null, `${Math.round((scenarios.round_trip_then_rally || 0) * 100)}%`)), h("div", null, "Bear retest   ", h("strong", null, `${Math.round((scenarios.bear_case_retest_lows || 0) * 100)}%`))))), (owSectors.length > 0 || uwSectors.length > 0) && h("div", null, sectionTitle("SECTOR TILTS"), h("div", {
+  }, h("div", null, "Grind higher  ", h("strong", null, `${Math.round((scenarios.grind_higher_to_target || 0) * 100)}%`)), h("div", null, "Round-trip    ", h("strong", null, `${Math.round((scenarios.round_trip_then_rally || 0) * 100)}%`)), h("div", null, "Bear retest   ", h("strong", null, `${Math.round((scenarios.bear_case_retest_lows || 0) * 100)}%`))))), (owSectors.length > 0 || uwSectors.length > 0) && h(Disclosure, {
+    id: "strategy-sectors",
+    title: "Sector tilts",
+    sub: `${owSectors.length} overweight · ${uwSectors.length} underweight`
+  }, h("div", null, sectionTitle("SECTOR TILTS"), h("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
@@ -1328,7 +1439,11 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       lineHeight: 1.4
     }
-  }, s.rationale_short))))), tier1.length > 0 && h("div", null, sectionTitle("TIER-1 BUY THEMES"), h("div", {
+  }, s.rationale_short)))))), tier1.length > 0 && h(Disclosure, {
+    id: "strategy-themes",
+    title: "Tier-1 buy themes",
+    sub: `${tier1.length} theme${tier1.length === 1 ? "" : "s"}`
+  }, h("div", null, sectionTitle("TIER-1 BUY THEMES"), h("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -1355,7 +1470,11 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       marginLeft: 6
     }
-  }, t.playbook))))), risks.length > 0 && h("div", null, sectionTitle("ACTIVE RISKS"), h("div", {
+  }, t.playbook)))))), risks.length > 0 && h(Disclosure, {
+    id: "strategy-risks",
+    title: "Active risks",
+    sub: `${risks.length} on the watch list`
+  }, h("div", null, sectionTitle("ACTIVE RISKS"), h("div", {
     style: {
       display: "flex",
       flexDirection: "column",
@@ -1395,7 +1514,7 @@ function ActiveStrategyPanel({
       color: "var(--tt-text-muted)",
       lineHeight: 1.4
     }
-  }, r.note))))), h("div", {
+  }, r.note)))))), h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-faint)",
@@ -1403,28 +1522,30 @@ function ActiveStrategyPanel({
       paddingTop: 8,
       borderTop: "1px solid var(--tt-border)"
     }
-  }, "The playbook biases the AI CIO, Daily Brief, and Discovery scoring. It is editorial guidance — not a guarantee. Update when the underlying research deck changes.")));
+  }, "The playbook biases the AI CIO, Daily Brief, and Discovery scoring. It is editorial guidance — not a guarantee. Update when the underlying research deck changes."));
+  if (embedded) return card;
+  return h("section", {
+    className: "tt-row"
+  }, card);
 }
 function ResearchNotePanel({
   note,
-  education
+  education,
+  embedded
 }) {
   const hasNote = note && note.ok !== false && note.verdict;
   const edu = education && education.ok !== false && Array.isArray(education.education) ? education.education : [];
   if (!hasNote && edu.length === 0) return null;
   const obs = hasNote && Array.isArray(note.observations) ? note.observations.slice(0, 4) : [];
   const indicators = hasNote && Array.isArray(note.early_indicators) ? note.early_indicators.slice(0, 3) : [];
-  return h("section", {
-    className: "tt-row",
-    id: "research-desk"
-  }, h("div", {
-    className: "tt-card tt-card-pad",
+  const body = h("div", {
+    className: embedded ? null : "tt-card tt-card-pad",
     style: {
       display: "flex",
       flexDirection: "column",
       gap: 14
     }
-  }, h("div", {
+  }, !embedded && h("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -1442,7 +1563,14 @@ function ResearchNotePanel({
       color: "var(--tt-text-muted)",
       fontFamily: "var(--tt-font-mono)"
     }
-  }, note.as_of_date || "")), hasNote ? h("p", {
+  }, note.as_of_date || "")), embedded && hasNote && h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)",
+      marginBottom: -4
+    }
+  }, "As of ", note.as_of_date || "—"), hasNote ? h("p", {
     style: {
       fontSize: 14,
       color: "var(--tt-text)",
@@ -1572,7 +1700,12 @@ function ResearchNotePanel({
       paddingTop: 8,
       borderTop: "1px solid var(--tt-border)"
     }
-  }, "The desk's daily synthesis blends external research with this account's own model state. Educational context — not investment advice.")));
+  }, "The desk's daily synthesis blends external research with this account's own model state. Educational context — not investment advice."));
+  if (embedded) return body;
+  return h("section", {
+    className: "tt-row",
+    id: "research-desk"
+  }, body);
 }
 function Disclosure({
   id,
@@ -1931,9 +2064,9 @@ function InsightsApp({
     className: "ins-hero"
   }, h("div", null, h("div", {
     className: "label"
-  }, "INSIGHTS"), h("h1", null, "Strategy Playbook"), h("div", {
+  }, "INSIGHTS"), h("h1", null, "How the desk thinks"), h("div", {
     className: "sub"
-  }, "How the desk frames the market — active playbook, stretched names to avoid, and the AI CIO's live read on what matters now. ", "Closed-trade performance and scrimmage stats live on the admin Model Performance page."), isAdmin && h("p", {
+  }, "Read top to bottom: the long-term playbook, what the CIO is weighing now, names the engine is avoiding, then background on research and universe changes. ", "Closed-trade performance lives on Model Performance", isAdmin ? " (admin link below)." : "."), isAdmin && h("p", {
     style: {
       marginTop: 10,
       fontSize: 12
@@ -1944,42 +2077,70 @@ function InsightsApp({
       color: "var(--tt-accent)",
       textDecoration: "underline"
     }
-  }, "Open Model Performance (admin)")))), h("section", {
-    className: "tt-row"
+  }, "Open Model Performance (admin)")))), h(StoryNav), h(Chapter, {
+    id: "chapter-playbook",
+    num: "Chapter 1",
+    title: "The playbook",
+    lede: "The editorial frame for the next 6–12 months — phase, targets, and scenario weights. Sector tilts, themes, and risks sit behind expanders so the headline read stays clean."
   }, h(ActiveStrategyPanel, {
-    data: strategy
-  })), h("section", {
-    className: "tt-row"
-  }, h(StretchedNamesPanel, {
-    apiBase: API_BASE
-  })), h(CIOWatchlist, {
+    data: strategy,
+    embedded: true
+  })), h(Chapter, {
+    id: "chapter-desk",
+    num: "Chapter 2",
+    title: "Desk right now",
+    lede: "Live board posture and setups awaiting confirmation — what the AI CIO is actively weighing, separate from the Daily Brief narrative."
+  }, h(CIOWatchlist, {
     allMeta,
     summary,
-    history
+    history,
+    hideHeader: true,
+    hideLearnings: true
   }), h(Disclosure, {
+    id: "cio-learnings",
+    title: "Setup learnings",
+    sub: "Which patterns are paying off vs getting tightened"
+  }, h(CIOLearningsPanel, {
+    summary,
+    history
+  })), h(Disclosure, {
     id: "research-note",
-    title: "Research Desk Daily Read",
-    sub: "CRO synthesis in TT voice + concept education",
-    defaultOpen: true
+    title: "Research desk daily read",
+    sub: "CRO synthesis + concept education"
   }, h(ResearchNotePanel, {
     note: croNote,
-    education
-  })), h(Disclosure, {
+    education,
+    embedded: true
+  }))), h(Chapter, {
+    id: "chapter-risk",
+    num: "Chapter 3",
+    title: "Names to avoid",
+    lede: "Tickers where exhaustion signals are stacking. The desk avoids new entries here; owned names may see a trim on the next rebalance cycle."
+  }, h(StretchedNamesPanel, {
+    apiBase: API_BASE
+  })), h(Chapter, {
+    id: "chapter-context",
+    num: "Chapter 4",
+    title: "Background",
+    lede: "Universe maintenance and other context that rarely changes day to day."
+  }, h(Disclosure, {
     id: "universe",
-    title: "Universe Changes",
-    sub: "tickers added / removed and why"
+    title: "Universe changes",
+    sub: "Tickers added, removed, or reweighted in the last 30 days"
   }, universeChanges !== null ? h(UniverseChanges, {
-    events: universeChanges
+    events: universeChanges,
+    embedded: true
   }) : h("div", {
     className: "sk",
     style: {
       height: 120,
       borderRadius: 12
     }
-  })), error && h("div", {
+  }))), error && h("div", {
     className: "tt-card tt-card-pad",
     style: {
-      color: "var(--tt-dn-soft)"
+      color: "var(--tt-dn-soft)",
+      marginTop: 8
     }
   }, "Couldn't load some data: " + error)));
 }
@@ -1991,6 +2152,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InsightsApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782609270821:47004784
+// cache-bust:1782615542406:364365387
 
-// cache-bust:1782609270821:47004784
+// cache-bust:1782615542406:364365387
