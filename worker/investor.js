@@ -122,6 +122,14 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   fsd_core_score_relief: 6,                            // maxWeight >= 1%
   fsd_light_score_relief: 3,                           // small/tail position
   fsd_offlist_score_bump: 0,                           // extra conviction bar for non-FSD names (0 = neutral)
+
+  // 2026-06-28 — FSD-removal exit. Operator: "know when to exit." When
+  // Fundstrat drops a name from the GRNY/GRNJ/GRNI complex, that is the desk
+  // exiting its thesis — the investor lane exits too. Acts only on removals
+  // within the window (avoids churning on stale removals) and is reversible.
+  fsd_removal_exit_enabled: true,
+  fsd_removal_exit_pct: 1.0,                            // 1.0 = full exit; <1 = partial trim
+  fsd_removal_window_days: 14,                          // act on removals within N days of the rebalance
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -252,6 +260,14 @@ export function loadInvestorConfig(daCfg) {
   if (Number.isFinite(fsdLight) && fsdLight >= 0 && fsdLight <= 40) cfg.fsd_light_score_relief = fsdLight;
   const fsdOff = Number(daCfg.deep_audit_investor_fsd_offlist_score_bump);
   if (Number.isFinite(fsdOff) && fsdOff >= 0 && fsdOff <= 40) cfg.fsd_offlist_score_bump = fsdOff;
+  const frEnabled = daCfg.deep_audit_investor_fsd_removal_exit_enabled;
+  if (frEnabled === true || frEnabled === false) cfg.fsd_removal_exit_enabled = frEnabled;
+  else if (frEnabled === "true") cfg.fsd_removal_exit_enabled = true;
+  else if (frEnabled === "false") cfg.fsd_removal_exit_enabled = false;
+  const frPct = Number(daCfg.deep_audit_investor_fsd_removal_exit_pct);
+  if (Number.isFinite(frPct) && frPct > 0 && frPct <= 1) cfg.fsd_removal_exit_pct = frPct;
+  const frWin = Number(daCfg.deep_audit_investor_fsd_removal_window_days);
+  if (Number.isFinite(frWin) && frWin >= 0 && frWin <= 180) cfg.fsd_removal_window_days = frWin;
   return cfg;
 }
 
