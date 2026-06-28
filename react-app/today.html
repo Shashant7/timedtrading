@@ -3437,7 +3437,6 @@
         const traderSorted = enriched.filter((t) => t._mode === "trader").sort(byPnlMag);
         const investorSorted = enriched.filter((t) => t._mode === "investor").sort(byPnlMag);
         const sorted = [...traderSorted, ...investorSorted];
-        const perColLimit = hero ? 8 : 6;
 
         const renderOpenPosChip = (t) => {
           const sym = String(t?.ticker || "").toUpperCase();
@@ -3527,13 +3526,13 @@
               h("div", { className: "tt-open-pos-col tt-open-pos-col--trader" },
                 h("div", { className: "tt-open-pos-col__label" }, "Trader"),
                 traderSorted.length
-                  ? traderSorted.slice(0, perColLimit).map(renderOpenPosChip)
+                  ? traderSorted.map(renderOpenPosChip)
                   : h("div", { className: "tt-open-pos-col__empty" }, "None"),
               ),
               h("div", { className: "tt-open-pos-col tt-open-pos-col--investor" },
                 h("div", { className: "tt-open-pos-col__label" }, "Investor"),
                 investorSorted.length
-                  ? investorSorted.slice(0, perColLimit).map(renderOpenPosChip)
+                  ? investorSorted.map(renderOpenPosChip)
                   : h("div", { className: "tt-open-pos-col__empty" }, "None"),
               ),
             )
@@ -3545,7 +3544,7 @@
                 gap: 8,
               },
             },
-              sorted.slice(0, 12).map(renderOpenPosChip),
+              sorted.map(renderOpenPosChip),
             );
 
         return h("section", {
