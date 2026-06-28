@@ -141,7 +141,12 @@ for d in "${DAYS[@]}"; do
 done
 log "Replay complete: opened=$OPENED closed=$CLOSED errors=$ERR"
 
-# Day-state dependency guard. investor-replay reads timed:replay:daystate:{date}
+# Force-close any still-open investor positions at month-end so WR/P&L are measurable.
+log "Closing open investor positions at $END"
+CLOSE_INV=$(http POST "$API_BASE/timed/admin/close-investor-replay-positions?date=$END&key=$API_KEY" 60)
+log "close-investor-replay-positions: $(echo "$CLOSE_INV" | jq -c '{ok, closed, open_before}' 2>/dev/null || echo "$CLOSE_INV" | head -c 120)"
+
+# Day-state dependency guard.
 # and scores the investor universe from it. The trader monthly-slice writes that
 # day-state with skipInvestor=1, so it carries TRADER scoring but not the
 # investor inputs (monthly bundle / accumulate stage) the investor ST-alignment

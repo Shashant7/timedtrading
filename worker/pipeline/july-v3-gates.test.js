@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isIndexModelTicker,
   isStockPathBlockedOnIndex,
+  shouldBlockStockPathOnIndexTicker,
   evaluateIndexEtfModelEntry,
   getIndexTickerProfile,
   INDEX_TICKER_PROFILES,
@@ -53,6 +54,13 @@ describe("index-etf-model v4", () => {
   it("rejects stock ATH path on index via block list", () => {
     expect(isStockPathBlockedOnIndex("tt_ath_breakout")).toBe(true);
     expect(isStockPathBlockedOnIndex("tt_index_etf_swing")).toBe(false);
+  });
+
+  it("blocks stock paths on SPY even when index model is disabled", () => {
+    const daCfg = { deep_audit_index_model_enabled: "false", deep_audit_index_model_tickers: "SPY,QQQ,IWM" };
+    expect(isIndexModelTicker("SPY", daCfg)).toBe(false);
+    expect(shouldBlockStockPathOnIndexTicker("SPY", "tt_ath_breakout", daCfg)).toBe(true);
+    expect(shouldBlockStockPathOnIndexTicker("NVDA", "tt_ath_breakout", daCfg)).toBe(false);
   });
 });
 
