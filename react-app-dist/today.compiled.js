@@ -1723,7 +1723,6 @@ function OpenPositionsPreview({
   const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlMag);
   const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
   const sorted = [...traderSorted, ...investorSorted];
-  const perColLimit = hero ? 8 : 6;
   const renderOpenPosChip = t => {
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
@@ -1855,13 +1854,13 @@ function OpenPositionsPreview({
     className: "tt-open-pos-col tt-open-pos-col--trader"
   }, h("div", {
     className: "tt-open-pos-col__label"
-  }, "Trader"), traderSorted.length ? traderSorted.slice(0, perColLimit).map(renderOpenPosChip) : h("div", {
+  }, "Trader"), traderSorted.length ? traderSorted.map(renderOpenPosChip) : h("div", {
     className: "tt-open-pos-col__empty"
   }, "None")), h("div", {
     className: "tt-open-pos-col tt-open-pos-col--investor"
   }, h("div", {
     className: "tt-open-pos-col__label"
-  }, "Investor"), investorSorted.length ? investorSorted.slice(0, perColLimit).map(renderOpenPosChip) : h("div", {
+  }, "Investor"), investorSorted.length ? investorSorted.map(renderOpenPosChip) : h("div", {
     className: "tt-open-pos-col__empty"
   }, "None"))) : h("div", {
     className: "tt-open-pos-grid",
@@ -1870,7 +1869,7 @@ function OpenPositionsPreview({
       gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
       gap: 8
     }
-  }, sorted.slice(0, 12).map(renderOpenPosChip));
+  }, sorted.map(renderOpenPosChip));
   return h("section", {
     className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
     style: hero ? {
@@ -4791,9 +4790,9 @@ function TickerLaneSection({
     className: "tt-viewport-map-head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "VIEWPORT & BUBBLE MAP"), h("div", {
+  }, "TECHNICAL SETUPS"), h("div", {
     className: "tt-sec-h"
-  }, "Search and filter tickers — lane cards above, momentum map below")), h(LaneControls, {
+  }, "Easy Search & Filter")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -6397,6 +6396,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782615542406:364365387
+// cache-bust:1782654301699:375125748
 
-// cache-bust:1782615542406:364365387
+// cache-bust:1782654301699:375125748
