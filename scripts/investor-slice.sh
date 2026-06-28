@@ -131,6 +131,23 @@ for d in "${DAYS[@]}"; do
 done
 log "Replay complete: opened=$OPENED closed=$CLOSED errors=$ERR"
 
+# Day-state dependency guard. investor-replay reads timed:replay:daystate:{date}
+# and scores the investor universe from it. The trader monthly-slice writes that
+# day-state with skipInvestor=1, so it carries TRADER scoring but not the
+# investor inputs (monthly bundle / accumulate stage) the investor ST-alignment
+# gate needs — investor-replay then opens 0. A standalone investor slice on a
+# freshly-reset env therefore cannot produce entries.
+if [[ "$OPENED" == "0" && "$CLOSED" == "0" ]]; then
+  log "WARN: 0 opens/closes across the whole period."
+  log "      investor-replay needs INVESTOR-scored day-state. The trader"
+  log "      monthly-slice writes day-state with skipInvestor=1 (trader-only),"
+  log "      which lacks the investor inputs the entry gate requires."
+  log "      Fix path: seed investor-inclusive day-state first (a candle-replay"
+  log "      WITHOUT skipInvestor, or a per-day investor scoring pass) and run"
+  log "      this slice with --no-reset so it reuses that day-state."
+  log "      See docs/investor-training-regimen.md › Day-state dependency."
+fi
+
 # Accuracy report (WR / P&L / payoff by FSD tier) against the same env.
 log "=== Accuracy report ==="
 TIMED_API_BASE="$API_BASE" TIMED_API_KEY="$API_KEY" \
