@@ -106,6 +106,39 @@
     }
   })();
 
+  // Offline app shell — register SW for caching (push flow also registers).
+  (function ensureServiceWorker() {
+    try {
+      if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+      navigator.serviceWorker.register("/service-worker.js").catch(() => {});
+    } catch (_) {}
+  })();
+
+  // Subtle offline banner when connectivity drops (live prices need network).
+  (function ensureOfflineBanner() {
+    try {
+      if (typeof window === "undefined" || typeof document === "undefined") return;
+      let banner = null;
+      const show = () => {
+        if (banner || navigator.onLine !== false) return;
+        banner = document.createElement("div");
+        banner.id = "tt-offline-banner";
+        banner.textContent = "Offline — cached view only. Live prices refresh when reconnected.";
+        banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99998;padding:8px 14px;text-align:center;font:600 11px/1.4 Inter,system-ui,sans-serif;color:#fcd34d;background:rgba(120,53,15,0.92);border-bottom:1px solid rgba(251,191,36,0.35);padding-top:max(8px,env(safe-area-inset-top));";
+        document.body.appendChild(banner);
+      };
+      const hide = () => {
+        if (banner) {
+          banner.remove();
+          banner = null;
+        }
+      };
+      window.addEventListener("offline", show);
+      window.addEventListener("online", hide);
+      if (!navigator.onLine) show();
+    } catch (_) {}
+  })();
+
   // Unified signal grammar — shared chip/lane helpers for activity strip,
   // kanban cards, and notification bell tags.
   (function injectSignalGrammar() {
@@ -2893,4 +2926,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1782681718644:643932303
+// cache-bust:1782683125364:768146600

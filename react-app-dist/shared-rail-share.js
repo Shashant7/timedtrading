@@ -1,4 +1,4 @@
-/* shared-rail-share.js — Right-rail share with screenshot + tab deep link */
+/* shared-rail-share.js — Right-rail share with branded screenshot + tab deep link */
 (function () {
   if (typeof window === "undefined") return;
 
@@ -66,6 +66,122 @@
     return _html2canvasPromise;
   }
 
+  let _logoPromise = null;
+  function loadLogoImage() {
+    if (_logoPromise) return _logoPromise;
+    _logoPromise = new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("logo_load_failed"));
+      img.src = "/apple-touch-icon.png";
+    });
+    return _logoPromise;
+  }
+
+  function blobToImage(blob) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("screenshot_decode_failed"));
+      };
+      img.src = url;
+    });
+  }
+
+  /**
+   * Wrap the rail screenshot in a branded share card: logo header, tab
+   * context line, screenshot body, footer watermark + link hint.
+   */
+  async function composeShareCard(screenshotBlob, { sym, label, url }) {
+    const [shot, logo] = await Promise.all([
+      blobToImage(screenshotBlob),
+      loadLogoImage().catch(() => null),
+    ]);
+
+    const maxW = 720;
+    const scale = shot.width > maxW ? maxW / shot.width : 1;
+    const shotW = Math.round(shot.width * scale);
+    const shotH = Math.round(shot.height * scale);
+
+    const pad = 14;
+    const headerH = 56;
+    const footerH = 34;
+    const w = shotW + pad * 2;
+    const h = headerH + shotH + footerH + pad;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return screenshotBlob;
+
+    ctx.fillStyle = "#0B1410";
+    ctx.fillRect(0, 0, w, h);
+
+    // Header band
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    ctx.fillRect(0, 0, w, headerH);
+    ctx.strokeStyle = "rgba(56,242,161,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, headerH - 0.5);
+    ctx.lineTo(w, headerH - 0.5);
+    ctx.stroke();
+
+    const logoSize = 32;
+    if (logo) {
+      ctx.drawImage(logo, pad, (headerH - logoSize) / 2, logoSize, logoSize);
+    }
+
+    ctx.fillStyle = "#F0FDF4";
+    ctx.font = "600 15px Inter, system-ui, sans-serif";
+    ctx.fillText("Timed Trading", pad + logoSize + 10, 22);
+
+    ctx.fillStyle = "#38F2A1";
+    ctx.font = "600 12px JetBrains Mono, ui-monospace, monospace";
+    ctx.fillText(`${sym} · ${label} tab`, pad + logoSize + 10, 40);
+
+    // Screenshot with subtle inset border
+    ctx.drawImage(shot, pad, headerH, shotW, shotH);
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.strokeRect(pad + 0.5, headerH + 0.5, shotW - 1, shotH - 1);
+
+    // Footer watermark
+    const footY = headerH + shotH;
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(0, footY, w, footerH + pad);
+    ctx.fillStyle = "#6E867D";
+    ctx.font = "500 11px Inter, system-ui, sans-serif";
+    ctx.fillText("timedtrading.com", pad, footY + 20);
+
+    if (logo) {
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(logo, w - pad - 20, footY + 7, 20, 20);
+      ctx.globalAlpha = 1;
+    }
+
+    const shortUrl = String(url || "").replace(/^https?:\/\//, "");
+    if (shortUrl) {
+      ctx.textAlign = "right";
+      ctx.fillStyle = "#8AA39A";
+      ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
+      const clip = shortUrl.length > 42 ? `${shortUrl.slice(0, 39)}…` : shortUrl;
+      ctx.fillText(clip, w - pad, footY + 20);
+      ctx.textAlign = "left";
+    }
+
+    return new Promise((resolve) => {
+      canvas.toBlob((b) => resolve(b || screenshotBlob), "image/png", 0.92);
+    });
+  }
+
   async function captureRailScreenshot(root) {
     const html2canvas = await loadHtml2Canvas();
     const bg = getComputedStyle(root).backgroundColor;
@@ -96,7 +212,10 @@
     const root = findRailRoot();
     if (root) {
       try {
-        blob = await captureRailScreenshot(root);
+        const raw = await captureRailScreenshot(root);
+        if (raw) {
+          blob = await composeShareCard(raw, { sym, label, url });
+        }
       } catch (e) {
         console.warn("[TimedRailShare] screenshot failed", e);
       }
@@ -104,7 +223,7 @@
 
     try {
       if (blob && navigator.share) {
-        const file = new File([blob], `${sym}-${railTab}.png`, { type: "image/png" });
+        const file = new File([blob], `${sym}-${railTab}-timed-trading.png`, { type: "image/png" });
         const withFiles = { title, text, url, files: [file] };
         if (!navigator.canShare || navigator.canShare(withFiles)) {
           await navigator.share(withFiles);
@@ -134,7 +253,8 @@
     buildShareUrl,
     tabLabel,
     TAB_LABELS,
+    composeShareCard,
   };
 })();
 
-// cache-bust:1782681718644:643932303
+// cache-bust:1782683125364:768146600
