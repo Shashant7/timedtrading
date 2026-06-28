@@ -1504,8 +1504,8 @@
       function StoryNav() {
         const links = [
           { href: "#chapter-playbook", label: "1 · Playbook" },
-          { href: "#chapter-risk", label: "2 · Risk map" },
-          { href: "#chapter-desk", label: "3 · Desk now" },
+          { href: "#chapter-desk", label: "2 · Desk now" },
+          { href: "#chapter-risk", label: "3 · Risk map" },
           { href: "#chapter-context", label: "4 · Background" },
         ];
         return h("nav", { className: "ins-spine", "aria-label": "Insights sections" },
@@ -2007,7 +2007,7 @@
                 h("div", { className: "label" }, "INSIGHTS"),
                 h("h1", null, "How the desk thinks"),
                 h("div", { className: "sub" },
-                  "Read top to bottom: the long-term playbook, names the engine is avoiding, what the CIO is weighing now, then background on research and universe changes. ",
+                  "Read top to bottom: the long-term playbook, what the CIO is weighing now, names the engine is avoiding, then background on research and universe changes. ",
                   "Closed-trade performance lives on Model Performance",
                   isAdmin ? " (admin link below)." : ".",
                 ),
@@ -2027,14 +2027,8 @@
               lede: "The editorial frame for the next 6–12 months — phase, targets, and scenario weights. Sector tilts, themes, and risks sit behind expanders so the headline read stays clean.",
             }, h(ActiveStrategyPanel, { data: strategy, embedded: true })),
             h(Chapter, {
-              id: "chapter-risk",
-              num: "Chapter 2",
-              title: "Names to avoid",
-              lede: "Tickers where exhaustion signals are stacking. The desk avoids new entries here; owned names may see a trim on the next rebalance cycle.",
-            }, h(StretchedNamesPanel, { apiBase: API_BASE })),
-            h(Chapter, {
               id: "chapter-desk",
-              num: "Chapter 3",
+              num: "Chapter 2",
               title: "Desk right now",
               lede: "Live board posture and setups awaiting confirmation — what the AI CIO is actively weighing, separate from the Daily Brief narrative.",
             },
@@ -2050,6 +2044,12 @@
                 sub: "CRO synthesis + concept education",
               }, h(ResearchNotePanel, { note: croNote, education, embedded: true })),
             ),
+            h(Chapter, {
+              id: "chapter-risk",
+              num: "Chapter 3",
+              title: "Names to avoid",
+              lede: "Tickers where exhaustion signals are stacking. The desk avoids new entries here; owned names may see a trim on the next rebalance cycle.",
+            }, h(StretchedNamesPanel, { apiBase: API_BASE })),
             h(Chapter, {
               id: "chapter-context",
               num: "Chapter 4",
