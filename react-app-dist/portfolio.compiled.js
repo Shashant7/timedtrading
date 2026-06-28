@@ -920,7 +920,11 @@ function PortfolioApp() {
       } catch (_) {}
     };
     window.addEventListener("tt-open-ticker", handler);
-    applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    if (typeof window.ttApplyPendingRailDeepLink === "function") {
+      window.ttApplyPendingRailDeepLink();
+    } else {
+      applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+    }
     return () => window.removeEventListener("tt-open-ticker", handler);
   }, [RailOverlay, applyRailOpen]);
   if (error && !eq) {
@@ -1065,6 +1069,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782683125364:768146600
+// cache-bust:1782684761057:691314738
 
-// cache-bust:1782683125364:768146600
+// cache-bust:1782684761057:691314738

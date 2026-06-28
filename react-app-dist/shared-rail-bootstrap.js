@@ -33,7 +33,7 @@
       if (typeof document === "undefined") return;
       if (document.querySelector('script[src*="shared-rail-share.js"]')) return;
       const s = document.createElement("script");
-      s.src = "shared-rail-share.js?v=20260624b";
+      s.src = "shared-rail-share.js?v=20260624c";
       s.async = true;
       s.dataset.injectedBy = "rail-bootstrap";
       (document.head || document.documentElement).appendChild(s);
@@ -340,4 +340,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1782683125364:768146600
+// cache-bust:1782684761057:691314738

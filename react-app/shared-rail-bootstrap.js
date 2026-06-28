@@ -33,7 +33,7 @@
       if (typeof document === "undefined") return;
       if (document.querySelector('script[src*="shared-rail-share.js"]')) return;
       const s = document.createElement("script");
-      s.src = "shared-rail-share.js?v=20260624b";
+      s.src = "shared-rail-share.js?v=20260624c";
       s.async = true;
       s.dataset.injectedBy = "rail-bootstrap";
       (document.head || document.documentElement).appendChild(s);

@@ -1041,6 +1041,15 @@
       return () => { cancelled = true; };
     }, [user, apiBase, verifyAuth]);
 
+    // After SSO, reopen any shared-link rail target (ticker + tab).
+    useEffect(() => {
+      if (state !== "authenticated") return;
+      const cancel = scheduleIdleWork(() => {
+        try { window.ttApplyPendingRailDeepLink?.(); } catch (_) {}
+      }, 600);
+      return cancel;
+    }, [state]);
+
     const [signingIn, setSigningIn] = useState(false);
     const handleLogin = useCallback(() => {
       /* 2026-06-01 — Reworked to use the same proven top-level
@@ -1082,7 +1091,13 @@
         return;
       }
 
-      window.location.href = "/today.html?_auth=" + Date.now();
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set("_auth", String(Date.now()));
+        window.location.href = u.toString();
+      } catch (_) {
+        window.location.href = "/today.html?_auth=" + Date.now();
+      }
     }, [user, serverVerified]);
 
     // Set user role on body for CSS-based admin gating of nav links

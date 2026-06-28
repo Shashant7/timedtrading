@@ -294,7 +294,11 @@
 
         useEffect(() => {
           if (!RailOverlay) return;
-          applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+          if (typeof window.ttApplyPendingRailDeepLink === "function") {
+            window.ttApplyPendingRailDeepLink();
+          } else {
+            applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+          }
         }, [RailOverlay, applyRailOpen]);
 
         const hero = h("header", { className: "hb-hero" },

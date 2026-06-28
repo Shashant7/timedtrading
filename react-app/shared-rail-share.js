@@ -20,19 +20,23 @@
     return TAB_LABELS[k] || k.charAt(0) + k.slice(1).toLowerCase();
   }
 
-  function shareBasePath() {
-    const p = String(window.location.pathname || "");
-    if (p.endsWith(".html")) return p;
-    return "/today.html";
-  }
-
+  /** Shared links always land on Today so recipients sign in and open the rail. */
   function buildShareUrl(ticker, railTab) {
     const sym = String(ticker || "").trim().toUpperCase();
-    const u = new URL(shareBasePath(), window.location.origin);
+    const u = new URL("/today.html", window.location.origin);
     if (sym) u.searchParams.set("ticker", sym);
     const tab = String(railTab || "").trim().toUpperCase();
     if (tab) u.searchParams.set("railTab", tab);
     return u.toString();
+  }
+
+  function buildShareText(sym, label, url) {
+    return [
+      `${sym} · ${label} tab on Timed Trading`,
+      "",
+      "Open the link to sign in and view the full setup:",
+      url,
+    ].join("\n");
   }
 
   function findRailRoot() {
@@ -112,7 +116,7 @@
 
     const pad = 14;
     const headerH = 56;
-    const footerH = 34;
+    const footerH = 44;
     const w = shotW + pad * 2;
     const h = headerH + shotH + footerH + pad;
 
@@ -157,24 +161,22 @@
     const footY = headerH + shotH;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.fillRect(0, footY, w, footerH + pad);
+    ctx.fillStyle = "#38F2A1";
+    ctx.font = "600 11px Inter, system-ui, sans-serif";
+    ctx.fillText("Open link for full view · Sign in required", pad, footY + 18);
+
     ctx.fillStyle = "#6E867D";
-    ctx.font = "500 11px Inter, system-ui, sans-serif";
-    ctx.fillText("timedtrading.com", pad, footY + 20);
+    ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
+    const shortUrl = String(url || "").replace(/^https?:\/\//, "");
+    if (shortUrl) {
+      const clip = shortUrl.length > 48 ? `${shortUrl.slice(0, 45)}…` : shortUrl;
+      ctx.fillText(clip, pad, footY + 32);
+    }
 
     if (logo) {
       ctx.globalAlpha = 0.45;
-      ctx.drawImage(logo, w - pad - 20, footY + 7, 20, 20);
+      ctx.drawImage(logo, w - pad - 20, footY + 10, 20, 20);
       ctx.globalAlpha = 1;
-    }
-
-    const shortUrl = String(url || "").replace(/^https?:\/\//, "");
-    if (shortUrl) {
-      ctx.textAlign = "right";
-      ctx.fillStyle = "#8AA39A";
-      ctx.font = "500 10px JetBrains Mono, ui-monospace, monospace";
-      const clip = shortUrl.length > 42 ? `${shortUrl.slice(0, 39)}…` : shortUrl;
-      ctx.fillText(clip, w - pad, footY + 20);
-      ctx.textAlign = "left";
     }
 
     return new Promise((resolve) => {
@@ -206,7 +208,7 @@
     const label = tabLabel(railTab);
     const url = buildShareUrl(sym, railTab);
     const title = `${sym} — ${label} — Timed Trading`;
-    const text = `${sym} on Timed Trading (${label} tab)`;
+    const text = buildShareText(sym, label, url);
 
     let blob = null;
     const root = findRailRoot();
@@ -239,8 +241,8 @@
     }
 
     try {
-      await navigator.clipboard.writeText(`${text}\n${url}`);
-      toast(blob ? "Link copied" : "Link copied (screenshot not supported here)");
+      await navigator.clipboard.writeText(text);
+      toast("Link copied — open to sign in and view full setup");
       return { ok: true, mode: "clipboard" };
     } catch (_) {
       toast("Could not share");
@@ -251,6 +253,7 @@
   window.TimedRailShare = {
     shareRail,
     buildShareUrl,
+    buildShareText,
     tabLabel,
     TAB_LABELS,
     composeShareCard,

@@ -1203,7 +1203,11 @@
             try { if (typeof window.ttGlobalSearchMarkHandled === "function") window.ttGlobalSearchMarkHandled(ev?.detail?.ticker); } catch (_) {}
           };
           window.addEventListener("tt-open-ticker", handler);
-          applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+          if (typeof window.ttApplyPendingRailDeepLink === "function") {
+            window.ttApplyPendingRailDeepLink();
+          } else {
+            applyRailOpen(typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null);
+          }
           return () => window.removeEventListener("tt-open-ticker", handler);
         }, [RailOverlay, applyRailOpen]);
 

@@ -8950,16 +8950,18 @@
                   });
                   return;
                 }
-                const url = window.TimedRailShare?.buildShareUrl ? window.TimedRailShare.buildShareUrl(sym, tab) : `${window.location.origin}${window.location.pathname}?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
+                const url = window.TimedRailShare?.buildShareUrl ? window.TimedRailShare.buildShareUrl(sym, tab) : `${window.location.origin}/today.html?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
                 const label = window.TimedRailShare?.tabLabel?.(tab) || tab;
                 const title = `${sym} \u2014 ${label} \u2014 Timed Trading`;
+                const text = window.TimedRailShare?.buildShareText ? window.TimedRailShare.buildShareText(sym, label, url) : `${sym} · ${label} tab on Timed Trading\n\nOpen the link to sign in and view the full setup:\n${url}`;
                 if (navigator.share) {
                   await navigator.share({
                     title,
+                    text,
                     url
                   });
                 } else {
-                  await navigator.clipboard.writeText(url);
+                  await navigator.clipboard.writeText(text);
                   try {
                     const t = document.createElement("div");
                     t.textContent = "Link copied";
@@ -17408,16 +17410,19 @@
               });
               return;
             }
-            const url = `${window.location.origin}${window.location.pathname}?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
+            const url = window.TimedRailShare?.buildShareUrl ? window.TimedRailShare.buildShareUrl(sym, tab) : `${window.location.origin}/today.html?ticker=${encodeURIComponent(sym)}&railTab=${encodeURIComponent(tab)}`;
+            const label = window.TimedRailShare?.tabLabel?.(tab) || tab;
+            const text = window.TimedRailShare?.buildShareText ? window.TimedRailShare.buildShareText(sym, label, url) : `${sym} · ${label} tab\n\nOpen the link to sign in:\n${url}`;
             if (navigator.share) {
               navigator.share({
-                title: `${sym} — Timed Trading`,
+                title: `${sym} — ${label} — Timed Trading`,
+                text,
                 url
               }).catch(() => {
-                navigator.clipboard.writeText(url);
+                navigator.clipboard.writeText(text);
               });
             } else {
-              navigator.clipboard.writeText(url).then(() => {
+              navigator.clipboard.writeText(text).then(() => {
                 const btn = document.getElementById("share-toast-btn");
                 if (btn) {
                   btn.textContent = "Copied!";
@@ -21974,4 +21979,4 @@
   };
 })();
 
-// cache-bust:1782683125364:768146600
+// cache-bust:1782684761057:691314738

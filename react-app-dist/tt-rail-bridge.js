@@ -20,6 +20,72 @@
     }
   }
 
+  const DEEPLINK_KEY = "tt_rail_deeplink";
+  const DEEPLINK_TTL_MS = 30 * 60 * 1000;
+
+  function persistRailDeepLink(ctx) {
+    if (!ctx?.ticker) return;
+    try {
+      sessionStorage.setItem(DEEPLINK_KEY, JSON.stringify({
+        ticker: ctx.ticker,
+        railTab: ctx.initialRailTab || null,
+        tradeId: ctx.tradeId || null,
+        openAutopsy: !!ctx.openAutopsy,
+        evType: ctx.evType || null,
+        ts: Date.now(),
+      }));
+    } catch (_) {}
+  }
+
+  function readPersistedRailDeepLink() {
+    try {
+      const raw = sessionStorage.getItem(DEEPLINK_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (!p?.ticker) return null;
+      if (Date.now() - Number(p.ts || 0) > DEEPLINK_TTL_MS) {
+        sessionStorage.removeItem(DEEPLINK_KEY);
+        return null;
+      }
+      return p;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function clearPersistedRailDeepLink() {
+    try { sessionStorage.removeItem(DEEPLINK_KEY); } catch (_) {}
+  }
+
+  /** Persist URL params on load so login redirects can restore the rail target. */
+  (function captureRailDeepLinkFromUrl() {
+    const ctx = parseUrlRailContext();
+    if (ctx.ticker) persistRailDeepLink(ctx);
+  })();
+
+  window.ttApplyPendingRailDeepLink = function ttApplyPendingRailDeepLink() {
+    const urlCtx = parseUrlRailContext();
+    const persisted = readPersistedRailDeepLink();
+    const ticker = urlCtx.ticker || persisted?.ticker;
+    if (!ticker) return false;
+
+    const initialRailTab = urlCtx.initialRailTab || persisted?.railTab || null;
+    const tradeId = urlCtx.tradeId || persisted?.tradeId || null;
+    const openAutopsy = urlCtx.openAutopsy || persisted?.openAutopsy || false;
+    const evType = urlCtx.evType || persisted?.evType || null;
+
+    window.ttOpenTickerInRail({
+      ticker,
+      initialRailTab,
+      tradeId,
+      openAutopsy,
+      evType: evType || undefined,
+      source: "deeplink",
+    });
+    clearPersistedRailDeepLink();
+    return true;
+  };
+
   window.ttActivityScopeOf = function ttActivityScopeOf(ev) {
     const mode = String(ev?.mode || "").toLowerCase();
     if (mode === "investor") return "investor";
@@ -123,6 +189,14 @@
       source: opts?.source || "activity",
     });
 
+    persistRailDeepLink({
+      ticker,
+      initialRailTab: tab,
+      tradeId,
+      openAutopsy,
+      evType,
+    });
+
     setTimeout(() => {
       try {
         if (typeof window.ttGlobalSearchMarkHandled === "function") {
@@ -170,6 +244,14 @@
       else u.searchParams.delete("ev");
       window.history.replaceState({ ttTicker: ticker }, "", u.toString());
     } catch (_) {}
+
+    persistRailDeepLink({
+      ticker,
+      initialRailTab,
+      tradeId,
+      openAutopsy,
+      evType,
+    });
 
     window.dispatchEvent(
       new CustomEvent("tt-open-ticker", {
@@ -300,4 +382,4 @@
   };
 })();
 
-// cache-bust:1782683125364:768146600
+// cache-bust:1782684761057:691314738
