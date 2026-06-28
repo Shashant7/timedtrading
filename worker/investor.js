@@ -101,6 +101,27 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   loss_reentry_cooldown_days: 10,                      // single losing close → block re-entry for N calendar days
   loser_cooldown_consec_losses: 2,                     // >= N consecutive losing closes → persistent-loser ban
   loser_cooldown_days: 45,                             // persistent-loser ban window (>= cooldown_days)
+
+  // 2026-06-28 — Research-desk alignment at entry. Operator: "Investor Mode
+  // should get all the benefits of our system — Research desk, CTO, CIO."
+  // The desk's live sector/theme stance (getStrategyForTicker → the same
+  // overweight/underweight tilts the Active Trader rank + CIO use) now informs
+  // which fresh capital gets deployed: a candidate in a desk-HEADWIND
+  // (underweight) sector/theme must clear a higher conviction floor; a
+  // desk-TAILWIND (overweight) candidate may clear a modestly lower one. Soft,
+  // additive, and reversible. Live auto-rebalance only (no replay lookahead —
+  // the live tilt map must not be applied to historical entries).
+  research_alignment_enabled: true,
+  research_headwind_score_bump: 8,                     // sector-underweight (non-FSD) names need floor + this
+  research_headwind_multiplier_max: 0.97,              // strategy multiplier <= this = sector headwind
+  // FSD (GRNY/GRNJ/GRNI) conviction relief on the capital-deployment floor.
+  // An FSD pick has passed selection, so it clears the floor at a lower score
+  // (the engine's job becomes timing, not selection). Tiered by fund weight /
+  // multi-fund membership.
+  fsd_strong_score_relief: 10,                         // maxWeight >= 3% OR in >= 2 funds
+  fsd_core_score_relief: 6,                            // maxWeight >= 1%
+  fsd_light_score_relief: 3,                           // small/tail position
+  fsd_offlist_score_bump: 0,                           // extra conviction bar for non-FSD names (0 = neutral)
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -216,7 +237,111 @@ export function loadInvestorConfig(daCfg) {
   if (Number.isFinite(lcConsec) && lcConsec >= 1 && lcConsec <= 10) cfg.loser_cooldown_consec_losses = lcConsec;
   const lcDays = Number(daCfg.deep_audit_investor_loser_cooldown_days);
   if (Number.isFinite(lcDays) && lcDays >= 0 && lcDays <= 365) cfg.loser_cooldown_days = lcDays;
+  // 2026-06-28 — research-desk alignment overrides.
+  const raEnabled = daCfg.deep_audit_investor_research_alignment_enabled;
+  if (raEnabled === true || raEnabled === false) cfg.research_alignment_enabled = raEnabled;
+  else if (raEnabled === "true") cfg.research_alignment_enabled = true;
+  else if (raEnabled === "false") cfg.research_alignment_enabled = false;
+  const rhBump = Number(daCfg.deep_audit_investor_research_headwind_score_bump);
+  if (Number.isFinite(rhBump) && rhBump >= 0 && rhBump <= 40) cfg.research_headwind_score_bump = rhBump;
+  const fsdStrong = Number(daCfg.deep_audit_investor_fsd_strong_score_relief);
+  if (Number.isFinite(fsdStrong) && fsdStrong >= 0 && fsdStrong <= 40) cfg.fsd_strong_score_relief = fsdStrong;
+  const fsdCore = Number(daCfg.deep_audit_investor_fsd_core_score_relief);
+  if (Number.isFinite(fsdCore) && fsdCore >= 0 && fsdCore <= 40) cfg.fsd_core_score_relief = fsdCore;
+  const fsdLight = Number(daCfg.deep_audit_investor_fsd_light_score_relief);
+  if (Number.isFinite(fsdLight) && fsdLight >= 0 && fsdLight <= 40) cfg.fsd_light_score_relief = fsdLight;
+  const fsdOff = Number(daCfg.deep_audit_investor_fsd_offlist_score_bump);
+  if (Number.isFinite(fsdOff) && fsdOff >= 0 && fsdOff <= 40) cfg.fsd_offlist_score_bump = fsdOff;
   return cfg;
+}
+
+/**
+ * 2026-06-28 — Classify a ticker's FSD (Fundstrat Granny Shots) conviction
+ * from the ETF weight map. GRNY/GRNJ/GRNI holdings ARE what FSD is buying, so
+ * membership is the strongest "the desk has already selected this" signal.
+ * Pure + tested.
+ *
+ * @param {{etfs?:Array<{symbol:string,weight:number}>, maxWeight?:number, etfCount?:number}|null} weightData
+ * @returns {{ isPick:boolean, tier:"strong"|"core"|"light"|"none", maxWeight:number, etfCount:number, etfs:string[] }}
+ */
+export function classifyFsdPick(weightData) {
+  const maxWeight = Number(weightData?.maxWeight);
+  if (!weightData || !Number.isFinite(maxWeight) || maxWeight <= 0) {
+    return { isPick: false, tier: "none", maxWeight: 0, etfCount: 0, etfs: [] };
+  }
+  const etfsArr = Array.isArray(weightData.etfs) ? weightData.etfs : [];
+  const etfCount = Number(weightData.etfCount) || etfsArr.length;
+  let tier;
+  if (maxWeight >= 3 || etfCount >= 2) tier = "strong";   // top-weight or multi-fund conviction
+  else if (maxWeight >= 1.0) tier = "core";               // a real position
+  else tier = "light";                                    // small / tail position
+  return {
+    isPick: true,
+    tier,
+    maxWeight: Math.round(maxWeight * 100) / 100,
+    etfCount,
+    etfs: etfsArr.map((e) => e.symbol).filter(Boolean),
+  };
+}
+
+/**
+ * Build the {etfs,maxWeight,etfCount} shape classifyFsdPick expects from a raw
+ * weight-map row (`{ GRNY: 2.5, GRNI: 2.55 }`). Returns null when not held.
+ */
+export function fsdWeightShapeFromRaw(rawRow) {
+  if (!rawRow || typeof rawRow !== "object") return null;
+  const etfs = Object.entries(rawRow)
+    .map(([symbol, weight]) => ({ symbol, weight: Number(weight) }))
+    .filter((e) => Number.isFinite(e.weight) && e.weight > 0);
+  if (etfs.length === 0) return null;
+  return { etfs, maxWeight: Math.max(...etfs.map((e) => e.weight)), etfCount: etfs.length };
+}
+
+/**
+ * 2026-06-28 — Investor entry conviction floor. Operator directive: "FSD and the
+ * TT Selected Tickers are essentially for Investors. GRNY/GRNJ rep what FSD is
+ * buying. Follow those specifically and time the best entries / know when to
+ * exit. Half the job [selection] is done."
+ *
+ * FSD membership is the PRIMARY desk-conviction signal: an FSD pick has already
+ * passed selection, so it clears the capital-deployment score floor with
+ * conviction relief (the engine's remaining job is timing). A non-FSD name has
+ * no desk backing, so it keeps the base floor (optionally a higher bar). The
+ * sector/theme strategy stance is a secondary signal for non-FSD names.
+ *
+ * @param {{ fsd?:object|null, strategy?:object|null, baseFloor:number, cfg:object }} opts
+ * @returns {{ effectiveFloor:number, alignment:string, delta:number, source:string|null }}
+ */
+export function investorEntryFloorAdjustment({ fsd, strategy, baseFloor, cfg } = {}) {
+  const floor = Number(baseFloor);
+  if (!cfg || cfg.research_alignment_enabled === false || !Number.isFinite(floor)) {
+    return { effectiveFloor: floor, alignment: "neutral", delta: 0, source: null };
+  }
+  // Primary: FSD (GRNY/GRNJ/GRNI) membership.
+  if (fsd && fsd.isPick) {
+    const relief = fsd.tier === "strong"
+      ? Number(cfg.fsd_strong_score_relief ?? 10)
+      : fsd.tier === "core"
+        ? Number(cfg.fsd_core_score_relief ?? 6)
+        : Number(cfg.fsd_light_score_relief ?? 3);
+    return { effectiveFloor: Math.max(0, floor - relief), alignment: "fsd_pick", delta: -relief, source: `fsd_${fsd.tier}` };
+  }
+  // Secondary: sector/theme strategy stance for non-FSD names (headwind only).
+  if (strategy) {
+    const mult = Number(strategy.multiplier);
+    const stance = String(strategy.stance || "neutral");
+    const headMax = Number(cfg.research_headwind_multiplier_max ?? 0.97);
+    const bump = Number(cfg.research_headwind_score_bump ?? 8);
+    if (stance === "underweight" || (Number.isFinite(mult) && mult <= headMax)) {
+      return { effectiveFloor: floor + bump, alignment: "headwind", delta: bump, source: "sector_underweight" };
+    }
+  }
+  // Off-list (not an FSD pick): optional extra conviction bar (default 0).
+  const offBump = Number(cfg.fsd_offlist_score_bump ?? 0);
+  if (offBump > 0) {
+    return { effectiveFloor: floor + offBump, alignment: "offlist", delta: offBump, source: "not_fsd_pick" };
+  }
+  return { effectiveFloor: floor, alignment: "neutral", delta: 0, source: null };
 }
 
 /**
