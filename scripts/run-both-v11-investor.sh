@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Chained runner: investor anchor on v10 day-state, then v11 trader slice.
+set +H 2>/dev/null || true
 set -euo pipefail
 
 PRE="${PREPROD_BASE:-https://timed-trading-ingest-preprod.shashant.workers.dev}"
