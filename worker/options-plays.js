@@ -128,7 +128,7 @@ export const PROFILE_META = {
     label: "Moderate",
     icon: "⚖",
     one_liner: "Sell options for premium income, LEAPs for long-term exposure.",
-    preferred: ["leap_call", "cash_secured_put", "covered_call", "vertical_spread", "stock_long"],
+    preferred: ["leap_call", "long_call", "vertical_spread", "cash_secured_put", "covered_call", "stock_long"],
   },
   aggressive: {
     label: "Aggressive",
@@ -648,6 +648,38 @@ export function resolveContractDirection(direction, effectiveDirection) {
   return null;
 }
 
+/** Infer LONG/SHORT lean from explicit direction or SL/TP geometry vs spot. */
+export function inferLevelLean(price, sl, tp1, direction) {
+  const d = String(direction || "").toUpperCase();
+  if (d === "LONG" || d === "SHORT") return d;
+  const px = Number(price);
+  const stop = Number(sl);
+  const target = Number(tp1);
+  if (!(px > 0) || !(stop > 0) || !(target > 0)) return null;
+  if (stop < px && target > px) return "LONG";
+  if (stop > px && target < px) return "SHORT";
+  return null;
+}
+
+/** Ensure SL/TP match the stated play direction (avoids SHORT geometry on a long label). */
+export function normalizeDirectionalLevels(price, sl, tp1, direction, atrPct = 0.025) {
+  const px = Number(price);
+  const d = String(direction || "").toUpperCase();
+  if (!(px > 0) || !d) return { sl, tp1 };
+  const pad = Math.max(0.015, Math.min(0.05, Number(atrPct) || 0.025));
+  if (d === "LONG") {
+    const stop = Number.isFinite(sl) && sl < px ? sl : px * (1 - pad);
+    const target = Number.isFinite(tp1) && tp1 > px ? tp1 : px * (1 + pad * 2);
+    return { sl: stop, tp1: target };
+  }
+  if (d === "SHORT") {
+    const stop = Number.isFinite(sl) && sl > px ? sl : px * (1 + pad);
+    const target = Number.isFinite(tp1) && tp1 < px ? tp1 : px * (1 - pad * 2);
+    return { sl: stop, tp1: target };
+  }
+  return { sl, tp1 };
+}
+
 /**
  * Gate index-ETF directional options on root-strategy alignment.
  *
@@ -672,14 +704,14 @@ export function shouldAllowIndexDirectional({
   const side = String(verdictSide || "NEUTRAL").toUpperCase();
   const timing = timingOverlay || confluence?.timing || null;
 
-  // Compression timing: calls when trader contract is LONG + capitulation stack,
-  // even if layer fusion is still WAIT / SHORT (signal split at index bottoms).
-  if (timing?.call_opportunity && contractDir === "LONG") {
+  // Compression timing: bounce calls at support even when the swing contract is
+  // SHORT/neutral — layer fusion WAIT + compression stack (signal split).
+  if (timing?.call_opportunity && (contractDir === "LONG" || timing?.add_on_dips)) {
     if (mode === "WAIT" || side === "SHORT" || side === "NEUTRAL") {
       return {
         allow: true,
         reason: "compression_call_timing",
-        contractDir,
+        contractDir: contractDir || "LONG",
         side: "LONG",
         timing_override: true,
       };
@@ -2354,9 +2386,22 @@ function rankByProfile(strategies, profile, { ticker } = {}) {
   const profileScore = (s) => {
     const idx = order.indexOf(s.archetype);
     let score = idx === -1 ? 999 : idx;
-    // Conservative/moderate should not headline vol plays on WAIT days.
-    if ((profile === "conservative" || profile === "moderate") && s.archetype === "long_straddle") score += 40;
+    // WAIT-day vol: only Speculator headlines straddle; others prefer lean/directional.
+    if (profile !== "speculator" && s.archetype === "long_straddle") {
+      score += profile === "aggressive" ? 35 : 40;
+    }
+    if (s._wait_vol && profile === "speculator" && s.archetype === "long_straddle") score -= 25;
+    if (s._wait_lean) {
+      if (profile === "moderate" && s.archetype === "long_call") score -= 20;
+      if (profile === "moderate" && s.archetype === "vertical_spread") score += 15;
+      if (profile === "aggressive" && s.archetype === "long_call") score -= 10;
+      if (profile === "speculator" && (s.archetype === "long_call" || s.archetype === "vertical_spread")) score += 25;
+    }
     if (profile === "conservative" && (s.archetype === "long_call" || s.archetype === "long_put")) score += 12;
+    if (profile === "moderate" && (s.archetype === "long_call" || s.archetype === "long_put")) score -= 10;
+    if (profile === "moderate" && s.archetype === "vertical_spread") score -= 6;
+    if (profile === "aggressive" && s.archetype === "long_call") score -= 5;
+    if ((profile === "moderate" || profile === "aggressive") && s.archetype === "stock_long") score += 12;
     // Index ETFs: penalize multi-leg structures when profile wants singles.
     if (wantsSingleLeg && _INDEX_MULTI_LEG.has(s.archetype)) score += 25;
     if (wantsSingleLeg && _INDEX_SINGLE_LEG.has(s.archetype)) score -= 5;
@@ -2502,15 +2547,38 @@ export function buildOptionsLadder(contract, opts = {}) {
   const verdict = opts.confluence || null;
   const verdictMode = verdict?.mode || "UNKNOWN";
   const verdictSide = verdict?.side || direction;
-  const effectiveDirection = (verdictMode === "FADE" && verdict?.side && verdict.side !== "NEUTRAL")
+  const fadeEffectiveDirection = (verdictMode === "FADE" && verdict?.side && verdict.side !== "NEUTRAL")
     ? verdict.side
     : direction;
-  // Re-derive context price-target geometry for FADE flips.
-  const fadeFlipped = effectiveDirection !== direction;
+
+  const directionalAlign = shouldAllowIndexDirectional({
+    verdictMode,
+    verdictSide,
+    direction,
+    effectiveDirection: fadeEffectiveDirection,
+    confluence: verdict,
+    timingOverlay: verdict?.timing,
+  });
+  const timingPlayDir = (directionalAlign?.timing_override && directionalAlign?.side)
+    ? directionalAlign.side
+    : null;
+  const playDirection = timingPlayDir || fadeEffectiveDirection;
+  const fadeFlipped = playDirection !== direction && !timingPlayDir;
+  const levelLean = inferLevelLean(price, sl, tp1, direction)
+    || (verdict?.timing?.call_opportunity ? "LONG" : null)
+    || (verdict?.timing?.put_opportunity ? "SHORT" : null);
+  const activeDir = String(playDirection || levelLean || "").toUpperCase();
+
   const exitForFade = pickExitTargetPrice(ctx) ?? tp1;
-  const ctxEff = fadeFlipped
-    ? { ...ctx, direction: effectiveDirection, tp1: sl, tp2: tp3, tp3: tp2, sl: exitForFade }
-    : ctx;
+  let ctxEff;
+  if (fadeFlipped) {
+    ctxEff = { ...ctx, direction: playDirection, tp1: sl, tp2: tp3, tp3: tp2, sl: exitForFade };
+  } else if (activeDir === "LONG" || activeDir === "SHORT") {
+    const norm = normalizeDirectionalLevels(price, sl, tp1, activeDir, atrPct);
+    ctxEff = { ...ctx, direction: activeDir, sl: norm.sl, tp1: norm.tp1 };
+  } else {
+    ctxEff = ctx;
+  }
 
   const ladder = [];
 
@@ -2529,15 +2597,7 @@ export function buildOptionsLadder(contract, opts = {}) {
      trader confluence was WAIT (pre-catalyst), and the ladder showed a
      Long Straddle (ATM) as PRIMARY PLAY — visually contradicting the
      "we are accumulating LONG" investor thesis. Operator flagged it. */
-  const directionalAlign = shouldAllowIndexDirectional({
-    verdictMode,
-    verdictSide,
-    direction,
-    effectiveDirection,
-    confluence: verdict,
-    timingOverlay: verdict?.timing,
-  });
-  const indexAlign = isIndexTrader ? directionalAlign : null;
+  const directionalAlignForIndex = isIndexTrader ? directionalAlign : null;
   const suppressDirectional = !isInvestorMode && (
     (verdictMode === "WAIT" && !directionalAlign?.timing_override)
     || (isIndexTrader && !directionalAlign?.allow)
@@ -2549,7 +2609,7 @@ export function buildOptionsLadder(contract, opts = {}) {
   if (moonshotDecision.activate && !suppressDirectional) {
     const moonshot = buildMoonshot(
       { ...ctxEff, motion: moonshotDecision.motion },
-      effectiveDirection,
+      activeDir || playDirection,
     );
     if (moonshot) {
       moonshot._confluence_boost = true; // always top of ladder when active
@@ -2569,7 +2629,9 @@ export function buildOptionsLadder(contract, opts = {}) {
   // ladder as an alternative.
   const _isInvestorStage = classifySetupStage(contract) === "investor";
 
-  if (!suppressDirectional && (effectiveDirection === "LONG" || effectiveDirection === "")) {
+  const buildDir = String(ctxEff.direction || activeDir || "").toUpperCase();
+
+  if (!suppressDirectional && (buildDir === "LONG" || buildDir === "")) {
     if (!indexWantsSingleLeg) {
       const leap = buildLeapCall({
         ...ctxEff,
@@ -2606,18 +2668,19 @@ export function buildOptionsLadder(contract, opts = {}) {
       const cc = buildCoveredCall(ctxEff);
       if (cc) ladder.push(cc);
     }
+    const longNorm = normalizeDirectionalLevels(price, ctxEff.sl, ctxEff.tp1, "LONG", atrPct);
     ladder.push({
       archetype: "stock_long",
       label: "Stock (Long)",
-      rationale: `Plain stock long at $${price.toFixed(2)}. Stop $${sl?.toFixed(2) ?? "?"}, target $${tp1?.toFixed(2) ?? "?"}. No leverage, no time decay, full participation.`,
-      legs: [{ action: "BUY", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1)) }],
-      max_loss_usd: Math.round(Math.abs(price - sl) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
-      max_gain_usd: Math.round(Math.abs(tp1 - price) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
+      rationale: `Plain stock long at $${price.toFixed(2)}. Stop $${longNorm.sl?.toFixed(2) ?? "?"}, target $${longNorm.tp1?.toFixed(2) ?? "?"}. No leverage, no time decay, full participation.`,
+      legs: [{ action: "BUY", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - longNorm.sl) || 1)) }],
+      max_loss_usd: Math.round(Math.abs(price - longNorm.sl) * Math.floor(dollarsAtRisk / (Math.abs(price - longNorm.sl) || 1))),
+      max_gain_usd: Math.round(Math.abs(longNorm.tp1 - price) * Math.floor(dollarsAtRisk / (Math.abs(price - longNorm.sl) || 1))),
       notes: ["No expiration", "Full account participation in moves"],
     });
   }
 
-  if (!suppressDirectional && (effectiveDirection === "SHORT" || effectiveDirection === "")) {
+  if (!suppressDirectional && (buildDir === "SHORT" || buildDir === "")) {
     const lp = buildLongPut(ctxEff);
     if (lp) {
       if (verdictMode === "RIDE") lp._confluence_boost = true;
@@ -2636,12 +2699,13 @@ export function buildOptionsLadder(contract, opts = {}) {
       const letfShort = buildLeveragedETF({ ...ctxEff, direction: "SHORT" });
       if (letfShort) ladder.push(letfShort);
     }
+    const shortNorm = normalizeDirectionalLevels(price, ctxEff.sl, ctxEff.tp1, "SHORT", atrPct);
     ladder.push({
       archetype: "stock_short",
       label: "Stock (Short)",
-      rationale: `Short stock at $${price.toFixed(2)}. Stop $${sl?.toFixed(2) ?? "?"}, target $${tp1?.toFixed(2) ?? "?"}. Requires margin + locate.`,
-      legs: [{ action: "SELL_SHORT", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1)) }],
-      max_loss_usd: Math.round(Math.abs(price - sl) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
+      rationale: `Short stock at $${price.toFixed(2)}. Stop $${shortNorm.sl?.toFixed(2) ?? "?"}, target $${shortNorm.tp1?.toFixed(2) ?? "?"}. Requires margin + locate.`,
+      legs: [{ action: "SELL_SHORT", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - shortNorm.sl) || 1)) }],
+      max_loss_usd: Math.round(Math.abs(price - shortNorm.sl) * Math.floor(dollarsAtRisk / (Math.abs(price - shortNorm.sl) || 1))),
       notes: ["Borrow + locate required", "Margin requirement applies"],
     });
   }
@@ -2658,35 +2722,60 @@ export function buildOptionsLadder(contract, opts = {}) {
      release, no clear short-term direction). */
   const allowDirectionNeutral = !isInvestorMode && !indexWantsSingleLeg;
   if (allowDirectionNeutral && (verdictMode === "WAIT" || direction === "" || atrPct >= 0.04)) {
-    const ls = buildLongStraddle(ctxEff);
-    if (ls) ladder.push(ls);
+    // Skip vol-neutral straddle when timing overlay already picked a directional lean.
+    if (!directionalAlign?.timing_override) {
+      const ls = buildLongStraddle(ctxEff);
+      if (ls) {
+        if (verdictMode === "WAIT") ls._wait_vol = true;
+        ladder.push(ls);
+      }
+    }
   }
 
-  // WAIT / misaligned layers on non-index names: conservative profiles still
-  // need a stock expression. Without this, high-vol names (e.g. TNA) headline
-  // the same ATM straddle for every profile when directional plays are suppressed.
+  // WAIT / misaligned layers on non-index names: add lean-direction options +
+  // stock expressions with geometry that matches the label.
   if (suppressDirectional && !isIndexTrader) {
-    const waitNote = "Layer fusion is WAIT — stock only until the entry trigger fires.";
-    if (!ladder.some((s) => s.archetype === "stock_long")) {
-      ladder.push({
-        archetype: "stock_long",
-        label: "Stock (Long)",
-        rationale: `${waitNote} Plain stock long at $${price.toFixed(2)} if leaning bullish on timing; no options decay.`,
-        legs: [{ action: "BUY", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1)) }],
-        max_loss_usd: Math.round(Math.abs(price - sl) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
-        max_gain_usd: Math.round(Math.abs(tp1 - price) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
-        notes: ["No expiration", "Conservative expression when options direction is gated"],
-      });
-    }
-    if (!ladder.some((s) => s.archetype === "stock_short")) {
-      ladder.push({
-        archetype: "stock_short",
-        label: "Stock (Short)",
-        rationale: `${waitNote} Short stock at $${price.toFixed(2)} if leaning bearish on timing; requires margin + locate.`,
-        legs: [{ action: "SELL_SHORT", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1)) }],
-        max_loss_usd: Math.round(Math.abs(price - sl) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
-        notes: ["Borrow + locate required", "Conservative expression when options direction is gated"],
-      });
+    const waitNote = "Layer fusion is WAIT — lean-direction only until the entry trigger fires.";
+    const waitLean = levelLean || activeDir || null;
+    if (waitLean === "LONG" || waitLean === "SHORT") {
+      const waitNorm = normalizeDirectionalLevels(price, sl, tp1, waitLean, atrPct);
+      const waitCtx = { ...ctxEff, direction: waitLean, sl: waitNorm.sl, tp1: waitNorm.tp1 };
+      if (waitLean === "LONG") {
+        const lc = buildLongCall(waitCtx);
+        if (lc) ladder.push({ ...lc, _wait_lean: true });
+        const bcs = buildVerticalSpread(waitCtx, "long");
+        if (bcs) ladder.push({ ...bcs, _wait_lean: true });
+      } else {
+        const lp = buildLongPut(waitCtx);
+        if (lp) ladder.push({ ...lp, _wait_lean: true });
+        const bps = buildVerticalSpread(waitCtx, "short");
+        if (bps) ladder.push({ ...bps, _wait_lean: true });
+      }
+      const stockArchetype = waitLean === "LONG" ? "stock_long" : "stock_short";
+      if (!ladder.some((s) => s.archetype === stockArchetype)) {
+        const riskPerShare = Math.abs(price - waitNorm.sl) || 1;
+        const qty = Math.floor(dollarsAtRisk / riskPerShare);
+        if (waitLean === "LONG") {
+          ladder.push({
+            archetype: "stock_long",
+            label: "Stock (Long)",
+            rationale: `${waitNote} Plain stock long at $${price.toFixed(2)}. Stop $${waitNorm.sl?.toFixed(2) ?? "?"}, target $${waitNorm.tp1?.toFixed(2) ?? "?"}. No options decay.`,
+            legs: [{ action: "BUY", instrument: "STOCK", qty }],
+            max_loss_usd: Math.round(Math.abs(price - waitNorm.sl) * qty),
+            max_gain_usd: Math.round(Math.abs(waitNorm.tp1 - price) * qty),
+            notes: ["No expiration", "Conservative expression when options direction is gated"],
+          });
+        } else {
+          ladder.push({
+            archetype: "stock_short",
+            label: "Stock (Short)",
+            rationale: `${waitNote} Short stock at $${price.toFixed(2)}. Stop $${waitNorm.sl?.toFixed(2) ?? "?"}, target $${waitNorm.tp1?.toFixed(2) ?? "?"}. Requires margin + locate.`,
+            legs: [{ action: "SELL_SHORT", instrument: "STOCK", qty }],
+            max_loss_usd: Math.round(Math.abs(price - waitNorm.sl) * qty),
+            notes: ["Borrow + locate required", "Conservative expression when options direction is gated"],
+          });
+        }
+      }
     }
   }
 
@@ -2799,7 +2888,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     confluence_side: verdictSide,
     confluence_score: Number(verdict?.score) || null,
     confluence_summary: verdict?.actionable_summary || null,
-    direction_alignment: isIndexTrader ? indexAlign : null,
+    direction_alignment: isIndexTrader ? directionalAlignForIndex : null,
     direction_flipped_by_confluence: fadeFlipped,
     target_delta: targetDelta,
     // Moonshot tier metadata — UI uses to surface special treatment.
@@ -2812,7 +2901,7 @@ export function buildOptionsLadder(contract, opts = {}) {
       const setup_guidance = buildOptionsSetupGuidance({
         confluence: verdict,
         contract: { ticker: tickerSym, atr_pct: atrPct, direction },
-        directionAlignment: isIndexTrader ? indexAlign : null,
+        directionAlignment: isIndexTrader ? directionalAlignForIndex : null,
         primary,
         moonshot: {
           activated: !!moonshotDecision.activate,
@@ -2823,9 +2912,9 @@ export function buildOptionsLadder(contract, opts = {}) {
       const model_disposition = buildOptionsModelDisposition({
         confluence: verdict,
         contractDirection: direction,
-        effectiveDirection,
+        effectiveDirection: playDirection,
         directionFlipped: fadeFlipped,
-        directionAlignment: isIndexTrader ? indexAlign : null,
+        directionAlignment: isIndexTrader ? directionalAlignForIndex : null,
         setupGuidance: setup_guidance,
         primary,
         moonshot: {
@@ -2836,14 +2925,14 @@ export function buildOptionsLadder(contract, opts = {}) {
       return {
         setup_guidance,
         contract_direction: direction,
-        effective_direction: effectiveDirection,
+        effective_direction: playDirection,
         model_disposition,
         model_reconciliation: buildOptionsModelReconciliation({
           contractDirection: contract.contract_direction || direction,
           confluenceSide: verdictSide,
-          effectiveDirection,
+          effectiveDirection: playDirection,
           directionFlipped: fadeFlipped,
-          directionAlignment: isIndexTrader ? indexAlign : null,
+          directionAlignment: isIndexTrader ? directionalAlignForIndex : null,
           contract: {
             direction,
             contract_direction: contract.contract_direction || direction,
