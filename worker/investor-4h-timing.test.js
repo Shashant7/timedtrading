@@ -1,4 +1,4 @@
-// 4H SuperTrend + 1H EMA21 timing gate for Investor capital deployment.
+// 4H SuperTrend opposing-slope gate for Investor capital deployment.
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_INVESTOR_CONFIG,
@@ -20,58 +20,73 @@ function td(overrides = {}) {
     tf_tech: {
       D: { stDir: -1 },
       W: { stDir: -1, atr: { xs: 1 } },
-      "4H": { stDir: -1, stSlopeUp: true, stSlope: 1, ema: { ema21: 95 } },
-      "1H": { ema: { ema21: 98 } },
+      "4H": { stDir: -1, stSlopeUp: true, stSlope: 1 },
     },
     ...bullishMonthly,
     ...overrides,
   };
 }
 
-describe("4H timing snapshot", () => {
-  it("detects bearish 4H with slope down and below 1H EMA21", () => {
-    const h4 = resolveInvestor4hTiming(td({
-      price: 90,
-      _live_price: 90,
+describe("4H ST slope snapshot", () => {
+  it("detects opposing slope without requiring bearish direction flip", () => {
+    const snap = resolveInvestor4hTiming(td({
       tf_tech: {
         D: { stDir: -1 },
         W: { stDir: -1 },
-        "4H": { stDir: 1, stSlopeDn: true, stSlope: -2 },
-        "1H": { ema: { ema21: 95 } },
+        "4H": { stDir: -1, stSlopeDn: true, stSlope: -2 },
       },
     }));
-    expect(h4.is4hBear).toBe(true);
-    expect(h4.stSlopeDn).toBe(true);
-    expect(h4.belowEma21_1h).toBe(true);
+    expect(snap.opposingSlope).toBe(true);
+    expect(snap.is4hBull).toBe(true);
+  });
+
+  it("treats flat bearish ST as non-opposing", () => {
+    const snap = resolveInvestor4hTiming(td({
+      tf_tech: {
+        D: { stDir: -1 },
+        W: { stDir: -1 },
+        "4H": { stDir: 1, stSlope: 0 },
+      },
+    }));
+    expect(snap.is4hBear).toBe(true);
+    expect(snap.stSlopeFlat).toBe(true);
+    expect(snap.opposingSlope).toBe(false);
   });
 });
 
-describe("4H capital deployment block", () => {
-  it("blocks when 4H SuperTrend is bearish (CRDO/MOD pattern)", () => {
+describe("capital deployment block — slope only", () => {
+  it("blocks when 4H SuperTrend is sloping down (CRDO/MOD observation)", () => {
     const block = investor4hCapitalDeploymentBlock(td({
-      price: 250,
       tf_tech: {
-        D: { stDir: 1 },
-        W: { stDir: 1, atr: { xs: -1 } },
+        D: { stDir: -1 },
+        W: { stDir: -1, atr: { xs: 1 } },
         "4H": { stDir: 1, stSlopeDn: true, stSlope: -3 },
-        "1H": { ema: { ema21: 260 } },
       },
     }));
-    expect(block).toMatchObject({ reason: "4h_supertrend_bearish_slope" });
+    expect(block).toMatchObject({ reason: "supertrend_opposing_slope", opposingSlope: true });
   });
 
-  it("blocks when price is below 1H EMA21 even if 4H is bull", () => {
-    const block = investor4hCapitalDeploymentBlock(td({
+  it("does NOT block bearish-but-flat SuperTrend", () => {
+    expect(investor4hCapitalDeploymentBlock(td({
+      tf_tech: {
+        D: { stDir: -1 },
+        W: { stDir: -1 },
+        "4H": { stDir: 1, stSlope: 0 },
+      },
+    }))).toBeNull();
+  });
+
+  it("does NOT block on price below hourly EMA alone", () => {
+    expect(investor4hCapitalDeploymentBlock(td({
       price: 90,
       _live_price: 90,
       tf_tech: {
         D: { stDir: -1 },
         W: { stDir: -1 },
-        "4H": { stDir: -1, stSlopeUp: true },
+        "4H": { stDir: -1, stSlopeUp: true, stSlope: 1 },
         "1H": { ema: { ema21: 95 } },
       },
-    }));
-    expect(block).toMatchObject({ reason: "below_1h_ema21" });
+    }))).toBeNull();
   });
 
   it("returns null when timing is aligned", () => {
@@ -79,50 +94,76 @@ describe("4H capital deployment block", () => {
   });
 
   it("honors disable flag", () => {
-    const cfg = loadInvestorConfig({ deep_audit_investor_4h_gate_enabled: "false" });
+    const cfg = loadInvestorConfig({ deep_audit_investor_st_slope_gate_enabled: "false" });
     expect(investor4hCapitalDeploymentBlock(td({ tf_tech: { "4H": { stDir: 1, stSlopeDn: true } } }), cfg)).toBeNull();
   });
 });
 
-describe("simEligible includes 4H", () => {
-  it("requires 4H bull when gate enabled", () => {
+describe("simEligible", () => {
+  it("requires no opposing 4H slope when gate enabled", () => {
     expect(computeInvestorSimEligible(td())).toBe(true);
-    expect(computeInvestorSimEligible(td({ tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1 }, "1H": { ema: { ema21: 50 } } } }))).toBe(false);
+    expect(computeInvestorSimEligible(td({
+      tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlopeDn: true, stSlope: -1 } },
+    }))).toBe(false);
+    expect(computeInvestorSimEligible(td({
+      tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlope: 0 } },
+    }))).toBe(true);
   });
 });
 
 describe("stage gate", () => {
-  it("downgrades accumulate to watch when 4H blocks", () => {
+  it("downgrades accumulate to watch when opposing slope blocks", () => {
     const r = applyInvestor4hStageGate(
       { stage: "accumulate", reason: "strong_score" },
-      td({ tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlopeDn: true }, "1H": { ema: { ema21: 50 } } } }),
+      td({ tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlopeDn: true, stSlope: -2 } } }),
       { existingPosition: null, cfg: DEFAULT_INVESTOR_CONFIG },
     );
     expect(r.stage).toBe("watch");
-    expect(r.reason).toContain("4h_timing_block");
+    expect(r.reason).toContain("st_slope_block");
+  });
+
+  it("allows accumulate when ST is bearish but flat", () => {
+    const r = applyInvestor4hStageGate(
+      { stage: "accumulate", reason: "strong_score" },
+      td({ tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlope: 0 } } }),
+      { existingPosition: null, cfg: DEFAULT_INVESTOR_CONFIG },
+    );
+    expect(r.stage).toBe("accumulate");
   });
 });
 
 describe("score component fourHourTiming", () => {
-  it("penalizes bearish 4H in the investor score", () => {
+  it("penalizes only opposing slope, not flat bearish direction", () => {
     const good = computeInvestorScore(td(), { rsRank: 80, sectorRsRank: 50, marketHealth: 60 }).components.fourHourTiming;
-    const bad = computeInvestorScore(td({
-      tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlopeDn: true }, "1H": { ema: { ema21: 50 } } },
+    const slopeDown = computeInvestorScore(td({
+      tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlopeDn: true, stSlope: -2 } },
     }), { rsRank: 80, sectorRsRank: 50, marketHealth: 60 }).components.fourHourTiming;
-    expect(bad).toBeLessThan(good);
+    const flatBear = computeInvestorScore(td({
+      tf_tech: { D: { stDir: -1 }, W: { stDir: -1 }, "4H": { stDir: 1, stSlope: 0 } },
+    }), { rsRank: 80, sectorRsRank: 50, marketHealth: 60 }).components.fourHourTiming;
+    expect(slopeDown).toBeLessThan(flatBear);
+    expect(flatBear).toBe(0);
   });
 });
 
 describe("classifyInvestorStage integration", () => {
-  it("does not emit accumulate for bearish 4H on strong-score path", () => {
+  it("does not emit accumulate when 4H ST is sloping down", () => {
     const stage = classifyInvestorStage(
-      td({
-        tf_tech: { D: { stDir: -1 }, W: { stDir: -1, atr: { xs: 1 } }, "4H": { stDir: 1, stSlopeDn: true }, "1H": { ema: { ema21: 50 } } },
-      }),
+      td({ tf_tech: { D: { stDir: -1 }, W: { stDir: -1, atr: { xs: 1 } }, "4H": { stDir: 1, stSlopeDn: true, stSlope: -2 } } }),
       72,
       null,
       { rsRank: 90, marketHealth: 60, cfg: DEFAULT_INVESTOR_CONFIG },
     );
     expect(stage.stage).not.toBe("accumulate");
+  });
+
+  it("may emit accumulate when 4H ST is bearish but flat", () => {
+    const stage = classifyInvestorStage(
+      td({ tf_tech: { D: { stDir: -1 }, W: { stDir: -1, atr: { xs: 1 } }, "4H": { stDir: 1, stSlope: 0 } } }),
+      72,
+      null,
+      { rsRank: 90, marketHealth: 60, cfg: DEFAULT_INVESTOR_CONFIG },
+    );
+    expect(stage.stage).toBe("accumulate");
   });
 });

@@ -99,8 +99,8 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   // 0 wins, FSLR 4/0, TSLA 9 @ 11% WR). Reversible via the _enabled flag.
   loss_reentry_cooldown_enabled: true,
   loss_reentry_cooldown_days: 5,                       // single losing close → block re-entry (was 10; operator: excessive)
-  loser_cooldown_consec_losses: 2,                     // >= N consecutive losing closes → persistent-loser ban
-  loser_cooldown_days: 45,                             // persistent-loser ban window (>= cooldown_days)
+  loser_cooldown_consec_losses: 3,                     // >= N consecutive losing closes → persistent-loser ban (was 2)
+  loser_cooldown_days: 21,                             // persistent-loser ban window (was 45; toned down)
 
   // 2026-06-28 — Research-desk alignment at entry. Operator: "Investor Mode
   // should get all the benefits of our system — Research desk, CTO, CIO."
@@ -131,13 +131,12 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   fsd_removal_exit_pct: 1.0,                            // 1.0 = full exit; <1 = partial trim
   fsd_removal_window_days: 14,                          // act on removals within N days of the rebalance
 
-  // 2026-06-28 — 4H + hourly EMA timing gate (operator: CRDO/MOD re-bought while
-  // 4H SuperTrend bearish with slope down and price under hourly EMA21). Investor
-  // thesis is monthly/weekly, but capital deployment must respect swing timing so
-  // entries catch moves with minimal drawdown and exits avoid giveback.
+  // 2026-06-28 — 4H SuperTrend *slope* gate for capital deployment. Block only
+  // when ST is actively sloping against the long (stSlopeDn). Flat-but-opposing
+  // direction is allowed — timing, not direction flip alone.
+  investor_st_slope_gate_enabled: true,
+  /** @deprecated alias — use investor_st_slope_gate_enabled */
   investor_4h_gate_enabled: true,
-  investor_4h_block_bearish_slope: true,                 // 4H ST bear + stSlopeDn → block adds
-  investor_4h_require_above_ema21_1h: true,             // block deploy when price < 1H EMA21
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -276,18 +275,17 @@ export function loadInvestorConfig(daCfg) {
   if (Number.isFinite(frPct) && frPct > 0 && frPct <= 1) cfg.fsd_removal_exit_pct = frPct;
   const frWin = Number(daCfg.deep_audit_investor_fsd_removal_window_days);
   if (Number.isFinite(frWin) && frWin >= 0 && frWin <= 180) cfg.fsd_removal_window_days = frWin;
-  const h4Gate = daCfg.deep_audit_investor_4h_gate_enabled;
-  if (h4Gate === true || h4Gate === false) cfg.investor_4h_gate_enabled = h4Gate;
-  else if (h4Gate === "true") cfg.investor_4h_gate_enabled = true;
-  else if (h4Gate === "false") cfg.investor_4h_gate_enabled = false;
-  const h4Slope = daCfg.deep_audit_investor_4h_block_bearish_slope;
-  if (h4Slope === true || h4Slope === false) cfg.investor_4h_block_bearish_slope = h4Slope;
-  else if (h4Slope === "true") cfg.investor_4h_block_bearish_slope = true;
-  else if (h4Slope === "false") cfg.investor_4h_block_bearish_slope = false;
-  const h4Ema = daCfg.deep_audit_investor_4h_require_above_ema21_1h;
-  if (h4Ema === true || h4Ema === false) cfg.investor_4h_require_above_ema21_1h = h4Ema;
-  else if (h4Ema === "true") cfg.investor_4h_require_above_ema21_1h = true;
-  else if (h4Ema === "false") cfg.investor_4h_require_above_ema21_1h = false;
+  const h4Gate = daCfg.deep_audit_investor_st_slope_gate_enabled ?? daCfg.deep_audit_investor_4h_gate_enabled;
+  if (h4Gate === true || h4Gate === false) {
+    cfg.investor_st_slope_gate_enabled = h4Gate;
+    cfg.investor_4h_gate_enabled = h4Gate;
+  } else if (h4Gate === "true") {
+    cfg.investor_st_slope_gate_enabled = true;
+    cfg.investor_4h_gate_enabled = true;
+  } else if (h4Gate === "false") {
+    cfg.investor_st_slope_gate_enabled = false;
+    cfg.investor_4h_gate_enabled = false;
+  }
   return cfg;
 }
 
@@ -381,54 +379,51 @@ export function investorEntryFloorAdjustment({ fsd, strategy, baseFloor, cfg } =
 }
 
 /**
- * 4H SuperTrend + 1H EMA21 timing snapshot for Investor capital deployment.
- * Pine convention on tf_tech.*.stDir: -1 = bull, +1 = bear (same as Active Trader HTF checks).
+ * 4H SuperTrend slope snapshot for Investor capital-deployment timing.
+ * Pine stDir: -1 = bull, +1 = bear. Gate uses opposing *slope* only (stSlopeDn).
  */
 export function resolveInvestor4hTiming(tickerData) {
   const tf4H = tickerData?.tf_tech?.["4H"] || tickerData?.tf_tech?.["240"] || {};
-  const tf1H = tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"] || {};
   const stDir = Number(tf4H.stDir ?? tf4H.atr?.xs) || 0;
-  const is4hBull = stDir === -1;
-  const is4hBear = stDir === 1;
-  const stSlopeDn = !!(tf4H.stSlopeDn || (is4hBear && Number(tf4H.stSlope) < 0));
-  const stSlopeUp = !!(tf4H.stSlopeUp || (is4hBull && Number(tf4H.stSlope) > 0));
-  const px = Number(tickerData?._live_price || tickerData?.price) || 0;
-  const ema21_1h = Number(
-    tf1H.ema?.ema21 ?? tf1H.ema?.ema22 ?? tickerData?.ema_map?.["1H"]?.ema21 ?? tickerData?.ema_map?.["1H"]?.ema22,
-  ) || 0;
-  const belowEma21_1h = px > 0 && ema21_1h > 0 && px < ema21_1h;
+  const stSlope = Number(tf4H.stSlope);
+  const stSlopeDn = tf4H.stSlopeDn === true
+    || (Number.isFinite(stSlope) && stSlope < 0);
+  const stSlopeUp = tf4H.stSlopeUp === true
+    || (Number.isFinite(stSlope) && stSlope > 0);
+  const stSlopeFlat = !stSlopeDn && !stSlopeUp;
+  const opposingSlope = stSlopeDn;
   return {
+    timeframe: "4H",
     stDir,
-    is4hBull,
-    is4hBear,
+    stSlope: Number.isFinite(stSlope) ? stSlope : null,
+    is4hBull: stDir === -1,
+    is4hBear: stDir === 1,
     stSlopeDn,
     stSlopeUp,
-    ema21_1h,
-    belowEma21_1h,
-    price: px,
+    stSlopeFlat,
+    opposingSlope,
   };
 }
 
-/**
- * Returns a block descriptor when swing timing says "do not deploy capital"
- * (new open or add). Null = timing OK.
- */
-export function investor4hCapitalDeploymentBlock(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
-  if (!cfg || cfg.investor_4h_gate_enabled === false) return null;
-  const h4 = resolveInvestor4hTiming(tickerData);
-  if (h4.is4hBear) {
-    if (cfg.investor_4h_block_bearish_slope !== false && h4.stSlopeDn) {
-      return { reason: "4h_supertrend_bearish_slope", ...h4 };
-    }
-    return { reason: "4h_supertrend_bearish", ...h4 };
-  }
-  if (cfg.investor_4h_require_above_ema21_1h !== false && h4.belowEma21_1h) {
-    return { reason: "below_1h_ema21", ...h4 };
-  }
-  return null;
+export function isInvestorStSlopeGateEnabled(cfg = DEFAULT_INVESTOR_CONFIG) {
+  if (!cfg) return true;
+  if (cfg.investor_st_slope_gate_enabled === false) return false;
+  if (cfg.investor_4h_gate_enabled === false) return false;
+  return true;
 }
 
-/** Monthly + D/W/M structural alignment AND 4H/1H timing for act_now tier. */
+/**
+ * Returns a block descriptor when 4H SuperTrend is actively sloping against
+ * the long (down). Flat-but-bearish ST is allowed. Null = timing OK.
+ */
+export function investor4hCapitalDeploymentBlock(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
+  if (!isInvestorStSlopeGateEnabled(cfg)) return null;
+  const snap = resolveInvestor4hTiming(tickerData);
+  if (!snap.opposingSlope) return null;
+  return { reason: "supertrend_opposing_slope", ...snap };
+}
+
+/** Monthly + D/W/M structural alignment; no opposing 4H ST slope for act_now. */
 export function computeInvestorSimEligible(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
   const _stDirD = tickerData?.tf_tech?.D?.stDir ?? 0;
   const _stDirW = tickerData?.tf_tech?.W?.stDir ?? 0;
@@ -437,21 +432,18 @@ export function computeInvestorSimEligible(tickerData, cfg = DEFAULT_INVESTOR_CO
     + (_stDirW === -1 ? 1 : 0)
     + (_stDirM === -1 ? 1 : 0);
   const structural = (_stDirM === -1) && (_stDirBullCount >= 2);
-  if (!structural || cfg.investor_4h_gate_enabled === false) return structural;
-  const h4 = resolveInvestor4hTiming(tickerData);
-  if (!h4.is4hBull) return false;
-  if (cfg.investor_4h_require_above_ema21_1h !== false && h4.belowEma21_1h) return false;
-  return true;
+  if (!structural || !isInvestorStSlopeGateEnabled(cfg)) return structural;
+  return !resolveInvestor4hTiming(tickerData).opposingSlope;
 }
 
 /**
- * Stage gate — downgrade accumulate/core_hold to watch when 4H timing blocks adds.
+ * Stage gate — downgrade accumulate/core_hold to watch when ST slope blocks adds.
  * Chained after applyInvestorTimingGate inside classifyInvestorStage.
  */
 export function applyInvestor4hStageGate(stageResult, tickerData, ctx = {}) {
   if (!stageResult || !tickerData) return stageResult;
   const cfg = ctx.cfg || DEFAULT_INVESTOR_CONFIG;
-  if (cfg.investor_4h_gate_enabled === false) return stageResult;
+  if (!isInvestorStSlopeGateEnabled(cfg)) return stageResult;
   const owned = !!ctx.existingPosition;
   const stage = String(stageResult.stage || "");
   const block = investor4hCapitalDeploymentBlock(tickerData, cfg);
@@ -462,7 +454,7 @@ export function applyInvestor4hStageGate(stageResult, tickerData, ctx = {}) {
   return {
     ...stageResult,
     stage: "watch",
-    reason: `${owned ? "4h_timing_no_add" : "4h_timing_block"}:${block.reason}:${stageResult.reason}`,
+    reason: `${owned ? "st_slope_no_add" : "st_slope_block"}:${block.reason}:${stageResult.reason}`,
     timing_4h: block,
   };
 }
@@ -538,7 +530,7 @@ export function shouldBlockInvestorReentry(closesForTicker, now, cfg) {
   if (!isLoss(rows[0])) return null;
   let consec = 0;
   for (const r of rows) { if (isLoss(r)) consec += 1; else break; }
-  const consecThreshold = Number(cfg.loser_cooldown_consec_losses) || 2;
+  const consecThreshold = Number(cfg.loser_cooldown_consec_losses) || 3;
   const loserDays = Number(cfg.loser_cooldown_days);
   const cooldownDays = (consec >= consecThreshold && Number.isFinite(loserDays) && loserDays > days)
     ? loserDays
@@ -754,16 +746,12 @@ export function computeInvestorScore(tickerData, opts = {}) {
 
   components.momentumHealth = Math.max(-10, Math.min(5, components.momentumHealth));
 
-  // ── 4H SuperTrend + 1H EMA timing (swing alignment for capital deployment) ──
+  // ── 4H SuperTrend slope timing (opposing slope only — not direction/EMA) ──
   components.fourHourTiming = 0;
   const _h4 = resolveInvestor4hTiming(tickerData);
-  if (_h4.is4hBear) {
-    components.fourHourTiming -= _h4.stSlopeDn ? 6 : 4;
-  } else if (_h4.is4hBull && _h4.stSlopeUp) {
-    components.fourHourTiming += 2;
-  }
-  if (_h4.belowEma21_1h) components.fourHourTiming -= 3;
-  components.fourHourTiming = Math.max(-8, Math.min(4, components.fourHourTiming));
+  if (_h4.opposingSlope) components.fourHourTiming -= 5;
+  else if (_h4.stSlopeUp) components.fourHourTiming += 2;
+  components.fourHourTiming = Math.max(-6, Math.min(3, components.fourHourTiming));
 
   // ── Daily SuperTrend Alignment (bonus up to +5 pts) ──
   components.dailySuperTrendBonus = 0;
