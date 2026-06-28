@@ -2354,6 +2354,9 @@ function rankByProfile(strategies, profile, { ticker } = {}) {
   const profileScore = (s) => {
     const idx = order.indexOf(s.archetype);
     let score = idx === -1 ? 999 : idx;
+    // Conservative/moderate should not headline vol plays on WAIT days.
+    if ((profile === "conservative" || profile === "moderate") && s.archetype === "long_straddle") score += 40;
+    if (profile === "conservative" && (s.archetype === "long_call" || s.archetype === "long_put")) score += 12;
     // Index ETFs: penalize multi-leg structures when profile wants singles.
     if (wantsSingleLeg && _INDEX_MULTI_LEG.has(s.archetype)) score += 25;
     if (wantsSingleLeg && _INDEX_SINGLE_LEG.has(s.archetype)) score -= 5;
@@ -2526,18 +2529,19 @@ export function buildOptionsLadder(contract, opts = {}) {
      trader confluence was WAIT (pre-catalyst), and the ladder showed a
      Long Straddle (ATM) as PRIMARY PLAY — visually contradicting the
      "we are accumulating LONG" investor thesis. Operator flagged it. */
-  const indexAlign = isIndexTrader
-    ? shouldAllowIndexDirectional({
-      verdictMode,
-      verdictSide,
-      direction,
-      effectiveDirection,
-      confluence: verdict,
-      timingOverlay: verdict?.timing,
-    })
-    : null;
-  const suppressDirectional = (verdictMode === "WAIT" && !isInvestorMode && !indexAlign?.timing_override)
-    || (isIndexTrader && !indexAlign?.allow);
+  const directionalAlign = shouldAllowIndexDirectional({
+    verdictMode,
+    verdictSide,
+    direction,
+    effectiveDirection,
+    confluence: verdict,
+    timingOverlay: verdict?.timing,
+  });
+  const indexAlign = isIndexTrader ? directionalAlign : null;
+  const suppressDirectional = !isInvestorMode && (
+    (verdictMode === "WAIT" && !directionalAlign?.timing_override)
+    || (isIndexTrader && !directionalAlign?.allow)
+  );
 
   // 🌙 MOONSHOT — if all activation conditions met, insert at TOP of ladder.
   // This is the gem: short-dated OTM gamma play when the model has identified
@@ -2656,6 +2660,34 @@ export function buildOptionsLadder(contract, opts = {}) {
   if (allowDirectionNeutral && (verdictMode === "WAIT" || direction === "" || atrPct >= 0.04)) {
     const ls = buildLongStraddle(ctxEff);
     if (ls) ladder.push(ls);
+  }
+
+  // WAIT / misaligned layers on non-index names: conservative profiles still
+  // need a stock expression. Without this, high-vol names (e.g. TNA) headline
+  // the same ATM straddle for every profile when directional plays are suppressed.
+  if (suppressDirectional && !isIndexTrader) {
+    const waitNote = "Layer fusion is WAIT — stock only until the entry trigger fires.";
+    if (!ladder.some((s) => s.archetype === "stock_long")) {
+      ladder.push({
+        archetype: "stock_long",
+        label: "Stock (Long)",
+        rationale: `${waitNote} Plain stock long at $${price.toFixed(2)} if leaning bullish on timing; no options decay.`,
+        legs: [{ action: "BUY", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1)) }],
+        max_loss_usd: Math.round(Math.abs(price - sl) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
+        max_gain_usd: Math.round(Math.abs(tp1 - price) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
+        notes: ["No expiration", "Conservative expression when options direction is gated"],
+      });
+    }
+    if (!ladder.some((s) => s.archetype === "stock_short")) {
+      ladder.push({
+        archetype: "stock_short",
+        label: "Stock (Short)",
+        rationale: `${waitNote} Short stock at $${price.toFixed(2)} if leaning bearish on timing; requires margin + locate.`,
+        legs: [{ action: "SELL_SHORT", instrument: "STOCK", qty: Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1)) }],
+        max_loss_usd: Math.round(Math.abs(price - sl) * Math.floor(dollarsAtRisk / (Math.abs(price - sl) || 1))),
+        notes: ["Borrow + locate required", "Conservative expression when options direction is gated"],
+      });
+    }
   }
 
   // 2026-05-30 — Liquidity + IV warnings (per-play). Surfaced as
