@@ -19,7 +19,7 @@ const NOW = Date.parse("2026-06-26T14:00:00Z"); // matches the CRDO/MOD re-entry
 describe("R7 cooldown — defaults + overrides", () => {
   it("ships the operator-intended defaults", () => {
     expect(DEFAULT_INVESTOR_CONFIG.loss_reentry_cooldown_enabled).toBe(true);
-    expect(DEFAULT_INVESTOR_CONFIG.loss_reentry_cooldown_days).toBe(10);
+    expect(DEFAULT_INVESTOR_CONFIG.loss_reentry_cooldown_days).toBe(5);
     expect(DEFAULT_INVESTOR_CONFIG.loser_cooldown_consec_losses).toBe(2);
     expect(DEFAULT_INVESTOR_CONFIG.loser_cooldown_days).toBe(45);
   });
@@ -43,7 +43,7 @@ describe("R7 cooldown — defaults + overrides", () => {
       deep_audit_investor_loser_cooldown_consec_losses: "0",
       deep_audit_investor_loser_cooldown_days: "9999",
     });
-    expect(c.loss_reentry_cooldown_days).toBe(10);
+    expect(c.loss_reentry_cooldown_days).toBe(5);
     expect(c.loser_cooldown_consec_losses).toBe(2);
     expect(c.loser_cooldown_days).toBe(45);
   });
@@ -59,7 +59,7 @@ describe("R7 cooldown — predicate", () => {
     const block = shouldBlockInvestorReentry(closes, NOW, cfg);
     expect(block).toBeTruthy();
     expect(block.consec_losses).toBe(1);
-    expect(block.cooldown_days).toBe(10);
+    expect(block.cooldown_days).toBe(5);
     expect(block.days_remaining).toBeGreaterThan(0);
   });
 
@@ -107,7 +107,7 @@ describe("R7 cooldown — predicate", () => {
     const block = shouldBlockInvestorReentry(closes, NOW, cfg);
     expect(block).toBeTruthy();
     expect(block.consec_losses).toBe(1); // streak broken by the win
-    expect(block.cooldown_days).toBe(10);
+    expect(block.cooldown_days).toBe(5);
   });
 
   it("returns null when disabled", () => {
