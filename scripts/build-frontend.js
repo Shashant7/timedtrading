@@ -294,6 +294,23 @@ const BUILD_MARKER = `cache-bust:${Date.now()}:${Math.floor(Math.random() * 1e9)
 // ticker-spider-chart, investor-panel, trades-performance,
 // service-worker. (Pages adds its own ETag on top, but the URL-
 // level change is what forces a fresh fetch on the browser side.)
+// iOS Safari reads apple-touch-icon from the initial HTML <head> — not from
+// JS-injected links (auth-gate runs deferred). Stamp these at build time on
+// every page so Add to Home Screen shows the Timed Trading logo.
+function injectPwaHeadTags(html) {
+  if (/rel=["']apple-touch-icon["']/i.test(html)) return html;
+  const block = [
+    '    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />',
+    '    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png" />',
+    '    <link rel="manifest" href="/site.webmanifest" />',
+    '    <meta name="theme-color" content="#000000" />',
+    '    <meta name="apple-mobile-web-app-capable" content="yes" />',
+    '    <meta name="apple-mobile-web-app-title" content="Timed Trading" />',
+    '    <meta name="mobile-web-app-capable" content="yes" />',
+  ].join("\n");
+  return html.replace(/<head([^>]*)>/i, `<head$1>\n${block}`);
+}
+
 function rewriteSharedScriptCacheBust(html) {
   const stamp = BUILD_MARKER.split(":")[1] || String(Date.now());
   // Match `<script src="<name>.js?v=<existing>">` and same for .compiled.js.
@@ -330,6 +347,7 @@ function compileHtmlSource(sourceHtmlPath, outputHtmlPath) {
   const applyPerfTransforms = !PERF_TRANSFORM_EXCLUDED_SOURCES.has(sourceName);
 
   html = replaceReactBuilds(html);
+  html = injectPwaHeadTags(html);
   html = replaceTailwindRuntime(html, outputHtmlPath);
   html = removeBabelStandalone(html);
   if (applyPerfTransforms) {
