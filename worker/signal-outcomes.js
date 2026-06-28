@@ -374,49 +374,75 @@ export function isSignalDue(sig, nowMs = Date.now()) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Expire stale horizon-less open signals in ONE bulk UPDATE. `cto_level` price
+ * levels have no expiry and no horizon — they resolve only on target/stop
+ * TOUCH, so an untouched level sits `open` forever and the backlog grows
+ * unbounded (3,700+ rows). A level that was never hit within `maxAgeDays` is no
+ * longer a relevant prediction (the CTO horizon is ~10 sessions), so retire it.
+ * This is the keystone of "always heal at the pit stop": it bounds the open
+ * population in O(1) statements so the resolver never falls behind.
+ * Returns the number of rows expired.
+ */
+export async function expireStaleSignals(env, opts = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, error_kind: "no_db", expired: 0 };
+  const now = Number(opts.now) || Date.now();
+  const maxAgeDays = Number(opts.maxAgeDays);
+  if (!Number.isFinite(maxAgeDays) || maxAgeDays <= 0) return { ok: true, expired: 0 };
+  const cutoff = now - maxAgeDays * DAY_MS;
+  try {
+    const res = await db.prepare(
+      `UPDATE ${TABLE}
+          SET status = 'expired', resolved_at = ?1, outcome = 'expired',
+              resolve_note = 'stale_unresolved_expiry', updated_at = ?1
+        WHERE status = 'open'
+          AND (expiry_ts IS NULL OR expiry_ts <= 0)
+          AND (horizon_days IS NULL OR horizon_days <= 0)
+          AND published_at < ?2`
+    ).bind(now, cutoff).run();
+    const expired = Number(res?.meta?.changes ?? res?.changes ?? 0) || 0;
+    return { ok: true, expired };
+  } catch (e) {
+    return { ok: false, error_kind: "expire_failed", hint: String(e?.message || e).slice(0, 200), expired: 0 };
+  }
+}
+
+/**
  * Resolve all due open signals against D1 daily candles. Also EARLY-resolves
  * open signals whose target/stop already got touched (first-touch), so wins
  * and losses show up the night they happen rather than at horizon end.
- * Called from the 22:00 UTC nightly chain. Budget-bounded.
+ *
+ * 2026-06-28 — "always heal at the pit stop." The market runs on a known
+ * schedule, so during closed windows we drain the whole resolvable backlog
+ * instead of nibbling a fixed budget:
+ *   - opts.expireStaleDays  : first retire stale horizon-less levels (bulk).
+ *   - opts.drain            : loop the scan/resolve pass until a pass makes no
+ *                             progress (everything currently resolvable graded).
+ *   - opts.maxBatches       : hard cap on drain iterations (default 25).
+ * Default (no opts) keeps the original single-pass, budget-bounded behavior.
  */
 export async function resolveDueSignals(env, opts = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error_kind: "no_db" };
   await ensureSignalOutcomesSchema(env);
   const now = Number(opts.now) || Date.now();
-  const limit = Math.max(1, Math.min(200, Number(opts.limit) || 100));
+  const limit = Math.max(1, Math.min(500, Number(opts.limit) || 100));
+  const drain = !!opts.drain;
+  const maxBatches = drain ? Math.max(1, Math.min(50, Number(opts.maxBatches) || 25)) : 1;
+  const expireStaleDays = Number.isFinite(Number(opts.expireStaleDays))
+    ? Number(opts.expireStaleDays)
+    : (drain ? 30 : 0);
 
-  // 2026-06-28 — Fair scheduling across sources. `cto_level` writes thousands
-  // of price-level signals that resolve only on target/stop TOUCH (no horizon),
-  // so they sit `open` indefinitely and, under a single `ORDER BY published_at
-  // ASC LIMIT` scan, monopolized the budget — starving every horizon-based
-  // source (investor_action 73 logged / 0 resolved, fsd_tactical 3/40,
-  // options_play 0/5). Split the scan: pull ALL non-cto_level open signals
-  // first (the whole population is small, ~150), then fill remaining budget
-  // with the oldest open cto_level rows for touch/horizon resolution. This
-  // guarantees investor/FSD/options signals are graded every run.
-  const NON_CTO_SCAN_CAP = 300;
-  let rows = [];
-  try {
-    const nonCtoRows = (await db.prepare(
-      `SELECT * FROM ${TABLE} WHERE status = 'open' AND source != 'cto_level'
-        ORDER BY published_at ASC LIMIT ?1`
-    ).bind(NON_CTO_SCAN_CAP).all())?.results || [];
-    const ctoRows = (await db.prepare(
-      `SELECT * FROM ${TABLE} WHERE status = 'open' AND source = 'cto_level'
-        ORDER BY published_at ASC LIMIT ?1`
-    ).bind(limit).all())?.results || [];
-    rows = [...nonCtoRows, ...ctoRows];
-  } catch (e) {
-    return { ok: false, error_kind: "read_failed", hint: String(e?.message || e).slice(0, 200) };
+  // Bulk-retire stale horizon-less levels FIRST so the scan budget below isn't
+  // wasted re-reading perpetually-open cto rows.
+  let expired = 0;
+  if (expireStaleDays > 0) {
+    const exp = await expireStaleSignals(env, { now, maxAgeDays: expireStaleDays });
+    if (exp.ok) expired += exp.expired;
   }
-  if (rows.length === 0) return { ok: true, scanned: 0, resolved: 0 };
 
-  let resolved = 0;
-  let invalid = 0;
-  const resolvedRows = []; // compact — for activity-feed grading events
-  const stmts = [];
-  // One candle read per distinct ticker (signals cluster on actives).
+  // Shared candle cache across drain batches (signals cluster on the same
+  // active tickers, so this is read once per ticker for the whole drain).
   const barsCache = new Map();
   const loadBars = async (ticker, sinceTs) => {
     const key = ticker;
@@ -432,6 +458,58 @@ export async function resolveDueSignals(env, opts = {}) {
     barsCache.set(key, bars);
     return bars;
   };
+
+  let totalScanned = 0;
+  let totalResolved = 0;
+  let totalInvalid = 0;
+  let batches = 0;
+  const resolvedRows = []; // compact — for activity-feed grading events
+
+  for (let b = 0; b < maxBatches; b++) {
+    const pass = await _resolveOnePass(db, { now, limit, loadBars });
+    if (!pass.ok) {
+      return { ...pass, scanned: totalScanned, resolved: totalResolved, invalid: totalInvalid, expired };
+    }
+    totalScanned += pass.scanned;
+    totalResolved += pass.resolved;
+    totalInvalid += pass.invalid;
+    for (const r of pass.resolved_rows) resolvedRows.push(r);
+    batches++;
+    // Stop when not draining, or a pass made no progress / found nothing.
+    if (!drain || pass.scanned === 0 || (pass.resolved + pass.invalid) === 0) break;
+  }
+
+  return { ok: true, scanned: totalScanned, resolved: totalResolved, invalid: totalInvalid, expired, batches, resolved_rows: resolvedRows };
+}
+
+/**
+ * One scan+resolve pass (the original budget-bounded body). Fair-scheduled
+ * across sources: ALL non-cto_level open rows first (small population), then
+ * the oldest cto_level rows — so horizon sources are never starved by the
+ * touch-only cto backlog.
+ */
+async function _resolveOnePass(db, { now, limit, loadBars }) {
+  const NON_CTO_SCAN_CAP = 300;
+  let rows = [];
+  try {
+    const nonCtoRows = (await db.prepare(
+      `SELECT * FROM ${TABLE} WHERE status = 'open' AND source != 'cto_level'
+        ORDER BY published_at ASC LIMIT ?1`
+    ).bind(NON_CTO_SCAN_CAP).all())?.results || [];
+    const ctoRows = (await db.prepare(
+      `SELECT * FROM ${TABLE} WHERE status = 'open' AND source = 'cto_level'
+        ORDER BY published_at ASC LIMIT ?1`
+    ).bind(limit).all())?.results || [];
+    rows = [...nonCtoRows, ...ctoRows];
+  } catch (e) {
+    return { ok: false, error_kind: "read_failed", hint: String(e?.message || e).slice(0, 200) };
+  }
+  if (rows.length === 0) return { ok: true, scanned: 0, resolved: 0, invalid: 0, resolved_rows: [] };
+
+  let resolved = 0;
+  let invalid = 0;
+  const resolvedRows = [];
+  const stmts = [];
 
   for (const row of rows) {
     const due = isSignalDue(row, now);
