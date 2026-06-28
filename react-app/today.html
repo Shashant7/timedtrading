@@ -100,6 +100,9 @@
         color: var(--tt-text-faint);
         margin-bottom: 4px;
       }
+      .tt-opp-zone-labels span:nth-child(1) { color: #fca5a5; }
+      .tt-opp-zone-labels span:nth-child(2) { color: #6ee7b7; }
+      .tt-opp-zone-labels span:nth-child(3) { color: #fcd34d; }
       .tt-opp-zone-track {
         position: relative;
         height: 8px;
@@ -113,9 +116,9 @@
         top: 0;
         bottom: 0;
       }
-      .tt-opp-zone-seg--inv { background: rgba(248,113,113,0.35); }
-      .tt-opp-zone-seg--pb { background: rgba(56,242,161,0.28); }
-      .tt-opp-zone-seg--tgt { background: rgba(245,194,92,0.32); }
+      .tt-opp-zone-seg--inv { background: rgba(248,113,113,0.72); }
+      .tt-opp-zone-seg--pb { background: rgba(56,242,161,0.62); }
+      .tt-opp-zone-seg--tgt { background: rgba(245,194,92,0.68); }
       .tt-opp-zone-marker {
         position: absolute;
         top: -3px;
@@ -5864,9 +5867,6 @@
                     onToggleSaved: toggleSaved,
                   });
                 }),
-          ),
-          ranked.length > (lane ? 40 : 60) && h("div", { className: "vp-empty", style: { fontSize: 10 } },
-            `Showing ${lane ? 40 : 60} of ${ranked.length} — narrow the filter to see more.`,
           ),
         );
       }

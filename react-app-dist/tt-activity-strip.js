@@ -129,16 +129,6 @@
         background: rgba(251,146,60,0.10);
         border-color: rgba(251,146,60,0.35);
       }
-      .tt-activity-pill .ev-mode {
-        font-size: 9px; font-weight: 800; letter-spacing: 0.05em;
-        text-transform: uppercase; padding: 1px 4px; border-radius: 4px;
-        border: 1px solid rgba(255,255,255,0.10); color: var(--tt-text-dim);
-      }
-      .tt-activity-pill.ev-doing .ev-mode,
-      .tt-activity-pill.ev-recommended .ev-mode {
-        color: #fdba74; border-color: rgba(251,146,60,0.35);
-        background: rgba(251,146,60,0.10);
-      }
       .tt-activity-strip__filters {
         display: inline-flex; gap: 4px; flex-shrink: 0;
       }
@@ -196,6 +186,19 @@
     const v = Number(n);
     if (!Number.isFinite(v)) return "";
     return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+  }
+
+  // Strip display: mode + enter/exit/trim only (ADD/BOUGHT/WATCH/QUEUE → enter).
+  function normalizeDisplayAction(meta) {
+    const label = String(meta?.label || "").toUpperCase();
+    const evType = String(meta?.evType || "").toUpperCase();
+    if (label === "TRIM" || evType === "TRIM" || label === "REDUCE" || evType.indexOf("TRIM") >= 0) return "TRIM";
+    if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return "EXIT";
+    return "ENTER";
+  }
+
+  function scopeDisplayLabel(scope) {
+    return scope === "investor" ? "Inv" : "Trader";
   }
 
   // Brand logo (monogram fallback → async real logo swap). Mirrors the
@@ -440,13 +443,13 @@
     const parts = [];
     const t = meta.evType;
     const shareN = Number.isFinite(shares) && shares > 0 ? shares : qty;
-    if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD") {
+    if (t === "ENTRY" || t === "ADD_ENTRY" || t === "ADD" || t === "INVESTOR_SIGNAL") {
       if (Number.isFinite(price) && price > 0) {
         parts.push(shareN > 0 ? `${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh @ ${fmtUsd(price)}` : `@ ${fmtUsd(price)}`);
       } else if (shareN > 0) {
         parts.push(`${shareN % 1 === 0 ? shareN : shareN.toFixed(1)} sh`);
       }
-      const reason = shortReason(ev?.reason);
+      const reason = shortReason(ev?.reason || ev?.action);
       if (reason) parts.push(reason);
       if (ev?.setup_grade) parts.push(String(ev.setup_grade));
       return parts.join(" · ");
@@ -456,7 +459,7 @@
       if (Number.isFinite(price) && price > 0) parts.push(`@ ${fmtUsd(price)}`);
       const remain = Number(ev?.remaining ?? ev?.remaining_shares ?? ev?.total_shares);
       if (Number.isFinite(remain) && remain >= 0 && t === "TRIM") parts.push(`${remain % 1 === 0 ? remain : remain.toFixed(1)} sh left`);
-      const reason = shortReason(ev?.reason);
+      const reason = shortReason(ev?.reason || ev?.action);
       if (reason) parts.push(reason);
       return parts.join(" · ");
     }
@@ -575,7 +578,7 @@
       label.textContent = "Recent activity";
       const hint = document.createElement("span");
       hint.className = "tt-activity-strip__hint";
-      hint.textContent = "Did · Ready · Queued — opens Now or History";
+      hint.textContent = "Mode · action · ticker · bias · size @ price · when · why";
       const scroll = document.createElement("div");
       scroll.className = "tt-activity-strip__scroll";
       const row = document.createElement("div");
@@ -609,25 +612,18 @@
       pill.type = "button";
       pill.className = `tt-activity-pill ${meta.cls}${meta.mode === "watching" ? " ev-watching" : " ev-doing"}`;
       pill.dataset.scope = meta.scope === "investor" ? "investor" : "trader";
-      const scopeLabel = meta.scope === "investor" ? "INVESTOR" : "TRADER";
-      pill.title = [scopeLabel, meta.execState === "recommended" ? "READY" : "DID", meta.label, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
+      const actionLabel = normalizeDisplayAction(meta);
+      const scopeLabel = scopeDisplayLabel(meta.scope);
+      pill.title = [scopeLabel, actionLabel, sym, dir, detail, fmtClock(ts)].filter(Boolean).join(" · ");
 
-      const modeEl = document.createElement("span");
-      modeEl.className = "ev-mode";
-      modeEl.textContent = meta.execState === "recommended"
-        ? (meta.label === "ACCUM" ? "QUEUE" : "READY")
-        : "DID";
-      pill.appendChild(modeEl);
-
-      // Scope chip — Investor vs Active Trader at a glance (operator request).
       const scopeEl = document.createElement("span");
       scopeEl.className = `ev-scope ev-scope--${meta.scope === "investor" ? "investor" : "trader"}`;
-      scopeEl.textContent = meta.scope === "investor" ? "INV" : "TRADE";
+      scopeEl.textContent = scopeLabel;
       pill.appendChild(scopeEl);
 
       const typeEl = document.createElement("span");
       typeEl.className = "ev-type";
-      typeEl.textContent = meta.label;
+      typeEl.textContent = actionLabel;
       pill.appendChild(typeEl);
       if (sym) {
         pill.appendChild(buildTickerLogo(sym));
@@ -777,4 +773,4 @@
   else mount();
 })();
 
-// cache-bust:1782598695510:302271935
+// cache-bust:1782599489693:283363238
