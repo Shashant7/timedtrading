@@ -1937,13 +1937,11 @@ body.vf-page .kanban-card.inv-kanban-card {
 .rail-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 14, 0.55);
+  background: rgba(8, 10, 14, 0.72);
   backdrop-filter: blur(2px);
   z-index: 9100;
-  opacity: 0;
-  animation: rail-fade-in 180ms ease forwards;
+  opacity: 1;
 }
-@keyframes rail-fade-in { to { opacity: 1; } }
 
 .rail-panel {
   position: fixed;
@@ -1959,7 +1957,7 @@ body.vf-page .kanban-card.inv-kanban-card {
   box-shadow: -16px 0 48px rgba(0, 0, 0, 0.55);
   z-index: 9101;
   transform: translateX(40px);
-  opacity: 0;
+  opacity: 1;
   animation: rail-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   /* Single scroll owner: tab body (.tt-rail-area-right-pane), not the
      drawer shell. Nested scroll (panel + pane both overflow-y:auto)
@@ -1989,7 +1987,7 @@ body.vf-page .kanban-card.inv-kanban-card {
     box-shadow: none;
   }
 }
-@keyframes rail-slide-in { to { transform: translateX(0); opacity: 1; } }
+@keyframes rail-slide-in { to { transform: translateX(0); } }
 .rail-panel::-webkit-scrollbar { width: 6px; }
 .rail-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
 

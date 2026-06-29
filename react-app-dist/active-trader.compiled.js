@@ -1652,22 +1652,36 @@ function ActiveTraderApp() {
   const [railOpenSource, setRailOpenSource] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
-  const railTickerObj = useMemo(() => {
-    if (!railTicker) return null;
+  const allTickersRef = useRef(allTickers);
+  const dataRef = useRef(data);
+  allTickersRef.current = allTickers;
+  dataRef.current = data;
+  const [railTickerSnapshot, setRailTickerSnapshot] = useState(null);
+  useEffect(() => {
+    if (!railTicker) {
+      setRailTickerSnapshot(null);
+      return;
+    }
     const key = String(railTicker).toUpperCase();
-    const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
-    if (found) return found;
-    if (data && typeof data === "object" && data[key]) {
-      const raw = data[key];
-      return raw.ticker ? raw : {
+    const tickers = allTickersRef.current;
+    const payload = dataRef.current;
+    const found = (tickers || []).find(t => String(t?.ticker || "").toUpperCase() === key);
+    if (found) {
+      setRailTickerSnapshot(found);
+      return;
+    }
+    if (payload && typeof payload === "object" && payload[key]) {
+      const raw = payload[key];
+      setRailTickerSnapshot(raw.ticker ? raw : {
         ...raw,
         ticker: key
-      };
+      });
+      return;
     }
-    return {
+    setRailTickerSnapshot({
       ticker: key
-    };
-  }, [railTicker, allTickers, data]);
+    });
+  }, [railTicker]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
   useEffect(() => {
     if (RailOverlay) return;
@@ -1995,8 +2009,8 @@ function ActiveTraderApp() {
     allTickers,
     data,
     onSelectTicker: onOpen
-  })), RailOverlay && railTickerObj && h(RailOverlay, {
-    ticker: railTickerObj,
+  })), RailOverlay && railTickerSnapshot && h(RailOverlay, {
+    ticker: railTickerSnapshot,
     allLoadedData: data,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
@@ -2013,6 +2027,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782759865068:157467280
+// cache-bust:1782770295556:95227445
 
-// cache-bust:1782759865068:157467280
+// cache-bust:1782770295556:95227445

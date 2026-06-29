@@ -769,21 +769,34 @@ function InvestorApp() {
   const [railOpenSource, setRailOpenSource] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
-  const railTickerObj = useMemo(() => {
-    if (!railTicker) return null;
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const [railTickerSnapshot, setRailTickerSnapshot] = useState(null);
+  useEffect(() => {
+    if (!railTicker) {
+      setRailTickerSnapshot(null);
+      return;
+    }
     const key = String(railTicker).toUpperCase();
-    if (!data) return {
-      ticker: key
-    };
-    const raw = data[key];
-    if (!raw) return {
-      ticker: key
-    };
-    return raw.ticker ? raw : {
+    const payload = dataRef.current;
+    if (!payload) {
+      setRailTickerSnapshot({
+        ticker: key
+      });
+      return;
+    }
+    const raw = payload[key];
+    if (!raw) {
+      setRailTickerSnapshot({
+        ticker: key
+      });
+      return;
+    }
+    setRailTickerSnapshot(raw.ticker ? raw : {
       ticker: key,
       ...raw
-    };
-  }, [railTicker, data]);
+    });
+  }, [railTicker]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
   useEffect(() => {
     if (RailOverlay) return;
@@ -911,8 +924,8 @@ function InvestorApp() {
     onSelectTicker,
     bubbleMapFilter,
     onBubbleMapFilterChange: setBubbleMapFilter
-  })), RailOverlay && railTickerObj && h(RailOverlay, {
-    ticker: railTickerObj,
+  })), RailOverlay && railTickerSnapshot && h(RailOverlay, {
+    ticker: railTickerSnapshot,
     allLoadedData: data,
     onClose: onCloseRail,
     initialRailTab: railInitialTab,
@@ -929,6 +942,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782759865068:157467280
+// cache-bust:1782770295556:95227445
 
-// cache-bust:1782759865068:157467280
+// cache-bust:1782770295556:95227445

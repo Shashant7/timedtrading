@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260624-chip-rows2" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260629-rail-flash" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -18,7 +18,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="tt-fetch-cache.js?v=20260606a"></script>
-    <script src="tt-live-data.js?v=20260623a"></script>
+    <script src="tt-live-data.js?v=20260629-rail-flash"></script>
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
     <script src="investor-nav-badge.js?v=20260622a"></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
@@ -28,7 +28,7 @@
     <script src="shared-price-utils.js?v=20260623a"></script>
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
-    <script src="shared-lane-card.js?v=20260624-chip-rows2"></script>
+    <script src="shared-lane-card.js?v=20260629-rail-flash"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
     <script src="ds-components.js?v=20260501a"></script>
@@ -44,7 +44,7 @@
     <script src="shared-rail-helpers.js?v=20260614-pml-rank"></script>
     <script src="shared-right-rail.compiled.js?v=20260623f"></script>
     <script src="ticker-spider-chart.js?v=20260501a"></script>
-    <script src="shared-rail-bootstrap.js?v=20260610-verda3"></script>
+    <script src="shared-rail-bootstrap.js?v=20260629-rail-flash"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -6829,21 +6829,37 @@
         const [highlightTradeId, setHighlightTradeId] = useState(null);
         const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
 
-        const railTickerObj = useMemo(() => {
-          if (!railTicker) return null;
-          const key = String(railTicker).toUpperCase();
-          const found = allTickers.find((t) => String(t?.ticker || "").toUpperCase() === key);
-          if (found) return found;
-          // Fallback 1: raw /timed/all payload keyed by ticker
-          if (data && typeof data === "object" && data[key]) {
-            const row = data[key].ticker ? data[key] : { ...data[key], ticker: key };
-            return isTickerScoredInUniverse(data, key) ? row : { ...row, _outsideUniverse: true };
+        // Snapshot ticker payload at rail open — do not rebind on every WS
+        // price tick (allTickers/data churn) or the overlay + page flash together.
+        const allTickersRef = useRef(allTickers);
+        const dataRef = useRef(data);
+        allTickersRef.current = allTickers;
+        dataRef.current = data;
+        const [railTickerSnapshot, setRailTickerSnapshot] = useState(null);
+        useEffect(() => {
+          if (!railTicker) {
+            setRailTickerSnapshot(null);
+            return;
           }
-          // Stub until /timed/all lands — do not assume outside-universe yet
-          // (share deep links open before payload load and were forced to Catalysts).
-          if (!data) return { ticker: key };
-          return { ticker: key, _outsideUniverse: true };
-        }, [railTicker, allTickers, data]);
+          const key = String(railTicker).toUpperCase();
+          const tickers = allTickersRef.current;
+          const payload = dataRef.current;
+          const found = (tickers || []).find((t) => String(t?.ticker || "").toUpperCase() === key);
+          if (found) {
+            setRailTickerSnapshot(found);
+            return;
+          }
+          if (payload && typeof payload === "object" && payload[key]) {
+            const row = payload[key].ticker ? payload[key] : { ...payload[key], ticker: key };
+            setRailTickerSnapshot(isTickerScoredInUniverse(payload, key) ? row : { ...row, _outsideUniverse: true });
+            return;
+          }
+          if (!payload) {
+            setRailTickerSnapshot({ ticker: key });
+            return;
+          }
+          setRailTickerSnapshot({ ticker: key, _outsideUniverse: true });
+        }, [railTicker]);
         // V15 P0.7.181 — Reactive RailOverlay state so card clicks
         // work the instant the rail scripts load (no "small delay"
         // fallthrough to legacy nav on first click).
@@ -6986,9 +7002,9 @@
             h(EndCTA, null),
           ),
           // Right rail slide-in overlay (TickerDetailRightRail).
-          RailOverlay && railTickerObj && h(RailOverlay, {
-            ticker: railTickerObj,
-            trade: railTickerObj._openTrade || null,
+          RailOverlay && railTickerSnapshot && h(RailOverlay, {
+            ticker: railTickerSnapshot,
+            trade: railTickerSnapshot._openTrade || null,
             allLoadedData: data,
             earningsMap,
             onClose: onCloseRail,
