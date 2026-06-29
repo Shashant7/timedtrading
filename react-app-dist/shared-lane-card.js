@@ -99,7 +99,7 @@
       title: p.button?.title,
     },
       p.sparkSvg && h("div", {
-        className: "tt-lane-card__spark-bg",
+        className: "ds-tickercard__spark",
         dangerouslySetInnerHTML: { __html: p.sparkSvg },
       }),
       h("div", { className: "tt-lane-card__main" },
@@ -142,4 +142,4 @@
   boot();
 })();
 
-// cache-bust:1782757225047:832004693
+// cache-bust:1782757981087:860045589

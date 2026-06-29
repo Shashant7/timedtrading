@@ -773,7 +773,6 @@ input, button, select, textarea {
   --tt-lane-main-h: 42px;
   --tt-lane-mid-h: 0px;
   --tt-lane-bar-h: 12px;
-  --tt-lane-spark-h: 54%;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -790,33 +789,20 @@ input, button, select, textarea {
   --tt-lane-mid-h: 44px;
   --tt-lane-main-h: 44px;
 }
-/* Sparkline: bottom-anchored, ~half card height, stroke-only, fades upward. */
-.tt-lane-card__spark-bg {
+/* Lane cards: classic bottom-half spark backdrop (same as pre-refactor). */
+.ds-tickercard.tt-lane-card > .ds-tickercard__spark {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  top: auto;
-  height: var(--tt-lane-spark-h);
+  inset: auto 0 0 0;
+  height: 50%;
   z-index: 1;
+  opacity: 0.45;
   pointer-events: none;
-  padding: 0 var(--ds-space-3) 1px;
-  box-sizing: border-box;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 42%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 0%, #000 42%, transparent 100%);
+  padding: 0;
 }
-.tt-lane-card__spark-bg svg {
+.ds-tickercard.tt-lane-card > .ds-tickercard__spark svg {
   display: block;
   width: 100%;
   height: 100%;
-  opacity: 0.26;
-}
-.tt-lane-card__spark-bg svg path:first-of-type {
-  display: none;
-}
-.tt-lane-card__spark-bg svg path:last-of-type {
-  stroke-width: 1;
 }
 .tt-lane-card__mid {
   display: flex;

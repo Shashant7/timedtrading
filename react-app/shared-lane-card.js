@@ -99,7 +99,7 @@
       title: p.button?.title,
     },
       p.sparkSvg && h("div", {
-        className: "tt-lane-card__spark-bg",
+        className: "ds-tickercard__spark",
         dangerouslySetInnerHTML: { __html: p.sparkSvg },
       }),
       h("div", { className: "tt-lane-card__main" },
