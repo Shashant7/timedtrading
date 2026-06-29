@@ -69,11 +69,11 @@
     );
   }
 
-  function saveButton({ sym, isSaved, onToggleSaved, corner }) {
+  function saveButton({ sym, isSaved, onToggleSaved }) {
     if (!onToggleSaved) return null;
     return h("button", {
       onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
-      className: `ds-chip ds-chip--sm tt-lane-card__save${corner ? " tt-lane-card__save--corner" : ""}`,
+      className: "ds-chip ds-chip--sm tt-lane-card__save",
       style: {
         color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
         background: isSaved ? "var(--ds-accent-dim)" : "transparent",
@@ -88,14 +88,20 @@
     const sym = String(p.sym || "").toUpperCase();
     const chips = Array.isArray(p.chipRow) ? p.chipRow.filter(Boolean) : [];
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
+    const hasMid = !!p.midBody;
+    const extraClass = p.button?.className ? ` ${p.button.className}` : "";
 
     return h("button", {
       onClick: p.button?.onClick,
       onKeyDown: p.button?.onKeyDown,
-      className: `ds-tickercard tt-lane-card${p.button?.className ? ` ${p.button.className}` : ""}`,
+      className: `ds-tickercard tt-lane-card${hasMid ? " tt-lane-card--active" : ""}${extraClass}`,
       style: p.button?.style,
       title: p.button?.title,
     },
+      p.sparkSvg && h("div", {
+        className: "tt-lane-card__spark-bg",
+        dangerouslySetInnerHTML: { __html: p.sparkSvg },
+      }),
       h("div", { className: "tt-lane-card__main" },
         h("div", { className: "tt-lane-card__meta" },
           h("div", { className: "tt-lane-card__identity" },
@@ -115,23 +121,11 @@
         ),
         quoteColumn(p.quote || {}),
       ),
-      h("div", { className: "tt-lane-card__mid" }, p.midBody || null),
-      h("div", { className: "tt-lane-card__spark-slot" },
-        p.sparkSvg && h("div", {
-          className: "ds-tickercard__spark",
-          dangerouslySetInnerHTML: { __html: p.sparkSvg },
-        }),
-      ),
-      metrics.length > 0 && h("div", { className: "tt-lane-card__foot" },
-        h("div", { className: "tt-lane-card__metrics" }, ...metrics),
+      hasMid && h("div", { className: "tt-lane-card__mid" }, p.midBody),
+      h("div", { className: "tt-lane-card__bar" },
+        metrics.length > 0 && h("div", { className: "tt-lane-card__metrics" }, ...metrics),
         saveButton({ sym, isSaved: p.isSaved, onToggleSaved: p.onToggleSaved }),
       ),
-      metrics.length === 0 && saveButton({
-        sym,
-        isSaved: p.isSaved,
-        onToggleSaved: p.onToggleSaved,
-        corner: true,
-      }),
     );
   }
 
