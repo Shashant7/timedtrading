@@ -72,7 +72,7 @@
       .tt-opp-card {
         flex: 0 0 260px; scroll-snap-align: start;
         display: flex; flex-direction: column; gap: 8px;
-        padding: 12px 14px; border-radius: 12px; cursor: pointer; text-align: left;
+        padding: 12px 14px; border-radius: var(--vf-radius-md, 18px); cursor: pointer; text-align: left;
         background: var(--tt-bg-surface); border: 1px solid var(--tt-border);
         transition: border-color 0.15s, background 0.15s;
         color: var(--tt-text);
@@ -579,7 +579,7 @@
         padding: 16px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .tt-status .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .tt-status .greeting { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }
@@ -645,7 +645,7 @@
       .idx-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         padding: 12px 14px;
         display: flex;
         flex-direction: column;
@@ -799,7 +799,7 @@
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-top: 2px solid rgba(245,194,92,0.35);
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       @media (max-width: 720px) { .analysis-controls { padding: 18px 16px 14px; } }
       .ac-head {
@@ -939,7 +939,7 @@
         position: relative;
         background: radial-gradient(ellipse at center, rgba(255,255,255,0.025) 0%, transparent 65%), #06080b;
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         overflow: hidden;
       }
       .bm-stage svg { display: block; width: 100%; height: auto; }
@@ -1011,7 +1011,7 @@
         width: min(340px, calc(100% - 32px));
         background: rgba(15, 17, 23, 0.96);
         border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
         padding: 16px;
       }
@@ -1441,7 +1441,7 @@
       .sk-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         padding: 16px 18px;
       }
       .sk-line { height: 12px; }
@@ -1468,7 +1468,7 @@
         height: 118px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .sk-bubble-shell {
         display: grid;
@@ -1480,19 +1480,19 @@
         height: 150px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .sk-bubble-pane {
         height: 520px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .sk-heat {
         height: 260px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       /* BriefPlaceholder (data-driven loading card) */
       .bp-card { padding: 16px 18px; }
