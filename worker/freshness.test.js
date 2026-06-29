@@ -291,6 +291,21 @@ describe("evaluateOpenPositionCandleMap", () => {
     }, { nowMs: satNow, sessionRef, marketOpen: false });
     expect(evalResult.stale).toBe(false);
   });
+
+  it("treats Thu close D bar as fresh on Mon 9 AM ET after Juneteenth (sanity-sweep false alarm)", () => {
+    const thuBounds = sessionBoundsUtc("2026-06-18");
+    // Mon 2026-06-23 09:15 ET ≈ 13:15 UTC (EDT). Fri bar wall-clock age ≈ 85h
+    // but calendar-aware check must stay fresh until Mon session completes.
+    const monMorning = Date.UTC(2026, 5, 23, 13, 15, 0);
+    const sessionRef = computeMarketSessionReference(monMorning);
+    const evalResult = evaluateOpenPositionCandleMap({
+      D: tradingDateUtcMs("2026-06-18"),
+      60: thuBounds.closeMs - 30 * 60 * 1000,
+      240: thuBounds.closeMs - 2 * 60 * 60 * 1000,
+    }, { nowMs: monMorning, sessionRef, marketOpen: false });
+    expect(evalResult.stale).toBe(false);
+    expect((monMorning - tradingDateUtcMs("2026-06-18")) / HOUR).toBeGreaterThan(80);
+  });
 });
 
 describe("buildTfNewestTsFromCandleCache", () => {
