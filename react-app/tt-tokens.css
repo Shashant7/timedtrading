@@ -769,20 +769,44 @@ input, button, select, textarea {
 
 /* ─── TtLaneCard — shared compact lane layout (AT / Today / Investor) ─ */
 .ds-tickercard.tt-lane-card {
-  --tt-lane-card-h: 160px;
-  --tt-lane-main-h: 50px;
-  --tt-lane-mid-h: 46px;
-  --tt-lane-spark-h: 32px;
-  --tt-lane-foot-h: 18px;
+  --tt-lane-card-h: 112px;
+  --tt-lane-main-h: 46px;
+  --tt-lane-mid-h: 0px;
+  --tt-lane-bar-h: 16px;
+  --tt-lane-spark-top: 6px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   box-sizing: border-box;
-  padding: var(--ds-space-3);
+  padding: 8px var(--ds-space-3) 10px;
   height: var(--tt-lane-card-h);
   min-height: var(--tt-lane-card-h);
   max-height: var(--tt-lane-card-h);
   text-align: left;
+}
+.ds-tickercard.tt-lane-card.tt-lane-card--active,
+.ds-tickercard.tt-lane-card.tt-lane-card--owned {
+  --tt-lane-card-h: 170px;
+  --tt-lane-mid-h: 52px;
+}
+/* Sparkline: bottom-anchored backdrop, rising to just below the card top. */
+.tt-lane-card__spark-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: var(--tt-lane-spark-top);
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.38;
+  padding: 0 var(--ds-space-3) 2px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.tt-lane-card__spark-bg svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .tt-lane-card__mid {
   display: flex;
@@ -795,19 +819,6 @@ input, button, select, textarea {
   min-height: var(--tt-lane-mid-h);
   max-height: var(--tt-lane-mid-h);
   overflow: hidden;
-}
-.tt-lane-card__spark-slot {
-  flex: 0 0 var(--tt-lane-spark-h);
-  height: var(--tt-lane-spark-h);
-  min-height: var(--tt-lane-spark-h);
-  position: relative;
-  overflow: hidden;
-  z-index: 1;
-}
-.tt-lane-card__spark-slot .ds-tickercard__spark {
-  inset: 0;
-  height: 100%;
-  opacity: 0.45;
 }
 .tt-lane-card__pos {
   display: flex;
@@ -929,9 +940,9 @@ input, button, select, textarea {
   flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
-  margin-top: 6px;
-  height: 20px;
-  min-height: 20px;
+  margin-top: 4px;
+  height: 18px;
+  min-height: 18px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -960,7 +971,7 @@ input, button, select, textarea {
 }
 .tt-lane-card__price {
   font-family: var(--tt-font-mono);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.1;
   color: var(--ds-text-display);
@@ -998,6 +1009,18 @@ input, button, select, textarea {
   color: var(--tt-text-dim);
   letter-spacing: 0.06em;
 }
+.tt-lane-card__bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 6px;
+  z-index: 2;
+  position: relative;
+  flex: 0 0 var(--tt-lane-bar-h);
+  height: var(--tt-lane-bar-h);
+  min-height: var(--tt-lane-bar-h);
+  margin-top: auto;
+}
 .tt-lane-card__foot {
   display: flex;
   align-items: flex-end;
@@ -1005,10 +1028,13 @@ input, button, select, textarea {
   gap: 6px;
   z-index: 2;
   position: relative;
-  flex: 0 0 var(--tt-lane-foot-h);
-  height: var(--tt-lane-foot-h);
-  min-height: var(--tt-lane-foot-h);
+  flex: 0 0 var(--tt-lane-bar-h);
+  height: var(--tt-lane-bar-h);
+  min-height: var(--tt-lane-bar-h);
   margin-top: 0;
+}
+.tt-lane-card__bar .tt-lane-card__metrics {
+  margin-right: auto;
 }
 .tt-lane-card__metrics {
   display: flex;
@@ -1021,15 +1047,8 @@ input, button, select, textarea {
 .tt-lane-card__save {
   flex: 0 0 auto;
   padding: 0 6px;
-  height: 18px;
+  height: 16px;
   margin-left: auto;
-}
-.tt-lane-card__save--corner {
-  position: absolute;
-  right: 10px;
-  bottom: calc(var(--tt-lane-spark-h) + 2px);
-  z-index: 3;
-  margin-left: 0;
 }
 .tt-lane-card__position {
   z-index: 2;
