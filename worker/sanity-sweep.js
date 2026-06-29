@@ -36,6 +36,11 @@
 import { detectExhaustionWarnings } from "./investor.js";
 import { notifyDiscord } from "./alerts.js";
 import {
+  computeMarketSessionReference,
+  evaluateOpenPositionCandleMap,
+} from "./freshness.js";
+import { normTicker } from "./ingest.js";
+import {
   computeProtectiveStopTighten,
   resolveEffectiveStopLoss,
   slDrawdownPct,
@@ -437,41 +442,50 @@ const checkCandleFreshnessOpen = timed(async function checkCandleFreshnessOpen(e
   try {
     if (!env?.DB) return envelope("candle_freshness_open", "Candle freshness on open positions", [], "no D1", null);
     // Candles live in D1 (ticker_candles table), NOT KV. Use the same
-    // shape as /timed/admin/candle-freshness so the source of truth is
-    // identical.
+    // calendar-aware evaluation as ensureOpenPositionCandlesFresh in
+    // worker/index.js — a flat 48h wall-clock gap false-alarms every
+    // Monday morning (Fri close ≈ 65–89h old) and after holiday weekends.
     const { results: openRows } = await env.DB.prepare(
       "SELECT DISTINCT ticker FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM') LIMIT 100"
     ).all().catch(() => ({ results: [] }));
-    const openTickers = (openRows || []).map(r => String(r.ticker || "").toUpperCase()).filter(Boolean);
+    const openTickers = (openRows || [])
+      .map((r) => normTicker(r.ticker))
+      .filter(Boolean);
     if (openTickers.length === 0) {
       return envelope("candle_freshness_open", "Candle freshness on open positions",
         [], "no open positions to check", null);
     }
-    const now = Date.now();
-    const isWeekend = [0, 6].includes(new Date().getUTCDay());
-    // Daily candles: stale if >48h on weekday; >96h on weekend.
-    const staleThresholdMs = isWeekend ? 96 * 3600000 : 48 * 3600000;
-    // Single query: latest D candle ts per open ticker.
-    const placeholders = openTickers.slice(0, 30).map(() => "?").join(",");
+    const slice = openTickers.slice(0, 30);
+    const nowMs = Date.now();
+    const sessionRef = computeMarketSessionReference(nowMs);
+    const marketOpen = sessionRef.market_open;
+    const tfList = marketOpen ? ["D", "60", "30", "5", "240"] : ["D", "60", "240"];
+    const tickerPH = slice.map(() => "?").join(",");
+    const tfPH = tfList.map((_, i) => `?${slice.length + 1 + i}`).join(",");
     const { results: candleRows } = await env.DB.prepare(
-      `SELECT ticker, MAX(ts) AS max_ts FROM ticker_candles WHERE tf = 'D' AND ticker IN (${placeholders}) GROUP BY ticker`
-    ).bind(...openTickers.slice(0, 30)).all().catch(() => ({ results: [] }));
-    const tickerToTs = new Map((candleRows || []).map(r => [String(r.ticker || "").toUpperCase(), Number(r.max_ts) || 0]));
+      `SELECT ticker, tf, MAX(ts) AS max_ts FROM ticker_candles
+       WHERE ticker IN (${tickerPH}) AND tf IN (${tfPH})
+       GROUP BY ticker, tf`
+    ).bind(...slice, ...tfList).all().catch(() => ({ results: [] }));
+    const byTicker = new Map();
+    for (const r of (candleRows || [])) {
+      const t = normTicker(r.ticker);
+      if (!byTicker.has(t)) byTicker.set(t, {});
+      byTicker.get(t)[String(r.tf)] = Number(r.max_ts) || 0;
+    }
     let staleCount = 0;
     const staleNames = [];
-    for (const sym of openTickers.slice(0, 30)) {
-      const lastTs = tickerToTs.get(sym) || 0;
-      if (lastTs === 0) { staleNames.push(`${sym}(no candles)`); staleCount++; continue; }
-      const ageMs = now - lastTs;
-      if (ageMs > staleThresholdMs) {
-        const hoursStale = (ageMs / 3600000).toFixed(1);
-        staleNames.push(`${sym}(${hoursStale}h)`);
+    for (const sym of slice) {
+      const tfMap = byTicker.get(sym) || {};
+      const evalResult = evaluateOpenPositionCandleMap(tfMap, { nowMs, sessionRef, marketOpen });
+      if (evalResult.stale) {
+        staleNames.push(`${sym}(${evalResult.reasons.slice(0, 2).join("; ")})`);
         staleCount++;
       }
     }
     if (staleCount > 0) {
       anomalies.push({
-        detail: `${staleCount} of ${Math.min(30, openTickers.length)} open positions have stale daily candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? `...+${staleCount - 5}` : ""}`,
+        detail: `${staleCount} of ${slice.length} open positions have stale candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? `...+${staleCount - 5}` : ""}`,
         severity: staleCount >= 5 ? "fail" : "warn",
       });
     }

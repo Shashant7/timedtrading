@@ -15,4 +15,10 @@ describe("sanity sweep discord routing", () => {
     expect(sanitySweepSrc).not.toMatch(/DISCORD_WEBHOOK_URL.*sanity/i);
     expect(sanitySweepSrc).not.toContain("fetch(webhook,");
   });
+
+  it("candle_freshness_open uses calendar-aware open-position evaluation", () => {
+    expect(sanitySweepSrc).toContain("evaluateOpenPositionCandleMap");
+    expect(sanitySweepSrc).toContain("computeMarketSessionReference");
+    expect(sanitySweepSrc).not.toContain("staleThresholdMs");
+  });
 });
