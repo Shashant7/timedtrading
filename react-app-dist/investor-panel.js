@@ -140,6 +140,8 @@
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker, entryPosture }) {
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research_avoid";
+    const score = Number(t.score) || 0;
+    const rank = Number(t?.rank_position ?? t?.rp) || null;
     const liveStagePending = t._live_stage_pending && typeof t._live_stage_pending === "object"
       ? t._live_stage_pending : null;
     const _dc = getDailyChange(t);
@@ -492,6 +494,15 @@
       quote: { price, dayPct, dayChg, dir, extLine },
       midBody: isOwned ? midBody : null,
       sparkSvg,
+      metrics: LC?.rankScoreMetricChips
+        ? LC.rankScoreMetricChips({
+          rank,
+          score: Number.isFinite(score) && score > 0 ? Math.round(score) : null,
+          scoreUpAt: 70,
+          scoreAccentAt: 50,
+          scoreTitle: "Composite investor score (0-100)",
+        })
+        : [],
       isSaved,
       onToggleSaved: toggleSavedTicker,
     });
@@ -1397,4 +1408,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782757981087:860045589
+// cache-bust:1782770440113:174652862

@@ -1,4 +1,4 @@
-// shared-lane-card.js — compact lane card layout (meta left, quote right, save bottom-right).
+// shared-lane-card.js — compact lane card layout (meta left, quote right, rank/score + save bottom bar).
 // Used by Active Trader lanes, Today Viewport, and Investor kanban for visual parity.
 (function () {
   if (typeof window === "undefined") return;
@@ -69,6 +69,47 @@
     );
   }
 
+  function traderRankScore(t) {
+    const TT = window.TimedBubbleChart || {};
+    const score = (() => {
+      try {
+        const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
+        if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
+      } catch (_) {}
+      const fallback = Number(t?.score ?? t?.rank);
+      return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
+    })();
+    const rank = Number(t?.rank_position ?? t?.rp) || null;
+    return { rank, score };
+  }
+
+  function rankScoreMetricChips(opts) {
+    const {
+      rank,
+      score,
+      scoreUpAt = 100,
+      scoreAccentAt = 75,
+      rankTitle,
+      scoreTitle,
+    } = opts || {};
+    const chips = [];
+    if (rank != null) {
+      chips.push(h("span", {
+        className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
+        style: { fontFamily: "var(--tt-font-mono)" },
+        title: rankTitle || `Rank position: ${rank} of all eligible tickers (1 = best).`,
+      }, `R${rank}`));
+    }
+    if (score != null) {
+      chips.push(h("span", {
+        className: `ds-chip ds-chip--sm ${score >= scoreUpAt ? "ds-chip--up" : score >= scoreAccentAt ? "ds-chip--accent" : ""}`,
+        style: { fontFamily: "var(--tt-font-mono)" },
+        title: scoreTitle || `Score: ${Math.round(score)} (composite alignment, higher = better).`,
+      }, `S${Math.round(score)}`));
+    }
+    return chips;
+  }
+
   function saveButton({ sym, isSaved, onToggleSaved }) {
     if (!onToggleSaved) return null;
     return h("button", {
@@ -136,10 +177,12 @@
     logoRef,
     quoteColumn,
     saveButton,
+    traderRankScore,
+    rankScoreMetricChips,
   };
   }
 
   boot();
 })();
 
-// cache-bust:1782757981087:860045589
+// cache-bust:1782770440113:174652862
