@@ -203,6 +203,13 @@
       if (mins >= 1) return `${mins}m ago`;
       return "just now";
     })();
+    const lastActionLabel = (() => {
+      const raw = String(lastActionType || "").toUpperCase();
+      if (!raw) return "";
+      if (isExitedCard && raw === "SELL") return "EXIT";
+      if (raw === "DCA_BUY") return "DCA";
+      return raw;
+    })();
     /* V15 P0.7.144 (2026-05-13) — "Watching" = stage signal active but
        no matching lot action in the last 24h. The previous label
        ("PENDING Awaiting trim 29d ago") read like a system failure;
@@ -371,13 +378,6 @@
     );
 
     const displayStage = resolveKanbanStage(t);
-    const lastActionLabel = (() => {
-      const raw = String(lastActionType || "").toUpperCase();
-      if (!raw) return "";
-      if (isExitedCard && raw === "SELL") return "EXIT";
-      if (raw === "DCA_BUY") return "DCA";
-      return raw;
-    })();
     const cardStatusChip = (() => {
       if (_entryPaused) {
         return {
@@ -1411,4 +1411,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782752009638:791514524
+// cache-bust:1782754135112:923886990
