@@ -785,9 +785,15 @@ input, button, select, textarea {
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--active,
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
-  --tt-lane-card-h: 154px;
-  --tt-lane-mid-h: 44px;
+  --tt-lane-card-h: 162px;
+  --tt-lane-mid-h: 50px;
   --tt-lane-main-h: 44px;
+  gap: 5px;
+}
+.tt-lane-card--active .tt-lane-card__mid,
+.tt-lane-card--owned .tt-lane-card__mid {
+  padding-top: 6px;
+  box-sizing: border-box;
 }
 /* Lane cards: classic bottom-half spark backdrop (same as pre-refactor). */
 .ds-tickercard.tt-lane-card > .ds-tickercard__spark {
@@ -1049,7 +1055,7 @@ input, button, select, textarea {
 .tt-lane-card__position {
   z-index: 2;
   position: relative;
-  margin-top: 0;
+  margin-top: 2px;
 }
 .tt-lane-card__position .tt-lane-card__pos-header {
   display: flex;
