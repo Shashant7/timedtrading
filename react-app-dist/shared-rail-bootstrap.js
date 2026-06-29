@@ -133,6 +133,36 @@
   const e = React.createElement;
   const { useState, useEffect, useMemo, useCallback } = React;
 
+  /** Lock page scroll when the rail opens without shifting layout. */
+  function lockPageScrollForRail() {
+    var docEl = document.documentElement;
+    var body = document.body;
+    var scrollbarWidth = Math.max(0, window.innerWidth - docEl.clientWidth);
+    var prevOverflow = body.style.overflow;
+    var prevPaddingRight = body.style.paddingRight;
+    body.classList.add("tt-rail-scroll-lock");
+    body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = scrollbarWidth + "px";
+    }
+    var fixedEls = document.querySelectorAll(".tt-bn, nav.topnav");
+    var fixedPrev = [];
+    fixedEls.forEach(function (el) {
+      fixedPrev.push({ el: el, paddingRight: el.style.paddingRight || "" });
+      if (scrollbarWidth > 0) {
+        el.style.paddingRight = scrollbarWidth + "px";
+      }
+    });
+    return function unlockPageScrollForRail() {
+      body.style.overflow = prevOverflow;
+      body.style.paddingRight = prevPaddingRight;
+      body.classList.remove("tt-rail-scroll-lock");
+      fixedEls.forEach(function (el, i) {
+        el.style.paddingRight = fixedPrev[i].paddingRight;
+      });
+    };
+  }
+
   // V15 P0.7.184 (2026-05-17) — Shared saved-tickers hook. Centralizes
   // the read-from-bootstrap + POST /timed/saved/toggle pattern that
   // each journey page implemented inline. The rail overlay now uses
@@ -296,11 +326,10 @@
       if (!ticker) return;
       const onKey = (ev) => { if (ev.key === "Escape") onClose && onClose(); };
       document.addEventListener("keydown", onKey);
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
+      const unlockScroll = lockPageScrollForRail();
       return () => {
         document.removeEventListener("keydown", onKey);
-        document.body.style.overflow = prev;
+        unlockScroll();
       };
     }, [ticker, onClose]);
     if (!ticker || !enrichedTicker) return null;
@@ -340,4 +369,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1782734360422:721097512
+// cache-bust:1782738264106:569142654

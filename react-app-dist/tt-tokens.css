@@ -249,6 +249,9 @@
 html {
   /* Prevent iOS zoom on form focus */
   -webkit-text-size-adjust: 100%;
+  /* Reserve scrollbar width so locking body scroll for the right rail
+     does not shove the page ~15px sideways (Today desktop flicker). */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -1869,10 +1872,12 @@ body.vf-page .ds-tickercard {
 @media (min-width: 1024px) {
   .rail-panel {
     /* Full-page workspace takeover. Leaves a 60px sliver on the left
-       so users can still see + click out to the page behind. */
-    width: calc(100vw - 60px);
+       so users can still see + click out to the page behind. Use
+       left/right inset — not 100vw — so opening the rail does not
+       reflow the page when the scrollbar gutter toggles. */
     left: 60px;
     right: 0;
+    width: auto;
     box-shadow: none;
   }
 }
