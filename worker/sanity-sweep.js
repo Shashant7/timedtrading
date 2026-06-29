@@ -591,7 +591,7 @@ const checkPortfolioReconcile = timed(async function checkPortfolioReconcile(env
     "portfolio_reconcile",
     "Investor cash + positions reconciliation",
     anomalies,
-    "If drift fires, run POST /timed/admin/ledger/repair?mode=investor&dryRun=true to diagnose, then dryRun=false to back-fill missing entries + rebuild the balance column from cumulative cash_delta.",
+    "If drift fires, run POST /timed/admin/ledger/repair?mode=investor&dryRun=true to diagnose, then dryRun=false to back-fill missing entries + rebuild the balance column from cumulative cash_delta. If ledger/lots agree but positions drift, run GET /timed/admin/positions/audit?mode=investor then POST /timed/admin/positions/repair?mode=investor&dryRun=false.",
     "would have caught: -27% investor drift caused by silent EXIT ledger insert failures + race-prone balance column (2026-06-02; repair endpoint shipped, 6 entries back-filled, 176 balance rows recomputed)"
   );
 });
