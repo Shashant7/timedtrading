@@ -120,6 +120,10 @@
     return changed ? next : prev;
   }
 
+  function shouldPausePageLiveUpdates() {
+    return !!window.__ttRailOpenSym;
+  }
+
   function usePriceFeed(data, setData, opts) {
     const intervalMs = Number(opts?.intervalMs) || 30000;
     const firstPollMs = opts?.firstPollMs != null
@@ -146,6 +150,7 @@
         if (typeof setter !== "function") return;
 
         setter((prev) => {
+          if (shouldPausePageLiveUpdates()) return prev;
           if (!prev || typeof prev !== "object" || Object.keys(prev).length === 0) return prev;
           const next = { ...prev };
           let changed = false;
@@ -240,6 +245,7 @@
         if (typeof setter !== "function") return;
 
         setter((prev) => {
+          if (shouldPausePageLiveUpdates()) return prev;
           if (!prev || typeof prev !== "object") return incoming;
           const next = mergeTimedAllRefresh(prev, incoming);
           if (next !== prev) setLastTickerRefresh(Date.now());
@@ -284,6 +290,7 @@
       if (typeof setter !== "function" || !entries || !entries.length) return;
       const marketOpen = readMarketOpen();
       setter((prev) => {
+        if (shouldPausePageLiveUpdates()) return prev;
         if (!prev || typeof prev !== "object") return prev;
         let next = prev;
         let changed = false;

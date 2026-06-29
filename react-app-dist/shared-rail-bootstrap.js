@@ -132,6 +132,14 @@
   // /index-react.html does the same dance in TickerDetailsLoader.
   const e = React.createElement;
   const { useState, useEffect, useMemo, useCallback } = React;
+  const ReactDOM = window.ReactDOM;
+
+  function buildRailPortal(children) {
+    if (ReactDOM && typeof ReactDOM.createPortal === "function" && typeof document !== "undefined") {
+      return ReactDOM.createPortal(children, document.body);
+    }
+    return children;
+  }
 
   /** Lock page scroll when the rail opens without shifting layout. */
   function lockPageScrollForRail() {
@@ -258,6 +266,7 @@
     const [fullPayload, setFullPayload] = useState(null);
     useEffect(() => {
       if (!tickerSym) { setFullPayload(null); return; }
+      setFullPayload(null);
       let alive = true;
       const ts = Date.now();
       fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(tickerSym)}&_t=${ts}`, {
@@ -324,16 +333,18 @@
 
     useEffect(() => {
       if (!ticker) return;
+      window.__ttRailOpenSym = tickerSym;
       const onKey = (ev) => { if (ev.key === "Escape") onClose && onClose(); };
       document.addEventListener("keydown", onKey);
       const unlockScroll = lockPageScrollForRail();
       return () => {
+        window.__ttRailOpenSym = null;
         document.removeEventListener("keydown", onKey);
         unlockScroll();
       };
-    }, [ticker, onClose]);
+    }, [ticker, tickerSym, onClose]);
     if (!ticker || !enrichedTicker) return null;
-    return e(React.Fragment, null,
+    return buildRailPortal(e(React.Fragment, null,
       e("div", {
         className: "rail-backdrop",
         onClick: onClose,
@@ -364,9 +375,9 @@
           toggleSavedTicker,
         }),
       ),
-    );
+    ));
   }
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1782770440113:174652862
+// cache-bust:1782770968891:514398504

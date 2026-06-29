@@ -5838,29 +5838,46 @@ function TodayApp({
   const [railOpenSource, setRailOpenSource] = useState(null);
   const [highlightTradeId, setHighlightTradeId] = useState(null);
   const [openAutopsyForTrade, setOpenAutopsyForTrade] = useState(null);
-  const railTickerObj = useMemo(() => {
-    if (!railTicker) return null;
+  const allTickersRef = useRef(allTickers);
+  const dataRef = useRef(data);
+  allTickersRef.current = allTickers;
+  dataRef.current = data;
+  const [railTickerSnapshot, setRailTickerSnapshot] = useState(null);
+  useEffect(() => {
+    if (!railTicker) {
+      setRailTickerSnapshot(null);
+      return;
+    }
     const key = String(railTicker).toUpperCase();
-    const found = allTickers.find(t => String(t?.ticker || "").toUpperCase() === key);
-    if (found) return found;
-    if (data && typeof data === "object" && data[key]) {
-      const row = data[key].ticker ? data[key] : {
-        ...data[key],
+    const tickers = allTickersRef.current;
+    const payload = dataRef.current;
+    const found = (tickers || []).find(t => String(t?.ticker || "").toUpperCase() === key);
+    if (found) {
+      setRailTickerSnapshot(found);
+      return;
+    }
+    if (payload && typeof payload === "object" && payload[key]) {
+      const row = payload[key].ticker ? payload[key] : {
+        ...payload[key],
         ticker: key
       };
-      return isTickerScoredInUniverse(data, key) ? row : {
+      setRailTickerSnapshot(isTickerScoredInUniverse(payload, key) ? row : {
         ...row,
         _outsideUniverse: true
-      };
+      });
+      return;
     }
-    if (!data) return {
-      ticker: key
-    };
-    return {
+    if (!payload) {
+      setRailTickerSnapshot({
+        ticker: key
+      });
+      return;
+    }
+    setRailTickerSnapshot({
       ticker: key,
       _outsideUniverse: true
-    };
-  }, [railTicker, allTickers, data]);
+    });
+  }, [railTicker]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
   useEffect(() => {
     if (RailOverlay) return;
@@ -6011,9 +6028,9 @@ function TodayApp({
     visible,
     query: filters.query,
     onSelectTicker
-  })), h(EndCTA, null)), RailOverlay && railTickerObj && h(RailOverlay, {
-    ticker: railTickerObj,
-    trade: railTickerObj._openTrade || null,
+  })), h(EndCTA, null)), RailOverlay && railTickerSnapshot && h(RailOverlay, {
+    ticker: railTickerSnapshot,
+    trade: railTickerSnapshot._openTrade || null,
     allLoadedData: data,
     earningsMap,
     onClose: onCloseRail,
@@ -6429,6 +6446,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782770440113:174652862
+// cache-bust:1782770968891:514398504
 
-// cache-bust:1782770440113:174652862
+// cache-bust:1782770968891:514398504
