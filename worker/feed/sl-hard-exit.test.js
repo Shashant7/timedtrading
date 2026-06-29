@@ -8,6 +8,8 @@ import {
   resolvePriceForStopCheck,
   resolvePublishedStopLoss,
   shouldRefreshQuoteForStopCheck,
+  shouldRefreshQuoteForTradeMgmt,
+  priceDivergencePct,
 } from "./sl-hard-exit.js";
 
 describe("resolvePublishedStopLoss", () => {
@@ -62,6 +64,46 @@ describe("shouldRefreshQuoteForStopCheck", () => {
       openTrade: { direction: "LONG", entryPrice: 209.9 },
     });
     expect(need).toBe(true);
+  });
+});
+
+describe("shouldRefreshQuoteForTradeMgmt", () => {
+  it("requests refresh when scoring bundle diverges from timed:prices feed", () => {
+    const reason = shouldRefreshQuoteForTradeMgmt({
+      bundlePx: 1078.48,
+      pfPx: 1045.17,
+      pfTickFresh: true,
+      pxNow: 1045.17,
+    });
+    expect(reason).toBe("bundle_vs_feed");
+  });
+
+  it("requests refresh when pxNow jumps away from a recent exit advisory", () => {
+    const reason = shouldRefreshQuoteForTradeMgmt({
+      bundlePx: 1078.48,
+      pfPx: 1078.48,
+      pfTickFresh: true,
+      pxNow: 1078.48,
+      recentAdvisoryPx: 1045.17,
+    });
+    expect(reason).toBe("px_vs_recent_advisory");
+  });
+
+  it("returns null when sources agree within tolerance", () => {
+    const reason = shouldRefreshQuoteForTradeMgmt({
+      bundlePx: 1045.17,
+      pfPx: 1046.0,
+      pfTickFresh: true,
+      pxNow: 1045.17,
+      recentAdvisoryPx: 1045.17,
+    });
+    expect(reason).toBeNull();
+  });
+});
+
+describe("priceDivergencePct", () => {
+  it("measures percent gap between two positive prices", () => {
+    expect(priceDivergencePct(1078.48, 1045.17)).toBeCloseTo(3.19, 1);
   });
 });
 

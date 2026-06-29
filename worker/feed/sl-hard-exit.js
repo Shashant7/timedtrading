@@ -155,6 +155,48 @@ export function shouldRefreshQuoteForStopCheck({
   return false;
 }
 
+export function priceDivergencePct(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  if (!(x > 0) || !(y > 0)) return 0;
+  return (Math.abs(x - y) / y) * 100;
+}
+
+/**
+ * Fetch a fresh live quote when competing price sources disagree during
+ * open-trade management (GEV 2026-06-24: scoring bundle printed ~$1078
+ * while timed:prices / the market were ~$1045, triggering a false
+ * BREAKEVEN defend).
+ */
+export function shouldRefreshQuoteForTradeMgmt({
+  bundlePx,
+  pfPx,
+  pfTickFresh,
+  pxNow,
+  recentAdvisoryPx,
+  minDivergencePct = 1.5,
+} = {}) {
+  const minDiv = Number(minDivergencePct) || 1.5;
+
+  if (Number.isFinite(bundlePx) && bundlePx > 0 && Number.isFinite(pfPx) && pfPx > 0) {
+    if (priceDivergencePct(bundlePx, pfPx) > minDiv) return "bundle_vs_feed";
+  }
+
+  if (Number.isFinite(pxNow) && pxNow > 0 && Number.isFinite(recentAdvisoryPx) && recentAdvisoryPx > 0) {
+    if (priceDivergencePct(pxNow, recentAdvisoryPx) > minDiv) return "px_vs_recent_advisory";
+  }
+
+  if (Number.isFinite(pfPx) && pfPx > 0 && pfTickFresh === false) {
+    return "feed_tick_stale";
+  }
+
+  if (!(Number.isFinite(pfPx) && pfPx > 0) && Number.isFinite(bundlePx) && bundlePx > 0) {
+    return "missing_feed_row";
+  }
+
+  return null;
+}
+
 export function mergeFreshQuoteIntoTickerData(tickerData, freshPx, meta = {}) {
   if (!tickerData || typeof tickerData !== "object") return tickerData;
   const px = Number(freshPx);
