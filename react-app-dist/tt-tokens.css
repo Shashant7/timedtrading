@@ -1563,6 +1563,10 @@ body.vf-page .ds-glass,
 body.vf-page .ds-tickercard {
   border-radius: var(--vf-radius-md);
 }
+body.vf-page .ds-v2 .kanban-card,
+body.vf-page .ds-v2 .compact-card {
+  border-radius: var(--vf-radius-md) !important;
+}
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1811,7 +1815,7 @@ body.vf-page .ds-tickercard {
   padding: 16px 18px;
   background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
   border: 1px solid var(--tt-border);
-  border-radius: 14px;
+  border-radius: var(--vf-radius-md, 18px);
 }
 .tt-status .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
 .tt-status .greeting { font-family: var(--tt-font-display, var(--vf-font-display)); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }

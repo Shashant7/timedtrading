@@ -151,7 +151,7 @@
         padding: 16px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
         margin-bottom: 20px;
       }
       .inv-hero h1 { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
@@ -359,7 +359,7 @@
       .inv-bubble-card {
         padding: 0;
         overflow: hidden;
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .inv-bubble-stage {
         position: relative;
@@ -386,7 +386,7 @@
         width: min(340px, calc(100% - 32px));
         background: rgba(15, 17, 23, 0.96);
         border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
         padding: 16px;
       }
@@ -462,11 +462,11 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-      .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
 
       /* Investor kanban — equal-height lane cards */
       .inv-kanban-lane {
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         background: rgba(255, 255, 255, 0.015);
         border: 1px solid rgba(255, 255, 255, 0.04);
       }

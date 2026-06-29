@@ -151,7 +151,7 @@
         padding: 16px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
         margin-bottom: 20px;
       }
       .at-hero h1 { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; margin: 0; }
@@ -408,7 +408,7 @@
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
         border-right: 0;
-        border-radius: 14px 0 0 14px;
+        border-radius: var(--vf-radius-md, 18px) 0 0 var(--vf-radius-md, 18px);
         position: relative;
       }
       @media (max-width: 720px) {
@@ -417,7 +417,7 @@
           justify-content: space-between;
           border-right: 1px solid var(--tt-border);
           border-bottom: 0;
-          border-radius: 14px 14px 0 0;
+          border-radius: var(--vf-radius-md, 18px) var(--vf-radius-md, 18px) 0 0;
         }
       }
       .lane-head::before {
@@ -442,7 +442,7 @@
         padding: 12px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 0 14px 14px 0;
+        border-radius: 0 var(--vf-radius-md, 18px) var(--vf-radius-md, 18px) 0;
         min-height: 100px;
         overflow-x: auto;
         overflow-y: hidden;
@@ -450,7 +450,7 @@
         scrollbar-color: rgba(255,255,255,0.12) transparent;
       }
       @media (max-width: 720px) {
-        .lane-body { border-radius: 0 0 14px 14px; }
+        .lane-body { border-radius: 0 0 var(--vf-radius-md, 18px) var(--vf-radius-md, 18px); }
       }
       .lane-body::-webkit-scrollbar { height: 6px; }
       .lane-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 6px; }
@@ -576,7 +576,7 @@
       .at-bubble-card {
         padding: 0;
         overflow: hidden;
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .at-bubble-stage {
         position: relative;
@@ -616,7 +616,7 @@
         border-radius: 6px;
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-      .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: 12px; }
+      .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
     </style>
   </head>
   <body class="vf-page">

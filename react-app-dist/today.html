@@ -17,40 +17,40 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1782739537245" />
-    <script defer src="/vendor/react.production.min.js?v=1782739537245"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1782739537245"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1782739537245" />
-<script defer src="/vendor/marked.min.js?v=1782739537245"></script>
-    <script defer src="auth-gate.js?v=1782739537245"></script>
-    <script defer src="tt-fetch-cache.js?v=1782739537245"></script>
-    <script defer src="tt-live-data.js?v=1782739537245"></script>
-    <script src="tt-bottom-nav.js?v=1782739537245" defer></script>
-    <script defer src="investor-nav-badge.js?v=1782739537245"></script>
-    <script src="tt-nav-extras.js?v=1782739537245" defer></script>
-    <script src="tt-global-search.js?v=1782739537245" defer></script>
-    <script src="tt-rail-bridge.js?v=1782739537245" defer></script>
-    <script src="tt-activity-strip.js?v=1782739537245" defer></script>
-    <script defer src="shared-price-utils.js?v=1782739537245"></script>
-    <script defer src="tt-sparkline-config.js?v=1782739537245"></script>
-    <script defer src="tt-pattern-detect.js?v=1782739537245"></script>
-    <script defer src="shared-lane-card.js?v=1782739537245"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1782749204714" />
+    <script defer src="/vendor/react.production.min.js?v=1782749204714"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1782749204714"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1782749204714" />
+<script defer src="/vendor/marked.min.js?v=1782749204714"></script>
+    <script defer src="auth-gate.js?v=1782749204714"></script>
+    <script defer src="tt-fetch-cache.js?v=1782749204714"></script>
+    <script defer src="tt-live-data.js?v=1782749204714"></script>
+    <script src="tt-bottom-nav.js?v=1782749204714" defer></script>
+    <script defer src="investor-nav-badge.js?v=1782749204714"></script>
+    <script src="tt-nav-extras.js?v=1782749204714" defer></script>
+    <script src="tt-global-search.js?v=1782749204714" defer></script>
+    <script src="tt-rail-bridge.js?v=1782749204714" defer></script>
+    <script src="tt-activity-strip.js?v=1782749204714" defer></script>
+    <script defer src="shared-price-utils.js?v=1782749204714"></script>
+    <script defer src="tt-sparkline-config.js?v=1782749204714"></script>
+    <script defer src="tt-pattern-detect.js?v=1782749204714"></script>
+    <script defer src="shared-lane-card.js?v=1782749204714"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
-    <script defer src="ds-components.js?v=1782739537245"></script>
+    <script defer src="ds-components.js?v=1782749204714"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
-    <script defer src="tt-bubble-search-utils.js?v=1782739537245"></script>
-    <script defer src="shared-bubble-chart.compiled.js?v=1782739537245"></script>
+    <script defer src="tt-bubble-search-utils.js?v=1782749204714"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1782749204714"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
          powers the Signal Radar on the Analysis tab. -->
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1782739537245"></script>
-    <script defer src="shared-rail-helpers.js?v=1782739537245"></script>
-    <script defer src="shared-right-rail.compiled.js?v=1782739537245"></script>
-    <script defer src="ticker-spider-chart.js?v=1782739537245"></script>
-    <script defer src="shared-rail-bootstrap.js?v=1782739537245"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1782749204714"></script>
+    <script defer src="shared-rail-helpers.js?v=1782749204714"></script>
+    <script defer src="shared-right-rail.compiled.js?v=1782749204714"></script>
+    <script defer src="ticker-spider-chart.js?v=1782749204714"></script>
+    <script defer src="shared-rail-bootstrap.js?v=1782749204714"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -78,7 +78,7 @@
       .tt-opp-card {
         flex: 0 0 260px; scroll-snap-align: start;
         display: flex; flex-direction: column; gap: 8px;
-        padding: 12px 14px; border-radius: 12px; cursor: pointer; text-align: left;
+        padding: 12px 14px; border-radius: var(--vf-radius-md, 18px); cursor: pointer; text-align: left;
         background: var(--tt-bg-surface); border: 1px solid var(--tt-border);
         transition: border-color 0.15s, background 0.15s;
         color: var(--tt-text);
@@ -585,7 +585,7 @@
         padding: 16px 18px;
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .tt-status .label { font-size: 11px; font-weight: 700; letter-spacing: 0.10em; color: var(--tt-text-dim); text-transform: uppercase; margin-bottom: 4px; }
       .tt-status .greeting { font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.025em; }
@@ -651,7 +651,7 @@
       .idx-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         padding: 12px 14px;
         display: flex;
         flex-direction: column;
@@ -805,7 +805,7 @@
         background: linear-gradient(180deg, var(--tt-bg-elev), var(--tt-bg-surface));
         border: 1px solid var(--tt-border);
         border-top: 2px solid rgba(245,194,92,0.35);
-        border-radius: 14px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       @media (max-width: 720px) { .analysis-controls { padding: 18px 16px 14px; } }
       .ac-head {
@@ -945,7 +945,7 @@
         position: relative;
         background: radial-gradient(ellipse at center, rgba(255,255,255,0.025) 0%, transparent 65%), #06080b;
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         overflow: hidden;
       }
       .bm-stage svg { display: block; width: 100%; height: auto; }
@@ -1017,7 +1017,7 @@
         width: min(340px, calc(100% - 32px));
         background: rgba(15, 17, 23, 0.96);
         border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
         padding: 16px;
       }
@@ -1447,7 +1447,7 @@
       .sk-card {
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
         padding: 16px 18px;
       }
       .sk-line { height: 12px; }
@@ -1474,7 +1474,7 @@
         height: 118px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .sk-bubble-shell {
         display: grid;
@@ -1486,19 +1486,19 @@
         height: 150px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .sk-bubble-pane {
         height: 520px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       .sk-heat {
         height: 260px;
         background: var(--tt-bg-surface);
         border: 1px solid var(--tt-border);
-        border-radius: 12px;
+        border-radius: var(--vf-radius-md, 18px);
       }
       /* BriefPlaceholder (data-driven loading card) */
       .bp-card { padding: 16px 18px; }
@@ -2042,7 +2042,7 @@
   <body>
 
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1782739537245"></script>
+    <script defer src="shared-nav.js?v=1782749204714"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
@@ -2058,7 +2058,7 @@
       </main>
     </div>
 
-    <script defer src="today.compiled.js?v=1782739537245"></script>
+    <script defer src="today.compiled.js?v=1782749204714"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -2067,4 +2067,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1782739537245:241198096 -->
+<!-- cache-bust:1782749204714:578917202 -->
