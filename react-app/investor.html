@@ -606,6 +606,7 @@
         { id: "OPEN", label: "Open Positions", title: "Any ticker with an investor lot in the book" },
         { id: "TT_SELECTED", label: "TT Selected", title: "Timed Trading curated universe (GRNI / GRNJ / UPTICKS)" },
         { id: "REDUCING", label: "Reducing", title: "Owned — weakness, model may trim on trigger" },
+        { id: "EXITED", label: "Exited", title: "Full position closed today — held in Exited lane through cooldown" },
       ];
 
       function investorBubbleRow(sym, scoreRow, dataTicker) {
@@ -627,6 +628,7 @@
           case "HOLD_WATCH": return lane === "watch";
           case "CORE_HOLD": return lane === "core_hold";
           case "REDUCING": return lane === "reduce";
+          case "EXITED": return lane === "exited";
           case "OPEN": return !!(scoreRow?.position?.owned);
           case "TT_SELECTED":
             return typeof window.isTickerTTSelected === "function" && window.isTickerTTSelected(sym);

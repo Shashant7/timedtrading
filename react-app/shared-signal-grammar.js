@@ -48,6 +48,7 @@
     core_hold: { band: "doing", label: "Core Hold", action: "HOLD" },
     watch: { band: "doing", label: "Hold & Watch", action: "HOLD" },
     reduce: { band: "doing", label: "Reducing", action: "TRIM" },
+    exited: { band: "doing", label: "Exited", action: "EXIT" },
   };
 
   function traderLaneMeta(stage) {

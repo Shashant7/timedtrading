@@ -4,6 +4,7 @@ import {
   activityDedupeKey,
   activityDedupeKeys,
   normalizeActivityTsMs,
+  investorLotAlertType,
 } from "./activity-dedupe.js";
 
 // Minimal mirror of the merge dedupe so we can assert collapsing behavior
@@ -19,6 +20,19 @@ function dedupe(events) {
   }
   return out;
 }
+
+describe("investorLotAlertType", () => {
+  it("classifies full book clears as position_close", () => {
+    expect(investorLotAlertType({ action: "SELL", status: "CLOSED", total_shares: 0, shares: 12 })).toBe("position_close");
+    expect(investorLotAlertType({ action: "SELL", status: "OPEN", total_shares: 8.5, shares: 8.5 })).toBe("position_close");
+  });
+  it("classifies partial sells as position_trim", () => {
+    expect(investorLotAlertType({ action: "SELL", status: "OPEN", total_shares: 12, shares: 4 })).toBe("position_trim");
+  });
+  it("classifies buys as position_add", () => {
+    expect(investorLotAlertType({ action: "BUY", shares: 5 })).toBe("position_add");
+  });
+});
 
 describe("investorActionClass", () => {
   it("maps sells/trims/closes/exits to 'sell'", () => {
