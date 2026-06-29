@@ -769,10 +769,11 @@ input, button, select, textarea {
 
 /* ─── TtLaneCard — shared compact lane layout (AT / Today / Investor) ─ */
 .ds-tickercard.tt-lane-card {
-  --tt-lane-card-h: 112px;
-  --tt-lane-main-h: 56px;
+  --tt-lane-card-h: 118px;
+  --tt-lane-main-h: 66px;
   --tt-lane-mid-h: 0px;
   --tt-lane-bar-h: 12px;
+  --tt-lane-chips-h: 40px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -785,15 +786,15 @@ input, button, select, textarea {
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--active,
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
-  --tt-lane-main-h: 52px;
+  --tt-lane-main-h: 66px;
   gap: 4px;
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--active {
-  --tt-lane-card-h: 136px;
+  --tt-lane-card-h: 148px;
   --tt-lane-mid-h: 38px;
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
-  --tt-lane-card-h: 144px;
+  --tt-lane-card-h: 154px;
   --tt-lane-mid-h: 42px;
 }
 .tt-lane-card--active .tt-lane-card__mid,
@@ -946,11 +947,12 @@ input, button, select, textarea {
 .tt-lane-card__chips {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   align-content: flex-start;
   gap: 3px 4px;
   margin-top: 3px;
-  max-height: 36px;
+  height: var(--tt-lane-chips-h);
+  max-height: var(--tt-lane-chips-h);
   min-height: 16px;
   overflow: hidden;
 }
