@@ -46,6 +46,10 @@
   function resolveKanbanStage(t) {
     let stage = String(t?.stage || "research_avoid");
     if (stage === "research") stage = "research_avoid";
+    // Full exit — hold in the Exited lane for the post-close cooldown window.
+    if (stage === "exited" || (t?.recentlyExited && typeof t.recentlyExited === "object")) {
+      return "exited";
+    }
     const owned = !!(t?.position?.owned);
     if (!owned) {
       if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
@@ -177,9 +181,17 @@
        lane card with no recent SELL is visibly different from one where
        the model already trimmed yesterday. Prevents the "GOOGL has been
        in Reduce for 7 days, did anything happen?" confusion. */
-    const lastActionType = isOwned ? String(pos?.last_action_type || "") : "";
-    const lastActionTs = isOwned ? Number(pos?.last_action_ts) || 0 : 0;
-    const lastActionShares = isOwned ? Number(pos?.last_action_shares) || 0 : 0;
+    const recentlyExited = t.recentlyExited && typeof t.recentlyExited === "object" ? t.recentlyExited : null;
+    const isExitedCard = String(t?.stage || "").toLowerCase() === "exited" || !!recentlyExited;
+    const lastActionType = isOwned
+      ? String(pos?.last_action_type || "")
+      : (recentlyExited?.last_action_type ? String(recentlyExited.last_action_type) : "");
+    const lastActionTs = isOwned
+      ? Number(pos?.last_action_ts) || 0
+      : Number(recentlyExited?.last_action_ts) || 0;
+    const lastActionShares = isOwned
+      ? Number(pos?.last_action_shares) || 0
+      : Number(recentlyExited?.last_action_shares) || 0;
     const lastActionAgoMs = lastActionTs > 0 ? (Date.now() - lastActionTs) : 0;
     const lastActionAgoLabel = (() => {
       if (!lastActionTs) return null;
@@ -210,6 +222,7 @@
     const STALE_DAYS = 7;
     const isAccumulateOrReduce = stage === "reduce" || stage === "accumulate";
     const isStaleSignal = isOwned
+      && !isExitedCard
       && isAccumulateOrReduce
       && lastActionTs > 0
       && lastActionAgoMs > STALE_DAYS * 24 * 3600 * 1000
@@ -234,6 +247,7 @@
       // Execution-ready names should not read "monitoring for trigger"
       // when the lane badge already says ACT NOW / READY.
       if (actionTier === "act_now" || actionTier === "ready") return null;
+      if (isExitedCard) return null;
       if (stage === "reduce") {
         if (lastActionType !== "SELL" || lastActionAgoMs > 24 * 3600 * 1000) {
           return isStaleSignal
@@ -320,8 +334,8 @@
     const LC = window.TTLaneCard;
     const extLine = LC?.extLineFromTicker ? LC.extLineFromTicker(t) : null;
 
-    const midBody = isOwned && React.createElement(React.Fragment, null,
-      React.createElement("div", {
+    const midBody = (isOwned || isExitedCard) && React.createElement(React.Fragment, null,
+      isOwned && React.createElement("div", {
         className: "tt-lane-card__pos",
         title: posShares > 0 && posAvg > 0 && livePnlPct != null
           ? `Open position: ${posShares.toFixed(posShares >= 10 ? 1 : 4)} sh @ $${posAvg.toFixed(2)} → live $${(price ?? 0).toFixed(2)} (${livePnlPct >= 0 ? "+" : ""}${livePnlPct.toFixed(2)}%)`
@@ -350,14 +364,20 @@
         },
           React.createElement("span", { className: "tt-lane-card__trace-label" }, "LAST"),
           React.createElement("span", { className: "tt-lane-card__trace-text" },
-            `${lastActionType === "DCA_BUY" ? "DCA" : lastActionType}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
+            `${lastActionLabel}${lastActionShares > 0 ? " " + lastActionShares.toFixed(lastActionShares >= 10 ? 1 : 2) + "sh" : ""}`),
           React.createElement("span", { className: "tt-lane-card__trace-ago" }, lastActionAgoLabel),
         ),
       ),
     );
 
     const displayStage = resolveKanbanStage(t);
-    const recentlyExited = t.recentlyExited && typeof t.recentlyExited === "object" ? t.recentlyExited : null;
+    const lastActionLabel = (() => {
+      const raw = String(lastActionType || "").toUpperCase();
+      if (!raw) return "";
+      if (isExitedCard && raw === "SELL") return "EXIT";
+      if (raw === "DCA_BUY") return "DCA";
+      return raw;
+    })();
     const cardStatusChip = (() => {
       if (_entryPaused) {
         return {
@@ -366,13 +386,13 @@
           title: entryPosture.guidance || "The model is holding new entries ahead of a macro event.",
         };
       }
-      if (recentlyExited) {
-        const closedTs = Number(recentlyExited.closed_at) || 0;
+      if (recentlyExited || displayStage === "exited") {
+        const closedTs = Number(recentlyExited?.closed_at) || lastActionTs || 0;
         const hrs = closedTs > 0 ? Math.max(1, Math.round((Date.now() - closedTs) / 3600000)) : null;
         return {
-          label: hrs != null ? `EXITED ${hrs}h` : "EXITED",
-          color: "#fb923c",
-          title: "The model closed this position recently — held on Radar through a cooldown before it can re-enter the Accumulate lane (avoids exit→buy whipsaw).",
+          label: hrs != null ? `EXIT ${hrs}h` : "EXIT",
+          color: "#f87171",
+          title: "The model closed the full position. Held in Exited through the cooldown window before re-entry is considered.",
         };
       }
       if (isStaleSignal) {
@@ -570,8 +590,10 @@
           : React.createElement("div", { className: "text-[10px] text-[#51635A] italic flex items-center h-full px-2 min-h-[80px]" },
               laneKey === "accumulate_queued"
                 ? "No queued accumulate names — monitor-tier signals sit in On Radar or Hold & Watch"
-                : laneKey === "accumulate_entered"
+                :               laneKey === "accumulate_entered"
                 ? "No entered accumulate positions yet this cycle"
+                : laneKey === "exited"
+                ? "No exits today — full closes appear here for the session"
                 : "No tickers"),
       ),
     );
@@ -583,13 +605,13 @@
     /* V15 P0.7.152 (2026-05-14) — lane order follows the action arc.
        User spec: "We need to present the lanes in order of action:
        On Radar → Accumulate → Core Hold → Hold & Watch → Reduce →
-       Low Conviction → Avoid."
+       Exited → Low Conviction → Avoid."
        The reasoning: the user reads top-down and the lanes should
        trace the lifecycle of a name from "I'm watching this"
        through "I own it and the model is managing it" through "the
        model has cooled off on this".
     */
-    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_low", "research_avoid"];
+    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited", "research_low", "research_avoid"];
     /* V15 P0.7.144/.152 — lane labels + per-lane action chip.
        The action chip ("BUY NOW" / "HOLDING" / etc.) sits next to
        the lane title so a new user can answer "what should I do
@@ -601,7 +623,8 @@
       accumulate_entered: { label: "Entered", band: "doing", action: "HELD", actionColor: "#22c55e", title: "Model opened or added this position on a prior rebalance." },
       core_hold:         { label: "Core Hold", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned core position — trend and strength remain solid. Model says: do nothing, let it run." },
       watch:             { label: "Hold & Watch", band: "doing", action: "HOLDING", actionColor: "#60a5fa", title: "Owned — signals are mixed. Model says: stay with current position, don't add or trim." },
-      reduce:            { label: "Reducing", band: "doing", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim or exit when the trigger condition fires." },
+      reduce:            { label: "Reducing", band: "doing", action: "TRIM SOON", actionColor: "#fb923c", title: "Owned — showing weakness. Model says: trim when the trigger condition fires (partial size reduction)." },
+      exited:            { label: "Exited", band: "doing", action: "CLOSED", actionColor: "#f87171", title: "Full position closed today — held here through the cooldown window. Not an open trim." },
       research_low:      { label: "Low Conviction", band: "watching", action: "WAIT", actionColor: "#8AA39A", title: "Not owned — low conviction. Not actionable yet." },
       research_avoid:    { label: "Avoid", band: "watching", action: "SKIP", actionColor: "#6E867D", title: "Not owned — weak signals. System advises caution." },
     };
@@ -642,7 +665,7 @@
        focuses on the actionable rows. Always-show core_hold + accumulate
        + reduce + watch (the "decision-making" lanes); collapse the
        research_* lanes when empty. */
-    const ALWAYS_SHOW = new Set(["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce"]);
+    const ALWAYS_SHOW = new Set(["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited"]);
     const visibleStages = stages.filter(s => ALWAYS_SHOW.has(s) || grouped[s].length > 0);
 
     /* 2026-06-01 — owned-aware lane counts.
@@ -1163,7 +1186,7 @@
        off at narrow widths). */
     const narrative = useMemo(() => {
       if (!allTickers.length) return null;
-      const counts = { accumulate_queued: 0, accumulate_entered: 0, core_hold: 0, watch: 0, reduce: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
+      const counts = { accumulate_queued: 0, accumulate_entered: 0, core_hold: 0, watch: 0, reduce: 0, exited: 0, research_on_watch: 0, research_low: 0, research_avoid: 0 };
       const buyZone = [];
       const rsHigh = [];
       const recentActions = [];

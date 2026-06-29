@@ -27,6 +27,23 @@ export function investorActionClass(ev) {
   return "other";
 }
 
+/**
+ * Classify an investor_lots row (+ joined position snapshot) as trim vs full exit.
+ * Uses remaining shares after the lot; treats a sell that clears the book as close
+ * even when the position row has not yet flipped to CLOSED (stale snapshot).
+ */
+export function investorLotAlertType(row) {
+  const isSell = String(row?.action || "").toUpperCase() === "SELL";
+  if (!isSell) return "position_add";
+  const totalShares = Number(row?.total_shares);
+  const shares = Number(row?.shares) || 0;
+  const status = String(row?.status || "").toUpperCase();
+  const closed = status === "CLOSED"
+    || (Number.isFinite(totalShares) && totalShares <= 0.0001)
+    || (shares > 0 && Number.isFinite(totalShares) && totalShares > 0 && shares >= totalShares - 0.0001);
+  return closed ? "position_close" : "position_trim";
+}
+
 /** Single primary key (kept for backward-compatible call sites). */
 export function activityDedupeKey(ev) {
   if (ev?.lot_id) return `lot:${ev.lot_id}`;

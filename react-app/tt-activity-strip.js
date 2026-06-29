@@ -343,6 +343,10 @@
       return { cls: "ev-entry ev-doing", label: "ADD", evType: "ADD", scope: "investor", mode: "doing", execState: "done" };
     }
     if (invT === "position_trim") {
+      const remain = Number(ev?.remaining ?? ev?.remaining_shares ?? ev?.total_shares);
+      if (Number.isFinite(remain) && remain <= 0.0001) {
+        return { cls: "ev-exit ev-doing", label: "EXIT", evType: "EXIT", scope: "investor", mode: "doing", execState: "done" };
+      }
       return { cls: "ev-trim ev-doing", label: "TRIM", evType: "TRIM", scope: "investor", mode: "doing", execState: "done" };
     }
     if (invT === "position_close") {

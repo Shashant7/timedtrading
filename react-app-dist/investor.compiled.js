@@ -137,6 +137,10 @@ const INV_BUBBLE_MAP_FILTERS = [{
   id: "REDUCING",
   label: "Reducing",
   title: "Owned — weakness, model may trim on trigger"
+}, {
+  id: "EXITED",
+  label: "Exited",
+  title: "Full position closed today — held in Exited lane through cooldown"
 }];
 function investorBubbleRow(sym, scoreRow, dataTicker) {
   return scoreRow ? {
@@ -164,6 +168,8 @@ function passesInvestorBubbleMapFilter(filterId, sym, scoreRow, dataTicker) {
       return lane === "core_hold";
     case "REDUCING":
       return lane === "reduce";
+    case "EXITED":
+      return lane === "exited";
     case "OPEN":
       return !!scoreRow?.position?.owned;
     case "TT_SELECTED":
@@ -923,6 +929,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782749204714:578917202
+// cache-bust:1782750598843:206804089
 
-// cache-bust:1782749204714:578917202
+// cache-bust:1782750598843:206804089
