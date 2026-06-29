@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260629-rail-flash" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260629-rank-score" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -28,7 +28,7 @@
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-signal-grammar.js?v=20260623d"></script>
-    <script src="shared-lane-card.js?v=20260629-rail-flash"></script>
+    <script src="shared-lane-card.js?v=20260629-rank-score"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -1457,6 +1457,11 @@
           );
         })();
 
+        const { rank, score } = window.TTLaneCard?.traderRankScore?.(t) || { rank: null, score: null };
+        const rankScoreMetrics = window.TTLaneCard?.rankScoreMetricChips
+          ? window.TTLaneCard.rankScoreMetricChips({ rank, score })
+          : [];
+
         return LC.create({
           sym,
           button: {
@@ -1492,6 +1497,7 @@
           quote: { price, dayPct, dayChg, dir, extLine },
           midBody: closedMid || progressMid,
           sparkSvg,
+          metrics: rankScoreMetrics,
           isSaved,
           onToggleSaved,
         });

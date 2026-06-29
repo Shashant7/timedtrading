@@ -1016,7 +1016,7 @@ input, button, select, textarea {
 .tt-lane-card__bar {
   display: flex;
   align-items: flex-end;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 6px;
   z-index: 2;
   position: relative;

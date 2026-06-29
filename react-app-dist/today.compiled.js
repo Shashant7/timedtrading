@@ -4497,6 +4497,22 @@ function ViewportCard({
       boxShadow: "inset 0 0 0 1px rgba(245,194,92,0.18)"
     } : {})
   };
+  const {
+    rank,
+    score
+  } = (() => {
+    const fromTicker = window.TTLaneCard?.traderRankScore?.(t);
+    if (fromTicker) return fromTicker;
+    const fallbackRank = Number(rankPosition ?? t?.rank_position ?? t?.rp) || null;
+    return {
+      rank: fallbackRank,
+      score: null
+    };
+  })();
+  const rankScoreMetrics = window.TTLaneCard?.rankScoreMetricChips ? window.TTLaneCard.rankScoreMetricChips({
+    rank,
+    score
+  }) : [];
   return window.TTLaneCard.create({
     sym,
     button: {
@@ -4530,6 +4546,7 @@ function ViewportCard({
       extLine
     },
     sparkSvg,
+    metrics: rankScoreMetrics,
     isSaved,
     onToggleSaved
   });
@@ -6429,6 +6446,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782770295556:95227445
+// cache-bust:1782770968891:514398504
 
-// cache-bust:1782770295556:95227445
+// cache-bust:1782770968891:514398504

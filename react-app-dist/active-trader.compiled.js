@@ -848,6 +848,17 @@ function ATCard({
       }
     }, tick.label))));
   })();
+  const {
+    rank,
+    score
+  } = window.TTLaneCard?.traderRankScore?.(t) || {
+    rank: null,
+    score: null
+  };
+  const rankScoreMetrics = window.TTLaneCard?.rankScoreMetricChips ? window.TTLaneCard.rankScoreMetricChips({
+    rank,
+    score
+  }) : [];
   return LC.create({
     sym,
     button: {
@@ -901,6 +912,7 @@ function ATCard({
     },
     midBody: closedMid || progressMid,
     sparkSvg,
+    metrics: rankScoreMetrics,
     isSaved,
     onToggleSaved
   });
@@ -2027,6 +2039,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782770295556:95227445
+// cache-bust:1782770968891:514398504
 
-// cache-bust:1782770295556:95227445
+// cache-bust:1782770968891:514398504
