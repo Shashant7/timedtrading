@@ -20,6 +20,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | You need to query D1 directly | [d1-debugging.md](d1-debugging.md) |
 | You need to inspect a KV value | [kv-inspection.md](kv-inspection.md) |
 | User reports Discord alert didn't fire | [discord-alerts.md](discord-alerts.md) |
+| Sanity sweep fired — auto-heal, agent issues, PR loop | [sanity-sweep-agent.md](sanity-sweep-agent.md) |
 | Bridge / IBKR / Robinhood automation work | [broker-bridge.md](broker-bridge.md) |
 | Send/receive on `partners@` (Webull registration, vendor mail) | [partners-email.md](partners-email.md) |
 | New page failing to load OR blank-screen JSX bug | [frontend-build.md](frontend-build.md) |
