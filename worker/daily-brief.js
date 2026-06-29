@@ -2612,11 +2612,17 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
       : idx.weeklyLevels;
     const pct = row ? liveDayPctFromPriceFeedRow(row, mktOpen) : null;
     const dc = row ? liveDayChgFromPriceFeedRow(row, mktOpen) : null;
+    const rthP = Number(row?.p);
+    const rthDp = Number(row?.dp);
     return {
       ...idx,
       price: Math.round(live * 100) / 100,
       ...(Number.isFinite(pct) ? { chgPct: Math.round(pct * 100) / 100, dayChangePct: pct } : {}),
       ...(Number.isFinite(dc) ? { dayChange: dc } : {}),
+      ...(!mktOpen && Number.isFinite(rthP) && rthP > 0 ? {
+        rthClose: Math.round(rthP * 100) / 100,
+        ...(Number.isFinite(rthDp) ? { rthChgPct: Math.round(rthDp * 100) / 100 } : {}),
+      } : {}),
       levels,
       weeklyLevels,
       _price_source: "timed:prices",
@@ -4352,6 +4358,30 @@ function sanitizeBriefContent(text) {
 // Discord Embed Builder
 // ═══════════════════════════════════════════════════════════════════════
 
+/** Format one index line for Discord/email snapshot rows (RTH close + optional EXT). */
+export function formatBriefIndexSnapshotLine(idx, isMorning = false) {
+  const sym = String(idx?.sym || "").toUpperCase();
+  if (!sym) return null;
+  const fmtChg = (n) => (Number.isFinite(n) ? ` (${n >= 0 ? "+" : ""}${n.toFixed(2)}%)` : "");
+
+  if (!isMorning && Number.isFinite(idx?.rthClose)) {
+    const rth = Number(idx.rthClose);
+    const rthChg = Number(idx.rthChgPct);
+    let line = `${sym} $${rth.toFixed(2)}${fmtChg(rthChg)}`;
+    const extPx = Number(idx?.price ?? idx?.levels?.currentPrice);
+    const extChg = Number(idx?.chgPct);
+    if (Number.isFinite(extPx) && extPx > 0 && Math.abs(extPx - rth) >= 0.02) {
+      line += ` · EXT $${extPx.toFixed(2)}${fmtChg(extChg)}`;
+    }
+    return line;
+  }
+
+  const px = Number(idx?.price ?? idx?.levels?.currentPrice);
+  const chg = Number(idx?.chgPct);
+  if (!Number.isFinite(px)) return null;
+  return `${sym} $${px.toFixed(2)}${fmtChg(chg)}`;
+}
+
 /**
  * Build a structured Discord embed for the daily brief notification.
  * Uses embed fields for clean layout on mobile Discord.
@@ -4415,14 +4445,7 @@ export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPre
 
   // Index snapshot from infographic (session-aware — matches the web cards).
   const indices = Array.isArray(info.indices) ? info.indices : [];
-  const idxSnap = indices.map((idx) => {
-    const sym = String(idx?.sym || "").toUpperCase();
-    const px = Number(idx?.price ?? idx?.levels?.currentPrice);
-    const chg = Number(idx?.chgPct);
-    if (!sym || !Number.isFinite(px)) return null;
-    const chgStr = Number.isFinite(chg) ? ` (${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%)` : "";
-    return `${sym} $${px.toFixed(2)}${chgStr}`;
-  }).filter(Boolean);
+  const idxSnap = indices.map((idx) => formatBriefIndexSnapshotLine(idx, isMorning)).filter(Boolean);
   if (idxSnap.length > 0) {
     fields.push({ name: "Index Snapshot", value: idxSnap.join("  |  "), inline: false });
   }
@@ -4843,10 +4866,14 @@ function extractClosingLine(content) {
 }
 
 /** Rewrite per-index prediction prose when LLM cites stale "inside range" vs live price. */
-function patchIndexPredictionProse(pred, sym, idx) {
+function patchIndexPredictionProse(pred, sym, idx, opts = {}) {
   if (!pred || !idx?.levels) return pred;
   const lv = idx.levels;
-  const cp = Number(idx.price ?? lv.currentPrice);
+  const cp = Number(
+    opts.useRthClose && Number.isFinite(idx.rthClose)
+      ? idx.rthClose
+      : (idx.price ?? lv.currentPrice),
+  );
   const dn = Number(lv.levels?.["-38.2%"]);
   const up = Number(lv.levels?.["+38.2%"]);
   const anchor = Number(lv.anchor);
@@ -4999,6 +5026,61 @@ function extractBriefLead(content) {
 }
 
 /** Discord + in-app + email side effects (awaited by generateDailyBrief). */
+async function refreshBriefOutboundSnapshot(infographic, env, predictions, briefType) {
+  const base = {
+    infographic,
+    esPrediction: predictions?.esPrediction ?? null,
+    spyPrediction: predictions?.spyPrediction ?? null,
+    qqqPrediction: predictions?.qqqPrediction ?? null,
+    iwmPrediction: predictions?.iwmPrediction ?? null,
+    liveKeyLevels: buildLiveKeyLevelsEntries(infographic?.indices || [], {
+      includeGamePlan: !(predictions?.spyPrediction || predictions?.qqqPrediction || predictions?.iwmPrediction),
+    }),
+  };
+  if (!infographic || !env) return base;
+
+  let ig;
+  try {
+    ig = JSON.parse(JSON.stringify(infographic));
+  } catch (_) {
+    ig = { ...infographic, indices: [...(infographic.indices || [])] };
+  }
+
+  try {
+    await refreshInfographicLivePrices(ig, env);
+    await refreshInfographicLiveGamePlans(ig, env);
+    await refreshInfographicLiveSectors(ig, env);
+  } catch (e) {
+    console.warn("[DAILY BRIEF] outbound live refresh failed:", String(e?.message || e).slice(0, 120));
+    return base;
+  }
+
+  const useRthClose = briefType === "evening";
+  const idxMap = Object.fromEntries(
+    (ig.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
+  );
+  let {
+    esPrediction,
+    spyPrediction,
+    qqqPrediction,
+    iwmPrediction,
+  } = predictions || {};
+  if (spyPrediction) spyPrediction = patchIndexPredictionProse(spyPrediction, "SPY", idxMap.SPY, { useRthClose });
+  if (qqqPrediction) qqqPrediction = patchIndexPredictionProse(qqqPrediction, "QQQ", idxMap.QQQ, { useRthClose });
+  if (iwmPrediction) iwmPrediction = patchIndexPredictionProse(iwmPrediction, "IWM", idxMap.IWM, { useRthClose });
+  const hasPredCards = !!(esPrediction || spyPrediction || qqqPrediction || iwmPrediction);
+  const liveKeyLevels = buildLiveKeyLevelsEntries(ig.indices || [], { includeGamePlan: !hasPredCards });
+
+  return {
+    infographic: ig,
+    esPrediction,
+    spyPrediction,
+    qqqPrediction,
+    iwmPrediction,
+    liveKeyLevels,
+  };
+}
+
 async function dispatchDailyBriefNotifications(env, {
   type,
   data,
@@ -5012,9 +5094,21 @@ async function dispatchDailyBriefNotifications(env, {
   subjectHook = null,
   opts = {},
 }) {
+  const outbound = await refreshBriefOutboundSnapshot(
+    infographic,
+    env,
+    { esPrediction, spyPrediction, qqqPrediction, iwmPrediction },
+    type,
+  );
+
   if (opts.notifyDiscord) {
     const embed = buildDiscordBriefEmbed(
-      type, data, content, esPrediction, spyPrediction, qqqPrediction, iwmPrediction, infographic,
+      type, data, content,
+      outbound.esPrediction,
+      outbound.spyPrediction,
+      outbound.qqqPrediction,
+      outbound.iwmPrediction,
+      outbound.infographic,
     );
     await opts.notifyDiscord(env, embed, "general").catch((e) =>
       console.warn("[DAILY BRIEF] Discord notification failed:", String(e).slice(0, 100)),
@@ -5051,22 +5145,24 @@ async function dispatchDailyBriefNotifications(env, {
     } else {
       // 2026-06-10 — subjectHook rides as _subjectOverride so the email
       // subject is the model's hook instead of "Morning Brief — date".
-      let emailInfographic = infographic;
+      let emailInfographic = outbound.infographic;
       try {
-        if (infographic && env) {
+        if (outbound.infographic && env) {
           emailInfographic = await refreshInfographicLivePositions(
-            { ...infographic },
+            { ...outbound.infographic },
             env,
           );
         }
-      } catch (_) { /* use generation-time snapshot */ }
+      } catch (_) { /* use live-refreshed snapshot */ }
       const briefPayload = {
-        type, content, date: data.today, esPrediction, spyPrediction, qqqPrediction, iwmPrediction,
+        type, content, date: data.today,
+        esPrediction: outbound.esPrediction,
+        spyPrediction: outbound.spyPrediction,
+        qqqPrediction: outbound.qqqPrediction,
+        iwmPrediction: outbound.iwmPrediction,
         infographic: emailInfographic,
         croNote: type === "evening" ? croNote : null,
-        liveKeyLevels: buildLiveKeyLevelsEntries(emailInfographic?.indices || infographic?.indices || [], {
-          includeGamePlan: !(spyPrediction || qqqPrediction || iwmPrediction),
-        }),
+        liveKeyLevels: outbound.liveKeyLevels,
         ...(subjectHook ? { _subjectOverride: `${subjectHook}` } : {}),
       };
       const results = await Promise.allSettled(
@@ -5297,9 +5393,9 @@ export async function generateDailyBrief(env, type, opts = {}) {
         const idxMap = Object.fromEntries(
           (infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
         );
-        if (spyPrediction) spyPrediction = patchIndexPredictionProse(spyPrediction, "SPY", idxMap.SPY);
-        if (qqqPrediction) qqqPrediction = patchIndexPredictionProse(qqqPrediction, "QQQ", idxMap.QQQ);
-        if (iwmPrediction) iwmPrediction = patchIndexPredictionProse(iwmPrediction, "IWM", idxMap.IWM);
+        if (spyPrediction) spyPrediction = patchIndexPredictionProse(spyPrediction, "SPY", idxMap.SPY, { useRthClose: type === "evening" });
+        if (qqqPrediction) qqqPrediction = patchIndexPredictionProse(qqqPrediction, "QQQ", idxMap.QQQ, { useRthClose: type === "evening" });
+        if (iwmPrediction) iwmPrediction = patchIndexPredictionProse(iwmPrediction, "IWM", idxMap.IWM, { useRthClose: type === "evening" });
       }
     } catch (e) {
       console.warn("[DAILY BRIEF] infographic build error:", String(e).slice(0, 120));
@@ -5558,9 +5654,9 @@ export async function handleGetBrief(env) {
         const idxMap = Object.fromEntries(
           (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
         );
-        if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY);
-        if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ);
-        if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM);
+        if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY, { useRthClose: type === "evening" });
+        if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ, { useRthClose: type === "evening" });
+        if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM, { useRthClose: type === "evening" });
         const hasPredCards = !!(slot.esPrediction || slot.spyPrediction || slot.qqqPrediction || slot.iwmPrediction);
         slot.liveKeyLevels = buildLiveKeyLevelsEntries(slot.infographic.indices, { includeGamePlan: !hasPredCards });
         slot.liveKeyLevelsAt = Date.now();

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildDiscordBriefEmbed } from "../worker/daily-brief.js";
+import { buildDiscordBriefEmbed, formatBriefIndexSnapshotLine } from "../worker/daily-brief.js";
 
 describe("buildDiscordBriefEmbed", () => {
   const baseData = {
@@ -47,5 +47,41 @@ describe("buildDiscordBriefEmbed", () => {
     const snap = embed.fields.find((f) => f.name === "Index Snapshot");
     expect(snap.value).toContain("SPY $740.96 (-1.25%)");
     expect(snap.value).not.toContain("ES 7586");
+  });
+
+  it("evening index snapshot shows RTH close plus EXT when AH differs", () => {
+    const line = formatBriefIndexSnapshotLine({
+      sym: "SPY",
+      rthClose: 741.0,
+      rthChgPct: -0.72,
+      price: 741.52,
+      chgPct: -0.65,
+    }, false);
+    expect(line).toContain("SPY $741.00 (-0.72%)");
+    expect(line).toContain("EXT $741.52");
+  });
+
+  it("uses refreshed index prices in snapshot (not stale generation snapshot)", () => {
+    const refreshed = {
+      ...infographic,
+      indices: [
+        { sym: "SPY", price: 741.52, chgPct: -0.65, rthClose: 741.0, rthChgPct: -0.72 },
+        { sym: "QQQ", price: 724.03, chgPct: -0.98, rthClose: 724.03, rthChgPct: -0.98 },
+        { sym: "IWM", price: 298.66, chgPct: -0.90, rthClose: 298.66, rthChgPct: -0.90 },
+      ],
+    };
+    const embed = buildDiscordBriefEmbed(
+      "evening",
+      baseData,
+      "## The Market Read\nBody.",
+      null,
+      "**SPY Prediction**: SPY is below today's Day Gate low ($729.80) at $728.99",
+      "QQQ pullback",
+      "IWM flat",
+      refreshed,
+    );
+    const snap = embed.fields.find((f) => f.name === "Index Snapshot");
+    expect(snap.value).toContain("SPY $741.00");
+    expect(snap.value).not.toContain("$728.99");
   });
 });

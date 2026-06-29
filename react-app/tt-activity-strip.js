@@ -726,16 +726,28 @@
   function ensureStickyWrapper(host) {
     try {
       const nav = document.querySelector("nav.topnav");
-      if (!nav) return;
+      if (!nav) return false;
       // Already wrapped? Done.
-      if (nav.parentElement && nav.parentElement.classList.contains("tt-sticky-top")) return;
+      if (nav.parentElement && nav.parentElement.classList.contains("tt-sticky-top")) return true;
       const wrapper = document.createElement("div");
       wrapper.className = "tt-sticky-top";
       // Insert wrapper where nav currently lives, then move nav + host into it.
       nav.parentNode.insertBefore(wrapper, nav);
       wrapper.appendChild(nav);
-      if (host && host !== wrapper) wrapper.appendChild(host);
+      if (host && host !== wrapper && host.parentElement !== wrapper) wrapper.appendChild(host);
+      return true;
     } catch (_) { /* defensive: never break the page over a UI nicety */ }
+    return false;
+  }
+
+  function scheduleStickyWrapper(host, attempt = 0) {
+    if (!host) return;
+    if (ensureStickyWrapper(host)) {
+      ensureMobileSpacer(host);
+      return;
+    }
+    if (attempt >= 24) return;
+    setTimeout(() => scheduleStickyWrapper(host, attempt + 1), 50);
   }
 
   function mount() {
@@ -752,7 +764,7 @@
       host.classList.add("tt-activity-strip");
     }
     // Wrap nav + strip in the sticky container so they pin as one.
-    ensureStickyWrapper(host);
+    scheduleStickyWrapper(host);
     // Default to hidden until auth-bootstrap fires; prevents a brief
     // flash of the strip on cold page load before auth-gate resolves.
     setHostVisible(host, false);
