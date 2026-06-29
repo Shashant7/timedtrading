@@ -62,6 +62,9 @@ describe("module contracts", () => {
       "runSanitySweep",
       "persistSweep",
       "sanitySweepCron",
+      "readLatestSweep",
+      "mergeLatestSweep",
+      "shouldSendSanityDiscordAlert",
     ]) {
       expect(typeof mod[fn], `expected exported function ${fn}`).toBe("function");
     }

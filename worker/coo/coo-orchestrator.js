@@ -256,12 +256,12 @@ export async function runSelfHealing(env, options = {}) {
 
   let sweep;
   try {
-    const raw = await env.KV_TIMED.get("sanity_sweep:latest");
-    if (!raw) {
+    const { readLatestSweep } = await import("../sanity-sweep.js");
+    sweep = await readLatestSweep(env);
+    if (!sweep) {
       skipped.push({ reason: "no_cached_sweep" });
       return { healed, skipped, elapsed_ms: Date.now() - t0 };
     }
-    sweep = JSON.parse(raw);
   } catch (e) {
     skipped.push({ reason: `read_sweep_failed: ${String(e?.message || e).slice(0, 120)}` });
     return { healed, skipped, elapsed_ms: Date.now() - t0 };

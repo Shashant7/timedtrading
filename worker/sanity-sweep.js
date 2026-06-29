@@ -590,14 +590,16 @@ const checkAlertDelivery = timed(async function checkAlertDelivery(env, ctx) {
     if (!env?.DB) return envelope("alert_delivery", "Discord/email alert delivery", [], "no D1", null);
     // Last 24h of alerts table — any with discord_sent=0 + non-null error?
     // .first() returns the row object directly (not {results: [...]}).
+    const excluded = ALERT_DELIVERY_EXCLUDED_ERRORS.map(() => "?").join(", ");
     const row = await env.DB.prepare(`
       SELECT COUNT(*) AS n, MAX(ts) AS last_fail_ts
       FROM alerts
       WHERE discord_sent = 0
         AND discord_error IS NOT NULL
         AND discord_error != ''
+        AND discord_error NOT IN (${excluded})
         AND ts >= ?
-    `).bind(Date.now() - 24 * 3600000).first().catch(() => null);
+    `).bind(...ALERT_DELIVERY_EXCLUDED_ERRORS, Date.now() - 24 * 3600000).first().catch(() => null);
     const failCount = Number(row?.n) || 0;
     if (failCount > 0) {
       const lastFailAgo = row?.last_fail_ts ? ((Date.now() - Number(row.last_fail_ts)) / 60000).toFixed(0) : "?";
@@ -798,6 +800,75 @@ export async function tightenWideOpenStops(env, opts = {}) {
   return { ok: true, dryRun, tightened, count: tightened.length };
 }
 
+// Checks whose WARN status should page #system-alerts even when total
+// warn count is below the bulk threshold (3). These are money-path /
+// delivery-path signals where waiting for 3 unrelated warns is too slow.
+const CRITICAL_SWEEP_IDS = new Set([
+  "alert_delivery",
+  "cron_tick_alive",
+  "broker_reconciler_freshness",
+  "candle_freshness_open",
+  "compute_freshness",
+  "position_drift",
+]);
+
+/** Discord ledger rows with these discord_error values are not delivery failures. */
+export const ALERT_DELIVERY_EXCLUDED_ERRORS = ["deduped_already_alerted"];
+
+export function shouldSendSanityDiscordAlert(failing, warning) {
+  if (failing.length > 0) return true;
+  if (warning.length >= 3) return true;
+  return warning.some((c) => CRITICAL_SWEEP_IDS.has(c.id));
+}
+
+/**
+ * Overlay fast-sweep results onto the hourly full sweep so Mission Control
+ * and digests see critical-path failures within ~15min, not up to 1h stale.
+ */
+export function mergeLatestSweep(full, fast) {
+  if (!full && !fast) return null;
+  if (!full) return fast ? { ...fast, merged_from: "fast_only" } : null;
+  if (!fast) return { ...full, merged_from: "full_only" };
+
+  const rank = { fail: 3, warn: 2, ok: 1 };
+  const checksById = new Map((full.checks || []).map((c) => [c.id, c]));
+  for (const fc of (fast.checks || [])) {
+    const prev = checksById.get(fc.id);
+    const prevRank = rank[prev?.status] || 0;
+    const fcRank = rank[fc.status] || 0;
+    if (fast.ts >= (full.ts || 0) && fcRank >= prevRank) {
+      checksById.set(fc.id, { ...fc, _fast_overlay: true });
+    }
+  }
+  const checks = (full.checks || []).map((c) => checksById.get(c.id) || c);
+  const summary = {
+    ok_count: checks.filter((c) => c.status === "ok").length,
+    warn_count: checks.filter((c) => c.status === "warn").length,
+    fail_count: checks.filter((c) => c.status === "fail").length,
+    total_anomalies: checks.reduce((s, c) => s + (c.anomalies?.length || 0), 0),
+  };
+  return {
+    ...full,
+    ts: Math.max(full.ts || 0, fast.ts || 0),
+    kind: "merged",
+    full_ts: full.ts,
+    fast_ts: fast.ts,
+    ok: summary.fail_count === 0,
+    summary,
+    checks,
+    merged_from: "full+fast",
+  };
+}
+
+export async function readLatestSweep(env) {
+  if (!env?.KV_TIMED) return null;
+  const fullRaw = await env.KV_TIMED.get("sanity_sweep:latest");
+  const fastRaw = await env.KV_TIMED.get("sanity_sweep:fast:latest");
+  const full = fullRaw ? JSON.parse(fullRaw) : null;
+  const fast = fastRaw ? JSON.parse(fastRaw) : null;
+  return mergeLatestSweep(full, fast);
+}
+
 /**
  * Persist the latest sweep to KV so the MC dashboard can read it without
  * re-running the entire sweep on every page load. Stores under both a
@@ -831,7 +902,7 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
     const failing = sweep.checks.filter(c => c.status === "fail");
     const warning = sweep.checks.filter(c => c.status === "warn");
 
-    // Cooldown gate: same anomaly fingerprint within 4h → skip the Discord
+    // Cooldown gate: same anomaly fingerprint within 24h → skip the Discord
     // dispatch (still persisted). Prevents spam when a cron-tick-bound
     // issue (e.g. compute_freshness) takes a few cycles to self-heal.
     const fingerprint = [
@@ -847,7 +918,7 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
 
     // Send the Discord alert (best-effort) — system lane (#system-alerts).
     // Previously posted directly to DISCORD_WEBHOOK_URL (#trade-signals).
-    if (failing.length > 0 || warning.length >= 3) {
+    if (shouldSendSanityDiscordAlert(failing, warning)) {
       const lines = [];
       for (const c of failing) {
         lines.push(`⛔ **${c.label}** (${c.id})`);
