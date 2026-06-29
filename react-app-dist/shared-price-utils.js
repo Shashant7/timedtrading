@@ -496,6 +496,39 @@
   }
 
   /**
+   * Bubble map fill + drift — session-aware price move for color/intensity.
+   * RTH: daily change vs prev close (getDailyChange).
+   * Outside RTH: extended-hours move vs today's RTH close when available.
+   */
+  function getBubbleFillChange(t) {
+    if (isNyRegularMarketOpen()) {
+      var dc = getDailyChange(t);
+      return {
+        pct: dc.dayPct,
+        chg: dc.dayChg,
+        source: "rth",
+        hasData: Number.isFinite(dc.dayPct),
+      };
+    }
+    var ext = getExtChange(t);
+    if (ext && Number.isFinite(ext.pct)) {
+      return {
+        pct: ext.pct,
+        chg: ext.chg,
+        source: "ext",
+        hasData: true,
+      };
+    }
+    var dcFallback = getDailyChange(t);
+    return {
+      pct: dcFallback.dayPct,
+      chg: dcFallback.dayChg,
+      source: "rth",
+      hasData: Number.isFinite(dcFallback.dayPct),
+    };
+  }
+
+  /**
    * Authoritative model direction for a ticker, mirroring the server-side
    * `inferTraderDirection()` in worker/index.js (around line 38236). Returns
    * "LONG", "SHORT", or "" (unknown).
@@ -805,6 +838,7 @@
     mergePriceSrc: mergePriceSrc,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
+    getBubbleFillChange: getBubbleFillChange,
     inferModelDirection: inferModelDirection,
     inferStructuralBiasFromTicker: inferStructuralBiasFromTicker,
     inferTraderPosture: inferTraderPosture,
@@ -822,4 +856,4 @@
   };
 })();
 
-// cache-bust:1782686321399:240535600
+// cache-bust:1782734360422:721097512

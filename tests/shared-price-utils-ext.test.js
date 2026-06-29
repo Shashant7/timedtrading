@@ -91,6 +91,64 @@ describe("getExtChange", () => {
   });
 });
 
+describe("getBubbleFillChange", () => {
+  let utils;
+
+  beforeAll(() => {
+    utils = loadPriceUtils();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockMarketClosed() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "6/14/2026, 20:30:00";
+      }
+      return "6/14/2026, 20:30:00";
+    });
+  }
+
+  function mockMarketOpen() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "6/14/2026, 11:00:00";
+      }
+      return "6/14/2026, 11:00:00";
+    });
+  }
+
+  it("uses EXT pct for bubble fill outside RTH when extended price differs", () => {
+    mockMarketClosed();
+    const fill = utils.getBubbleFillChange({
+      ticker: "SPY",
+      close: 600.0,
+      price: 600.0,
+      _ah_price: 606.0,
+      _ah_change_pct: 1.0,
+    });
+    expect(fill.source).toBe("ext");
+    expect(fill.hasData).toBe(true);
+    expect(fill.pct).toBeCloseTo(1.0, 2);
+  });
+
+  it("uses RTH daily change during regular session", () => {
+    mockMarketOpen();
+    const fill = utils.getBubbleFillChange({
+      ticker: "SPY",
+      price: 602.0,
+      _live_price: 602.0,
+      _live_prev_close: 600.0,
+      prev_close: 600.0,
+    });
+    expect(fill.source).toBe("rth");
+    expect(fill.hasData).toBe(true);
+    expect(fill.pct).toBeCloseTo(0.33, 1);
+  });
+});
+
 describe("inferTraderPosture", () => {
   let utils;
 
