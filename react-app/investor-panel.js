@@ -440,9 +440,8 @@
           },
           title: cardStatusChip.title,
         }, cardStatusChip.label),
-        // FSD (Granny Shots) holding — what Fundstrat is actually buying. The
-        // investor lane is anchored on this buy-list, so flag membership and
-        // fund conviction prominently.
+        // TT Weighting — Fundstrat Granny Shots ETF weight (GRNY/GRNJ/GRNI).
+        // Shows how heavily the published buy-list weights this name; not entry P&L.
         t.fsd?.isPick && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
@@ -453,8 +452,8 @@
             fontWeight: 800,
             letterSpacing: "0.04em",
           },
-          title: `Fundstrat Granny Shots holding (${(t.fsd.etfs || []).join(", ") || "FSD"}${t.fsd.maxWeight ? ` · ${t.fsd.maxWeight}%` : ""}) — what FSD is buying. Investor entries are anchored on this list.`,
-        }, t.fsd.maxWeight ? `FSD ${t.fsd.maxWeight}%` : "FSD"),
+          title: `TT Weighting — ${t.fsd.maxWeight ? `${t.fsd.maxWeight}%` : "on list"} in the Granny Shots ETF basket (${(t.fsd.etfs || []).join(", ") || "GRNY/GRNJ/GRNI"}). Investor entries anchor on this published weighting.`,
+        }, t.fsd.maxWeight ? `TT ${t.fsd.maxWeight}%` : "TT"),
         isOwned && isEnteredToday(t) && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {

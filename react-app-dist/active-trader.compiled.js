@@ -138,8 +138,19 @@ function isPricePastStop(openTr, ticker, price) {
   const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
   const sl = Number(openTr.sl ?? openTr.stop_loss);
   if (!Number.isFinite(sl) || sl <= 0) return false;
-  if (dir === "LONG") return px <= sl;
-  if (dir === "SHORT") return px >= sl;
+  const cands = [px];
+  const push = v => {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) cands.push(n);
+  };
+  push(ticker?.price);
+  push(ticker?._live_price);
+  push(ticker?.close);
+  push(ticker?.ahp);
+  push(ticker?.extended_price);
+  const checkPx = dir === "LONG" ? Math.min(...cands) : dir === "SHORT" ? Math.max(...cands) : px;
+  if (dir === "LONG") return checkPx <= sl;
+  if (dir === "SHORT") return checkPx >= sl;
   return false;
 }
 function hasExitSignalPending(ticker, trade, price) {
@@ -2049,6 +2060,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782750598843:206804089
+// cache-bust:1782751716755:706271743
 
-// cache-bust:1782750598843:206804089
+// cache-bust:1782751716755:706271743

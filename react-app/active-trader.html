@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260624-lane-radius" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -617,6 +617,11 @@
       }
       @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
       .sk-card { height: 134px; background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
+      /* Tailwind CDN preflight sets button { border-radius: 0 } after tt-tokens. */
+      button.ds-tickercard.tt-lane-card,
+      .lane-cards .ds-tickercard {
+        border-radius: var(--vf-radius-md, 18px) !important;
+      }
     </style>
   </head>
   <body class="vf-page">
@@ -794,8 +799,17 @@
         const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
         const sl = Number(openTr.sl ?? openTr.stop_loss);
         if (!Number.isFinite(sl) || sl <= 0) return false;
-        if (dir === "LONG") return px <= sl;
-        if (dir === "SHORT") return px >= sl;
+        // Worst-case print for the direction (align with sl-hard-exit safety net).
+        const cands = [px];
+        const push = (v) => { const n = Number(v); if (Number.isFinite(n) && n > 0) cands.push(n); };
+        push(ticker?.price);
+        push(ticker?._live_price);
+        push(ticker?.close);
+        push(ticker?.ahp);
+        push(ticker?.extended_price);
+        const checkPx = dir === "LONG" ? Math.min(...cands) : dir === "SHORT" ? Math.max(...cands) : px;
+        if (dir === "LONG") return checkPx <= sl;
+        if (dir === "SHORT") return checkPx >= sl;
         return false;
       }
 
