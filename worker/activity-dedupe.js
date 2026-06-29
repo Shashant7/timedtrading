@@ -12,6 +12,13 @@
 // (ticker + coarse action class + 10-min bucket) so cross-channel copies of the
 // same trim/close/buy collapse regardless of which one carries the lot_id.
 
+/** Normalize activity timestamps to epoch ms (feed rows may use seconds). */
+export function normalizeActivityTsMs(ts) {
+  const n = Number(ts) || 0;
+  if (n <= 0) return 0;
+  return n > 1e12 ? n : n * 1000;
+}
+
 /** Coarse action class for an investor activity event. */
 export function investorActionClass(ev) {
   const a = String(ev?.action || ev?.investor_alert_type || ev?.type || "").toUpperCase();
@@ -23,7 +30,8 @@ export function investorActionClass(ev) {
 /** Single primary key (kept for backward-compatible call sites). */
 export function activityDedupeKey(ev) {
   if (ev?.lot_id) return `lot:${ev.lot_id}`;
-  return `${String(ev?.ticker || "").toUpperCase()}-${String(ev?.type || "").toUpperCase()}-${String(ev?.action || ev?.investor_alert_type || "")}-${Math.floor((Number(ev?.ts) || 0) / 60000)}`;
+  const tsMs = normalizeActivityTsMs(ev?.ts);
+  return `${String(ev?.ticker || "").toUpperCase()}-${String(ev?.type || "").toUpperCase()}-${String(ev?.action || ev?.investor_alert_type || "")}-${Math.floor(tsMs / 60000)}`;
 }
 
 /** All candidate dedupe keys for an event (dup if ANY already seen). */
@@ -36,7 +44,8 @@ export function activityDedupeKeys(ev) {
     || String(ev?.type || "").toUpperCase() === "INVESTOR_SIGNAL"
     || String(ev?.investor_alert_type || "").length > 0;
   if (isInvestor && ticker) {
-    keys.push(`inv:${ticker}:${investorActionClass(ev)}:${Math.floor((Number(ev?.ts) || 0) / 600000)}`);
+    const tsMs = normalizeActivityTsMs(ev?.ts);
+    keys.push(`inv:${ticker}:${investorActionClass(ev)}:${Math.floor(tsMs / 600000)}`);
   }
   keys.push(activityDedupeKey(ev));
   return keys;

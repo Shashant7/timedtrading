@@ -3,6 +3,7 @@ import {
   investorActionClass,
   activityDedupeKey,
   activityDedupeKeys,
+  normalizeActivityTsMs,
 } from "./activity-dedupe.js";
 
 // Minimal mirror of the merge dedupe so we can assert collapsing behavior
@@ -66,6 +67,41 @@ describe("activityDedupeKeys", () => {
     expect(dedupe(rows)).toHaveLength(1);
   });
 
+  it("collapses D1 lot + KV append when lot_id matches (position_open vs position_add)", () => {
+    const ts = 1782741891845;
+    const lotId = "lot-LITE-auto-1782741891845";
+    const d1Lot = {
+      ts,
+      ticker: "LITE",
+      type: "INVESTOR_SIGNAL",
+      action: "MODEL · ADD",
+      investor_alert_type: "position_add",
+      engine: "investor",
+      lot_id: lotId,
+      source: "d1_lots",
+    };
+    const kvAppend = {
+      ts,
+      ticker: "LITE",
+      type: "INVESTOR_SIGNAL",
+      action: "MODEL · BOUGHT",
+      investor_alert_type: "position_open",
+      engine: "investor",
+      lot_id: lotId,
+    };
+    expect(dedupe([d1Lot, kvAppend])).toHaveLength(1);
+  });
+
+  it("collapses investor events when ts is seconds on one row and ms on the other", () => {
+    const tsMs = 1782741891845;
+    const tsSec = Math.floor(tsMs / 1000);
+    const rows = [
+      { ts: tsMs, ticker: "CW", type: "INVESTOR_SIGNAL", action: "MODEL · BOUGHT", engine: "investor", lot_id: "lot-a" },
+      { ts: tsSec, ticker: "CW", type: "INVESTOR_SIGNAL", action: "MODEL · BOUGHT", mode: "investor" },
+    ];
+    expect(dedupe(rows)).toHaveLength(1);
+  });
+
   it("keeps genuinely different tickers and action classes separate", () => {
     const ts = 1782324194637;
     const rows = [
@@ -83,6 +119,15 @@ describe("activityDedupeKeys", () => {
       { ts: ts + 1000, ticker: "NVDA", type: "EXIT", action: "EXIT", mode: "trader", lot_id: "y" },
     ];
     expect(dedupe(rows)).toHaveLength(2);
+  });
+});
+
+describe("normalizeActivityTsMs", () => {
+  it("treats sub-1e12 values as epoch seconds", () => {
+    expect(normalizeActivityTsMs(1782741891)).toBe(1782741891000);
+  });
+  it("passes through millisecond timestamps", () => {
+    expect(normalizeActivityTsMs(1782741891845)).toBe(1782741891845);
   });
 });
 
