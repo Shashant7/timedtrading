@@ -155,6 +155,82 @@ export function shouldRefreshQuoteForStopCheck({
   return false;
 }
 
+export function priceDivergencePct(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  if (!(x > 0) || !(y > 0)) return 0;
+  return (Math.abs(x - y) / y) * 100;
+}
+
+/**
+ * Fetch a fresh live quote when competing price sources disagree during
+ * open-trade management (GEV 2026-06-24: scoring bundle printed ~$1078
+ * while timed:prices / the market were ~$1045, triggering a false
+ * BREAKEVEN defend).
+ */
+export function shouldRefreshQuoteForTradeMgmt({
+  bundlePx,
+  pfPx,
+  pfTickFresh,
+  pxNow,
+  recentAdvisoryPx,
+  minDivergencePct = 1.5,
+} = {}) {
+  const minDiv = Number(minDivergencePct) || 1.5;
+
+  if (Number.isFinite(bundlePx) && bundlePx > 0 && Number.isFinite(pfPx) && pfPx > 0) {
+    if (priceDivergencePct(bundlePx, pfPx) > minDiv) return "bundle_vs_feed";
+  }
+
+  if (Number.isFinite(pxNow) && pxNow > 0 && Number.isFinite(recentAdvisoryPx) && recentAdvisoryPx > 0) {
+    if (priceDivergencePct(pxNow, recentAdvisoryPx) > minDiv) return "px_vs_recent_advisory";
+  }
+
+  if (Number.isFinite(pfPx) && pfPx > 0 && pfTickFresh === false) {
+    return "feed_tick_stale";
+  }
+
+  if (!(Number.isFinite(pfPx) && pfPx > 0) && Number.isFinite(bundlePx) && bundlePx > 0) {
+    return "missing_feed_row";
+  }
+
+  return null;
+}
+
+/**
+ * MU/GEV-class SL stale guard. When headline/check price claims the stop is
+ * breached, confirm with a fresh live quote before hard-closing. Prevents
+ * stop-outs on stale lows while the market is still above the published SL.
+ */
+export function evaluateSlCloseFreshQuote({ direction, sl, checkPx, freshPx }) {
+  const dir = String(direction || "LONG").toUpperCase();
+  const stop = Number(sl);
+  const check = Number(checkPx);
+  const fresh = Number(freshPx);
+  if (!(stop > 0) || !(check > 0) || !(fresh > 0)) {
+    return { action: "unchanged", freshPx: fresh > 0 ? fresh : null, reason: "missing_inputs" };
+  }
+  if (!isStopLossBreached(dir, check, stop)) {
+    return { action: "unchanged", freshPx: fresh, reason: "check_not_breached" };
+  }
+  if (!isStopLossBreached(dir, fresh, stop)) {
+    return {
+      action: "defer",
+      freshPx: fresh,
+      reason: "fresh_quote_not_past_sl",
+      checkPx: check,
+      sl: stop,
+    };
+  }
+  return {
+    action: "close",
+    freshPx: fresh,
+    reason: "fresh_quote_confirms_sl",
+    checkPx: check,
+    sl: stop,
+  };
+}
+
 export function mergeFreshQuoteIntoTickerData(tickerData, freshPx, meta = {}) {
   if (!tickerData || typeof tickerData !== "object") return tickerData;
   const px = Number(freshPx);

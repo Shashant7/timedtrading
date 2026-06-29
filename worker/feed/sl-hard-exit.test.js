@@ -8,6 +8,9 @@ import {
   resolvePriceForStopCheck,
   resolvePublishedStopLoss,
   shouldRefreshQuoteForStopCheck,
+  shouldRefreshQuoteForTradeMgmt,
+  priceDivergencePct,
+  evaluateSlCloseFreshQuote,
 } from "./sl-hard-exit.js";
 
 describe("resolvePublishedStopLoss", () => {
@@ -62,6 +65,70 @@ describe("shouldRefreshQuoteForStopCheck", () => {
       openTrade: { direction: "LONG", entryPrice: 209.9 },
     });
     expect(need).toBe(true);
+  });
+});
+
+describe("shouldRefreshQuoteForTradeMgmt", () => {
+  it("requests refresh when scoring bundle diverges from timed:prices feed", () => {
+    const reason = shouldRefreshQuoteForTradeMgmt({
+      bundlePx: 1078.48,
+      pfPx: 1045.17,
+      pfTickFresh: true,
+      pxNow: 1045.17,
+    });
+    expect(reason).toBe("bundle_vs_feed");
+  });
+
+  it("requests refresh when pxNow jumps away from a recent exit advisory", () => {
+    const reason = shouldRefreshQuoteForTradeMgmt({
+      bundlePx: 1078.48,
+      pfPx: 1078.48,
+      pfTickFresh: true,
+      pxNow: 1078.48,
+      recentAdvisoryPx: 1045.17,
+    });
+    expect(reason).toBe("px_vs_recent_advisory");
+  });
+
+  it("returns null when sources agree within tolerance", () => {
+    const reason = shouldRefreshQuoteForTradeMgmt({
+      bundlePx: 1045.17,
+      pfPx: 1046.0,
+      pfTickFresh: true,
+      pxNow: 1045.17,
+      recentAdvisoryPx: 1045.17,
+    });
+    expect(reason).toBeNull();
+  });
+});
+
+describe("priceDivergencePct", () => {
+  it("measures percent gap between two positive prices", () => {
+    expect(priceDivergencePct(1078.48, 1045.17)).toBeCloseTo(3.19, 1);
+  });
+});
+
+describe("evaluateSlCloseFreshQuote", () => {
+  it("defers SL close when fresh quote is above stop (GEV-class stale low)", () => {
+    const r = evaluateSlCloseFreshQuote({
+      direction: "LONG",
+      sl: 1073.06,
+      checkPx: 1042.0,
+      freshPx: 1093.0,
+    });
+    expect(r.action).toBe("defer");
+    expect(r.reason).toBe("fresh_quote_not_past_sl");
+  });
+
+  it("allows close when fresh quote confirms SL breach", () => {
+    const r = evaluateSlCloseFreshQuote({
+      direction: "LONG",
+      sl: 1073.06,
+      checkPx: 1042.0,
+      freshPx: 1040.0,
+    });
+    expect(r.action).toBe("close");
+    expect(r.freshPx).toBeCloseTo(1040.0, 2);
   });
 });
 
