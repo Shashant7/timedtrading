@@ -197,6 +197,40 @@ export function shouldRefreshQuoteForTradeMgmt({
   return null;
 }
 
+/**
+ * MU/GEV-class SL stale guard. When headline/check price claims the stop is
+ * breached, confirm with a fresh live quote before hard-closing. Prevents
+ * stop-outs on stale lows while the market is still above the published SL.
+ */
+export function evaluateSlCloseFreshQuote({ direction, sl, checkPx, freshPx }) {
+  const dir = String(direction || "LONG").toUpperCase();
+  const stop = Number(sl);
+  const check = Number(checkPx);
+  const fresh = Number(freshPx);
+  if (!(stop > 0) || !(check > 0) || !(fresh > 0)) {
+    return { action: "unchanged", freshPx: fresh > 0 ? fresh : null, reason: "missing_inputs" };
+  }
+  if (!isStopLossBreached(dir, check, stop)) {
+    return { action: "unchanged", freshPx: fresh, reason: "check_not_breached" };
+  }
+  if (!isStopLossBreached(dir, fresh, stop)) {
+    return {
+      action: "defer",
+      freshPx: fresh,
+      reason: "fresh_quote_not_past_sl",
+      checkPx: check,
+      sl: stop,
+    };
+  }
+  return {
+    action: "close",
+    freshPx: fresh,
+    reason: "fresh_quote_confirms_sl",
+    checkPx: check,
+    sl: stop,
+  };
+}
+
 export function mergeFreshQuoteIntoTickerData(tickerData, freshPx, meta = {}) {
   if (!tickerData || typeof tickerData !== "object") return tickerData;
   const px = Number(freshPx);

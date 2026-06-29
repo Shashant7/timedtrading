@@ -10,6 +10,7 @@ import {
   shouldRefreshQuoteForStopCheck,
   shouldRefreshQuoteForTradeMgmt,
   priceDivergencePct,
+  evaluateSlCloseFreshQuote,
 } from "./sl-hard-exit.js";
 
 describe("resolvePublishedStopLoss", () => {
@@ -104,6 +105,30 @@ describe("shouldRefreshQuoteForTradeMgmt", () => {
 describe("priceDivergencePct", () => {
   it("measures percent gap between two positive prices", () => {
     expect(priceDivergencePct(1078.48, 1045.17)).toBeCloseTo(3.19, 1);
+  });
+});
+
+describe("evaluateSlCloseFreshQuote", () => {
+  it("defers SL close when fresh quote is above stop (GEV-class stale low)", () => {
+    const r = evaluateSlCloseFreshQuote({
+      direction: "LONG",
+      sl: 1073.06,
+      checkPx: 1042.0,
+      freshPx: 1093.0,
+    });
+    expect(r.action).toBe("defer");
+    expect(r.reason).toBe("fresh_quote_not_past_sl");
+  });
+
+  it("allows close when fresh quote confirms SL breach", () => {
+    const r = evaluateSlCloseFreshQuote({
+      direction: "LONG",
+      sl: 1073.06,
+      checkPx: 1042.0,
+      freshPx: 1040.0,
+    });
+    expect(r.action).toBe("close");
+    expect(r.freshPx).toBeCloseTo(1040.0, 2);
   });
 });
 
