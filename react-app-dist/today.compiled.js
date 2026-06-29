@@ -4436,18 +4436,6 @@ function ViewportCard({
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
   const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const TT = window.TimedBubbleChart || {};
-  const score = (() => {
-    try {
-      const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
-      if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
-    } catch (_) {}
-    const fallback = Number(t?.score ?? t?.rank);
-    return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
-  })();
-  const rank = Number(t?.rank_position ?? t?.rp) || null;
-  const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
-  const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const _posture = window.TimedPriceUtils && window.TimedPriceUtils.inferTraderPosture ? window.TimedPriceUtils.inferTraderPosture(t) : null;
   const _modelDir = _posture?.direction || (window.TimedPriceUtils && window.TimedPriceUtils.inferModelDirection ? window.TimedPriceUtils.inferModelDirection(t) : "");
   const openTrade = (() => {
@@ -4542,36 +4530,6 @@ function ViewportCard({
       extLine
     },
     sparkSvg,
-    metrics: [rank != null && h("span", {
-      className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: `Rank position: ${rank} of all eligible tickers (1 = best).`
-    }, `R${rank}`), score != null && h("span", {
-      className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: `Score: ${Math.round(score)} (composite alignment, higher = better).`
-    }, `S${Math.round(score)}`), conv != null && h("span", {
-      className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: "Conviction tier · focus score"
-    }, `${tier || "C"}·${Math.round(conv)}`), (() => {
-      const tilt = Number(t?._theme_tilt);
-      if (!Number.isFinite(tilt) || tilt === 0) return null;
-      const themeName = String(t?._theme_tilt_theme || "theme").replace(/_/g, " ");
-      return h("span", {
-        className: `ds-chip ds-chip--sm ${tilt > 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-        style: {
-          fontFamily: "var(--tt-font-mono)"
-        },
-        title: `Theme tilt: ${tilt > 0 ? "+" : ""}${tilt} from ${themeName} activity (CRO rotation engine + playbook; bounded ±6, direction-aware).`
-      }, `T${tilt > 0 ? "+" : ""}${tilt}`);
-    })()],
     isSaved,
     onToggleSaved
   });
@@ -6454,6 +6412,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782751716755:706271743
+// cache-bust:1782755980202:214694519
 
-// cache-bust:1782751716755:706271743
+// cache-bust:1782755980202:214694519

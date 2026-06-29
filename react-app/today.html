@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260624-lane-height" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260624-tight-cards" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -28,7 +28,7 @@
     <script src="shared-price-utils.js?v=20260623a"></script>
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
-    <script src="shared-lane-card.js?v=20260624-lane-height"></script>
+    <script src="shared-lane-card.js?v=20260624-tight-cards"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
     <script src="ds-components.js?v=20260501a"></script>
@@ -5712,22 +5712,6 @@
         const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
 
-        const TT = window.TimedBubbleChart || {};
-        const score = (() => {
-          try {
-            const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
-            if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
-          } catch (_) {}
-          const fallback = Number(t?.score ?? t?.rank);
-          return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
-        })();
-        // Read rank straight from the data the way DsCompactCard does — do
-        // NOT synthesize from client-side ranking. Otherwise Today would
-        // show an R# chip on every card while AT (same data) doesn't.
-        const rank = Number(t?.rank_position ?? t?.rp) || null;
-        const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
-        const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
-
         // Bias chip — BULL / BEAR / NEUTRAL.
         // 2026-05-21: switched from a state-only derivation to the SHARED
         // inferModelDirection() helper (window.TimedPriceUtils) which
@@ -5850,33 +5834,6 @@
           ],
           quote: { price, dayPct, dayChg, dir, extLine },
           sparkSvg,
-          metrics: [
-            rank != null && h("span", {
-              className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: `Rank position: ${rank} of all eligible tickers (1 = best).`,
-            }, `R${rank}`),
-            score != null && h("span", {
-              className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: `Score: ${Math.round(score)} (composite alignment, higher = better).`,
-            }, `S${Math.round(score)}`),
-            conv != null && h("span", {
-              className: `ds-chip ds-chip--sm ${tier === "A" ? "ds-chip--up" : tier === "B" ? "ds-chip--accent" : "ds-chip--solid"}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: "Conviction tier · focus score",
-            }, `${tier || "C"}·${Math.round(conv)}`),
-            (() => {
-              const tilt = Number(t?._theme_tilt);
-              if (!Number.isFinite(tilt) || tilt === 0) return null;
-              const themeName = String(t?._theme_tilt_theme || "theme").replace(/_/g, " ");
-              return h("span", {
-                className: `ds-chip ds-chip--sm ${tilt > 0 ? "ds-chip--up" : "ds-chip--dn"}`,
-                style: { fontFamily: "var(--tt-font-mono)" },
-                title: `Theme tilt: ${tilt > 0 ? "+" : ""}${tilt} from ${themeName} activity (CRO rotation engine + playbook; bounded ±6, direction-aware).`,
-              }, `T${tilt > 0 ? "+" : ""}${tilt}`);
-            })(),
-          ],
           isSaved,
           onToggleSaved,
         });
