@@ -769,8 +769,8 @@ input, button, select, textarea {
 
 /* ─── TtLaneCard — shared compact lane layout (AT / Today / Investor) ─ */
 .ds-tickercard.tt-lane-card {
-  --tt-lane-card-h: 102px;
-  --tt-lane-main-h: 42px;
+  --tt-lane-card-h: 112px;
+  --tt-lane-main-h: 56px;
   --tt-lane-mid-h: 0px;
   --tt-lane-bar-h: 12px;
   display: flex;
@@ -785,14 +785,20 @@ input, button, select, textarea {
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--active,
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
-  --tt-lane-card-h: 162px;
-  --tt-lane-mid-h: 50px;
-  --tt-lane-main-h: 44px;
-  gap: 5px;
+  --tt-lane-main-h: 52px;
+  gap: 4px;
+}
+.ds-tickercard.tt-lane-card.tt-lane-card--active {
+  --tt-lane-card-h: 136px;
+  --tt-lane-mid-h: 38px;
+}
+.ds-tickercard.tt-lane-card.tt-lane-card--owned {
+  --tt-lane-card-h: 144px;
+  --tt-lane-mid-h: 42px;
 }
 .tt-lane-card--active .tt-lane-card__mid,
 .tt-lane-card--owned .tt-lane-card__mid {
-  padding-top: 6px;
+  padding-top: 4px;
   box-sizing: border-box;
 }
 /* Lane cards: classic bottom-half spark backdrop (same as pre-refactor). */
@@ -939,25 +945,19 @@ input, button, select, textarea {
 }
 .tt-lane-card__chips {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-  height: 18px;
-  min-height: 18px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent 100%);
-  mask-image: linear-gradient(to right, #000 88%, transparent 100%);
-}
-.tt-lane-card__chips::-webkit-scrollbar {
-  display: none;
+  align-content: flex-start;
+  gap: 3px 4px;
+  margin-top: 3px;
+  max-height: 36px;
+  min-height: 16px;
+  overflow: hidden;
 }
 .tt-lane-card__chips .ds-chip,
 .tt-lane-card__chips .tt-pattern-chip {
   flex: 0 0 auto;
-  max-width: none;
+  max-width: 100%;
   white-space: nowrap;
 }
 .tt-lane-card__quote {
