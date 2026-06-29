@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260624-lane-radius" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260624-lane-height" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -28,7 +28,7 @@
     <script src="shared-price-utils.js?v=20260615a"></script>
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
-    <script src="shared-lane-card.js?v=20260624a"></script>
+    <script src="shared-lane-card.js?v=20260624-lane-height"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="investor-panel.js?v=20260624a"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -481,17 +481,8 @@
         align-self: stretch;
       }
       .inv-kanban-card > .tt-lane-card {
-        flex: 1 1 auto;
+        flex: 0 0 auto;
         width: 100%;
-        min-height: 132px;
-      }
-      .inv-kanban-lane[data-lane="watch"] .tt-lane-card--owned .tt-lane-card__mid,
-      .inv-kanban-lane[data-lane="core_hold"] .tt-lane-card--owned .tt-lane-card__mid {
-        min-height: 54px;
-      }
-      .inv-kanban-lane[data-lane="watch"] .tt-lane-card--owned .tt-lane-card__trace,
-      .inv-kanban-lane[data-lane="core_hold"] .tt-lane-card--owned .tt-lane-card__trace {
-        min-height: 22px;
       }
       /* Tailwind CDN preflight sets button { border-radius: 0 } after tt-tokens. */
       button.ds-tickercard.tt-lane-card,

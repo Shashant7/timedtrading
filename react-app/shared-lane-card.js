@@ -88,7 +88,6 @@
     const sym = String(p.sym || "").toUpperCase();
     const chips = Array.isArray(p.chipRow) ? p.chipRow.filter(Boolean) : [];
     const metrics = Array.isArray(p.metrics) ? p.metrics.filter(Boolean) : [];
-    const showFoot = metrics.length > 0 || !!p.onToggleSaved;
 
     return h("button", {
       onClick: p.button?.onClick,
@@ -112,17 +111,19 @@
             }),
             p.identityExtra || null,
           ),
-          chips.length > 0 && h("div", { className: "tt-lane-card__chips" }, ...chips),
+          h("div", { className: "tt-lane-card__chips" }, ...(chips.length ? chips : [])),
         ),
         quoteColumn(p.quote || {}),
       ),
-      p.midBody ? h("div", { className: "tt-lane-card__mid" }, p.midBody) : null,
-      p.sparkSvg && h("div", {
-        className: "ds-tickercard__spark",
-        dangerouslySetInnerHTML: { __html: p.sparkSvg },
-      }),
-      showFoot && h("div", { className: "tt-lane-card__foot" },
-        h("div", { className: "tt-lane-card__metrics" }, ...metrics),
+      h("div", { className: "tt-lane-card__mid" }, p.midBody || null),
+      h("div", { className: "tt-lane-card__spark-slot" },
+        p.sparkSvg && h("div", {
+          className: "ds-tickercard__spark",
+          dangerouslySetInnerHTML: { __html: p.sparkSvg },
+        }),
+      ),
+      h("div", { className: "tt-lane-card__foot" },
+        h("div", { className: "tt-lane-card__metrics" }, ...(metrics.length ? metrics : [])),
         saveButton({ sym, isSaved: p.isSaved, onToggleSaved: p.onToggleSaved }),
       ),
     );
