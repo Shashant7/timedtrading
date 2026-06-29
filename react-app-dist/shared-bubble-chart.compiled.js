@@ -20,6 +20,15 @@
       dayChg: null
     };
   };
+  const getBubbleFillChange = window.TimedPriceUtils && window.TimedPriceUtils.getBubbleFillChange || function (t) {
+    const dc = getDailyChange(t);
+    return {
+      pct: dc.dayPct,
+      chg: dc.dayChg,
+      source: "rth",
+      hasData: Number.isFinite(dc.dayPct)
+    };
+  };
   const debugLog = typeof window !== 'undefined' && typeof window.__ttDebugLog === 'function' ? window.__ttDebugLog : function () {};
   const LONG_CORRIDOR = {
     ltfMin: -8,
@@ -626,7 +635,8 @@
     const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks) || ["ACCUMULATE", "REDUCE", "DEFEND"].includes(investorAction);
     const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
     const move = getMoveStatusInfo(ticker);
-    const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
+    const bubbleFill = getBubbleFillChange(ticker);
+    const dayPct = Number(bubbleFill?.pct);
     const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
     const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
     const _bTickerSym = ticker?.ticker || "";
@@ -634,7 +644,7 @@
     let tintAlpha;
     if (_bNorm <= 0.2) tintAlpha = 0.25 + _bNorm * 1.25;else if (_bNorm <= 0.5) tintAlpha = 0.50 + (_bNorm - 0.2) / 0.3 * 0.20;else if (_bNorm <= 1.0) tintAlpha = 0.70 + (_bNorm - 0.5) / 0.5 * 0.15;else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
     const isUp = dayPct >= 0;
-    const hasDayData = ticker?.day_change_pct != null || ticker?.dailyChgPct != null || ticker?.dp != null;
+    const hasDayData = bubbleFill?.hasData === true;
     const fillColor = waitingForData ? "rgba(55,65,81,0.4)" : !hasDayData ? "rgba(100,116,139,0.3)" : isUp ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
     const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : 0.92;
     const moveOpacityMult = waitingForData || isHovered ? 1 : move.status === "INVALIDATED" ? 0.25 : move.status === "COMPLETED" ? 0.6 : 1;
@@ -737,7 +747,7 @@
     const relLabelY = -renderedSize - 8;
     const isTimeTravel = !!ticker._isTimeTravel;
     const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
-    const dayChgPts = isTimeTravel ? 0 : Number(ticker?.day_change || ticker?.change || 0);
+    const dayChgPts = isTimeTravel ? 0 : Number.isFinite(Number(bubbleFill?.chg)) ? Number(bubbleFill.chg) : 0;
     const baseDriftY = clampPx(-dayChgPts * 2, 15);
     const baseDriftX = clampPx(dayChgPts * 1, 8);
     const impulseX = isTimeTravel ? 0 : Number(ticker._price_impulse_x) || 0;
@@ -1761,12 +1771,13 @@
         }, React.createElement("span", null, tooltip.ticker), tooltip.price && React.createElement("span", {
           className: "text-sm font-normal text-white"
         }, "$", Number(tooltip.price).toFixed(2)), (() => {
-          const dc = getDailyChange(tooltip);
-          if (!dc || !Number.isFinite(dc.dayPct)) return null;
-          const pos = dc.dayPct >= 0;
+          const fill = getBubbleFillChange(tooltip);
+          if (!fill || !Number.isFinite(fill.pct)) return null;
+          const pos = fill.pct >= 0;
+          const extTag = fill.source === "ext" ? "EXT " : "";
           return React.createElement("span", {
             className: `text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`
-          }, pos ? "+" : "", dc.dayPct.toFixed(2), "%", Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : "");
+          }, extTag, pos ? "+" : "", fill.pct.toFixed(2), "%", Number.isFinite(fill.chg) ? ` (${pos ? "+" : ""}${fill.chg.toFixed(2)})` : "");
         })(), tooltipMode === "investor" ? (() => {
           const act = String(tooltip._investorAction || "").toUpperCase();
           const stage = String(tooltip.investor_stage || tooltip._investorStage || "").toLowerCase();
@@ -2693,4 +2704,4 @@
   };
 })();
 
-// cache-bust:1782686321399:240535600
+// cache-bust:1782734360422:721097512

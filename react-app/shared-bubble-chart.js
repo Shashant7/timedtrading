@@ -47,6 +47,11 @@
   // Soft-dep on shared-price-utils for daily-change calculations.
   const getDailyChange = (window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange)
     || function () { return { dayPct: null, dayChg: null }; };
+  const getBubbleFillChange = (window.TimedPriceUtils && window.TimedPriceUtils.getBubbleFillChange)
+    || function (t) {
+      const dc = getDailyChange(t);
+      return { pct: dc.dayPct, chg: dc.dayChg, source: "rth", hasData: Number.isFinite(dc.dayPct) };
+    };
 
   // debugLog: page may inject one; fall back to no-op
   const debugLog = (typeof window !== 'undefined' && typeof window.__ttDebugLog === 'function')
@@ -850,8 +855,10 @@
 
       const move = getMoveStatusInfo(ticker);
 
-      // Daily change % fill color — normalized by ticker type
-      const dayPct = Number(ticker?.day_change_pct || ticker?.dailyChgPct || ticker?.dp || 0);
+      // Session-aware fill color — RTH daily change; outside RTH use EXT
+      // when available (matches Top Movers EXT row + right-rail EXT chip).
+      const bubbleFill = getBubbleFillChange(ticker);
+      const dayPct = Number(bubbleFill?.pct);
       const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
       const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
       const _bTickerSym = ticker?.ticker || "";
@@ -865,7 +872,7 @@
       else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
 
       const isUp = dayPct >= 0;
-      const hasDayData = (ticker?.day_change_pct != null || ticker?.dailyChgPct != null || ticker?.dp != null);
+      const hasDayData = bubbleFill?.hasData === true;
       const fillColor = waitingForData
         ? "rgba(55,65,81,0.4)"
         : !hasDayData
@@ -943,7 +950,7 @@
       const isTimeTravel = !!ticker._isTimeTravel;
       const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
       // In Time Travel mode, strip live-data offsets so position is purely score-driven
-      const dayChgPts = isTimeTravel ? 0 : Number(ticker?.day_change || ticker?.change || 0);
+      const dayChgPts = isTimeTravel ? 0 : (Number.isFinite(Number(bubbleFill?.chg)) ? Number(bubbleFill.chg) : 0);
       const baseDriftY = clampPx(-dayChgPts * 2, 15);
       const baseDriftX = clampPx(dayChgPts * 1, 8);
       const impulseX = isTimeTravel ? 0 : (Number(ticker._price_impulse_x) || 0);
@@ -2139,12 +2146,13 @@
                       </span>
                     )}
                     {(() => {
-                      const dc = getDailyChange(tooltip);
-                      if (!dc || !Number.isFinite(dc.dayPct)) return null;
-                      const pos = dc.dayPct >= 0;
+                      const fill = getBubbleFillChange(tooltip);
+                      if (!fill || !Number.isFinite(fill.pct)) return null;
+                      const pos = fill.pct >= 0;
+                      const extTag = fill.source === "ext" ? "EXT " : "";
                       return (
                         <span className={`text-xs font-semibold ${pos ? "text-emerald-400" : "text-rose-400"}`}>
-                          {pos ? "+" : ""}{dc.dayPct.toFixed(2)}%{Number.isFinite(dc.dayChg) ? ` (${pos ? "+" : ""}${dc.dayChg.toFixed(2)})` : ""}
+                          {extTag}{pos ? "+" : ""}{fill.pct.toFixed(2)}%{Number.isFinite(fill.chg) ? ` (${pos ? "+" : ""}${fill.chg.toFixed(2)})` : ""}
                         </span>
                       );
                     })()}

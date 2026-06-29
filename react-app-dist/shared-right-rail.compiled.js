@@ -12953,14 +12953,22 @@
             if (pcSL < px && tpAbove) return "LONG";
             return pcSL > px ? "SHORT" : "LONG";
           };
+          const levelInferredDir = inferDirFromLevels();
+          const contractDir = resolveTraderCallDir(pcDirRaw);
+          const resolveProposedPlanDir = () => {
+            if (levelInferredDir && contractDir && levelInferredDir !== contractDir) {
+              return levelInferredDir;
+            }
+            return contractDir || levelInferredDir || resolveTimingAwareTraderDir() || resolveTraderCallDir(optionsTraderDir);
+          };
           const traderCallDir = (() => {
             if (showModelPlanPanel) {
-              return resolveTimingAwareTraderDir() || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+              return resolveProposedPlanDir();
             }
             if (tradeIsOpen) {
-              return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
+              return resolveTraderCallDir(trade?.direction) || resolveProposedPlanDir();
             }
-            return resolveTimingAwareTraderDir() || resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(optionsTraderDir) || inferDirFromLevels();
+            return resolveProposedPlanDir();
           })();
           if (!traderCallDir) {
             if (predictionContractLoading) {
@@ -21980,4 +21988,4 @@
   };
 })();
 
-// cache-bust:1782686321399:240535600
+// cache-bust:1782734360422:721097512

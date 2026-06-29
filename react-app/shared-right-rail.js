@@ -11092,20 +11092,28 @@
                           if (pcSL < px && tpAbove) return "LONG";
                           return pcSL > px ? "SHORT" : "LONG";
                         };
+                        const levelInferredDir = inferDirFromLevels();
+                        const contractDir = resolveTraderCallDir(pcDirRaw);
+                        const resolveProposedPlanDir = () => {
+                          // Levels + contract direction define the plan; posture
+                          // (e.g. Leaning bearish) is context only — SPY showed
+                          // SHORT chip with long-shaped SL/TP when posture won.
+                          if (levelInferredDir && contractDir && levelInferredDir !== contractDir) {
+                            return levelInferredDir;
+                          }
+                          return contractDir
+                            || levelInferredDir
+                            || resolveTimingAwareTraderDir()
+                            || resolveTraderCallDir(optionsTraderDir);
+                        };
                         const traderCallDir = (() => {
                           if (showModelPlanPanel) {
-                            return resolveTimingAwareTraderDir()
-                              || resolveTraderCallDir(pcDirRaw)
-                              || resolveTraderCallDir(optionsTraderDir)
-                              || inferDirFromLevels();
+                            return resolveProposedPlanDir();
                           }
                           if (tradeIsOpen) {
-                            return resolveTraderCallDir(trade?.direction) || resolveTraderCallDir(pcDirRaw);
+                            return resolveTraderCallDir(trade?.direction) || resolveProposedPlanDir();
                           }
-                          return resolveTimingAwareTraderDir()
-                            || resolveTraderCallDir(pcDirRaw)
-                            || resolveTraderCallDir(optionsTraderDir)
-                            || inferDirFromLevels();
+                          return resolveProposedPlanDir();
                         })();
                         if (!traderCallDir) {
                           if (predictionContractLoading) {
