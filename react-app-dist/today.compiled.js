@@ -6361,37 +6361,70 @@ function AnalysisControlsSkeleton() {
   }))))));
 }
 function BubbleViewportSkeleton() {
-  return h("section", {
-    className: "tt-row"
-  }, h("div", {
-    style: {
-      marginBottom: 10
-    }
+  return h(React.Fragment, null, h("div", {
+    className: "tt-viewport-map-head"
   }, h("div", {
     className: "sk",
     style: {
-      width: 80,
+      width: 130,
       height: 10,
-      marginBottom: 8
+      marginBottom: 6
     }
   }), h("div", {
     className: "sk",
     style: {
-      width: 300,
-      height: 16
+      width: 150,
+      height: 12
     }
   })), h("div", {
-    className: "sk-bubble-shell"
+    className: "sk-lane-controls"
   }, h("div", {
+    className: "sk",
+    style: {
+      width: "100%",
+      height: 38,
+      borderRadius: 10
+    }
+  }), h("div", {
     style: {
       display: "flex",
-      flexDirection: "column",
-      gap: 10
+      gap: 6,
+      flexWrap: "wrap"
     }
+  }, [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
+    key: i,
+    className: "sk",
+    style: {
+      width: 68 + i % 4 * 14,
+      height: 24,
+      borderRadius: 999
+    }
+  })))), h("div", {
+    className: "sk-vp-lane"
   }, [0, 1, 2, 3, 4].map(i => h("div", {
     key: i,
-    className: "sk sk-card-md"
+    className: "sk sk-lane-card"
   }))), h("div", {
+    className: "tt-bmap-head",
+    style: {
+      margin: "10px 0 6px"
+    }
+  }, h("div", {
+    className: "sk",
+    style: {
+      width: 88,
+      height: 10,
+      marginBottom: 6
+    }
+  }), h("div", {
+    className: "sk",
+    style: {
+      width: 280,
+      height: 12
+    }
+  })), h("div", {
+    className: "tt-bmap-block"
+  }, h("div", {
     className: "sk sk-bubble-pane"
   })));
 }
@@ -6403,6 +6436,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782734360422:721097512
+// cache-bust:1782737862693:882682395
 
-// cache-bust:1782734360422:721097512
+// cache-bust:1782737862693:882682395
