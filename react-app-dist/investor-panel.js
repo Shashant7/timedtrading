@@ -140,8 +140,6 @@
   function InvestorCard({ t, onSelect, selectedTicker, savedTickers, toggleSavedTicker, entryPosture }) {
     const sym = String(t?.ticker || "").toUpperCase();
     const stage = t.stage || "research_avoid";
-    const score = Number(t.score) || 0;
-    const rsFields = investorRsFields(t);
     const liveStagePending = t._live_stage_pending && typeof t._live_stage_pending === "object"
       ? t._live_stage_pending : null;
     const _dc = getDailyChange(t);
@@ -494,18 +492,6 @@
       quote: { price, dayPct, dayChg, dir, extLine },
       midBody: isOwned ? midBody : null,
       sparkSvg,
-      metrics: [
-        Number.isFinite(score) && score > 0 && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${score >= 70 ? "ds-chip--up" : score >= 50 ? "ds-chip--accent" : ""}`,
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: "Composite investor score (0-100)",
-        }, `S${Math.round(score)}`),
-        t.rsRank != null && React.createElement("span", {
-          className: `ds-chip ds-chip--sm ${Number(t.rsRank) >= 80 ? "ds-chip--up" : Number(t.rsRank) >= 50 ? "" : "ds-chip--solid"}`,
-          style: { fontFamily: "var(--tt-font-mono)" },
-          title: `Relative strength percentile${rsFields.rs1m != null ? ` · 1M ${Number(rsFields.rs1m) >= 0 ? "+" : ""}${Number(rsFields.rs1m).toFixed(1)}%` : ""}${rsFields.rs3m != null ? ` · 3M ${Number(rsFields.rs3m) >= 0 ? "+" : ""}${Number(rsFields.rs3m).toFixed(1)}%` : ""}`,
-        }, `RS ${t.rsRank}`),
-      ],
       isSaved,
       onToggleSaved: toggleSavedTicker,
     });
@@ -1411,4 +1397,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782754135112:923886990
+// cache-bust:1782755980202:214694519

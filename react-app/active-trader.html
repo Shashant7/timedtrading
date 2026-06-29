@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260624-lane-height" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260624-tight-cards" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -28,7 +28,7 @@
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-signal-grammar.js?v=20260623d"></script>
-    <script src="shared-lane-card.js?v=20260624-lane-height"></script>
+    <script src="shared-lane-card.js?v=20260624-tight-cards"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -1184,20 +1184,6 @@
         const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
         const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
 
-        const TT = window.TimedBubbleChart || {};
-        const score = (() => {
-          try {
-            const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
-            if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
-          } catch (_) {}
-          const fallback = Number(t?.score ?? t?.rank);
-          return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
-        })();
-        const rank = Number(t?.rank_position ?? t?.rp) || null;
-        const rr   = Number(t?.rr) || null;
-        const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
-        const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
-
         // Bias chip — verified open trade only; discovery lanes must not
         // flash OPEN_* from stale snapshot until the positions book loads.
         const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
@@ -1524,18 +1510,6 @@
           quote: { price, dayPct, dayChg, dir, extLine },
           midBody: closedMid || progressMid,
           sparkSvg,
-          metrics: [
-            rank != null && h("span", {
-              className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: `Rank position: ${rank} of all eligible tickers.`,
-            }, `R${rank}`),
-            score != null && h("span", {
-              className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
-              style: { fontFamily: "var(--tt-font-mono)" },
-              title: `Score: ${Math.round(score)}${conv != null ? ` · ${tier || "C"}·${Math.round(conv)} conv` : ""}${rr != null ? ` · ${rr.toFixed(1)}R` : ""}`,
-            }, `S${Math.round(score)}`),
-          ],
           isSaved,
           onToggleSaved,
         });
@@ -1930,7 +1904,7 @@
                 el("SL (Stop Loss)", "the protective exit if it goes wrong."),
                 el("T1 / T2 / T3", "profit targets the model is trimming into."),
                 el("P&L %", "current unrealized gain/loss on the open position."),
-                el("Chips", "R = discovery rank, S = score, RR = reward-to-risk, SQ = squeeze state."),
+                el("Chips", "Bias, stage, and pattern labels describe posture and setup."),
               ),
             ),
             h("div", null,

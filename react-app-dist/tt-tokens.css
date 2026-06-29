@@ -769,10 +769,10 @@ input, button, select, textarea {
 
 /* ─── TtLaneCard — shared compact lane layout (AT / Today / Investor) ─ */
 .ds-tickercard.tt-lane-card {
-  --tt-lane-card-h: 188px;
-  --tt-lane-main-h: 52px;
-  --tt-lane-mid-h: 48px;
-  --tt-lane-spark-h: 34px;
+  --tt-lane-card-h: 160px;
+  --tt-lane-main-h: 50px;
+  --tt-lane-mid-h: 46px;
+  --tt-lane-spark-h: 32px;
   --tt-lane-foot-h: 18px;
   display: flex;
   flex-direction: column;
@@ -1023,6 +1023,13 @@ input, button, select, textarea {
   padding: 0 6px;
   height: 18px;
   margin-left: auto;
+}
+.tt-lane-card__save--corner {
+  position: absolute;
+  right: 10px;
+  bottom: calc(var(--tt-lane-spark-h) + 2px);
+  z-index: 3;
+  margin-left: 0;
 }
 .tt-lane-card__position {
   z-index: 2;

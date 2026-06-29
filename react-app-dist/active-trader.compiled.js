@@ -530,19 +530,6 @@ function ATCard({
   const dayPct = Number.isFinite(dc?.dayPct) ? Number(dc.dayPct) : null;
   const dayChg = Number.isFinite(dc?.dayChg) ? Number(dc.dayChg) : null;
   const dir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
-  const TT = window.TimedBubbleChart || {};
-  const score = (() => {
-    try {
-      const dyn = TT.rankScoreForTicker ? Number(TT.rankScoreForTicker(t)) : NaN;
-      if (Number.isFinite(dyn) && dyn !== 0) return Math.round(dyn);
-    } catch (_) {}
-    const fallback = Number(t?.score ?? t?.rank);
-    return Number.isFinite(fallback) && fallback !== 0 ? Math.round(fallback) : null;
-  })();
-  const rank = Number(t?.rank_position ?? t?.rp) || null;
-  const rr = Number(t?.rr) || null;
-  const conv = Number(t?.focus_conviction_score ?? t?.__focus_conviction_score) || null;
-  const tier = String(t?.focus_tier ?? t?.__focus_tier ?? "").toUpperCase();
   const resolvedOpen = resolveOpenTrade(openTrade || t?._openTrade || null);
   const sanitize = window.TimedPriceUtils?.sanitizeTickerOpenPosture;
   const postureTicker = sanitize ? sanitize(t, resolvedOpen) : resolvedOpen ? {
@@ -935,19 +922,6 @@ function ATCard({
     },
     midBody: closedMid || progressMid,
     sparkSvg,
-    metrics: [rank != null && h("span", {
-      className: `ds-chip ds-chip--sm ${rank <= 10 ? "ds-chip--up" : rank <= 30 ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: `Rank position: ${rank} of all eligible tickers.`
-    }, `R${rank}`), score != null && h("span", {
-      className: `ds-chip ds-chip--sm ${score >= 100 ? "ds-chip--up" : score >= 75 ? "ds-chip--accent" : ""}`,
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      },
-      title: `Score: ${Math.round(score)}${conv != null ? ` · ${tier || "C"}·${Math.round(conv)} conv` : ""}${rr != null ? ` · ${rr.toFixed(1)}R` : ""}`
-    }, `S${Math.round(score)}`)],
     isSaved,
     onToggleSaved
   });
@@ -1424,7 +1398,7 @@ function HowToReadCard() {
       flexDirection: "column",
       gap: 6
     }
-  }, el("E (Entry)", "where the model entered the trade."), el("SL (Stop Loss)", "the protective exit if it goes wrong."), el("T1 / T2 / T3", "profit targets the model is trimming into."), el("P&L %", "current unrealized gain/loss on the open position."), el("Chips", "R = discovery rank, S = score, RR = reward-to-risk, SQ = squeeze state."))), h("div", null, h("div", {
+  }, el("E (Entry)", "where the model entered the trade."), el("SL (Stop Loss)", "the protective exit if it goes wrong."), el("T1 / T2 / T3", "profit targets the model is trimming into."), el("P&L %", "current unrealized gain/loss on the open position."), el("Chips", "Bias, stage, and pattern labels describe posture and setup."))), h("div", null, h("div", {
     className: "tt-sec-title",
     style: {
       marginBottom: 6
@@ -2060,6 +2034,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782751716755:706271743
+// cache-bust:1782755980202:214694519
 
-// cache-bust:1782751716755:706271743
+// cache-bust:1782755980202:214694519

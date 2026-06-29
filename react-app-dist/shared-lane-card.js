@@ -69,11 +69,11 @@
     );
   }
 
-  function saveButton({ sym, isSaved, onToggleSaved }) {
+  function saveButton({ sym, isSaved, onToggleSaved, corner }) {
     if (!onToggleSaved) return null;
     return h("button", {
       onClick: (e) => { e.preventDefault(); e.stopPropagation(); onToggleSaved(sym); },
-      className: "ds-chip ds-chip--sm tt-lane-card__save",
+      className: `ds-chip ds-chip--sm tt-lane-card__save${corner ? " tt-lane-card__save--corner" : ""}`,
       style: {
         color: isSaved ? "var(--ds-accent)" : "var(--ds-text-muted)",
         background: isSaved ? "var(--ds-accent-dim)" : "transparent",
@@ -122,10 +122,16 @@
           dangerouslySetInnerHTML: { __html: p.sparkSvg },
         }),
       ),
-      h("div", { className: "tt-lane-card__foot" },
-        h("div", { className: "tt-lane-card__metrics" }, ...(metrics.length ? metrics : [])),
+      metrics.length > 0 && h("div", { className: "tt-lane-card__foot" },
+        h("div", { className: "tt-lane-card__metrics" }, ...metrics),
         saveButton({ sym, isSaved: p.isSaved, onToggleSaved: p.onToggleSaved }),
       ),
+      metrics.length === 0 && saveButton({
+        sym,
+        isSaved: p.isSaved,
+        onToggleSaved: p.onToggleSaved,
+        corner: true,
+      }),
     );
   }
 
@@ -142,4 +148,4 @@
   boot();
 })();
 
-// cache-bust:1782753886245:375699079
+// cache-bust:1782755980202:214694519
