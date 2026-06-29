@@ -1,0 +1,114 @@
+name: Sanity sweep agent triage
+
+# Polls open sanity-sweep incidents that need a code fix and opens
+# GitHub issues tagged for a Cursor Cloud Agent (or human) to pick up.
+#
+# Required repo secrets:
+#   TIMED_TRADING_API_KEY — admin key for /timed/admin/sanity-sweep/incidents
+#
+# Optional: connect Cursor Cloud Agents to issues labeled sanity-sweep-agent.
+
+on:
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: sanity-sweep-agent
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Open agent issues for code-fix incidents
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch open PR-needed incidents
+        id: fetch
+        env:
+          TIMED_TRADING_API_KEY: ${{ secrets.TIMED_TRADING_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TIMED_TRADING_API_KEY:-}" ]; then
+            echo "::warning::TIMED_TRADING_API_KEY not set — skipping agent triage"
+            echo 'incidents=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BODY=$(curl -sS -m 30 \
+            -H "X-TT-Admin-Key: ${TIMED_TRADING_API_KEY}" \
+            "https://timed-trading-ingest.shashant.workers.dev/timed/admin/sanity-sweep/incidents?needs_pr=1" \
+            || echo '{"ok":false,"open":[]}')
+          if ! echo "$BODY" | jq -e . >/dev/null 2>&1; then
+            echo "::warning::Non-JSON incidents response"
+            echo 'incidents=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OPEN=$(echo "$BODY" | jq -c '.open // []')
+          echo "incidents=${OPEN}" >> "$GITHUB_OUTPUT"
+          echo "$BODY" | jq '{ok, open_count, needs_pr_count, escalated_count}'
+
+      - name: Create GitHub issues for new incidents
+        uses: actions/github-script@v7
+        env:
+          INCIDENTS_JSON: ${{ steps.fetch.outputs.incidents }}
+        with:
+          script: |
+            const incidents = JSON.parse(process.env.INCIDENTS_JSON || "[]");
+            if (!Array.isArray(incidents) || incidents.length === 0) {
+              core.info("No open code-fix incidents");
+              return;
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const label = "sanity-sweep-agent";
+            try {
+              await github.rest.issues.createLabel({
+                owner, repo, name: label,
+                color: "d97706",
+                description: "Auto-opened from sanity sweep — needs coding agent / PR",
+              });
+            } catch (_) { /* label may exist */ }
+
+            for (const inc of incidents) {
+              const title = `[sanity] ${inc.id} — ${inc.label || inc.id}`;
+              const { data: existing } = await github.rest.issues.listForRepo({
+                owner, repo, state: "open", labels: label, per_page: 100,
+              });
+              const dup = existing.find((i) => i.title.includes(`[sanity] ${inc.id}`));
+              if (dup) {
+                core.info(`Skip duplicate issue for ${inc.id}: #${dup.number}`);
+                continue;
+              }
+              const body = [
+                "## Sanity sweep incident (auto-opened)",
+                "",
+                `**Check:** \`${inc.id}\` — ${inc.label || ""}`,
+                `**Severity:** ${inc.severity || "?"}`,
+                `**Status:** ${inc.status || "open"}`,
+                "",
+                "### Anomalies",
+                ...(inc.anomalies || []).map((a) => `- ${a.ticker ? `\`${a.ticker}\` ` : ""}${a.detail || ""}`),
+                "",
+                "### Remediation",
+                inc.remediation || "(none)",
+                "",
+                "### Agent task",
+                inc.agent_prompt || "Investigate and fix the failing sanity check.",
+                "",
+                inc.files_hint?.length ? "### Files\n" + inc.files_hint.map((f) => `- \`${f}\``).join("\n") : "",
+                "",
+                "---",
+                "Opened by `.github/workflows/sanity-sweep-agent.yml`.",
+                "Assign a Cursor Cloud Agent or developer; run `npm test`, open PR, deploy worker.",
+              ].join("\n");
+              const { data: issue } = await github.rest.issues.create({
+                owner, repo, title, body, labels: [label],
+              });
+              core.info(`Opened #${issue.number} for ${inc.id}`);
+            }

@@ -36,6 +36,10 @@
 import { detectExhaustionWarnings } from "./investor.js";
 import { notifyDiscord } from "./alerts.js";
 import {
+  syncIncidentsFromSweep,
+  formatIncidentActionLines,
+} from "./sanity-incidents.js";
+import {
   computeProtectiveStopTighten,
   resolveEffectiveStopLoss,
   slDrawdownPct,
@@ -820,35 +824,51 @@ export async function persistSweep(env, sweep) {
 }
 
 /**
- * Cron handler. Runs sweep, persists, fires Discord alert on any FAIL or
- * on >= 3 warns. Uses a stable cooldown so the same anomaly doesn't spam.
+ * Cron handler. Runs sweep → self-heal → incident sync → Discord alert.
+ * Alerts include what was auto-fixed and what still needs agent/ops follow-up.
  */
 export async function sanitySweepCron(env, ctx, kind = "full") {
   try {
     const sweep = kind === "fast" ? await runFastSweep(env, ctx) : await runSanitySweep(env, ctx);
-    await persistSweep(env, sweep);
-
     const failing = sweep.checks.filter(c => c.status === "fail");
     const warning = sweep.checks.filter(c => c.status === "warn");
 
-    // Cooldown gate: same anomaly fingerprint within 4h → skip the Discord
-    // dispatch (still persisted). Prevents spam when a cron-tick-bound
-    // issue (e.g. compute_freshness) takes a few cycles to self-heal.
+    let healResult = null;
+    if (failing.length > 0 || warning.length > 0) {
+      try {
+        const { runSelfHealing } = await import("./coo/coo-orchestrator.js");
+        healResult = await runSelfHealing(env).catch((e) => {
+          console.warn("[SANITY_SWEEP] self-heal failed:", String(e?.message || e).slice(0, 120));
+          return { healed: [], skipped: [{ reason: String(e?.message || e).slice(0, 120) }] };
+        });
+      } catch (e) {
+        healResult = { healed: [], skipped: [{ reason: String(e?.message || e).slice(0, 120) }] };
+      }
+    }
+
+    const incidentSummary = await syncIncidentsFromSweep(env, sweep, healResult);
+    await persistSweep(env, sweep);
+
     const fingerprint = [
       ...failing.map(c => `fail:${c.id}`),
       ...warning.map(c => `warn:${c.id}:${(c.anomalies?.[0]?.ticker || "x")}`),
+      ...(incidentSummary.escalated_count > 0 ? [`esc:${incidentSummary.escalated_count}`] : []),
     ].sort().join("|");
-    if (!fingerprint) return sweep; // all green, nothing to send
-    const last = await env.KV_TIMED.get("sanity_sweep:last_alert_fingerprint");
-    if (last === fingerprint) {
-      // Same anomaly set as last alert — skip Discord, but still persist.
-      return sweep;
-    }
+    if (!fingerprint) return { ...sweep, incidents: incidentSummary, heal: healResult };
 
-    // Send the Discord alert (best-effort) — system lane (#system-alerts).
-    // Previously posted directly to DISCORD_WEBHOOK_URL (#trade-signals).
-    if (failing.length > 0 || warning.length >= 3) {
+    const last = await env.KV_TIMED.get("sanity_sweep:last_alert_fingerprint");
+    const shouldDiscord = failing.length > 0 || warning.length >= 3
+      || incidentSummary.escalated_count > 0
+      || (healResult?.healed || []).length > 0;
+
+    if (shouldDiscord && last !== fingerprint) {
       const lines = [];
+      const actionLines = formatIncidentActionLines(incidentSummary, healResult);
+      if (actionLines.length > 0) {
+        lines.push("**Actions**");
+        lines.push(...actionLines);
+        lines.push("");
+      }
       for (const c of failing) {
         lines.push(`⛔ **${c.label}** (${c.id})`);
         for (const a of (c.anomalies || []).slice(0, 3)) {
@@ -862,28 +882,21 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
           lines.push(`   • ${a.detail || ""}`);
         }
       }
+      if (incidentSummary.needs_pr_count > 0) {
+        lines.push("");
+        lines.push(`🤖 **${incidentSummary.needs_pr_count} incident(s) flagged for agent/PR** — GET /timed/admin/sanity-sweep/incidents?needs_pr=1`);
+      }
       await notifyDiscord(env, {
-        title: `Sanity Sweep Alert · ${failing.length} fails · ${warning.length} warns`,
-        description: lines.slice(0, 30).join("\n"),
-        color: failing.length > 0 ? 0xf43f5e : 0xf59e0b,
+        title: `Sanity Sweep · ${failing.length} fails · ${warning.length} warns · ${incidentSummary.open_count} open`,
+        description: lines.slice(0, 35).join("\n"),
+        color: failing.length > 0 || incidentSummary.escalated_count > 0 ? 0xf43f5e : 0xf59e0b,
         timestamp: new Date().toISOString(),
-        footer: { text: `Sweep took ${sweep.elapsed_ms}ms · /timed/admin/sanity-sweep` },
+        footer: { text: `Sweep ${sweep.elapsed_ms}ms · heal ${(healResult?.healed || []).length} · /timed/admin/sanity-sweep/incidents` },
       }, "system").catch(e => console.warn("[SANITY_SWEEP] discord send failed:", String(e?.message || e).slice(0, 120)));
       await env.KV_TIMED.put("sanity_sweep:last_alert_fingerprint", fingerprint, { expirationTtl: 24 * 3600 });
     }
 
-    // Best-effort COO self-heal for known warn/fail checks (ledger repair,
-    // candle backfill, wide-stop tighten). Reads the sweep we just persisted.
-    if (String(env?.COO_SELF_HEAL || "false").toLowerCase() === "true") {
-      try {
-        const { runSelfHealing } = await import("./coo/coo-orchestrator.js");
-        await runSelfHealing(env).catch((e) =>
-          console.warn("[SANITY_SWEEP] self-heal failed:", String(e?.message || e).slice(0, 120)),
-        );
-      } catch (_) {}
-    }
-
-    return sweep;
+    return { ...sweep, incidents: incidentSummary, heal: healResult };
   } catch (e) {
     console.error("[SANITY_SWEEP] cron failed:", e);
     return { ok: false, error: String(e?.message || e).slice(0, 200) };

@@ -271,6 +271,7 @@ export async function runSelfHealing(env, options = {}) {
     "portfolio_reconcile",
     "candle_freshness_open",
     "invalidation_distance",
+    "compute_freshness",
   ]);
   const failing = (sweep.checks || []).filter((c) =>
     c.status === "fail" || (c.status === "warn" && SELF_HEAL_IDS.has(c.id)),
@@ -312,6 +313,10 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healInvalidationDistance(env)
         : { ok: true, dry_run: true, would_do: "tightenWideOpenStops(dryRun=false)" };
+    } else if (check.id === "compute_freshness") {
+      action = enabled
+        ? await _healComputeFreshness(env)
+        : { ok: true, dry_run: true, would_do: "POST /timed/investor/compute" };
     } else {
       action = { ok: false, reason: `no_handler_for_${check.id}` };
     }
@@ -393,6 +398,18 @@ async function _healInvalidationDistance(env) {
     return r?.ok
       ? { ok: true, tightened: r.count, tickers: (r.tightened || []).map((t) => t.ticker) }
       : { ok: false, error: r?.error || "tighten_failed" };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+async function _healComputeFreshness(env) {
+  try {
+    const r = await _dispatch(env, "/timed/investor/compute", { method: "POST" });
+    const j = await r.json().catch(() => ({}));
+    return j?.ok
+      ? { ok: true, computed: j.computed ?? j.tickers ?? true }
+      : { ok: false, error: j?.error || `HTTP ${r.status}` };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
