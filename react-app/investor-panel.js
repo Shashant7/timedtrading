@@ -282,7 +282,7 @@
       ? cachedSpark
       : (Array.isArray(t._sparkline) && t._sparkline.length >= 2 ? t._sparkline : [price || 0, price || 0]);
     const sparkSvg = (typeof window !== "undefined" && window.DS && Number.isFinite(price) && price > 0)
-      ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+      ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1 })
       : "";
     const patternChips = (() => {
       const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(cachedSparkEntry);

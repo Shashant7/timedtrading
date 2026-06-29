@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=20260624-spark-bg" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260624-spark-subtle" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -28,7 +28,7 @@
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-signal-grammar.js?v=20260623d"></script>
-    <script src="shared-lane-card.js?v=20260624-spark-bg"></script>
+    <script src="shared-lane-card.js?v=20260624-spark-subtle"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <script src="shared-bubble-chart.compiled.js?v=20260516c"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
@@ -1275,7 +1275,7 @@
           return closes && closes.length >= 2 ? closes : [price || 0, price || 0];
         })();
         const sparkSvg = (window.DS && Number.isFinite(price) && price > 0)
-          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1.4 })
+          ? window.DS.sparklineSvg(sparkPoints, { width: 280, height: 44, direction: dir, strokeWidth: 1 })
           : "";
         const patternChips = (() => {
           const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(sparkSrc);
@@ -1392,25 +1392,13 @@
           const fillW = Math.abs(curX - epX);
           const fillBg = pnlPct >= 0 ? "var(--ds-up-bg)" : "var(--ds-dn-bg)";
           return h("div", { className: "tt-lane-card__position" },
-            h("div", {
-              style: {
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                fontSize: 9, color: "var(--ds-text-muted)", marginBottom: 4,
-                fontFamily: "var(--tt-font-mono)",
-              },
-            },
+            h("div", { className: "tt-lane-card__pos-header" },
               h("span", { style: { textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 } }, "Position"),
               h("span", {
                 style: { color: pnlPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)", fontWeight: 700 },
               }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`),
             ),
-            h("div", {
-              style: {
-                position: "relative", height: 6,
-                background: "var(--ds-bg-glass-hi, rgba(255,255,255,0.06))",
-                borderRadius: 3, overflow: "visible",
-              },
-            },
+            h("div", { className: "tt-lane-card__pos-track" },
               h("div", {
                 style: {
                   position: "absolute",
@@ -1451,13 +1439,7 @@
                 },
               }),
             ),
-            h("div", {
-              style: {
-                position: "relative", height: 12, marginTop: 2,
-                fontFamily: "var(--tt-font-mono)", fontSize: 8,
-                color: "var(--ds-text-muted)",
-              },
-            },
+            h("div", { className: "tt-lane-card__pos-labels" },
               ...ticks.map((tick, i) => h("span", {
                 key: `lbl-${i}`,
                 title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
