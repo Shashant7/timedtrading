@@ -769,16 +769,16 @@ input, button, select, textarea {
 
 /* ─── TtLaneCard — shared compact lane layout (AT / Today / Investor) ─ */
 .ds-tickercard.tt-lane-card {
-  --tt-lane-card-h: 112px;
-  --tt-lane-main-h: 46px;
+  --tt-lane-card-h: 102px;
+  --tt-lane-main-h: 42px;
   --tt-lane-mid-h: 0px;
-  --tt-lane-bar-h: 16px;
-  --tt-lane-spark-top: 6px;
+  --tt-lane-bar-h: 12px;
+  --tt-lane-spark-h: 54%;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   box-sizing: border-box;
-  padding: 8px var(--ds-space-3) 10px;
+  padding: 6px var(--ds-space-3) 7px;
   height: var(--tt-lane-card-h);
   min-height: var(--tt-lane-card-h);
   max-height: var(--tt-lane-card-h);
@@ -786,27 +786,37 @@ input, button, select, textarea {
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--active,
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
-  --tt-lane-card-h: 170px;
-  --tt-lane-mid-h: 52px;
+  --tt-lane-card-h: 154px;
+  --tt-lane-mid-h: 44px;
+  --tt-lane-main-h: 44px;
 }
-/* Sparkline: bottom-anchored backdrop, rising to just below the card top. */
+/* Sparkline: bottom-anchored, ~half card height, stroke-only, fades upward. */
 .tt-lane-card__spark-bg {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  top: var(--tt-lane-spark-top);
+  top: auto;
+  height: var(--tt-lane-spark-h);
   z-index: 1;
   pointer-events: none;
-  opacity: 0.38;
-  padding: 0 var(--ds-space-3) 2px;
+  padding: 0 var(--ds-space-3) 1px;
   box-sizing: border-box;
   overflow: hidden;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 42%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 42%, transparent 100%);
 }
 .tt-lane-card__spark-bg svg {
   display: block;
   width: 100%;
   height: 100%;
+  opacity: 0.26;
+}
+.tt-lane-card__spark-bg svg path:first-of-type {
+  display: none;
+}
+.tt-lane-card__spark-bg svg path:last-of-type {
+  stroke-width: 1;
 }
 .tt-lane-card__mid {
   display: flex;
@@ -864,12 +874,12 @@ input, button, select, textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 6px;
+  padding: 2px 6px;
   border-radius: 4px;
   font-family: var(--tt-font-mono);
   font-size: 10px;
   line-height: 1.2;
-  min-height: 22px;
+  min-height: 20px;
 }
 .tt-lane-card__trace-row--watch {
   background: rgba(96,165,250,0.06);
@@ -1053,6 +1063,31 @@ input, button, select, textarea {
 .tt-lane-card__position {
   z-index: 2;
   position: relative;
+  margin-top: 0;
+}
+.tt-lane-card__position .tt-lane-card__pos-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 8px;
+  color: var(--ds-text-muted);
+  margin-bottom: 2px;
+  font-family: var(--tt-font-mono);
+}
+.tt-lane-card__position .tt-lane-card__pos-track {
+  position: relative;
+  height: 5px;
+  background: var(--ds-bg-glass-hi, rgba(255,255,255,0.06));
+  border-radius: 3px;
+  overflow: visible;
+}
+.tt-lane-card__position .tt-lane-card__pos-labels {
+  position: relative;
+  height: 10px;
+  margin-top: 1px;
+  font-family: var(--tt-font-mono);
+  font-size: 7px;
+  color: var(--ds-text-muted);
 }
 
 /* ─── DsChip ───────────────────────────────────────────────────────── */

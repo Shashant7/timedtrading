@@ -783,7 +783,7 @@ function MarketPulseTile({
     width: 280,
     height: 44,
     direction: dir,
-    strokeWidth: 1.4
+    strokeWidth: 1
   }) : "";
   const onClick = e => {
     e.preventDefault();
@@ -4479,7 +4479,7 @@ function ViewportCard({
     width: 280,
     height: 44,
     direction: dir,
-    strokeWidth: 1.4
+    strokeWidth: 1
   }) : "";
   const patternChips = (() => {
     const candles = sparkCandlesFromCacheEntry(sparkSrc);
@@ -6412,6 +6412,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782756887209:415689642
+// cache-bust:1782757225047:832004693
 
-// cache-bust:1782756887209:415689642
+// cache-bust:1782757225047:832004693

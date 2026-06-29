@@ -641,7 +641,7 @@ function ATCard({
     width: 280,
     height: 44,
     direction: dir,
-    strokeWidth: 1.4
+    strokeWidth: 1
   }) : "";
   const patternChips = (() => {
     const candles = window.TTSparklineConfig?.sparkCandlesFromCacheEntry?.(sparkSrc);
@@ -773,15 +773,7 @@ function ATCard({
     return h("div", {
       className: "tt-lane-card__position"
     }, h("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        fontSize: 9,
-        color: "var(--ds-text-muted)",
-        marginBottom: 4,
-        fontFamily: "var(--tt-font-mono)"
-      }
+      className: "tt-lane-card__pos-header"
     }, h("span", {
       style: {
         textTransform: "uppercase",
@@ -794,13 +786,7 @@ function ATCard({
         fontWeight: 700
       }
     }, `${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(2)}%`)), h("div", {
-      style: {
-        position: "relative",
-        height: 6,
-        background: "var(--ds-bg-glass-hi, rgba(255,255,255,0.06))",
-        borderRadius: 3,
-        overflow: "visible"
-      }
+      className: "tt-lane-card__pos-track"
     }, h("div", {
       style: {
         position: "absolute",
@@ -847,14 +833,7 @@ function ATCard({
         cursor: "help"
       }
     })), h("div", {
-      style: {
-        position: "relative",
-        height: 12,
-        marginTop: 2,
-        fontFamily: "var(--tt-font-mono)",
-        fontSize: 8,
-        color: "var(--ds-text-muted)"
-      }
+      className: "tt-lane-card__pos-labels"
     }, ...ticks.map((tick, i) => h("span", {
       key: `lbl-${i}`,
       title: `${tick.label}: $${Number(tick.px).toFixed(2)}`,
@@ -2034,6 +2013,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782756887209:415689642
+// cache-bust:1782757225047:832004693
 
-// cache-bust:1782756887209:415689642
+// cache-bust:1782757225047:832004693
