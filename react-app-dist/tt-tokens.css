@@ -1560,11 +1560,17 @@ body.vf-page .tt-card,
 body.vf-page .idx-card,
 body.vf-page .ds-card,
 body.vf-page .ds-glass,
-body.vf-page .ds-tickercard {
+body.vf-page .ds-tickercard,
+body.vf-page button.ds-tickercard.tt-lane-card,
+body.vf-page .kanban-card .ds-tickercard,
+body.vf-page .inv-kanban-card .ds-tickercard,
+body.vf-page .lane-cards .ds-tickercard {
   border-radius: var(--vf-radius-md);
 }
 body.vf-page .ds-v2 .kanban-card,
-body.vf-page .ds-v2 .compact-card {
+body.vf-page .ds-v2 .compact-card,
+body.vf-page .inv-kanban-card,
+body.vf-page .kanban-card.inv-kanban-card {
   border-radius: var(--vf-radius-md) !important;
 }
 
