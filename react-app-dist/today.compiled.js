@@ -2268,10 +2268,23 @@ function DayTradePredictions({
   }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. The matching 0/1DTE option play for each index is in “Options Plays · Day Trade Index ETFs” below. Educational, not advice."));
 }
 function TodayHero({
+  brief,
+  briefSlot,
+  data,
+  earnings,
   onSelectTicker,
+  cal,
   allTickers
 }) {
-  return h("div", {
+  return h(React.Fragment, null, brief ? h(BriefPreview, {
+    brief,
+    briefSlot
+  }) : data && h(BriefPlaceholder, {
+    data,
+    earnings,
+    onSelectTicker,
+    cal
+  }), h("div", {
     className: "today-hero",
     style: {
       display: "grid",
@@ -2291,7 +2304,7 @@ function TodayHero({
     className: "today-hero-desk-col"
   }, h(ResearchDeskPanel, {
     onSelectTicker
-  })));
+  }))));
 }
 function CTOLevelsPanel({
   onSelectTicker
@@ -5964,7 +5977,12 @@ function TodayApp({
     briefSlot,
     data
   }), h(TodayHero, {
+    brief,
+    briefSlot,
+    data,
+    earnings,
     onSelectTicker,
+    cal,
     allTickers
   }), data ? h(MarketPulseWithMovers, {
     data,
@@ -6436,6 +6454,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782738599867:263548214
+// cache-bust:1782739537245:241198096
 
-// cache-bust:1782738599867:263548214
+// cache-bust:1782739537245:241198096

@@ -240,7 +240,7 @@
       }
       .tt-card-pad { padding: 22px 24px 20px; }
       @media (max-width: 720px) { .tt-card-pad { padding: 16px 16px 14px; } }
-      /* Today hero — Open Positions | Research Desk. */
+      /* Today hero — Daily Brief (full width) + Open Positions | Research Desk. */
       .today-hero {
         display: grid;
         grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3750,23 +3750,28 @@
         );
       }
 
-      function TodayHero({ onSelectTicker, allTickers }) {
-        return h("div", {
-          className: "today-hero",
-          style: {
-            display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-            gridTemplateRows: "auto",
-            gap: 16,
-            marginBottom: 16,
-            alignItems: "stretch",
+      function TodayHero({ brief, briefSlot, data, earnings, onSelectTicker, cal, allTickers }) {
+        return h(React.Fragment, null,
+          brief
+            ? h(BriefPreview, { brief, briefSlot })
+            : data && h(BriefPlaceholder, { data, earnings, onSelectTicker, cal }),
+          h("div", {
+            className: "today-hero",
+            style: {
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+              gridTemplateRows: "auto",
+              gap: 16,
+              marginBottom: 16,
+              alignItems: "stretch",
+            },
           },
-        },
-          h("div", { className: "today-hero-pos-col" },
-            h(OpenPositionsPreview, { onSelectTicker, allTickers, variant: "hero" }),
-          ),
-          h("div", { className: "today-hero-desk-col" },
-            h(ResearchDeskPanel, { onSelectTicker }),
+            h("div", { className: "today-hero-pos-col" },
+              h(OpenPositionsPreview, { onSelectTicker, allTickers, variant: "hero" }),
+            ),
+            h("div", { className: "today-hero-desk-col" },
+              h(ResearchDeskPanel, { onSelectTicker }),
+            ),
           ),
         );
       }
@@ -6977,7 +6982,7 @@
               universe: universeSet,
             }),
             h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
-            h(TodayHero, { onSelectTicker, allTickers }),
+            h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker, cal, allTickers }),
             data
               ? h(MarketPulseWithMovers, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
