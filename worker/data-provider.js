@@ -24,6 +24,7 @@ import {
   fromTdSymbol,
   isCrypto,
 } from "./twelvedata.js";
+import { normTicker } from "./ingest.js";
 
 // 2026-05-22 — Alpaca fallback for "never stale" guarantee.
 // TwelveData is the primary provider, but some symbols have spotty TD
@@ -473,7 +474,7 @@ async function _batchUpsertBars(db, barsBySymbol, tf) {
               OR ticker_candles.h != excluded.h
               OR ticker_candles.l != excluded.l
               OR ticker_candles.v IS NOT excluded.v`
-        ).bind(sym.toUpperCase(), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
+        ).bind(normTicker(sym), tf, ts, o, h, l, c, v != null ? v : null, updatedAt)
       );
     }
   }

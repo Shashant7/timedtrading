@@ -31,6 +31,9 @@ const TD_TO_CRYPTO = Object.fromEntries(
 const SYM_NORMALIZE = {
   "BRK-B": "BRK.B",
 };
+const TD_TO_INTERNAL = Object.fromEntries(
+  Object.entries(SYM_NORMALIZE).map(([internal, td]) => [td, internal]),
+);
 const LEGACY_TD_ALIASES = Object.freeze({
   "VX1!": "VIX",
 });
@@ -75,6 +78,7 @@ function toTdSymbol(sym) {
 
 function fromTdSymbol(tdSym) {
   if (TD_TO_CRYPTO[tdSym]) return TD_TO_CRYPTO[tdSym];
+  if (TD_TO_INTERNAL[tdSym]) return TD_TO_INTERNAL[tdSym];
   // TD "VIX" always writes to canonical VIX — never back to VX1!.
   return tdSym;
 }
