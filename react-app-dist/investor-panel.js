@@ -440,8 +440,7 @@
           },
           title: cardStatusChip.title,
         }, cardStatusChip.label),
-        // TT Weighting — Fundstrat Granny Shots ETF weight (GRNY/GRNJ/GRNI).
-        // Shows how heavily the published buy-list weights this name; not entry P&L.
+        // TT Weighting — published weight in the TT universe buy-list (not entry P&L).
         t.fsd?.isPick && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
           style: {
@@ -452,7 +451,9 @@
             fontWeight: 800,
             letterSpacing: "0.04em",
           },
-          title: `TT Weighting — ${t.fsd.maxWeight ? `${t.fsd.maxWeight}%` : "on list"} in the Granny Shots ETF basket (${(t.fsd.etfs || []).join(", ") || "GRNY/GRNJ/GRNI"}). Investor entries anchor on this published weighting.`,
+          title: t.fsd.maxWeight
+            ? `TT Weighting — ${t.fsd.maxWeight}% weight in the TT universe model portfolio. Investor entries anchor on this published weighting.`
+            : "TT Weighting — on the TT universe buy-list. Investor entries anchor on this published weighting.",
         }, t.fsd.maxWeight ? `TT ${t.fsd.maxWeight}%` : "TT"),
         isOwned && isEnteredToday(t) && React.createElement("span", {
           className: "ds-chip ds-chip--sm",
@@ -1410,4 +1411,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782751716755:706271743
+// cache-bust:1782752009638:791514524
