@@ -117,3 +117,48 @@ WRITE A NEW SKILL before exiting. Future you will thank you.
 
 If you still don't know, ASK in the PR description what assumption
 you're making so the user can correct course before things compound.
+
+---
+
+## Cursor Cloud specific instructions
+
+Startup runs `npm install` automatically (Node 22 + npm pre-installed; no
+lockfile, so `npm install` not `npm ci`). Standard commands live in
+`package.json` and `skills/deploy.md` — `wrangler` is NOT on PATH, use
+`./node_modules/.bin/wrangler`. The notes below are the non-obvious bits.
+
+- **Tests are the only gate; there is no lint step.** `npm test` (vitest). CI
+  (`.github/workflows/test.yml`) adds `node --check` on the worker entrypoints +
+  an esbuild bundle check (`node scripts/embed-dashboard.js` then
+  `npx esbuild worker/index.js --bundle --format=esm --outfile=/dev/null`).
+- **`npm run build:frontend` always dirties `react-app-dist/`** (re-stamps `?v=`
+  cache-busts). CI's `check-dist.yml` ignores those markers; if you built only
+  to verify, revert with `git checkout -- react-app-dist react-app`.
+- **Local run = main worker + Pages frontend** (the cron workers are the same
+  bundle, role-gated, and not needed locally):
+  - `cd worker && ../node_modules/.bin/wrangler dev --port 8787` (Miniflare
+    KV/D1/DO; empty local DB + a bundled 15-ticker seed universe).
+  - `./node_modules/.bin/wrangler pages dev react-app-dist --port 8788` (from
+    repo root, after `build:frontend`). 8788 is the port allow-listed in the
+    worker's `CORS_ALLOW_ORIGIN`.
+- **The worker won't boot without a couple of secrets.** A fresh `wrangler dev`
+  returns `503 runtime_misconfigured` (`missing:TIMED_API_KEY`,
+  `missing:CF_ACCESS_AUD`). Create a git-ignored `worker/.dev.vars` with
+  placeholders (`TIMED_API_KEY=local-dev-key`, `CF_ACCESS_AUD=local-dev-aud`);
+  add real `TWELVEDATA_API_KEY`/`OPENAI_API_KEY` there only for live data.
+- **API key == admin tier locally.** `/timed/*?key=local-dev-key` (or header
+  `X-API-Key`) returns unredacted prices+scores; without it, anon callers get
+  the Member view (`_redacted:true`).
+- **The Pages frontend proxies `/timed/*` to PRODUCTION** —
+  `react-app/_worker.js` hardcodes `WORKER_ORIGIN` to the deployed worker. To
+  hit the local worker, temporarily point the built `react-app-dist/_worker.js`
+  at `http://localhost:8787` (revert; don't commit).
+- **Authenticated pages can't load locally.** `/today`, `/index-react`, etc. sit
+  behind Cloudflare Access (Google OAuth), which can't complete on the VM — only
+  `/splash` renders. Exercise authenticated logic via the API (`curl` + `?key=`).
+- **Crons don't auto-fire** in `wrangler dev`; trigger via
+  `curl http://localhost:8787/cdn-cgi/handler/scheduled`.
+- **Local D1 starts empty;** schema is created lazily in-code by
+  `d1Ensure*Schema()` (no `.sql` files). `POST /timed/ingest-capture` is the most
+  robust way to exercise the ingest pipeline locally (tolerates missing tables /
+  scoring errors); read it back from KV at `timed:capture:latest:<TICKER>`.
