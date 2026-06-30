@@ -1911,10 +1911,9 @@ function ResearchDeskPanel({
         if (pending) pollTimer = setTimeout(load, 15000);
       }).catch(() => {});
     };
-    const defer = setTimeout(load, 3000);
+    load();
     return () => {
       alive = false;
-      clearTimeout(defer);
       if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
@@ -2328,10 +2327,9 @@ function CTOLevelsPanel({
         if (alive && j?.ok && Array.isArray(j.items)) setFeed(j);
       } catch (_) {}
     };
-    const t = setTimeout(load, 2500);
+    load();
     return () => {
       alive = false;
-      clearTimeout(t);
     };
   }, []);
   if (!feed) {
@@ -2945,10 +2943,9 @@ function GrowthIdeasStrip({
         setCtoBySym(map);
       } catch (_) {}
     };
-    const t = setTimeout(loadCto, 1800);
+    loadCto();
     return () => {
       alive = false;
-      clearTimeout(t);
     };
   }, []);
   useEffect(() => {
@@ -5826,9 +5823,8 @@ function TodayApp({
   });
   const _liveHooks = window.TimedLiveData;
   if (_liveHooks?.usePriceFeed) {
-    const mktOpen = isNyRegularMarketOpen();
     _liveHooks.usePriceFeed(data, setData, {
-      firstPollMs: mktOpen ? 2500 : 0
+      firstPollMs: 0
     });
   }
   if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
@@ -5998,16 +5994,49 @@ function TodayApp({
     });
   }, [railTicker]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
-  useEffect(() => {
-    if (RailOverlay) return;
-    const id = setInterval(() => {
+  const bootTimedRightRail = useCallback(() => {
+    const boot = typeof window.ensureTimedRightRail === "function" ? window.ensureTimedRightRail() : Promise.resolve();
+    return boot.then(() => {
       if (window.TimedRightRail?.Overlay) {
         setRailOverlay(() => window.TimedRightRail.Overlay);
-        clearInterval(id);
       }
-    }, 80);
-    return () => clearInterval(id);
-  }, [RailOverlay]);
+    });
+  }, []);
+  useEffect(() => {
+    if (RailOverlay) return;
+    const d = typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null;
+    if (!d?.ticker) return;
+    let cancelled = false;
+    bootTimedRightRail().catch(() => {}).finally(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [RailOverlay, bootTimedRightRail]);
+  useEffect(() => {
+    if (!data || RailOverlay) return;
+    if (typeof window.ensureTimedRightRail !== "function") return;
+    let cancelled = false;
+    const prefetch = () => {
+      if (cancelled) return;
+      bootTimedRightRail().catch(() => {});
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(prefetch, {
+        timeout: 5000
+      });
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(id);
+      };
+    }
+    const t = setTimeout(prefetch, 2500);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [data, RailOverlay, bootTimedRightRail]);
   const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
     const ticker = String(sym).toUpperCase();
@@ -6015,17 +6044,20 @@ function TodayApp({
     if (!isTickerScoredInUniverse(data, ticker)) {
       if (!tab || tab === "SNAPSHOT" || tab === "NOW" || tab === "ANALYSIS") tab = "CATALYSTS";
     }
-    if (typeof window.ttOpenTickerInRail === "function") {
-      window.ttOpenTickerInRail({
-        ticker,
-        initialRailTab: tab,
-        source: "today"
-      });
-      return;
-    }
-    setRailTicker(ticker);
-    setRailInitialTab(tab);
-  }, [data]);
+    const open = () => {
+      if (typeof window.ttOpenTickerInRail === "function") {
+        window.ttOpenTickerInRail({
+          ticker,
+          initialRailTab: tab,
+          source: "today"
+        });
+        return;
+      }
+      setRailTicker(ticker);
+      setRailInitialTab(tab);
+    };
+    bootTimedRightRail().then(open).catch(open);
+  }, [data, bootTimedRightRail]);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
     const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
@@ -6565,6 +6597,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782821927039:285953455
+// cache-bust:1782822982270:817225603
 
-// cache-bust:1782821927039:285953455
+// cache-bust:1782822982270:817225603

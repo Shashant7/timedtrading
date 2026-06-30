@@ -40,6 +40,17 @@ describe("extendedQuoteLooksStale", () => {
 });
 
 describe("buildExtendedHoursFields", () => {
+  it("returns zeros when extended price equals RTH close (no distinct AH tick)", () => {
+    const out = buildExtendedHoursFields(
+      { extendedPrice: 1090.67, extendedChange: 6.84, extendedPercentChange: 6.84 },
+      1090.67,
+      6.84,
+      true,
+      false,
+    );
+    expect(out).toEqual({ extP: 0, extDc: 0, extDp: 0 });
+  });
+
   it("prefers TwelveData native extended fields", () => {
     const r = buildExtendedHoursFields(
       { extendedPrice: 105, extendedChange: 2, extendedPercentChange: 1.94 },
