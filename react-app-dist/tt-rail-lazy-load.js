@@ -3,12 +3,20 @@
   if (typeof window === "undefined") return;
 
   var _ready = null;
+  var _bust = "";
+  try {
+    var _cur = document.currentScript;
+    if (_cur && _cur.src) {
+      var _m = _cur.src.match(/[?&]v=([^&]+)/);
+      if (_m) _bust = "?v=" + _m[1];
+    }
+  } catch (_) {}
   var RAIL_SCRIPTS = [
-    "https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js",
-    "shared-rail-helpers.js?v=20260614-pml-rank",
-    "shared-right-rail.compiled.js?v=20260623f",
-    "ticker-spider-chart.js?v=20260501a",
-    "shared-rail-bootstrap.js?v=20260629-rail-flash",
+    "/vendor/lightweight-charts.standalone.production.js?v=vendor",
+    "shared-rail-helpers.js" + _bust,
+    "shared-right-rail.compiled.js" + _bust,
+    "ticker-spider-chart.js" + _bust,
+    "shared-rail-bootstrap.js" + _bust,
   ];
 
   function loadScript(src) {
@@ -43,4 +51,4 @@
   };
 })();
 
-// cache-bust:1782822622388:208136213
+// cache-bust:1782822789577:284154845
