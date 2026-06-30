@@ -1364,6 +1364,47 @@ export function resolveOwnedInvestorKanbanStage(liveScore, storedStage = "") {
   return kstage || null;
 }
 
+/**
+ * Mirror frontend resolveKanbanStage() for alert gating — unowned accumulate
+ * only becomes accumulate_queued when execution-ready (act_now/ready tier).
+ */
+export function resolveInvestorKanbanStageForAlert(row, cfg = DEFAULT_INVESTOR_CONFIG) {
+  let stage = String(row?.stage || "research_avoid");
+  if (stage === "research") stage = "research_avoid";
+  if (stage === "exited") return "exited";
+  const owned = !!(row?.position?.owned);
+  if (!owned) {
+    if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
+    else if (stage === "reduce") stage = "research_low";
+  }
+  if (stage === "accumulate") {
+    const tier = row?.actionTier || computeInvestorActionTier(row);
+    const executeReady = tier === "act_now" || tier === "ready";
+    if (!executeReady) {
+      stage = owned ? "watch" : "research_on_watch";
+    } else {
+      const lastType = String(row?.position?.last_action_type || "").toUpperCase();
+      const entered = owned && (
+        ["BUY", "DCA_BUY", "ADD"].includes(lastType)
+        || (Number(row?.position?.first_entry_ts) || 0) > 0
+      );
+      stage = entered ? "accumulate_entered" : "accumulate_queued";
+    }
+  }
+  return stage;
+}
+
+/** True only when the UI would show the ticker in the Accumulate Queue lane. */
+export function shouldFireInvestorQueueAlert(row, cfg = DEFAULT_INVESTOR_CONFIG) {
+  if (String(row?.stage || "") !== "accumulate") return false;
+  if (!row?.accumZone?.inZone) return false;
+  const score = Number(row?.score) || 0;
+  if (score < cfg.research_low_score_min) return false;
+  const tier = row?.actionTier || computeInvestorActionTier({ ...row, stage: "accumulate" });
+  if (tier !== "act_now" && tier !== "ready") return false;
+  return resolveInvestorKanbanStageForAlert({ ...row, actionTier: tier }, cfg) === "accumulate_queued";
+}
+
 export function computeInvestorActionTier(row) {
   const stage = String(row?.stage || "");
   if (stage !== "accumulate" && stage !== "reduce") return null;
