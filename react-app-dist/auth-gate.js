@@ -1074,30 +1074,29 @@
          regardless of whatever React still holds in `user`. */
       const isReallyLoggedIn = !!user && serverVerified;
       setSigningIn(true);
-      clearSession();
-
-      /* Attempt client-side cookie deletion (best-effort — the CF
-         cookie is HttpOnly so this is a no-op for it, but clears
-         any non-HttpOnly cookies we may have set). */
-      try {
-        const d = window.location.hostname;
-        document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-        document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + d;
-        document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
-      } catch (_) {}
 
       if (isReallyLoggedIn) {
+        clearSession();
+        /* Attempt client-side cookie deletion (best-effort — the CF
+           cookie is HttpOnly so this is a no-op for it, but clears
+           any non-HttpOnly cookies we may have set). */
+        try {
+          const d = window.location.hostname;
+          document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+          document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=" + d;
+          document.cookie = "CF_Authorization=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=." + d;
+        } catch (_) {}
         window.location.href = "/logout.html?switch=1";
         return;
       }
 
-      try {
-        const u = new URL(window.location.href);
-        u.searchParams.set("_auth", String(Date.now()));
-        window.location.href = u.toString();
-      } catch (_) {
-        window.location.href = "/today.html?_auth=" + Date.now();
-      }
+      /* CASE B — fresh SSO. Always top-level navigate to the protected
+         entry point (see lessons.md + _worker.js). Reloading the current
+         page (e.g. today.html LoginScreen) only refreshed in place and
+         never re-drove CF Access; the nav logo worked because it did a
+         clean navigation to /today.html. _auth defeats CDN cache. */
+      clearSession();
+      window.location.href = "/today.html?_auth=" + Date.now();
     }, [user, serverVerified]);
 
     // Set user role on body for CSS-based admin gating of nav links
@@ -2941,4 +2940,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1782771989566:68101403
+// cache-bust:1782785312722:42851854
