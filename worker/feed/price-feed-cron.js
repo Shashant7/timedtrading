@@ -41,6 +41,16 @@ function feedPollTimestamp(nowMs = Date.now()) {
   return nowMs;
 }
 
+/** Legacy timed:prices rows lack p_ts — mark so stale sweep force-refreshes them. */
+function markLegacyRowsForSweep(prices) {
+  for (const sym of Object.keys(prices || {})) {
+    const row = prices[sym];
+    if (row && !(Number(row.p_ts) > 0)) {
+      prices[sym] = { ...row, p_ts: 0 };
+    }
+  }
+}
+
 /** Track when `p` last moved — stale sweep uses p_ts, not poll `t` (GS zombie fix). */
 function withPriceTimestamps(prev, row, nowMs = Date.now()) {
   const pollTs = feedPollTimestamp(nowMs);
@@ -51,7 +61,7 @@ function withPriceTimestamps(prev, row, nowMs = Date.now()) {
   return {
     ...row,
     t: pollTs,
-    p_ts: pChanged ? pollTs : (Number(prev?.p_ts) || Number(prev?.t) || pollTs),
+    p_ts: pChanged ? pollTs : (Number(prev?.p_ts) || 0),
   };
 }
 
@@ -104,6 +114,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             const raw = await kvGetJSON(KV, "timed:prices");
             existing = raw?.prices || {};
           } catch (_) {}
+          markLegacyRowsForSweep(existing);
 
           // Refresh stock prices from REST every 30 min overnight (5 min when
           // the extended-session gate above somehow still applies).
@@ -367,6 +378,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           prices = raw?.prices || {};
           pricesUpdatedAt = Number(raw?.updated_at) || 0;
         } catch (_) {}
+        markLegacyRowsForSweep(prices);
 
         // Detect stale DO-managed prices: either >3 min old or all tickers show zero change
         const priceAgeMs = Date.now() - pricesUpdatedAt;
@@ -573,7 +585,8 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             if (!_sweepEligible(sym)) return false;
             const e = prices[sym];
             if (!e) return true;
-            const pAge = Number(e.p_ts) || Number(e.t) || 0;
+            const pAge = Number(e.p_ts);
+            if (!(pAge > 0)) return true;
             return (_sweepNow - pAge) > STALE_SWEEP_MS;
           });
           if (_staleList.length > 0) {
@@ -583,7 +596,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             // worst corpses (SMCI sat 5.4 days stale behind ~100
             // fresher entries). The most-stale symbols are the most
             // user-visible damage — heal them first.
-            _staleList.sort((a, b) => (Number(prices[a]?.t) || 0) - (Number(prices[b]?.t) || 0));
+            _staleList.sort((a, b) => (Number(prices[a]?.p_ts) || 0) - (Number(prices[b]?.p_ts) || 0));
             const _sweepSyms = _staleList.slice(0, SWEEP_CAP);
             const _sweepRes = await deps.dataFetchSnapshots(env, _sweepSyms);
             const _sweepSnaps = _sweepRes?.snapshots || {};
@@ -619,8 +632,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             }
             _stillStale = _staleList.filter((sym) => {
               const e = prices[sym];
-              const pAge = Number(e?.p_ts) || Number(e?.t) || 0;
-              return !e || (_sweepNow - pAge) > STALE_SWEEP_MS;
+              const pAge = Number(e?.p_ts);
+              if (!(pAge > 0)) return true;
+              return (_sweepNow - pAge) > STALE_SWEEP_MS;
             });
             console.warn(
               `[PRICE FEED] STALE SWEEP: ${_staleList.length} symbols >30m stale, refreshed ${_healed}/${_sweepSyms.length}` +
