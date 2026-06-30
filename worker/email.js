@@ -2317,6 +2317,11 @@ export async function sendInvestorRebalanceDigest(env, summary) {
   return { ok: true, sent, recipients: opted.length };
 }
 
+function _emailDisplayPrice(raw) {
+  const price = Number(raw);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
 function _buildQueueTickerCard(alert, baseUrl) {
   const data = alert?.data || {};
   const sym = String(data.ticker || "").toUpperCase();
@@ -2330,7 +2335,7 @@ function _buildQueueTickerCard(alert, baseUrl) {
   const signals = Array.isArray(data.signals)
     ? data.signals.map((s) => String(s).replace(/_/g, " ")).join(", ")
     : "";
-  const price = Number(data.price);
+  const price = _emailDisplayPrice(data.price);
   const cio = String(data.cio_reasoning || "").trim();
   const thesisBits = [];
   if (zone) thesisBits.push(`Zone: ${zone}`);
@@ -2345,7 +2350,7 @@ function _buildQueueTickerCard(alert, baseUrl) {
         <div style="font-size:18px;font-weight:800;color:${BRAND.textPrimary};letter-spacing:0.02em">${_esc(sym)}</div>
         <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;color:${BRAND.green};margin-top:2px">ENTERED QUEUE</div>
       </div>
-      ${Number.isFinite(price) ? `<div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;color:${BRAND.textPrimary}">$${price.toFixed(2)}</div>` : ""}
+      ${price != null ? `<div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;color:${BRAND.textPrimary}">$${price.toFixed(2)}</div>` : ""}
     </div>
     <div style="margin:0 0 10px;padding:10px 12px;border-radius:8px;background:${BRAND.green}1A;border:1px solid ${BRAND.green}55">
       <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:${BRAND.green};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>
@@ -2419,7 +2424,7 @@ function _buildReduceTickerCard(alert, baseUrl) {
   if (!sym) return "";
   const workerUrl = baseUrl || "https://timed-trading.com";
   const chartUrl = `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=D&bars=60`;
-  const price = Number(data.price);
+  const price = _emailDisplayPrice(data.price);
   const reasons = Array.isArray(data.reasons) ? data.reasons.filter(Boolean) : [];
   const cio = String(data.cio_reasoning || "").trim();
   const danger = BRAND.danger || "#ef4444";
@@ -2429,7 +2434,7 @@ function _buildReduceTickerCard(alert, baseUrl) {
         <div style="font-size:18px;font-weight:800;color:${BRAND.textPrimary};letter-spacing:0.02em">${_esc(sym)}</div>
         <div style="font-size:11px;font-weight:800;letter-spacing:0.08em;color:${danger};margin-top:2px">MODEL THESIS SHIFT</div>
       </div>
-      ${Number.isFinite(price) ? `<div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;color:${BRAND.textPrimary}">$${price.toFixed(2)}</div>` : ""}
+      ${price != null ? `<div style="font-family:ui-monospace,monospace;font-size:16px;font-weight:700;color:${BRAND.textPrimary}">$${price.toFixed(2)}</div>` : ""}
     </div>
     <div style="margin:0 0 10px;padding:10px 12px;border-radius:8px;background:${danger}1A;border:1px solid ${danger}55">
       <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:${danger};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>

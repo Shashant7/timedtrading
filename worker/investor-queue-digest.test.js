@@ -70,6 +70,28 @@ describe("buildInvestorQueueDigestBody", () => {
     expect(bodyHtml).toContain("Sample CIO note for BG.");
     expect(bodyHtml).not.toContain("Investor Signals —");
   });
+
+  it("omits price line when price is missing or zero", () => {
+    const { bodyHtml: missing } = buildInvestorQueueDigestBody(
+      [{ type: "accumulation_zone", data: { ticker: "AA", score: 35 } }],
+      "https://timed-trading.com",
+    );
+    expect(missing).not.toContain("$0.00");
+
+    const { bodyHtml: zero } = buildInvestorQueueDigestBody(
+      [{ type: "accumulation_zone", data: { ticker: "AA", score: 35, price: 0 } }],
+      "https://timed-trading.com",
+    );
+    expect(zero).not.toContain("$0.00");
+  });
+
+  it("shows price when a positive value is present", () => {
+    const { bodyHtml } = buildInvestorQueueDigestBody(
+      [{ type: "accumulation_zone", data: { ticker: "AA", score: 35, price: 32.15 } }],
+      "https://timed-trading.com",
+    );
+    expect(bodyHtml).toContain("$32.15");
+  });
 });
 
 describe("buildInvestorReduceDigestBody", () => {
