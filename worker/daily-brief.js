@@ -31,8 +31,28 @@ import {
 } from "./day-trade-game-plan.js";
 import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
+const PF_VALUE_FRESH_MS_OPEN = 30 * 60 * 1000;
+const PF_VALUE_FRESH_MS_CLOSED = 26 * 60 * 60 * 1000;
+
+export function priceFeedValueTsMs(row) {
+  return Number(row?.p_ts) || 0;
+}
+
+export function isPriceFeedRowFresh(row, marketOpen = true, nowMs = Date.now()) {
+  const ts = priceFeedValueTsMs(row);
+  if (!(ts > 0)) return false;
+  const maxAge = marketOpen ? PF_VALUE_FRESH_MS_OPEN : PF_VALUE_FRESH_MS_CLOSED;
+  return (nowMs - ts) <= maxAge;
+}
+
+function freshPriceFeedRow(pf, sym, marketOpen = true, nowMs = Date.now()) {
+  const row = pf?.[String(sym || "").toUpperCase()];
+  return isPriceFeedRowFresh(row, marketOpen, nowMs) ? row : null;
+}
+
 /** Live session spot from a timed:prices row — extended print when RTH is closed. */
 export function liveSpotFromPriceFeedRow(row, marketOpen = true) {
+  if (!isPriceFeedRowFresh(row, marketOpen)) return null;
   if (!row) return null;
   const rthP = Number(row.p);
   const extP = Number(row.ahp);
@@ -42,6 +62,7 @@ export function liveSpotFromPriceFeedRow(row, marketOpen = true) {
 
 /** Session-aware day change % from a timed:prices row. */
 export function liveDayPctFromPriceFeedRow(row, marketOpen = true) {
+  if (!isPriceFeedRowFresh(row, marketOpen)) return null;
   if (!row) return null;
   if (!marketOpen) {
     const ahDp = Number(row.ahdp);
@@ -58,6 +79,7 @@ export function liveDayPctFromPriceFeedRow(row, marketOpen = true) {
 
 /** Session-aware day change $ from a timed:prices row. */
 export function liveDayChgFromPriceFeedRow(row, marketOpen = true) {
+  if (!isPriceFeedRowFresh(row, marketOpen)) return null;
   if (!row) return null;
   if (!marketOpen) {
     const ahDc = Number(row.ahdc);
@@ -76,7 +98,7 @@ function buildPremarketGapContext(pf, marketOpen) {
   if (marketOpen || !pf || typeof pf !== "object") return null;
   const lines = [];
   for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
-    const row = pf[sym];
+    const row = freshPriceFeedRow(pf, sym, marketOpen);
     const pc = Number(row?.pc);
     const spot = liveSpotFromPriceFeedRow(row, false);
     if (!Number.isFinite(pc) || !Number.isFinite(spot) || pc <= 0) continue;
@@ -113,7 +135,7 @@ export function computeSessionContextBanner(slot, pf, marketOpen, nowMs = Date.n
   if (!snap?.premarketGap) return null;
   if (getETMinutes(nowMs) < 10 * 60) return null;
 
-  const spyRow = pf.SPY;
+  const spyRow = freshPriceFeedRow(pf, "SPY", marketOpen);
   if (!spyRow) return null;
   const liveDp = liveDayPctFromPriceFeedRow(spyRow, true);
   if (!Number.isFinite(liveDp)) return null;
@@ -302,7 +324,10 @@ export async function persistDailyMarketSnapshot(env, data, priceFeed, esPredict
   await d1EnsureBriefSchema(env);
 
   const pf = (priceFeed?.prices || priceFeed) || {};
-  const num = (sym, field) => Number(pf[sym]?.[field]) || 0;
+  const num = (sym, field) => {
+    const row = freshPriceFeedRow(pf, sym, true);
+    return row ? (Number(row?.[field]) || 0) : 0;
+  };
 
   const vixClose = num("VIX", "p") || Number(data.market?.VIX?.price) || 0;
   const oilPct = num("USO", "dp") || num("XLE", "dp");
@@ -366,7 +391,8 @@ export async function persistMarketEvents(env, data, priceFeed) {
   await d1EnsureBriefSchema(env);
 
   const pf = (priceFeed?.prices || priceFeed) || {};
-  const spyPct = Number(pf["SPY"]?.dp) || Number(data.market?.SPY?.day_change_pct) || 0;
+  const spyRow = freshPriceFeedRow(pf, "SPY", true);
+  const spyPct = (spyRow ? Number(spyRow?.dp) : 0) || Number(data.market?.SPY?.day_change_pct) || 0;
   const stmts = [];
 
   const econEvents = [
@@ -1406,8 +1432,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     if (!data) return data;
     const price = Number(data.price) || 0;
     const dayPct = Number(data.day_change_pct) || 0;
-    const pfExact = pf[ticker];
-    const pfProxy = pf[proxyTicker];
+    const pfExact = freshPriceFeedRow(pf, ticker, marketOpen);
+    const pfProxy = freshPriceFeedRow(pf, proxyTicker, marketOpen);
     const pfData = (pfExact && Number(pfExact.p) > 0) ? pfExact : pfProxy;
     if (!pfData || !Number(pfData.p)) return data;
 
@@ -1487,7 +1513,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // after an intraday selloff because day_change_pct lagged change_pct).
   const sectors = SECTOR_ETFS.map(sym => {
     const d = sectorDataArr.find(s => s.sym === sym)?.data || {};
-    const pfRow = _pf?.[sym];
+    const pfRow = freshPriceFeedRow(_pf, sym, mktOpen);
     const pfPct = liveDayPctFromPriceFeedRow(pfRow, mktOpen);
     const pfPrice = liveSpotFromPriceFeedRow(pfRow, mktOpen);
     const pfDc = liveDayChgFromPriceFeedRow(pfRow, mktOpen);
@@ -1952,7 +1978,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
         const movers = [];
         for (const [ticker, d] of Object.entries(_pf || {})) {
           if (skip.has(ticker) || !d || typeof d !== "object") continue;
-          const pct = Number(d.dp); const price = Number(d.p);
+          if (!isPriceFeedRowFresh(d, mktOpen)) continue;
+          const pct = liveDayPctFromPriceFeedRow(d, mktOpen);
+          const price = liveSpotFromPriceFeedRow(d, mktOpen);
           if (Number.isFinite(pct) && Number.isFinite(price) && price > 0 && Math.abs(pct) >= 1.0) {
             movers.push({ ticker, pct, price });
           }
@@ -1977,17 +2005,22 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     indexQuartetSummary: (() => {
       try {
         const md = {
-          SPY: _pf?.SPY, QQQ: _pf?.QQQ, DIA: _pf?.DIA, IWM: _pf?.IWM,
-          VIX: _pf?.VIX,
+          SPY: freshPriceFeedRow(_pf, "SPY", mktOpen),
+          QQQ: freshPriceFeedRow(_pf, "QQQ", mktOpen),
+          DIA: freshPriceFeedRow(_pf, "DIA", mktOpen),
+          IWM: freshPriceFeedRow(_pf, "IWM", mktOpen),
+          VIX: freshPriceFeedRow(_pf, "VIX", mktOpen),
         };
         const norm = {};
         for (const k of Object.keys(md)) {
           const v = md[k];
           if (!v) continue;
           const spot = liveSpotFromPriceFeedRow(v, mktOpen);
+          const dayPct = liveDayPctFromPriceFeedRow(v, mktOpen);
+          if (!Number.isFinite(spot) || !Number.isFinite(dayPct)) continue;
           norm[k] = {
-            price: Number.isFinite(spot) ? spot : (Number(v.p) || null),
-            dayChangePct: liveDayPctFromPriceFeedRow(v, mktOpen) ?? (Number(v.dp) || 0),
+            price: spot,
+            dayChangePct: dayPct,
             prev_close: Number(v.pc) || null,
             open: Number(v.op) || null,
           };
@@ -2015,12 +2048,13 @@ function buildPriceFeedCrossRef(pf, marketOpen = true) {
   const tickers = ["SPY", "RSP", "QQQ", "VIX", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "GLD", "TLT", "USO", "SLV", "IWM", "DIA", "BTCUSD", "ETHUSD"];
   const lines = [];
   for (const sym of tickers) {
-    const d = pf[sym];
-    if (!d || !Number(d.p)) continue;
-    const price = liveSpotFromPriceFeedRow(d, marketOpen) ?? Number(d.p);
-    const pct = liveDayPctFromPriceFeedRow(d, marketOpen) ?? (Number(d.dp) || 0);
-    const chg = liveDayChgFromPriceFeedRow(d, marketOpen) ?? (Number(d.dc) || 0);
-    const extTag = !marketOpen && Number(d.ahp) > 0 ? " pre-mkt" : "";
+    const d = freshPriceFeedRow(pf, sym, marketOpen);
+    if (!d) continue;
+    const price = liveSpotFromPriceFeedRow(d, marketOpen);
+    const pct = liveDayPctFromPriceFeedRow(d, marketOpen);
+    const chg = liveDayChgFromPriceFeedRow(d, marketOpen);
+    if (!Number.isFinite(price) || !Number.isFinite(pct) || !Number.isFinite(chg)) continue;
+    const extTag = !marketOpen && Number.isFinite(Number(d.ahp)) && Number(d.ahp) > 0 ? " pre-mkt" : "";
     lines.push(`${sym}: $${price.toFixed(2)}${extTag} (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%, ${chg >= 0 ? "+" : ""}$${chg.toFixed(2)})`);
   }
   return lines.length > 0 ? lines.join("\n") : "Price feed unavailable.";
@@ -2029,14 +2063,14 @@ function buildPriceFeedCrossRef(pf, marketOpen = true) {
 function buildCrossAssetContext(pf, marketOpen = true) {
   if (!pf || typeof pf !== "object") return null;
   const assets = {
-    "USO (Oil ETF)": pf["USO"],
-    "GLD (Gold ETF)": pf["GLD"],
-    "SLV (Silver ETF)": pf["SLV"],
-    "VIX (Volatility Index)": pf["VIX"],
-    "TLT (Long Treasuries)": pf["TLT"],
-    "IWM (Russell 2000)": pf["IWM"],
-    "BTCUSD (Bitcoin)": pf["BTCUSD"],
-    "ETHUSD (Ethereum)": pf["ETHUSD"],
+    "USO (Oil ETF)": freshPriceFeedRow(pf, "USO", marketOpen),
+    "GLD (Gold ETF)": freshPriceFeedRow(pf, "GLD", marketOpen),
+    "SLV (Silver ETF)": freshPriceFeedRow(pf, "SLV", marketOpen),
+    "VIX (Volatility Index)": freshPriceFeedRow(pf, "VIX", marketOpen),
+    "TLT (Long Treasuries)": freshPriceFeedRow(pf, "TLT", marketOpen),
+    "IWM (Russell 2000)": freshPriceFeedRow(pf, "IWM", marketOpen),
+    "BTCUSD (Bitcoin)": freshPriceFeedRow(pf, "BTCUSD", marketOpen),
+    "ETHUSD (Ethereum)": freshPriceFeedRow(pf, "ETHUSD", marketOpen),
   };
   // Session-aware: outside RTH use the extended print (ahp/ahdp) so the AI's
   // cross-asset narrative doesn't anchor on yesterday's RTH close pre-market.
@@ -2470,12 +2504,8 @@ export async function refreshInfographicLiveGamePlans(infographic, env, priceMap
   const cal = await loadCalendar(env).catch(() => null);
   const mktOpen = isNyRegularMarketOpen(cal, new Date());
   const liveSpotFor = (sym) => {
-    const s = String(sym || "").toUpperCase();
-    const r = pf[s];
-    if (!r) return null;
-    const ext = Number(r.ahp), p = Number(r.p);
-    if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
-    return Number.isFinite(p) && p > 0 ? p : null;
+    const r = freshPriceFeedRow(pf, sym, mktOpen);
+    return liveSpotFromPriceFeedRow(r, mktOpen);
   };
 
   const { buildTickerScenario } = await import("./ticker-scenario.js");
@@ -2589,12 +2619,8 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
   const cal = env ? await loadCalendar(env).catch(() => null) : null;
   const mktOpen = isNyRegularMarketOpen(cal, new Date());
   const liveSpotFor = (sym) => {
-    const s = String(sym || "").toUpperCase();
-    const r = pf[s];
-    if (!r) return null;
-    const ext = Number(r.ahp), p = Number(r.p);
-    if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
-    return Number.isFinite(p) && p > 0 ? p : null;
+    const r = freshPriceFeedRow(pf, sym, mktOpen);
+    return liveSpotFromPriceFeedRow(r, mktOpen);
   };
 
   infographic.indices = infographic.indices.map((idx) => {
@@ -2644,14 +2670,16 @@ export async function refreshInfographicLiveSectors(infographic, env, priceMap =
     }
   }
   if (!pf || typeof pf !== "object") return infographic;
+  const cal = env ? await loadCalendar(env).catch(() => null) : null;
+  const mktOpen = isNyRegularMarketOpen(cal, new Date());
 
   infographic.sectors = infographic.sectors.map((s) => {
     const sym = String(s?.sym || "").toUpperCase();
-    const row = pf[sym];
+    const row = freshPriceFeedRow(pf, sym, mktOpen);
     if (!row) return s;
-    const pct = Number(row.dp);
-    const price = Number(row.p);
-    const dc = Number(row.dc);
+    const pct = liveDayPctFromPriceFeedRow(row, mktOpen);
+    const price = liveSpotFromPriceFeedRow(row, mktOpen);
+    const dc = liveDayChgFromPriceFeedRow(row, mktOpen);
     if (!Number.isFinite(pct) && !Number.isFinite(price)) return s;
     return {
       ...s,
@@ -6015,8 +6043,9 @@ export async function generateIntradayBrief(env, opts = {}) {
         const skipTickers = new Set(["SPY", "QQQ", "VIX", "IWM", "DIA", "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "XLV", "XLB", "XLRE", "XLC", "GLD", "TLT", "USO", "SLV"]);
         for (const [ticker, d] of Object.entries(priceMap)) {
           if (skipTickers.has(ticker) || !d || typeof d !== "object") continue;
-          const pct = Number(d.dp) || 0;
-          const price = Number(d.p) || 0;
+          if (!isPriceFeedRowFresh(d, mktOpen)) continue;
+          const pct = liveDayPctFromPriceFeedRow(d, mktOpen);
+          const price = liveSpotFromPriceFeedRow(d, mktOpen);
           if (price > 0 && Math.abs(pct) > 1.5) {
             movers.push({ ticker, pct, price });
           }
