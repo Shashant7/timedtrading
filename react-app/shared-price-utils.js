@@ -441,6 +441,11 @@
     if (close > 0 && prev > 0 && Math.abs(close - prev) / prev > 0.001) return close;
     if (price > 0 && prev > 0 && Math.abs(price - prev) / prev > 0.001) return price;
 
+    var dc = getDailyChange(t);
+    if (prev > 0 && Number.isFinite(dc?.dayPct) && Math.abs(dc.dayPct) > 0.05) {
+      return Math.round(prev * (1 + dc.dayPct / 100) * 100) / 100;
+    }
+
     var dayPct = Number(t.day_change_pct ?? t.daily_change_pct ?? t.change_pct);
     if (prev > 0 && Number.isFinite(dayPct) && Math.abs(dayPct) > 0.05) {
       return Math.round(prev * (1 + dayPct / 100) * 100) / 100;
@@ -450,6 +455,25 @@
     if (close > 0) return close;
     if (price > 0) return price;
     return prev > 0 ? prev : 0;
+  }
+
+  function extPctMirrorsRthSession(pct, t) {
+    var rthPct = Number(getDailyChange(t)?.dayPct);
+    if (!Number.isFinite(pct) || !Number.isFinite(rthPct)) return false;
+    if (Math.abs(rthPct) < 1.0) return false;
+    return Math.abs(pct - rthPct) <= Math.max(0.25, Math.abs(rthPct) * 0.08);
+  }
+
+  // Stale scoring snapshot: close == prev_close but ahp carries today's print;
+  // deriving EXT off prev_close reproduces RTH day change as fake AH (GS +6.84%).
+  function extDerivedFromStaleRthBaseline(t, headline, pct) {
+    var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+    if (!(prev > 0 && headline > 0)) return false;
+    if (Math.abs(headline - prev) / prev >= 0.001) return false;
+    if (extPctMirrorsRthSession(pct, t)) return true;
+    var ahdp = Number(t._ah_change_pct ?? t.extended_percent_change);
+    if (!Number.isFinite(ahdp) || Math.abs(ahdp) < 3.0) return false;
+    return Math.abs(pct - ahdp) <= Math.max(0.3, Math.abs(ahdp) * 0.05);
   }
 
   // Extended-hours change resolver — single source of truth for
@@ -485,12 +509,12 @@
     if (hasDistinctExtPx) {
       pct = Math.round(((px - headline) / headline) * 10000) / 100;
       chg = Math.round((px - headline) * 100) / 100;
+      if (extDerivedFromStaleRthBaseline(t, headline, pct) || extPctMirrorsRthSession(pct, t)) {
+        return null;
+      }
     } else if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05 && !(px > 0)) {
       // Reject ahdp that mirrors RTH day change (GS +6.84% EXT bleed when AH flat).
-      var rthPct = Number(getDailyChange(t)?.dayPct);
-      if (Number.isFinite(rthPct)
-          && Math.abs(rthPct) >= 1.0
-          && Math.abs(pct - rthPct) <= Math.max(0.25, Math.abs(rthPct) * 0.08)) {
+      if (extPctMirrorsRthSession(pct, t)) {
         return null;
       }
       // No extended print — fall back to cached ahdp only when ahp is absent.

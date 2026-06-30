@@ -1560,12 +1560,14 @@ function computeOpenPositionPnlPct(tr, livePx) {
   const entry = Number(tr?.entry_price ?? tr?.entryPrice ?? tr?.avg_entry ?? tr?.avgEntry);
   const dir = String(tr?.direction || "LONG").toUpperCase();
   let px = Number(livePx);
-  if (!(px > 0)) px = Number(tr?.current_price ?? tr?.price ?? tr?._live_price);
+  if (!(px > 0)) px = Number(tr?.current_price ?? tr?.currentPrice ?? tr?.price ?? tr?._live_price);
   if (entry > 0 && px > 0) {
     const pct = dir === "SHORT" ? (entry - px) / entry * 100 : (px - entry) / entry * 100;
     return Math.round(pct * 100) / 100;
   }
-  const stored = Number(tr?.pnl_pct ?? tr?.pnlPct);
+  const rawStored = tr?.pnl_pct ?? tr?.pnlPct;
+  if (rawStored == null || rawStored === "") return NaN;
+  const stored = Number(rawStored);
   return Number.isFinite(stored) ? stored : NaN;
 }
 function OpenPositionsPreview({
@@ -1578,77 +1580,79 @@ function OpenPositionsPreview({
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
-    const defer = setTimeout(() => {
-      (async () => {
-        try {
-          const [traderPosJ, investorJ] = await Promise.all([fetchJsonRetry(`${API_BASE}/timed/trades?source=positions`), fetchJsonRetry(`${API_BASE}/timed/investor/positions`)]);
-          if (cancelled) return;
-          const all = [];
-          const seen = new Set();
-          let _liveTraderCount = 0;
-          if (traderPosJ?.ok && Array.isArray(traderPosJ.trades)) {
-            for (const t of traderPosJ.trades) {
-              const sym = String(t?.ticker || "").toUpperCase();
-              if (!sym) continue;
-              const st = String(t?.status || "").toUpperCase();
-              if (st === "WIN" || st === "LOSS" || st === "FLAT") continue;
-              const tid = String(t?.trade_id || t?.tradeId || t?.id || sym).trim();
-              const key = `T:${tid}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              all.push({
-                ...t,
-                ticker: sym,
-                direction: String(t?.direction || "LONG").toUpperCase(),
-                entry_price: Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry),
-                _mode: "trader"
-              });
-              _liveTraderCount++;
-            }
+    (async () => {
+      try {
+        const [traderPosJ, investorJ] = await Promise.all([fetchJsonRetry(`${API_BASE}/timed/trades?source=positions`), fetchJsonRetry(`${API_BASE}/timed/investor/positions`)]);
+        if (cancelled) return;
+        const all = [];
+        const seen = new Set();
+        let _liveTraderCount = 0;
+        if (traderPosJ?.ok && Array.isArray(traderPosJ.trades)) {
+          for (const t of traderPosJ.trades) {
+            const sym = String(t?.ticker || "").toUpperCase();
+            if (!sym) continue;
+            const st = String(t?.status || "").toUpperCase();
+            if (st === "WIN" || st === "LOSS" || st === "FLAT") continue;
+            const tid = String(t?.trade_id || t?.tradeId || t?.id || sym).trim();
+            const key = `T:${tid}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            all.push({
+              ...t,
+              ticker: sym,
+              direction: String(t?.direction || "LONG").toUpperCase(),
+              entry_price: Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry),
+              current_price: Number(t?.current_price ?? t?.currentPrice) || undefined,
+              pnl_pct: (() => {
+                const v = Number(t?.pnl_pct ?? t?.pnlPct);
+                return Number.isFinite(v) ? v : undefined;
+              })(),
+              _mode: "trader"
+            });
+            _liveTraderCount++;
           }
-          try {
-            window.__liveTraderOpenCount = _liveTraderCount;
-            window.dispatchEvent(new CustomEvent("tt:live-counts-updated"));
-          } catch (_) {}
-          if (investorJ?.ok) {
-            const j = investorJ;
-            const positions = Array.isArray(j?.positions) ? j.positions : [];
-            for (const p of positions) {
-              if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
-              if (!(Number(p?.total_shares) > 0)) continue;
-              const key = `I:${String(p?.ticker || "").toUpperCase()}`;
-              if (seen.has(key)) continue;
-              seen.add(key);
-              const avgEntry = Number(p?.avg_entry) || Number(p?.cost_basis) / Number(p?.total_shares);
-              let invPnlPct = Number(p?.unrealizedPnlPct);
-              if (!Number.isFinite(invPnlPct)) {
-                const cp = Number(p?.currentPrice);
-                invPnlPct = Number.isFinite(cp) && cp > 0 && avgEntry > 0 ? (cp - avgEntry) / avgEntry * 100 : NaN;
-              }
-              all.push({
-                ticker: p.ticker,
-                direction: "LONG",
-                status: p.status,
-                kanban_stage: p.kanban_stage || p.investor_stage,
-                entry_price: avgEntry,
-                shares: p.total_shares,
-                trade_id: p.id,
-                pnl_pct: Number.isFinite(invPnlPct) ? invPnlPct : undefined,
-                current_price: Number(p?.currentPrice) || undefined,
-                day_change_pct: Number(p?.dailyChangePct),
-                _mode: "investor"
-              });
-            }
-          }
-          if (!cancelled) setTrades(all);
-        } catch (_) {} finally {
-          if (!cancelled) setLoading(false);
         }
-      })();
-    }, 2500);
+        try {
+          window.__liveTraderOpenCount = _liveTraderCount;
+          window.dispatchEvent(new CustomEvent("tt:live-counts-updated"));
+        } catch (_) {}
+        if (investorJ?.ok) {
+          const j = investorJ;
+          const positions = Array.isArray(j?.positions) ? j.positions : [];
+          for (const p of positions) {
+            if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+            if (!(Number(p?.total_shares) > 0)) continue;
+            const key = `I:${String(p?.ticker || "").toUpperCase()}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const avgEntry = Number(p?.avg_entry) || Number(p?.cost_basis) / Number(p?.total_shares);
+            let invPnlPct = Number(p?.unrealizedPnlPct);
+            if (!Number.isFinite(invPnlPct)) {
+              const cp = Number(p?.currentPrice);
+              invPnlPct = Number.isFinite(cp) && cp > 0 && avgEntry > 0 ? (cp - avgEntry) / avgEntry * 100 : NaN;
+            }
+            all.push({
+              ticker: p.ticker,
+              direction: "LONG",
+              status: p.status,
+              kanban_stage: p.kanban_stage || p.investor_stage,
+              entry_price: avgEntry,
+              shares: p.total_shares,
+              trade_id: p.id,
+              pnl_pct: Number.isFinite(invPnlPct) ? invPnlPct : undefined,
+              current_price: Number(p?.currentPrice) || undefined,
+              day_change_pct: Number(p?.dailyChangePct),
+              _mode: "investor"
+            });
+          }
+        }
+        if (!cancelled) setTrades(all);
+      } catch (_) {} finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
-      clearTimeout(defer);
     };
   }, []);
   if (loading) {
@@ -1907,10 +1911,9 @@ function ResearchDeskPanel({
         if (pending) pollTimer = setTimeout(load, 15000);
       }).catch(() => {});
     };
-    const defer = setTimeout(load, 3000);
+    load();
     return () => {
       alive = false;
-      clearTimeout(defer);
       if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
@@ -2324,10 +2327,9 @@ function CTOLevelsPanel({
         if (alive && j?.ok && Array.isArray(j.items)) setFeed(j);
       } catch (_) {}
     };
-    const t = setTimeout(load, 2500);
+    load();
     return () => {
       alive = false;
-      clearTimeout(t);
     };
   }, []);
   if (!feed) {
@@ -2941,10 +2943,9 @@ function GrowthIdeasStrip({
         setCtoBySym(map);
       } catch (_) {}
     };
-    const t = setTimeout(loadCto, 1800);
+    loadCto();
     return () => {
       alive = false;
-      clearTimeout(t);
     };
   }, []);
   useEffect(() => {
@@ -5822,9 +5823,8 @@ function TodayApp({
   });
   const _liveHooks = window.TimedLiveData;
   if (_liveHooks?.usePriceFeed) {
-    const mktOpen = isNyRegularMarketOpen();
     _liveHooks.usePriceFeed(data, setData, {
-      firstPollMs: mktOpen ? 2500 : 0
+      firstPollMs: 0
     });
   }
   if (_liveHooks?.usePriceWebSocket) _liveHooks.usePriceWebSocket(data, setData);
@@ -5994,16 +5994,49 @@ function TodayApp({
     });
   }, [railTicker]);
   const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
-  useEffect(() => {
-    if (RailOverlay) return;
-    const id = setInterval(() => {
+  const bootTimedRightRail = useCallback(() => {
+    const boot = typeof window.ensureTimedRightRail === "function" ? window.ensureTimedRightRail() : Promise.resolve();
+    return boot.then(() => {
       if (window.TimedRightRail?.Overlay) {
         setRailOverlay(() => window.TimedRightRail.Overlay);
-        clearInterval(id);
       }
-    }, 80);
-    return () => clearInterval(id);
-  }, [RailOverlay]);
+    });
+  }, []);
+  useEffect(() => {
+    if (RailOverlay) return;
+    const d = typeof window.ttParseRailOpenDetail === "function" ? window.ttParseRailOpenDetail() : null;
+    if (!d?.ticker) return;
+    let cancelled = false;
+    bootTimedRightRail().catch(() => {}).finally(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [RailOverlay, bootTimedRightRail]);
+  useEffect(() => {
+    if (!data || RailOverlay) return;
+    if (typeof window.ensureTimedRightRail !== "function") return;
+    let cancelled = false;
+    const prefetch = () => {
+      if (cancelled) return;
+      bootTimedRightRail().catch(() => {});
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(prefetch, {
+        timeout: 5000
+      });
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(id);
+      };
+    }
+    const t = setTimeout(prefetch, 2500);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [data, RailOverlay, bootTimedRightRail]);
   const onSelectTicker = useCallback((sym, initialTab = null) => {
     if (!sym) return;
     const ticker = String(sym).toUpperCase();
@@ -6011,17 +6044,20 @@ function TodayApp({
     if (!isTickerScoredInUniverse(data, ticker)) {
       if (!tab || tab === "SNAPSHOT" || tab === "NOW" || tab === "ANALYSIS") tab = "CATALYSTS";
     }
-    if (typeof window.ttOpenTickerInRail === "function") {
-      window.ttOpenTickerInRail({
-        ticker,
-        initialRailTab: tab,
-        source: "today"
-      });
-      return;
-    }
-    setRailTicker(ticker);
-    setRailInitialTab(tab);
-  }, [data]);
+    const open = () => {
+      if (typeof window.ttOpenTickerInRail === "function") {
+        window.ttOpenTickerInRail({
+          ticker,
+          initialRailTab: tab,
+          source: "today"
+        });
+        return;
+      }
+      setRailTicker(ticker);
+      setRailInitialTab(tab);
+    };
+    bootTimedRightRail().then(open).catch(open);
+  }, [data, bootTimedRightRail]);
   const applyRailOpen = useCallback(detail => {
     const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
     const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
@@ -6561,6 +6597,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782820683491:346282770
+// cache-bust:1782822622388:208136213
 
-// cache-bust:1782820683491:346282770
+// cache-bust:1782822622388:208136213

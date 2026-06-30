@@ -59,6 +59,9 @@ export function buildExtendedHoursFields(snap, displayPrice, useDp, marketClosed
 
   if (hasNativeExt) {
     const adjustedExtP = reconcileExtendedPrice(displayPrice, nativeExtP);
+    if (Math.abs(adjustedExtP - displayPrice) / displayPrice <= 0.0005) {
+      return { extP: 0, extDc: 0, extDp: 0 };
+    }
     if (extendedQuoteLooksStale(displayPrice, useDp, adjustedExtP)) {
       return { extP: 0, extDc: 0, extDp: 0 };
     }
