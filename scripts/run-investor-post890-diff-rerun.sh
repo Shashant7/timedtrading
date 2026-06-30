@@ -80,9 +80,20 @@ if ! ensure_july_daystate; then
     --watchdog-seconds=300 --api-base="$PRE"
 fi
 
+seed_investor_month() {
+  if TIMED_API_KEY="$API_KEY" scripts/seed-investor-daystate.sh --month=2025-07 --api-base="$PRE"; then
+    return 0
+  fi
+  log "WARN: seed pass had errors — retry single day 2025-07-15 then continue"
+  TIMED_API_KEY="$API_KEY" scripts/seed-investor-daystate.sh \
+    --start=2025-07-15 --end=2025-07-15 --api-base="$PRE" || true
+  TIMED_API_KEY="$API_KEY" scripts/seed-investor-daystate.sh \
+    --month=2025-07 --api-base="$PRE" --allow-errors
+}
+
 cd "$REPO"
 log "=== Seed investor day-state ==="
-TIMED_API_KEY="$API_KEY" scripts/seed-investor-daystate.sh --month=2025-07 --api-base="$PRE"
+seed_investor_month
 
 log "=== Variant A: v12 baseline (slope gate OFF) ==="
 node scripts/push-july-v12-config.mjs

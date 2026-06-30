@@ -20,6 +20,7 @@ set -euo pipefail
 
 DEFAULT_API_BASE="https://timed-trading-ingest-preprod.shashant.workers.dev"
 MONTH=""; START=""; END=""; TICKERS=""; API_BASE="$DEFAULT_API_BASE"
+ALLOW_ERRORS=0
 API_KEY="${TIMED_API_KEY:-${TIMED_TRADING_API_KEY:-}}"
 
 NYSE_HOLIDAYS="2025-07-04 2025-09-01 2025-11-27 2025-12-25 2026-01-01 2026-01-19 2026-02-16 2026-04-03 2026-05-25 2026-06-19 2026-07-03 2026-09-07 2026-11-26 2026-12-25"
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --end=*) END="${1#*=}" ;;
     --tickers=*) TICKERS="${1#*=}" ;;
     --api-base=*) API_BASE="${1#*=}" ;;
+    --allow-errors) ALLOW_ERRORS=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die_usage "unknown arg: $1" ;;
   esac
@@ -66,7 +68,14 @@ PATCHED=0; ERR=0
 for d in "${DAYS[@]}"; do
   url="$API_BASE/timed/admin/seed-investor-daystate?date=$d&key=$API_KEY"
   [[ -n "$TICKERS" ]] && url+="&tickers=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$TICKERS'))")"
-  RES=$(curl -sS -m 120 -X POST "$url" -H "X-API-Key: $API_KEY" 2>&1) || { log "  ERROR $d curl failed"; ERR=$((ERR+1)); continue; }
+  RES=""
+  for attempt in 1 2 3; do
+    if RES=$(curl -sS -m 180 -X POST "$url" -H "X-API-Key: $API_KEY" 2>&1); then
+      break
+    fi
+    [[ "$attempt" -lt 3 ]] && log "  RETRY $d curl failed (attempt $attempt)" && sleep 15
+  done
+  [[ -n "$RES" ]] || { log "  ERROR $d curl failed"; ERR=$((ERR+1)); continue; }
   if [[ "$(echo "$RES" | jq -r '.ok // false')" != "true" ]]; then
     log "  WARN $d: $(echo "$RES" | jq -c '{ok,error,message}' 2>/dev/null || echo "$RES" | head -c 120)"
     ERR=$((ERR+1)); continue
@@ -77,5 +86,8 @@ for d in "${DAYS[@]}"; do
 done
 
 log "=== Seed complete patched=$PATCHED errors=$ERR ==="
-[[ "$ERR" -gt 0 ]] && exit 5
+if [[ "$ERR" -gt 0 ]]; then
+  [[ "$ALLOW_ERRORS" -eq 1 ]] && { log "WARN: continuing despite $ERR error(s) (--allow-errors)"; exit 0; }
+  exit 5
+fi
 exit 0
