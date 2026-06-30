@@ -11,7 +11,7 @@ describe("computeSessionContextBanner", () => {
       type: "morning",
       marketSnapshot: { premarketGap: true, spyDp: -1.2 },
     };
-    const pf = { SPY: { p: 601.2, pc: 600, dp: 0.19, dc: 1.14 } };
+    const pf = { SPY: { p: 601.2, pc: 600, dp: 0.19, dc: 1.14, p_ts: Date.now() } };
     const banner = computeSessionContextBanner(slot, pf, true, Date.parse("2026-06-24T15:00:00.000Z"));
     expect(banner).not.toBeNull();
     expect(banner.kind).toBe("gap_faded");
@@ -24,7 +24,7 @@ describe("computeSessionContextBanner", () => {
       type: "morning",
       marketSnapshot: { premarketGap: true, spyDp: -1.1 },
     };
-    const pf = { SPY: { p: 594, pc: 600, dp: -1.0, dc: -6 } };
+    const pf = { SPY: { p: 594, pc: 600, dp: -1.0, dc: -6, p_ts: Date.now() } };
     const banner = computeSessionContextBanner(slot, pf, true, Date.parse("2026-06-24T15:00:00.000Z"));
     expect(banner).toBeNull();
   });
@@ -50,6 +50,6 @@ describe("buildReleasedMacroPromptBlock", () => {
 
 describe("liveDayPctFromPriceFeedRow RTH", () => {
   it("uses dp during regular session", () => {
-    expect(liveDayPctFromPriceFeedRow({ p: 601, dp: 0.19 }, true)).toBe(0.19);
+    expect(liveDayPctFromPriceFeedRow({ p: 601, dp: 0.19, p_ts: Date.now() }, true)).toBe(0.19);
   });
 });

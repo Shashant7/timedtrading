@@ -32,9 +32,10 @@ describe("daily-brief open positions", () => {
   });
 
   it("buildInfographicPositionRows includes investor holdings", () => {
+    const now = Date.now();
     const { investorHoldings } = buildInfographicPositionRows([], [{
       ticker: "NVDA", shares: 10, avgEntry: 100, stage: "CORE_HOLD",
-    }], { NVDA: { p: 110, dp: 1.5 } });
+    }], { NVDA: { p: 110, dp: 1.5, p_ts: now } });
     expect(investorHoldings).toHaveLength(1);
     expect(investorHoldings[0].ticker).toBe("NVDA");
     expect(investorHoldings[0].unrealPct).toBeCloseTo(10, 1);
