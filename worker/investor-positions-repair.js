@@ -4,6 +4,8 @@
 // companion for the positions table when trims updated lots + ledger but left
 // cost_basis / total_shares stale on investor_positions.
 
+import { replayInvestorLots } from "./investor-lot-ledger.js";
+
 const COST_TOLERANCE = 1;
 const SHARE_TOLERANCE = 0.01;
 
@@ -13,19 +15,45 @@ function round2(n) {
 
 /** Load per-position lot-derived net shares/cost for OPEN rows. */
 export async function loadInvestorPositionLotDerived(db) {
-  const { results } = await db.prepare(
-    `SELECT p.id, p.ticker, p.status, p.total_shares, p.cost_basis, p.avg_entry,
-            COALESCE(SUM(CASE WHEN l.action IN ('BUY','DCA_BUY') THEN l.shares ELSE 0 END), 0)
-            - COALESCE(SUM(CASE WHEN l.action = 'SELL' THEN l.shares ELSE 0 END), 0) AS lot_shares,
-            COALESCE(SUM(CASE WHEN l.action IN ('BUY','DCA_BUY') THEN l.value ELSE 0 END), 0)
-            - COALESCE(SUM(CASE WHEN l.action = 'SELL' THEN l.value ELSE 0 END), 0) AS lot_cost,
-            COUNT(l.id) AS lot_count
-       FROM investor_positions p
-       LEFT JOIN investor_lots l ON l.position_id = p.id
-      WHERE p.status = 'OPEN'
-      GROUP BY p.id`,
+  const posRes = await db.prepare(
+    `SELECT id, ticker, status, total_shares, cost_basis, avg_entry
+       FROM investor_positions
+      WHERE status = 'OPEN'`,
   ).all().catch(() => ({ results: [] }));
-  return results || [];
+  const positions = posRes?.results || [];
+  if (!positions.length) return [];
+
+  const lotsRes = await db.prepare(
+    `SELECT l.id, l.position_id, l.action, l.shares, l.price, l.value, l.ts
+       FROM investor_lots l
+       INNER JOIN investor_positions p ON l.position_id = p.id
+      WHERE p.status = 'OPEN'
+      ORDER BY l.position_id ASC, l.ts ASC, l.id ASC`,
+  ).all().catch(() => ({ results: [] }));
+
+  const lotsByPos = new Map();
+  for (const lot of lotsRes?.results || []) {
+    const pid = lot.position_id;
+    if (!lotsByPos.has(pid)) lotsByPos.set(pid, []);
+    lotsByPos.get(pid).push(lot);
+  }
+
+  return positions.map((p) => {
+    const lots = lotsByPos.get(p.id) || [];
+    const replay = replayInvestorLots(lots);
+    return {
+      id: p.id,
+      ticker: p.ticker,
+      status: p.status,
+      total_shares: p.total_shares,
+      cost_basis: p.cost_basis,
+      avg_entry: p.avg_entry,
+      lot_shares: replay.totalShares,
+      lot_cost: replay.costBasis,
+      lot_avg_entry: replay.avgEntry,
+      lot_count: lots.length,
+    };
+  });
 }
 
 /** Compare OPEN positions to lot-derived totals; return drift rows. */
@@ -91,7 +119,7 @@ export async function repairInvestorPositionsFromLots(db, { dryRun = true } = {}
       cost_basis: round2(lotCost),
       avg_entry: round2(avgEntry),
       before: { shares: m.pos_shares, cost: m.pos_cost },
-      after: { shares: round2(lotShares), cost: round2(lotCost) },
+      after: { shares: round2(lotShares), cost: round2(lotCost), avg_entry: round2(avgEntry) },
     };
     repairs.push(patch);
     if (!dryRun) {
