@@ -22,12 +22,26 @@ import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
 import { isNyRegularMarketOpen } from "../market-calendar.js";
 
-const PF_FRESH_MS = 30 * 60 * 1000;
+export const PF_FRESH_MS = 30 * 60 * 1000;
+/** Outside RTH the last trade clock ages normally — 26h catches week-old zombies. */
+export const PF_VALUE_FRESH_MS_CLOSED = 26 * 60 * 60 * 1000;
 
-/** Per-symbol trade timestamp from timed:prices — blob updated_at lies. */
+/** Poll timestamp on timed:prices row (`t`) — updated every cron tick. */
 export function isPriceFeedTickFresh(pf, nowMs = Date.now()) {
   const t = Number(pf?.t) || 0;
   return t > 0 && (nowMs - t) <= PF_FRESH_MS;
+}
+
+/** Value timestamp (`p_ts`) — last time `p` actually moved. Catches GS-style zombies. */
+export function priceValueTimestamp(pf) {
+  return Number(pf?.p_ts) || Number(pf?.t) || 0;
+}
+
+export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {
+  const ts = priceValueTimestamp(pf);
+  if (!(ts > 0)) return false;
+  const maxAge = marketOpen ? PF_FRESH_MS : PF_VALUE_FRESH_MS_CLOSED;
+  return (nowMs - ts) <= maxAge;
 }
 
 /**
@@ -47,13 +61,20 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   const pfDp = Number(pf.dp);
   const pfDc = Number(pf.dc);
   const tickFresh = isPriceFeedTickFresh(pf);
+  const valueFresh = isPriceValueFresh(pf, Date.now(), marketOpen);
+  const pfValueTs = priceValueTimestamp(pf);
+
+  // Never poison /timed/all with week-old prints (GS @ 1090). Cron refreshes
+  // `t` every minute even when `p` is a zombie — gate on p_ts.
+  if (!valueFresh) return obj;
 
   obj.price = pfP;
   obj._live_price = pfP;
   obj._live_daily_high = pf.dh;
   obj._live_daily_low = pf.dl;
   obj._live_daily_volume = pf.dv;
-  obj._price_updated_at = Math.max(pricesUpdatedAt, Number(pf.t) || 0);
+  obj._price_updated_at = Math.max(pricesUpdatedAt, pfValueTs, Number(pf.t) || 0);
+  obj._price_value_ts = pfValueTs;
 
   // Outside RTH, pf.p is today's RTH close (extended print is ahp).
   // Scoring snapshots often leave close == prev_close; cards must not

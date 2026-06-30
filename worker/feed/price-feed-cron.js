@@ -41,6 +41,20 @@ function feedPollTimestamp(nowMs = Date.now()) {
   return nowMs;
 }
 
+/** Track when `p` last moved — stale sweep uses p_ts, not poll `t` (GS zombie fix). */
+function withPriceTimestamps(prev, row, nowMs = Date.now()) {
+  const pollTs = feedPollTimestamp(nowMs);
+  const prevP = Number(prev?.p);
+  const nextP = Number(row?.p);
+  const pChanged = !(prevP > 0 && nextP > 0)
+    || Math.abs(prevP - nextP) / prevP > 0.0005;
+  return {
+    ...row,
+    t: pollTs,
+    p_ts: pChanged ? pollTs : (Number(prev?.p_ts) || Number(prev?.t) || pollTs),
+  };
+}
+
 // ─── Price feed (full + lightweight overnight modes) ────────────────────────
 // opts:
 //   isLightweight — 2-8 AM UTC window: overlay TV futures + crypto only,
@@ -136,7 +150,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                   else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
                 }
-                existing[sym] = {
+                existing[sym] = withPriceTimestamps(prev, {
                   ...prev,
                   p: Math.round(displayPrice * 100) / 100,
                   pc: keepPc,
@@ -145,7 +159,6 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
-                  t: feedPollTimestamp(),
                   /* Phase C — Stage 0.5 (2026-05-02) — Invalidate stale AH cache
                      when the regular-session price has moved past the cached
                      AH price. Bug: TWLO ahdp cached as +18.59% when AH was
@@ -184,7 +197,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                     }
                     return prev.ahdp;
                   })(),
-                };
+                });
                 restCount++;
               }
               console.log(`[PRICE FEED LIGHT] REST fallback updated ${restCount} tickers (nonZero was ${nonZeroCount})`);
@@ -411,7 +424,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 if (!Number.isFinite(_prevAhp) || _prevAhp <= 0 || displayPrice <= 0) return false;
                 return Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015;
               })();
-              prices[sym] = {
+              prices[sym] = withPriceTimestamps(prev, {
                 ...prev,
                 p: Math.round(displayPrice * 100) / 100,
                 pc: keepPc,
@@ -420,11 +433,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                t: feedPollTimestamp(),
                 ahp: extDc !== 0 ? extP : (_marketClosed && !_ahStale ? prev.ahp : undefined),
                 ahdc: extDc !== 0 ? extDc : (_marketClosed && !_ahStale ? prev.ahdc : undefined),
                 ahdp: extDc !== 0 ? extDp : (_marketClosed && !_ahStale ? prev.ahdp : undefined),
-              };
+              });
               restFallbackCount++;
             }
             pricesSource = "rest_snapshot";
@@ -561,8 +573,8 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             if (!_sweepEligible(sym)) return false;
             const e = prices[sym];
             if (!e) return true;
-            const t = Number(e.t) || 0;
-            return (_sweepNow - t) > STALE_SWEEP_MS;
+            const pAge = Number(e.p_ts) || Number(e.t) || 0;
+            return (_sweepNow - pAge) > STALE_SWEEP_MS;
           });
           if (_staleList.length > 0) {
             // 2026-06-10 v2 — OLDEST FIRST. v1 sliced the list in stable
@@ -589,7 +601,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               const rawDp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                 : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : (prev.dp ?? 0));
               const reconciled = reconcileDailyChange(price, pc, rawDc, rawDp);
-              prices[sym] = {
+              const { extP, extDc, extDp } = buildExtendedHoursFields(
+                snap, price, reconciled.dp, _marketClosed, false,
+              );
+              prices[sym] = withPriceTimestamps(prev, {
                 ...prev,
                 p: Math.round(price * 100) / 100,
                 pc: reconciled.pc > 0 ? Math.round(reconciled.pc * 100) / 100 : (prev.pc || 0),
@@ -598,13 +613,14 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                t: feedPollTimestamp(_sweepNow),
-              };
+                ...(extP > 0 ? { ahp: extP, ahdc: extDc, ahdp: extDp } : {}),
+              }, _sweepNow);
               _healed++;
             }
             _stillStale = _staleList.filter((sym) => {
               const e = prices[sym];
-              return !e || (_sweepNow - (Number(e.t) || 0)) > STALE_SWEEP_MS;
+              const pAge = Number(e?.p_ts) || Number(e?.t) || 0;
+              return !e || (_sweepNow - pAge) > STALE_SWEEP_MS;
             });
             console.warn(
               `[PRICE FEED] STALE SWEEP: ${_staleList.length} symbols >30m stale, refreshed ${_healed}/${_sweepSyms.length}` +
