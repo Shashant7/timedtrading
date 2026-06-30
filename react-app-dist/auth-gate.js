@@ -1907,7 +1907,9 @@
       : filter === "investor_alerts"
         ? actionableNotifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type))
         : actionableNotifications;
-    const filteredNotifications = scopeFiltered;
+    const filteredNotifications = React.useMemo(() => {
+      return [...scopeFiltered].sort((a, b) => Number(b.created_at) - Number(a.created_at));
+    }, [scopeFiltered]);
     const tradeAlertsCount = actionableNotifications.filter(n => TRADE_ALERT_TYPES.includes(n.type)).length;
     const investorAlertsCount = actionableNotifications.filter(n => INVESTOR_ALERT_TYPES.includes(n.type)).length;
 
@@ -2948,4 +2950,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1782833594317:541539130
+// cache-bust:1782858450942:953276755

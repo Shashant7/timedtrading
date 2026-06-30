@@ -775,7 +775,7 @@ export function deriveInvestorAlertAction(type, data = {}) {
         verb: "MODEL · QUEUE",
         color: "#10b981",
         tone: "buy",
-        one_liner: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — not a manual buy order.`,
+        one_liner: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — queue order is tranched (max 3 new names per session), so a name may wait several sessions. Not a manual buy order.`,
       };
     }
     return {
