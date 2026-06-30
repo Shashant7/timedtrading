@@ -9,6 +9,10 @@ describe("priceValueTimestamp", () => {
   it("prefers p_ts over poll t", () => {
     expect(priceValueTimestamp({ p_ts: 1000, t: 5000 })).toBe(1000);
   });
+
+  it("does not fall back to poll t when p_ts is missing", () => {
+    expect(priceValueTimestamp({ t: Date.now() })).toBe(0);
+  });
 });
 
 describe("isPriceValueFresh", () => {
@@ -24,6 +28,14 @@ describe("isPriceValueFresh", () => {
 });
 
 describe("overlayTimedPricesRow", () => {
+  it("skips overlay when p_ts is missing (legacy row)", () => {
+    const now = Date.now();
+    const obj = { ticker: "GS", price: 1090.67, close: 1090.67, prev_close: 1020 };
+    const pf = { p: 1090.67, pc: 1020, dp: 6.84, t: now };
+    const out = overlayTimedPricesRow(obj, pf, { sym: "GS", marketOpen: false });
+    expect(out).toBe(obj);
+  });
+
   it("skips overlay when p_ts is a week old (GS zombie)", () => {
     const now = Date.now();
     const obj = { ticker: "GS", price: 1090.67, close: 1090.67, prev_close: 1020 };

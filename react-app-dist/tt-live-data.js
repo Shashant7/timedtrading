@@ -159,7 +159,8 @@
             const existing = next[key];
             const feedP = Number(p?.p);
             if (!existing || !(feedP > 0)) continue;
-            const symTs = Number(p?.p_ts) || Number(p?.t) || feedTs;
+            const symTs = Number(p?.p_ts);
+            if (!(symTs > 0)) continue;
             const marketOpen = (() => {
               try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
               catch (_) { return true; }
@@ -190,7 +191,7 @@
                 ? { price: feedP, _live_price: feedP }
                 : { price: feedP, close: feedP, _live_price: feedP }),
               _price_updated_at: symTs,
-              _price_value_ts: Number(p?.p_ts) || symTs,
+              _price_value_ts: symTs,
               _market_open_at_feed: marketOpen,
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
               // dc/dp are session-close values; backend preserves them
@@ -299,7 +300,8 @@
           const existing = next[key];
           const feedP = Number(p?.p);
           if (!existing || !(feedP > 0)) continue;
-          const symTs = Number(p?.p_ts) || Number(p?.t) || wsTs;
+          const symTs = Number(p?.p_ts);
+          if (!(symTs > 0)) continue;
           const maxAgeMs = marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
           if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
           if (existing._live_price === feedP) continue;
@@ -320,7 +322,7 @@
               ? { price: feedP, _live_price: feedP }
               : { price: feedP, close: feedP, _live_price: feedP }),
             _price_updated_at: symTs,
-            _price_value_ts: Number(p?.p_ts) || symTs,
+            _price_value_ts: symTs,
             _market_open_at_feed: marketOpen,
             ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
             ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
@@ -392,4 +394,4 @@
   window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
 })();
 
-// cache-bust:1782824101116:796289844
+// cache-bust:1782824354943:573770883

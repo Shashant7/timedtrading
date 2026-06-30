@@ -32,9 +32,9 @@ export function isPriceFeedTickFresh(pf, nowMs = Date.now()) {
   return t > 0 && (nowMs - t) <= PF_FRESH_MS;
 }
 
-/** Value timestamp (`p_ts`) — last time `p` actually moved. Catches GS-style zombies. */
+/** Value timestamp (`p_ts`) — last time `p` actually moved. Never fall back to poll `t`. */
 export function priceValueTimestamp(pf) {
-  return Number(pf?.p_ts) || Number(pf?.t) || 0;
+  return Number(pf?.p_ts) || 0;
 }
 
 export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {

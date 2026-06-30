@@ -40,8 +40,9 @@
   // Price feed freshness — uses p_ts (last time p moved), not poll t.
   // Catches GS-style zombies where cron refreshes t every minute but p stuck at 1090.
   function getPriceValueAgeMs(t) {
-    var ts = Number(t?._price_value_ts) || Number(t?._price_updated_at) || 0;
-    return ts > 0 ? Date.now() - ts : Infinity;
+    var ts = Number(t?._price_value_ts);
+    if (!(ts > 0)) return Infinity;
+    return Date.now() - ts;
   }
 
   function isPriceFeedFresh(t) {
