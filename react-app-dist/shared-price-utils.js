@@ -37,6 +37,18 @@
     return m >= 570 && m < 960;
   }
 
+  // Price feed freshness — uses p_ts (last time p moved), not poll t.
+  // Catches GS-style zombies where cron refreshes t every minute but p stuck at 1090.
+  function getPriceValueAgeMs(t) {
+    var ts = Number(t?._price_value_ts) || Number(t?._price_updated_at) || 0;
+    return ts > 0 ? Date.now() - ts : Infinity;
+  }
+
+  function isPriceFeedFresh(t) {
+    var maxMs = isNyRegularMarketOpen() ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
+    return getPriceValueAgeMs(t) <= maxMs;
+  }
+
   // ── Age label (e.g. "3m ago") ──
   function ageLabelFromMinutes(ageMin) {
     if (!Number.isFinite(ageMin) || ageMin < 0) return "";
@@ -432,6 +444,8 @@
   // Never use prev_close when today's move is known from the live feed or dp.
   function getRthSessionClose(t) {
     if (!t || typeof t !== "object") return 0;
+    if (!isPriceFeedFresh(t)) return 0;
+
     var live = Number(t._live_price);
     var close = Number(t.close);
     var price = Number(t.price);
@@ -481,6 +495,7 @@
   // Returns { pct, price, chg } or null.
   function getExtChange(t) {
     if (isNyRegularMarketOpen()) return null;
+    if (!isPriceFeedFresh(t)) return null;
     var sym = String(t && t.ticker || "").toUpperCase();
     if (sym === "BTCUSD" || sym === "ETHUSD") return null;
 
@@ -891,6 +906,8 @@
     getStaleInfo: getStaleInfo,
     getHeadlinePrice: getHeadlinePrice,
     getRthSessionClose: getRthSessionClose,
+    isPriceFeedFresh: isPriceFeedFresh,
+    getPriceValueAgeMs: getPriceValueAgeMs,
     mergePriceSrc: mergePriceSrc,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
@@ -912,4 +929,4 @@
   };
 })();
 
-// cache-bust:1782822982270:817225603
+// cache-bust:1782824101116:796289844

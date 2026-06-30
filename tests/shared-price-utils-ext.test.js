@@ -11,6 +11,11 @@ function loadPriceUtils() {
   return globalThis.TimedPriceUtils;
 }
 
+function withFreshPrice(t) {
+  const ts = Date.now() - 60 * 1000;
+  return { ...t, _price_updated_at: ts, _price_value_ts: ts };
+}
+
 describe("getExtChange", () => {
   let utils;
 
@@ -33,14 +38,14 @@ describe("getExtChange", () => {
 
   it("derives negative EXT pct when extended price is below RTH close (GS case)", () => {
     mockMarketClosed();
-    const ext = utils.getExtChange({
+    const ext = utils.getExtChange(withFreshPrice({
       ticker: "GS",
       close: 1090.67,
       price: 1090.67,
       _ah_price: 1083.27,
       _ah_change_pct: 0.66,
       _ah_change: 7.18,
-    });
+    }));
     expect(ext).not.toBeNull();
     expect(ext.price).toBe(1083.27);
     expect(ext.pct).toBeLessThan(0);
@@ -61,12 +66,12 @@ describe("getExtChange", () => {
 
   it("uses cached ahdp when no distinct extended price is available", () => {
     mockMarketClosed();
-    const ext = utils.getExtChange({
+    const ext = utils.getExtChange(withFreshPrice({
       ticker: "SPY",
       close: 600.0,
       price: 600.0,
       _ah_change_pct: 0.25,
-    });
+    }));
     expect(ext).not.toBeNull();
     expect(ext.pct).toBeCloseTo(0.25, 2);
     expect(ext.price).toBeCloseTo(601.5, 1);
@@ -74,7 +79,7 @@ describe("getExtChange", () => {
 
   it("derives negative EXT pct when snapshot price is stale but _live_price has RTH close (GS feed merge)", () => {
     mockMarketClosed();
-    const ext = utils.getExtChange({
+    const ext = utils.getExtChange(withFreshPrice({
       ticker: "GS",
       price: 1076.17,
       _live_price: 1090.67,
@@ -83,7 +88,7 @@ describe("getExtChange", () => {
       _ah_price: 1083.27,
       _ah_change_pct: 0.66,
       _ah_change: 7.1,
-    });
+    }));
     expect(ext).not.toBeNull();
     expect(ext.pct).toBeLessThan(0);
     expect(ext.pct).toBeCloseTo(-0.68, 1);
@@ -132,10 +137,30 @@ describe("getExtChange", () => {
       day_change_pct: 6.84,
       _ah_price: 1095.0,
       _ah_change_pct: 0.4,
+      _price_updated_at: Date.now() - 60 * 1000,
+      _price_value_ts: Date.now() - 60 * 1000,
     });
     expect(ext).not.toBeNull();
     expect(ext.pct).toBeGreaterThan(0.2);
     expect(ext.pct).toBeLessThan(1.0);
+  });
+
+  it("suppresses EXT when price value timestamp is week-old (GS 1090 zombie)", () => {
+    mockMarketClosed();
+    const weekAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+    const ext = utils.getExtChange({
+      ticker: "GS",
+      close: 1090.67,
+      price: 1090.67,
+      _live_price: 1090.67,
+      prev_close: 1020.0,
+      _live_prev_close: 1020.0,
+      _ah_price: 1090.67,
+      _ah_change_pct: 6.84,
+      _price_updated_at: weekAgo,
+      _price_value_ts: weekAgo,
+    });
+    expect(ext).toBeNull();
   });
 });
 
@@ -170,13 +195,13 @@ describe("getBubbleFillChange", () => {
 
   it("uses EXT pct for bubble fill outside RTH when extended price differs", () => {
     mockMarketClosed();
-    const fill = utils.getBubbleFillChange({
+    const fill = utils.getBubbleFillChange(withFreshPrice({
       ticker: "SPY",
       close: 600.0,
       price: 600.0,
       _ah_price: 606.0,
       _ah_change_pct: 1.0,
-    });
+    }));
     expect(fill.source).toBe("ext");
     expect(fill.hasData).toBe(true);
     expect(fill.pct).toBeCloseTo(1.0, 2);

@@ -159,10 +159,17 @@
             const existing = next[key];
             const feedP = Number(p?.p);
             if (!existing || !(feedP > 0)) continue;
+            const symTs = Number(p?.p_ts) || Number(p?.t) || feedTs;
+            const marketOpen = (() => {
+              try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
+              catch (_) { return true; }
+            })();
+            const maxAgeMs = marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
+            if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
             // No-op when nothing changed
-            if (existing._live_price === feedP && existing._price_updated_at === feedTs) continue;
+            if (existing._live_price === feedP && existing._price_updated_at === symTs) continue;
             // Don't roll back a more recent push (WebSocket or in-flight fetch)
-            if (existing._price_updated_at && existing._price_updated_at > feedTs) continue;
+            if (existing._price_updated_at && existing._price_updated_at > symTs) continue;
 
             const feedPc = Number(p.pc);
             const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0
@@ -177,20 +184,13 @@
             const ahdc = Number(p.ahdc);
             const ahdp = Number(p.ahdp);
 
-            // Outside RTH, timed:prices `p` is today's RTH close; extended
-            // print lives in ahp/ahdc/ahdp. Always sync price/close from the
-            // feed so cards don't stick on a stale close == prev_close blob.
-            const marketOpen = (() => {
-              try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
-              catch (_) { return true; }
-            })();
-
             next[key] = {
               ...existing,
               ...(marketOpen
                 ? { price: feedP, _live_price: feedP }
                 : { price: feedP, close: feedP, _live_price: feedP }),
-              _price_updated_at: feedTs,
+              _price_updated_at: symTs,
+              _price_value_ts: Number(p?.p_ts) || symTs,
               _market_open_at_feed: marketOpen,
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
               // dc/dp are session-close values; backend preserves them
@@ -299,8 +299,11 @@
           const existing = next[key];
           const feedP = Number(p?.p);
           if (!existing || !(feedP > 0)) continue;
+          const symTs = Number(p?.p_ts) || Number(p?.t) || wsTs;
+          const maxAgeMs = marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
+          if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
           if (existing._live_price === feedP) continue;
-          if (existing._price_updated_at && existing._price_updated_at > wsTs) continue;
+          if (existing._price_updated_at && existing._price_updated_at > symTs) continue;
           if (!changed) { next = { ...prev }; changed = true; }
           const feedPc = Number(p.pc);
           const feedPcUsable = Number.isFinite(feedPc) && feedPc > 0
@@ -316,7 +319,8 @@
             ...(marketOpen
               ? { price: feedP, _live_price: feedP }
               : { price: feedP, close: feedP, _live_price: feedP }),
-            _price_updated_at: wsTs,
+            _price_updated_at: symTs,
+            _price_value_ts: Number(p?.p_ts) || symTs,
             _market_open_at_feed: marketOpen,
             ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
             ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
