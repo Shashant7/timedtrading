@@ -116,5 +116,21 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
     items = await applyFREDActuals(env, items, today);
   } catch (_) { /* FRED layer optional */ }
 
-  return { ok: true, today, days, count: items.length, fsd_events: fsdCount, events: items, generated_at: Date.now() };
+  try {
+    const { mergeMacroReleasesIntoEvents, computeMacroPollSchedule } = await import("./macro-release-alerts.js");
+    items = await mergeMacroReleasesIntoEvents(env, items);
+    const poll = computeMacroPollSchedule(items);
+    return {
+      ok: true,
+      today,
+      days,
+      count: items.length,
+      fsd_events: fsdCount,
+      events: items,
+      poll,
+      generated_at: Date.now(),
+    };
+  } catch (_) {
+    return { ok: true, today, days, count: items.length, fsd_events: fsdCount, events: items, generated_at: Date.now() };
+  }
 }
