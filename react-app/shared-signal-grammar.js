@@ -261,8 +261,8 @@
     var chips = [];
     chips.push({ kind: "engine", text: s.engine === "investor" ? "INVESTOR" : "TRADER" });
     chips.push({ kind: "mode", text: s.mode === "doing" ? "DOING" : "WATCHING" });
-    if (s.execState === "recommended") chips.push({ kind: "exec", text: "RECOMMENDED" });
-    else if (s.execState === "done" && s.mode === "doing") chips.push({ kind: "exec", text: "DONE" });
+    if (s.execState === "recommended") chips.push({ kind: "exec", text: "WARNING" });
+    else if (s.execState === "done" && s.mode === "doing" && s.action !== "exit") chips.push({ kind: "exec", text: "DONE" });
     return chips;
   }
 
