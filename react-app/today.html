@@ -3326,12 +3326,14 @@
         const entry = Number(tr?.entry_price ?? tr?.entryPrice ?? tr?.avg_entry ?? tr?.avgEntry);
         const dir = String(tr?.direction || "LONG").toUpperCase();
         let px = Number(livePx);
-        if (!(px > 0)) px = Number(tr?.current_price ?? tr?.price ?? tr?._live_price);
+        if (!(px > 0)) px = Number(tr?.current_price ?? tr?.currentPrice ?? tr?.price ?? tr?._live_price);
         if (entry > 0 && px > 0) {
           const pct = dir === "SHORT" ? ((entry - px) / entry) * 100 : ((px - entry) / entry) * 100;
           return Math.round(pct * 100) / 100;
         }
-        const stored = Number(tr?.pnl_pct ?? tr?.pnlPct);
+        const rawStored = tr?.pnl_pct ?? tr?.pnlPct;
+        if (rawStored == null || rawStored === "") return NaN;
+        const stored = Number(rawStored);
         return Number.isFinite(stored) ? stored : NaN;
       }
 
@@ -3341,7 +3343,7 @@
         const [loading, setLoading] = useState(true);
         useEffect(() => {
           let cancelled = false;
-          const defer = setTimeout(() => { (async () => {
+          (async () => {
             try {
               // Canonical open book: positions table (GS/MU live marks) plus
               // investor holdings. Ledger trades can lag or omit positions-only rows.
@@ -3368,6 +3370,11 @@
                     ticker: sym,
                     direction: String(t?.direction || "LONG").toUpperCase(),
                     entry_price: Number(t?.entry_price ?? t?.entryPrice ?? t?.avgEntry),
+                    current_price: Number(t?.current_price ?? t?.currentPrice) || undefined,
+                    pnl_pct: (() => {
+                      const v = Number(t?.pnl_pct ?? t?.pnlPct);
+                      return Number.isFinite(v) ? v : undefined;
+                    })(),
                     _mode: "trader",
                   });
                   _liveTraderCount++;
@@ -3422,8 +3429,8 @@
               if (!cancelled) setTrades(all);
             } catch (_) { /* silent */ }
             finally { if (!cancelled) setLoading(false); }
-          })(); }, 2500);
-          return () => { cancelled = true; clearTimeout(defer); };
+          })();
+          return () => { cancelled = true; };
         }, []);
 
         if (loading) {
