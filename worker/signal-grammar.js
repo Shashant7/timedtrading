@@ -97,7 +97,15 @@ export function renderDiscordTitle(signal, { emoji = "" } = {}) {
   return `${prefix}${parts.join(" · ")} · ${verb}${tail}`.replace(/\s+/g, " ").trim();
 }
 
-/** Email subject: `[TRADER · DOING] Exit MU LONG +42.97%` */
+/** Bell / notification title — strips legacy DOING/WATCHING bracket prefixes. */
+export function formatNotificationTitle(raw, opts = {}) {
+  let t = String(raw || "").trim();
+  t = t.replace(/^\[(?:TRADER|INVESTOR)\s*·\s*(?:DOING|WATCHING)(?:\s*·\s*\w+)?\]\s*/i, "");
+  t = t.replace(/^\[(?:TRADER|INVESTOR)\s*·\s*\w+\]\s*/i, "");
+  return t.trim();
+}
+
+/** Email / bell subject: `Exit GEV LONG -1.00% @ $1042.00 (filled)` */
 export function renderEmailSubject(signal, extras = {}) {
   const s = typeof signal === "object" ? signal : buildSignal(signal);
   const dir = s.direction ? ` ${s.direction}` : "";
@@ -106,7 +114,10 @@ export function renderEmailSubject(signal, extras = {}) {
     : "";
   const price = Number.isFinite(s.price) ? ` @ $${s.price.toFixed(2)}` : "";
   const thread = extras.threadLabel ? ` (${extras.threadLabel})` : "";
-  return `[${engineLabel(s.engine)} · ${modeLabel(s.mode)}] ${actionVerb(s.action)} ${s.ticker}${dir}${pct}${price}${thread}`.trim();
+  if (s.execState === "recommended") {
+    return `Warning: ${s.ticker} — ${actionVerb(s.action).toLowerCase()} recommended`;
+  }
+  return `${actionVerb(s.action)} ${s.ticker}${dir}${pct}${price}${thread}`.trim();
 }
 
 /** Winner/loss close title — avoids "Closed 25%" reading like a trim. */
@@ -154,13 +165,13 @@ export function formatExitRecommendedTitle(ticker) {
 export function formatTradeTrimTitle({ ticker, direction, stepLabel, fillPrice, isProfit }) {
   const emoji = isProfit ? "💰" : "✂️";
   const action = isProfit ? "Taking Profit" : "Trimming";
-  return `${emoji}  TRADER · DOING · DONE · ${action}: ${ticker} ${direction} — ${stepLabel} @ $${Number(fillPrice).toFixed(2)}`;
+  return `${emoji}  TRADER · ${action}: ${ticker} ${direction} — ${stepLabel} @ $${Number(fillPrice).toFixed(2)}`;
 }
 
 export function formatTradeEntryTitle({ ticker, direction, entryPrice, isLong }) {
   const emoji = isLong ? "🟢" : "🔴";
   const dirLabel = isLong ? "LONG" : "SHORT";
-  return `${emoji}  TRADER · DOING · DONE · Enter: ${ticker} ${dirLabel} @ $${Number(entryPrice).toFixed(2)}`;
+  return `${emoji} Enter: ${ticker} ${dirLabel} @ $${Number(entryPrice).toFixed(2)}`;
 }
 
 /** Trader kanban lane metadata with watching/doing band. */

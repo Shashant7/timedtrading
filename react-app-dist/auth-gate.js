@@ -1931,13 +1931,39 @@
       kanban: "#a78bfa",
     };
     const typeLabels = {
-      trade_entry: "Trade Entry",
-      trade_exit: "Trade Exit",
-      trade_trim: "Trade Trim/Defend",
-      investor_signal: "Investor Signal",
+      trade_entry: "Enter",
+      trade_exit: "Exit",
+      trade_trim: "Trim",
+      investor_signal: "Investor",
       daily_brief: "Daily Brief",
       system: "System",
-      kanban: "Kanban Update",
+      kanban: "Update",
+    };
+
+    const cleanNotifTitle = (title) => String(title || "")
+      .replace(/^\[(?:TRADER|INVESTOR)\s*·\s*(?:DOING|WATCHING)(?:\s*·\s*\w+)?\]\s*/i, "")
+      .replace(/^\[(?:TRADER|INVESTOR)\s*·\s*\w+\]\s*/i, "")
+      .trim();
+
+    const notifActionChip = (n) => {
+      const t = String(n?.type || "").toLowerCase();
+      const exec = String(n?.exec_state || "").toLowerCase();
+      if (exec === "recommended") {
+        return { label: "WARNING", color: "#fde68a", bg: "rgba(250,204,21,0.14)", border: "rgba(250,204,21,0.35)" };
+      }
+      if (t === "trade_exit") {
+        return { label: "EXIT", color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.30)" };
+      }
+      if (t === "trade_trim") {
+        return { label: "TRIM", color: "#fdba74", bg: "rgba(251,146,60,0.12)", border: "rgba(251,146,60,0.30)" };
+      }
+      if (t === "trade_entry") {
+        return { label: "ENTER", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.28)" };
+      }
+      if (t === "investor_signal") {
+        return { label: "INVESTOR", color: "#c4b5fd", bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.30)" };
+      }
+      return { label: "UPDATE", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.10)" };
     };
 
     const fetchNotifications = React.useCallback(async () => {
@@ -2075,8 +2101,8 @@
         ),
         // Modal body
         h("div", { style: { padding: "20px", overflowY: "auto", flex: 1 } },
-          h("h3", { style: { fontSize: "16px", fontWeight: "700", color: "#e5e7eb", margin: "0 0 8px" } },
-            selectedNotification.title),
+          h("h3", { style: { fontSize: "16px", fontWeight: "700", color: "#E8F5EE", margin: "0 0 8px", lineHeight: "1.35" } },
+            cleanNotifTitle(selectedNotification.title)),
           h("div", { style: { fontSize: "11px", color: "#374151", marginBottom: "16px" } },
             formatFullTime(selectedNotification.created_at)),
           selectedNotification.body && h("div", {
@@ -2160,9 +2186,9 @@
       // Dropdown
       open && h("div", {
         style: {
-          position: "absolute", top: "calc(100% + 8px)", right: "0", width: "340px", maxHeight: "420px",
-          background: "#141720", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "12px",
-          boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 10000, overflow: "hidden",
+          position: "absolute", top: "calc(100% + 8px)", right: "0", width: "360px", maxHeight: "440px",
+          background: "#0B1410", border: "1px solid rgba(56,242,161,0.14)", borderRadius: "14px",
+          boxShadow: "0 20px 56px rgba(0,0,0,0.55)", zIndex: 10000, overflow: "hidden",
           fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         },
       },
@@ -2170,53 +2196,57 @@
         h("div", {
           style: {
             display: "flex", justifyContent: "space-between", alignItems: "center",
-            padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)",
+            padding: "14px 16px", borderBottom: "1px solid rgba(56,242,161,0.10)",
+            background: "linear-gradient(180deg, rgba(56,242,161,0.06) 0%, transparent 100%)",
           },
         },
-          h("span", { style: { fontSize: "13px", fontWeight: "600", color: "#e5e7eb" } }, "Notifications"),
-          h("div", { style: { display: "flex", gap: "8px" } },
+          h("span", { style: { fontSize: "13px", fontWeight: "700", color: "#E8F5EE", letterSpacing: "-0.01em" } }, "Notifications"),
+          h("div", { style: { display: "flex", gap: "10px" } },
             unreadCount > 0 && h("button", {
               onClick: markAllRead,
-              style: { background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#00c853" },
-            }, "Mark All Read"),
+              style: { background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#38F2A1", fontWeight: "600" },
+            }, "Mark read"),
             notifications.length > 0 && h("button", {
               onClick: clearAll,
-              style: { background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#6b7280" },
-            }, "Clear All"),
+              style: { background: "none", border: "none", cursor: "pointer", fontSize: "11px", color: "#6E867D" },
+            }, "Clear all"),
           ),
         ),
         // Alert filter tabs
         h("div", {
           style: {
-            display: "flex", gap: "4px", padding: "8px 16px",
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
+            display: "flex", gap: "6px", padding: "10px 16px",
+            borderBottom: "1px solid rgba(255,255,255,0.05)",
           },
         },
           h("button", {
             onClick: () => setFilter("all"),
             style: {
-              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
-              background: filter === "all" ? "rgba(255,255,255,0.08)" : "transparent",
-              color: filter === "all" ? "#e5e7eb" : "#6b7280",
-              border: "none", cursor: "pointer",
+              padding: "5px 12px", borderRadius: "999px", fontSize: "11px", fontWeight: "600",
+              background: filter === "all" ? "rgba(56,242,161,0.12)" : "transparent",
+              color: filter === "all" ? "#38F2A1" : "#6E867D",
+              border: filter === "all" ? "1px solid rgba(56,242,161,0.22)" : "1px solid transparent",
+              cursor: "pointer",
             },
           }, "All"),
           h("button", {
             onClick: () => setFilter("trade_alerts"),
             style: {
-              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
-              background: filter === "trade_alerts" ? "rgba(0,200,83,0.12)" : "transparent",
-              color: filter === "trade_alerts" ? "#00c853" : "#6b7280",
-              border: "none", cursor: "pointer",
+              padding: "5px 12px", borderRadius: "999px", fontSize: "11px", fontWeight: "600",
+              background: filter === "trade_alerts" ? "rgba(56,242,161,0.12)" : "transparent",
+              color: filter === "trade_alerts" ? "#38F2A1" : "#6E867D",
+              border: filter === "trade_alerts" ? "1px solid rgba(56,242,161,0.22)" : "1px solid transparent",
+              cursor: "pointer",
             },
           }, "Trader" + (tradeAlertsCount > 0 ? " (" + tradeAlertsCount + ")" : "")),
           h("button", {
             onClick: () => setFilter("investor_alerts"),
             style: {
-              padding: "4px 10px", borderRadius: "6px", fontSize: "11px", fontWeight: "500",
-              background: filter === "investor_alerts" ? "rgba(59,130,246,0.12)" : "transparent",
-              color: filter === "investor_alerts" ? "#3b82f6" : "#6b7280",
-              border: "none", cursor: "pointer",
+              padding: "5px 12px", borderRadius: "999px", fontSize: "11px", fontWeight: "600",
+              background: filter === "investor_alerts" ? "rgba(167,139,250,0.12)" : "transparent",
+              color: filter === "investor_alerts" ? "#c4b5fd" : "#6E867D",
+              border: filter === "investor_alerts" ? "1px solid rgba(167,139,250,0.22)" : "1px solid transparent",
+              cursor: "pointer",
             },
           }, "Investor" + (investorAlertsCount > 0 ? " (" + investorAlertsCount + ")" : "")),
         ),
@@ -2234,89 +2264,60 @@
                   key: n.id,
                   onClick: () => handleClick(n),
                   style: {
-                    display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px 16px",
+                    display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 16px",
                     cursor: "pointer",
-                    background: n.read_at ? "transparent" : "rgba(0,200,83,0.03)",
-                    borderBottom: "1px solid rgba(255,255,255,0.03)",
+                    background: n.read_at ? "transparent" : "rgba(56,242,161,0.04)",
+                    borderBottom: "1px solid rgba(255,255,255,0.04)",
                     transition: "background 0.15s",
                   },
                   onMouseEnter: (e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; },
-                  onMouseLeave: (e) => { e.currentTarget.style.background = n.read_at ? "transparent" : "rgba(0,200,83,0.03)"; },
+                  onMouseLeave: (e) => { e.currentTarget.style.background = n.read_at ? "transparent" : "rgba(56,242,161,0.04)"; },
                 },
                   // Type indicator dot
                   h("div", {
                     style: {
-                      width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0, marginTop: "5px",
-                      background: typeColors[n.type] || "#6b7280",
+                      width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0, marginTop: "6px",
+                      background: typeColors[n.type] || "#6E867D",
                     },
                   }),
                   h("div", { style: { flex: 1, minWidth: 0 } },
                     (() => {
                       const scope = notifScope(n);
-                      const engine = String(n?.engine || "").toLowerCase();
-                      const mode = notifMode(n);
-                      const exec = String(n?.exec_state || "").toUpperCase();
+                      const action = notifActionChip(n);
                       const chips = [];
-                      if (engine === "investor" || engine === "trader") {
-                        chips.push(h("span", {
-                          key: "eng",
-                          style: {
-                            display: "inline-block", fontSize: "8px", fontWeight: "800",
-                            letterSpacing: "0.06em", textTransform: "uppercase",
-                            padding: "1px 5px", borderRadius: "4px", marginRight: "4px",
-                            color: engine === "investor" ? "#c4b5fd" : "#67e8f9",
-                            background: engine === "investor" ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
-                            border: `1px solid ${engine === "investor" ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
-                          },
-                        }, engine === "investor" ? "INVESTOR" : "TRADER"));
-                      } else if (scope) {
-                        const isInv = scope === "investor";
+                      if (scope === "investor" || scope === "trader") {
                         chips.push(h("span", {
                           key: "scope",
                           style: {
                             display: "inline-block", fontSize: "8px", fontWeight: "800",
                             letterSpacing: "0.06em", textTransform: "uppercase",
-                            padding: "1px 5px", borderRadius: "4px", marginRight: "4px",
-                            color: isInv ? "#c4b5fd" : "#67e8f9",
-                            background: isInv ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
-                            border: `1px solid ${isInv ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
+                            padding: "2px 6px", borderRadius: "999px", marginRight: "5px",
+                            color: scope === "investor" ? "#c4b5fd" : "#67e8f9",
+                            background: scope === "investor" ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
+                            border: `1px solid ${scope === "investor" ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
                           },
-                        }, isInv ? "Investor" : "Active Trader"));
+                        }, scope === "investor" ? "INVESTOR" : "TRADER"));
                       }
-                      if (mode) {
-                        chips.push(h("span", {
-                          key: "mode",
-                          style: {
-                            display: "inline-block", fontSize: "8px", fontWeight: "800",
-                            letterSpacing: "0.06em", textTransform: "uppercase",
-                            padding: "1px 5px", borderRadius: "4px", marginRight: "4px",
-                            color: mode === "doing" ? "#fdba74" : "#9ca3af",
-                            background: mode === "doing" ? "rgba(251,146,60,0.12)" : "transparent",
-                            border: `1px solid ${mode === "doing" ? "rgba(251,146,60,0.35)" : "rgba(255,255,255,0.12)"}`,
-                          },
-                        }, mode === "doing" ? "DOING" : "WATCHING"));
-                      }
-                      if (exec === "RECOMMENDED" || exec === "DONE") {
-                        chips.push(h("span", {
-                          key: "exec",
-                          style: {
-                            display: "inline-block", fontSize: "8px", fontWeight: "800",
-                            letterSpacing: "0.06em", textTransform: "uppercase",
-                            padding: "1px 5px", borderRadius: "4px", marginBottom: "3px",
-                            color: "#fde68a",
-                            background: "rgba(250,204,21,0.12)",
-                            border: "1px solid rgba(250,204,21,0.30)",
-                          },
-                        }, exec));
-                      }
-                      return chips.length ? h("div", { style: { marginBottom: "3px" } }, chips) : null;
+                      chips.push(h("span", {
+                        key: "action",
+                        style: {
+                          display: "inline-block", fontSize: "8px", fontWeight: "800",
+                          letterSpacing: "0.06em", textTransform: "uppercase",
+                          padding: "2px 6px", borderRadius: "999px", marginBottom: "4px",
+                          color: action.color,
+                          background: action.bg,
+                          border: `1px solid ${action.border}`,
+                        },
+                      }, action.label));
+                      return h("div", { style: { marginBottom: "4px" } }, chips);
                     })(),
                     h("div", {
                       style: {
                         fontSize: "12px", fontWeight: n.read_at ? "500" : "600",
-                        color: n.read_at ? "#9ca3af" : "#e5e7eb", marginBottom: "2px",
+                        color: n.read_at ? "#8AA39A" : "#E8F5EE", marginBottom: "2px",
+                        lineHeight: "1.35",
                       },
-                    }, n.title),
+                    }, cleanNotifTitle(n.title)),
                     n.body && h("div", {
                       style: { fontSize: "11px", color: "#6b7280", lineHeight: "1.4", overflow: "hidden",
                         textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -2325,7 +2326,7 @@
                   ),
                   // Unread dot
                   !n.read_at && h("div", {
-                    style: { width: "6px", height: "6px", borderRadius: "50%", background: "#00c853", flexShrink: 0, marginTop: "6px" },
+                    style: { width: "6px", height: "6px", borderRadius: "50%", background: "#38F2A1", flexShrink: 0, marginTop: "7px" },
                   }),
                 ),
               ),
@@ -2940,4 +2941,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1782785312722:42851854
+// cache-bust:1782785837390:751386019

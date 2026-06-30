@@ -182,7 +182,7 @@ describe("lane meta bands", () => {
 });
 
 describe("renderEmailSubject", () => {
-  it("uses bracket grammar", () => {
+  it("uses simple action grammar without DOING prefix", () => {
     const subj = renderEmailSubject(buildSignal({
       engine: "trader",
       mode: "doing",
@@ -192,7 +192,19 @@ describe("renderEmailSubject", () => {
       direction: "LONG",
       pnlPct: 42.97,
     }));
-    expect(subj).toMatch(/^\[TRADER · DOING\]/);
+    expect(subj).toMatch(/^Exit MU LONG/);
+    expect(subj).not.toContain("DOING");
+  });
+
+  it("uses Warning for recommended exits", () => {
+    const subj = renderEmailSubject(buildSignal({
+      engine: "trader",
+      execState: "recommended",
+      action: "exit",
+      ticker: "GEV",
+    }));
+    expect(subj).toContain("Warning");
+    expect(subj).not.toContain("DOING");
   });
 });
 
