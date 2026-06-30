@@ -18,25 +18,34 @@ import {
   macroEventHasReleased,
   parseReferenceMonthFromEventName,
 } from "./macro-release-time.js";
+import { MACRO_SERIES_MATCHERS } from "./macro-event-canonical.js";
 
 const ACTUALS_KEY = "cro:macro:actuals:fred";
 const FRED_BASE = "https://api.stlouisfed.org/fred/series/observations";
 
+const FRED_SERIES_CONFIG = {
+  nfp: { series: "PAYEMS", transform: "mom_change_k", label: "NFP" },
+  unrate: { series: "UNRATE", transform: "direct", unit: "%", label: "Unemployment" },
+  core_cpi: { series: "CPILFESL", transform: "mom_pct", unit: "% m/m", label: "Core CPI" },
+  cpi: { series: "CPIAUCSL", transform: "mom_pct", unit: "% m/m", label: "CPI" },
+  core_pce: { series: "PCEPILFE", transform: "mom_pct", unit: "% m/m", label: "Core PCE" },
+  pce: { series: "PCEPI", transform: "mom_pct", unit: "% m/m", label: "PCE" },
+  core_ppi: { series: "WPSFD49116", transform: "mom_pct", unit: "% m/m", label: "Core PPI" },
+  retail: { series: "RSAFS", transform: "mom_pct", unit: "% m/m", label: "Retail Sales" },
+  jolts: { series: "JTSJOL", transform: "level_millions", unit: "M", label: "JOLTS" },
+  gdp: { series: "A191RL1Q225SBEA", transform: "direct", unit: "% q/q", label: "GDP" },
+  fedfunds: { series: "DFEDTARU", transform: "direct", unit: "%", label: "Fed Funds (upper)" },
+};
+
 // match: regex tested against the event name. series: FRED id. transform: how to
 // turn the raw series into the reported headline. unit: suffix for display.
-const FRED_SERIES = [
-  { key: "nfp",        match: /non[- ]?farm|payroll/i,        series: "PAYEMS",            transform: "mom_change_k", label: "NFP" },
-  { key: "unrate",     match: /unemployment rate/i,           series: "UNRATE",            transform: "direct", unit: "%", label: "Unemployment" },
-  { key: "core_cpi",   match: /core cpi/i,                    series: "CPILFESL",          transform: "mom_pct", unit: "% m/m", label: "Core CPI" },
-  { key: "cpi",        match: /(^|[^e])\bcpi\b/i,             series: "CPIAUCSL",          transform: "mom_pct", unit: "% m/m", label: "CPI" },
-  { key: "core_pce",   match: /core pce/i,                    series: "PCEPILFE",          transform: "mom_pct", unit: "% m/m", label: "Core PCE" },
-  { key: "pce",        match: /(^|[^e])\bpce\b/i,             series: "PCEPI",             transform: "mom_pct", unit: "% m/m", label: "PCE" },
-  { key: "core_ppi",   match: /core ppi/i,                    series: "WPSFD49116",        transform: "mom_pct", unit: "% m/m", label: "Core PPI" },
-  { key: "retail",     match: /retail sales/i,                series: "RSAFS",             transform: "mom_pct", unit: "% m/m", label: "Retail Sales" },
-  { key: "jolts",      match: /jolts/i,                       series: "JTSJOL",            transform: "level_millions", unit: "M", label: "JOLTS" },
-  { key: "gdp",        match: /\bgdp\b/i,                     series: "A191RL1Q225SBEA",   transform: "direct", unit: "% q/q", label: "GDP" },
-  { key: "fedfunds",   match: /fomc|fed (rate|funds|decision)/i, series: "DFEDTARU",       transform: "direct", unit: "%", label: "Fed Funds (upper)" },
-];
+const FRED_SERIES = MACRO_SERIES_MATCHERS
+  .filter((m) => FRED_SERIES_CONFIG[m.key])
+  .map((m) => ({ ...m, ...FRED_SERIES_CONFIG[m.key] }));
+
+export function findFredSeriesDef(name) {
+  return FRED_SERIES.find((d) => d.match.test(String(name || ""))) || null;
+}
 
 function fmtSigned(n, decimals = 0) {
   const v = Number(n);
@@ -160,7 +169,7 @@ export async function applyFREDActuals(env, events, todayStr, now = new Date()) 
   for (const e of events) {
     if (!e || e.actual || !e.date) continue;
     if (!macroEventHasReleased(e, now)) continue;
-    const def = FRED_SERIES.find((d) => d.match.test(e.name || ""));
+    const def = findFredSeriesDef(e.name || "");
     if (!def) continue;
     const a = byKey[def.key];
     if (!a || a.display == null || !a.obs_date) continue;
@@ -175,6 +184,44 @@ export async function applyFREDActuals(env, events, todayStr, now = new Date()) 
     e.actual = a.display;
     e.actual_source = "fred";
     if (a.previous_display && !e.previous) e.previous = a.previous_display;
+  }
+  return events;
+}
+
+function obsIsMonthBeforeReference(obsDate, ref) {
+  if (!obsDate || !ref) return false;
+  const obsYear = parseInt(obsDate.slice(0, 4), 10);
+  const obsMonth0 = parseInt(obsDate.slice(5, 7), 10) - 1;
+  if (obsYear === ref.year && obsMonth0 === ref.month0 - 1) return true;
+  if (ref.month0 === 0 && obsMonth0 === 11 && obsYear === ref.year - 1) return true;
+  return false;
+}
+
+/**
+ * Backfill `previous` from the FRED cache for calendar rows. Pre-release, the
+ * prior month's published headline becomes Previous (e.g. April JOLTS for May
+ * JOLTS). Post-release, use previous_display from the matched print.
+ */
+export async function enrichMacroPreviousFromFRED(env, events, now = new Date()) {
+  const byKey = await loadActuals(env);
+  if (!byKey || Object.keys(byKey).length === 0) return events;
+  for (const e of events) {
+    if (!e || e.previous) continue;
+    const def = findFredSeriesDef(e.name || "");
+    if (!def) continue;
+    const a = byKey[def.key];
+    if (!a?.obs_date) continue;
+    const ref = parseReferenceMonthFromEventName(e.name, e.date);
+    const released = macroEventHasReleased(e, now);
+    if (released && e.actual && a.previous_display) {
+      e.previous = a.previous_display;
+    } else if (!released && ref && a.display != null && obsIsMonthBeforeReference(a.obs_date, ref)) {
+      e.previous = a.display;
+    } else if (released && a.previous_display) {
+      e.previous = a.previous_display;
+    } else if (!ref && a.previous_display) {
+      e.previous = a.previous_display;
+    }
   }
   return events;
 }

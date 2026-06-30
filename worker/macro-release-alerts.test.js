@@ -44,9 +44,11 @@ describe("computeMacroPollSchedule", () => {
 });
 
 describe("macroEventNormKey", () => {
-  it("normalizes names", () => {
+  it("normalizes names to canonical series keys", () => {
     expect(macroEventNormKey("2026-06-30", "May JOLTS Job Openings"))
-      .toBe("2026-06-30|may jolts job openings");
+      .toBe("2026-06-30|jolts");
+    expect(macroEventNormKey("2026-06-30", "May JOLTS"))
+      .toBe("2026-06-30|jolts");
   });
 });
 

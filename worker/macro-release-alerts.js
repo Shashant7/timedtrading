@@ -4,6 +4,7 @@
 
 import { notifyDiscord } from "./alerts.js";
 import { kvGetJSON, kvPutJSON } from "./storage.js";
+import { macroEventCanonicalKey } from "./macro-event-canonical.js";
 import {
   macroEventHasReleased,
   nyNowParts,
@@ -15,7 +16,7 @@ const RELEASED_FLAG_PREFIX = "timed:macro:released:";
 const DEFAULT_MODEL = "gpt-4o-mini";
 
 export function macroEventNormKey(date, name) {
-  return `${date}|${String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 40)}`;
+  return macroEventCanonicalKey(date, name);
 }
 
 /** Parse headline macro strings (+85K, 0.30%, 7.5M, -55B) to a comparable number. */
