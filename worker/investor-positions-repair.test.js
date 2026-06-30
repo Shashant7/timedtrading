@@ -4,17 +4,17 @@ import { diffInvestorPositionsVsLots } from "./investor-positions-repair.js";
 describe("diffInvestorPositionsVsLots", () => {
   it("flags cost_basis drift when shares match", () => {
     const { mismatches, total_cost_drift } = diffInvestorPositionsVsLots([{
-      id: "inv-CRS",
-      ticker: "CRS",
-      total_shares: 5.2176,
-      cost_basis: 2458.38,
-      lot_shares: 5.2176,
-      lot_cost: 1769.94,
-      lot_count: 8,
+      id: "inv-IWM",
+      ticker: "IWM",
+      total_shares: 5.5249,
+      cost_basis: 772.97,
+      lot_shares: 5.5249,
+      lot_cost: 1404.3,
+      lot_count: 17,
     }]);
     expect(mismatches).toHaveLength(1);
-    expect(mismatches[0].cost_drift).toBeCloseTo(688.44, 0);
-    expect(total_cost_drift).toBeCloseTo(688.44, 0);
+    expect(mismatches[0].cost_drift).toBeCloseTo(-631.33, 0);
+    expect(total_cost_drift).toBeCloseTo(-631.33, 0);
   });
 
   it("flags share drift when cost matches", () => {
@@ -22,9 +22,9 @@ describe("diffInvestorPositionsVsLots", () => {
       id: "inv-IWM",
       ticker: "IWM",
       total_shares: 4.606,
-      cost_basis: 1214.32,
+      cost_basis: 1404.3,
       lot_shares: 5.525,
-      lot_cost: 772.97,
+      lot_cost: 1404.3,
       lot_count: 17,
     }]);
     expect(mismatches).toHaveLength(1);
