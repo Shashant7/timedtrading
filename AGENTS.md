@@ -122,68 +122,43 @@ you're making so the user can correct course before things compound.
 
 ## Cursor Cloud specific instructions
 
-The VM runs `npm install` automatically on startup (the registered update
-script). Node 22 + npm are pre-installed; no lockfile is committed (npm, not
-`npm ci`). The notes below are the non-obvious bits for running things locally.
+Startup runs `npm install` automatically (Node 22 + npm pre-installed; no
+lockfile, so `npm install` not `npm ci`). Standard commands live in
+`package.json` and `skills/deploy.md` — `wrangler` is NOT on PATH, use
+`./node_modules/.bin/wrangler`. The notes below are the non-obvious bits.
 
-### Lint / test / build / run (standard commands)
-
-- **Tests:** `npm test` (vitest, ~970 tests). This is the primary correctness
-  gate — there is **no separate lint step** in the repo (CI only runs vitest +
-  `node --check` syntax checks + an esbuild bundle check). See
-  `.github/workflows/test.yml` for the exact CI gate.
-- **Bundle/syntax check** (what CI does after tests):
-  `node scripts/embed-dashboard.js` then
-  `npx esbuild worker/index.js --bundle --format=esm --outfile=/dev/null`.
-  (`embed-dashboard.js` regenerates the git-ignored `worker/dashboard-html.js`.)
-- **Frontend build:** `npm run build:frontend` → writes `react-app-dist/`.
-  Re-stamps `?v=` cache-busts on every run, so it always dirties
-  `react-app-dist/`; CI's `check-dist.yml` ignores the cache-bust markers, but
-  revert the dist if you only ran a build for verification (`git checkout --
-  react-app-dist react-app`).
-- **Deploy** is covered in `skills/deploy.md`. `wrangler` is NOT on PATH — use
-  `./node_modules/.bin/wrangler`.
-
-### Running the services locally (the non-obvious part)
-
-The product is a set of Cloudflare Workers + a Pages frontend. For local dev
-you only need the **main worker** + the **Pages frontend**:
-
-- **Main API worker:** `cd worker && ../node_modules/.bin/wrangler dev --port 8787`
-  (local Miniflare KV/D1/DO; starts with an empty local DB + a bundled
-  15-ticker seed universe).
-- **Pages frontend:** `./node_modules/.bin/wrangler pages dev react-app-dist --port 8788`
-  (run from repo root, after `npm run build:frontend`). Port 8788 is the one
-  allow-listed in the worker's `CORS_ALLOW_ORIGIN`.
-
-Gotchas worth knowing before you waste time:
-
-- **The worker refuses to boot without a few "critical" env keys.** A fresh
-  `wrangler dev` returns `503 runtime_misconfigured` (`missing:TIMED_API_KEY`,
-  `missing:CF_ACCESS_AUD`) until those are present. Create a **git-ignored**
-  `worker/.dev.vars` with placeholder values so the worker boots locally:
-  `TIMED_API_KEY=local-dev-key` and `CF_ACCESS_AUD=local-dev-aud` (add real
-  `TWELVEDATA_API_KEY` / `OPENAI_API_KEY` etc. there only if you need live
-  data). This file is local-only and never committed.
-- **API key == admin tier locally.** Hitting `/timed/*?key=local-dev-key` (or
-  `X-API-Key`) makes the request admin, so live prices + scores are NOT
-  redacted. Without the key, an anonymous caller gets the Member/anon view
-  (scores/prices stripped — `_redacted:true`).
-- **The Pages frontend proxies `/timed/*` to PRODUCTION by default.**
-  `react-app/_worker.js` hardcodes
-  `WORKER_ORIGIN = https://timed-trading-ingest.shashant.workers.dev`. To make a
-  local frontend hit the local worker, temporarily edit that constant in the
-  **built** `react-app-dist/_worker.js` to `http://localhost:8787` (then revert;
-  don't commit it).
-- **Authenticated pages can't be reached locally.** `/today`, `/index-react`,
-  etc. are gated by Cloudflare Access ("Continue with Google"); that OAuth flow
-  can't complete on the VM, so only `/splash` (public) renders. Use the API
-  (curl with `?key=`) to exercise authenticated backend logic instead.
-- **Scheduled crons don't auto-fire** in `wrangler dev`; trigger manually with
+- **Tests are the only gate; there is no lint step.** `npm test` (vitest). CI
+  (`.github/workflows/test.yml`) adds `node --check` on the worker entrypoints +
+  an esbuild bundle check (`node scripts/embed-dashboard.js` then
+  `npx esbuild worker/index.js --bundle --format=esm --outfile=/dev/null`).
+- **`npm run build:frontend` always dirties `react-app-dist/`** (re-stamps `?v=`
+  cache-busts). CI's `check-dist.yml` ignores those markers; if you built only
+  to verify, revert with `git checkout -- react-app-dist react-app`.
+- **Local run = main worker + Pages frontend** (the cron workers are the same
+  bundle, role-gated, and not needed locally):
+  - `cd worker && ../node_modules/.bin/wrangler dev --port 8787` (Miniflare
+    KV/D1/DO; empty local DB + a bundled 15-ticker seed universe).
+  - `./node_modules/.bin/wrangler pages dev react-app-dist --port 8788` (from
+    repo root, after `build:frontend`). 8788 is the port allow-listed in the
+    worker's `CORS_ALLOW_ORIGIN`.
+- **The worker won't boot without a couple of secrets.** A fresh `wrangler dev`
+  returns `503 runtime_misconfigured` (`missing:TIMED_API_KEY`,
+  `missing:CF_ACCESS_AUD`). Create a git-ignored `worker/.dev.vars` with
+  placeholders (`TIMED_API_KEY=local-dev-key`, `CF_ACCESS_AUD=local-dev-aud`);
+  add real `TWELVEDATA_API_KEY`/`OPENAI_API_KEY` there only for live data.
+- **API key == admin tier locally.** `/timed/*?key=local-dev-key` (or header
+  `X-API-Key`) returns unredacted prices+scores; without it, anon callers get
+  the Member view (`_redacted:true`).
+- **The Pages frontend proxies `/timed/*` to PRODUCTION** —
+  `react-app/_worker.js` hardcodes `WORKER_ORIGIN` to the deployed worker. To
+  hit the local worker, temporarily point the built `react-app-dist/_worker.js`
+  at `http://localhost:8787` (revert; don't commit).
+- **Authenticated pages can't load locally.** `/today`, `/index-react`, etc. sit
+  behind Cloudflare Access (Google OAuth), which can't complete on the VM — only
+  `/splash` renders. Exercise authenticated logic via the API (`curl` + `?key=`).
+- **Crons don't auto-fire** in `wrangler dev`; trigger via
   `curl http://localhost:8787/cdn-cgi/handler/scheduled`.
-- **Local D1 starts with no tables.** Schema is created lazily in-code by
-  `d1Ensure*Schema()` helpers (throttled ~once/day via a KV marker), not from
-  `.sql` files. The `/timed/ingest-capture` heartbeat path is the most robust
-  way to exercise the ingest pipeline locally (it tolerates missing tables and
-  catches scoring errors); read it back from KV
-  (`timed:capture:latest:<TICKER>`).
+- **Local D1 starts empty;** schema is created lazily in-code by
+  `d1Ensure*Schema()` (no `.sql` files). `POST /timed/ingest-capture` is the most
+  robust way to exercise the ingest pipeline locally (tolerates missing tables /
+  scoring errors); read it back from KV at `timed:capture:latest:<TICKER>`.
