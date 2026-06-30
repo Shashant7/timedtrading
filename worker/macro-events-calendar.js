@@ -16,6 +16,12 @@
 //  from the FSD "First Word" incoming-data block + the published FOMC calendar.
 //  TODO(roadmap): auto-extract this from ingested FSD notes so it self-updates.
 
+import {
+  dedupeMacroEventsByCanonical,
+  macroEventCanonicalKey,
+  mergeMacroEventRow,
+} from "./macro-event-canonical.js";
+
 // Each entry: { date: "YYYY-MM-DD", time_et: "8:30 AM", name, impact, kind, estimate? }
 export const CURATED_UPCOMING_MACRO = [
   // ── June 2026 ──
@@ -67,11 +73,13 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
     return d.toISOString().slice(0, 10);
   })();
 
-  const normKey = (date, name) => `${date}|${String(name || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 40)}`;
+  const normKey = macroEventCanonicalKey;
 
   // Merge map: curated schedule is the floor; FSD-extracted events (from
   // ingested "First Word" / daily notes) override + supply real estimates +
-  // ACTUALS, and add events the curated list doesn't know about.
+  // ACTUALS, and add events the curated list doesn't know about. Keys use the
+  // canonical series alias (e.g. 2026-06-30|jolts) so "May JOLTS" and
+  // "May JOLTS Job Openings" collapse to one row.
   const byKey = new Map();
   for (const e of CURATED_UPCOMING_MACRO) {
     if (e.date < today || e.date > horizon) continue;
@@ -90,21 +98,22 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
       if (!e?.date || e.date < today || e.date > horizon) continue;
       const k = normKey(e.date, e.name);
       const prev = byKey.get(k);
-      byKey.set(k, {
+      byKey.set(k, mergeMacroEventRow(prev, {
         date: e.date,
-        time_et: e.time_et || prev?.time_et || null,
-        name: e.name || prev?.name,
+        time_et: e.time_et || null,
+        name: e.name,
         impact: e.impact || prev?.impact || "medium",
         kind: e.kind || prev?.kind || "macro",
-        estimate: e.estimate || prev?.estimate || null,
-        actual: e.actual || prev?.actual || null,
+        estimate: e.estimate || null,
+        actual: e.actual || null,
+        actual_source: e.actual ? "fsd" : null,
         source: "fsd",
-      });
+      }));
       fsdCount += 1;
     }
   } catch (_) { /* FSD store optional — curated is the floor */ }
 
-  let items = Array.from(byKey.values())
+  let items = dedupeMacroEventsByCanonical(Array.from(byKey.values()))
     .filter((e) => includeLowImpact || e.impact !== "low")
     .map((e) => ({ ...e, is_today: e.date === today }))
     .sort((a, b) => (a.date === b.date ? (String(a.time_et) < String(b.time_et) ? -1 : 1) : a.date < b.date ? -1 : 1));
@@ -112,9 +121,10 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
   // 2026-06-05 — Near-real-time ACTUALS from FRED (authoritative, fills within
   // minutes of release vs FSD's note cadence). Best-effort; no-op without key.
   try {
-    const { applyFREDActuals } = await import("./macro-actuals-fred.js");
+    const { applyFREDActuals, enrichMacroPreviousFromFRED } = await import("./macro-actuals-fred.js");
     const { stripPreReleaseActuals } = await import("./macro-release-time.js");
     items = await applyFREDActuals(env, items, today);
+    items = await enrichMacroPreviousFromFRED(env, items);
     stripPreReleaseActuals(items);
   } catch (_) { /* FRED layer optional */ }
 
