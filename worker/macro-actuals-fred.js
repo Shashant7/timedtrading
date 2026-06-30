@@ -13,6 +13,12 @@
 //  Requires a FREE FRED_API_KEY secret (https://fredaccount.stlouisfed.org/apikeys).
 //  Gracefully no-ops when the key is absent — the curated + FSD layers still work.
 
+import {
+  fredObsMatchesEventReference,
+  macroEventHasReleased,
+  parseReferenceMonthFromEventName,
+} from "./macro-release-time.js";
+
 const ACTUALS_KEY = "cro:macro:actuals:fred";
 const FRED_BASE = "https://api.stlouisfed.org/fred/series/observations";
 
@@ -143,26 +149,29 @@ async function loadActuals(env) {
 
 /**
  * Fill `actual` onto calendar events from the FRED store. Matches an event to a
- * series by name regex; only fills a RELEASED event (date <= today) that doesn't
- * already have an actual, and only when the FRED observation is recent enough to
- * plausibly belong to it (within ~45 days of the event). Returns the same array.
+ * series by name regex; only fills after the scheduled ET release time, and only
+ * when the FRED observation reference month aligns with the event name (e.g. May
+ * JOLTS → May obs). Falls back to a ~45d window only when no month is parseable.
  */
-export async function applyFREDActuals(env, events, todayStr) {
+export async function applyFREDActuals(env, events, todayStr, now = new Date()) {
   const byKey = await loadActuals(env);
   if (!byKey || Object.keys(byKey).length === 0) return events;
-  const today = todayStr || new Date().toISOString().slice(0, 10);
   const dayMs = 86400000;
   for (const e of events) {
-    if (!e || e.actual || !e.date || e.date > today) continue;
+    if (!e || e.actual || !e.date) continue;
+    if (!macroEventHasReleased(e, now)) continue;
     const def = FRED_SERIES.find((d) => d.match.test(e.name || ""));
     if (!def) continue;
     const a = byKey[def.key];
-    if (!a || a.display == null) continue;
-    // Sanity: the FRED observation (reference period) should be within ~45d of
-    // the event date so we don't paste April's print onto June's event.
-    const evMs = Date.parse(e.date + "T00:00:00Z");
-    const obMs = a.obs_date ? Date.parse(a.obs_date + "T00:00:00Z") : NaN;
-    if (Number.isFinite(evMs) && Number.isFinite(obMs) && Math.abs(evMs - obMs) > 45 * dayMs) continue;
+    if (!a || a.display == null || !a.obs_date) continue;
+    const ref = parseReferenceMonthFromEventName(e.name, e.date);
+    if (ref) {
+      if (!fredObsMatchesEventReference(e, a.obs_date)) continue;
+    } else {
+      const evMs = Date.parse(e.date + "T00:00:00Z");
+      const obMs = Date.parse(a.obs_date + "T00:00:00Z");
+      if (!Number.isFinite(evMs) || !Number.isFinite(obMs) || Math.abs(evMs - obMs) > 45 * dayMs) continue;
+    }
     e.actual = a.display;
     e.actual_source = "fred";
     if (a.previous_display && !e.previous) e.previous = a.previous_display;

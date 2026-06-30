@@ -113,7 +113,9 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
   // minutes of release vs FSD's note cadence). Best-effort; no-op without key.
   try {
     const { applyFREDActuals } = await import("./macro-actuals-fred.js");
+    const { stripPreReleaseActuals } = await import("./macro-release-time.js");
     items = await applyFREDActuals(env, items, today);
+    stripPreReleaseActuals(items);
   } catch (_) { /* FRED layer optional */ }
 
   try {
