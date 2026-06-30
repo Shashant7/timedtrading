@@ -3507,18 +3507,42 @@ function TopMovers({
 }
 function MacroEventsStrip() {
   const [data, setData] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    fetch(`${API_BASE || ""}/timed/macro/events?days=10`, {
+  const [selected, setSelected] = useState(null);
+  const pollRef = useRef(900000);
+  const loadMacro = useCallback(() => {
+    return fetch(`${API_BASE || ""}/timed/macro/events?days=10`, {
       credentials: "include",
       cache: "no-store"
     }).then(r => r.ok ? r.json() : null).then(j => {
-      if (alive) setData(j);
-    }).catch(() => {});
+      if (j && j.ok) {
+        setData(j);
+        const ms = Number(j?.poll?.poll_interval_ms);
+        if (Number.isFinite(ms) && ms >= 30000) pollRef.current = ms;
+      }
+      return j;
+    }).catch(() => null);
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    let timer = null;
+    const tick = () => {
+      if (!alive) return;
+      loadMacro().finally(() => {
+        if (!alive) return;
+        timer = setTimeout(tick, pollRef.current || 900000);
+      });
+    };
+    tick();
+    const onVis = () => {
+      if (document.visibilityState === "visible") loadMacro();
+    };
+    document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVis);
     };
-  }, []);
+  }, [loadMacro]);
   const events = data && data.ok && Array.isArray(data.events) ? data.events : [];
   if (!data || events.length === 0) return null;
   const impColor = i => i === "high" ? "var(--tt-dn-soft)" : i === "medium" ? "#fbbf24" : "var(--tt-text-dim)";
@@ -3533,56 +3557,147 @@ function MacroEventsStrip() {
       return d;
     }
   };
-  return h("section", {
+  const surpColor = dir => dir === "above" ? "var(--tt-up-soft)" : dir === "below" ? "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+  const overlay = selected && h("div", {
+    className: "tt-macro-overlay-backdrop",
+    onClick: ev => {
+      if (ev.target === ev.currentTarget) setSelected(null);
+    }
+  }, h("div", {
+    className: "tt-macro-overlay",
+    role: "dialog",
+    "aria-label": selected.name
+  }, h("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8,
+      alignItems: "flex-start"
+    }
+  }, h("div", null, h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-dim)",
+      letterSpacing: "0.05em"
+    }
+  }, `${fmtDate(selected.date)}${selected.time_et ? " · " + selected.time_et : ""} ET`), h("div", {
+    style: {
+      fontSize: 16,
+      fontWeight: 700,
+      marginTop: 4
+    }
+  }, selected.name)), h("button", {
+    type: "button",
+    onClick: () => setSelected(null),
+    style: {
+      background: "transparent",
+      border: "none",
+      color: "var(--tt-text-dim)",
+      cursor: "pointer",
+      fontSize: 18,
+      lineHeight: 1
+    }
+  }, "\u00d7")), h("div", {
+    className: "tt-macro-overlay-grid"
+  }, h("div", {
+    className: "tt-macro-overlay-stat"
+  }, h("label", null, "Actual"), h("span", {
+    style: {
+      color: selected.actual ? "var(--tt-up-soft)" : "var(--tt-text-dim)"
+    }
+  }, selected.actual || "\u2014")), h("div", {
+    className: "tt-macro-overlay-stat"
+  }, h("label", null, "Estimate"), h("span", null, selected.estimate || selected.release?.estimate || "\u2014")), h("div", {
+    className: "tt-macro-overlay-stat"
+  }, h("label", null, "Previous"), h("span", null, selected.previous || selected.release?.previous || "\u2014"))), (selected.release?.surprise_label || selected.actual) && h("div", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.04em",
+      color: surpColor(selected.release?.surprise_direction),
+      marginBottom: 10
+    }
+  }, selected.release?.surprise_label || (selected.actual ? "Released" : "")), h("div", {
+    style: {
+      fontSize: 13,
+      lineHeight: 1.55,
+      color: "var(--tt-text-muted)"
+    }
+  }, selected.release?.summary || (selected.actual ? `${selected.name} printed ${selected.actual}${selected.estimate ? " vs est " + selected.estimate : ""}. Full summary will appear shortly after release.` : `${selected.name} is scheduled${selected.time_et ? " at " + selected.time_et + " ET" : ""}.${selected.estimate ? " Consensus est " + selected.estimate + "." : ""}`)), !selected.release?.summary && selected.actual && h("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-faint)",
+      marginTop: 8
+    }
+  }, "Summary generating\u2026 next poll in ~1 min.")));
+  return h(React.Fragment, null, h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-sec-title"
   }, "MACRO EVENTS \u2014 NEXT 10 DAYS"), h("div", {
     className: "tt-strip-scroll"
-  }, events.map((e, i) => h("div", {
-    key: i,
-    className: "tt-strip-chip",
-    style: e.is_today ? {
-      borderColor: impColor(e.impact),
-      background: "rgba(245,158,11,0.10)"
-    } : {
-      borderColor: impColor(e.impact) + "55"
-    },
-    title: `${fmtDate(e.date)} ${e.time_et || ""} · ${e.impact} impact`
-  }, h("span", {
-    style: {
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: impColor(e.impact),
-      display: "inline-block",
-      flexShrink: 0
-    }
-  }), h("span", {
-    style: {
-      fontSize: 10,
-      color: e.is_today ? "var(--tt-accent, #f5c25c)" : "var(--tt-text-dim)",
-      fontWeight: 700,
-      letterSpacing: "0.03em"
-    }
-  }, e.is_today ? "TODAY" : fmtDate(e.date)), h("span", {
-    style: {
-      fontSize: 12,
-      fontWeight: 600,
-      color: "var(--tt-text)"
-    }
-  }, e.name), e.time_et && h("span", {
-    style: {
-      fontSize: 10,
-      color: "var(--tt-text-dim)"
-    }
-  }, e.time_et), (e.actual || e.estimate) && h("span", {
-    style: {
-      fontSize: 10.5,
-      fontFamily: "var(--tt-font-mono)",
-      color: e.actual ? "var(--tt-up-soft)" : "var(--tt-text-dim)"
-    }
-  }, e.actual ? `act ${e.actual}` : `est ${e.estimate}`)))));
+  }, events.map((e, i) => {
+    const released = !!(e.actual && (e.release?.summary || e.release?.released_at));
+    const chipCls = "tt-strip-chip" + (released ? " tt-macro-chip--released" : "");
+    return h("div", {
+      key: i,
+      className: chipCls,
+      style: e.is_today ? {
+        borderColor: impColor(e.impact),
+        background: "rgba(245,158,11,0.10)"
+      } : {
+        borderColor: impColor(e.impact) + "55"
+      },
+      title: `${fmtDate(e.date)} ${e.time_et || ""} · ${e.impact} impact`,
+      onClick: () => setSelected(e)
+    }, h("span", {
+      style: {
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: impColor(e.impact),
+        display: "inline-block",
+        flexShrink: 0
+      }
+    }), h("span", {
+      style: {
+        fontSize: 10,
+        color: e.is_today ? "var(--tt-accent, #f5c25c)" : "var(--tt-text-dim)",
+        fontWeight: 700,
+        letterSpacing: "0.03em"
+      }
+    }, e.is_today ? "TODAY" : fmtDate(e.date)), h("span", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        color: "var(--tt-text)"
+      }
+    }, e.name), e.time_et && h("span", {
+      style: {
+        fontSize: 10,
+        color: "var(--tt-text-dim)"
+      }
+    }, e.time_et), e.estimate && !e.actual && h("span", {
+      style: {
+        fontSize: 10.5,
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-text-dim)"
+      }
+    }, `est ${e.estimate}`), e.actual && h("span", {
+      style: {
+        fontSize: 10.5,
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-up-soft)"
+      }
+    }, `act ${e.actual}`), e.release?.surprise_label && h("span", {
+      style: {
+        fontSize: 9.5,
+        fontWeight: 700,
+        color: surpColor(e.release.surprise_direction),
+        letterSpacing: "0.03em"
+      }
+    }, e.release.surprise_label));
+  }))), overlay);
 }
 function EarningsStrip({
   earnings,
@@ -6446,6 +6561,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782785837390:751386019
+// cache-bust:1782792637332:733221451
 
-// cache-bust:1782785837390:751386019
+// cache-bust:1782792637332:733221451

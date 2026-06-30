@@ -25,7 +25,9 @@ const FRED_SERIES = [
   { key: "cpi",        match: /(^|[^e])\bcpi\b/i,             series: "CPIAUCSL",          transform: "mom_pct", unit: "% m/m", label: "CPI" },
   { key: "core_pce",   match: /core pce/i,                    series: "PCEPILFE",          transform: "mom_pct", unit: "% m/m", label: "Core PCE" },
   { key: "pce",        match: /(^|[^e])\bpce\b/i,             series: "PCEPI",             transform: "mom_pct", unit: "% m/m", label: "PCE" },
+  { key: "core_ppi",   match: /core ppi/i,                    series: "WPSFD49116",        transform: "mom_pct", unit: "% m/m", label: "Core PPI" },
   { key: "retail",     match: /retail sales/i,                series: "RSAFS",             transform: "mom_pct", unit: "% m/m", label: "Retail Sales" },
+  { key: "jolts",      match: /jolts/i,                       series: "JTSJOL",            transform: "level_millions", unit: "M", label: "JOLTS" },
   { key: "gdp",        match: /\bgdp\b/i,                     series: "A191RL1Q225SBEA",   transform: "direct", unit: "% q/q", label: "GDP" },
   { key: "fedfunds",   match: /fomc|fed (rate|funds|decision)/i, series: "DFEDTARU",       transform: "direct", unit: "%", label: "Fed Funds (upper)" },
 ];
@@ -49,24 +51,50 @@ async function fetchObservations(key, series, limit = 14) {
   } catch (_) { return null; }
 }
 
-function computeHeadline(transform, obs) {
+function computeHeadline(transform, obs, def = null) {
   if (!obs || obs.length === 0) return null;
   const latest = obs[0];
+  const unit = def?.unit || "";
   if (transform === "direct") {
-    return { value: latest.value, obs_date: latest.date };
+    const prev = obs[1];
+    const display = `${latest.value}${unit ? " " + unit : ""}`;
+    const prevDisplay = prev != null ? `${prev.value}${unit ? " " + unit : ""}` : null;
+    return { value: latest.value, obs_date: latest.date, display, previous_display: prevDisplay };
   }
   if (transform === "mom_change_k") {
     const prev = obs[1];
     if (!prev) return null;
     // PAYEMS is in thousands → change is the reported "+139K".
     const chg = Math.round(latest.value - prev.value);
-    return { value: chg, obs_date: latest.date, display: `${fmtSigned(chg)}K` };
+    const prevChg = obs[2] ? Math.round(prev.value - obs[2].value) : null;
+    return {
+      value: chg,
+      obs_date: latest.date,
+      display: `${fmtSigned(chg)}K`,
+      previous_display: prevChg != null ? `${fmtSigned(prevChg)}K` : null,
+    };
   }
   if (transform === "mom_pct") {
     const prev = obs[1];
     if (!prev || !(prev.value > 0)) return null;
     const pct = (latest.value / prev.value - 1) * 100;
-    return { value: Math.round(pct * 100) / 100, obs_date: latest.date, display: `${fmtSigned(pct, 1)}%` };
+    return {
+      value: Math.round(pct * 100) / 100,
+      obs_date: latest.date,
+      display: `${fmtSigned(pct, 1)}%`,
+      previous_display: `${fmtSigned(((prev.value / (obs[2]?.value || prev.value)) - 1) * 100, 1)}%`,
+    };
+  }
+  if (transform === "level_millions") {
+    const prev = obs[1];
+    const millions = latest.value / 1000;
+    const prevMillions = prev ? prev.value / 1000 : null;
+    return {
+      value: millions,
+      obs_date: latest.date,
+      display: `${millions.toFixed(1)}M`,
+      previous_display: prevMillions != null ? `${prevMillions.toFixed(1)}M` : null,
+    };
   }
   if (transform === "yoy_pct") {
     const yearAgo = obs[12];
@@ -88,12 +116,13 @@ export async function refreshMacroActualsFromFRED(env) {
   let refreshed = 0;
   for (const def of FRED_SERIES) {
     const obs = await fetchObservations(key, def.series, def.transform === "yoy_pct" ? 14 : 3);
-    const head = computeHeadline(def.transform, obs);
+    const head = computeHeadline(def.transform, obs, def);
     if (!head) continue;
     const display = head.display != null ? head.display : `${head.value}${def.unit ? " " + def.unit : ""}`;
     store[def.key] = {
       key: def.key, label: def.label, series: def.series,
       value: head.value, display, obs_date: head.obs_date,
+      previous_display: head.previous_display || null,
       refreshed_at: Date.now(),
     };
     refreshed += 1;
@@ -136,6 +165,7 @@ export async function applyFREDActuals(env, events, todayStr) {
     if (Number.isFinite(evMs) && Number.isFinite(obMs) && Math.abs(evMs - obMs) > 45 * dayMs) continue;
     e.actual = a.display;
     e.actual_source = "fred";
+    if (a.previous_display && !e.previous) e.previous = a.previous_display;
   }
   return events;
 }
