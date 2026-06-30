@@ -4,6 +4,11 @@
 
 import { notifyDiscord } from "./alerts.js";
 import { kvGetJSON, kvPutJSON } from "./storage.js";
+import {
+  macroEventHasReleased,
+  nyNowParts,
+  parseTimeEtMinutes,
+} from "./macro-release-time.js";
 
 const RELEASE_KV_PREFIX = "timed:macro:release:";
 const RELEASED_FLAG_PREFIX = "timed:macro:released:";
@@ -81,38 +86,6 @@ export function ruleBasedReleaseSummary(event, surprise) {
     read = "Fed decision days: focus on statement tone, dots, and press-conference guidance.";
   }
   return `${name}: ${act}${est}${prev}${surp} ${read}`.slice(0, 480);
-}
-
-function parseTimeEtMinutes(timeEt) {
-  const s = String(timeEt || "").trim();
-  if (!s) return null;
-  const m = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!m) return null;
-  let h = Number(m[1]);
-  const min = Number(m[2]);
-  const ap = m[3].toUpperCase();
-  if (ap === "PM" && h !== 12) h += 12;
-  if (ap === "AM" && h === 12) h = 0;
-  return h * 60 + min;
-}
-
-function nyNowParts(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    weekday: "short",
-  }).formatToParts(now);
-  const get = (t) => parts.find((p) => p.type === t)?.value;
-  const date = `${get("year")}-${get("month")}-${get("day")}`;
-  const minutes = Number(get("hour")) * 60 + Number(get("minute"));
-  const weekday = get("weekday");
-  const isWeekday = weekday && !["Sat", "Sun"].includes(weekday);
-  return { date, minutes, isWeekday };
 }
 
 /**
@@ -240,9 +213,13 @@ export async function loadMacroRelease(env, normKey) {
   }
 }
 
-export async function mergeMacroReleasesIntoEvents(env, events) {
+export async function mergeMacroReleasesIntoEvents(env, events, now = new Date()) {
   const out = [];
   for (const e of events || []) {
+    if (!macroEventHasReleased(e, now)) {
+      out.push(e);
+      continue;
+    }
     const key = macroEventNormKey(e.date, e.name);
     const release = await loadMacroRelease(env, key);
     out.push(release ? { ...e, release } : e);
@@ -263,6 +240,7 @@ export async function processMacroReleaseAlerts(env, { events = [], today = null
   for (const event of events || []) {
     if (!event?.actual || !event?.date || event.date > todayStr) continue;
     if (event.date < todayStr) continue; // only alert same-day prints
+    if (!macroEventHasReleased(event)) continue;
     results.checked += 1;
 
     const normKey = macroEventNormKey(event.date, event.name);
