@@ -67,6 +67,7 @@ function LiveKeyLevelsPanel({
 function BriefInfographic({
   data
 }) {
+  const isEveningBrief = String(data?.type || "").toLowerCase() === "evening";
   const [livePx, setLivePx] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -94,6 +95,7 @@ function BriefInfographic({
     if (!row) return fallback;
     const ext = Number(row.ahp),
       p = Number(row.p);
+    if (isEveningBrief && Number.isFinite(p) && p > 0) return p;
     if (!_mktOpen && Number.isFinite(ext) && ext > 0) return ext;
     if (Number.isFinite(p) && p > 0) return p;
     return fallback;
@@ -354,9 +356,9 @@ function BriefInfographic({
     }, "$", cp.toFixed(2), React.createElement("span", {
       className: "ml-1 text-[9px] font-semibold",
       style: {
-        color: _mktOpen ? "#34d399" : "#fbbf24"
+        color: isEveningBrief ? "#86efac" : _mktOpen ? "#34d399" : "#fbbf24"
       }
-    }, _mktOpen ? "live" : "ext"))), React.createElement("div", {
+    }, isEveningBrief ? "close" : _mktOpen ? "live" : "ext"))), React.createElement("div", {
       className: "text-[9px] text-[#6E867D] mb-2 text-right tabular-nums"
     }, idx.atr != null ? `expected move today ±$${idx.atr.toFixed(2)}` : ""), React.createElement("div", {
       className: "relative mb-2 mt-3",
@@ -1025,9 +1027,10 @@ const CHART_SYMBOLS_PRIMARY = [{
   label: "IWM (Russell 2000)",
   color: "#f97316"
 }, {
-  sym: "VIX",
-  label: "VIX",
-  color: "#f59e0b"
+  sym: "VIXY",
+  label: "VIX (VIXY proxy)",
+  color: "#f59e0b",
+  priceTicker: "VIX"
 }];
 const TF_OPTIONS = [{
   value: "5",
@@ -1066,8 +1069,10 @@ function MiniChart({
   limit,
   height = 500,
   flashMarkers = EMPTY_FLASH_MARKERS,
-  gamePlanLevels = null
+  gamePlanLevels = null,
+  priceTicker = null
 }) {
+  const quoteSym = priceTicker || sym;
   const containerRef = useRef(null);
   const chartRef = useRef(null);
   const seriesRef = useRef(null);
@@ -1149,12 +1154,18 @@ function MiniChart({
     });
   }, [tf]);
   const fetchCandles = useCallback(async fetchLimit => {
-    const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=${tf}&limit=${fetchLimit}`, {
-      cache: "no-store"
-    });
-    const data = await res.json();
-    if (!data.ok || !data.candles || data.candles.length === 0) return [];
-    return data.candles;
+    const loadSym = async ticker => {
+      const res = await fetch(`${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${fetchLimit}`, {
+        cache: "no-store"
+      });
+      const data = await res.json();
+      if (!data.ok || !data.candles || data.candles.length === 0) return [];
+      return data.candles;
+    };
+    let candles = await loadSym(sym);
+    if (candles.length === 0 && sym === "VIX") candles = await loadSym("VIXY");
+    if (candles.length === 0 && sym === "VIXY") candles = await loadSym("VIXY");
+    return candles;
   }, [sym, tf]);
   useEffect(() => {
     let cancelled = false;
@@ -1233,7 +1244,7 @@ function MiniChart({
       },
       localization: {
         priceFormatter: p => {
-          if (sym === "VIX") return p.toFixed(2);
+          if (sym === "VIX" || sym === "VIXY" || quoteSym === "VIX") return p.toFixed(2);
           return p >= 1000 ? p.toFixed(2) : p.toFixed(2);
         },
         timeFormatter: time => {
@@ -1283,7 +1294,7 @@ function MiniChart({
       const mapped = mapCandles(raw);
       if (mapped.length === 0) {
         try {
-          const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, {
+          const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(quoteSym)}`, {
             cache: "no-store"
           });
           const latestData = await latestRes.json();
@@ -1495,7 +1506,7 @@ function MiniChart({
     let cancelled = false;
     const refreshLivePrice = async () => {
       try {
-        const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, {
+        const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(quoteSym)}`, {
           cache: "no-store"
         });
         if (!res.ok) return;
@@ -1517,7 +1528,7 @@ function MiniChart({
       cancelled = true;
       clearInterval(id);
     };
-  }, [sym]);
+  }, [quoteSym]);
   return React.createElement("div", {
     className: "tt-card overflow-hidden"
   }, React.createElement("div", {
@@ -1941,7 +1952,8 @@ function MarketCharts({
   }, primarySymbols.map(({
     sym,
     label,
-    color
+    color,
+    priceTicker
   }) => React.createElement(MiniChart, {
     key: `${sym}-${tf}`,
     sym: sym,
@@ -1949,7 +1961,8 @@ function MarketCharts({
     accentColor: color,
     tf: tfConfig.value,
     limit: tfConfig.limit,
-    gamePlanLevels: gamePlanBySym[sym] || null
+    gamePlanLevels: gamePlanBySym[sym] || null,
+    priceTicker: priceTicker
   }))));
 }
 function IntradayPulse({
@@ -2091,10 +2104,11 @@ function IntradayFlash({
     sub: "small caps",
     accentColor: "#fbbf24"
   }, {
-    sym: "VIX",
+    sym: "VIXY",
     label: "VIX",
-    sub: "volatility",
-    accentColor: "#f87171"
+    sub: "volatility (VIXY proxy)",
+    accentColor: "#f87171",
+    priceTicker: "VIX"
   }], []);
   if (!entries || entries.length === 0) return null;
   return React.createElement("div", {
@@ -2186,7 +2200,8 @@ function IntradayFlash({
     tf: "15",
     limit: 140,
     height: 220,
-    flashMarkers: flashMarkers
+    flashMarkers: flashMarkers,
+    priceTicker: t.priceTicker
   }))))), sorted.map((entry, i) => React.createElement("div", {
     key: entry.id || i,
     className: "mb-5 rounded-lg border overflow-hidden",
@@ -2729,6 +2744,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1782833594317:541539130
+// cache-bust:1782858033838:807659911
 
-// cache-bust:1782833594317:541539130
+// cache-bust:1782858033838:807659911
