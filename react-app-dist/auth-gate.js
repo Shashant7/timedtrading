@@ -1968,7 +1968,7 @@
 
     const fetchNotifications = React.useCallback(async () => {
       try {
-        const res = await fetch(`${apiBase}/timed/notifications?limit=20`, { credentials: "include" });
+        const res = await fetch(`${apiBase}/timed/notifications?limit=50`, { credentials: "include" });
         if (res.ok) {
           const json = await res.json();
           if (json.ok) {
@@ -1980,10 +1980,17 @@
       } catch {}
     }, [apiBase]);
 
+    // Poll while authenticated so opening the bell shows fresh trade signals (not only on open).
+    React.useEffect(() => {
+      fetchNotifications();
+      const iv = setInterval(fetchNotifications, 60000);
+      return () => clearInterval(iv);
+    }, [fetchNotifications]);
+
     React.useEffect(() => {
       if (!open) return undefined;
       fetchNotifications();
-      const iv = setInterval(fetchNotifications, 60000);
+      const iv = setInterval(fetchNotifications, 30000);
       return () => clearInterval(iv);
     }, [fetchNotifications, open]);
 
@@ -2940,5 +2947,3 @@
   };
   window.TimedPushRegister = registerPushNotifications;
 })();
-
-// cache-bust:1782824354943:573770883
