@@ -117,6 +117,68 @@ export function buildPremarketGapContext(pf, marketOpen, nowMs = Date.now()) {
   return lines.length > 0 ? lines.join("\n") : null;
 }
 
+/** Ground-truth RTH day-change for SPY/QQQ/IWM from validated brief market rows. */
+export function collectIndexSessionMoves(data) {
+  const out = {};
+  for (const sym of ["SPY", "QQQ", "IWM"]) {
+    const m = data?.market?.[sym];
+    const dayPct = Number(m?.dayChangePct ?? m?.day_change_pct);
+    const price = Number(m?.price);
+    if (!Number.isFinite(dayPct)) continue;
+    out[sym] = {
+      dayPct: Math.round(dayPct * 100) / 100,
+      price: Number.isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : null,
+    };
+  }
+  return out;
+}
+
+export function formatIndexSessionGroundTruthBlock(moves, { type = "evening" } = {}) {
+  if (!moves || typeof moves !== "object") return "";
+  const lines = [];
+  for (const sym of ["SPY", "QQQ", "IWM"]) {
+    const row = moves[sym];
+    if (!row || !Number.isFinite(Number(row.dayPct))) continue;
+    const pct = Number(row.dayPct);
+    const pctStr = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+    const pxStr = Number.isFinite(Number(row.price)) && Number(row.price) > 0
+      ? ` @ $${Number(row.price).toFixed(2)}`
+      : "";
+    lines.push(`${sym}: ${pctStr}${pxStr}`);
+  }
+  if (!lines.length) return "";
+  const hdr = type === "evening"
+    ? "INDEX RTH SESSION MOVES — GROUND TRUTH (copy these exact percentages verbatim; NEVER use pre-market gap % or morning-brief gap numbers in the recap)"
+    : "INDEX SESSION MOVES — GROUND TRUTH";
+  return `\n## ${hdr}\n${lines.join("\n")}\n`;
+}
+
+/**
+ * Rewrite SPY/QQQ/IWM day-change percentages in generated prose when the
+ * model echoes stale pre-market gap numbers instead of RTH session moves.
+ */
+export function patchBriefIndexDayPctProse(content, moves = {}) {
+  if (!content || typeof content !== "string" || !moves || typeof moves !== "object") return content;
+  let out = content;
+  let patched = 0;
+  for (const sym of ["SPY", "QQQ", "IWM"]) {
+    const pct = Number(moves[sym]?.dayPct ?? moves[sym]);
+    if (!Number.isFinite(pct)) continue;
+    const formatted = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+    const re = new RegExp(`\\b${sym}\\b([^%\\n]{0,56}?)([+-]\\d{1,2}\\.\\d{1,2})%`, "gi");
+    out = out.replace(re, (match, mid, numStr) => {
+      const found = parseFloat(numStr);
+      if (!Number.isFinite(found) || Math.abs(found - pct) <= 0.12) return match;
+      patched += 1;
+      return `${sym}${mid}${formatted}`;
+    });
+  }
+  if (patched > 0) {
+    console.log(`[BRIEF] Patched ${patched} index day-% mention(s) to RTH ground truth`);
+  }
+  return out;
+}
+
 /** Prompt block for macro prints that already have Actual values (PCE/CPI/NFP @ 8:30 ET). */
 export function buildReleasedMacroPromptBlock(todayEcon = []) {
   const released = (todayEcon || []).filter((e) => e?.actual != null && String(e.actual).trim());
@@ -4052,6 +4114,8 @@ ${await getCTOBriefAddendum(env)}
 
 REQUIRED: Reference the active playbook above when explaining sector rotation / leadership patterns of the day — e.g. "Energy + Materials led today, consistent with our overweight stance and the Iran-war supply-shock pathway in our active risk register." Tie the day's tape back to the written thesis so the user learns the playbook narratively as they read. Cite the CRO Research Desk verdict whenever today's tape clearly corroborates or contradicts it.
 
+${formatIndexSessionGroundTruthBlock(collectIndexSessionMoves(data), { type: "evening" })}
+
 ## Index ETF Quartet (SPY/QQQ/DIA/IWM + VIX):
 ${data.indexQuartetSummary || "Quartet data unavailable."}
 USE this to explain leadership and rotation in the recap. If SMT fired today, lead with that reversal narrative. Do NOT cite ES/NQ/YM/RTY futures symbols.
@@ -5367,6 +5431,9 @@ export async function generateDailyBrief(env, type, opts = {}) {
         subjectHook = _subjMatch[1].trim().slice(0, 90).replace(/^["'*#\s]+|["'*\s]+$/g, "") || null;
         content = content.slice(_subjMatch[0].length).replace(/^\n+/, "");
       }
+    }
+    if (type === "evening" && content) {
+      content = patchBriefIndexDayPctProse(content, collectIndexSessionMoves(data));
     }
     if (!content || content.length < 100) {
       // P0.7.154 (2026-05-14) — persist a stub so the operator has a

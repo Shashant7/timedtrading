@@ -1210,7 +1210,7 @@
         { sym: "SPY", label: "SPY", color: "#38F2A1" },
         { sym: "QQQ", label: "QQQ", color: "#2196f3" },
         { sym: "IWM", label: "IWM (Russell 2000)", color: "#f97316" },
-        { sym: "VIX", label: "VIX", color: "#f59e0b" },
+        { sym: "VIXY", label: "VIX (VIXY proxy)", color: "#f59e0b", priceTicker: "VIX" },
       ];
       const TF_OPTIONS = [
         { value: "5", label: "5m", limit: 250 },
@@ -1233,7 +1233,8 @@
       const EMPTY_LEVELS = [];
       const EMPTY_FLASH_MARKERS = [];
 
-      function MiniChart({ sym, label, accentColor, tf, limit, height = 500, flashMarkers = EMPTY_FLASH_MARKERS, gamePlanLevels = null }) {
+      function MiniChart({ sym, label, accentColor, tf, limit, height = 500, flashMarkers = EMPTY_FLASH_MARKERS, gamePlanLevels = null, priceTicker = null }) {
+        const quoteSym = priceTicker || sym;
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
@@ -1305,13 +1306,19 @@
 
         // Fetch candle data from API
         const fetchCandles = useCallback(async (fetchLimit) => {
-          const res = await fetch(
-            `${API_BASE}/timed/candles?ticker=${encodeURIComponent(sym)}&tf=${tf}&limit=${fetchLimit}`,
-            { cache: "no-store" }
-          );
-          const data = await res.json();
-          if (!data.ok || !data.candles || data.candles.length === 0) return [];
-          return data.candles;
+          const loadSym = async (ticker) => {
+            const res = await fetch(
+              `${API_BASE}/timed/candles?ticker=${encodeURIComponent(ticker)}&tf=${tf}&limit=${fetchLimit}`,
+              { cache: "no-store" }
+            );
+            const data = await res.json();
+            if (!data.ok || !data.candles || data.candles.length === 0) return [];
+            return data.candles;
+          };
+          let candles = await loadSym(sym);
+          if (candles.length === 0 && sym === "VIX") candles = await loadSym("VIXY");
+          if (candles.length === 0 && sym === "VIXY") candles = await loadSym("VIXY");
+          return candles;
         }, [sym, tf]);
 
         // Initial chart setup + full data load
@@ -1364,7 +1371,7 @@
             },
             localization: {
               priceFormatter: (p) => {
-                if (sym === "VIX") return p.toFixed(2);
+                if (sym === "VIX" || sym === "VIXY" || quoteSym === "VIX") return p.toFixed(2);
                 return p >= 1000 ? p.toFixed(2) : p.toFixed(2);
               },
               timeFormatter: (time) => {
@@ -1403,7 +1410,7 @@
             if (mapped.length === 0) {
               // Try to show last known price even when chart data is unavailable
               try {
-                const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+                const latestRes = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(quoteSym)}`, { cache: "no-store" });
                 const latestData = await latestRes.json();
                 if (latestData?.price) {
                   setLastPrice(Number(latestData.price));
@@ -1646,7 +1653,7 @@
           let cancelled = false;
           const refreshLivePrice = async () => {
             try {
-              const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(sym)}`, { cache: "no-store" });
+              const res = await fetch(`${API_BASE}/timed/latest?ticker=${encodeURIComponent(quoteSym)}`, { cache: "no-store" });
               if (!res.ok) return;
               const latest = await res.json();
               if (cancelled) return;
@@ -1666,7 +1673,7 @@
           const intervalMs = isMarketOpen() ? 15000 : 60000;
           const id = setInterval(refreshLivePrice, intervalMs);
           return () => { cancelled = true; clearInterval(id); };
-        }, [sym]);
+        }, [quoteSym]);
 
         return (
           <div className="tt-card overflow-hidden">
@@ -1987,7 +1994,7 @@
             )}
             {/* Primary charts: SPY, QQQ, VIX proxy — stacked full width */}
             <div className="grid grid-cols-1 gap-4">
-              {primarySymbols.map(({ sym, label, color }) => (
+              {primarySymbols.map(({ sym, label, color, priceTicker }) => (
                 <MiniChart
                   key={`${sym}-${tf}`}
                   sym={sym}
@@ -1996,6 +2003,7 @@
                   tf={tfConfig.value}
                   limit={tfConfig.limit}
                   gamePlanLevels={gamePlanBySym[sym] || null}
+                  priceTicker={priceTicker}
                 />
               ))}
             </div>
@@ -2193,7 +2201,7 @@
           { sym: "SPY",  label: "SPY",  sub: "broad market",  accentColor: "#a78bfa" },
           { sym: "QQQ",  label: "QQQ",  sub: "tech",          accentColor: "#60a5fa" },
           { sym: "IWM",  label: "IWM",  sub: "small caps",    accentColor: "#fbbf24" },
-          { sym: "VIX",  label: "VIX",  sub: "volatility",    accentColor: "#f87171" },
+          { sym: "VIXY", label: "VIX",  sub: "volatility (VIXY proxy)", accentColor: "#f87171", priceTicker: "VIX" },
         ]), []);
 
         // Early-return AFTER all hooks have run.
@@ -2249,6 +2257,7 @@
                           limit={140}
                           height={220}
                           flashMarkers={flashMarkers}
+                          priceTicker={t.priceTicker}
                         />
                       </div>
                     ))}

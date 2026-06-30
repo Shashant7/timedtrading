@@ -3,6 +3,8 @@ import {
   buildPremarketGapContext,
   liveSpotFromPriceFeedRow,
   liveDayPctFromPriceFeedRow,
+  patchBriefIndexDayPctProse,
+  formatIndexSessionGroundTruthBlock,
 } from "./daily-brief.js";
 
 describe("buildPremarketGapContext session window", () => {
@@ -33,5 +35,34 @@ describe("evening brief RTH session semantics", () => {
   it("uses extended print when sessionOpen=false (morning after-hours path)", () => {
     expect(liveSpotFromPriceFeedRow(row, false)).toBe(610.5);
     expect(liveDayPctFromPriceFeedRow(row, false)).toBe(1.71);
+  });
+});
+
+describe("patchBriefIndexDayPctProse", () => {
+  it("rewrites stale gap percentages in evening recap prose", () => {
+    const moves = { SPY: { dayPct: 0.78 }, QQQ: { dayPct: 1.70 }, IWM: { dayPct: 0.50 } };
+    const raw = "QQQ +2.49% and SPY +1.65% ripped higher while IWM -0.29% lagged.";
+    const out = patchBriefIndexDayPctProse(raw, moves);
+    expect(out).toContain("QQQ +1.70%");
+    expect(out).toContain("SPY +0.78%");
+    expect(out).toContain("IWM +0.50%");
+  });
+
+  it("leaves percentages already matching ground truth", () => {
+    const moves = { SPY: { dayPct: 0.78 } };
+    const raw = "SPY +0.78% closed firm.";
+    expect(patchBriefIndexDayPctProse(raw, moves)).toBe(raw);
+  });
+});
+
+describe("formatIndexSessionGroundTruthBlock", () => {
+  it("emits mandatory ground-truth lines for evening", () => {
+    const block = formatIndexSessionGroundTruthBlock({
+      SPY: { dayPct: 0.78, price: 741.47 },
+      QQQ: { dayPct: 1.70, price: 723.52 },
+    }, { type: "evening" });
+    expect(block).toMatch(/GROUND TRUTH/);
+    expect(block).toContain("SPY: +0.78%");
+    expect(block).toContain("QQQ: +1.70%");
   });
 });
