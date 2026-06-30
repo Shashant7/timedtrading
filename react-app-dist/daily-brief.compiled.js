@@ -67,6 +67,7 @@ function LiveKeyLevelsPanel({
 function BriefInfographic({
   data
 }) {
+  const isEveningBrief = String(data?.type || "").toLowerCase() === "evening";
   const [livePx, setLivePx] = useState(null);
   useEffect(() => {
     let alive = true;
@@ -94,6 +95,7 @@ function BriefInfographic({
     if (!row) return fallback;
     const ext = Number(row.ahp),
       p = Number(row.p);
+    if (isEveningBrief && Number.isFinite(p) && p > 0) return p;
     if (!_mktOpen && Number.isFinite(ext) && ext > 0) return ext;
     if (Number.isFinite(p) && p > 0) return p;
     return fallback;
@@ -354,9 +356,9 @@ function BriefInfographic({
     }, "$", cp.toFixed(2), React.createElement("span", {
       className: "ml-1 text-[9px] font-semibold",
       style: {
-        color: _mktOpen ? "#34d399" : "#fbbf24"
+        color: isEveningBrief ? "#86efac" : _mktOpen ? "#34d399" : "#fbbf24"
       }
-    }, _mktOpen ? "live" : "ext"))), React.createElement("div", {
+    }, isEveningBrief ? "close" : _mktOpen ? "live" : "ext"))), React.createElement("div", {
       className: "text-[9px] text-[#6E867D] mb-2 text-right tabular-nums"
     }, idx.atr != null ? `expected move today ±$${idx.atr.toFixed(2)}` : ""), React.createElement("div", {
       className: "relative mb-2 mt-3",
@@ -2729,6 +2731,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1782833594317:541539130
+// cache-bust:1782857485869:912861758
 
-// cache-bust:1782833594317:541539130
+// cache-bust:1782857485869:912861758

@@ -94,8 +94,10 @@ export function liveDayChgFromPriceFeedRow(row, marketOpen = true) {
   return Number.isFinite(dc) ? dc : null;
 }
 
-function buildPremarketGapContext(pf, marketOpen) {
+export function buildPremarketGapContext(pf, marketOpen, nowMs = Date.now()) {
   if (marketOpen || !pf || typeof pf !== "object") return null;
+  // After 9:30 ET, ahp vs pc is extended-hours drift — not a pre-market gap.
+  if (getETMinutes(nowMs) >= 9 * 60 + 30) return null;
   const lines = [];
   for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
     const row = freshPriceFeedRow(pf, sym, marketOpen);
@@ -1513,10 +1515,10 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // after an intraday selloff because day_change_pct lagged change_pct).
   const sectors = SECTOR_ETFS.map(sym => {
     const d = sectorDataArr.find(s => s.sym === sym)?.data || {};
-    const pfRow = freshPriceFeedRow(_pf, sym, mktOpen);
-    const pfPct = liveDayPctFromPriceFeedRow(pfRow, mktOpen);
-    const pfPrice = liveSpotFromPriceFeedRow(pfRow, mktOpen);
-    const pfDc = liveDayChgFromPriceFeedRow(pfRow, mktOpen);
+    const pfRow = freshPriceFeedRow(_pf, sym, _briefSessionMktOpen);
+    const pfPct = liveDayPctFromPriceFeedRow(pfRow, _briefSessionMktOpen);
+    const pfPrice = liveSpotFromPriceFeedRow(pfRow, _briefSessionMktOpen);
+    const pfDc = liveDayChgFromPriceFeedRow(pfRow, _briefSessionMktOpen);
     const scoredPct = Number(d?.day_change_pct ?? d?.change_pct);
     const dayChangePct = Number.isFinite(pfPct)
       ? pfPct
@@ -1819,7 +1821,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     diaCandles?.candles || [], [], diaCandlesM5?.candles || [], diaData, [], []
   );
 
-  const liveSpotForSym = (sym) => liveSpotFromPriceFeedRow(_pf?.[sym], mktOpen);
+  const liveSpotForSym = (sym) => liveSpotFromPriceFeedRow(_pf?.[sym], _briefSessionMktOpen);
 
   // V15 P0.7.72 — Phase 2 Q1 unification.
   // Build canonical scenarios for the indices using the SAME helper that
@@ -1965,8 +1967,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     // yesterday's evening). Continuity + anti-repetition fuel.
     priorBriefExcerpt: (morningBrief?.content || "").slice(0, 900) || null,
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf, _briefSessionMktOpen),
-    premarketGapContext: buildPremarketGapContext(_pf, mktOpen),
-    crossAssetContext: buildCrossAssetContext(_pf, mktOpen),
+    premarketGapContext: type === "evening" ? null : buildPremarketGapContext(_pf, mktOpen),
+    crossAssetContext: buildCrossAssetContext(_pf, _briefSessionMktOpen),
     // 2026-06-22 — RTH top movers across the TT universe (gainers/losers),
     // for the brief's "Today's Top Movers" section. Computed from the
     // price-feed raw map (same `dp` daily-change source the intraday brief
@@ -1978,9 +1980,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
         const movers = [];
         for (const [ticker, d] of Object.entries(_pf || {})) {
           if (skip.has(ticker) || !d || typeof d !== "object") continue;
-          if (!isPriceFeedRowFresh(d, mktOpen)) continue;
-          const pct = liveDayPctFromPriceFeedRow(d, mktOpen);
-          const price = liveSpotFromPriceFeedRow(d, mktOpen);
+          if (!isPriceFeedRowFresh(d, _briefSessionMktOpen)) continue;
+          const pct = liveDayPctFromPriceFeedRow(d, _briefSessionMktOpen);
+          const price = liveSpotFromPriceFeedRow(d, _briefSessionMktOpen);
           if (Number.isFinite(pct) && Number.isFinite(price) && price > 0 && Math.abs(pct) >= 1.0) {
             movers.push({ ticker, pct, price });
           }
@@ -2005,18 +2007,18 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     indexQuartetSummary: (() => {
       try {
         const md = {
-          SPY: freshPriceFeedRow(_pf, "SPY", mktOpen),
-          QQQ: freshPriceFeedRow(_pf, "QQQ", mktOpen),
-          DIA: freshPriceFeedRow(_pf, "DIA", mktOpen),
-          IWM: freshPriceFeedRow(_pf, "IWM", mktOpen),
-          VIX: freshPriceFeedRow(_pf, "VIX", mktOpen),
+          SPY: freshPriceFeedRow(_pf, "SPY", _briefSessionMktOpen),
+          QQQ: freshPriceFeedRow(_pf, "QQQ", _briefSessionMktOpen),
+          DIA: freshPriceFeedRow(_pf, "DIA", _briefSessionMktOpen),
+          IWM: freshPriceFeedRow(_pf, "IWM", _briefSessionMktOpen),
+          VIX: freshPriceFeedRow(_pf, "VIX", _briefSessionMktOpen),
         };
         const norm = {};
         for (const k of Object.keys(md)) {
           const v = md[k];
           if (!v) continue;
-          const spot = liveSpotFromPriceFeedRow(v, mktOpen);
-          const dayPct = liveDayPctFromPriceFeedRow(v, mktOpen);
+          const spot = liveSpotFromPriceFeedRow(v, _briefSessionMktOpen);
+          const dayPct = liveDayPctFromPriceFeedRow(v, _briefSessionMktOpen);
           if (!Number.isFinite(spot) || !Number.isFinite(dayPct)) continue;
           norm[k] = {
             price: spot,
@@ -2618,9 +2620,11 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
 
   const cal = env ? await loadCalendar(env).catch(() => null) : null;
   const mktOpen = isNyRegularMarketOpen(cal, new Date());
+  const useRthSession = String(infographic?.type || "").toLowerCase() === "evening";
+  const sessionOpen = useRthSession ? true : mktOpen;
   const liveSpotFor = (sym) => {
-    const r = freshPriceFeedRow(pf, sym, mktOpen);
-    return liveSpotFromPriceFeedRow(r, mktOpen);
+    const r = freshPriceFeedRow(pf, sym, sessionOpen);
+    return liveSpotFromPriceFeedRow(r, sessionOpen);
   };
 
   infographic.indices = infographic.indices.map((idx) => {
@@ -2636,8 +2640,8 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
     const weeklyLevels = idx.weeklyLevels
       ? _recomputeGateBlock(idx.weeklyLevels, live, { atrKey: "weekAtr", isWeek: true })
       : idx.weeklyLevels;
-    const pct = row ? liveDayPctFromPriceFeedRow(row, mktOpen) : null;
-    const dc = row ? liveDayChgFromPriceFeedRow(row, mktOpen) : null;
+    const pct = row ? liveDayPctFromPriceFeedRow(row, sessionOpen) : null;
+    const dc = row ? liveDayChgFromPriceFeedRow(row, sessionOpen) : null;
     const rthP = Number(row?.p);
     const rthDp = Number(row?.dp);
     return {
@@ -2645,10 +2649,13 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
       price: Math.round(live * 100) / 100,
       ...(Number.isFinite(pct) ? { chgPct: Math.round(pct * 100) / 100, dayChangePct: pct } : {}),
       ...(Number.isFinite(dc) ? { dayChange: dc } : {}),
-      ...(!mktOpen && Number.isFinite(rthP) && rthP > 0 ? {
+      ...(useRthSession && Number.isFinite(rthP) && rthP > 0 ? {
         rthClose: Math.round(rthP * 100) / 100,
         ...(Number.isFinite(rthDp) ? { rthChgPct: Math.round(rthDp * 100) / 100 } : {}),
-      } : {}),
+      } : (!sessionOpen && Number.isFinite(rthP) && rthP > 0 ? {
+        rthClose: Math.round(rthP * 100) / 100,
+        ...(Number.isFinite(rthDp) ? { rthChgPct: Math.round(rthDp * 100) / 100 } : {}),
+      } : {})),
       levels,
       weeklyLevels,
       _price_source: "timed:prices",
@@ -4049,7 +4056,7 @@ REQUIRED: Reference the active playbook above when explaining sector rotation / 
 ${data.indexQuartetSummary || "Quartet data unavailable."}
 USE this to explain leadership and rotation in the recap. If SMT fired today, lead with that reversal narrative. Do NOT cite ES/NQ/YM/RTY futures symbols.
 
-## Market Close Data:
+## Market Close Data (today's REGULAR SESSION close — fields price/dayChangePct):
 ${(() => {
   const keys = ["SPY", "QQQ", "VIX", "IWM", "DIA", "TLT", "GLD", "SLV", "USO", "XLE", "XLF", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLY", "XLC"];
   const slim = {};
@@ -4060,6 +4067,8 @@ ${(() => {
 ## Price Feed Cross-Reference (TwelveData cron — GROUND TRUTH for daily changes):
 ${data.priceFeedCrossRef || "Unavailable."}
 NOTE: If Market Close Data and Price Feed disagree on daily change by >1%, trust the Price Feed values. The scoring model payload may be stale from backtesting.
+CRITICAL — EVENING SESSION PRICES: Market Close Data and Price Feed Cross-Reference use today's REGULAR TRADING HOURS (RTH) session close and day change (timed:prices fields p/dp), NOT extended-hours (ahp/ahdp) or pre-market prints. Recap today's RTH session move only. Do NOT describe SPY/QQQ/IWM as "gapping", "pre-market", or "before the open" — that language is for the morning brief only. After-hours drift after 4:00 PM ET is out of scope unless explicitly labeled as after-hours.
+The morning brief excerpt below may reference a pre-market gap that faded — do NOT repeat pre-market gap language unless scorecarding the morning call vs today's RTH result.
 
 ## Cross-Asset Context (USE for cross-asset correlated analysis):
 ${data.crossAssetContext || "Not available — skip cross-asset section."}
@@ -4573,6 +4582,8 @@ export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPre
 function buildBriefInfographic(data, type) {
   if (!data || typeof data !== "object") return null;
   const today = String(data.today || "");
+  const isEvening = String(type || "").toLowerCase() === "evening";
+  const _briefMktOpen = isEvening ? true : (data?.calendar?.marketOpen === true);
   const vixD = data.market?.VIX || {};
   const vixLevel = Number(vixD.price) || Number(vixD.sessionClose) || null;
   const vixBucket = vixLevel == null
@@ -4639,14 +4650,16 @@ function buildBriefInfographic(data, type) {
   // shared with the right rail. Prefer its values when present.
   const _extract = (sym, md, tech, scenario) => {
     if (!md && !scenario) return null;
-    // Prefer scenario.price (live, includes pre-market) over md.price
-    // (which is often the cached RTH-close snapshot).
-    const livePrice = Number(scenario?.price) || Number(md?.price);
-    // md is the validated market row — validateMarketData patches the
-    // session-aware change into `day_change_pct` (pre-market gap %, not prev
-    // close). The old `changePct`/`dp` field names didn't exist on md → the
-    // email index card silently dropped the % badge. Read the real field first.
-    const chg = Number(md?.day_change_pct ?? md?.changePct ?? md?.dayChangePct ?? md?.dp);
+    const pfRow = (data.priceFeedRaw || {})[sym];
+    const rthClose = Number(pfRow?.p);
+    const rthChgPct = Number(pfRow?.day_change_pct ?? pfRow?.dp ?? md?.day_change_pct ?? md?.dayChangePct);
+    // Evening recap: RTH session close + today's dp are ground truth — not ahp/ahdp.
+    const livePrice = isEvening && Number.isFinite(rthClose) && rthClose > 0
+      ? rthClose
+      : (Number(scenario?.price) || Number(md?.price));
+    const chg = isEvening && Number.isFinite(rthChgPct)
+      ? rthChgPct
+      : Number(md?.day_change_pct ?? md?.changePct ?? md?.dayChangePct ?? md?.dp);
     const atr = Number(scenario?.atr14 ?? tech?.atr14 ?? tech?.atr);
     const baseLevels = _normLevels(tech);
     let mergedLevels = baseLevels;
@@ -4696,6 +4709,9 @@ function buildBriefInfographic(data, type) {
       sym,
       price: Number.isFinite(livePrice) ? Math.round(livePrice * 100) / 100 : null,
       chgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null,
+      ...(isEvening && Number.isFinite(rthClose) && rthClose > 0
+        ? { rthClose: Math.round(rthClose * 100) / 100, rthChgPct: Number.isFinite(chg) ? Math.round(chg * 100) / 100 : null }
+        : {}),
       atr: Number.isFinite(atr) ? Math.round(atr * 100) / 100 : null,
       levels: mergedLevels,
       weeklyLevels,
@@ -4710,9 +4726,6 @@ function buildBriefInfographic(data, type) {
   ].filter(Boolean);
 
   const pf = data.priceFeedRaw || {};
-  // Session-aware: outside RTH use the extended print (ahp/ahdp) so the email's
-  // macro strip never shows yesterday's RTH close during pre/post-market.
-  const _briefMktOpen = data?.calendar?.marketOpen === true;
   const _macroFor = (sym, label, hint) => {
     const d = pf[sym];
     if (!d) return null;
@@ -4776,7 +4789,7 @@ function buildBriefInfographic(data, type) {
     data.openTrades || [],
     data.investorPositions || [],
     data.priceFeedRaw || {},
-    data?.calendar?.marketOpen === true,
+    _briefMktOpen,
   );
 
   return {
