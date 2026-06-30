@@ -138,8 +138,7 @@ export function formatTradeCloseTitle({
     : ` — closed full position`;
 
   const emoji = isWin ? "🏆" : isFlat ? "➖" : "🛑";
-  const statusWord = isWin ? "Winner" : isFlat ? "Flat" : "Stopped Out";
-  let title = `${emoji}  TRADER · DOING · DONE · ${statusWord}: ${ticker} ${dir} — ${headline}${detail}`;
+  let title = `${emoji} Exit: ${ticker} ${dir} — ${headline}${detail}`;
   if (Number.isFinite(Number(exitPrice))) title += ` @ $${Number(exitPrice).toFixed(2)}`;
   if (typeof formatEtClock === "function") {
     const et = formatEtClock(actionTs);
@@ -149,7 +148,7 @@ export function formatTradeCloseTitle({
 }
 
 export function formatExitRecommendedTitle(ticker) {
-  return `🚪  TRADER · DOING · RECOMMENDED · Exit: ${String(ticker || "").toUpperCase()}`;
+  return `⚠️ Warning: ${String(ticker || "").toUpperCase()} — Exit recommended`;
 }
 
 export function formatTradeTrimTitle({ ticker, direction, stepLabel, fillPrice, isProfit }) {

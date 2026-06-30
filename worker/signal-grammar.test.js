@@ -31,17 +31,20 @@ describe("formatTradeCloseTitle", () => {
       exitPrice: 1097.14,
       trimmedPct: 0.75,
     });
+    expect(title).toContain("Exit: MU LONG");
     expect(title).toContain("Full exit +42.97%");
     expect(title).toContain("final 25% runner");
     expect(title).toContain("trimming 75%");
     expect(title).not.toMatch(/Closed 25%/);
+    expect(title).not.toContain("DOING");
   });
 });
 
 describe("formatExitRecommendedTitle", () => {
-  it("uses recommended exec state grammar", () => {
-    expect(formatExitRecommendedTitle("MU")).toContain("RECOMMENDED");
-    expect(formatExitRecommendedTitle("MU")).toContain("TRADER · DOING");
+  it("uses Warning label for exit recommendations", () => {
+    expect(formatExitRecommendedTitle("MU")).toContain("Warning");
+    expect(formatExitRecommendedTitle("MU")).toContain("Exit recommended");
+    expect(formatExitRecommendedTitle("MU")).not.toContain("DOING");
   });
 });
 
