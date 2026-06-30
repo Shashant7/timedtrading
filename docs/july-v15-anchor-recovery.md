@@ -72,6 +72,7 @@ Beating anchor fully requires **engine/admission parity** (replay on `1d7d8d3` o
 
 ## References
 
+- **Runbook:** `docs/preprod-replay-runbook.md`
 - Anchor report: `data/trade-analysis/phase-c-slice-2025-07-v1/report.md`
 - v13 limits: `docs/july-v13-phase-a-iteration.md`
 - Readiness review: `docs/july-readiness-review-2026-06.md`
