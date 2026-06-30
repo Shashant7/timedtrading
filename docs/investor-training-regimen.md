@@ -87,6 +87,9 @@ The seeder closes the tooling gap documented 2026-06-28; without it (or without
 
 ## Guardrails (learned the hard way)
 
+> **Full preprod runbook:** [`docs/preprod-replay-runbook.md`](../preprod-replay-runbook.md)
+> (queue, trader→investor order, 1102 recovery, March batch sizing).
+
 - **Pre-prod only.** `investor-slice.sh` defaults to
   `timed-trading-ingest-preprod` and resets the replay lane (`replayOnly=1`) —
   live investor positions are never touched. Confirm the base URL before a run.

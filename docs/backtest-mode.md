@@ -3,6 +3,10 @@
 How to run a Phase D monthly slice end-to-end on a deterministic
 orchestrator with clean data. Applies to all months Jul 2025 → Apr 2026.
 
+> **Operator runbook:** For preprod queue discipline, March-era batch sizing,
+> trader→investor sequencing, and stall recovery, see
+> [`preprod-replay-runbook.md`](preprod-replay-runbook.md).
+
 ## Pre-flight checklist
 
 Every fresh backtest cycle (not per-month, but per-campaign) should

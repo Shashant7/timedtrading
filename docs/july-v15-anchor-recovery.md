@@ -25,11 +25,32 @@
 ## Run
 
 ```bash
+TIMED_API_KEY=… scripts/preprod-replay-status.sh   # check lock first
 TIMED_API_KEY=… scripts/run-v15-july.sh
 # tmux: v15-july
 ```
 
 Artifacts: `data/trade-analysis/phase-d-slice-2025-07-v15/`
+
+## Preprod queue (mandatory)
+
+Preprod is **single-writer**. Never run trader `monthly-slice` and investor
+`investor-slice` at the same time — they share `timed:replay:lock` and D1.
+
+| Lane | tmux | Status |
+|---|---|---|
+| **v15 trader** | `v15-july` | Primary — finish first |
+| **Investor post890** | `investor-post890-diff-rerun` | Queued — waits for lock, then re-seeds daystate |
+
+**1102 / 503** on `candle-replay` = Cloudflare worker CPU limit (~300s on
+preprod monolith). The driver retries 5× with backoff; this is normal infra
+flakiness, not dual-writer contention. Stacking two lanes makes it worse.
+
+```bash
+TIMED_API_KEY=… scripts/preprod-replay-status.sh
+# Resume after stall:
+RESUME=1 TIMED_API_KEY=… scripts/run-v15-july.sh
+```
 
 ## Acceptance (vs anchor `phase-c-slice-2025-07-v1`)
 
@@ -51,6 +72,7 @@ Beating anchor fully requires **engine/admission parity** (replay on `1d7d8d3` o
 
 ## References
 
+- **Runbook:** `docs/preprod-replay-runbook.md`
 - Anchor report: `data/trade-analysis/phase-c-slice-2025-07-v1/report.md`
 - v13 limits: `docs/july-v13-phase-a-iteration.md`
 - Readiness review: `docs/july-readiness-review-2026-06.md`
