@@ -89,6 +89,37 @@ describe("getExtChange", () => {
     expect(ext.pct).toBeCloseTo(-0.68, 1);
     expect(ext.chg).toBeCloseTo(-7.4, 1);
   });
+
+  it("hides EXT when ahdp mirrors RTH day change without a distinct extended print (GS +6.84% bleed)", () => {
+    mockMarketClosed();
+    const ext = utils.getExtChange({
+      ticker: "GS",
+      close: 1090.67,
+      price: 1090.67,
+      _live_price: 1090.67,
+      prev_close: 1020.0,
+      _live_prev_close: 1020.0,
+      day_change_pct: 6.84,
+      change_pct: 6.84,
+      _ah_change_pct: 6.84,
+    });
+    expect(ext).toBeNull();
+  });
+
+  it("uses derived RTH close when snapshot close equals prev_close but day pct reflects today", () => {
+    mockMarketClosed();
+    const ext = utils.getExtChange({
+      ticker: "GS",
+      close: 1020.0,
+      price: 1020.0,
+      prev_close: 1020.0,
+      day_change_pct: 6.84,
+      _ah_price: 1090.67,
+      _ah_change_pct: 6.84,
+    });
+    expect(ext).not.toBeNull();
+    expect(Math.abs(ext.pct)).toBeLessThan(0.2);
+  });
 });
 
 describe("getBubbleFillChange", () => {

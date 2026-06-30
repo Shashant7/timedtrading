@@ -428,6 +428,30 @@
     return out;
   }
 
+  // Today's RTH session close — baseline for extended-hours % (vs TradingView).
+  // Never use prev_close when today's move is known from the live feed or dp.
+  function getRthSessionClose(t) {
+    if (!t || typeof t !== "object") return 0;
+    var live = Number(t._live_price);
+    var close = Number(t.close);
+    var price = Number(t.price);
+    var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+
+    if (live > 0 && prev > 0 && Math.abs(live - prev) / prev > 0.001) return live;
+    if (close > 0 && prev > 0 && Math.abs(close - prev) / prev > 0.001) return close;
+    if (price > 0 && prev > 0 && Math.abs(price - prev) / prev > 0.001) return price;
+
+    var dayPct = Number(t.day_change_pct ?? t.daily_change_pct ?? t.change_pct);
+    if (prev > 0 && Number.isFinite(dayPct) && Math.abs(dayPct) > 0.05) {
+      return Math.round(prev * (1 + dayPct / 100) * 100) / 100;
+    }
+
+    if (live > 0) return live;
+    if (close > 0) return close;
+    if (price > 0) return price;
+    return prev > 0 ? prev : 0;
+  }
+
   // Extended-hours change resolver — single source of truth for
   // pre-market / after-hours display across cards + right rail.
   // Returns { pct, price, chg } or null.
@@ -436,7 +460,7 @@
     var sym = String(t && t.ticker || "").toUpperCase();
     if (sym === "BTCUSD" || sym === "ETHUSD") return null;
 
-    var headline = getHeadlinePrice(t) || 0;
+    var headline = getRthSessionClose(t) || getHeadlinePrice(t) || 0;
     var pct = Number(
       t && t._ah_change_pct != null ? t._ah_change_pct :
       t && t.extended_percent_change != null ? t.extended_percent_change :
@@ -462,6 +486,13 @@
       pct = Math.round(((px - headline) / headline) * 10000) / 100;
       chg = Math.round((px - headline) * 100) / 100;
     } else if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05 && !(px > 0)) {
+      // Reject ahdp that mirrors RTH day change (GS +6.84% EXT bleed when AH flat).
+      var rthPct = Number(getDailyChange(t)?.dayPct);
+      if (Number.isFinite(rthPct)
+          && Math.abs(rthPct) >= 1.0
+          && Math.abs(pct - rthPct) <= Math.max(0.25, Math.abs(rthPct) * 0.08)) {
+        return null;
+      }
       // No extended print — fall back to cached ahdp only when ahp is absent.
       px = Math.round(headline * (1 + pct / 100) * 100) / 100;
       if (!Number.isFinite(chg)) chg = Math.round((px - headline) * 100) / 100;
@@ -835,6 +866,7 @@
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
     getHeadlinePrice: getHeadlinePrice,
+    getRthSessionClose: getRthSessionClose,
     mergePriceSrc: mergePriceSrc,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
@@ -856,4 +888,4 @@
   };
 })();
 
-// cache-bust:1782792637332:733221451
+// cache-bust:1782820683491:346282770
