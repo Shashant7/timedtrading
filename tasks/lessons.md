@@ -6,6 +6,26 @@
 
 ---
 
+## Live entries booked at a stale price → instant phantom stop-out [2026-07-01]
+
+INTC signaled "Enter LONG @ $134.60", then "Stopped out -3.92% @ $129.33"
+two minutes later — but the real stop was $123.06 and was never hit. The
+-3.92% was measured from a PHANTOM entry: the scoring bundle booked $134.60
+while the live feed value had frozen (`timed:prices` `p_ts`/`q_ts` stop
+advancing while the poll clock `t` keeps ticking, so the value looks recent
+but is stale). The position instantly showed a fake loss vs the real ~$129
+market and got force-exited. Same shape as XLI. The live stale-price refetch
+(`resolveExecutionPriceAtOpen`) only ran for OPEN trades; the daily-close
+divergence guard was replay-only — new entries had NO live freshness check.
+Fix: a live new-entry guard at the entry-commit point (before SL/TP/sizing
+derive from `entryPx`) refetches a fresh vendor quote and re-anchors entryPx
+on minor drift (0.75-3%) or REFUSES the entry on >3% divergence. LESSON:
+never trust the scoring bundle's price for a live fill — the value clock
+(`p_ts`/`q_ts`) can be stale even when the poll clock is fresh; validate
+against a live quote before committing money.
+
+---
+
 ## Daily Brief pre-market gap used stale pc instead of last RTH close [2026-07-01]
 
 Morning brief said SPY gapped from "Tuesday's $741.00 close" when $741
