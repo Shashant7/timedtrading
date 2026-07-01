@@ -59,6 +59,18 @@
     catch (_) { return true; }
   }
 
+  /** Vendor quote receipt — max(q_ts, p_ts). Never poll `t` (GS zombie). */
+  function quoteReceiptTs(p) {
+    const q = Number(p?.q_ts) || 0;
+    const pt = Number(p?.p_ts) || 0;
+    if (q > 0 && pt > 0) return Math.max(q, pt);
+    return q > 0 ? q : pt;
+  }
+
+  function priceReceiptMaxAgeMs(marketOpen) {
+    return marketOpen ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
+  }
+
   /** Merge fresh /timed/all rows into prev while preserving live-price + EXT overlays. */
   function mergeTimedAllRefresh(prev, incoming) {
     if (!incoming || typeof incoming !== "object") return prev;
@@ -85,6 +97,7 @@
       if (existing) {
         const overlayKeys = [
           "_live_price", "_live_prev_close", "_price_updated_at",
+          "_price_value_ts", "_quote_receipt_ts",
           "_ah_price", "_ah_change", "_ah_change_pct",
           "extended_price", "extended_percent_change", "extended_change",
         ];
@@ -159,13 +172,10 @@
             const existing = next[key];
             const feedP = Number(p?.p);
             if (!existing || !(feedP > 0)) continue;
-            const symTs = Number(p?.p_ts);
+            const symTs = quoteReceiptTs(p);
             if (!(symTs > 0)) continue;
-            const marketOpen = (() => {
-              try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
-              catch (_) { return true; }
-            })();
-            const maxAgeMs = marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
+            const marketOpen = readMarketOpen();
+            const maxAgeMs = priceReceiptMaxAgeMs(marketOpen);
             if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
             // No-op when nothing changed
             if (existing._live_price === feedP && existing._price_updated_at === symTs) continue;
@@ -191,7 +201,8 @@
                 ? { price: feedP, _live_price: feedP }
                 : { price: feedP, close: feedP, _live_price: feedP }),
               _price_updated_at: symTs,
-              _price_value_ts: symTs,
+              _price_value_ts: Number(p?.p_ts) || symTs,
+              ...(Number(p?.q_ts) > 0 ? { _quote_receipt_ts: Number(p.q_ts) } : {}),
               _market_open_at_feed: marketOpen,
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
               // dc/dp are session-close values; backend preserves them
@@ -307,11 +318,11 @@
           const existing = next[key];
           const feedP = Number(p?.p);
           if (!existing || !(feedP > 0)) continue;
-          const symTs = Number(p?.p_ts);
+          const symTs = quoteReceiptTs(p);
           if (!(symTs > 0)) continue;
-          const maxAgeMs = marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
+          const maxAgeMs = priceReceiptMaxAgeMs(marketOpen);
           if (symTs > 0 && (Date.now() - symTs) > maxAgeMs) continue;
-          if (existing._live_price === feedP) continue;
+          if (existing._live_price === feedP && existing._price_updated_at === symTs) continue;
           if (existing._price_updated_at && existing._price_updated_at > symTs) continue;
           if (!changed) { next = { ...prev }; changed = true; }
           const feedPc = Number(p.pc);
@@ -329,7 +340,8 @@
               ? { price: feedP, _live_price: feedP }
               : { price: feedP, close: feedP, _live_price: feedP }),
             _price_updated_at: symTs,
-            _price_value_ts: symTs,
+            _price_value_ts: Number(p?.p_ts) || symTs,
+            ...(Number(p?.q_ts) > 0 ? { _quote_receipt_ts: Number(p.q_ts) } : {}),
             _market_open_at_feed: marketOpen,
             ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
             ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),

@@ -37,17 +37,20 @@
     return m >= 570 && m < 960;
   }
 
-  // Price feed freshness — uses p_ts (last time p moved), not poll t.
-  // Catches GS-style zombies where cron refreshes t every minute but p stuck at 1090.
-  function getPriceValueAgeMs(t) {
-    var ts = Number(t?._price_value_ts);
+  // Price feed freshness — uses q_ts (vendor quote) / p_ts, NOT poll t.
+  // GS: cron refreshed t every minute while p stuck at Jun-16 1090.
+  function getPriceReceiptAgeMs(t) {
+    var ts = Number(t?._quote_receipt_ts) || Number(t?._price_value_ts);
     if (!(ts > 0)) return Infinity;
     return Date.now() - ts;
   }
 
+  // Legacy alias — same receipt clock (q_ts / p_ts), not poll t.
+  var getPriceValueAgeMs = getPriceReceiptAgeMs;
+
   function isPriceFeedFresh(t) {
-    var maxMs = isNyRegularMarketOpen() ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
-    return getPriceValueAgeMs(t) <= maxMs;
+    var maxMs = isNyRegularMarketOpen() ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
+    return getPriceReceiptAgeMs(t) <= maxMs;
   }
 
   // ── Age label (e.g. "3m ago") ──
@@ -99,7 +102,7 @@
     var marketOpen = isNyRegularMarketOpen();
     if (marketOpen) {
       var live = Number(t._live_price);
-      if (live > 0) return live;
+      if (live > 0 && isPriceFeedFresh(t)) return live;
       var openPx = Number(t.price ?? t.close);
       return openPx > 0 ? openPx : null;
     }

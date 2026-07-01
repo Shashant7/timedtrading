@@ -61,10 +61,13 @@ function withPriceTimestamps(prev, row, nowMs = Date.now()) {
   const nextP = Number(row?.p);
   const pChanged = !(prevP > 0 && nextP > 0)
     || Math.abs(prevP - nextP) / prevP > 0.0005;
+  const incomingQ = Number(row?.q_ts) || 0;
+  const prevQ = Number(prev?.q_ts) || 0;
   return {
     ...row,
     t: pollTs,
     p_ts: pChanged ? pollTs : (Number(prev?.p_ts) || 0),
+    q_ts: incomingQ > 0 ? incomingQ : prevQ,
   };
 }
 
@@ -182,6 +185,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
+                  q_ts: Number(snap.trade_ts) || 0,
                   ...ah,
                 });
                 restCount++;
@@ -421,6 +425,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
+                q_ts: Number(snap.trade_ts) || 0,
                 ...ah,
               });
               restFallbackCount++;
@@ -539,7 +544,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           // corpse (normal overnight age is ≤ ~18h; 26h spans a full
           // session + overnight without false-flagging weekends' first
           // ticks either, since the sweep just re-confirms them cheaply).
-          const STALE_SWEEP_MS = _marketOpen ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
+          const STALE_SWEEP_MS = _marketOpen ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
           const SWEEP_CAP = _marketOpen ? 120 : 48;
           // 2026-06-11 v4 — sweep EVERYTHING in the price blob, not just
           // the configured lists. SMCI was in neither SECTOR_MAP nor
@@ -559,7 +564,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             if (!_sweepEligible(sym)) return false;
             const e = prices[sym];
             if (!e) return true;
-            const pAge = Number(e.p_ts);
+            const pAge = Number(e.q_ts) || Number(e.p_ts);
             if (!(pAge > 0)) return true;
             return (_sweepNow - pAge) > STALE_SWEEP_MS;
           });
@@ -570,7 +575,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             // worst corpses (SMCI sat 5.4 days stale behind ~100
             // fresher entries). The most-stale symbols are the most
             // user-visible damage — heal them first.
-            _staleList.sort((a, b) => (Number(prices[a]?.p_ts) || 0) - (Number(prices[b]?.p_ts) || 0));
+            _staleList.sort((a, b) => (Number(prices[a]?.q_ts) || Number(prices[a]?.p_ts) || 0) - (Number(prices[b]?.q_ts) || Number(prices[b]?.p_ts) || 0));
             const _sweepSyms = _staleList.slice(0, SWEEP_CAP);
             const _sweepRes = await deps.dataFetchSnapshots(env, _sweepSyms);
             const _sweepSnaps = _sweepRes?.snapshots || {};
@@ -609,13 +614,14 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
+                q_ts: Number(snap.trade_ts) || 0,
                 ...ah,
               }, _sweepNow);
               _healed++;
             }
             _stillStale = _staleList.filter((sym) => {
               const e = prices[sym];
-              const pAge = Number(e?.p_ts);
+              const pAge = Number(e?.q_ts) || Number(e?.p_ts);
               if (!(pAge > 0)) return true;
               return (_sweepNow - pAge) > STALE_SWEEP_MS;
             });
