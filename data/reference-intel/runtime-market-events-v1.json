@@ -34458,7 +34458,133 @@
         "event_type": "earnings",
         "event_name": "MSM Earnings",
         "impact": "high",
+        "surprise_pct": 12.25,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "BSET Earnings",
+        "impact": "high",
         "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "CULP Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "EACO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "ELLO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "FC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "FDS Earnings",
+        "impact": "high",
+        "surprise_pct": 0.75,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "FIZZ Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "GBX Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "HGYN Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "HIRU Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "JHI Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "NZF Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "PDT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "earnings",
+        "event_name": "UNF Earnings",
+        "impact": "high",
+        "surprise_pct": 12.55,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34468,7 +34594,7 @@
         "event_name": "Jun Non-Farm Payrolls",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.14,
+        "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
       {
@@ -34497,14 +34623,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 29.0492
+        "sql_duration_ms": 37.5768
       },
-      "duration": 29.0492,
+      "duration": 37.5768,
       "changes": 0,
-      "last_row_id": 256996,
+      "last_row_id": 19520,
       "changed_db": false,
-      "size_after": 4475191296,
-      "rows_read": 3832,
+      "size_after": 4599279616,
+      "rows_read": 3846,
       "rows_written": 0,
       "total_attempts": 1
     }
