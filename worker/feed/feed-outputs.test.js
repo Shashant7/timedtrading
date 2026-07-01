@@ -3,6 +3,7 @@ import {
   isPriceValueFresh,
   overlayTimedPricesRow,
   priceValueTimestamp,
+  quoteReceiptTimestamp,
 } from "./feed-outputs.js";
 
 describe("priceValueTimestamp", () => {
@@ -15,15 +16,37 @@ describe("priceValueTimestamp", () => {
   });
 });
 
-describe("isPriceValueFresh", () => {
-  it("treats week-old p_ts as stale outside RTH", () => {
-    const now = Date.now();
-    expect(isPriceValueFresh({ p_ts: now - 8 * 24 * 60 * 60 * 1000, t: now }, now, false)).toBe(false);
+describe("quoteReceiptTimestamp", () => {
+  it("prefers the newer of q_ts and p_ts", () => {
+    expect(quoteReceiptTimestamp({ q_ts: 5000, p_ts: 3000, t: 9000 })).toBe(5000);
+    expect(quoteReceiptTimestamp({ q_ts: 2000, p_ts: 7000, t: 9000 })).toBe(7000);
   });
 
-  it("accepts recent p_ts during RTH", () => {
+  it("does not fall back to poll t", () => {
+    expect(quoteReceiptTimestamp({ t: Date.now() })).toBe(0);
+  });
+});
+
+describe("isPriceValueFresh", () => {
+  it("treats week-old q_ts as stale outside RTH", () => {
     const now = Date.now();
-    expect(isPriceValueFresh({ p_ts: now - 5 * 60 * 1000, t: now }, now, true)).toBe(true);
+    const weekAgo = now - 8 * 24 * 60 * 60 * 1000;
+    expect(isPriceValueFresh({ q_ts: weekAgo, p_ts: weekAgo, t: now }, now, false)).toBe(false);
+  });
+
+  it("accepts recent q_ts during RTH within 10 minutes", () => {
+    const now = Date.now();
+    expect(isPriceValueFresh({ q_ts: now - 5 * 60 * 1000, t: now }, now, true)).toBe(true);
+  });
+
+  it("rejects RTH quotes older than 10 minutes even when poll t is fresh (GS zombie)", () => {
+    const now = Date.now();
+    expect(isPriceValueFresh({
+      p: 1090.67,
+      t: now,
+      q_ts: now - 11 * 60 * 1000,
+      p_ts: now - 11 * 60 * 1000,
+    }, now, true)).toBe(false);
   });
 });
 
@@ -36,10 +59,26 @@ describe("overlayTimedPricesRow", () => {
     expect(out).toBe(obj);
   });
 
+  it("skips overlay when quote receipt is older than 10m during RTH even if poll t is fresh", () => {
+    const now = Date.now();
+    const obj = { ticker: "GS", price: 800, close: 800, prev_close: 780 };
+    const pf = {
+      p: 1090.67,
+      pc: 1020,
+      dp: 6.84,
+      t: now,
+      q_ts: now - 11 * 60 * 1000,
+      p_ts: now - 11 * 60 * 1000,
+    };
+    const out = overlayTimedPricesRow(obj, pf, { sym: "GS", marketOpen: true });
+    expect(out.price).toBe(800);
+    expect(out._live_price).toBeUndefined();
+  });
+
   it("skips overlay when p_ts is a week old (GS zombie)", () => {
     const now = Date.now();
     const obj = { ticker: "GS", price: 1090.67, close: 1090.67, prev_close: 1020 };
-    const pf = { p: 1090.67, pc: 1020, dp: 6.84, t: now, p_ts: now - 8 * 24 * 60 * 60 * 1000 };
+    const pf = { p: 1090.67, pc: 1020, dp: 6.84, t: now, p_ts: now - 8 * 24 * 60 * 60 * 1000, q_ts: now - 8 * 24 * 60 * 60 * 1000 };
     const out = overlayTimedPricesRow(obj, pf, { sym: "GS", marketOpen: false });
     expect(out).toBe(obj);
     expect(out._price_value_ts).toBeUndefined();
@@ -56,6 +95,7 @@ describe("overlayTimedPricesRow", () => {
       ahdp: -0.33,
       t: now,
       p_ts: now - 60 * 1000,
+      q_ts: now - 60 * 1000,
     };
     const out = overlayTimedPricesRow(obj, pf, { sym: "GS", marketOpen: false });
     expect(out.price).toBe(1045.5);

@@ -22,7 +22,8 @@ import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
 import { isNyRegularMarketOpen } from "../market-calendar.js";
 
-export const PF_FRESH_MS = 30 * 60 * 1000;
+/** RTH: quote older than 10m is stale (operator rule). Not poll `t` — GS refreshed `t` every minute while `p` stuck at 1090. */
+export const PF_FRESH_MS = 10 * 60 * 1000;
 /** Outside RTH the last trade clock ages normally — 26h catches week-old zombies. */
 export const PF_VALUE_FRESH_MS_CLOSED = 26 * 60 * 60 * 1000;
 
@@ -37,8 +38,16 @@ export function priceValueTimestamp(pf) {
   return Number(pf?.p_ts) || 0;
 }
 
+/** Vendor quote receipt (`q_ts`) — TwelveData trade_ts / last_quote_at when REST last wrote the row. */
+export function quoteReceiptTimestamp(pf) {
+  const q = Number(pf?.q_ts) || 0;
+  const p = priceValueTimestamp(pf);
+  if (q > 0 && p > 0) return Math.max(q, p);
+  return q > 0 ? q : p;
+}
+
 export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {
-  const ts = priceValueTimestamp(pf);
+  const ts = quoteReceiptTimestamp(pf);
   if (!(ts > 0)) return false;
   const maxAge = marketOpen ? PF_FRESH_MS : PF_VALUE_FRESH_MS_CLOSED;
   return (nowMs - ts) <= maxAge;
@@ -63,9 +72,10 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   const tickFresh = isPriceFeedTickFresh(pf);
   const valueFresh = isPriceValueFresh(pf, Date.now(), marketOpen);
   const pfValueTs = priceValueTimestamp(pf);
+  const pfQuoteTs = quoteReceiptTimestamp(pf);
 
   // Never poison /timed/all with week-old prints (GS @ 1090). Cron refreshes
-  // `t` every minute even when `p` is a zombie — gate on p_ts.
+  // `t` every minute even when `p` is a zombie — gate on q_ts / p_ts, not poll `t`.
   if (!valueFresh) return obj;
 
   obj.price = pfP;
@@ -73,8 +83,9 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   obj._live_daily_high = pf.dh;
   obj._live_daily_low = pf.dl;
   obj._live_daily_volume = pf.dv;
-  obj._price_updated_at = Math.max(pricesUpdatedAt, pfValueTs, Number(pf.t) || 0);
+  obj._price_updated_at = Math.max(pricesUpdatedAt, pfQuoteTs, pfValueTs, Number(pf.t) || 0);
   obj._price_value_ts = pfValueTs;
+  if (pfQuoteTs > 0) obj._quote_receipt_ts = pfQuoteTs;
 
   // Outside RTH, pf.p is today's RTH close (extended print is ahp).
   // Scoring snapshots often leave close == prev_close; cards must not

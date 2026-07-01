@@ -79,6 +79,51 @@ export function buildExtendedHoursFields(snap, displayPrice, useDp, marketClosed
   return { extP: 0, extDc: 0, extDp: 0 };
 }
 
+/** True when timed:prices `p` moved enough to refresh p_ts. */
+export function priceFeedPriceChanged(prevP, nextP) {
+  const a = Number(prevP);
+  const b = Number(nextP);
+  if (!(a > 0 && b > 0)) return true;
+  return Math.abs(a - b) / a > 0.0005;
+}
+
+/** Cached ahp disagrees with today's RTH close by more than 1.5%. */
+export function cachedAhpLooksStale(displayPrice, prevAhp) {
+  const p = Number(displayPrice);
+  const a = Number(prevAhp);
+  if (!(p > 0 && a > 0)) return false;
+  return Math.abs(p - a) / p > 0.015;
+}
+
+/**
+ * Decide whether to publish, preserve, or drop ahp/ahdc/ahdp on a KV row.
+ * GS @ 1090: when RTH close rolls forward but TwelveData sends no fresh
+ * extended tick, blindly keeping prev.ahp leaves last session's close on the
+ * EXT line. Drop cached AH whenever `p` moved or the cache fails the 1.5%
+ * drift check; preserve only when the session close is unchanged overnight.
+ */
+export function resolveAhPersistence(prev, ext, displayPrice, marketClosed, pChanged) {
+  const { extP = 0, extDc = 0, extDp = 0 } = ext || {};
+  if (extDc !== 0 && extP > 0) {
+    return { ahp: extP, ahdc: extDc, ahdp: extDp };
+  }
+  if (!marketClosed || pChanged || cachedAhpLooksStale(displayPrice, prev?.ahp)) {
+    return {};
+  }
+  const out = {};
+  if (prev?.ahp !== undefined) out.ahp = prev.ahp;
+  if (prev?.ahdc !== undefined) out.ahdc = prev.ahdc;
+  if (prev?.ahdp !== undefined) out.ahdp = prev.ahdp;
+  return out;
+}
+
+/** Strip prior AH keys before merging resolveAhPersistence() output. */
+export function stripAhFields(row) {
+  if (!row || typeof row !== "object") return {};
+  const { ahp, ahdc, ahdp, ...rest } = row;
+  return rest;
+}
+
 /** True during weekday extended session (4 AM–8 PM ET, market closed). */
 export function isExtendedOperatingSession(marketClosed, isWithinOperatingHours) {
   return marketClosed

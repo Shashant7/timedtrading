@@ -31,17 +31,16 @@ import {
 } from "./day-trade-game-plan.js";
 import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
-const PF_VALUE_FRESH_MS_OPEN = 30 * 60 * 1000;
-const PF_VALUE_FRESH_MS_CLOSED = 26 * 60 * 60 * 1000;
+import { quoteReceiptTimestamp, PF_FRESH_MS, PF_VALUE_FRESH_MS_CLOSED } from "./feed/feed-outputs.js";
 
 export function priceFeedValueTsMs(row) {
-  return Number(row?.p_ts) || 0;
+  return quoteReceiptTimestamp(row);
 }
 
 export function isPriceFeedRowFresh(row, marketOpen = true, nowMs = Date.now()) {
   const ts = priceFeedValueTsMs(row);
   if (!(ts > 0)) return false;
-  const maxAge = marketOpen ? PF_VALUE_FRESH_MS_OPEN : PF_VALUE_FRESH_MS_CLOSED;
+  const maxAge = marketOpen ? PF_FRESH_MS : PF_VALUE_FRESH_MS_CLOSED;
   return (nowMs - ts) <= maxAge;
 }
 

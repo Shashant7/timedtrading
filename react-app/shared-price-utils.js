@@ -37,17 +37,20 @@
     return m >= 570 && m < 960;
   }
 
-  // Price feed freshness — uses p_ts (last time p moved), not poll t.
-  // Catches GS-style zombies where cron refreshes t every minute but p stuck at 1090.
-  function getPriceValueAgeMs(t) {
-    var ts = Number(t?._price_value_ts);
+  // Price feed freshness — uses q_ts (vendor quote) / p_ts, NOT poll t.
+  // GS: cron refreshed t every minute while p stuck at Jun-16 1090.
+  function getPriceReceiptAgeMs(t) {
+    var ts = Number(t?._quote_receipt_ts) || Number(t?._price_value_ts);
     if (!(ts > 0)) return Infinity;
     return Date.now() - ts;
   }
 
+  // Legacy alias — same receipt clock (q_ts / p_ts), not poll t.
+  var getPriceValueAgeMs = getPriceReceiptAgeMs;
+
   function isPriceFeedFresh(t) {
-    var maxMs = isNyRegularMarketOpen() ? 30 * 60 * 1000 : 26 * 60 * 60 * 1000;
-    return getPriceValueAgeMs(t) <= maxMs;
+    var maxMs = isNyRegularMarketOpen() ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
+    return getPriceReceiptAgeMs(t) <= maxMs;
   }
 
   // ── Age label (e.g. "3m ago") ──
@@ -99,7 +102,7 @@
     var marketOpen = isNyRegularMarketOpen();
     if (marketOpen) {
       var live = Number(t._live_price);
-      if (live > 0) return live;
+      if (live > 0 && isPriceFeedFresh(t)) return live;
       var openPx = Number(t.price ?? t.close);
       return openPx > 0 ? openPx : null;
     }
@@ -526,6 +529,14 @@
       pct = Math.round(((px - headline) / headline) * 10000) / 100;
       chg = Math.round((px - headline) * 100) / 100;
       if (extDerivedFromStaleRthBaseline(t, headline, pct) || extPctMirrorsRthSession(pct, t)) {
+        return null;
+      }
+      // GS @ 1090: cached ahp can be last session's RTH close while headline
+      // moved; stale ahdp still carries +6.84% RTH move. Suppress when the
+      // cached pct disagrees materially with the price-derived EXT move.
+      var cachedAhdp = Number(t._ah_change_pct ?? t.extended_percent_change);
+      if (Number.isFinite(cachedAhdp) && Math.abs(cachedAhdp) > 3
+          && Math.abs(cachedAhdp - pct) > Math.max(2, Math.abs(pct) * 2)) {
         return null;
       }
     } else if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05 && !(px > 0)) {
