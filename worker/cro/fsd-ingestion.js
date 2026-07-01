@@ -710,6 +710,21 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     console.warn(`[CRO_INGESTION] macro-calendar extract threw pub=${pub.id}: ${String(e?.message || e).slice(0, 200)}`);
   }
 
+  // Monthly Upticks list — parse additions/deletions and sync timed:admin:upticks.
+  try {
+    if (text && text.length > 80) {
+      const { syncUpticksFromPublication } = await import("./upticks-sync.js");
+      const up = await syncUpticksFromPublication(env, pub.id, { title: pub.title, ctx: null });
+      if (up?.diff?.added_count > 0 || up?.diff?.removed_count > 0) {
+        console.log(`[CRO_INGESTION] upticks-sync pub=${pub.id} +${up.diff.added_count}/-${up.diff.removed_count}`);
+      } else if (up?.error_kind === "parse_empty") {
+        console.warn(`[CRO_INGESTION] upticks-sync parse_empty pub=${pub.id}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[CRO_INGESTION] upticks-sync threw pub=${pub.id}: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
   // 2026-06-03 — Per-pub Discord notification for FlashInsights that
   // mention an active-universe ticker. Skips long-form posts (those go
   // through the daily synthesis-summary Discord) and skips pubs without
