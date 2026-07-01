@@ -2744,6 +2744,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1782858033838:807659911
+// cache-bust:1782878786462:593244580
 
-// cache-bust:1782858033838:807659911
+// cache-bust:1782878786462:593244580

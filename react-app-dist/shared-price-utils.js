@@ -528,6 +528,14 @@
       if (extDerivedFromStaleRthBaseline(t, headline, pct) || extPctMirrorsRthSession(pct, t)) {
         return null;
       }
+      // GS @ 1090: cached ahp can be last session's RTH close while headline
+      // moved; stale ahdp still carries +6.84% RTH move. Suppress when the
+      // cached pct disagrees materially with the price-derived EXT move.
+      var cachedAhdp = Number(t._ah_change_pct ?? t.extended_percent_change);
+      if (Number.isFinite(cachedAhdp) && Math.abs(cachedAhdp) > 3
+          && Math.abs(cachedAhdp - pct) > Math.max(2, Math.abs(pct) * 2)) {
+        return null;
+      }
     } else if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05 && !(px > 0)) {
       // Reject ahdp that mirrors RTH day change (GS +6.84% EXT bleed when AH flat).
       if (extPctMirrorsRthSession(pct, t)) {
@@ -930,4 +938,4 @@
   };
 })();
 
-// cache-bust:1782833594317:541539130
+// cache-bust:1782878786462:593244580

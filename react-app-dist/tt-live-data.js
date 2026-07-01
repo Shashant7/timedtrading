@@ -185,7 +185,7 @@
             const ahdc = Number(p.ahdc);
             const ahdp = Number(p.ahdp);
 
-            next[key] = {
+            const updated = {
               ...existing,
               ...(marketOpen
                 ? { price: feedP, _live_price: feedP }
@@ -198,10 +198,17 @@
               // across the close (see rule). Safe to apply in both states.
               ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
               ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-              ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
-              ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
-              ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
             };
+            if (Number.isFinite(ahp) && ahp > 0) {
+              updated._ah_price = ahp;
+              if (Number.isFinite(ahdc)) updated._ah_change = ahdc;
+              if (Number.isFinite(ahdp)) updated._ah_change_pct = ahdp;
+            } else if (!marketOpen) {
+              delete updated._ah_price;
+              delete updated._ah_change;
+              delete updated._ah_change_pct;
+            }
+            next[key] = updated;
             changed = true;
           }
           return changed ? next : prev;
@@ -316,7 +323,7 @@
           const ahp = Number(p.ahp);
           const ahdc = Number(p.ahdc);
           const ahdp = Number(p.ahdp);
-          next[key] = {
+          const updated = {
             ...existing,
             ...(marketOpen
               ? { price: feedP, _live_price: feedP }
@@ -327,10 +334,17 @@
             ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
             ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
             ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-            ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
-            ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
-            ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
           };
+          if (Number.isFinite(ahp) && ahp > 0) {
+            updated._ah_price = ahp;
+            if (Number.isFinite(ahdc)) updated._ah_change = ahdc;
+            if (Number.isFinite(ahdp)) updated._ah_change_pct = ahdp;
+          } else if (!marketOpen) {
+            delete updated._ah_price;
+            delete updated._ah_change;
+            delete updated._ah_change_pct;
+          }
+          next[key] = updated;
         }
         return changed ? next : prev;
       });
@@ -394,4 +408,4 @@
   window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
 })();
 
-// cache-bust:1782833594317:541539130
+// cache-bust:1782878786462:593244580
