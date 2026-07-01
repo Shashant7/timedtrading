@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   isPriceValueFresh,
   overlayTimedPricesRow,
+  overlayLivePricesOntoMap,
   priceValueTimestamp,
   quoteReceiptTimestamp,
 } from "./feed-outputs.js";
@@ -145,5 +146,65 @@ describe("overlayTimedPricesRow", () => {
     const out = overlayTimedPricesRow(obj, pf, { sym: "MLI", marketOpen: true });
     expect(out.prev_close).toBeCloseTo(122.84, 1);
     expect(Math.abs(out.day_change_pct)).toBeLessThan(1);
+  });
+});
+
+describe("overlayLivePricesOntoMap", () => {
+  const freshPf = (now, p, pc) => ({ p, pc, dp: 1.2, dc: 1, t: now, p_ts: now - 60_000, q_ts: now - 60_000 });
+
+  it("stamps _live_price + freshness timestamps on every row with a fresh feed", () => {
+    const now = Date.now();
+    const map = {
+      XLI: { ticker: "XLI", price: 183.58, close: 183.58, prev_close: 183.58 },
+      BRKB: { ticker: "BRKB", price: 500, close: 500, prev_close: 500 },
+    };
+    const livePrices = {
+      updated_at: now,
+      prices: { XLI: freshPf(now, 185.23, 183.58), BRKB: freshPf(now, 505, 500) },
+    };
+    const res = overlayLivePricesOntoMap(map, livePrices, { marketOpen: true });
+    expect(res.overlaid).toBe(2);
+    expect(map.XLI._live_price).toBe(185.23);
+    expect(map.XLI._price_value_ts).toBe(now - 60_000);
+    expect(map.XLI._quote_receipt_ts).toBe(now - 60_000);
+  });
+
+  it("only overlays the provided symbols when opts.symbols is set (position re-overlay pass)", () => {
+    const now = Date.now();
+    // Freshly-injected position row that missed the first overlay pass.
+    const map = {
+      XLI: { ticker: "XLI", has_open_position: true, ts: now },
+      AAPL: { ticker: "AAPL", price: 200, close: 200, prev_close: 200 },
+    };
+    const livePrices = {
+      updated_at: now,
+      prices: { XLI: freshPf(now, 185.23, 183.58), AAPL: freshPf(now, 205, 200) },
+    };
+    const res = overlayLivePricesOntoMap(map, livePrices, { symbols: new Set(["XLI"]), marketOpen: true });
+    expect(res.overlaid).toBe(1);
+    expect(map.XLI._live_price).toBe(185.23);
+    expect(map.XLI._price_value_ts).toBe(now - 60_000);
+    // AAPL was not in the symbol set — untouched by this scoped pass.
+    expect(map.AAPL._live_price).toBeUndefined();
+  });
+
+  it("no-ops safely on a missing feed or empty map", () => {
+    expect(overlayLivePricesOntoMap({}, null).overlaid).toBe(0);
+    expect(overlayLivePricesOntoMap({}, { prices: {} }).overlaid).toBe(0);
+    expect(overlayLivePricesOntoMap(null, { prices: { X: {} } }).overlaid).toBe(0);
+  });
+
+  it("skips a symbol with no fresh feed row (no fabricated freshness)", () => {
+    const now = Date.now();
+    const map = { XLI: { ticker: "XLI", has_open_position: true, ts: now } };
+    // Stale quote (>10m during RTH) — overlay must not stamp freshness.
+    const livePrices = {
+      updated_at: now,
+      prices: { XLI: { p: 185, pc: 183, t: now, p_ts: now - 11 * 60_000, q_ts: now - 11 * 60_000 } },
+    };
+    const res = overlayLivePricesOntoMap(map, livePrices, { marketOpen: true });
+    expect(res.overlaid).toBe(1);
+    expect(map.XLI._live_price).toBeUndefined();
+    expect(map.XLI._price_value_ts).toBeUndefined();
   });
 });

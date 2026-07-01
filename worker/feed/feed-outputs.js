@@ -229,6 +229,44 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   return obj;
 }
 
+/**
+ * Overlay canonical timed:prices onto a ticker map so every served row carries
+ * a settled `_live_price` + `_price_value_ts` / `_quote_receipt_ts`. Used by the
+ * /timed/all cache paths to keep freshness metadata consistent across the
+ * micro-cache fast path and the full assembly path — a row that is fresh on one
+ * path but bare on another makes the client flap between the live tick and the
+ * prior-day scoring snapshot (Active Trader BRK-B / XLI incident).
+ *
+ * @param map        ticker → payload object (mutated in place)
+ * @param livePrices timed:prices blob ({ prices, updated_at })
+ * @param opts       { symbols?: iterable of syms to limit to; marketOpen?; dailyPc?: {sym:pc} }
+ * @returns { overlaid }
+ */
+export function overlayLivePricesOntoMap(map, livePrices, opts = {}) {
+  if (!map || !livePrices || !livePrices.prices) return { overlaid: 0 };
+  const pricesUpdatedAt = Number(livePrices.updated_at) || Date.now();
+  const marketOpen = opts.marketOpen !== false;
+  const dailyPc = opts.dailyPc || {};
+  const syms = opts.symbols ? Array.from(opts.symbols) : Object.keys(map);
+  let overlaid = 0;
+  for (const rawSym of syms) {
+    const sym = String(rawSym || "").toUpperCase();
+    if (!sym) continue;
+    const row = map[sym];
+    if (!row) continue;
+    const pf = livePrices.prices[sym];
+    if (!pf || !(Number(pf.p) > 0)) continue;
+    overlayTimedPricesRow(row, pf, {
+      sym,
+      pricesUpdatedAt,
+      dailyCandlePc: Number(dailyPc[sym]) || 0,
+      marketOpen,
+    });
+    overlaid += 1;
+  }
+  return { overlaid };
+}
+
 function candleBucketTsMs(tsMs, tfMinutes) {
   const bucketMs = Number(tfMinutes) * 60 * 1000;
   if (!Number.isFinite(bucketMs) || bucketMs <= 0) return 0;

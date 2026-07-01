@@ -104,7 +104,18 @@
       var live = Number(t._live_price);
       if (live > 0 && isPriceFeedFresh(t)) return live;
       var openPx = Number(t.price ?? t.close);
-      return openPx > 0 ? openPx : null;
+      // Flap guard: a scoring snapshot can leave price/close == prev_close
+      // (yesterday's reference). During RTH, rendering that as the headline
+      // makes the card oscillate between prev-day and live. Prefer the live
+      // tick when the fallback is essentially the prior close.
+      var rthPrev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+      if (live > 0 && rthPrev > 0 && openPx > 0
+          && Math.abs(openPx - rthPrev) / rthPrev < 0.001
+          && Math.abs(live - rthPrev) / rthPrev > 0.001) {
+        return live;
+      }
+      if (openPx > 0) return openPx;
+      return live > 0 ? live : null;
     }
     var px = Number(t.price ?? t._live_price);
     var live = Number(t._live_price);
@@ -947,4 +958,4 @@
   };
 })();
 
-// cache-bust:1782881788809:325429953
+// cache-bust:1782918563162:394747682

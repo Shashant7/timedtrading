@@ -26,6 +26,78 @@ against a live quote before committing money.
 
 ---
 
+## Investor holdings demoted to not-owned by phantom-column SQL [2026-07-01]
+
+The Investor nav badge was blank and holdings vanished from the kanban even
+after the engine entered AMD/NBIS and exited STRL. Root cause: the read-time
+ownership overlay in `GET /timed/investor/scores` and `/timed/investor/:ticker`
+selected `last_action_type/ts/shares/reason` FROM `investor_positions`, but
+those columns live on `investor_lots`. The SELECT threw "no such column", the
+surrounding try/catch swallowed it, the open-position map came back EMPTY, and
+EVERY cached `owned:true` row was demoted to `owned:false`
+(`_ownership_overlay: "closed_since_compute"`). KV had the truth (owned:true)
+but the API contradicted it → holdings fell out of Holdings/Hold&Watch into On
+Radar, and the badge counted nothing. Fix: mirror the compute cron and LEFT
+JOIN the latest `investor_lots` row per position. LESSON: a `catch {}` around a
+D1 query that feeds an "authoritative overlay" turns a schema mismatch into a
+silent, total data inversion — never select columns that don't exist, and make
+overlay catches log loudly. Verified live: 17/17 holdings owned again.
+Separately, the Investor nav badge now counts owned holdings (mirrors the
+Trader badge = open-trade count) so entries light the tab, not only buy-ready
+/ reduce actionable rows.
+
+---
+
+## /timed/all micro-cache dropped freshness on injected positions [2026-07-01]
+
+Follow-up to the BRK-B / XLI flap fix (#953). The `/timed/all` micro-cache
+fast path overlaid `timed:prices` BEFORE injecting open positions from D1,
+then never re-overlaid. A freshly-entered position ticker not yet in the
+scoring snapshot went out with position fields but NO `_live_price` /
+`_price_value_ts` / `_quote_receipt_ts`. The full assembly path overlays
+AFTER injection, so the two cache paths disagreed — the client saw fresh
+data on one poll and a bare prior-day snapshot on the next → headline flap.
+Fix: `overlayLivePricesOntoMap()` (worker/feed/feed-outputs.js) + a scoped
+re-overlay of the open-position syms on the micro path. LESSON: any code
+path that injects rows AFTER a `timed:prices` overlay must re-overlay them,
+or the client loses the freshness metadata `isPriceFeedFresh` depends on.
+Never fabricate freshness — skip stale/absent feed rows so ages stay honest.
+
+---
+
+## Macro alert broadcast a fabricated PMI (55.7 vs real 53.9) [2026-07-01]
+
+Discord #general + Today strip showed "Jun F S&P Manu PMI — released 55.7,
+IN LINE" while the real print was 53.9 vs 51.6. The event was LLM-extracted
+from an FSD note by `macro-event-extractor.js`; `actual === estimate` (both
+55.7) is the fabrication signature — the model reused June's *preliminary*
+55.7 as both the estimate and the "actual" for the July-1 Final. S&P Global
+PMI is NOT in FRED, so there was no authoritative cross-check. Fix:
+`macroReleaseIsTrustworthy()` gates the hard release alert to FRED/curated
+actuals or FSD prints genuinely distinct from consensus; the extractor drops
+a copied `actual === estimate` at the source (FRED refills majors, non-FRED
+show estimate only). NEVER broadcast an LLM-derived macro `actual` without
+corroboration — a forecast is not a release.
+
+---
+
+## Fresh entries flagged "Stop breached" from prev-day price flap [2026-07-01]
+
+Active Trader showed "Stop breached"/"Exit signal" on positions entered
+seconds earlier (BRK-B, XLI). `isPricePastStop` took the worst-case print
+(min for LONG) across `price`/`close`/`ahp` — and while the live feed
+settled, one candidate held the PRIOR-DAY close, which sits below a stop
+placed just under today's entry → false breach. Also the headline itself
+flapped 183.58↔185.23 (live vs prev close) because `getHeadlinePrice`'s RTH
+fallback rendered a snapshot `price` that equalled `prev_close`. Fix:
+breach check only weighs current-session prints (session headline + fresh
+live tick RTH; ext print OOH), filters exact prev-close, and a 3-min
+post-entry grace; `getHeadlinePrice` prefers live over a prev-close-equal
+fallback during RTH. Server feed was healthy (0 stale) — this was a client
+rendering issue. NEVER mix prev-day/`close`/`ahp` into an RTH breach test.
+
+---
+
 ## Daily Brief pre-market gap used stale pc instead of last RTH close [2026-07-01]
 
 Morning brief said SPY gapped from "Tuesday's $741.00 close" when $741
@@ -35,6 +107,17 @@ uses `p`, but `buildPremarketGapContext` and `validateMarketData()`
 used `pc` for "prior session close". Fix: `priorRthCloseFromPriceFeedRow()`
 returns `p` when RTH is closed. Do NOT "fix" KV `pc` on day-roll without
 understanding dc/dp preservation — brief gap math must use `p`, not `pc`.
+
+---
+
+## Sanity sweep candle_freshness_open false alarm at 9:30 ET [2026-07-01]
+
+At RTH open, open-position 60m/30m bars from yesterday are ~18h/14h by
+wall clock but are still the best available until the first bar of the
+session closes. `effectiveCandleAgeMs` now grants per-TF grace (60m→60min,
+30m→30min, …) after today's open when the newest bar is from the last
+completed session. Fast sanity sweep persists to KV only — Discord alerts
+come from the hourly full sweep (prevents duplicate :00 posts).
 
 ---
 
