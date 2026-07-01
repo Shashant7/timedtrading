@@ -6,6 +6,28 @@
 
 ---
 
+## Investor holdings demoted to not-owned by phantom-column SQL [2026-07-01]
+
+The Investor nav badge was blank and holdings vanished from the kanban even
+after the engine entered AMD/NBIS and exited STRL. Root cause: the read-time
+ownership overlay in `GET /timed/investor/scores` and `/timed/investor/:ticker`
+selected `last_action_type/ts/shares/reason` FROM `investor_positions`, but
+those columns live on `investor_lots`. The SELECT threw "no such column", the
+surrounding try/catch swallowed it, the open-position map came back EMPTY, and
+EVERY cached `owned:true` row was demoted to `owned:false`
+(`_ownership_overlay: "closed_since_compute"`). KV had the truth (owned:true)
+but the API contradicted it → holdings fell out of Holdings/Hold&Watch into On
+Radar, and the badge counted nothing. Fix: mirror the compute cron and LEFT
+JOIN the latest `investor_lots` row per position. LESSON: a `catch {}` around a
+D1 query that feeds an "authoritative overlay" turns a schema mismatch into a
+silent, total data inversion — never select columns that don't exist, and make
+overlay catches log loudly. Verified live: 17/17 holdings owned again.
+Separately, the Investor nav badge now counts owned holdings (mirrors the
+Trader badge = open-trade count) so entries light the tab, not only buy-ready
+/ reduce actionable rows.
+
+---
+
 ## /timed/all micro-cache dropped freshness on injected positions [2026-07-01]
 
 Follow-up to the BRK-B / XLI flap fix (#953). The `/timed/all` micro-cache

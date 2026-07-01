@@ -53,6 +53,14 @@
       var t = rows[i];
       if (!t || typeof t !== "object") continue;
       var stage = String(t.stage || t.investor_stage || "").toLowerCase();
+      if (stage === "exited") continue;
+      // Owned holdings count (mirrors the Trader tab badge = open-trade count)
+      // so entering a position lights the Investor tab. Each ticker counts
+      // once; unowned rows still count when actionable (reduce / buy-ready).
+      if (t.position && t.position.owned) {
+        n++;
+        continue;
+      }
       if (stage === "reduce") {
         n++;
         continue;
@@ -69,4 +77,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1782913438035:776621603
+// cache-bust:1782918563162:394747682
