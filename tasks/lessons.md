@@ -6,6 +6,22 @@
 
 ---
 
+## Macro alert broadcast a fabricated PMI (55.7 vs real 53.9) [2026-07-01]
+
+Discord #general + Today strip showed "Jun F S&P Manu PMI — released 55.7,
+IN LINE" while the real print was 53.9 vs 51.6. The event was LLM-extracted
+from an FSD note by `macro-event-extractor.js`; `actual === estimate` (both
+55.7) is the fabrication signature — the model reused June's *preliminary*
+55.7 as both the estimate and the "actual" for the July-1 Final. S&P Global
+PMI is NOT in FRED, so there was no authoritative cross-check. Fix:
+`macroReleaseIsTrustworthy()` gates the hard release alert to FRED/curated
+actuals or FSD prints genuinely distinct from consensus; the extractor drops
+a copied `actual === estimate` at the source (FRED refills majors, non-FRED
+show estimate only). NEVER broadcast an LLM-derived macro `actual` without
+corroboration — a forecast is not a release.
+
+---
+
 ## Daily Brief pre-market gap used stale pc instead of last RTH close [2026-07-01]
 
 Morning brief said SPY gapped from "Tuesday's $741.00 close" when $741
