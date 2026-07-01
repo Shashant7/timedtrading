@@ -21,4 +21,8 @@ describe("sanity sweep discord routing", () => {
     expect(sanitySweepSrc).toContain("computeMarketSessionReference");
     expect(sanitySweepSrc).not.toContain("staleThresholdMs");
   });
+
+  it("fast sweep persists only — Discord alerts come from full hourly sweep", () => {
+    expect(sanitySweepSrc).toContain('if (kind === "fast") return sweep;');
+  });
 });

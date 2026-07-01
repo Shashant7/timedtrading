@@ -199,6 +199,50 @@ describe("getExtChange", () => {
   });
 });
 
+describe("getHeadlinePrice RTH flap guard", () => {
+  let utils;
+
+  beforeAll(() => {
+    utils = loadPriceUtils();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function mockMarketOpen() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "7/1/2026, 10:30:00";
+      }
+      return "7/1/2026, 10:30:00";
+    });
+  }
+
+  it("returns fresh live tick during RTH", () => {
+    mockMarketOpen();
+    const px = utils.getHeadlinePrice(withFreshPrice({
+      ticker: "XLI", price: 183.58, _live_price: 183.58, prev_close: 185.23,
+    }));
+    expect(px).toBeCloseTo(183.58, 2);
+  });
+
+  it("prefers live over a stale snapshot price that equals prev close (flap)", () => {
+    mockMarketOpen();
+    // Live feed stale (no receipt ts) but snapshot price == prev_close.
+    // Must not render yesterday's close as the headline.
+    const px = utils.getHeadlinePrice({
+      ticker: "XLI",
+      price: 185.23,
+      close: 185.23,
+      prev_close: 185.23,
+      _live_prev_close: 185.23,
+      _live_price: 183.58,
+    });
+    expect(px).toBeCloseTo(183.58, 2);
+  });
+});
+
 describe("getBubbleFillChange", () => {
   let utils;
 
