@@ -16,6 +16,28 @@
 //  MacroEvents() then prefers these FSD-sourced events over the curated floor.
 
 import { loadPublicationText } from "./fsd-ingestion.js";
+import { parseEconNumber } from "../macro-release-alerts.js";
+
+/**
+ * An LLM-extracted `actual` that exactly equals the `estimate` is almost
+ * always the model copying a single forecast into both fields (a forecast is
+ * not a release). Drop it so the Today strip / release alert never present an
+ * unverified figure — FRED will fill the authoritative actual for majors, and
+ * non-FRED events honestly show the estimate only until confirmed.
+ */
+export function dropCopiedForecastActual(row) {
+  if (!row || row.actual == null || row.actual === "") return row;
+  const a = parseEconNumber(row.actual);
+  const e = parseEconNumber(row.estimate);
+  if (a != null && e != null) {
+    const tol = Math.max(Math.abs(e) * 0.001, 1e-9);
+    if (Math.abs(a - e) <= tol) {
+      row.actual = null;
+      row.actual_source = null;
+    }
+  }
+  return row;
+}
 
 const STORE_KEY = "cro:macro:events:fsd";
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -68,6 +90,7 @@ function buildPrompt(text, pubDateISO) {
         "Include ONLY scheduled US economic data releases and Federal Reserve events (e.g., Non-Farm Payrolls, CPI, PPI, PCE, JOLTS, Retail Sales, ISM/PMI, FOMC rate decision, Fed Chair remarks, GDP, sentiment surveys).",
         "EXCLUDE: single-company earnings, price targets, ticker commentary, non-US data.",
         "For each event capture the date (resolve to YYYY-MM-DD using the note's date for year/month context), the ET time if given, the estimate (consensus) if given, and the ACTUAL if the note shows it was already released (e.g. '54.0 vs 53.0e' → actual 54.0, estimate 53.0).",
+        "CRITICAL: set 'actual' ONLY when the note clearly reports a value that already printed (phrases like 'came in at', 'reported', 'actual', or an explicit 'X vs Ye'). If the note only gives a forecast/consensus/preview/estimate, set actual to null and put the number in 'estimate'. NEVER copy the estimate into the actual field — a forecast is not a release.",
         "impact: high (NFP/CPI/PPI/PCE/FOMC/Retail Sales), medium (JOLTS/ISM/PMI/GDP/sentiment/housing), low (everything else).",
         "kind: one of jobs|inflation|fomc|consumer|manufacturing|housing|growth|sentiment|trade|other.",
       ].join("\n"),
@@ -157,6 +180,7 @@ export async function extractMacroEventsFromPublication(env, pubId, { title = nu
       src_pub: pubId,
       src_date: nowPub,
     };
+    dropCopiedForecastActual(next);
     // Only overwrite if this note is same-or-newer than the stored one.
     if (!prev || nowPub >= (prev.src_date || "")) {
       store.byKey[key] = next;

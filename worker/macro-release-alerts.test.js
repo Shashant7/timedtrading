@@ -4,8 +4,10 @@ import {
   classifySurprise,
   computeMacroPollSchedule,
   macroEventNormKey,
+  macroReleaseIsTrustworthy,
   ruleBasedReleaseSummary,
 } from "./macro-release-alerts.js";
+import { dropCopiedForecastActual } from "./cro/macro-event-extractor.js";
 
 describe("parseEconNumber", () => {
   it("parses K/M suffixes and percents", () => {
@@ -40,6 +42,54 @@ describe("computeMacroPollSchedule", () => {
       { date: "2026-07-02", time_et: "8:30 AM", name: "NFP" },
     ], now);
     expect(schedule.poll_interval_ms).toBeGreaterThanOrEqual(300_000);
+  });
+});
+
+describe("macroReleaseIsTrustworthy", () => {
+  it("trusts authoritative FRED / curated actuals", () => {
+    expect(macroReleaseIsTrustworthy({ actual: "139K", estimate: "85K", actual_source: "fred" })).toBe(true);
+    expect(macroReleaseIsTrustworthy({ actual: "55.7", estimate: "55.7", actual_source: "fred" })).toBe(true);
+    expect(macroReleaseIsTrustworthy({ actual: "50.0", estimate: "50.0", actual_source: "curated" })).toBe(true);
+  });
+
+  it("rejects FSD actual that equals estimate (copied-forecast fabrication)", () => {
+    // The exact Jun S&P Manufacturing PMI bug: 55.7 actual / 55.7 est / IN LINE.
+    expect(macroReleaseIsTrustworthy({
+      name: "Jun F S&P Manu PMI", actual: "55.7", estimate: "55.7", actual_source: "fsd",
+    })).toBe(false);
+  });
+
+  it("rejects FSD actual with no estimate to corroborate", () => {
+    expect(macroReleaseIsTrustworthy({ actual: "55.7", estimate: null, actual_source: "fsd" })).toBe(false);
+  });
+
+  it("allows FSD actual that is genuinely distinct from consensus (real X vs Ye)", () => {
+    expect(macroReleaseIsTrustworthy({
+      name: "Jun ISM Manufacturing PMI", actual: "53.9", estimate: "51.6", actual_source: "fsd",
+    })).toBe(true);
+  });
+});
+
+describe("dropCopiedForecastActual", () => {
+  it("clears an actual that mirrors the estimate", () => {
+    const row = { name: "Jun F S&P Manu PMI", actual: "55.7", estimate: "55.7", actual_source: "fsd" };
+    dropCopiedForecastActual(row);
+    expect(row.actual).toBeNull();
+    expect(row.actual_source).toBeNull();
+    expect(row.estimate).toBe("55.7");
+  });
+
+  it("keeps a distinct actual vs estimate", () => {
+    const row = { actual: "53.9", estimate: "51.6", actual_source: "fsd" };
+    dropCopiedForecastActual(row);
+    expect(row.actual).toBe("53.9");
+  });
+
+  it("leaves rows without an actual untouched", () => {
+    const row = { actual: null, estimate: "55.7" };
+    dropCopiedForecastActual(row);
+    expect(row.actual).toBeNull();
+    expect(row.estimate).toBe("55.7");
   });
 });
 
