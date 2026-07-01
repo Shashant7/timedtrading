@@ -6,6 +6,18 @@
 
 ---
 
+## Daily Brief pre-market gap used stale pc instead of last RTH close [2026-07-01]
+
+Morning brief said SPY gapped from "Tuesday's $741.00 close" when $741
+was Monday — Tuesday closed $746.77. Overnight `timed:prices` keeps
+Tuesday `dc`/`dp` with `pc` still on Monday; extended `ahdp` correctly
+uses `p`, but `buildPremarketGapContext` and `validateMarketData()`
+used `pc` for "prior session close". Fix: `priorRthCloseFromPriceFeedRow()`
+returns `p` when RTH is closed. Do NOT "fix" KV `pc` on day-roll without
+understanding dc/dp preservation — brief gap math must use `p`, not `pc`.
+
+---
+
 ## SL enforcement used headline price only; NVDA stayed open past stop [2026-06-26]
 
 NVDA LONG entry $209.90 / SL $198.81 stayed OPEN while market was
