@@ -175,4 +175,16 @@ describe("evaluateRegimeShockDerisk — S4 shadow advisory", () => {
     });
     expect(out.active).toBe(false);
   });
+
+  it("stays inactive when the book is flat (no 0/0 noise)", () => {
+    const out = evaluateRegimeShockDerisk({
+      state,
+      indexWatch: { active: true, breadth: 3 },
+      openRows: [],
+      priceMap: {},
+    });
+    expect(out.active).toBe(false);
+    expect(out.watch_active).toBe(true);
+    expect(out.dd_near).toBe(true);
+  });
 });

@@ -1,7 +1,6 @@
 // worker/portfolio-risk.js
 //
 // P4.S1/S3 (2026-06-09) — portfolio-LEVEL risk controls.
-//
 // Full-system-review §5: every existing breaker is trade-outcome based
 // (Loop 2 = last-10 WR) and every cap is count-based (MAX_OPEN_POSITIONS).
 // Nothing watched the model book's EQUITY CURVE (slow bleeds across many
@@ -28,6 +27,8 @@
 // `phase-c:portfolio-risk`; the */5 scoring preload reads it into
 // env._portfolioRiskPause and qualifiesForEnter consults it SYNC —
 // mirroring the proven Loop 2 plumbing.
+
+import { sumRealizedPnlExcludingPhantoms } from "./phase-c-loops.js";
 
 const STATE_KEY = "phase-c:portfolio-risk";
 const SAMPLES_KEY = "phase-c:equity-samples";
@@ -110,6 +111,17 @@ export async function updateEquitySamples(KV, equity, nowMs = Date.now()) {
   const window = samples.slice(-20);
   const high = window.reduce((m, s) => Math.max(m, Number(s.equity) || 0), 0);
   return { samples: window.length, trailing_high: high };
+}
+
+/** Clear equity sample ring (admin reset after phantom-loss pollution). */
+export async function resetEquitySamples(KV) {
+  if (!KV) return { ok: false };
+  try {
+    await KV.delete(SAMPLES_KEY);
+    return { ok: true };
+  } catch (_) {
+    return { ok: false };
+  }
 }
 
 /**
@@ -196,11 +208,6 @@ export function evaluateRegimeShockDerisk({ state, indexWatch, openRows, priceMa
   const ddNear = Number(state?.equity_samples) >= 5
     && Number(state?.dd_pct) >= Math.max(0, ddThreshold - proximity);
   const watchActive = !!(indexWatch && indexWatch.active);
-  const active = watchActive && ddNear;
-
-  if (!active) {
-    return { active: false, watch_active: watchActive, dd_near: ddNear, computed_at: Date.now() };
-  }
 
   // Weakest quartile of the open book by current pnl% (ascending).
   const positions = [];
@@ -220,6 +227,13 @@ export function evaluateRegimeShockDerisk({ state, indexWatch, openRows, priceMa
     });
   }
   positions.sort((a, b) => a.pnl_pct - b.pnl_pct);
+
+  const active = watchActive && ddNear && positions.length > 0;
+
+  if (!active) {
+    return { active: false, watch_active: watchActive, dd_near: ddNear, computed_at: Date.now() };
+  }
+
   const quartileN = Math.max(1, Math.ceil(positions.length / 4));
   const targets = positions.slice(0, quartileN).map((p) => ({ ...p, suggested_trim_pct: 0.25 }));
 

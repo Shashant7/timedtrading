@@ -161,6 +161,63 @@ const LOOP2_DEFAULT_BREAKER_MAX_AGE_HOURS = 168; // 7 days
 // at least this many trades. Prevents the breaker from firing off a
 // 1-trade restore that happens to be a loss.
 const LOOP2_DEFAULT_BREAKER_MIN_RECENT_FOR_WR = 5;
+// Phantom round-trips from stale entry prices or prev-day stop flaps (XLI/INTC
+// 2026-07-01) must not pollute breaker metrics. Same window as the SL-leak
+// readiness probe in index.js.
+const LOOP2_PHANTOM_MAX_HOLD_MS = 5 * 60 * 1000;
+const LOOP2_PHANTOM_HARD_EXIT_RE =
+  /\bSL\b|stop.?loss|max.?loss|HARD_LOSS_CAP|sl_breached|sl_hit|hard_loss|left_entry_corridor/i;
+
+/**
+ * True when a closed LOSS row is a phantom fill / false stop (stale entry or
+ * prev-day price flap) and should be excluded from Loop 2 + portfolio-risk
+ * equity math. Wins are never excluded.
+ */
+function isPhantomBreakerTrade(trade) {
+  const status = String(trade?.status || "").toUpperCase();
+  if (status !== "LOSS") return false;
+
+  const exitReason = String(trade?.exit_reason || "");
+  const entryTs = Number(trade?.entry_ts) || 0;
+  const exitTs = Number(trade?.exit_ts) || 0;
+  const holdMs = exitTs > entryTs ? exitTs - entryTs : 0;
+  const isHardExit = LOOP2_PHANTOM_HARD_EXIT_RE.test(exitReason);
+
+  if (/sl_breached/i.test(exitReason)) {
+    const exitPx = Number(trade?.exit_price);
+    const sl = Number(trade?.stop_loss ?? trade?.sl_price ?? trade?.sl);
+    const dir = String(trade?.direction || "LONG").toUpperCase();
+    if (Number.isFinite(exitPx) && Number.isFinite(sl) && sl > 0) {
+      if (dir.startsWith("S") && exitPx < sl) return true;
+      if (!dir.startsWith("S") && exitPx > sl) return true;
+    }
+  }
+
+  if (holdMs > 0 && holdMs <= LOOP2_PHANTOM_MAX_HOLD_MS && isHardExit) return true;
+
+  return false;
+}
+
+/** Split closed trades into breaker-eligible vs phantom-excluded sets. */
+function loop2PartitionBreakerTrades(trades) {
+  const kept = [];
+  const excluded = [];
+  for (const t of Array.isArray(trades) ? trades : []) {
+    if (isPhantomBreakerTrade(t)) excluded.push(t);
+    else kept.push(t);
+  }
+  return { kept, excluded };
+}
+
+/** Sum realized $ PnL over live closed rows, skipping phantom losses. */
+function sumRealizedPnlExcludingPhantoms(closedRows) {
+  let total = 0;
+  for (const t of Array.isArray(closedRows) ? closedRows : []) {
+    if (isPhantomBreakerTrade(t)) continue;
+    total += Number(t?.pnl) || 0;
+  }
+  return total;
+}
 
 /**
  * Compute the pulse from the most recent N closed trades.
@@ -185,11 +242,15 @@ function loop2ComputePulse(trades, opts = {}) {
   const maxAgeMs = maxAgeHours > 0 ? maxAgeHours * 60 * 60 * 1000 : 0;
   const earliestRecentMs = maxAgeMs > 0 ? (nowMs - maxAgeMs) : 0;
 
-  const closedAll = (Array.isArray(trades) ? trades : [])
+  const rawClosed = (Array.isArray(trades) ? trades : [])
     .filter((t) => {
       const s = String(t.status || "").toUpperCase();
       return s === "WIN" || s === "LOSS" || s === "FLAT";
-    })
+    });
+  const { kept: closedKept, excluded: phantomExcluded } = opts.includePhantomTrades
+    ? { kept: rawClosed, excluded: [] }
+    : loop2PartitionBreakerTrades(rawClosed);
+  const closedAll = closedKept
     .sort((a, b) => Number(a.exit_ts || 0) - Number(b.exit_ts || 0));
 
   // Recency-filtered set used by the rolling WR + consec-loss windows.
@@ -266,6 +327,7 @@ function loop2ComputePulse(trades, opts = {}) {
     recent_max_age_hours: maxAgeHours,
     closed_total: closedAll.length,
     closed_recent: closed.length,
+    phantom_excluded_n: phantomExcluded.length,
   };
 }
 
@@ -501,6 +563,12 @@ async function loop2WritePulse(KV, pulse, evaluation, daCfg, opts = {}) {
         }),
         { expirationTtl: 18 * 60 * 60 }, // 18h: covers overnight; auto-clear next morning (live wall-clock)
       );
+    } else {
+      // Healthy pulse — clear a stale pause (e.g. phantom-loss pollution).
+      try {
+        const existing = await KV.get(LOOP2_PAUSE_KEY, { type: "json" });
+        if (existing?.paused) await KV.delete(LOOP2_PAUSE_KEY);
+      } catch (_) {}
     }
   } catch (_) {}
 }
@@ -679,6 +747,10 @@ function loop3ShouldTrimAtTp1(daCfg, personality) {
 // ─────────────────────────────────────────────────────────────────────
 
 export {
+  isPhantomBreakerTrade,
+  loop2PartitionBreakerTrades,
+  sumRealizedPnlExcludingPhantoms,
+  LOOP2_PHANTOM_MAX_HOLD_MS,
   // Loop 1
   loop1Key,
   loop1ReadAllScorecards,
