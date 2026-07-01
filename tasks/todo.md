@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Breaker phantom pollution fix (2026-07-01).** Loop 2 + portfolio-risk
+      exclude fast hard-exit round-trips and impossible `sl_breached` rows;
+      live queries scoped to `run_id IS NULL`; regime-shock suppressed when
+      book is flat; admin `POST /timed/admin/portfolio-risk/reset-samples`;
+      Loop 2 pause auto-clears on healthy pulse.
+
 - [ ] **Setup sequence shadow awakening (2026-06-21).** Tier A+B replay
       complete (211 moves, 96% sequence yield). Verdict:
       `docs/setup-mining-tier-ab-verdict-2026-06-21.md`. Shipped:
