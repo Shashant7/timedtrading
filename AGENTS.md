@@ -162,3 +162,31 @@ lockfile, so `npm install` not `npm ci`). Standard commands live in
   `d1Ensure*Schema()` (no `.sql` files). `POST /timed/ingest-capture` is the most
   robust way to exercise the ingest pipeline locally (tolerates missing tables /
   scoring errors); read it back from KV at `timed:capture:latest:<TICKER>`.
+
+### Live diagnostics against production (READ-ONLY)
+
+The VM is pre-provisioned to talk to the real Cloudflare account: `wrangler`
+picks up `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` automatically
+(`wrangler whoami` confirms the account), and `TIMED_API_KEY` is available as an
+env var. This lets an agent inspect live production data without any extra setup.
+
+**Policy — keep these strictly read-only.** The API token can also *write/deploy*
+and `TIMED_API_KEY` is admin-tier, so "read-only" is a discipline, not a
+guarantee. For diagnostics use ONLY `SELECT` queries, `kv key get`/`list`, and
+`GET` endpoints. Never run `INSERT`/`UPDATE`/`DELETE`, `kv key put`/`delete`, or
+`wrangler deploy` as "diagnostics" — deploys go through `skills/deploy.md`.
+
+`--remote` hits PRODUCTION; omit it (or use `--local`) for the local dev stores.
+Run D1/KV commands from `worker/` so the bindings in `worker/wrangler.toml`
+resolve. Verified commands:
+
+- **D1 (prod, read-only):**
+  `cd worker && ../node_modules/.bin/wrangler d1 execute timed-trading-ledger --remote --command "SELECT ... LIMIT 50"`
+  (DB name is `timed-trading-ledger`; check `changed_db:false`, `rows_written:0`
+  in the output).
+- **KV (prod, read-only):**
+  `cd worker && ../node_modules/.bin/wrangler kv key get "<key>" --binding KV_TIMED --remote`
+  (and `wrangler kv key list --binding KV_TIMED --remote --prefix "timed:"`).
+- **Deployed API as admin (read-only GETs):**
+  `curl -s "https://timed-trading-ingest.shashant.workers.dev/timed/<route>" -H "X-API-Key: $TIMED_API_KEY"`
+  — full unredacted prices/scores; use for `GET` routes only.
