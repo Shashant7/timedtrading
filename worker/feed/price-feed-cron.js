@@ -32,6 +32,9 @@ import {
   buildExtendedHoursFields,
   isExtendedOperatingSession,
   lightweightRestRefreshDue,
+  priceFeedPriceChanged,
+  resolveAhPersistence,
+  stripAhFields,
 } from "./extended-hours.js";
 import { applyMacroPriceAliases, syncMacroLatestStubs } from "../futures-proxy.js";
 import { ensureVixLevel } from "../vix-source.js";
@@ -161,53 +164,25 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                   else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
                 }
+                const displayPriceRounded = Math.round(displayPrice * 100) / 100;
+                const pChanged = priceFeedPriceChanged(prev.p, displayPriceRounded);
+                const ah = resolveAhPersistence(
+                  prev,
+                  { extP, extDc, extDp },
+                  displayPriceRounded,
+                  _marketClosed,
+                  pChanged,
+                );
                 existing[sym] = withPriceTimestamps(prev, {
-                  ...prev,
-                  p: Math.round(displayPrice * 100) / 100,
+                  ...stripAhFields(prev),
+                  p: displayPriceRounded,
                   pc: keepPc,
                   dc: keepDc,
                   dp: keepDp,
                   dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
-                  /* Phase C — Stage 0.5 (2026-05-02) — Invalidate stale AH cache
-                     when the regular-session price has moved past the cached
-                     AH price. Bug: TWLO ahdp cached as +18.59% when AH was
-                     175 vs prev close 148; later the regular close moved to
-                     183 (above the AH 175), but the cached ahdp still showed
-                     +18.59% — wrong direction. The cache only makes sense when
-                     ahp is NEWER than the regular-session p. We invalidate
-                     when |p - ahp| / p > 1.5% (price moved past AH range). */
-                  ahp: (() => {
-                    if (extDc !== 0) return extP;
-                    if (!_marketClosed) return undefined;
-                    const _prevAhp = Number(prev.ahp);
-                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
-                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
-                      return undefined; // stale — drop it
-                    }
-                    return prev.ahp;
-                  })(),
-                  ahdc: (() => {
-                    if (extDc !== 0) return extDc;
-                    if (!_marketClosed) return undefined;
-                    const _prevAhp = Number(prev.ahp);
-                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
-                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
-                      return undefined;
-                    }
-                    return prev.ahdc;
-                  })(),
-                  ahdp: (() => {
-                    if (extDc !== 0) return extDp;
-                    if (!_marketClosed) return undefined;
-                    const _prevAhp = Number(prev.ahp);
-                    if (Number.isFinite(_prevAhp) && _prevAhp > 0 && displayPrice > 0
-                        && Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015) {
-                      return undefined;
-                    }
-                    return prev.ahdp;
-                  })(),
+                  ...ah,
                 });
                 restCount++;
               }
@@ -428,26 +403,25 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 if (Number.isFinite(prev.dc) && prev.dc !== 0) { keepDc = prev.dc; keepDp = prev.dp; }
                 else if (keepPc > 0 && displayPrice > 0) { keepDc = Math.round((displayPrice - keepPc) * 100) / 100; keepDp = Math.round(((displayPrice - keepPc) / keepPc) * 10000) / 100; }
               }
-              /* Phase C — Stage 0.5 (2026-05-02) — Stale-AH cache invalidation
-                 (same fix as the lightweight-feed path above). */
-              const _ahStale = (() => {
-                if (!_marketClosed) return false;
-                const _prevAhp = Number(prev.ahp);
-                if (!Number.isFinite(_prevAhp) || _prevAhp <= 0 || displayPrice <= 0) return false;
-                return Math.abs(displayPrice - _prevAhp) / displayPrice > 0.015;
-              })();
+              const displayPriceRounded = Math.round(displayPrice * 100) / 100;
+              const pChanged = priceFeedPriceChanged(prev.p, displayPriceRounded);
+              const ah = resolveAhPersistence(
+                prev,
+                { extP, extDc, extDp },
+                displayPriceRounded,
+                _marketClosed,
+                pChanged,
+              );
               prices[sym] = withPriceTimestamps(prev, {
-                ...prev,
-                p: Math.round(displayPrice * 100) / 100,
+                ...stripAhFields(prev),
+                p: displayPriceRounded,
                 pc: keepPc,
                 dc: keepDc,
                 dp: keepDp,
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                ahp: extDc !== 0 ? extP : (_marketClosed && !_ahStale ? prev.ahp : undefined),
-                ahdc: extDc !== 0 ? extDc : (_marketClosed && !_ahStale ? prev.ahdc : undefined),
-                ahdp: extDc !== 0 ? extDp : (_marketClosed && !_ahStale ? prev.ahdp : undefined),
+                ...ah,
               });
               restFallbackCount++;
             }
@@ -617,16 +591,25 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               const { extP, extDc, extDp } = buildExtendedHoursFields(
                 snap, price, reconciled.dp, _marketClosed, false,
               );
+              const roundedP = Math.round(price * 100) / 100;
+              const pChanged = priceFeedPriceChanged(prev.p, roundedP);
+              const ah = resolveAhPersistence(
+                prev,
+                { extP, extDc, extDp },
+                roundedP,
+                _marketClosed,
+                pChanged,
+              );
               prices[sym] = withPriceTimestamps(prev, {
-                ...prev,
-                p: Math.round(price * 100) / 100,
+                ...stripAhFields(prev),
+                p: roundedP,
                 pc: reconciled.pc > 0 ? Math.round(reconciled.pc * 100) / 100 : (prev.pc || 0),
                 dc: reconciled.dc,
                 dp: reconciled.dp,
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                ...(extP > 0 ? { ahp: extP, ahdc: extDc, ahdp: extDp } : {}),
+                ...ah,
               }, _sweepNow);
               _healed++;
             }

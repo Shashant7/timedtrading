@@ -145,6 +145,22 @@ describe("getExtChange", () => {
     expect(ext.pct).toBeLessThan(1.0);
   });
 
+  it("suppresses EXT when cached ahdp disagrees with price-derived move (GS 1090 ahp, fresh headline)", () => {
+    mockMarketClosed();
+    const ext = utils.getExtChange(withFreshPrice({
+      ticker: "GS",
+      close: 1076.17,
+      price: 1076.17,
+      _live_price: 1076.17,
+      prev_close: 1020.0,
+      _live_prev_close: 1020.0,
+      day_change_pct: 5.5,
+      _ah_price: 1090.67,
+      _ah_change_pct: 6.84,
+    }));
+    expect(ext).toBeNull();
+  });
+
   it("suppresses EXT when price value timestamp is week-old (GS 1090 zombie)", () => {
     mockMarketClosed();
     const weekAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;

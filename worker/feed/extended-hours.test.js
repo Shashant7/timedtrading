@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
   buildExtendedHoursFields,
+  cachedAhpLooksStale,
   extendedQuoteLooksStale,
   isExtendedOperatingSession,
   lightweightRestRefreshDue,
+  priceFeedPriceChanged,
   reconcileExtendedPrice,
+  resolveAhPersistence,
 } from "./extended-hours.js";
 
 describe("reconcileExtendedPrice", () => {
@@ -83,6 +86,49 @@ describe("buildExtendedHoursFields", () => {
   it("returns zeros for crypto", () => {
     expect(buildExtendedHoursFields({ extendedPrice: 105 }, 103, 0, true, true))
       .toEqual({ extP: 0, extDc: 0, extDp: 0 });
+  });
+});
+
+describe("resolveAhPersistence", () => {
+  it("drops cached ahp when RTH close moves (GS 1090 zombie)", () => {
+    const prev = { p: 1090.67, ahp: 1090.67, ahdc: 6.84, ahdp: 6.84 };
+    const out = resolveAhPersistence(
+      prev,
+      { extP: 0, extDc: 0, extDp: 0 },
+      1076.17,
+      true,
+      priceFeedPriceChanged(prev.p, 1076.17),
+    );
+    expect(out).toEqual({});
+  });
+
+  it("preserves cached ahp overnight when p is unchanged and vendor is quiet", () => {
+    const prev = { p: 600, ahp: 601.5, ahdc: 1.5, ahdp: 0.25 };
+    const out = resolveAhPersistence(
+      prev,
+      { extP: 0, extDc: 0, extDp: 0 },
+      600,
+      true,
+      false,
+    );
+    expect(out.ahp).toBe(601.5);
+    expect(out.ahdp).toBe(0.25);
+  });
+
+  it("publishes fresh vendor extended fields when present", () => {
+    const out = resolveAhPersistence(
+      { p: 600, ahp: 601.5 },
+      { extP: 602, extDc: 2, extDp: 0.33 },
+      600,
+      true,
+      false,
+    );
+    expect(out).toEqual({ ahp: 602, ahdc: 2, ahdp: 0.33 });
+  });
+
+  it("drops cached ahp when it drifts >1.5% from today's close even if p unchanged", () => {
+    expect(cachedAhpLooksStale(1076.17, 1090.67)).toBe(false);
+    expect(cachedAhpLooksStale(1076.17, 1093)).toBe(true);
   });
 });
 
