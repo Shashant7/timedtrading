@@ -18,6 +18,17 @@ understanding dc/dp preservation — brief gap math must use `p`, not `pc`.
 
 ---
 
+## Sanity sweep candle_freshness_open false alarm at 9:30 ET [2026-07-01]
+
+At RTH open, open-position 60m/30m bars from yesterday are ~18h/14h by
+wall clock but are still the best available until the first bar of the
+session closes. `effectiveCandleAgeMs` now grants per-TF grace (60m→60min,
+30m→30min, …) after today's open when the newest bar is from the last
+completed session. Fast sanity sweep persists to KV only — Discord alerts
+come from the hourly full sweep (prevents duplicate :00 posts).
+
+---
+
 ## SL enforcement used headline price only; NVDA stayed open past stop [2026-06-26]
 
 NVDA LONG entry $209.90 / SL $198.81 stayed OPEN while market was
