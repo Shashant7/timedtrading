@@ -185,7 +185,7 @@ export async function buildPublicFSDFeed(env, { limit = 30, lookbackHours = 168,
     if (!hasTtVoice) {
       mapped.push({
         ...base,
-        title: "Research note — writing TT summary…",
+        title: String(row.title || "").trim() || "Research note",
         tt_summary: null,
         pending_tt_voice: true,
       });
@@ -197,6 +197,26 @@ export async function buildPublicFSDFeed(env, { limit = 30, lookbackHours = 168,
       tt_summary: row.tt_summary_body || null,
       pending_tt_voice: false,
     });
+  }
+
+  const pendingIds = mapped.filter((i) => i.pending_tt_voice).map((i) => i.pub_id).filter(Boolean);
+  if (pendingIds.length > 0) {
+    try {
+      const { rewritePendingPublications, loadRewritesForPubIds } = await import("./fsd-rewriter.js");
+      await rewritePendingPublications(env, { limit: Math.min(5, pendingIds.length) });
+      const rewrites = await loadRewritesForPubIds(env, pendingIds);
+      for (let i = 0; i < mapped.length; i++) {
+        const id = mapped[i].pub_id;
+        const rw = rewrites[id];
+        if (!rw?.tt_summary_body) continue;
+        mapped[i] = {
+          ...mapped[i],
+          title: rw.tt_summary_title || mapped[i].title,
+          tt_summary: rw.tt_summary_body,
+          pending_tt_voice: false,
+        };
+      }
+    } catch (_) { /* feed still serves source title when rewrite fails */ }
   }
 
   const items = dedupeAndSortFeedItems(mapped, { lookbackDays }).slice(0, Math.min(50, Math.max(1, limit)));
