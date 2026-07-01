@@ -58,6 +58,34 @@ export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {
  * Always writes live price; resolves prev_close with TD-first logic.
  * Fresh per-symbol ticks bypass the 8% sanity cap (SMCI crash-day fix).
  */
+/** Sync or clear extended-hours overlay fields from one timed:prices row. */
+export function applyExtendedFieldsFromPriceRow(obj, pf, sym, marketOpen) {
+  if (!obj || !pf) return;
+  if (marketOpen) {
+    delete obj._ah_price;
+    delete obj._ah_change;
+    delete obj._ah_change_pct;
+    return;
+  }
+  const pfAhDp = Number(pf.ahdp);
+  const pfAhDc = Number(pf.ahdc);
+  const pfAhP = Number(pf.ahp);
+  const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+  const absCap = isCrypto ? 200 : 50;
+  if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
+    obj._ah_change_pct = pfAhDp;
+    obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
+    if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
+  } else {
+    delete obj._ah_price;
+    delete obj._ah_change;
+    delete obj._ah_change_pct;
+    delete obj.extended_price;
+    delete obj.extended_change;
+    delete obj.extended_percent_change;
+  }
+}
+
 export function overlayTimedPricesRow(obj, pf, opts = {}) {
   const sym = String(opts.sym || obj?.ticker || "").toUpperCase();
   const pricesUpdatedAt = Number(opts.pricesUpdatedAt) || Number(pf?.t) || Date.now();
@@ -73,6 +101,10 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   const valueFresh = isPriceValueFresh(pf, Date.now(), marketOpen);
   const pfValueTs = priceValueTimestamp(pf);
   const pfQuoteTs = quoteReceiptTimestamp(pf);
+
+  // Always reconcile EXT fields from the price row — even when quote is
+  // too stale to overlay headline (GS snapshot kept _ah_price 1090).
+  applyExtendedFieldsFromPriceRow(obj, pf, sym, marketOpen);
 
   // Never poison /timed/all with week-old prints (GS @ 1090). Cron refreshes
   // `t` every minute even when `p` is a zombie — gate on q_ts / p_ts, not poll `t`.
@@ -92,19 +124,6 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   // read that stale close via getHeadlinePrice().
   if (!marketOpen) {
     obj.close = pfP;
-  }
-
-  if (!marketOpen) {
-    const pfAhDp = Number(pf.ahdp);
-    const pfAhDc = Number(pf.ahdc);
-    const pfAhP = Number(pf.ahp);
-    const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
-    const absCap = isCrypto ? 200 : 50;
-    if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
-      obj._ah_change_pct = pfAhDp;
-      obj._ah_change = Number.isFinite(pfAhDc) ? pfAhDc : 0;
-      if (Number.isFinite(pfAhP) && pfAhP > 0) obj._ah_price = pfAhP;
-    }
   }
 
   const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
@@ -283,9 +302,17 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
           const pfAhP = Number(snap.ahp);
           const pfAhDc = Number(snap.ahdc);
           const pfAhDp = Number(snap.ahdp);
-          if (Number.isFinite(pfAhP) && pfAhP > 0) updated._ah_price = pfAhP;
-          if (Number.isFinite(pfAhDc)) updated._ah_change = pfAhDc;
-          if (Number.isFinite(pfAhDp)) updated._ah_change_pct = pfAhDp;
+          const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+          const absCap = isCrypto ? 200 : 50;
+          if (Number.isFinite(pfAhDp) && pfAhDp !== 0 && Math.abs(pfAhDp) <= absCap) {
+            if (Number.isFinite(pfAhP) && pfAhP > 0) updated._ah_price = pfAhP;
+            if (Number.isFinite(pfAhDc)) updated._ah_change = pfAhDc;
+            if (Number.isFinite(pfAhDp)) updated._ah_change_pct = pfAhDp;
+          } else {
+            delete updated._ah_price;
+            delete updated._ah_change;
+            delete updated._ah_change_pct;
+          }
         } else {
           delete updated._ah_price;
           delete updated._ah_change;

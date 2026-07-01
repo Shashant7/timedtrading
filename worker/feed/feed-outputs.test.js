@@ -103,4 +103,30 @@ describe("overlayTimedPricesRow", () => {
     expect(out._price_value_ts).toBe(now - 60 * 1000);
     expect(out._ah_price).toBe(1042);
   });
+
+  it("clears stale snapshot _ah_* when timed:prices row has no ahp (GS 1090)", () => {
+    const now = Date.now();
+    const obj = {
+      ticker: "GS",
+      price: 1090.67,
+      close: 1090.67,
+      prev_close: 1020,
+      _ah_price: 1090.67,
+      _ah_change_pct: 6.84,
+      _ah_change: 70,
+    };
+    const pf = {
+      p: 1011.37,
+      pc: 1020.21,
+      dp: -0.87,
+      dc: -8.84,
+      t: now,
+      p_ts: now - 60 * 1000,
+      q_ts: now - 60 * 1000,
+    };
+    const out = overlayTimedPricesRow(obj, pf, { sym: "GS", marketOpen: false });
+    expect(out.price).toBe(1011.37);
+    expect(out._ah_price).toBeUndefined();
+    expect(out._ah_change_pct).toBeUndefined();
+  });
 });

@@ -178,6 +178,25 @@ describe("getExtChange", () => {
     });
     expect(ext).toBeNull();
   });
+
+  it("suppresses EXT when _ah_price is stale old close but headline is fresh (prod GS)", () => {
+    mockMarketClosed();
+    const now = Date.now();
+    const ext = utils.getExtChange(withFreshPrice({
+      ticker: "GS",
+      price: 1011.37,
+      close: 1011.37,
+      _live_price: 1011.37,
+      prev_close: 1020.21,
+      day_change_pct: -0.87,
+      _ah_price: 1090,
+      _ah_change_pct: -1.48,
+      _price_updated_at: now,
+      _price_value_ts: now,
+      _quote_receipt_ts: now,
+    }));
+    expect(ext).toBeNull();
+  });
 });
 
 describe("getBubbleFillChange", () => {
