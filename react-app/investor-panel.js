@@ -1391,6 +1391,11 @@
     for (const t of rows) {
       if (!t || typeof t !== "object") continue;
       const stage = String(t.stage || t.investor_stage || "").toLowerCase();
+      if (stage === "exited") continue;
+      // Owned holdings count (mirrors the Trader tab badge = open-trade count)
+      // so entering a position lights the Investor tab. Each ticker counts
+      // once; unowned rows still count when actionable (reduce / buy-ready).
+      if (t.position && t.position.owned) { n++; continue; }
       if (stage === "reduce") { n++; continue; }
       if (stage === "accumulate" && isExecuteReady(t)) n++;
     }
