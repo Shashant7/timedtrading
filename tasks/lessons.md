@@ -6,6 +6,23 @@
 
 ---
 
+## Fresh entries flagged "Stop breached" from prev-day price flap [2026-07-01]
+
+Active Trader showed "Stop breached"/"Exit signal" on positions entered
+seconds earlier (BRK-B, XLI). `isPricePastStop` took the worst-case print
+(min for LONG) across `price`/`close`/`ahp` — and while the live feed
+settled, one candidate held the PRIOR-DAY close, which sits below a stop
+placed just under today's entry → false breach. Also the headline itself
+flapped 183.58↔185.23 (live vs prev close) because `getHeadlinePrice`'s RTH
+fallback rendered a snapshot `price` that equalled `prev_close`. Fix:
+breach check only weighs current-session prints (session headline + fresh
+live tick RTH; ext print OOH), filters exact prev-close, and a 3-min
+post-entry grace; `getHeadlinePrice` prefers live over a prev-close-equal
+fallback during RTH. Server feed was healthy (0 stale) — this was a client
+rendering issue. NEVER mix prev-day/`close`/`ahp` into an RTH breach test.
+
+---
+
 ## Daily Brief pre-market gap used stale pc instead of last RTH close [2026-07-01]
 
 Morning brief said SPY gapped from "Tuesday's $741.00 close" when $741
