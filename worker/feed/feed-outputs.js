@@ -21,6 +21,7 @@
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
 import { isNyRegularMarketOpen } from "../market-calendar.js";
+import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
 
 /** RTH: quote older than 10m is stale (operator rule). Not poll `t` — GS refreshed `t` every minute while `p` stuck at 1090. */
 export const PF_FRESH_MS = 10 * 60 * 1000;
@@ -129,14 +130,19 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
     && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
 
-  const tdMoveConfirmed = pfPcUsable
+  const splitAdj = adjustPrevCloseForSplit(pfP, pfPc);
+
+  const tdMoveConfirmed = pfPcUsable && !splitAdj
     && Number.isFinite(pfDp) && pfDp !== 0
     && Math.abs(pfDp) > 8
     && Math.abs((pfP - pfPc) / pfPc * 100 - pfDp) < 3;
 
   let bestPc = 0;
   let bestPcSource = "none";
-  if (pfPcUsable && (tickFresh || tdMoveConfirmed || Math.abs(pfDp) <= 8 || !Number.isFinite(pfDp))) {
+  if (splitAdj) {
+    bestPc = splitAdj.pc;
+    bestPcSource = "split_adjusted";
+  } else if (pfPcUsable && (tickFresh || tdMoveConfirmed || Math.abs(pfDp) <= 8 || !Number.isFinite(pfDp))) {
     bestPc = pfPc;
     bestPcSource = "td";
   } else if (dailyCandlePc > 0) {
@@ -180,6 +186,11 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
       obj.day_change = pfDc;
       obj.change = pfDc;
     }
+  } else if (bestPcSource === "split_adjusted" && splitAdj) {
+    obj.day_change = splitAdj.dc;
+    obj.day_change_pct = splitAdj.dp;
+    obj.change = splitAdj.dc;
+    obj.change_pct = splitAdj.dp;
   } else if (bestPc > 0 && pfP > 0) {
     const computedDc = Math.round((pfP - bestPc) * 100) / 100;
     const computedDp = Math.round(((pfP - bestPc) / bestPc) * 10000) / 100;
