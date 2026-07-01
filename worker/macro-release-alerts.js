@@ -40,6 +40,26 @@ export function parseEconNumber(raw) {
   return pct ? n : n;
 }
 
+/**
+ * Guard against broadcasting unverified macro prints. FSD/LLM-extracted
+ * `actual` values are only trustworthy for a hard "released" alert when the
+ * note reported a value that is genuinely distinct from consensus (a real
+ * "X vs Ye" print). An actual that equals the estimate — or has no estimate —
+ * is the fabrication signature (the LLM copied a single forecast into both
+ * fields), e.g. the Jun S&P Manufacturing PMI that broadcast 55.7/55.7 IN LINE
+ * while the real print was 53.9. FRED / curated actuals are authoritative and
+ * always trusted (they are not derived from prose).
+ */
+export function macroReleaseIsTrustworthy(event) {
+  const src = String(event?.actual_source || "").toLowerCase();
+  if (src === "fred" || src === "curated" || src === "seed") return true;
+  const a = parseEconNumber(event?.actual);
+  const e = parseEconNumber(event?.estimate);
+  if (a == null || e == null) return false;
+  const tol = Math.max(Math.abs(e) * 0.001, 1e-9);
+  return Math.abs(a - e) > tol;
+}
+
 export function classifySurprise(actual, estimate) {
   const a = parseEconNumber(actual);
   const e = parseEconNumber(estimate);
@@ -242,6 +262,12 @@ export async function processMacroReleaseAlerts(env, { events = [], today = null
     if (!event?.actual || !event?.date || event.date > todayStr) continue;
     if (event.date < todayStr) continue; // only alert same-day prints
     if (!macroEventHasReleased(event)) continue;
+    // Never broadcast an unverified LLM-extracted print (fabricated / copied
+    // forecast). Authoritative FRED/curated actuals always pass.
+    if (!macroReleaseIsTrustworthy(event)) {
+      results.skipped += 1;
+      continue;
+    }
     results.checked += 1;
 
     const normKey = macroEventNormKey(event.date, event.name);

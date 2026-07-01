@@ -842,6 +842,10 @@ export async function sanitySweepCron(env, ctx, kind = "full") {
     const sweep = kind === "fast" ? await runFastSweep(env, ctx) : await runSanitySweep(env, ctx);
     await persistSweep(env, sweep);
 
+    // Fast sweep refreshes MC cache every 15m; full hourly sweep owns Discord
+    // paging so :00 ET does not double-post (fast ~500ms + full ~1300ms).
+    if (kind === "fast") return sweep;
+
     const failing = sweep.checks.filter(c => c.status === "fail");
     const warning = sweep.checks.filter(c => c.status === "warn");
 

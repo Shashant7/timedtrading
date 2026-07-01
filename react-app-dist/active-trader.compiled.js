@@ -133,22 +133,34 @@ function hasTrimSignalPending(ticker, trade) {
   const raw = String(ticker?._rawKanbanStage ?? ticker?.kanban_stage ?? "").trim().toLowerCase();
   return raw === "trim";
 }
+const STOP_BREACH_GRACE_MS = 3 * 60 * 1000;
 function isPricePastStop(openTr, ticker, price) {
   const px = Number(price);
   if (!openTr || !Number.isFinite(px) || px <= 0) return false;
   const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
   const sl = Number(openTr.sl ?? openTr.stop_loss);
   if (!Number.isFinite(sl) || sl <= 0) return false;
-  const cands = [px];
+  const entryMs = tsToMs(openTr.entry_ts ?? openTr.entryTime ?? openTr.entryTs);
+  if (entryMs && Date.now() - entryMs < STOP_BREACH_GRACE_MS) return false;
+  const U = window.TimedPriceUtils || {};
+  const marketOpen = U.isNyRegularMarketOpen ? U.isNyRegularMarketOpen() : true;
+  const feedFresh = U.isPriceFeedFresh ? U.isPriceFeedFresh(ticker) : true;
+  const prevClose = Number(ticker?._live_prev_close ?? ticker?.prev_close ?? ticker?.previous_close ?? ticker?.pc);
+  const isPrevCloseFlap = v => Number.isFinite(prevClose) && prevClose > 0 && Math.abs(v - prevClose) / prevClose < 0.001;
+  const cands = [];
   const push = v => {
     const n = Number(v);
-    if (Number.isFinite(n) && n > 0) cands.push(n);
+    if (Number.isFinite(n) && n > 0 && !isPrevCloseFlap(n)) cands.push(n);
   };
-  push(ticker?.price);
-  push(ticker?._live_price);
-  push(ticker?.close);
-  push(ticker?.ahp);
-  push(ticker?.extended_price);
+  const headline = U.getHeadlinePrice ? U.getHeadlinePrice(ticker) : null;
+  push(headline);
+  push(px);
+  if (feedFresh) push(ticker?._live_price);
+  if (!marketOpen) {
+    push(ticker?.ahp);
+    push(ticker?.extended_price);
+  }
+  if (cands.length === 0) return false;
   const checkPx = dir === "LONG" ? Math.min(...cands) : dir === "SHORT" ? Math.max(...cands) : px;
   if (dir === "LONG") return checkPx <= sl;
   if (dir === "SHORT") return checkPx >= sl;
@@ -2040,6 +2052,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782917436970:689390538
+// cache-bust:1782918563162:394747682
 
-// cache-bust:1782917436970:689390538
+// cache-bust:1782918563162:394747682

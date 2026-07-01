@@ -306,6 +306,42 @@ describe("evaluateOpenPositionCandleMap", () => {
     expect(evalResult.stale).toBe(false);
     expect((monMorning - tradingDateUtcMs("2026-06-18")) / HOUR).toBeGreaterThan(80);
   });
+
+  it("treats last-session 60m/30m bars as fresh at RTH open before first bar closes", () => {
+    const tueBounds = sessionBoundsUtc("2026-06-30");
+    // Wed 2026-07-01 09:35 ET ≈ 13:35 UTC — 5 min after open; yesterday's
+    // 60m/30m bars are still the best available (sanity-sweep false alarm).
+    const wedOpen = Date.UTC(2026, 6, 1, 13, 35, 0);
+    const sessionRef = computeMarketSessionReference(wedOpen);
+    expect(sessionRef.market_open).toBe(true);
+    const last60 = tueBounds.closeMs - 30 * MIN;
+    const last30 = tueBounds.closeMs - 30 * MIN;
+    expect((wedOpen - last60) / HOUR).toBeGreaterThan(17);
+    const evalResult = evaluateOpenPositionCandleMap({
+      D: tradingDateUtcMs("2026-06-30"),
+      60: last60,
+      30: last30,
+      5: tueBounds.closeMs - 5 * MIN,
+      240: tueBounds.closeMs - 2 * HOUR,
+    }, { nowMs: wedOpen, sessionRef, marketOpen: true });
+    expect(evalResult.stale).toBe(false);
+  });
+
+  it("flags missing same-day 60m bar after grace window at RTH", () => {
+    const tueBounds = sessionBoundsUtc("2026-06-30");
+    // Wed 2026-07-01 11:00 ET ≈ 15:00 UTC — first 60m bar should exist
+    const wedMidMorning = Date.UTC(2026, 6, 1, 15, 0, 0);
+    const sessionRef = computeMarketSessionReference(wedMidMorning);
+    const evalResult = evaluateOpenPositionCandleMap({
+      D: tradingDateUtcMs("2026-06-30"),
+      60: tueBounds.closeMs - 30 * MIN,
+      30: tueBounds.closeMs - 30 * MIN,
+      5: tueBounds.closeMs - 5 * MIN,
+      240: tueBounds.closeMs - 2 * HOUR,
+    }, { nowMs: wedMidMorning, sessionRef, marketOpen: true });
+    expect(evalResult.stale).toBe(true);
+    expect(evalResult.reasons.some((r) => r.includes("60m"))).toBe(true);
+  });
 });
 
 describe("buildTfNewestTsFromCandleCache", () => {

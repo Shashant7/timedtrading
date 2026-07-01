@@ -793,20 +793,56 @@
         return raw === "trim";
       }
 
+      // Live feed needs a moment to settle after a fill; during that window
+      // the price can flap to prev-day close and trip a freshly placed stop.
+      const STOP_BREACH_GRACE_MS = 3 * 60 * 1000;
+
       function isPricePastStop(openTr, ticker, price) {
         const px = Number(price);
         if (!openTr || !Number.isFinite(px) || px <= 0) return false;
         const dir = String(openTr.direction || ticker?.position_direction || "").toUpperCase();
         const sl = Number(openTr.sl ?? openTr.stop_loss);
         if (!Number.isFinite(sl) || sl <= 0) return false;
-        // Worst-case print for the direction (align with sl-hard-exit safety net).
-        const cands = [px];
-        const push = (v) => { const n = Number(v); if (Number.isFinite(n) && n > 0) cands.push(n); };
-        push(ticker?.price);
-        push(ticker?._live_price);
-        push(ticker?.close);
-        push(ticker?.ahp);
-        push(ticker?.extended_price);
+
+        // Grace: a stop can't be "breached" seconds after entry — the price
+        // feed hasn't settled and often momentarily reads the prior-day close.
+        // The server-side sl-hard-exit path remains the real safety net.
+        const entryMs = tsToMs(openTr.entry_ts ?? openTr.entryTime ?? openTr.entryTs);
+        if (entryMs && (Date.now() - entryMs) < STOP_BREACH_GRACE_MS) return false;
+
+        const U = window.TimedPriceUtils || {};
+        const marketOpen = U.isNyRegularMarketOpen ? U.isNyRegularMarketOpen() : true;
+        const feedFresh = U.isPriceFeedFresh ? U.isPriceFeedFresh(ticker) : true;
+
+        // Prev-day close is the classic flap value — a stop placed just under
+        // today's entry sits ABOVE yesterday's close, so a stale prev-close
+        // print reads as a false breach. Never let it trigger.
+        const prevClose = Number(
+          ticker?._live_prev_close ?? ticker?.prev_close ?? ticker?.previous_close ?? ticker?.pc,
+        );
+        const isPrevCloseFlap = (v) =>
+          Number.isFinite(prevClose) && prevClose > 0
+          && Math.abs(v - prevClose) / prevClose < 0.001;
+
+        // Only weigh genuinely current-session prints. During RTH that is the
+        // session-aware headline + the fresh live tick; outside RTH the
+        // extended print is the live price. Stale `close`/prev-day refs are
+        // excluded so flapping can't fabricate a breach.
+        const cands = [];
+        const push = (v) => {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0 && !isPrevCloseFlap(n)) cands.push(n);
+        };
+        const headline = U.getHeadlinePrice ? U.getHeadlinePrice(ticker) : null;
+        push(headline);
+        push(px);
+        if (feedFresh) push(ticker?._live_price);
+        if (!marketOpen) {
+          push(ticker?.ahp);
+          push(ticker?.extended_price);
+        }
+        if (cands.length === 0) return false;
+
         const checkPx = dir === "LONG" ? Math.min(...cands) : dir === "SHORT" ? Math.max(...cands) : px;
         if (dir === "LONG") return checkPx <= sl;
         if (dir === "SHORT") return checkPx >= sl;
