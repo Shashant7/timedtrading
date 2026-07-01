@@ -3228,7 +3228,7 @@ function MoverRow({
   const dc = getDailyChange(t);
   const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
   const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
-  const price = mode === "ext" ? Number(ext?.price ?? t?._ah_price ?? t?.extended_price) : Number(t?.price);
+  const price = mode === "ext" ? Number(ext?.price) : Number(t?.price);
   const rthClose = mode === "ext" ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price) : null;
   const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
@@ -6597,6 +6597,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1782879670873:786103315
+// cache-bust:1782881788809:325429953
 
-// cache-bust:1782879670873:786103315
+// cache-bust:1782881788809:325429953

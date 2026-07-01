@@ -557,6 +557,12 @@
     if (!hasDistinctExtPx) return null;
     if (!(px > 0)) return null;
 
+    // GS zombie: stale snapshot _ah_price (old RTH close) vs fresh headline.
+    if (headline > 0 && Math.abs(px - headline) / headline > 0.04) {
+      var livePx = Number(t._live_price ?? t.price ?? t.close);
+      if (livePx > 0 && Math.abs(px - livePx) / livePx > 0.04) return null;
+    }
+
     // Cross-session stale guard (e.g. CRDO extended_price lagging RTH).
     // Suppress only when the extended print disagrees with today's session
     // direction — large same-direction AH pops (earnings AMC) must pass.

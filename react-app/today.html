@@ -4533,7 +4533,7 @@
         const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
         const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
         const price = mode === "ext"
-          ? Number(ext?.price ?? t?._ah_price ?? t?.extended_price)
+          ? Number(ext?.price)
           : Number(t?.price);
         const rthClose = mode === "ext"
           ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price)
