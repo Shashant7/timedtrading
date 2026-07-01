@@ -129,4 +129,21 @@ describe("overlayTimedPricesRow", () => {
     expect(out._ah_price).toBeUndefined();
     expect(out._ah_change_pct).toBeUndefined();
   });
+
+  it("corrects MLI 2:1 split bogus +100% day change from vendor pc", () => {
+    const now = Date.now();
+    const obj = { ticker: "MLI", price: 122.93, prev_close: 61.42, day_change_pct: 100.16 };
+    const pf = {
+      p: 122.93,
+      pc: 61.42,
+      dc: 61.52,
+      dp: 100.16,
+      t: now,
+      p_ts: now - 60 * 1000,
+      q_ts: now - 60 * 1000,
+    };
+    const out = overlayTimedPricesRow(obj, pf, { sym: "MLI", marketOpen: true });
+    expect(out.prev_close).toBeCloseTo(122.84, 1);
+    expect(Math.abs(out.day_change_pct)).toBeLessThan(1);
+  });
 });
