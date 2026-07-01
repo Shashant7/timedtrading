@@ -3,6 +3,7 @@ import {
   liveSpotFromPriceFeedRow,
   liveDayPctFromPriceFeedRow,
   liveDayChgFromPriceFeedRow,
+  priorRthCloseFromPriceFeedRow,
 } from "./daily-brief.js";
 
 describe("daily-brief premarket price helpers", () => {
@@ -19,10 +20,18 @@ describe("daily-brief premarket price helpers", () => {
     expect(liveDayChgFromPriceFeedRow(row, false)).toBe(10.38);
   });
 
-  it("computes gap from ahp and pc when ahdp missing", () => {
+  it("computes gap from ahp and last RTH close when ahdp missing", () => {
     const sparse = { p: 600, pc: 590, ahp: 610, p_ts: now };
-    expect(liveDayPctFromPriceFeedRow(sparse, false)).toBeCloseTo(3.39, 2);
-    expect(liveDayChgFromPriceFeedRow(sparse, false)).toBe(20);
+    expect(liveDayPctFromPriceFeedRow(sparse, false)).toBeCloseTo(1.67, 2);
+    expect(liveDayChgFromPriceFeedRow(sparse, false)).toBe(10);
+  });
+
+  it("uses last RTH close (p) not stale pc for SPY overnight gap baseline", () => {
+    const spy = { p: 746.77, pc: 741, ahp: 744.73, ahdp: -0.27, p_ts: now };
+    expect(priorRthCloseFromPriceFeedRow(spy, false)).toBe(746.77);
+    expect(liveDayPctFromPriceFeedRow(spy, false)).toBe(-0.27);
+    const sparse = { p: 746.77, pc: 741, ahp: 744.73, p_ts: now };
+    expect(liveDayPctFromPriceFeedRow(sparse, false)).toBeCloseTo(-0.27, 2);
   });
 
   it("falls back to RTH fields when market is open", () => {

@@ -5,22 +5,33 @@ import {
   liveDayPctFromPriceFeedRow,
   patchBriefIndexDayPctProse,
   formatIndexSessionGroundTruthBlock,
+  priorRthCloseFromPriceFeedRow,
 } from "./daily-brief.js";
 
 describe("buildPremarketGapContext session window", () => {
   const pf = {
-    SPY: { p: 600, pc: 590, ahp: 600.1, ahdp: 1.71, p_ts: Date.now() },
+    SPY: { p: 600, pc: 590, ahp: 610.5, ahdp: 1.75, p_ts: Date.now() },
   };
 
   it("returns gap context during pre-market (before 9:30 ET)", () => {
     const ctx = buildPremarketGapContext(pf, false, Date.parse("2026-06-30T13:00:00.000Z")); // 9:00 ET
     expect(ctx).toMatch(/pre-market/i);
-    expect(ctx).toMatch(/1\.71/);
+    expect(ctx).toMatch(/610\.50/);
   });
 
   it("returns null after the open — ahp vs pc is not a pre-market gap", () => {
     const ctx = buildPremarketGapContext(pf, false, Date.parse("2026-06-30T21:00:00.000Z")); // 5:00 PM ET
     expect(ctx).toBeNull();
+  });
+
+  it("anchors gap on last RTH close (p) when pc lags one session", () => {
+    const stalePc = {
+      SPY: { p: 746.77, pc: 741, ahp: 750.5, p_ts: Date.now() },
+    };
+    const ctx = buildPremarketGapContext(stalePc, false, Date.parse("2026-07-02T13:00:00.000Z"));
+    expect(ctx).toMatch(/746\.77/);
+    expect(ctx).not.toMatch(/741\.00/);
+    expect(priorRthCloseFromPriceFeedRow(stalePc.SPY, false)).toBe(746.77);
   });
 });
 
