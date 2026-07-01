@@ -369,7 +369,7 @@ async function _healCandleFreshness(env, baseUrl, adminKey, check) {
   for (const sym of tickers) {
     try {
       let ok = false;
-      for (const tf of ["D", "60"]) {
+      for (const tf of ["D", "60", "30", "5", "240"]) {
         const r = await _dispatch(
           env,
           `/timed/admin/alpaca-backfill?ticker=${encodeURIComponent(sym)}&tf=${tf}&sinceDays=7`,
