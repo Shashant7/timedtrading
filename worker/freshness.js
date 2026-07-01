@@ -25,6 +25,7 @@ import {
   dayOfWeek,
   etDateStr,
   isNyRthOpenAt,
+  sessionBoundsUtc,
   tradingDateUtcMs,
 } from "./foundation/trading-calendar.js";
 
@@ -59,6 +60,15 @@ const CRITICAL_ALWAYS = new Set(["D", "60"]);
 const CRITICAL_RTH = new Set(["30", "10"]);
 const MISSING_FORCES_STALE = new Set(["D", "60"]);
 const INTRADAY_TFS = new Set(["1", "5", "10", "15", "30", "60", "240"]);
+
+/** Minutes after RTH open before a TF's first bar of the session is expected. */
+function intradayBarGraceMs(tf) {
+  const key = String(tf);
+  if (key === "240") return 240 * MIN;
+  const n = Number(key);
+  if (Number.isFinite(n) && n > 0) return n * MIN;
+  return 60 * MIN;
+}
 
 function isWeekendUtcApprox(nowMs) {
   const dow = new Date(nowMs).getUTCDay();
@@ -170,6 +180,22 @@ export function effectiveCandleAgeMs(tf, ts, nowMs, marketOpen, sessionRef) {
     if (barDay >= lastDay) return 0;
     if (lastDailyMs > 0 && candleTs >= lastDailyMs) return 0;
     return lastDailyMs > 0 ? Math.max(0, lastDailyMs - candleTs) : Math.max(0, nowMs - candleTs);
+  }
+
+  // Early RTH: last session intraday bars stay valid until this TF's first
+  // bar of the current session should exist (prevents 9:30 false alarms).
+  if (marketOpen && INTRADAY_TFS.has(String(tf))) {
+    const lastOpen = Number(openMs) || 0;
+    const lastClose = Number(closeMs) || 0;
+    const etDate = sessionRef?.et_date;
+    if (lastOpen > 0 && lastClose > 0 && etDate
+        && candleTs >= lastOpen && candleTs <= lastClose + 15 * MIN) {
+      const todayBounds = sessionBoundsUtc(etDate);
+      if (todayBounds && nowMs >= todayBounds.openMs
+          && nowMs <= todayBounds.openMs + intradayBarGraceMs(tf)) {
+        return 0;
+      }
+    }
   }
 
   if (!marketOpen && INTRADAY_TFS.has(String(tf)) && openMs > 0 && closeMs > 0) {
