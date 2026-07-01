@@ -49,6 +49,21 @@ function freshPriceFeedRow(pf, sym, marketOpen = true, nowMs = Date.now()) {
   return isPriceFeedRowFresh(row, marketOpen, nowMs) ? row : null;
 }
 
+/**
+ * Baseline for pre-market gap / EXT change when RTH is closed.
+ * timed:prices `p` is the last completed session close; `pc` can lag one day
+ * when dc/dp are preserved overnight (SPY Tue close 746.77 vs stale pc 741).
+ */
+export function priorRthCloseFromPriceFeedRow(row, marketOpen = true) {
+  if (!row) return null;
+  const p = Number(row.p);
+  const pc = Number(row.pc);
+  if (!marketOpen && Number.isFinite(p) && p > 0) return p;
+  if (Number.isFinite(pc) && pc > 0) return pc;
+  if (Number.isFinite(p) && p > 0) return p;
+  return null;
+}
+
 /** Live session spot from a timed:prices row — extended print when RTH is closed. */
 export function liveSpotFromPriceFeedRow(row, marketOpen = true) {
   if (!isPriceFeedRowFresh(row, marketOpen)) return null;
@@ -67,9 +82,9 @@ export function liveDayPctFromPriceFeedRow(row, marketOpen = true) {
     const ahDp = Number(row.ahdp);
     if (Number.isFinite(ahDp) && ahDp !== 0) return ahDp;
     const spot = liveSpotFromPriceFeedRow(row, false);
-    const pc = Number(row.pc);
-    if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0) {
-      return Math.round(((spot - pc) / pc) * 10000) / 100;
+    const priorClose = priorRthCloseFromPriceFeedRow(row, false);
+    if (Number.isFinite(spot) && Number.isFinite(priorClose) && priorClose > 0) {
+      return Math.round(((spot - priorClose) / priorClose) * 10000) / 100;
     }
   }
   const dp = Number(row.dp);
@@ -84,9 +99,9 @@ export function liveDayChgFromPriceFeedRow(row, marketOpen = true) {
     const ahDc = Number(row.ahdc);
     if (Number.isFinite(ahDc) && ahDc !== 0) return ahDc;
     const spot = liveSpotFromPriceFeedRow(row, false);
-    const pc = Number(row.pc);
-    if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0) {
-      return Math.round((spot - pc) * 100) / 100;
+    const priorClose = priorRthCloseFromPriceFeedRow(row, false);
+    if (Number.isFinite(spot) && Number.isFinite(priorClose) && priorClose > 0) {
+      return Math.round((spot - priorClose) * 100) / 100;
     }
   }
   const dc = Number(row.dc);
@@ -100,13 +115,13 @@ export function buildPremarketGapContext(pf, marketOpen, nowMs = Date.now()) {
   const lines = [];
   for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
     const row = freshPriceFeedRow(pf, sym, marketOpen);
-    const pc = Number(row?.pc);
+    const priorClose = priorRthCloseFromPriceFeedRow(row, false);
     const spot = liveSpotFromPriceFeedRow(row, false);
-    if (!Number.isFinite(pc) || !Number.isFinite(spot) || pc <= 0) continue;
-    const gapPct = ((spot - pc) / pc) * 100;
+    if (!Number.isFinite(priorClose) || !Number.isFinite(spot) || priorClose <= 0) continue;
+    const gapPct = ((spot - priorClose) / priorClose) * 100;
     if (Math.abs(gapPct) >= 0.35) {
       lines.push(
-        `${sym}: prior session close $${pc.toFixed(2)} → pre-market $${spot.toFixed(2)} `
+        `${sym}: prior session close $${priorClose.toFixed(2)} → pre-market $${spot.toFixed(2)} `
         + `(${gapPct >= 0 ? "+" : ""}${gapPct.toFixed(2)}% gap). Price is ALREADY away from the prior RTH close — `
         + `do NOT describe the open as "inside range" or "near prior close". `
         + `Note: gaps often fade after 9:30 ET — trust live session day-change if it contradicts this gap.`,
@@ -1541,8 +1556,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       // Always safe to copy daily change percentage from the chosen feed source.
       data.day_change_pct = proxyPct;
       data._proxied_from = (pfData === pfExact ? ticker : proxyTicker);
-      if (Number.isFinite(Number(pfData.pc)) && Number(pfData.pc) > 0) {
-        data.prev_close = Number(pfData.pc);
+      const priorClose = priorRthCloseFromPriceFeedRow(pfData, marketOpen);
+      if (Number.isFinite(priorClose) && priorClose > 0) {
+        data.prev_close = priorClose;
       }
 
       if (pfData === pfExact || sameScale) {
@@ -2084,7 +2100,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
           norm[k] = {
             price: spot,
             dayChangePct: dayPct,
-            prev_close: Number(v.pc) || null,
+            prev_close: priorRthCloseFromPriceFeedRow(v, _briefSessionMktOpen),
             open: Number(v.op) || null,
           };
         }
