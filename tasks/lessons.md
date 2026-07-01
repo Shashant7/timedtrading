@@ -6,6 +6,23 @@
 
 ---
 
+## /timed/all micro-cache dropped freshness on injected positions [2026-07-01]
+
+Follow-up to the BRK-B / XLI flap fix (#953). The `/timed/all` micro-cache
+fast path overlaid `timed:prices` BEFORE injecting open positions from D1,
+then never re-overlaid. A freshly-entered position ticker not yet in the
+scoring snapshot went out with position fields but NO `_live_price` /
+`_price_value_ts` / `_quote_receipt_ts`. The full assembly path overlays
+AFTER injection, so the two cache paths disagreed — the client saw fresh
+data on one poll and a bare prior-day snapshot on the next → headline flap.
+Fix: `overlayLivePricesOntoMap()` (worker/feed/feed-outputs.js) + a scoped
+re-overlay of the open-position syms on the micro path. LESSON: any code
+path that injects rows AFTER a `timed:prices` overlay must re-overlay them,
+or the client loses the freshness metadata `isPriceFeedFresh` depends on.
+Never fabricate freshness — skip stale/absent feed rows so ages stay honest.
+
+---
+
 ## Daily Brief pre-market gap used stale pc instead of last RTH close [2026-07-01]
 
 Morning brief said SPY gapped from "Tuesday's $741.00 close" when $741
