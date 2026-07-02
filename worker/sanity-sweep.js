@@ -37,8 +37,10 @@ import { detectExhaustionWarnings } from "./investor.js";
 import { notifyDiscord } from "./alerts.js";
 import {
   computeMarketSessionReference,
+  effectiveCandleAgeMs,
   evaluateOpenPositionCandleMap,
 } from "./freshness.js";
+import { kvPutText } from "./storage.js";
 import { normTicker } from "./ingest.js";
 import {
   computeProtectiveStopTighten,
@@ -475,19 +477,41 @@ const checkCandleFreshnessOpen = timed(async function checkCandleFreshnessOpen(e
     }
     let staleCount = 0;
     const staleNames = [];
+    const staleDetails = [];
     for (const sym of slice) {
       const tfMap = byTicker.get(sym) || {};
       const evalResult = evaluateOpenPositionCandleMap(tfMap, { nowMs, sessionRef, marketOpen });
       if (evalResult.stale) {
         staleNames.push(`${sym}(${evalResult.reasons.slice(0, 2).join("; ")})`);
+        staleDetails.push({ ticker: sym, reasons: evalResult.reasons });
         staleCount++;
       }
     }
     if (staleCount > 0) {
-      anomalies.push({
-        detail: `${staleCount} of ${slice.length} open positions have stale candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? `...+${staleCount - 5}` : ""}`,
-        severity: staleCount >= 5 ? "fail" : "warn",
-      });
+      // Streak gate — mirror ensureOpenPositionCandlesFresh: one transient
+      // ingest blip should not page; require ≥2 consecutive sweeps with the
+      // same (tickers × reasons) signature before emitting an anomaly.
+      let emitStale = true;
+      try {
+        const KV = env?.KV_TIMED || env?.KV;
+        if (KV) {
+          const _tickerSig = staleDetails.map((s) => s.ticker).sort().join(",");
+          const _reasonSig = staleDetails.map((s) => (s.reasons || []).join("|")).sort().join(";").slice(0, 80);
+          const _streakKey = `timed:freshness:open_pos_streak:${_tickerSig}::${_reasonSig}`;
+          const _streak = (Number(await KV.get(_streakKey)) || 0) + 1;
+          await kvPutText(KV, _streakKey, String(_streak), 1800);
+          emitStale = _streak >= 2;
+          if (!emitStale) {
+            console.log(`[SANITY_SWEEP] candle_freshness_open streak=${_streak} for ${_tickerSig} — suppressed (need ≥2)`);
+          }
+        }
+      } catch (_) {}
+      if (emitStale) {
+        anomalies.push({
+          detail: `${staleCount} of ${slice.length} open positions have stale candles: ${staleNames.slice(0, 5).join(", ")}${staleCount > 5 ? `...+${staleCount - 5}` : ""}`,
+          severity: staleCount >= 5 ? "fail" : "warn",
+        });
+      }
     }
   } catch (e) {
     anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
