@@ -152,7 +152,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
                 const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                   : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-                const reconciled = reconcileDailyChange(displayPrice, pc, dc, dp);
+                const reconciled = reconcileDailyChange(displayPrice, pc, dc, dp, {
+                  dailyOpen: Number(snap.dailyOpen) || 0,
+                });
                 let usePc = reconciled.pc;
                 let useDc = reconciled.dc;
                 let useDp = reconciled.dp;
@@ -392,7 +394,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 : (displayPrice > 0 && pc > 0) ? Math.round((displayPrice - pc) * 100) / 100 : 0;
               const dp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                 : (displayPrice > 0 && pc > 0) ? Math.round(((displayPrice - pc) / pc) * 10000) / 100 : 0;
-              const reconciled = reconcileDailyChange(displayPrice, pc, dc, dp);
+              const reconciled = reconcileDailyChange(displayPrice, pc, dc, dp, {
+                dailyOpen: Number(snap.dailyOpen) || 0,
+              });
               let usePc = reconciled.pc;
               let useDc = reconciled.dc;
               let useDp = reconciled.dp;
@@ -592,7 +596,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 : (pc > 0 ? Math.round((price - pc) * 100) / 100 : (prev.dc ?? 0));
               const rawDp = (Number.isFinite(nativeDp) && nativeDp !== 0) ? Math.round(nativeDp * 100) / 100
                 : (pc > 0 ? Math.round(((price - pc) / pc) * 10000) / 100 : (prev.dp ?? 0));
-              const reconciled = reconcileDailyChange(price, pc, rawDc, rawDp);
+              const reconciled = reconcileDailyChange(price, pc, rawDc, rawDp, {
+                dailyOpen: Number(snap.dailyOpen) || 0,
+              });
               const { extP, extDc, extDp } = buildExtendedHoursFields(
                 snap, price, reconciled.dp, _marketClosed, false,
               );

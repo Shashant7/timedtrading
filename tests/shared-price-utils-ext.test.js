@@ -393,3 +393,53 @@ describe("inferTraderPosture", () => {
     expect(clean.has_open_position).toBe(false);
   });
 });
+
+describe("getDailyChange split heal", () => {
+  let utils;
+
+  beforeAll(() => {
+    utils = loadPriceUtils();
+  });
+
+  function mockMarketOpen() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "7/1/2026, 14:30:00";
+      }
+      return "7/1/2026, 14:30:00";
+    });
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("heals MLI post-split prev_close scale mismatch for movers", () => {
+    mockMarketOpen();
+    const dc = utils.getDailyChange(withFreshPrice({
+      ticker: "MLI",
+      price: 56.18,
+      _live_price: 56.18,
+      prev_close: 122.83,
+      _live_prev_close: 122.83,
+      open: 58.2,
+      day_change_pct: -54.26,
+    }));
+    expect(Math.abs(dc.dayPct)).toBeLessThan(12);
+    expect(dc.dayPct).toBeLessThan(0);
+  });
+
+  it("heals CRWD 4-for-1 split phantom -75% loser", () => {
+    mockMarketOpen();
+    const dc = utils.getDailyChange(withFreshPrice({
+      ticker: "CRWD",
+      price: 195.14,
+      _live_price: 195.14,
+      prev_close: 772.72,
+      _live_prev_close: 772.72,
+      open: 198,
+      day_change_pct: -74.75,
+    }));
+    expect(Math.abs(dc.dayPct)).toBeLessThan(3);
+  });
+});

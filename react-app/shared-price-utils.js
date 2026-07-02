@@ -139,6 +139,50 @@
     return prev > 0 ? prev : null;
   }
 
+  // ── Stock-split heal (mirrors worker/feed/prev-close-reconcile.js) ──
+  var SPLIT_RATIOS = [10, 5, 4, 3, 2, 1.5, 0.5, 1 / 3, 0.25, 0.2, 0.1];
+  var SPLIT_RATIO_TOL = 0.10;
+
+  function isOpenSplitArtifact(price, prevClose, dailyOpen) {
+    var p = Number(price);
+    var pc = Number(prevClose);
+    var open = Number(dailyOpen);
+    if (!(p > 0 && pc > 0 && open > 0)) return false;
+    return Math.abs(p - pc) / pc > 0.35
+      && Math.abs(open - p) / p < 0.08
+      && Math.abs(open - pc) / pc > 0.35;
+  }
+
+  function healPrevCloseForSplit(price, prevClose, dailyOpen) {
+    var p = Number(price);
+    var pc = Number(prevClose);
+    var open = Number(dailyOpen);
+    if (!(p > 0 && pc > 0)) return prevClose;
+    var rawDpAbs = Math.abs((p - pc) / pc * 100);
+    if (rawDpAbs < 35) return prevClose;
+    var ratio = p / pc;
+    var openArtifact = isOpenSplitArtifact(p, pc, open);
+    var bestPc = 0;
+    var bestAbsDp = Infinity;
+    var consider = function (r) {
+      if (!(r > 0)) return;
+      var scaledPc = pc * r;
+      if (!(scaledPc > 0)) return;
+      var absDp = Math.abs((p - scaledPc) / scaledPc * 100);
+      if (absDp >= 25) return;
+      var ratioNear = Math.abs(ratio - r) / r < SPLIT_RATIO_TOL;
+      if (!ratioNear && !openArtifact) return;
+      if (absDp < 0.5 && !openArtifact && ratio < 1.2) return;
+      if (absDp < bestAbsDp) {
+        bestAbsDp = absDp;
+        bestPc = Math.round(scaledPc * 100) / 100;
+      }
+    };
+    if (ratio > 8 && ratio < 15) consider(10);
+    for (var ri = 0; ri < SPLIT_RATIOS.length; ri++) consider(SPLIT_RATIOS[ri]);
+    return bestPc > 0 ? bestPc : prevClose;
+  }
+
   function getDailyChange(t) {
     var marketOpen = isNyRegularMarketOpen();
 
@@ -186,6 +230,12 @@
         var betterPc = price / (1 + storedPctRaw / 100);
         if (Number.isFinite(betterPc) && betterPc > 0) prevClose = Math.round(betterPc * 100) / 100;
       }
+    }
+
+    // ── Stock split: rescale vendor prev_close on wrong scale (CRWD 4:1, MLI 2:1) ──
+    if (prevClose > 0 && price > 0) {
+      var dailyOpen = Number(t?.open ?? t?.daily_open ?? t?.dailyOpen ?? 0);
+      prevClose = healPrevCloseForSplit(price, prevClose, dailyOpen);
     }
 
     // ── Compute daily change ──
