@@ -1887,14 +1887,14 @@ export async function sendInvestorAlertEmails(env, alert) {
       lede: `The TT Investor model no longer sees valid supporting conditions for <strong>${data.ticker}</strong>: ${(data.reasons || []).join("; ")}.`,
     },
     position_trim: {
-      subjectBase: `${data.ticker} — Investor Position Trimmed`,
-      headline: `Investor Position Trimmed`,
-      lede: `The Investor portfolio trimmed <strong>${data.ticker}</strong> (${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}).`,
+      subjectBase: `${data.ticker} — Investor TRIMMED (partial reduce)`,
+      headline: `Investor TRIMMED — partial reduce`,
+      lede: `The Investor portfolio <strong>trimmed</strong> <strong>${data.ticker}</strong> — sold ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}. The position remains open at reduced size.`,
     },
     position_close: {
-      subjectBase: `${data.ticker} — Investor Position Closed`,
-      headline: `Investor Position Closed`,
-      lede: `The Investor portfolio closed the <strong>${data.ticker}</strong> position (${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}).`,
+      subjectBase: `${data.ticker} — Investor EXITED (full close)`,
+      headline: `Investor EXITED — full close`,
+      lede: `The Investor portfolio <strong>exited</strong> <strong>${data.ticker}</strong> — sold ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}. The model no longer holds this name.`,
     },
   };
   const meta = TYPE_META[type];
@@ -1916,17 +1916,15 @@ export async function sendInvestorAlertEmails(env, alert) {
     return rows.map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#9ca3af;font-size:12px;vertical-align:top">${k}</td><td style="padding:6px 0;color:#e5e7eb;font-size:13px;font-weight:600">${v}</td></tr>`).join("");
   })();
 
-  // Daily 60-bar chart for Investor horizon (~3 months of context).
-  // The chart-image endpoint already accepts ticker/tf/bars; no
-  // entry/sl/tp annotations needed for an informational signal.
+  // 1H chart — ~2 trading days of context (aligned with rebalance execution emails).
   const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
-  const _chartImgUrl = `${_workerUrl}/timed/chart-image?ticker=${encodeURIComponent(data.ticker)}&tf=D&bars=60`;
+  const _chartImgUrl = _investorChartUrl(data.ticker, _workerUrl);
   const chartImgHtml = `
 <div style="margin:18px 0 8px">
   <a href="https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)">
-    <img src="${_chartImgUrl}" alt="${data.ticker} daily chart (last ~3 months)" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:8px"/>
+    <img src="${_chartImgUrl}" alt="${data.ticker} 1H chart (last ~2 trading days)" width="560" style="display:block;width:100%;max-width:560px;height:auto;border-radius:8px"/>
   </a>
-  <div style="margin:4px 2px 0;font-size:10px;color:#6b7280">Daily chart · last 60 bars · refreshes every 5 min</div>
+  <div style="margin:4px 2px 0;font-size:10px;color:#6b7280">1H chart · last ~2 trading days · refreshes every 5 min</div>
 </div>`;
 
   const tickerUrl = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}`;
@@ -2179,14 +2177,72 @@ export async function sendInvestorWeeklyDigest(env) {
 // FOMC" in one line). Sent to investor_alerts opted-in users.
 // Compliance voice: "the portfolio / this position", never "you/your".
 // ─────────────────────────────────────────────────────────────────────────────
+function _investorChartUrl(sym, baseUrl) {
+  const workerUrl = baseUrl || "https://timed-trading.com";
+  return `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=60&bars=48`;
+}
+
 function _reasonGroupLabel(item) {
   const ev = String(item?.event_label || item?.eventLabel || "").trim();
   if (ev) return ev;
   const r = String(item?.reason || "").toLowerCase();
-  if (r.includes("exhaustion") || r.includes("lock_in")) return "Exhaustion / locking in gains";
-  if (r.includes("event_risk") || r.includes("event-risk")) return "Event risk";
-  if (r.includes("reduce_stage") || r.includes("auto_reduce")) return "Trend weakened (reduce signal)";
+  if (r.includes("primary_invalidation") || r.includes("invalidation_breach")) {
+    return "Full exit — invalidation floor breached";
+  }
+  if (r.includes("exhaustion") || r.includes("lock_in")) return "Partial trim — locking in gains";
+  if (r.includes("event_risk") || r.includes("event-risk")) return "Partial trim — event risk";
+  if (r.includes("reduce_stage") || r.includes("auto_reduce")) return "Partial trim — trend weakened";
+  if (r.includes("fsd_removed")) return "Full exit — removed from research coverage";
   return r ? r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Risk management";
+}
+
+function _isInvestorRebalanceClose(item) {
+  return !!item?.closed || (item?.remaining != null && Number(item.remaining) <= 0.0001);
+}
+
+function _rebalanceEtLabel(ts) {
+  const n = Number(ts);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(n).toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function _rebalanceActionVerb(actionKind) {
+  if (actionKind === "close") return "EXITED";
+  if (actionKind === "trim") return "TRIMMED";
+  if (actionKind === "open") return "ENTERED";
+  if (actionKind === "add") return "ADDED";
+  return "ACTION";
+}
+
+function _formatRebalanceDiscordLine(item, actionKind, fmtPnl) {
+  const sym = String(item?.ticker || "").toUpperCase();
+  if (!sym) return "";
+  const verb = _rebalanceActionVerb(actionKind);
+  const shares = Number(item?.shares);
+  const price = Number(item?.price);
+  const invPx = Number(item?.invalidation_price);
+  const et = _rebalanceEtLabel(item?.executed_at ?? item?.ts);
+  const reason = _reasonGroupLabel(item);
+  const bits = [`**${sym}** — ${verb}`];
+  if (Number.isFinite(shares) && shares > 0) {
+    const side = actionKind === "close" || actionKind === "trim" ? "sold" : "bought";
+    bits.push(`${side} ${shares.toFixed(shares >= 10 ? 0 : 2)} sh`);
+  }
+  if (Number.isFinite(price) && price > 0) bits.push(`@ $${price.toFixed(2)}`);
+  if (et) bits.push(`· ${et} ET`);
+  if (Number.isFinite(invPx) && invPx > 0 && actionKind === "close") {
+    bits.push(`· floor $${invPx.toFixed(2)}`);
+  }
+  const pnl = fmtPnl(item?.pnl);
+  if (pnl) bits.push(`· ${pnl}`);
+  if (reason) bits.push(`\n  _${reason}_`);
+  return bits.join(" ");
 }
 
 function _rebalanceThesisLine(item, actionKind) {
@@ -2212,7 +2268,7 @@ function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
   const value = Number(item?.value);
   const pnl = Number(item?.pnl);
   const workerUrl = baseUrl || "https://timed-trading.com";
-  const chartUrl = `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=60&bars=48`;
+  const chartUrl = _investorChartUrl(sym, workerUrl);
   const actionLabel = actionKind === "add" ? "ADD"
     : actionKind === "open" ? "NEW ENTRY"
     : actionKind === "close" ? "FULL EXIT"
@@ -2227,6 +2283,12 @@ function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
     ? (actionKind === "close" ? "Position closed — 0 sh remaining"
       : `Total after action: ${totalAfter.toFixed(totalAfter >= 10 ? 1 : 2)} sh`)
     : null;
+  const invPx = Number(item?.invalidation_price);
+  const invLabel = String(item?.invalidation_label || "").trim();
+  const levelLine = Number.isFinite(invPx) && invPx > 0
+    ? `Invalidation floor: $${invPx.toFixed(2)}${invLabel ? ` (${invLabel})` : ""}`
+    : null;
+  const execEt = _rebalanceEtLabel(item?.executed_at ?? item?.ts);
   const cio = String(item?.cio_reasoning || "").trim();
   const thesis = _rebalanceThesisLine(item, actionKind);
   return `<div style="margin:0 0 20px;padding:14px 16px;border:1px solid ${BRAND.border};border-radius:12px;background:${BRAND.cardBg}">
@@ -2239,6 +2301,8 @@ function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
     </div>
     ${shareLine ? `<div style="font-size:13px;color:${BRAND.textSecondary};margin-bottom:4px">${_esc(shareLine)}${Number.isFinite(value) ? ` · $${Math.round(value).toLocaleString()} notional` : ""}${Number.isFinite(pnl) ? ` · P&L ${pnl >= 0 ? "+" : "-"}$${Math.abs(pnl).toFixed(2)}` : ""}</div>` : ""}
     ${totalLine ? `<div style="font-size:12px;color:${BRAND.textMuted};margin-bottom:8px">${_esc(totalLine)}</div>` : ""}
+    ${execEt ? `<div style="font-size:11px;color:${BRAND.textMuted};margin-bottom:8px">Executed ${execEt} ET</div>` : ""}
+    ${levelLine ? `<div style="font-size:12px;color:${BRAND.textSecondary};margin-bottom:8px"><span style="color:${BRAND.textMuted};font-weight:700">Level:</span> ${_esc(levelLine)}</div>` : ""}
     <div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:${BRAND.textMuted};font-weight:700">Thesis:</span> ${_esc(thesis)}</div>
     ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:#a78bfa;font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
     <div style="margin:10px 0 4px;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
@@ -2254,8 +2318,8 @@ export async function sendInvestorRebalanceDigest(env, summary) {
   // Full closes (exits) are materially different from partial trims — the model
   // is OUT of the name. Surface them in their own prominent section so an exit
   // of a recently-entered position isn't buried under "trimmed/reduced".
-  const closes = allTrims.filter((t) => !!t?.closed);
-  const trims = allTrims.filter((t) => !t?.closed);
+  const closes = allTrims.filter((t) => _isInvestorRebalanceClose(t));
+  const trims = allTrims.filter((t) => !_isInvestorRebalanceClose(t));
   const added = Array.isArray(summary?.added) ? summary.added : [];
   const opened = Array.isArray(summary?.opened) ? summary.opened : [];
   const totalActions = closes.length + trims.length + added.length + opened.length;
@@ -2327,7 +2391,7 @@ function _buildQueueTickerCard(alert, baseUrl) {
   const sym = String(data.ticker || "").toUpperCase();
   if (!sym) return "";
   const workerUrl = baseUrl || "https://timed-trading.com";
-  const chartUrl = `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=D&bars=60`;
+  const chartUrl = _investorChartUrl(sym, workerUrl);
   const score = Number(data.score);
   const zone = String(data.zoneType || "").replace(/_/g, " ");
   const confidence = Number(data.confidence);
@@ -2360,9 +2424,9 @@ function _buildQueueTickerCard(alert, baseUrl) {
     <div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:${BRAND.textMuted};font-weight:700">Thesis:</span> ${_esc(thesisBits.join(" · "))}</div>
     ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:#a78bfa;font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
     <div style="margin:10px 0 4px;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
-      <img src="${chartUrl}" alt="${_esc(sym)} daily chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
+      <img src="${chartUrl}" alt="${_esc(sym)} 1H chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
     </div>
-    <div style="font-size:10px;color:${BRAND.textMuted}">Daily chart · last 60 bars · refreshes every 5 min</div>
+    <div style="font-size:10px;color:${BRAND.textMuted}">1H chart · last ~2 trading days</div>
   </div>`;
 }
 
@@ -2376,7 +2440,7 @@ export function buildInvestorQueueDigestBody(alerts, baseUrl) {
   const cards = list.map((a) => _buildQueueTickerCard(a, baseUrl)).join("");
   const bodyHtml = `
     <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Entered Queue — ${_esc(nowLabel)} ET</h2>
-    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">${list.length} name${list.length === 1 ? "" : "s"} entered the Queue lane this pass — rebalance-ready, not yet bought. Full detail per ticker below — price, daily chart, thesis, and AI CIO guidance.</p>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">${list.length} name${list.length === 1 ? "" : "s"} entered the Queue lane this pass — rebalance-ready, not yet bought. Full detail per ticker below — price, 1H chart, thesis, and AI CIO guidance.</p>
     <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${BRAND.green};margin-bottom:8px">ENTERED QUEUE (${list.length})</div>
     ${cards}
     <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Informational model signals only — not investment advice. The model portfolio may buy on the next hourly rebalance if still qualified.</p>
@@ -2423,7 +2487,7 @@ function _buildReduceTickerCard(alert, baseUrl) {
   const sym = String(data.ticker || "").toUpperCase();
   if (!sym) return "";
   const workerUrl = baseUrl || "https://timed-trading.com";
-  const chartUrl = `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=D&bars=60`;
+  const chartUrl = _investorChartUrl(sym, workerUrl);
   const price = _emailDisplayPrice(data.price);
   const reasons = Array.isArray(data.reasons) ? data.reasons.filter(Boolean) : [];
   const cio = String(data.cio_reasoning || "").trim();
@@ -2444,9 +2508,9 @@ function _buildReduceTickerCard(alert, baseUrl) {
     ${reasons.length ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:${BRAND.textMuted};font-weight:700">Why:</span> ${_esc(reasons.join("; "))}</div>` : ""}
     ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:#a78bfa;font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
     <div style="margin:10px 0 4px;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
-      <img src="${chartUrl}" alt="${_esc(sym)} daily chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
+      <img src="${chartUrl}" alt="${_esc(sym)} 1H chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
     </div>
-    <div style="font-size:10px;color:${BRAND.textMuted}">Daily chart · last 60 bars · refreshes every 5 min</div>
+    <div style="font-size:10px;color:${BRAND.textMuted}">1H chart · last ~2 trading days</div>
   </div>`;
 }
 
@@ -2461,7 +2525,7 @@ export function buildInvestorReduceDigestBody(alerts, baseUrl) {
   const danger = BRAND.danger || "#ef4444";
   const bodyHtml = `
     <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary}">Model Thesis Shift — ${_esc(nowLabel)} ET</h2>
-    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">${list.length} name${list.length === 1 ? "" : "s"} moved to Reduce this pass — supporting conditions no longer hold. Full detail per ticker below — price, daily chart, reasons, and AI CIO guidance.</p>
+    <p style="margin:0 0 14px;color:${BRAND.textSecondary};font-size:13px">${list.length} name${list.length === 1 ? "" : "s"} moved to Reduce this pass — supporting conditions no longer hold. Full detail per ticker below — price, 1H chart, reasons, and AI CIO guidance.</p>
     <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${danger};margin-bottom:8px">MODEL · REDUCE (${list.length})</div>
     ${cards}
     <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Informational model signals only — not investment advice. The model portfolio would trim or exit on the next hourly rebalance cycle.</p>
@@ -2511,90 +2575,62 @@ export async function sendInvestorSignalsDigest(env, alerts) {
 }
 
 /** One consolidated Discord embed for the rebalance cycle (grouped by action,
- *  with per-ticker AI CIO guidance — parity with the old per-lot embeds). */
+ *  with per-ticker AI CIO guidance — parity with the email digest cards). */
 export function buildInvestorRebalanceDiscordEmbed(summary, opts = {}) {
   const includeBuys = opts.buysInDigest !== false;
   const allTrims = Array.isArray(summary?.trims) ? summary.trims : [];
-  const closes = allTrims.filter((t) => !!t?.closed);
-  const trims = allTrims.filter((t) => !t?.closed);
+  const closes = allTrims.filter((t) => _isInvestorRebalanceClose(t));
+  const trims = allTrims.filter((t) => !_isInvestorRebalanceClose(t));
   const added = includeBuys && Array.isArray(summary?.added) ? summary.added : [];
   const opened = includeBuys && Array.isArray(summary?.opened) ? summary.opened : [];
   if (closes.length + trims.length + added.length + opened.length === 0) return null;
   const fmtPnl = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : "-"}$${Math.abs(Number(n)).toFixed(2)}` : null;
+  const cycleEt = _rebalanceEtLabel(summary?.executed_at ?? Date.now());
   const fields = [];
-  // EXITS first — full closes are the highest-signal action (model is OUT).
+
   if (closes.length) {
-    const lines = closes.map((c) => {
-      const sym = String(c?.ticker || "").toUpperCase();
-      const pnl = fmtPnl(c?.pnl);
-      const reason = _reasonGroupLabel(c);
-      return `• **${sym}** — closed${pnl ? ` · realized ${pnl}` : ""}${reason ? ` · ${reason}` : ""}`;
-    }).join("\n").slice(0, 1020);
-    fields.push({ name: `🔴 EXITED — full close (${closes.length})`, value: lines || "—" });
+    const lines = closes.map((c) => _formatRebalanceDiscordLine(c, "close", fmtPnl)).join("\n\n").slice(0, 1020);
+    fields.push({ name: `🔴 EXITED — full position close (${closes.length})`, value: lines || "—" });
     const withCio = closes.filter((c) => String(c?.cio_reasoning || "").trim());
-    for (const c of withCio.slice(0, 8)) {
+    for (const c of withCio.slice(0, 6)) {
       const sym = String(c?.ticker || "").toUpperCase();
-      fields.push({ name: `🔴 ${sym}`, value: String(c.cio_reasoning).trim().slice(0, 360) });
+      fields.push({ name: `🔴 ${sym} — AI CIO`, value: String(c.cio_reasoning).trim().slice(0, 360) });
     }
   }
   if (trims.length) {
-    // Reason overview (one line per reason group).
-    const groups = new Map();
-    for (const t of trims) {
-      const key = _reasonGroupLabel(t);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(String(t?.ticker || "").toUpperCase());
-    }
-    const overview = [...groups.entries()].map(([r, syms]) => {
-      const bullets = syms.map((s) => `• **${s}**`).join("\n");
-      return `**${r}** (${syms.length})\n${bullets}`;
-    }).join("\n\n").slice(0, 1020);
-    fields.push({ name: `🔻 Trimmed / Reduced (${trims.length})`, value: overview || "—" });
-    // Per-ticker AI CIO guidance (Discord embed = max 25 fields / ~6000 chars,
-    // so cap and point overflow to the email digest which carries them all).
+    const lines = trims.map((t) => _formatRebalanceDiscordLine(t, "trim", fmtPnl)).join("\n\n").slice(0, 1020);
+    fields.push({ name: `🟠 TRIMMED — partial reduce (${trims.length})`, value: lines || "—" });
     const withCio = trims.filter((t) => String(t?.cio_reasoning || "").trim());
-    const CAP = 18;
-    for (const t of withCio.slice(0, CAP)) {
+    for (const t of withCio.slice(0, 6)) {
       const sym = String(t?.ticker || "").toUpperCase();
-      fields.push({ name: `🔻 ${sym}`, value: String(t.cio_reasoning).trim().slice(0, 360) });
+      fields.push({ name: `🟠 ${sym} — AI CIO`, value: String(t.cio_reasoning).trim().slice(0, 360) });
     }
-    if (withCio.length > CAP) {
-      fields.push({ name: "…", value: `+${withCio.length - CAP} more with AI CIO notes — see the email digest.` });
+    if (withCio.length > 6) {
+      fields.push({ name: "…", value: `+${withCio.length - 6} more with AI CIO notes — see the email digest.` });
     }
   }
   if (added.length) {
-    fields.push({
-      name: `➕ Added (${added.length})`,
-      value: added.map((x) => {
-        const sym = String(x?.ticker || "").toUpperCase();
-        const px = Number(x?.price);
-        return `• **${sym}**${Number.isFinite(px) ? ` @ $${px.toFixed(2)}` : ""}`;
-      }).join("\n").slice(0, 1020) || "—",
-    });
+    const lines = added.map((x) => _formatRebalanceDiscordLine(x, "add", fmtPnl)).join("\n\n").slice(0, 1020);
+    fields.push({ name: `🟢 ADDED — existing position (${added.length})`, value: lines || "—" });
   }
   if (opened.length) {
-    fields.push({
-      name: `🟢 New positions (${opened.length})`,
-      value: opened.map((x) => {
-        const sym = String(x?.ticker || "").toUpperCase();
-        const px = Number(x?.price);
-        const val = Number(x?.value);
-        const bits = [`• **${sym}**`];
-        if (Number.isFinite(px)) bits.push(`@ $${px.toFixed(2)}`);
-        if (Number.isFinite(val)) bits.push(`· $${Math.round(val).toLocaleString()}`);
-        return bits.join(" ");
-      }).join("\n").slice(0, 1020) || "—",
-    });
+    const lines = opened.map((x) => _formatRebalanceDiscordLine(x, "open", fmtPnl)).join("\n\n").slice(0, 1020);
+    fields.push({ name: `🟢 ENTERED — new starter (${opened.length})`, value: lines || "—" });
   }
+
   const _headline = [];
   if (closes.length) _headline.push(`${closes.length} exited`);
   if (trims.length) _headline.push(`${trims.length} trimmed`);
   if (added.length) _headline.push(`${added.length} added`);
-  if (opened.length) _headline.push(`${opened.length} opened`);
+  if (opened.length) _headline.push(`${opened.length} entered`);
+
   return {
-    title: `Investor Rebalance — ${_headline.join(" · ") || "portfolio cycle"}`,
-    description: "Long-horizon portfolio actions, grouped by reason — with AI CIO guidance per name. One summary per cycle.",
-    color: closes.length ? 0xef4444 : 0x8b5cf6,
+    title: `Investor Portfolio — ${_headline.join(" · ") || "cycle"}${cycleEt ? ` · ${cycleEt} ET` : ""}`,
+    description:
+      "Model portfolio actions this cycle. **EXITED** = full close (no longer held). " +
+      "**TRIMMED** = partial reduce (thesis still active). **ENTERED/ADDED** = new or increased exposure. " +
+      "Full detail — 1H chart, levels, shares — in the email digest.",
+    color: closes.length ? 0xef4444 : trims.length ? 0xf59e0b : 0x22c55e,
     fields: fields.slice(0, 25),
     timestamp: new Date().toISOString(),
   };

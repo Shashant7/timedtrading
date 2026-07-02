@@ -970,9 +970,9 @@ export function createInvestorAlertEmbed(type, data) {
     },
     position_trim: {
       color: 0xf59e0b,
-      emoji: "🔻",
-      title: (d) => `${d.ticker}: Investor Position Trimmed`,
-      description: (d) => `**${d.ticker}** — partial sell executed by the Investor auto-rebalance engine.`,
+      emoji: "🟠",
+      title: (d) => `${d.ticker}: TRIMMED — partial reduce`,
+      description: (d) => `**${d.ticker}** — partial reduce executed. Sold ${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}. Position remains open at reduced size.`,
       fields: (d) => [
         { name: "Shares Sold", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
         { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
@@ -991,14 +991,15 @@ export function createInvestorAlertEmbed(type, data) {
     position_close: {
       color: 0xef4444,
       emoji: "🔴",
-      title: (d) => `${d.ticker}: Investor Position Closed`,
-      description: (d) => `**${d.ticker}** — full exit executed by the Investor portfolio engine.`,
+      title: (d) => `${d.ticker}: EXITED — full close`,
+      description: (d) => `**${d.ticker}** — full exit executed. Sold ${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}. Model no longer holds this name.`,
       fields: (d) => [
         { name: "Shares Sold", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
         { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
         { name: "Value", value: `$${Number(d.value || 0).toFixed(2)}`, inline: true },
         { name: "Realized P&L", value: d.pnl != null ? `$${Number(d.pnl).toFixed(2)}` : "—", inline: true },
         { name: "Reason", value: String(d.reasonLabel || d.reason || "—").replace(/_/g, " "), inline: false },
+        ...(Number(d.invalidation_price) > 0 ? [{ name: "Invalidation floor", value: `$${Number(d.invalidation_price).toFixed(2)}`, inline: true }] : []),
         ...(d.event_label ? [{ name: "Catalyst", value: String(d.event_label), inline: true }] : []),
         ...(d.cio_reasoning ? [{ name: "AI CIO review", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
