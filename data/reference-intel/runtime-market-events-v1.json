@@ -34467,7 +34467,7 @@
         "event_type": "earnings",
         "event_name": "BSET Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 20.66,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34476,7 +34476,7 @@
         "event_type": "earnings",
         "event_name": "CULP Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -51.52,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34503,7 +34503,7 @@
         "event_type": "earnings",
         "event_name": "FC Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 6.48,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34530,7 +34530,7 @@
         "event_type": "earnings",
         "event_name": "GBX Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -1.54,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34589,6 +34589,24 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-01",
+        "event_type": "macro",
+        "event_name": "JOLTS",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-01",
+        "event_type": "macro",
+        "event_name": "Jun ISM Manufacturing PMI",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-07-02",
         "event_type": "macro",
         "event_name": "Jun Non-Farm Payrolls",
@@ -34610,7 +34628,43 @@
         "date": "2026-07-02",
         "event_type": "macro",
         "event_name": "Jun Unemployment Rate",
-        "impact": "high",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-02",
+        "event_type": "macro",
+        "event_name": "May F Durable Gds Orders",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-06",
+        "event_type": "macro",
+        "event_name": "Jun ISM Srvcs PMI",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-06",
+        "event_type": "macro",
+        "event_name": "Jun F S&P Srvcs PMI",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-07",
+        "event_type": "macro",
+        "event_name": "May Trade Balance",
+        "impact": "medium",
         "surprise_pct": null,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
@@ -34623,14 +34677,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 37.5768
+        "sql_duration_ms": 50.4337
       },
-      "duration": 37.5768,
+      "duration": 50.4337,
       "changes": 0,
-      "last_row_id": 19520,
+      "last_row_id": 67965274,
       "changed_db": false,
-      "size_after": 4599279616,
-      "rows_read": 3846,
+      "size_after": 4489723904,
+      "rows_read": 3852,
       "rows_written": 0,
       "total_attempts": 1
     }
