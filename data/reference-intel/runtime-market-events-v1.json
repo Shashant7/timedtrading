@@ -34611,7 +34611,7 @@
         "event_type": "macro",
         "event_name": "Jun Non-Farm Payrolls",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 27.41,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34629,7 +34629,7 @@
         "event_type": "macro",
         "event_name": "Jun Unemployment Rate",
         "impact": "medium",
-        "surprise_pct": null,
+        "surprise_pct": 0,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -34638,6 +34638,33 @@
         "event_type": "macro",
         "event_name": "May F Durable Gds Orders",
         "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-02",
+        "event_type": "earnings",
+        "event_name": "BABB Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-02",
+        "event_type": "earnings",
+        "event_name": "LNN Earnings",
+        "impact": "high",
+        "surprise_pct": 25.45,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-02",
+        "event_type": "earnings",
+        "event_name": "PKE Earnings",
+        "impact": "high",
         "surprise_pct": null,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
@@ -34677,14 +34704,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 50.4337
+        "sql_duration_ms": 51.1784
       },
-      "duration": 50.4337,
+      "duration": 51.1784,
       "changes": 0,
-      "last_row_id": 67965274,
+      "last_row_id": 68233537,
       "changed_db": false,
-      "size_after": 4489723904,
-      "rows_read": 3852,
+      "size_after": 4631896064,
+      "rows_read": 3855,
       "rows_written": 0,
       "total_attempts": 1
     }
