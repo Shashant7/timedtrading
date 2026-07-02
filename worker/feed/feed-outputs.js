@@ -130,7 +130,9 @@ export function overlayTimedPricesRow(obj, pf, opts = {}) {
   const pfPcUsable = Number.isFinite(pfPc) && pfPc > 0 && pfP > 0
     && (Math.abs(pfPc - pfP) / pfP * 100) > 0.05;
 
-  const splitAdj = adjustPrevCloseForSplit(pfP, pfPc);
+  const splitAdj = adjustPrevCloseForSplit(pfP, pfPc, {
+    dailyOpen: Number(obj.open ?? obj.daily_open ?? pf.o ?? 0),
+  });
 
   const tdMoveConfirmed = pfPcUsable && !splitAdj
     && Number.isFinite(pfDp) && pfDp !== 0

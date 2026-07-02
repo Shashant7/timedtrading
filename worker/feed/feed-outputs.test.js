@@ -147,6 +147,23 @@ describe("overlayTimedPricesRow", () => {
     expect(out.prev_close).toBeCloseTo(122.84, 1);
     expect(Math.abs(out.day_change_pct)).toBeLessThan(1);
   });
+
+  it("corrects MLI post-split drift when vendor pc is still pre-split", () => {
+    const now = Date.now();
+    const obj = { ticker: "MLI", price: 56.18, prev_close: 122.83, open: 58.2, day_change_pct: -54.26 };
+    const pf = {
+      p: 56.18,
+      pc: 122.83,
+      dc: -66.65,
+      dp: -54.26,
+      t: now,
+      p_ts: now - 60 * 1000,
+      q_ts: now - 60 * 1000,
+    };
+    const out = overlayTimedPricesRow(obj, pf, { sym: "MLI", marketOpen: true });
+    expect(out.prev_close).toBeCloseTo(61.42, 1);
+    expect(Math.abs(out.day_change_pct)).toBeLessThan(12);
+  });
 });
 
 describe("overlayLivePricesOntoMap", () => {
