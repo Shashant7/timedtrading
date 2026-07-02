@@ -28,6 +28,10 @@
       book is flat; admin `POST /timed/admin/portfolio-risk/reset-samples`;
       Loop 2 pause auto-clears on healthy pulse.
 
+- [x] **Investor alert templates + candle freshness (2026-07-02).** EXIT vs
+      TRIM digest fix, templated Discord/email (shares, levels, CIO, 1H chart),
+      sanity sweep candle streak gate.
+
 - [ ] **Setup sequence shadow awakening (2026-06-21).** Tier A+B replay
       complete (211 moves, 96% sequence yield). Verdict:
       `docs/setup-mining-tier-ab-verdict-2026-06-21.md`. Shipped:
