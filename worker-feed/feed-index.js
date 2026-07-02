@@ -150,6 +150,38 @@ const dataStreamStatus = (env) => (usesTwelveData(env) ? priceStreamStatus(env) 
 const tradovateStreamStart = (env, tvSymbols) => _doFetch(env.TRADOVATE_STREAM, "/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tvSymbols }) });
 const tradovateStreamStatus = (env) => _doFetch(env.TRADOVATE_STREAM, "/status");
 
+async function triggerFeedSlHardCloseRemote(env, KV, sym, trade, feedSnap) {
+  const base = String(env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev").replace(/\/$/, "");
+  const key = env.TIMED_API_KEY;
+  if (!key) {
+    console.warn("[tt-feed FEED_SL_CLOSE] TIMED_API_KEY missing — cannot relay to monolith");
+    return { skipped: "no_api_key" };
+  }
+  try {
+    const res = await fetch(`${base}/timed/internal/feed-sl-close`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-API-Key": key,
+      },
+      body: JSON.stringify({
+        ticker: sym,
+        feed_px: Number(feedSnap?.p) || null,
+        prev_close: Number(feedSnap?.pc) || null,
+        trade: trade || null,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.warn(`[tt-feed FEED_SL_CLOSE] ${sym} relay HTTP ${res.status}:`, String(data?.error || "").slice(0, 200));
+    }
+    return data;
+  } catch (e) {
+    console.warn(`[tt-feed FEED_SL_CLOSE] ${sym} relay failed:`, String(e?.message || e).slice(0, 200));
+    return { skipped: "relay_error" };
+  }
+}
+
 // ─── Deps assembly ───────────────────────────────────────────────────────────
 
 function buildDeps(cal) {
@@ -163,6 +195,7 @@ function buildDeps(cal) {
     mergeFreshnessIntoLatest,
     syncLivePricesToChartCandles: (env, pricesMap, opts) =>
       syncLivePricesToChartCandles(env, pricesMap, opts, { isNyRegularMarketOpen }),
+    triggerFeedSlHardClose: triggerFeedSlHardCloseRemote,
     // keep-alive deps
     usesTwelveData,
     isWithinOperatingHours: makeIsWithinOperatingHours(cal),
