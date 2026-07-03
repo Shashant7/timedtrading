@@ -116,45 +116,56 @@ TwelveData/Alpaca → tt-feed */1 (timed:prices KV, live-candle sync 10/15/30/60
 
 ### Phase A — close the known holes (this weekend)
 
-- [ ] **A1. Calendar unification (Bug 1 PR, above).** One truth for
+- [x] **A1. Calendar unification (Bug 1 PR, above).** One truth for
       "is the market open", verified by CI parity test.
-- [ ] **A2. Dynamic calendar fetch is failing — diagnose + alarm.**
-      `/timed/market-calendar` serves `source: "static"`. Find why
-      `fetchAndCacheCalendar` (Alpaca `/v2/calendar`) fails on the
-      monolith (creds? base URL?), fix, and add a tombstone
-      (`recordCronFailure(op: "market_calendar_static_fallback")`,
-      skipDiscord, watchdog-visible) whenever a day starts on the static
-      fallback. The static table is a safety net, not the steady state.
-- [ ] **A3. Binding-parity CI guard** (planned in
+      **DONE — PR #962 (merged).**
+- [x] **A2. Dynamic calendar fetch is failing — diagnose + alarm.**
+      **DONE — PR #963, deployed + verified.** Root cause: the dynamic
+      fetch ran ONLY in the 4 AM UTC nightly lane with no retry and no
+      alerting; one failure left the fleet on the static table all day.
+      Now: every static fallback carries a `fallback_reason`; 401/403
+      retries the alternate Alpaca host; any cron tick on the static
+      calendar self-heals (hourly KV lock) and records a
+      `market_calendar_dynamic_fetch` tombstone;
+      `POST /timed/admin/market-calendar/refresh` returns diagnostics.
+      Prod verified serving `source: alpaca` (Independence Day flagged).
+- [x] **A3. Binding-parity CI guard** (planned in
       `tasks/2026-06-15-freshness-rca-and-build-plan.md`, never built).
-      A vitest that parses all four wrangler.tomls and fails when a role
-      worker lacks a binding/var its lanes need (tt-engine needs
-      `CANDLE_CHAIN_SHARD` + `SCORE_CANDLE_SOURCE`; tt-feed needs the
-      feed DOs). This was the Jun 15 root cause; today nothing stops it
-      recurring.
+      **DONE — PR #964.** `tests/wrangler-binding-parity.test.js`:
+      21 assertions across the four wrangler.tomls (role-worker DO/service
+      /var requirements, DO stubs point at the monolith, KV/D1 id parity,
+      tt-engine candle-source flags, monolith default==production).
+      Mutation-tested against the Jun 15 incident class.
 - [ ] **A4. Feed → freshness same-calendar invariant.** The feed's
       market-open gate and the freshness SLO selection must come from the
       SAME calendar call. Plumb the session answer into
       `computeFreshnessBlock` callers from `market-calendar.js` (or move
       both onto the foundation calendar) so a calendar disagreement can
-      never again mean "feed off, SLO strict".
-- [ ] **A5. NVDA-class execution persistence closeout (PR #961
-      follow-up).** Feed SL detection + trigger works; the close still
-      doesn't persist (`still_open: true`). Root-cause the
-      `processTradeSimulation` → `closeTradeAtPrice` → adapter path
-      (trade-ID mismatch D1 vs KV is the prime suspect), fix, and prove
-      with a forced close on a paper position.
-- [ ] **A6. Alert dedup for escalating counts.** Normalize the error
-      signature for count-bearing ops (`investor_compute_stale_candles`)
-      so 34%→76% updates the tombstone but doesn't double-page; page again
-      only on severity band change (25%→50%→75%).
-- [ ] **A7. Anchor contract tests.** Extend
-      `tests/shared-price-utils-ext.test.js` into a session-matrix
-      contract: for each state (RTH, pre, post, weekend, holiday,
-      early-close afternoon) assert `getHeadlinePrice`, `getDailyChange`,
-      `getExtChange` pick the correct anchor. These already exist for
-      several bug classes (GS, MU, split cases); make the session matrix
-      exhaustive.
+      never again mean "feed off, SLO strict". Residual risk is much
+      smaller post-A1/A2 (tables corrected + dynamic self-heal): the
+      remaining exposure is a dynamic-calendar vs static-table disagreement
+      (e.g. unscheduled closure). Do this as a careful standalone PR — it
+      touches the scoring hot path.
+- [x] **A5. NVDA-class execution persistence closeout (PR #961
+      follow-up).** **DONE — PR #967, deployed + verified live.** Root
+      cause was NOT the adapter: the `DIRECTION_MISMATCH` entry gate in
+      `processTradeSimulation` returned BEFORE the open-trade lookup, so
+      an open trade whose state flipped against the position (NVDA LONG +
+      HTF_BEAR_LTF_BEAR) skipped ALL management every pass — SL nets,
+      trims, exits, and the PR #961 feed hard close all died there. Gate
+      now defers until after the lookup and blocks entries only. NVDA
+      zombie closed live: `sl_breached @ $194.83 (-7.18%)`, Discord +
+      email alerts delivered. Post-merge follow-up: audit other open
+      trades for stale `updated_at` gaps (same freeze class).
+- [x] **A6. Alert dedup for escalating counts.** **DONE — PR #965.**
+      `cronErrorSignature()` (digits stripped) + `cronErrorSeverityBand()`
+      (25/50/75%); pages on first failure, shape change, or band
+      escalation only.
+- [x] **A7. Anchor contract tests.** **DONE — PR #966.**
+      `tests/shared-price-utils-session-matrix.test.js`: 26 tests across
+      RTH / pre / post / weekend / holiday-during-RTH-hours / early-close,
+      covering `getHeadlinePrice`, `getDailyChange`, `getExtChange`, and
+      the session-aware feed-freshness window.
 
 **Gate for Objective 1:** five consecutive RTH days with
 `/timed/health → freshness.slo_ok: true` all session, zero
