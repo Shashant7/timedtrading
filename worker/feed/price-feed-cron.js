@@ -658,57 +658,54 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
 
         console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
 
-        // ── SL/TP Exit Checking on price loop ──
-        // Check open positions against current prices and LOG when an SL or
-        // TP boundary is crossed. The actual close happens on the next */5
-        // scoring cron via processTradeSimulation's SL safety net (line
-        // ~19507) — this loop only provides visibility into sub-5-minute
-        // SL hits in the worker logs.
-        //
-        // P2 HOTFIX 2026-05-19 (part 13 — Bug #7): the previous version
-        // stamped `trade._price_sl_triggered`/`_price_tp_triggered` flags on
-        // every flagged trade and wrote the entire trades list back to KV.
-        // BUT NOTHING ELSE IN THE CODEBASE READS THESE FLAGS — grep confirms
-        // zero consumers. Dead code that did expensive KV writes (full
-        // trades list) on every flag hit and created false confidence in
-        // "fast SL protection" that didn't exist. Replaced with a single
-        // INFO log per cron tick. To get true sub-5-minute SL reaction in
-        // the future, wire the flag through to processTradeSimulation OR
-        // call closeTradeAtPrice directly from here — either is a separate
-        // PR with its own risk surface.
+        // ── SL/TP exit on price loop ──
+        // Confirmed SL breaches trigger immediate hard close via deps callback
+        // (processTradeSimulation + SL safety net). TP still logs only — trim
+        // / exit doctrine runs on the */5 management cadence.
         try {
+          const { detectFeedSlBreaches } = await import("./feed-sl-close.js");
           const allTrades = (await kvGetJSON(KV, "timed:trades:all")) || [];
-          const openTrades = allTrades.filter(t => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
-          let slCrossed = 0, tpCrossed = 0;
+          const openTrades = allTrades.filter((t) => t.status === "OPEN" || t.status === "TP_HIT_TRIM");
+          const slBreaches = detectFeedSlBreaches(openTrades, prices, _marketOpen);
+          let tpCrossed = 0;
           const slDetail = [];
+
+          for (const breach of slBreaches) {
+            slDetail.push(`${breach.sym}(${breach.direction}) checkPx=${breach.checkPx} sl=${breach.sl} feed=${breach.feedPx}`);
+            if (typeof deps.triggerFeedSlHardClose === "function") {
+              ctx.waitUntil(
+                deps.triggerFeedSlHardClose(env, KV, breach.sym, breach.trade, prices[breach.sym])
+                  .then((r) => {
+                    if (r?.ok) {
+                      console.log(`[FEED_SL_CLOSE] ${breach.sym} hard-close triggered checkPx=${breach.checkPx} sl=${breach.sl}`);
+                    } else if (r?.skipped) {
+                      console.log(`[FEED_SL_CLOSE] ${breach.sym} skipped: ${r.skipped}`);
+                    }
+                  })
+                  .catch((e) => console.warn(`[FEED_SL_CLOSE] ${breach.sym} error:`, String(e?.message || e).slice(0, 200))),
+              );
+            }
+          }
 
           for (const trade of openTrades) {
             const sym = String(trade.ticker || "").toUpperCase();
             const snap = prices[sym];
             if (!snap || !snap.p) continue;
-
             const currentPrice = snap.p;
-            const sl = Number(trade.stop_loss || trade.sl);
             const tp = Number(trade.take_profit || trade.tp);
             const direction = String(trade.direction || "").toUpperCase();
             const isLong = direction === "LONG";
-
-            if (Number.isFinite(sl) && sl > 0) {
-              const slHit = isLong ? currentPrice <= sl : currentPrice >= sl;
-              if (slHit) {
-                slCrossed++;
-                slDetail.push(`${sym}(${direction}) px=${currentPrice} sl=${sl}`);
-              }
-            }
-
             if (Number.isFinite(tp) && tp > 0) {
               const tpHit = isLong ? currentPrice >= tp : currentPrice <= tp;
               if (tpHit) tpCrossed++;
             }
           }
 
-          if (slCrossed > 0 || tpCrossed > 0) {
-            console.log(`[PRICE FEED] SL/TP check: ${slCrossed} past SL, ${tpCrossed} past TP — will close on next */5 cron via safety net. ${slDetail.length ? `SL detail: ${slDetail.join(", ")}` : ""}`);
+          if (slBreaches.length > 0 || tpCrossed > 0) {
+            const hasClose = typeof deps.triggerFeedSlHardClose === "function";
+            console.log(
+              `[PRICE FEED] SL/TP check: ${slBreaches.length} past SL${hasClose ? " (hard-close queued)" : " (log-only — no trigger dep)"}, ${tpCrossed} past TP. ${slDetail.length ? `SL detail: ${slDetail.join(", ")}` : ""}`,
+            );
           }
         } catch (e) {
           console.warn("[PRICE FEED] SL/TP check error:", e);

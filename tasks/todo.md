@@ -22,6 +22,13 @@
 
 ### Active
 
+- [x] **NVDA feed SL hard-close (2026-07-02).** */1 price-feed now triggers
+      immediate `processTradeSimulation` hard close on confirmed SL breach
+      (worst-case price via `feed-sl-close.js`). TRADE UPDATE + OOH reconcile
+      pass `openTrade` into `hydrateTickerDataForTradeMgmt`. Admin:
+      `GET /timed/admin/feed-sl-triggers`. tt-feed relays via
+      `POST /timed/internal/feed-sl-close`.
+
 - [x] **Breaker phantom pollution fix (2026-07-01).** Loop 2 + portfolio-risk
       exclude fast hard-exit round-trips and impossible `sl_breached` rows;
       live queries scoped to `run_id IS NULL`; regime-shock suppressed when
