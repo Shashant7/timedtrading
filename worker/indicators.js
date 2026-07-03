@@ -12,6 +12,7 @@ import {
 import { resolveRegimeVocabulary } from "./regime-vocabulary.js";
 import { recordAdaptiveLineageFact } from "./adaptive-lineage.js";
 import { computeFreshnessBlock, computeMarketSessionReference } from "./freshness.js";
+import { resolveMarketOpenCached } from "./market-calendar.js";
 
 // Bump this whenever scoring logic changes (indicator weights, TF architecture,
 // regime classification, entry quality formula, etc.). Snapshots tagged with
@@ -6758,10 +6759,22 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
     const _asOfTs = Number(opts?.asOfTs) || 0;
     const _freshNowMs = _asOfTs > 0 ? _asOfTs : Date.now();
     const _sessionRef = _asOfTs > 0 ? null : computeMarketSessionReference(_freshNowMs);
+    // A4 (2026-07-03 stabilization plan) — feed↔freshness same-calendar
+    // invariant. The feed gates live-candle sync on the DYNAMIC calendar
+    // (market-calendar.js); the freshness SLO selection must use the SAME
+    // market-open answer, or a disagreement means "feed off, SLO strict"
+    // (the Jul 2 stale-universe incident). Explicit opts.marketOpen from
+    // the caller wins; otherwise resolve from the dynamic calendar
+    // (per-isolate 5-min cache); the foundation sessionRef stays the
+    // fallback and still anchors age computation.
+    let _marketOpen = typeof opts?.marketOpen === "boolean" ? opts.marketOpen : undefined;
+    if (_marketOpen === undefined && _asOfTs === 0) {
+      _marketOpen = await resolveMarketOpenCached(env, _freshNowMs);
+    }
     tickerData._freshness = computeFreshnessBlock(tfNewestTs, {
       nowMs: _freshNowMs,
       mode: _asOfTs > 0 ? "replay" : "live",
-      marketOpen: typeof opts?.marketOpen === "boolean" ? opts.marketOpen : undefined,
+      marketOpen: typeof _marketOpen === "boolean" ? _marketOpen : undefined,
       sessionRef: _sessionRef,
     });
     // Live-STALE activates the existing trade-management quarantine flag
