@@ -34688,6 +34688,15 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-03",
+        "event_type": "earnings",
+        "event_name": "SBSAA Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-07-06",
         "event_type": "macro",
         "event_name": "Jun ISM Srvcs PMI",
@@ -34722,14 +34731,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 45.5921
+        "sql_duration_ms": 42.0102
       },
-      "duration": 45.5921,
+      "duration": 42.0102,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4494057472,
-      "rows_read": 3857,
+      "size_after": 4496179200,
+      "rows_read": 3858,
       "rows_written": 0,
       "total_attempts": 1
     }
