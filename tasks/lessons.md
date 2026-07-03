@@ -6,6 +6,50 @@
 
 ---
 
+## Calendar divergence: three "is the market open?" answers → stale universe [2026-07-03]
+
+The Jul 2 `investor_compute_stale_candles` pages (34% → 76% within a minute)
+were NOT a feed or scoring bug. `worker/market-calendar.js`'s static fallback
+wrongly listed 2026-07-02 as a 1 PM equity early close (a SIFMA *bond market*
+recommendation — NYSE traded a full session), and prod was RUNNING on that
+static fallback because the dynamic Alpaca fetch ran only in the 4 AM UTC
+nightly lane with no retry and no alerting. At 1 PM the feed stopped patching
+forming bars (`market_closed`) while the freshness grader — anchored on the
+OTHER calendar (`worker/foundation/trading-calendar.js`, correctly no early
+close) — kept strict RTH SLOs. 10m hit its 60-min hard SLO at exactly 2:00 PM.
+Separately, the frontend (`shared-price-utils.js`) had NO holiday table at all,
+so on Jul 3 (Independence Day observed) every page rendered fake-RTH state.
+Fixes (PRs #962–#965, #969): corrected tables synced across all three copies +
+`tests/calendar-parity.test.js` (drift = red CI); calendar self-heal + fallback
+tombstone + `POST /timed/admin/market-calendar/refresh`; freshness SLO
+selection now takes the SAME dynamic-calendar answer the feed gates on
+(`resolveMarketOpenCached`). LESSON: a fact computed in two places WILL
+diverge; collapse to one source and CI-guard the copies. And an "early close"
+in a static table is a claim about the physical world — verify against the
+exchange, not SIFMA.
+
+---
+
+## Entry gates must not run before the open-trade lookup [2026-07-03]
+
+NVDA LONG sat OPEN for 10 days, 5% past its published stop, frozen at
+`updated_at` Jun 23 — through the SL safety net, doctrine force exit, AND the
+new */1 feed hard-close (PR #961), which all ran and silently did nothing.
+Root cause: `[DIRECTION_MISMATCH]` in `processTradeSimulation` is an ENTRY
+gate but it `return`ed BEFORE the open-trade lookup. A ticker whose state
+flips against its open position (LONG + `HTF_BEAR_LTF_BEAR` — precisely when
+the stop must fire) skipped ALL management on every pass. The tell:
+`still_open: true, sim_error: null` — the sim "succeeded" by early-returning.
+Fix (PR #967): gate moved after the lookup; blocks NEW entries only, open
+positions always reach management. Verified live: post-deploy trigger closed
+NVDA `sl_breached @ $194.83`. LESSON: in a function that handles BOTH entry
+and management, every entry-side early-return is a management-freeze bug
+waiting for the exact market condition that makes management critical. Check
+`skipped` reasons against open positions, and treat a frozen `updated_at` on
+an open trade as a page-worthy signal.
+
+---
+
 ## Live entries booked at a stale price → instant phantom stop-out [2026-07-01]
 
 INTC signaled "Enter LONG @ $134.60", then "Stopped out -3.92% @ $129.33"

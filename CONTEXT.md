@@ -213,6 +213,26 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Market calendar = ONE source, CI-guarded (2026-07-03, PRs #962–#965, #969)**
+- "Is the market open?" lives in three synced tables (`worker/market-calendar.js`,
+  `worker/foundation/trading-calendar.js`, `react-app/shared-price-utils.js`) —
+  `tests/calendar-parity.test.js` fails CI on drift. NYSE equity early closes
+  ONLY: day-after-Thanksgiving, weekday Christmas Eve, Jul 3 when Jul 4 is a
+  weekday. NEVER add SIFMA bond dates (the wrong 2026-07-02 entry caused the
+  Jul 2 stale-universe pages). Dynamic calendar self-heals hourly + tombstones
+  on static fallback; freshness SLOs take the SAME dynamic answer the feed
+  gates on (`resolveMarketOpenCached`). Force-refresh:
+  `POST /timed/admin/market-calendar/refresh`.
+
+**Entry gates run AFTER the open-trade lookup (2026-07-03, PR #967)**
+- `processTradeSimulation` handles entries AND management; any entry-side early
+  `return` before the open-trade lookup freezes management for open positions
+  (NVDA: LONG + `HTF_BEAR_LTF_BEAR` skipped SL nets/exits for 10 days, 5% past
+  stop). `still_open: true, sim_error: null` = look for a silent `skipped`
+  reason. A frozen `updated_at` on an open trade is an incident signal.
+- Role-worker wrangler configs are CI-guarded too:
+  `tests/wrangler-binding-parity.test.js` (Jun 15 CANDLE_CHAIN_SHARD class).
+
 **Ticker registry = single source of truth (2026-06-16, PR #683 — skill: `skills/ticker-registry.md`)**
 - ONE registry. If a symbol is in it, the system scores it. Mutated only via
   ADD: Admin / User Slot / ETF Sync / Screener Promotion; REMOVE: Admin / User
