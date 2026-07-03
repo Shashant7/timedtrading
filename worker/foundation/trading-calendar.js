@@ -17,6 +17,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Full-day market closures (NYSE/Nasdaq). MAINTAIN ANNUALLY.
+// MUST stay in sync with EQUITY_HOLIDAYS_FALLBACK in worker/market-calendar.js
+// and US_MARKET_HOLIDAYS in react-app/shared-price-utils.js — CI enforces
+// parity (tests/calendar-parity.test.js).
 const HOLIDAYS = new Set([
   // 2025
   "2025-01-01", "2025-01-20", "2025-02-17", "2025-04-18", "2025-05-26",
@@ -24,12 +27,23 @@ const HOLIDAYS = new Set([
   // 2026
   "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
   "2026-06-19", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
+  // 2027 (Jun 19 = Sat → Fri Jun 18; Jul 4 = Sun → Mon Jul 5; Dec 25 = Sat → Fri Dec 24)
+  "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
+  "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
+  // 2028 (Jan 1 = Sat, listed for table parity; weekend check already closes it)
+  "2028-01-01", "2028-01-17", "2028-02-21", "2028-04-14", "2028-05-29",
+  "2028-06-19", "2028-07-04", "2028-09-04", "2028-11-23", "2028-12-25",
 ]);
 
 // Early-close days (market closes 13:00 ET). MAINTAIN ANNUALLY.
+// Equity early closes ONLY (not SIFMA bond recommendations): Jul 3 when
+// Jul 4 is a weekday, day after Thanksgiving, Christmas Eve when a
+// trading day. See the 2026-07-03 RCA in worker/market-calendar.js.
 const HALF_DAYS = new Set([
   "2025-07-03", "2025-11-28", "2025-12-24",
   "2026-11-27", "2026-12-24",
+  "2027-11-26",
+  "2028-07-03", "2028-11-24",
 ]);
 
 const MIN = 60_000;
