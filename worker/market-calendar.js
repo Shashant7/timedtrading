@@ -113,16 +113,26 @@ const EQUITY_HOLIDAY_NAMES = {
 };
 
 // ── Equity Early Close Fallback ──────────────────────────────────────────────
-// Days when equity markets close at 1:00 PM ET instead of 4:00 PM.
+// Days when EQUITY markets close at 1:00 PM ET instead of 4:00 PM.
+//
+// 2026-07-03 RCA: this table previously listed 2026-07-02, 2027-07-02,
+// 2027-12-23, 2028-12-22 as equity early closes. Those are SIFMA *bond
+// market* recommendations / non-events — NYSE & Nasdaq trade FULL sessions
+// on those dates (2021/2023 precedent: when Jul 4 or Dec 25 observance
+// falls Fri/Mon, the adjacent Thu/Fri is a full day). The bogus 2026-07-02
+// entry shut the live-candle sync at 1 PM while freshness SLOs stayed on
+// RTH thresholds → the universe-wide stale-candle pages at 2 PM. Equity
+// early closes are ONLY: day before/after July 4 when Jul 4 is a weekday,
+// day after Thanksgiving, and Christmas Eve when it's a trading day.
 const EQUITY_EARLY_CLOSE_FALLBACK = new Set([
   // 2025
   "2025-07-03", "2025-11-28", "2025-12-24",
-  // 2026
-  "2026-07-02", "2026-11-27", "2026-12-24",
-  // 2027
-  "2027-07-02", "2027-11-26", "2027-12-23",
-  // 2028
-  "2028-07-03", "2028-11-24", "2028-12-22",
+  // 2026 (Jul 4 = Sat → Fri Jul 3 is a FULL holiday, no early close)
+  "2026-11-27", "2026-12-24",
+  // 2027 (Jul 4 = Sun → Mon Jul 5 holiday; Dec 25 = Sat → Fri Dec 24 holiday)
+  "2027-11-26",
+  // 2028 (Jul 4 = Tue → Mon Jul 3 early close; Dec 24 = Sun, no early close)
+  "2028-07-03", "2028-11-24",
 ]);
 
 // ── Crypto Symbols ───────────────────────────────────────────────────────────

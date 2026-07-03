@@ -27,14 +27,44 @@
       Number(dParts[0]) - 1,
       Number(dParts[1]),
     ).getDay();
-    return { hr: hr, mn: mn, sec: sec, dow: dow, totalMin: hr * 60 + mn };
+    // ET calendar date as "YYYY-MM-DD" (for the holiday / half-day tables)
+    var dateStr =
+      dParts[2] +
+      "-" + ("0" + dParts[0]).slice(-2) +
+      "-" + ("0" + dParts[1]).slice(-2);
+    return { hr: hr, mn: mn, sec: sec, dow: dow, totalMin: hr * 60 + mn, dateStr: dateStr };
   }
+
+  // NYSE/Nasdaq full closures + 13:00 ET early closes. MAINTAIN ANNUALLY.
+  // MUST stay in sync with worker/market-calendar.js and
+  // worker/foundation/trading-calendar.js — CI enforces parity
+  // (tests/calendar-parity.test.js). Bug fixed 2026-07-03: this module
+  // was weekday+time only, so every page treated the Jul 4 holiday
+  // (and Juneteenth, etc.) as a live RTH session.
+  var US_MARKET_HOLIDAYS = {
+    "2025-01-01": 1, "2025-01-20": 1, "2025-02-17": 1, "2025-04-18": 1, "2025-05-26": 1,
+    "2025-06-19": 1, "2025-07-04": 1, "2025-09-01": 1, "2025-11-27": 1, "2025-12-25": 1,
+    "2026-01-01": 1, "2026-01-19": 1, "2026-02-16": 1, "2026-04-03": 1, "2026-05-25": 1,
+    "2026-06-19": 1, "2026-07-03": 1, "2026-09-07": 1, "2026-11-26": 1, "2026-12-25": 1,
+    "2027-01-01": 1, "2027-01-18": 1, "2027-02-15": 1, "2027-03-26": 1, "2027-05-31": 1,
+    "2027-06-18": 1, "2027-07-05": 1, "2027-09-06": 1, "2027-11-25": 1, "2027-12-24": 1,
+    "2028-01-01": 1, "2028-01-17": 1, "2028-02-21": 1, "2028-04-14": 1, "2028-05-29": 1,
+    "2028-06-19": 1, "2028-07-04": 1, "2028-09-04": 1, "2028-11-23": 1, "2028-12-25": 1,
+  };
+  var US_MARKET_HALF_DAYS = {
+    "2025-07-03": 1, "2025-11-28": 1, "2025-12-24": 1,
+    "2026-11-27": 1, "2026-12-24": 1,
+    "2027-11-26": 1,
+    "2028-07-03": 1, "2028-11-24": 1,
+  };
 
   function isNyRegularMarketOpen() {
     var c = getNyClock();
     if (c.dow === 0 || c.dow === 6) return false;
+    if (US_MARKET_HOLIDAYS[c.dateStr]) return false;
     var m = c.totalMin;
-    return m >= 570 && m < 960;
+    var closeMin = US_MARKET_HALF_DAYS[c.dateStr] ? 780 : 960; // 1 PM early close
+    return m >= 570 && m < closeMin;
   }
 
   // Price feed freshness — uses q_ts (vendor quote) / p_ts, NOT poll t.
@@ -1005,5 +1035,11 @@
     getNormalizedIntensity: getNormalizedIntensity,
     SYSTEM_REFERENCE_ACCOUNT: SYSTEM_REFERENCE_ACCOUNT,
     computePositionContext: computePositionContext,
+    // Exposed for tests/calendar-parity.test.js — keep in sync with the
+    // worker calendars (see comment above US_MARKET_HOLIDAYS).
+    _calendarTables: {
+      holidays: US_MARKET_HOLIDAYS,
+      halfDays: US_MARKET_HALF_DAYS,
+    },
   };
 })();
