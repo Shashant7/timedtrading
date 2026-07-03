@@ -5,8 +5,8 @@
 // new behavior: fallback carries a reason, 401/403 retries the alternate
 // Alpaca host (paper vs live keys), and a successful fetch caches to KV.
 
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { fetchAndCacheCalendar } from "./market-calendar.js";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { fetchAndCacheCalendar, resolveMarketOpenCached, _resetMarketOpenCacheForTests } from "./market-calendar.js";
 
 const CREDS = { ALPACA_API_KEY_ID: "k", ALPACA_API_SECRET_KEY: "s" };
 
@@ -85,5 +85,67 @@ describe("fetchAndCacheCalendar alt-host retry (paper vs live keys)", () => {
     expect(cal.source).toBe("alpaca");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain("https://paper-api.alpaca.markets");
+  });
+});
+
+// A4 (feed↔freshness same-calendar invariant): freshness stamping resolves
+// market-open from THIS module's calendar, cached per isolate.
+describe("resolveMarketOpenCached", () => {
+  beforeEach(() => {
+    _resetMarketOpenCacheForTests();
+  });
+
+  function kvWithCalendar(extraHolidays = []) {
+    const blob = JSON.stringify({
+      fetchedAt: Date.now(),
+      source: "alpaca",
+      equity: {},
+      equityHolidays: ["2026-07-03", ...extraHolidays],
+      equityEarlyClose: ["2026-11-27"],
+      futuresEarlyClose: [],
+      futuresFullClose: [],
+    });
+    return {
+      get: vi.fn(async (k, type) => (type === "json" ? JSON.parse(blob) : blob)),
+      put: vi.fn(async () => {}),
+    };
+  }
+
+  it("holiday during would-be RTH hours → false (dynamic calendar wins)", async () => {
+    const env = { KV_TIMED: kvWithCalendar() };
+    // Fri 2026-07-03 11:00 ET = 15:00 UTC
+    const open = await resolveMarketOpenCached(env, Date.parse("2026-07-03T15:00:00Z"));
+    expect(open).toBe(false);
+  });
+
+  it("regular weekday RTH → true", async () => {
+    const env = { KV_TIMED: kvWithCalendar() };
+    // Mon 2026-07-06 11:00 ET = 15:00 UTC
+    const open = await resolveMarketOpenCached(env, Date.parse("2026-07-06T15:00:00Z"));
+    expect(open).toBe(true);
+  });
+
+  it("early-close afternoon → false", async () => {
+    const env = { KV_TIMED: kvWithCalendar() };
+    // Fri 2026-11-27 13:30 ET = 18:30 UTC (EST)
+    const open = await resolveMarketOpenCached(env, Date.parse("2026-11-27T18:30:00Z"));
+    expect(open).toBe(false);
+  });
+
+  it("caches the calendar — one KV read within 5 minutes", async () => {
+    const kv = kvWithCalendar();
+    const env = { KV_TIMED: kv };
+    const t0 = Date.parse("2026-07-06T15:00:00Z");
+    await resolveMarketOpenCached(env, t0);
+    await resolveMarketOpenCached(env, t0 + 60 * 1000);
+    expect(kv.get).toHaveBeenCalledTimes(1);
+    // past the 5-min TTL → re-reads
+    await resolveMarketOpenCached(env, t0 + 6 * 60 * 1000);
+    expect(kv.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("no KV → static fallback still answers (holiday false)", async () => {
+    const open = await resolveMarketOpenCached({}, Date.parse("2026-07-03T15:00:00Z"));
+    expect(open).toBe(false);
   });
 });

@@ -319,6 +319,30 @@ function _buildStaticCalendar(fallbackReason = null) {
   };
 }
 
+// ── Cached market-open resolver (A4, 2026-07-03 stabilization plan) ─────────
+// The Jul 2 incident: the feed gated live-candle sync on THIS calendar while
+// the freshness grader derived market-open from the foundation calendar —
+// a disagreement meant "feed off, SLO strict" and the universe went STALE.
+// Freshness stamping (computeServerSideScores) now resolves market-open here
+// too, via this per-isolate 5-minute cache (one KV read per 5 min, not per
+// ticker). Explicit `opts.marketOpen` from callers still wins.
+let _marketOpenCalCache = { cal: null, at: 0 };
+
+export async function resolveMarketOpenCached(env, nowMs = Date.now()) {
+  try {
+    if (!_marketOpenCalCache.cal || nowMs - _marketOpenCalCache.at > 5 * 60 * 1000) {
+      _marketOpenCalCache = { cal: await loadCalendar(env), at: nowMs };
+    }
+    return isNyRegularMarketOpen(_marketOpenCalCache.cal, new Date(nowMs));
+  } catch (_) {
+    return undefined; // caller falls back to its own session source
+  }
+}
+
+export function _resetMarketOpenCacheForTests() {
+  _marketOpenCalCache = { cal: null, at: 0 };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Query Functions (pure — operate on a calendar object)
 // ═══════════════════════════════════════════════════════════════════════════════
