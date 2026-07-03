@@ -163,7 +163,7 @@ export async function fetchAndCacheCalendar(env) {
 
   if (!apiKey || !apiSecret) {
     console.warn("[MARKET-CAL] Missing Alpaca credentials, using static fallback");
-    return _buildStaticCalendar();
+    return _buildStaticCalendar("missing_credentials");
   }
 
   const today = new Date();
@@ -172,24 +172,37 @@ export async function fetchAndCacheCalendar(env) {
   const end = _formatDate(endDate);
 
   try {
-    const url = `${baseUrl}/v2/calendar?start=${start}&end=${end}`;
-    const resp = await fetch(url, {
-      headers: {
-        "APCA-API-KEY-ID": apiKey,
-        "APCA-API-SECRET-KEY": apiSecret,
-        "Accept": "application/json",
-      },
-    });
+    // 2026-07-03 (stabilization plan A2) — prod ran on the static fallback
+    // for weeks because the nightly fetch failed silently. The /v2/calendar
+    // endpoint exists on BOTH hosts but a live-only key 401s on paper-api
+    // (and vice versa), so try the configured base URL first, then the
+    // alternate host before giving up.
+    const altUrl = baseUrl.includes("paper-api")
+      ? "https://api.alpaca.markets"
+      : "https://paper-api.alpaca.markets";
+    const headers = {
+      "APCA-API-KEY-ID": apiKey,
+      "APCA-API-SECRET-KEY": apiSecret,
+      "Accept": "application/json",
+    };
+    let resp = await fetch(`${baseUrl}/v2/calendar?start=${start}&end=${end}`, { headers });
+    let usedHost = baseUrl;
+    if (!resp.ok && (resp.status === 401 || resp.status === 403)) {
+      console.warn(`[MARKET-CAL] Alpaca calendar HTTP ${resp.status} on ${baseUrl}; retrying ${altUrl}`);
+      resp = await fetch(`${altUrl}/v2/calendar?start=${start}&end=${end}`, { headers });
+      usedHost = altUrl;
+    }
 
     if (!resp.ok) {
-      console.error(`[MARKET-CAL] Alpaca calendar HTTP ${resp.status}`);
-      return _buildStaticCalendar();
+      const bodySnippet = (await resp.text().catch(() => "")).slice(0, 120);
+      console.error(`[MARKET-CAL] Alpaca calendar HTTP ${resp.status} (${usedHost}): ${bodySnippet}`);
+      return _buildStaticCalendar(`http_${resp.status}:${bodySnippet}`);
     }
 
     const tradingDays = await resp.json();
     if (!Array.isArray(tradingDays) || tradingDays.length === 0) {
       console.warn("[MARKET-CAL] Alpaca returned empty calendar");
-      return _buildStaticCalendar();
+      return _buildStaticCalendar("empty_calendar");
     }
 
     // Build the equity trading day map
@@ -249,7 +262,7 @@ export async function fetchAndCacheCalendar(env) {
     return cal;
   } catch (e) {
     console.error("[MARKET-CAL] Fetch failed:", String(e).slice(0, 200));
-    return _buildStaticCalendar();
+    return _buildStaticCalendar(`fetch_error:${String(e?.message || e).slice(0, 120)}`);
   }
 }
 
@@ -281,7 +294,7 @@ export async function loadCalendar(env) {
   return _buildStaticCalendar();
 }
 
-function _buildStaticCalendar() {
+function _buildStaticCalendar(fallbackReason = null) {
   return {
     equity: {},
     equityHolidays: EQUITY_HOLIDAYS_FALLBACK,
@@ -290,6 +303,9 @@ function _buildStaticCalendar() {
     futuresFullClose: FUTURES_FULL_CLOSE,
     fetchedAt: 0,
     source: "static",
+    // Why the dynamic fetch fell back (A2 observability) — null when the
+    // static calendar was requested directly (no creds is one such reason).
+    fallback_reason: fallbackReason,
   };
 }
 
