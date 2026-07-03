@@ -256,6 +256,32 @@ export async function discordDmUser(env, discordUserId, payload) {
  * `op` should be a short stable label like "investor_hourly" or
  * "daily_brief" — it's used as the KV key suffix.
  */
+/**
+ * Normalized error signature for dedup: digits are volatile (counts,
+ * percentages, ticker tallies), so `Excluded 99/291 (34%)` and
+ * `Excluded 221/291 (76%)` are the SAME failure shape. A6 (2026-07-03):
+ * the raw string compare paged twice for the Jul 2 incident because the
+ * escalating count changed the message every invocation.
+ */
+export function cronErrorSignature(error) {
+  return String(error || "").replace(/\d+(\.\d+)?/g, "#");
+}
+
+/**
+ * Severity band for count-bearing errors: first percentage in the message
+ * mapped to 0 (<25%) / 1 (>=25%) / 2 (>=50%) / 3 (>=75%). Null when the
+ * message has no percentage. A band INCREASE re-pages even when the
+ * normalized signature is unchanged — a 34%→76% regression is materially
+ * worse and the operator should hear about it; 34%→38% chatter is not.
+ */
+export function cronErrorSeverityBand(error) {
+  const m = String(error || "").match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!m) return null;
+  const pct = Number(m[1]);
+  if (!Number.isFinite(pct)) return null;
+  return pct >= 75 ? 3 : pct >= 50 ? 2 : pct >= 25 ? 1 : 0;
+}
+
 export async function recordCronFailure(env, opts) {
   const op = String(opts?.op || "unknown").slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
   const error = String(opts?.error || "").slice(0, 500);
@@ -281,18 +307,27 @@ export async function recordCronFailure(env, opts) {
   // 2. Discord alert (best-effort) — system lane
   // Cron failures are ops noise, not trader-actionable. Route to the
   // system-alerts channel so the trade channel stays clean.
-  // Dedup: only page on the first failure or when the error signature changes.
-  // Repeat failures with the same message increment the tombstone count but
-  // do not spam #system-alerts (operator-reported noise on 2026-06-17).
+  // Dedup (2026-06-17 noise report, refined 2026-07-03 / plan A6): page on
+  //   - the first failure of a run (count === 1), or
+  //   - a NORMALIZED signature change (digits stripped — a different failure
+  //     shape, not the same failure with a different count), or
+  //   - a severity-band escalation (25/50/75% thresholds) for count-bearing
+  //     errors. De-escalation and recovery are signaled by recordCronSuccess,
+  //     not by another page.
   try {
-    const errorChanged = !prev?.error || String(prev.error) !== error;
-    if (!opts?.skipDiscord && (count === 1 || errorChanged)) {
+    const sig = cronErrorSignature(error);
+    const prevSig = prev?.error ? cronErrorSignature(prev.error) : null;
+    const sigChanged = prevSig === null || prevSig !== sig;
+    const band = cronErrorSeverityBand(error);
+    const prevBand = prev?.error ? cronErrorSeverityBand(prev.error) : null;
+    const bandEscalated = band !== null && prevBand !== null && band > prevBand;
+    if (!opts?.skipDiscord && (count === 1 || sigChanged || bandEscalated)) {
       await notifyDiscord(env, {
         title: `⚠️ Cron Failure: ${op}`,
         description: `\`${error}\``,
         color: 0xef4444,
         timestamp: new Date(ts).toISOString(),
-        footer: { text: caller ? `caller=${caller}` : "no caller" },
+        footer: { text: `${caller ? `caller=${caller}` : "no caller"}${bandEscalated ? " · severity escalated" : ""}` },
       }, "system");
     }
   } catch {}
