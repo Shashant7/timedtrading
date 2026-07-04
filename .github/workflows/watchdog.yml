@@ -176,6 +176,24 @@ jobs:
             echo "::warning::tt-feed /feed/health returned non-JSON — skipping feed probe."
           fi
 
+          # B2 (2026-07-03 stabilization plan): end-to-end chain smoke.
+          # Walks feed → candles → scoring → overlay for sentinel tickers and
+          # names the LINK that broke instead of a downstream symptom.
+          # Links report "idle" outside their session window and never fail.
+          CHAIN=$(fetch_health "https://timed-trading-ingest.shashant.workers.dev/timed/health/chain" || echo "{}")
+          if echo "$CHAIN" | jq -e . >/dev/null 2>&1 && [ "$(echo "$CHAIN" | jq -r 'has("links")')" = "true" ]; then
+            CHAIN_OK=$(echo "$CHAIN" | jq -r '.ok // false')
+            CHAIN_LINKS=$(echo "$CHAIN" | jq -r '[.links | to_entries[] | "\(.key)=\(.value.status)"] | join(" ")')
+            echo "chain-smoke → ok=$CHAIN_OK $CHAIN_LINKS"
+            if [ "$CHAIN_OK" != "true" ]; then
+              CHAIN_FAILING=$(echo "$CHAIN" | jq -r '(.failing_links // []) | join(",")')
+              CHAIN_DETAIL=$(echo "$CHAIN" | jq -r '[.links | to_entries[] | select(.value.status == "fail") | "\(.key): \(.value.detail // "?")"] | join("; ")')
+              FAILED="yes"; DETAIL="$DETAIL chain-smoke: broken link(s) [$CHAIN_FAILING] — $CHAIN_DETAIL."
+            fi
+          else
+            echo "::warning::/timed/health/chain returned non-JSON or is not deployed yet — skipping chain smoke."
+          fi
+
           if [ -n "$FAILED" ]; then
             echo "detail=$DETAIL" >> "$GITHUB_OUTPUT"
             echo "failed=true" >> "$GITHUB_OUTPUT"
