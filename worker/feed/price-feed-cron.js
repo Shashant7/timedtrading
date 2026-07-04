@@ -341,7 +341,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
             updated_at: lightUpdateTs,
           }));
           console.log(`[PRICE FEED LIGHT] TV futures: ${tvUpdated}, crypto: ${cryptoUpdated}, total: ${Object.keys(existing).length}`);
-          ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, existing).catch(e => console.warn("[FRESHNESS LIGHT]", e?.message)));
+          ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, existing, { marketOpen: _marketOpen }).catch(e => console.warn("[FRESHNESS LIGHT]", e?.message)));
           ctx.waitUntil(syncMacroLatestStubs(KV).catch(e => console.warn("[MACRO STUB SYNC LIGHT]", e?.message)));
           // Skip the rest of the heavy pipeline
         } else {
@@ -712,7 +712,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         }
 
         console.log(`[PRICE FEED] Updated ${Object.keys(prices).length} tickers`);
-        ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, prices).catch(e => console.warn("[FRESHNESS]", e?.message)));
+        ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, prices, { marketOpen: _marketOpen }).catch(e => console.warn("[FRESHNESS]", e?.message)));
         ctx.waitUntil(syncMacroLatestStubs(KV).catch(e => console.warn("[MACRO STUB SYNC]", e?.message)));
 
         // Merge live quotes into chart TFs (10/15/30/60) so right-rail

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isPriceValueFresh,
+  mergeFreshnessIntoLatest,
   overlayTimedPricesRow,
   overlayLivePricesOntoMap,
   priceValueTimestamp,
@@ -315,5 +316,52 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
     const w2 = tickersWritten(db2);
     const overlap = [...w1].filter((t) => w2.has(t));
     expect(overlap.length).toBe(0);
+  });
+});
+
+// B1 regression — mergeFreshnessIntoLatest previously called the
+// market-calendar isNyRegularMarketOpen with NO calendar arg; every weekday
+// row threw inside Promise.allSettled and tt-feed's merge lane silently
+// wrote nothing since 2026-06-23.
+describe("mergeFreshnessIntoLatest merge-lane regression", () => {
+  function mockKV(seed = {}) {
+    const store = new Map(Object.entries(seed).map(([k, v]) => [k, JSON.stringify(v)]));
+    return {
+      store,
+      async get(key, type) {
+        const raw = store.get(key);
+        if (!raw) return null;
+        return type === "json" ? JSON.parse(raw) : raw;
+      },
+      async put(key, val) {
+        store.set(key, val);
+      },
+    };
+  }
+
+  it("merges price + ingest_ts during RTH (previously threw per row)", async () => {
+    const kv = mockKV({ "timed:latest:AAPL": { ticker: "AAPL", price: 200, prev_close: 198 } });
+    const res = await mergeFreshnessIntoLatest(kv, { AAPL: { p: 205.5, pc: 198, t: Date.now(), dc: 7.5, dp: 3.79 } }, { marketOpen: true });
+    expect(res.merged).toBe(1);
+    const row = JSON.parse(kv.store.get("timed:latest:AAPL"));
+    expect(row.price).toBe(205.5);
+    expect(row.day_change).toBe(7.5);
+    expect(row.ingest_ts).toBeGreaterThan(0);
+    // RTH: extended-hours fields must be cleared, never populated
+    expect(row._ah_price).toBeUndefined();
+  });
+
+  it("works without opts (env-less static session fallback, no throw)", async () => {
+    const kv = mockKV({ "timed:latest:MSFT": { ticker: "MSFT", price: 500, prev_close: 495 } });
+    const res = await mergeFreshnessIntoLatest(kv, { MSFT: { p: 502, pc: 495, t: Date.now(), dc: 7, dp: 1.41 } });
+    expect(res.merged).toBe(1);
+  });
+
+  it("outside RTH: persists capped extended-hours fields", async () => {
+    const kv = mockKV({ "timed:latest:SPY": { ticker: "SPY", price: 600, prev_close: 594 } });
+    await mergeFreshnessIntoLatest(kv, { SPY: { p: 600, pc: 594, t: Date.now(), dc: 6, dp: 1.01, ahp: 601.2, ahdc: 1.2, ahdp: 0.2 } }, { marketOpen: false });
+    const row = JSON.parse(kv.store.get("timed:latest:SPY"));
+    expect(row._ah_price).toBe(601.2);
+    expect(row._ah_change_pct).toBe(0.2);
   });
 });

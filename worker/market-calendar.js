@@ -343,6 +343,52 @@ export function _resetMarketOpenCacheForTests() {
   _marketOpenCalCache = { cal: null, at: 0 };
 }
 
+/** The static fallback calendar (correct, parity-tested tables). */
+export function getStaticCalendar() {
+  return _buildStaticCalendar();
+}
+
+/**
+ * Holiday/early-close-aware market-open answer from the STATIC tables —
+ * for modules that have no `env` in scope (e.g. feed-outputs merge gating).
+ * B1 (2026-07-03 stabilization plan): replaces bare `isNyRegularMarketOpen()`
+ * calls that passed NO calendar (undefined `cal` threw on weekdays — the
+ * silent tt-feed mergeFreshnessIntoLatest breakage since 2026-06-23).
+ */
+export function isNyRegularMarketOpenStatic(now = new Date()) {
+  return isNyRegularMarketOpen(_buildStaticCalendar(), now);
+}
+
+/**
+ * B1 — the canonical session resolver for anything holding `env`.
+ * One object, one calendar (dynamic, 5-min cached, static fallback):
+ * { et_date, market_open, within_operating_hours, session_type,
+ *   is_holiday, holiday_name, is_early_close, source }.
+ */
+export async function getMarketSession(env, nowMs = Date.now()) {
+  let cal;
+  try {
+    if (!_marketOpenCalCache.cal || nowMs - _marketOpenCalCache.at > 5 * 60 * 1000) {
+      _marketOpenCalCache = { cal: await loadCalendar(env), at: nowMs };
+    }
+    cal = _marketOpenCalCache.cal;
+  } catch (_) {
+    cal = _buildStaticCalendar();
+  }
+  const now = new Date(nowMs);
+  const etDate = getETDateStr(now);
+  return {
+    et_date: etDate,
+    market_open: isNyRegularMarketOpen(cal, now),
+    within_operating_hours: isWithinOperatingHours(cal, now),
+    session_type: getSessionType(getETMinutes(now)),
+    is_holiday: isEquityHoliday(cal, etDate),
+    holiday_name: getEquityHolidayName(cal, etDate),
+    is_early_close: isEquityEarlyClose(cal, etDate),
+    source: cal.source || "unknown",
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Query Functions (pure — operate on a calendar object)
 // ═══════════════════════════════════════════════════════════════════════════════

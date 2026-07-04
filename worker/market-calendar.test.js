@@ -149,3 +149,46 @@ describe("resolveMarketOpenCached", () => {
     expect(open).toBe(false);
   });
 });
+
+// B1 — env-less static session helpers + the canonical getMarketSession.
+describe("isNyRegularMarketOpenStatic / getMarketSession", () => {
+  beforeEach(() => {
+    _resetMarketOpenCacheForTests();
+  });
+
+  it("static: holiday closed, weekday open, early-close afternoon closed", async () => {
+    const { isNyRegularMarketOpenStatic } = await import("./market-calendar.js");
+    expect(isNyRegularMarketOpenStatic(new Date("2026-07-03T15:00:00Z"))).toBe(false); // holiday
+    expect(isNyRegularMarketOpenStatic(new Date("2026-07-06T15:00:00Z"))).toBe(true);  // Mon RTH
+    expect(isNyRegularMarketOpenStatic(new Date("2026-11-27T18:30:00Z"))).toBe(false); // 13:30 EST early close
+  });
+
+  it("getMarketSession returns the full session object from the static fallback", async () => {
+    const { getMarketSession } = await import("./market-calendar.js");
+    const s = await getMarketSession({}, Date.parse("2026-07-03T15:00:00Z"));
+    expect(s.et_date).toBe("2026-07-03");
+    expect(s.market_open).toBe(false);
+    expect(s.is_holiday).toBe(true);
+    expect(s.holiday_name).toBe("Independence Day");
+    expect(s.is_early_close).toBe(false);
+    expect(s.source).toBe("static");
+  });
+
+  it("getMarketSession honors a KV-cached dynamic calendar", async () => {
+    const { getMarketSession } = await import("./market-calendar.js");
+    const blob = JSON.stringify({
+      fetchedAt: Date.now(),
+      source: "alpaca",
+      equity: {},
+      equityHolidays: ["2026-07-08"], // fake mid-week closure only the dynamic cal knows
+      equityEarlyClose: [],
+      futuresEarlyClose: [],
+      futuresFullClose: [],
+    });
+    const env = { KV_TIMED: { get: async (k, t) => (t === "json" ? JSON.parse(blob) : blob), put: async () => {} } };
+    const s = await getMarketSession(env, Date.parse("2026-07-08T15:00:00Z")); // Wed 11:00 ET
+    expect(s.market_open).toBe(false);
+    expect(s.is_holiday).toBe(true);
+    expect(s.source).toBe("alpaca");
+  });
+});

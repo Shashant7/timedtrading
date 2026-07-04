@@ -20,7 +20,7 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
-import { isNyRegularMarketOpen } from "../market-calendar.js";
+import { isNyRegularMarketOpenStatic } from "../market-calendar.js";
 import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
 
 /** RTH: quote older than 10m is stale (operator rule). Not poll `t` — GS refreshed `t` every minute while `p` stuck at 1090. */
@@ -279,11 +279,20 @@ function candleBucketTsMs(tsMs, tfMinutes) {
 // non-zero day-change values (a closed-market dc=0 must never erase the last
 // known good value) and recomputes from price+prev_close when both sides are
 // stale. Batched 50 at a time.
-export async function mergeFreshnessIntoLatest(KV, prices) {
+export async function mergeFreshnessIntoLatest(KV, prices, opts = {}) {
   const tickers = Object.keys(prices || {}).filter((s) => Number(prices[s]?.p) > 0);
   if (tickers.length === 0) return { merged: 0 };
   const now = Date.now();
   const ingestTime = new Date(now).toISOString();
+  // B1 (2026-07-03) — BUG FIX: this function previously called the
+  // market-calendar `isNyRegularMarketOpen` with NO calendar argument;
+  // `cal.equityHolidays` threw on every weekday row, all Promise.allSettled
+  // entries rejected, and tt-feed's merge lane silently wrote NOTHING
+  // (merged=0) since 2026-06-23. Callers pass their calendar-bound answer;
+  // the static-table resolver is the env-less fallback.
+  const marketOpen = typeof opts.marketOpen === "boolean"
+    ? opts.marketOpen
+    : isNyRegularMarketOpenStatic();
   const BATCH = 50;
   let merged = 0;
   for (let i = 0; i < tickers.length; i += BATCH) {
@@ -304,7 +313,6 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
         const existDp = existing.day_change_pct;
         const updatedPrice = Number(snap.p);
         const updatedPc = Number(snap.pc) || existing.prev_close || 0;
-        const marketOpen = isNyRegularMarketOpen();
         // During RTH open, a price that equals prev_close with zero day
         // change is almost always a stale vendor quote (PWR 2026-06-23).
         // Do not stamp a fresh ingest_ts — that defeats age-based guards.
@@ -349,7 +357,7 @@ export async function mergeFreshnessIntoLatest(KV, prices) {
             ? (existing.ingest_time || new Date(existing.ingest_ts || now).toISOString())
             : ingestTime,
         };
-        if (!isNyRegularMarketOpen()) {
+        if (!marketOpen) {
           const pfAhP = Number(snap.ahp);
           const pfAhDc = Number(snap.ahdc);
           const pfAhDp = Number(snap.ahdp);
