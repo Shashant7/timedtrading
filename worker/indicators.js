@@ -6750,6 +6750,15 @@ export async function computeServerSideScores(ticker, getCandles, env, existingD
   const tickerData = assembleTickerData(ticker, bundleMap, existingData, assembleOpts);
   if (!tickerData) return null;
 
+  // Phase C1 (2026-07-03) — the snapshot chain must survive EVERY full
+  // recompute path (admin alpaca-compute, user-ticker onboarding, heal
+  // rescores), not just the */5 cron that advances it. Carry the existing
+  // `_journey` forward; the scoring cron overwrites it with the advanced
+  // chain right after.
+  if (existingData?._journey && !tickerData._journey) {
+    tickerData._journey = existingData._journey;
+  }
+
   // ── Data Age Contract (Freshness Doctrine, 2026-06-11) ──
   // Stamp `_freshness` on every scored payload so downstream consumers
   // (computeRank, qualifiesForEnter, investor compute, /timed/health, UI)
