@@ -733,7 +733,9 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               } catch (_) {}
               await deps.syncLivePricesToChartCandles(env, prices, {
                 priorityTickers,
-                maxTickers: 280,
+                // B3: cap covers the whole ~300-ticker universe; any overflow
+                // rotates per tick inside syncLivePricesToChartCandles.
+                maxTickers: 300,
               });
             } catch (syncErr) {
               console.warn("[LIVE_CANDLE_SYNC] price-feed hook failed:", String(syncErr?.message || syncErr).slice(0, 200));

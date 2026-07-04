@@ -5,6 +5,7 @@ import {
   overlayLivePricesOntoMap,
   priceValueTimestamp,
   quoteReceiptTimestamp,
+  syncLivePricesToChartCandles,
 } from "./feed-outputs.js";
 
 describe("priceValueTimestamp", () => {
@@ -223,5 +224,96 @@ describe("overlayLivePricesOntoMap", () => {
     expect(res.overlaid).toBe(1);
     expect(map.XLI._live_price).toBeUndefined();
     expect(map.XLI._price_value_ts).toBeUndefined();
+  });
+});
+
+// B3 (2026-07-03 stabilization plan) — live-candle sync coverage: priority
+// always included; the non-priority remainder rotates so overflow tickers
+// don't starve tick after tick.
+describe("syncLivePricesToChartCandles coverage rotation", () => {
+  function mockDb() {
+    const batches = [];
+    return {
+      batches,
+      prepare(sql) {
+        return { bind: (...args) => ({ sql, args }) };
+      },
+      async batch(chunk) {
+        batches.push(...chunk);
+      },
+    };
+  }
+
+  function pricesFor(syms) {
+    const out = {};
+    for (const s of syms) out[s] = { p: 100, t: Date.now() };
+    return out;
+  }
+
+  function tickersWritten(db) {
+    return new Set(db.batches.map((s) => s.args[0]));
+  }
+
+  const openHook = { isNyRegularMarketOpen: () => true };
+
+  it("skips entirely when the market is closed (no force)", async () => {
+    const db = mockDb();
+    const res = await syncLivePricesToChartCandles(
+      { DB: db }, pricesFor(["AAA"]), { log: false },
+      { isNyRegularMarketOpen: () => false },
+    );
+    expect(res.skipped).toBe("market_closed");
+    expect(db.batches.length).toBe(0);
+  });
+
+  it("covers the whole map when under the cap (4 TF rows per ticker)", async () => {
+    const db = mockDb();
+    const syms = ["AAA", "BBB", "CCC"];
+    await syncLivePricesToChartCandles({ DB: db }, pricesFor(syms), { log: false }, openHook);
+    expect(tickersWritten(db)).toEqual(new Set(syms));
+    expect(db.batches.length).toBe(syms.length * 4);
+  });
+
+  it("priority tickers are always included when over the cap", async () => {
+    const syms = Array.from({ length: 20 }, (_, i) => `T${String(i).padStart(2, "0")}`);
+    for (let rot = 0; rot < 5; rot++) {
+      const db = mockDb();
+      await syncLivePricesToChartCandles(
+        { DB: db }, pricesFor(syms),
+        { log: false, maxTickers: 10, priorityTickers: ["T19", "T18"], rotationOffset: rot },
+        openHook,
+      );
+      const written = tickersWritten(db);
+      expect(written.has("T19")).toBe(true);
+      expect(written.has("T18")).toBe(true);
+      expect(written.size).toBe(10);
+    }
+  });
+
+  it("rotation covers every non-priority ticker across successive offsets", async () => {
+    const syms = Array.from({ length: 25 }, (_, i) => `R${String(i).padStart(2, "0")}`);
+    const covered = new Set();
+    for (let rot = 0; rot < 3; rot++) {
+      const db = mockDb();
+      await syncLivePricesToChartCandles(
+        { DB: db }, pricesFor(syms),
+        { log: false, maxTickers: 10, rotationOffset: rot * 10 },
+        openHook,
+      );
+      for (const t of tickersWritten(db)) covered.add(t);
+    }
+    expect(covered.size).toBe(25);
+  });
+
+  it("different offsets select different overflow subsets (no permanent tail)", async () => {
+    const syms = Array.from({ length: 30 }, (_, i) => `S${String(i).padStart(2, "0")}`);
+    const db1 = mockDb();
+    await syncLivePricesToChartCandles({ DB: db1 }, pricesFor(syms), { log: false, maxTickers: 10, rotationOffset: 0 }, openHook);
+    const db2 = mockDb();
+    await syncLivePricesToChartCandles({ DB: db2 }, pricesFor(syms), { log: false, maxTickers: 10, rotationOffset: 10 }, openHook);
+    const w1 = tickersWritten(db1);
+    const w2 = tickersWritten(db2);
+    const overlap = [...w1].filter((t) => w2.has(t));
+    expect(overlap.length).toBe(0);
   });
 });

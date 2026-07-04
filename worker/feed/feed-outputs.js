@@ -397,17 +397,38 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
   if (!marketOpen && !opts.force) return { upserted: 0, skipped: "market_closed" };
 
   const priority = new Set((opts.priorityTickers || []).map((t) => String(t || "").toUpperCase()).filter(Boolean));
-  const entries = Object.entries(pricesMap)
+  const all = Object.entries(pricesMap)
     .map(([sym, snap]) => [String(sym).toUpperCase(), snap])
-    .filter(([sym, snap]) => sym && Number(snap?.p) > 0)
-    .sort((a, b) => (priority.has(a[0]) ? 0 : 1) - (priority.has(b[0]) ? 0 : 1));
+    .filter(([sym, snap]) => sym && Number(snap?.p) > 0);
 
   // Freshness Doctrine grades 10/30 as CRITICAL_RTH — patch all leading
   // intraday TFs from the live quote so D1 ages stay within SLO between
   // */5 REST bar fetches (PriceStream does NOT write ticker_candles).
-  const maxTickers = Math.max(10, Math.min(300, Number(opts.maxTickers) || 280));
-  const chartTfs = [10, 15, 30, 60];
+  //
+  // B3 (2026-07-03 stabilization plan): the universe (~300+) can exceed the
+  // cap, and the old stable ordering starved the SAME tail tickers on every
+  // tick (they'd never get their forming bars patched → perpetual AGING).
+  // Now: priority tickers (open positions) always included; the non-priority
+  // remainder ROTATES by a minute-derived offset so overflow spreads evenly —
+  // with cap 300 and universe 330, every ticker is covered within 2 ticks.
+  const maxTickers = Math.max(10, Math.min(400, Number(opts.maxTickers) || 300));
   const nowMs = Date.now();
+  const priorityEntries = all.filter(([sym]) => priority.has(sym));
+  const restEntries = all.filter(([sym]) => !priority.has(sym));
+  let entries;
+  if (all.length <= maxTickers) {
+    entries = [...priorityEntries, ...restEntries];
+  } else {
+    const restBudget = Math.max(0, maxTickers - priorityEntries.length);
+    const rot = Number.isFinite(Number(opts.rotationOffset))
+      ? Math.abs(Math.trunc(Number(opts.rotationOffset)))
+      : Math.floor(nowMs / 60000);
+    const start = restEntries.length > 0 ? rot % restEntries.length : 0;
+    const rotated = [...restEntries.slice(start), ...restEntries.slice(0, start)];
+    entries = [...priorityEntries, ...rotated.slice(0, restBudget)];
+  }
+
+  const chartTfs = [10, 15, 30, 60];
   const updatedAt = nowMs;
   const stmts = [];
 
