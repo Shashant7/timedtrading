@@ -174,20 +174,34 @@ Watch Mon Jul 6 open explicitly (first session after the fix).
 
 ### Phase B — make it stay fixed
 
-- [ ] **B1. Session-state consolidation in the worker.** `worker/index.js`
-      has `isNyRegularMarketOpen` + `approxNyRegularMarketOpen`
-      (freshness.js) + per-module copies. Collapse onto
-      `market-calendar.js` (dynamic) with the foundation calendar as the
-      grid/anchor engine. One exported `getMarketSession(env, now)` used
-      by feed, bar cron, scoring, freshness, movers, and the API.
-- [ ] **B2. E2E smoke as CI/cron.** A scheduled check (extend
-      `watchdog.yml`) that walks the chain for 3 sentinel tickers:
-      `timed:prices` age → newest 10m/30m D1 bar age → `timed:latest`
-      `_freshness` → `/timed/all` overlay price. Alarms name the LINK that
-      broke, not the symptom downstream.
-- [ ] **B3. `maxTickers` audit on live-candle sync.** Universe is 299+;
-      sync caps at 280 with open-position priority. Either raise the cap
-      or make the remainder rotate so no ticker starves >2 ticks.
+- [x] **B1. Session-state consolidation in the worker.**
+      **DONE — PR #972 (merged + deployed 2026-07-04).**
+      `getMarketSession(env, now)` in `market-calendar.js` is the canonical
+      session resolver (dynamic calendar, 5-min cache);
+      `isNyRegularMarketOpenStatic()` for env-less callers; index.js
+      cold-start fallback now holiday-aware.
+      **BUG FOUND during consolidation:** `mergeFreshnessIntoLatest` in
+      feed-outputs.js called market-calendar's `isNyRegularMarketOpen` with
+      NO calendar argument (since 2026-06-23, `2f92af71f`) — every weekday
+      row threw inside Promise.allSettled and tt-feed's */1 merge of live
+      price + ingest_ts into `timed:latest` silently wrote NOTHING on
+      trading days. Fixed: callers pass their calendar-bound answer.
+      **Watch Monday's open:** `[FRESHNESS] Merged price+ingest_ts into
+      N/M tickers` must reappear in tt-feed logs every minute during RTH.
+- [x] **B2. E2E smoke as CI/cron.**
+      **DONE — PR #973 (merged + deployed).** `worker/chain-smoke.js` +
+      public `GET /timed/health/chain`: walks feed → candles → scoring →
+      overlay for SPY/QQQ/AAPL and names the FIRST broken link
+      (session-aware — links report `idle` outside their window).
+      `watchdog.yml` probes it every 30 min and pages with the failing
+      link + per-ticker detail. 7 tests incl. the Jul 2 stale-candle
+      shape. Live-verified: all links `idle` on the holiday, `ok: true`.
+- [x] **B3. `maxTickers` audit on live-candle sync.**
+      **DONE — PR #971 (merged + deployed).** Priority (open-position)
+      tickers always included; non-priority remainder rotates by a
+      minute-derived offset; default cap 280 → 300 (ceiling 400); feed
+      call site 280 → 300. With cap 300 / universe 330 every ticker is
+      covered within 2 ticks. 5 tests.
 
 ---
 
