@@ -34731,13 +34731,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 42.0102
+        "sql_duration_ms": 37.5481
       },
-      "duration": 42.0102,
+      "duration": 37.5481,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4496179200,
+      "size_after": 4326395904,
       "rows_read": 3858,
       "rows_written": 0,
       "total_attempts": 1
