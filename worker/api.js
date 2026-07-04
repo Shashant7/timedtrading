@@ -765,6 +765,9 @@ const PROPRIETARY_SNAPSHOT_FIELDS = new Set([
   "sl", "tp", "tp1", "tp2", "tp3", "targets", "stop_loss", "take_profit",
   "rank", "score", "dynamicScore", "entry_quality", "conviction",
   "regime_forecast", "kanban_stage", "trade_plan",
+  // Phase C1 (2026-07-03) — the snapshot chain carries scores/stages;
+  // Members/anon must not see the journey either.
+  "_journey",
 ]);
 
 /** @deprecated internal alias — use tier-aware redactTickerSnapshot(obj, tier) */
