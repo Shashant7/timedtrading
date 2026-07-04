@@ -224,16 +224,26 @@ What already exists to build on (do NOT rebuild):
 
 ### Phase C — the snapshot chain
 
-- [ ] **C1. Keyframe store.** On each */5 scoring tick, append a compact
-      keyframe per ticker (score, rank, bias, zone/stage, corridor cell,
-      phase, extension, freshness grade) to a rolling per-ticker series
-      (D1 table `score_keyframes` or a chain-DO stream; decide by write
-      cost — D1 first, it's ~300 rows/5min). Retention ~30 trading days.
-- [ ] **C2. Derived journey features.** From the keyframe chain compute:
-      score slope (1h/1d), corridor transition events, rank momentum,
-      time-in-zone. Stamp onto the scored payload (`_journey`) so
-      `computeRank` / entry gates / the UI can consume without re-reading
-      history.
+- [x] **C1. Keyframe store.** **DONE — PRs #975 + #976 (merged +
+      deployed 2026-07-04).** `worker/journey.js`: compact keyframes
+      (score/htf/ltf, state, stage, bubble-map cell in the SAME
+      `state|decile|completion|phase` vocabulary as
+      `worker/lib/trajectory-cells.js`, phase, completion, freshness
+      grade, price) appended change-triggered (stage/state/cell flip,
+      |score Δ|≥5) + 30-min heartbeat → D1 `score_keyframes` (45-day
+      retention, nightly purge). Read: `GET /timed/journey?ticker=`
+      (key/admin). `_journey` is redacted for Members/anon
+      (PROPRIETARY_SNAPSHOT_FIELDS). Survives all recompute paths
+      (admin compute, onboarding, heal rescores). Live-verified via
+      admin recompute: append on change, suppress on no-change, D1
+      chain + anon redaction confirmed.
+- [x] **C2. Derived journey features.** **DONE — same PRs.**
+      `_journey.features` on every scored payload: score_slope_1h/1d,
+      direction (improving/deteriorating/flat), stage + stage dwell,
+      current cell, cell_path (last 6), cell_transitions — computed
+      from the on-payload 48-frame ring, zero extra reads for
+      downstream consumers. First cron-path frames land Monday's open
+      (the */5 cost gate skips weekends).
 - [ ] **C3. Overlay provenance + maturation.** Every advisory input (FSD
       tactical note, CRO research note, macro overlay, CIO memo) gets
       `issued_at`, `expires_at` (or a maturation condition), and a
