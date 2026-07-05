@@ -6119,7 +6119,9 @@ function TodayApp({
     brief,
     briefSlot,
     data
-  }), h(TodayHero, {
+  }), window.TimedVerdictUI?.TodaysAnswers && h(window.TimedVerdictUI.TodaysAnswers, {
+    onSelectTicker
+  }), window.TimedVerdictUI?.TrustStrip && h(window.TimedVerdictUI.TrustStrip, null), h(TodayHero, {
     brief,
     briefSlot,
     data,
@@ -6597,6 +6599,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672
