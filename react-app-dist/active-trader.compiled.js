@@ -872,8 +872,23 @@ function ATCard({
     rank,
     score
   }) : [];
+  const VUI = window.TimedVerdictUI || {};
+  const inferredVerdict = VUI.inferTraderVerdictFromTicker ? VUI.inferTraderVerdictFromTicker(t, resolvedOpen) : null;
+  const lifecycleStep = VUI.lifecycleFromStage ? VUI.lifecycleFromStage(stage, !!resolvedOpen) : null;
+  const topBanner = inferredVerdict || lifecycleStep ? h("div", {
+    style: {
+      marginBottom: 6
+    }
+  }, inferredVerdict && VUI.VerdictChip && h(VUI.VerdictChip, {
+    verdict: inferredVerdict.verdict,
+    why: inferredVerdict.why,
+    size: 11
+  }), lifecycleStep && VUI.LifecycleStrip && h(VUI.LifecycleStrip, {
+    current: lifecycleStep
+  })) : null;
   return LC.create({
     sym,
+    topBanner,
     button: {
       onClick: () => onOpen(sym),
       style: cardStyle,
@@ -2052,6 +2067,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672

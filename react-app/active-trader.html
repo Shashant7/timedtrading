@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="tt-tokens.css?v=20260629-rank-score" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="shared-verdict-ui.js?v=20260705a"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
@@ -1498,8 +1499,25 @@
           ? window.TTLaneCard.rankScoreMetricChips({ rank, score })
           : [];
 
+        const VUI = window.TimedVerdictUI || {};
+        const inferredVerdict = VUI.inferTraderVerdictFromTicker
+          ? VUI.inferTraderVerdictFromTicker(t, resolvedOpen)
+          : null;
+        const lifecycleStep = VUI.lifecycleFromStage
+          ? VUI.lifecycleFromStage(stage, !!resolvedOpen)
+          : null;
+        const topBanner = (inferredVerdict || lifecycleStep) ? h("div", { style: { marginBottom: 6 } },
+          inferredVerdict && VUI.VerdictChip && h(VUI.VerdictChip, {
+            verdict: inferredVerdict.verdict,
+            why: inferredVerdict.why,
+            size: 11,
+          }),
+          lifecycleStep && VUI.LifecycleStrip && h(VUI.LifecycleStrip, { current: lifecycleStep }),
+        ) : null;
+
         return LC.create({
           sym,
+          topBanner,
           button: {
             onClick: () => onOpen(sym),
             style: cardStyle,

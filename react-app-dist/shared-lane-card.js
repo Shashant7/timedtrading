@@ -144,6 +144,7 @@
         dangerouslySetInnerHTML: { __html: p.sparkSvg },
       }),
       h("div", { className: "tt-lane-card__main" },
+        p.topBanner && h("div", { className: "tt-lane-card__top-banner" }, p.topBanner),
         h("div", { className: "tt-lane-card__meta" },
           h("div", { className: "tt-lane-card__identity" },
             h("div", {
@@ -185,4 +186,4 @@
   boot();
 })();
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672

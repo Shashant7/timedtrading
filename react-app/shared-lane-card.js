@@ -144,6 +144,7 @@
         dangerouslySetInnerHTML: { __html: p.sparkSvg },
       }),
       h("div", { className: "tt-lane-card__main" },
+        p.topBanner && h("div", { className: "tt-lane-card__top-banner" }, p.topBanner),
         h("div", { className: "tt-lane-card__meta" },
           h("div", { className: "tt-lane-card__identity" },
             h("div", {
