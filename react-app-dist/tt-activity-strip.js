@@ -188,17 +188,22 @@
     return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
   }
 
-  // Strip display: mode + enter/exit/trim only (ADD/BOUGHT/WATCH/QUEUE → enter).
+  // Phase D4 — verdict word as the action label (BUY/SELL/TIGHTEN/HOLD/FORMING).
   function normalizeDisplayAction(meta) {
+    const SG = window.TimedSignalGrammar;
+    if (SG && typeof SG.verdictWordFromActivity === "function") {
+      return SG.verdictWordFromActivity(meta);
+    }
     const label = String(meta?.label || "").toUpperCase();
     const evType = String(meta?.evType || "").toUpperCase();
-    if (label === "TRIM" || evType === "TRIM" || label === "REDUCE" || evType.indexOf("TRIM") >= 0) return "TRIM";
-    if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return "EXIT";
-    return "ENTER";
+    if (label === "TRIM" || evType === "TRIM" || label === "REDUCE" || evType.indexOf("TRIM") >= 0) return "TIGHTEN";
+    if (label === "EXIT" || evType === "EXIT" || /EXIT|SL_HIT|TP_HIT_EXIT/.test(evType)) return "SELL";
+    if (label === "ENTER" || label === "ENTRY" || evType === "ENTRY") return "BUY";
+    return "FORMING";
   }
 
   function scopeDisplayLabel(scope) {
-    return scope === "investor" ? "Inv" : "Trader";
+    return scope === "investor" ? "INVESTOR" : "TRADER";
   }
 
   // Brand logo (monogram fallback → async real logo swap). Mirrors the
@@ -789,4 +794,4 @@
   else mount();
 })();
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672

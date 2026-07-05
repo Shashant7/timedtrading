@@ -2331,6 +2331,14 @@
                       style: { fontSize: "11px", color: "#6b7280", lineHeight: "1.4", overflow: "hidden",
                         textOverflow: "ellipsis", whiteSpace: "nowrap" },
                     }, n.body),
+                    (() => {
+                      const stage = String(n?.kanban_stage || n?.meta?.kanban_stage || "").toLowerCase();
+                      const VUI = window.TimedVerdictUI;
+                      if (!stage || !VUI?.LifecycleStrip || !VUI.lifecycleFromStage) return null;
+                      const hasPos = String(n?.type || "").toLowerCase().startsWith("trade_")
+                        && String(n?.type || "").toLowerCase() !== "trade_entry";
+                      return h(VUI.LifecycleStrip, { current: VUI.lifecycleFromStage(stage, hasPos) });
+                    })(),
                     h("div", { style: { fontSize: "10px", color: "#374151", marginTop: "2px" } }, formatTime(n.created_at)),
                   ),
                   // Unread dot
@@ -2950,4 +2958,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672

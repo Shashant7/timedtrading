@@ -85,16 +85,25 @@ export function actionVerb(action) {
   return map[String(action || "").toLowerCase()] || "Update";
 }
 
-/** Discord title: `{emoji} TRADER · DOING · Exit: MU` */
+/** Phase D4 — verdict vocabulary for notifications and Discord titles. */
+export function verdictWordFromSignal(signal) {
+  const s = typeof signal === "object" ? signal : buildSignal(signal);
+  const action = String(s.action || "").toLowerCase();
+  if (action === "enter" || action === "accumulate") return "BUY";
+  if (action === "exit" || action === "reduce") return "SELL";
+  if (action === "trim" || action === "defend") return "TIGHTEN";
+  if (action === "hold" || action === "core_hold") return "HOLD";
+  if (action === "setup" || action === "review" || action === "watch") return "FORMING";
+  return actionVerb(s.action).toUpperCase();
+}
+
+/** Discord title: `{emoji} TRADER · BUY · NVDA` (lane + verdict word first). */
 export function renderDiscordTitle(signal, { emoji = "" } = {}) {
   const s = typeof signal === "object" ? signal : buildSignal(signal);
-  const parts = [engineLabel(s.engine), modeLabel(s.mode)];
-  const execLbl = execStateLabel(s.execState);
-  if (execLbl) parts.push(execLbl);
   const prefix = emoji ? `${emoji} ` : "";
-  const verb = actionVerb(s.action);
+  const verdict = verdictWordFromSignal(s);
   const tail = s.ticker ? `: ${s.ticker}` : "";
-  return `${prefix}${parts.join(" · ")} · ${verb}${tail}`.replace(/\s+/g, " ").trim();
+  return `${prefix}${engineLabel(s.engine)} · ${verdict}${tail}`.replace(/\s+/g, " ").trim();
 }
 
 /** Bell / notification title — strips legacy DOING/WATCHING bracket prefixes. */

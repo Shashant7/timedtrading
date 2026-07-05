@@ -266,6 +266,20 @@
     return chips;
   }
 
+  /** Phase D4 — map activity/alert action to verdict vocabulary. */
+  function verdictWordFromActivity(meta, ev) {
+    var label = String((meta && meta.label) || "").toUpperCase();
+    var evType = String((meta && meta.evType) || "").toUpperCase();
+    if (label === "ENTER" || label === "ENTRY" || evType === "ENTRY") return "BUY";
+    if (label === "EXIT" || evType === "EXIT") return "SELL";
+    if (label === "TRIM" || label === "DEFEND" || evType === "TRIM") return "TIGHTEN";
+    if (label === "HOLD") return "HOLD";
+    if (label === "REVIEW" || label === "WATCH" || label === "SETUP") return "FORMING";
+    if (label === "ACCUMULATE" || label === "QUEUE") return "BUY";
+    if (label === "REDUCE") return "SELL";
+    return label || "UPDATE";
+  }
+
   window.TimedSignalGrammar = {
     buildSignal: buildSignal,
     traderLaneMeta: traderLaneMeta,
@@ -275,9 +289,10 @@
     isActionableFeedEvent: isActionableFeedEvent,
     isActionableNotification: isActionableNotification,
     renderSignalChips: renderSignalChips,
+    verdictWordFromActivity: verdictWordFromActivity,
     TRADER_LANE_META: TRADER_LANE_META,
     INVESTOR_LANE_META: INVESTOR_LANE_META,
   };
 })();
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672
