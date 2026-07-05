@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Objective 3 — Answer-First UX Mockups (Phase D)</title>
+<!--
+  Design mockup for the Phase D build (tasks/2026-07-05-answer-first-ux-audit.md).
+  Three surfaces, one contract: everything renders GET /timed/verdict.
+  Tokens mirror react-app/tt-tokens.css. Static HTML — no JS, no data.
+-->
+<style>
+  :root{
+    --bg0:#0b0e11; --bg1:rgba(255,255,255,0.022); --bg2:rgba(255,255,255,0.04); --bg3:rgba(255,255,255,0.06);
+    --t1:#e5e7eb; --t2:#9ca3af; --t3:#6b7280;
+    --success:#34d399; --success-dim:rgba(52,211,153,0.14);
+    --danger:#ef4444; --danger-dim:rgba(239,68,68,0.14);
+    --warn:#f59e0b; --warn-dim:rgba(245,158,11,0.14);
+    --brand:#14b8a6; --brand-dim:rgba(20,184,166,0.14);
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg0);color:var(--t1);font-family:var(--sans);padding:28px;line-height:1.45}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  h1{font-size:18px;margin-bottom:4px}
+  .sub{color:var(--t3);font-size:12px;margin-bottom:26px}
+  .section-label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);margin:30px 0 10px}
+  .row{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+  .panel{background:var(--bg1);border:1px solid rgba(255,255,255,0.07);border-radius:14px;overflow:hidden}
+  .cap{font-size:11px;color:var(--t3);margin-top:8px;max-width:380px}
+
+  /* lane badges */
+  .lane{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:2px 7px;border-radius:4px}
+  .lane.trader{background:rgba(96,165,250,0.15);color:#60a5fa}
+  .lane.investor{background:rgba(192,132,252,0.15);color:#c084fc}
+
+  /* verdict pills */
+  .verdict{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-size:15px;letter-spacing:.02em;padding:4px 12px;border-radius:8px}
+  .v-buy{background:var(--success-dim);color:var(--success)}
+  .v-forming{background:var(--brand-dim);color:var(--brand)}
+  .v-hold{background:var(--bg3);color:var(--t1)}
+  .v-tighten{background:var(--warn-dim);color:var(--warn)}
+  .v-sell{background:var(--danger-dim);color:var(--danger)}
+  .v-wait{background:var(--bg2);color:var(--t3)}
+  .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+  /* ── 1. Right-rail Verdict Block ── */
+  .rail{width:360px}
+  .vb{padding:14px 16px}
+  .vb-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+  .tkr{font-weight:800;font-size:16px}
+  .px{color:var(--t2);font-size:13px}
+  .vb-lane{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.05)}
+  .vb-main{flex:1}
+  .why{color:var(--t2);font-size:12px;margin-top:4px}
+  .levels{display:flex;gap:14px;margin-top:6px;font-size:11.5px;color:var(--t3)}
+  .levels b{color:var(--t1);font-weight:600}
+  .timing{font-size:11px;color:var(--brand);margin-top:2px;font-weight:600}
+  .journey{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:11px;color:var(--t2)}
+  .spark{display:flex;align-items:flex-end;gap:2px;height:22px}
+  .spark i{width:5px;background:var(--success);border-radius:1px;opacity:.85}
+  .spark.down i{background:var(--danger)}
+  .proof{border-top:1px solid rgba(255,255,255,0.05);padding:9px 16px;font-size:11.5px;color:var(--t3);display:flex;justify-content:space-between;align-items:center}
+  .proof span{color:var(--brand)}
+
+  /* ── 2. Today answers ── */
+  .today{width:660px}
+  .today-head{padding:13px 18px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:baseline}
+  .today-head h2{font-size:14px}
+  .today-head small{color:var(--t3);font-size:11px}
+  .ans{display:grid;grid-template-columns:110px 108px 1fr auto;gap:10px;align-items:center;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,0.04)}
+  .ans:last-child{border-bottom:none}
+  .ans .tkr{font-size:14px}
+  .ans .sub2{font-size:10.5px;color:var(--t3);font-weight:400}
+  .ans .why{margin-top:0;font-size:11.5px}
+  .cta{font-size:11px;color:var(--brand);white-space:nowrap;font-weight:600}
+  .empty{padding:16px 18px;color:var(--t3);font-size:12.5px;font-style:italic}
+
+  /* ── 3. Notifications ── */
+  .notif{width:400px}
+  .n-row{display:flex;gap:10px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,0.05)}
+  .n-ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+  .n-title{font-size:12.5px;font-weight:650;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .n-body{font-size:11.5px;color:var(--t2);margin-top:2px}
+  .n-time{font-size:10px;color:var(--t3);margin-top:3px}
+  .lifecycle{display:flex;gap:4px;align-items:center;margin-top:5px;font-size:9px;letter-spacing:.08em;color:var(--t3)}
+  .lc{padding:1px 6px;border-radius:3px;background:var(--bg2)}
+  .lc.on{background:var(--brand-dim);color:var(--brand);font-weight:700}
+  .lc.done{color:var(--t2)}
+  .discord{width:430px;background:#2b2d31;border-radius:10px;padding:14px 16px;font-family:var(--sans)}
+  .d-bar{border-left:4px solid var(--warn);padding-left:12px}
+  .d-app{font-size:11px;color:#b5bac1;margin-bottom:5px}
+  .d-title{font-weight:700;font-size:13.5px;color:#f2f3f5;margin-bottom:5px}
+  .d-desc{font-size:12px;color:#dbdee1}
+  .d-fields{display:flex;gap:18px;margin-top:8px}
+  .d-field small{display:block;font-size:10px;color:#b5bac1;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .d-field span{font-size:12px;color:#dbdee1}
+  .d-foot{font-size:10px;color:#949ba4;margin-top:9px}
+</style>
+</head>
+<body>
+
+<h1>Objective 3 — Answer-First UX (Phase D build direction)</h1>
+<div class="sub">One contract (<span class="num">GET /timed/verdict</span>) rendered identically on every surface · lane always visible · answer first, proof one tap deeper</div>
+
+<div class="section-label">1 · Right-rail Verdict Block — questions 2 &amp; 3: "should I buy / sell THIS ticker?"</div>
+<div class="row">
+  <div>
+    <div class="panel rail">
+      <div class="vb">
+        <div class="vb-head">
+          <div><span class="tkr">NVDA</span> <span class="px num">$201.00</span></div>
+          <span class="px num" style="color:var(--success)">+1.9%</span>
+        </div>
+        <div class="vb-lane" style="border-top:none">
+          <div class="vb-main">
+            <span class="verdict v-forming"><span class="dot"></span>SETUP FORMING</span>
+            <span class="lane trader" style="margin-left:8px">TRADER</span>
+            <div class="timing">Timing: on confirmation — stage must reach Enter</div>
+            <div class="why">Journey improving (+2.4/h) in watch · pullback within bull structure</div>
+            <div class="levels"><span>If triggered — entry <b class="num">~201</b></span><span>stop <b class="num">188.00</b></span><span>target <b class="num">225.00</b></span></div>
+          </div>
+        </div>
+        <div class="vb-lane">
+          <div class="vb-main">
+            <span class="verdict v-wait"><span class="dot"></span>WAIT</span>
+            <span class="lane investor" style="margin-left:8px">INVESTOR</span>
+            <div class="why">Zone watch — wait for accumulate</div>
+          </div>
+        </div>
+        <div class="journey">
+          <div class="spark"><i style="height:6px"></i><i style="height:8px"></i><i style="height:7px"></i><i style="height:11px"></i><i style="height:13px"></i><i style="height:12px"></i><i style="height:16px"></i><i style="height:19px"></i></div>
+          <div>Journey: <b style="color:var(--success)">improving</b> · 1h 35m in watch · cell <span class="num">Bp|D0|C1|P1</span></div>
+        </div>
+      </div>
+      <div class="proof">The story: 2 corridor moves this week · rank 12 <span>Show proof ▾</span></div>
+    </div>
+    <div class="cap">No position → the entry answer. Both lanes always shown — trader SETUP_FORMING + investor WAIT is a legitimate, clarifying pair. "WAIT" always says what would change it.</div>
+  </div>
+
+  <div>
+    <div class="panel rail">
+      <div class="vb">
+        <div class="vb-head">
+          <div><span class="tkr">BRK-B</span> <span class="px num">$507.78</span></div>
+          <span class="px num" style="color:var(--success)">+0.6%</span>
+        </div>
+        <div class="vb-lane" style="border-top:none">
+          <div class="vb-main">
+            <span class="verdict v-tighten"><span class="dot"></span>TIGHTEN</span>
+            <span class="lane trader" style="margin-left:8px">TRADER</span>
+            <div class="timing">Timing: now</div>
+            <div class="why">Trim lane · position +1.6% — protect gains, raise stop toward breakeven</div>
+            <div class="levels"><span>entry <b class="num">499.90</b></span><span>P&amp;L <b class="num" style="color:var(--success)">+1.6%</b></span><span>stop <b class="num">486.00 → 499.90</b></span></div>
+          </div>
+        </div>
+        <div class="journey">
+          <div class="spark down"><i style="height:18px"></i><i style="height:16px"></i><i style="height:17px"></i><i style="height:13px"></i><i style="height:11px"></i><i style="height:12px"></i><i style="height:8px"></i><i style="height:7px"></i></div>
+          <div>Journey: <b style="color:var(--danger)">deteriorating</b> · 2d 3h in trim · cell <span class="num">B|D2|C2|P2</span></div>
+        </div>
+      </div>
+      <div class="proof">Rotation note: Financials flagged “profit taking” · aged 2.1d <span>Show proof ▾</span></div>
+    </div>
+    <div class="cap">Open position → the management answer, with the exact level move. The C4 rotation overlay surfaces as a one-line receipt with its age (C3 provenance), never as a stale quote.</div>
+  </div>
+</div>
+
+<div class="section-label">2 · Today page — question 1: "what should I buy right now?" (first block after the greeting)</div>
+<div class="row">
+  <div>
+    <div class="panel today">
+      <div class="today-head">
+        <h2>Today's answers</h2>
+        <small>3 actionable of 299 scanned · updated 2m ago · Pro</small>
+      </div>
+      <div class="ans">
+        <div><span class="tkr">MU</span><div class="sub2 num">$118.40 · rank 4</div></div>
+        <div><span class="verdict v-buy" style="font-size:12px"><span class="dot"></span>BUY</span><div class="lifecycle"><span class="lane trader">TRADER</span></div></div>
+        <div class="why">Entry lane now · stop <b class="num">112.80</b> · target <b class="num">131.00</b> · journey improving</div>
+        <div class="cta">Open plan →</div>
+      </div>
+      <div class="ans">
+        <div><span class="tkr">NVDA</span><div class="sub2 num">$201.00 · rank 12</div></div>
+        <div><span class="verdict v-forming" style="font-size:12px"><span class="dot"></span>FORMING</span><div class="lifecycle"><span class="lane trader">TRADER</span></div></div>
+        <div class="why">On confirmation · improving +2.4/h in watch · needs Enter stage</div>
+        <div class="cta">Watch setup →</div>
+      </div>
+      <div class="ans">
+        <div><span class="tkr">GEV</span><div class="sub2 num">$1,113.11 · score 74</div></div>
+        <div><span class="verdict v-buy" style="font-size:12px"><span class="dot"></span>BUY</span><div class="lifecycle"><span class="lane investor">INVESTOR</span></div></div>
+        <div class="why">Accumulate zone · scale in · journey improving · FSD-aligned (GRNY 2.4%)</div>
+        <div class="cta">Open plan →</div>
+      </div>
+      <div class="empty">Nothing else qualifies right now — no filler picks. Next check in 5 minutes.</div>
+    </div>
+    <div class="cap">Replaces "commentary first": the Brief, regime line and Bubble Map move BELOW this block. Empty state is honest — an empty answer beats a forced pick. Members/anon see the module locked with an upgrade prompt (same entitlement as scores).</div>
+  </div>
+</div>
+
+<div class="section-label">3 · Notifications — same verdict words + lane tags on every channel (D4)</div>
+<div class="row">
+  <div>
+    <div class="panel notif">
+      <div class="n-row">
+        <div class="n-ic" style="background:var(--success-dim)">🎯</div>
+        <div>
+          <div class="n-title"><span class="lane trader">TRADER</span> BUY · MU — entry triggered <span class="num" style="color:var(--t2)">@ $118.40</span></div>
+          <div class="n-body">Stop <span class="num">112.80</span> · target <span class="num">131.00</span> · rank 4 · journey improving</div>
+          <div class="lifecycle"><span class="lc done">FORMING</span>›<span class="lc done">READY</span>›<span class="lc on">TRIGGERED</span>›<span class="lc">MANAGED</span>›<span class="lc">CLOSED</span></div>
+          <div class="n-time">2:41 PM ET</div>
+        </div>
+      </div>
+      <div class="n-row">
+        <div class="n-ic" style="background:var(--brand-dim)">🌱</div>
+        <div>
+          <div class="n-title"><span class="lane trader">TRADER</span> SETUP FORMING · NVDA</div>
+          <div class="n-body">Watch → ready when stage reaches Enter · improving +2.4/h · no action needed yet</div>
+          <div class="lifecycle"><span class="lc on">FORMING</span>›<span class="lc">READY</span>›<span class="lc">TRIGGERED</span>›<span class="lc">MANAGED</span>›<span class="lc">CLOSED</span></div>
+          <div class="n-time">1:05 PM ET</div>
+        </div>
+      </div>
+      <div class="n-row" style="border-bottom:none">
+        <div class="n-ic" style="background:var(--warn-dim)">🛡️</div>
+        <div>
+          <div class="n-title"><span class="lane investor">INVESTOR</span> TIGHTEN · GEV</div>
+          <div class="n-body">Rotation note flagged Industrials (aged 2.1d) · journey deteriorating · review stop / consider trim</div>
+          <div class="lifecycle"><span class="lc done">FORMING</span>›<span class="lc done">READY</span>›<span class="lc done">TRIGGERED</span>›<span class="lc on">MANAGED</span>›<span class="lc">CLOSED</span></div>
+          <div class="n-time">11:30 AM ET</div>
+        </div>
+      </div>
+    </div>
+    <div class="cap">NotificationCenter (bell) + Activity Strip rows: lane chip first, verdict word second, ticker third — then the setup lifecycle (D3) so an alert reads as a step in a visible progression, not a surprise. Users can mute a lane.</div>
+  </div>
+
+  <div>
+    <div class="discord">
+      <div class="d-app">Timed Trading · Ops APP — #trade-signals</div>
+      <div class="d-bar">
+        <div class="d-title">[TRADER] TIGHTEN · BRK-B — raise stop to breakeven</div>
+        <div class="d-desc">Trim lane · position +1.6% · journey deteriorating (2d in trim) · rotation note: Financials “profit taking” (aged 2.1d, expires in 7.9d)</div>
+        <div class="d-fields">
+          <div class="d-field"><small>Entry</small><span class="num">$499.90</span></div>
+          <div class="d-field"><small>Now</small><span class="num">$507.78</span></div>
+          <div class="d-field"><small>Stop</small><span class="num">486.00 → 499.90</span></div>
+        </div>
+        <div class="d-foot">lane=trader · verdict=TIGHTEN · overlay=prop_1540479 · setup: MANAGED</div>
+      </div>
+    </div>
+    <div class="cap">Discord embed template: lane in the TITLE (not buried in the body), verdict word as the action, overlay receipts carry their age + expiry (C3), footer carries machine-readable tags. Same fields drive the email templates.</div>
+  </div>
+</div>
+
+</body>
+</html>
