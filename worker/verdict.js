@@ -35,9 +35,53 @@ function num(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Strict: null/undefined/"" → null (num() coerces null→0, which we don't want for levels). */
+function numN(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function round2(v) {
   const n = num(v);
   return n === null ? null : Math.round(n * 100) / 100;
+}
+
+/**
+ * Plain-English read of the HTF×LTF state code. HTF sets the STRUCTURAL
+ * direction (the trade plan / levels follow it); LTF is the short-term
+ * momentum overlay that gates timing. This is why a bull-trend name can
+ * carry a "Leaning bearish" short-term posture AND a LONG structural plan.
+ */
+const STATE_READS = {
+  HTF_BULL_LTF_BULL: { htf: "up", ltf: "up", structuralDir: "LONG", label: "trend aligned up", ltfPhrase: "short-term momentum is also up" },
+  HTF_BULL_LTF_PULLBACK: { htf: "up", ltf: "pulling back", structuralDir: "LONG", label: "bullish pullback", ltfPhrase: "short-term is pulling back into the trend" },
+  HTF_BULL_LTF_BEAR: { htf: "up", ltf: "bearish", structuralDir: "LONG", label: "bull trend, bearish momentum", ltfPhrase: "short-term momentum has turned down" },
+  HTF_BEAR_LTF_BEAR: { htf: "down", ltf: "down", structuralDir: "SHORT", label: "trend aligned down", ltfPhrase: "short-term momentum is also down" },
+  HTF_BEAR_LTF_PULLBACK: { htf: "down", ltf: "bouncing", structuralDir: "SHORT", label: "bearish bounce", ltfPhrase: "short-term is bouncing against the trend" },
+  HTF_BEAR_LTF_BULL: { htf: "down", ltf: "bullish", structuralDir: "SHORT", label: "bear trend, bullish momentum", ltfPhrase: "short-term momentum has turned up" },
+};
+
+export function readState(state) {
+  const key = String(state || "").toUpperCase();
+  if (STATE_READS[key]) return { ...STATE_READS[key], state: key };
+  const htfBull = key.startsWith("HTF_BULL");
+  const htfBear = key.startsWith("HTF_BEAR");
+  if (!htfBull && !htfBear) return null;
+  return {
+    htf: htfBull ? "up" : "down",
+    ltf: key.includes("LTF_BEAR") ? "bearish" : key.includes("LTF_BULL") ? "bullish" : "mixed",
+    structuralDir: htfBull ? "LONG" : "SHORT",
+    label: htfBull ? "higher-timeframe up" : "higher-timeframe down",
+    ltfPhrase: key.includes("LTF_BEAR") ? "short-term momentum has turned down" : key.includes("LTF_BULL") ? "short-term momentum has turned up" : "short-term is mixed",
+    state: key,
+  };
+}
+
+function fmtUsd(n) {
+  const x = num(n);
+  if (x === null) return null;
+  return "$" + (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(2));
 }
 
 /** Trader-lane verdict from a scored payload (+ open trade if any). Pure. */
@@ -46,7 +90,12 @@ export function buildTraderVerdict(payload, openTrade = null, nowMs = Date.now()
   const stage = String(payload.kanban_stage || "").toLowerCase();
   const state = String(payload.state || "");
   const journey = payload._journey?.features || null;
-  const direction = state.includes("BEAR") ? "SHORT" : "LONG";
+  // STRUCTURAL direction follows the higher timeframe (HTF), NOT a raw
+  // "contains BEAR" test — HTF_BULL_LTF_BEAR is a bull-trend name with a
+  // bearish short-term wobble and must resolve LONG so the plan + levels
+  // agree with the trade plan the rail renders.
+  const sread = readState(state);
+  const direction = sread ? sread.structuralDir : (state.includes("BEAR") ? "SHORT" : "LONG");
   const price = num(payload._live_price) ?? num(payload.price) ?? num(payload.close);
   const hasPosition = !!openTrade;
   const posDir = hasPosition ? String(openTrade.direction || "LONG").toUpperCase() : null;
@@ -170,6 +219,7 @@ export function buildInvestorVerdict(payload, investorRow = null, investorPositi
     verdict,
     timing,
     price: round2(price),
+    score,
     avg_entry: round2(avgEntry),
     pnl_pct: pnlPct,
     why: why.join("; "),
@@ -183,20 +233,49 @@ export function buildInvestorVerdict(payload, investorRow = null, investorPositi
  * verdict list.
  */
 /**
- * Cross-lane narrative for the right-rail guide — reconciles trader vs
- * investor when horizons diverge (e.g. trader WAIT + bearish posture while
- * investor accumulate stays valid).
+ * Cross-lane narrative for the right-rail guide. GROUNDED in the actual
+ * readings (state HTF×LTF, score, rank, plan levels, timing overlay,
+ * journey) rather than boilerplate. Reconciles the short-term trader
+ * posture with the structural plan and the investor lane so a name like
+ * BE (bull structural LONG plan + bearish short-term momentum + investor
+ * accumulate) reads as ONE coherent story instead of three contradictory
+ * chips.
  */
 export function buildVerdictGuide(trader, investor, payload = null) {
   if (!trader && !investor) return null;
   const tv = String(trader?.verdict || "WAIT").toUpperCase();
   const iv = investor ? String(investor.verdict || "WAIT").toUpperCase() : "WAIT";
-  const state = String(payload?.state || "");
-  const bearish = state.includes("BEAR");
-  const journey = payload?._journey?.features;
-  const timing = payload?.timing_overlay;
+  const p = payload || {};
+  const sread = readState(p.state);
+  const score = num(p.score);
+  const rank = num(p.rank);
+  const structuralDir = sread?.structuralDir || String(trader?.direction || "").toUpperCase();
+  const stop = numN(trader?.stop) ?? numN(p.sl);
+  const target = numN(trader?.target) ?? numN(p.tp_trim) ?? numN(p.tp_exit);
+  const entryTrigger = numN(trader?.entry_price);
+  const invScore = numN(investor?.score) ?? numN(p.investor_score);
+  const journey = p._journey?.features;
+  const timing = p.timing_overlay;
+  const extension = num(timing?.extension_score);
   const macroRiskOff = timing?.posture === "RISK_OFF"
     || (Array.isArray(timing?.warnings) && timing.warnings.some((w) => String(w).includes("macro_risk_off")));
+
+  // Reusable grounded fragments.
+  const scoreFrag = score !== null ? `score ${score}${rank !== null ? `, rank ${rank}` : ""}` : (rank !== null ? `rank ${rank}` : "");
+  const trendFrag = sread
+    ? `Higher-timeframe trend is ${sread.htf} and ${sread.ltfPhrase}${scoreFrag ? ` (${scoreFrag})` : ""}.`
+    : (scoreFrag ? `Model ${scoreFrag}.` : "");
+  const structuralFrag = (() => {
+    if (!structuralDir) return "";
+    const bits = [];
+    if (entryTrigger !== null) bits.push(`triggers near ${fmtUsd(entryTrigger)}`);
+    if (target !== null) bits.push(`first target ${fmtUsd(target)}`);
+    if (stop !== null) bits.push(`invalidates ${structuralDir === "SHORT" ? "above" : "below"} ${fmtUsd(stop)}`);
+    return `The structural setup is a ${structuralDir} plan${bits.length ? ` — ${bits.join(", ")}` : ""}.`;
+  })();
+  const macroFrag = macroRiskOff
+    ? "The broader market is risk-off right now, which is weighing on the short-term read."
+    : (extension !== null && extension >= 60 ? "Price is extended near-term, so timing favors patience over chasing." : "");
 
   const parts = [];
   let headline = "Lane guide";
@@ -205,49 +284,54 @@ export function buildVerdictGuide(trader, investor, payload = null) {
 
   const diverge = (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING"))
     || (tv === "BUY" && iv === "WAIT")
-    || (bearish && iv === "BUY" && tv !== "BUY");
+    || (sread?.ltf === "bearish" && iv === "BUY" && tv !== "BUY");
 
-  if (iv === "BUY" && tv === "WAIT") {
-    headline = "Horizons diverge — accumulate vs no trader entry";
-    parts.push(bearish
-      ? "Short-term trader read is bearish or choppy; the tactical entry trigger has not fired."
-      : "Trader lane has no entry signal yet — the stage must reach enter before the model opens a position.");
-    parts.push("Investor lane flags an accumulate zone; the longer thesis may still be intact.");
-    if (macroRiskOff) parts.push("Broader market drawdown / risk-off timing is weighing on the short-term read.");
-    modelNotEntered = trader?.why || "The model has not opened a trader position.";
-    earlyEntry = "Scaling in before the model's scale-in call is appropriate only inside the published buy zone, with capped size and a defined invalidation level.";
-  } else if (tv === "BUY" && iv === "WAIT") {
+  if (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING")) {
+    headline = sread?.htf === "up"
+      ? "Long-term thesis intact — short-term still choppy"
+      : "Investor accumulate open — trader entry not yet triggered";
+    if (trendFrag) parts.push(trendFrag);
+    if (structuralFrag) parts.push(structuralFrag);
+    parts.push(`Investor lane reads accumulate${invScore !== null ? ` (score ${invScore})` : ""} — the longer thesis is still in play.`);
+    if (macroFrag) parts.push(macroFrag);
+    modelNotEntered = trader?.why
+      ? capitalize(trader.why) + "."
+      : (tv === "SETUP_FORMING" ? "The setup is forming but the entry trigger has not fired." : "No trader entry signal yet.");
+    earlyEntry = `Accumulating ahead of the model is reasonable ONLY inside the published buy zone (Key Levels), with capped size and a hard invalidation${stop !== null ? ` — treat a close ${structuralDir === "SHORT" ? "above" : "below"} ${fmtUsd(stop)} as the line where the thesis breaks` : ""}.`;
+  } else if (tv === "BUY" && iv !== "BUY") {
     headline = "Trader entry active — investor lane not yet accumulate";
-    parts.push("Tactical entry conditions are met on the trader lane.");
-    parts.push("Investor lane is not in accumulate yet — shorter-term trade and longer-term build run on different clocks.");
-    if (investor?.why) modelNotEntered = investor.why;
+    if (trendFrag) parts.push(trendFrag);
+    if (structuralFrag) parts.push(structuralFrag);
+    parts.push("The tactical trade is live on its own clock; the investor build has not opened yet.");
+    if (investor?.why) modelNotEntered = capitalize(investor.why) + ".";
   } else if (tv === "BUY" && iv === "BUY") {
-    headline = "Both lanes align";
-    parts.push("Trader entry and investor accumulate agree. Size each lane by its horizon rules.");
+    headline = "Both lanes align — trade and build agree";
+    if (trendFrag) parts.push(trendFrag);
+    if (structuralFrag) parts.push(structuralFrag);
+    parts.push("Trader entry and investor accumulate agree; size each lane by its own horizon rules.");
   } else if (tv === "SETUP_FORMING") {
     headline = "Setup building — confirmation pending";
-    parts.push("Trader setup is forming; the entry trigger has not fired yet.");
-    if (iv === "BUY") {
-      parts.push("Investor accumulate may still be valid on a separate, longer clock.");
-      earlyEntry = "Do not confuse a forming trader setup with investor scale-in — each lane has its own invalidation.";
-    }
-    modelNotEntered = trader?.why;
-  } else if (tv === "WAIT" && iv === "WAIT") {
-    headline = "No lane action yet";
-    parts.push("Neither lane is actionable right now. Watch the technical screener below or wait for the next scoring pass.");
-    modelNotEntered = trader?.why || investor?.why;
+    if (trendFrag) parts.push(trendFrag);
+    if (structuralFrag) parts.push(structuralFrag);
+    if (macroFrag) parts.push(macroFrag);
+    modelNotEntered = trader?.why ? capitalize(trader.why) + "." : "The entry trigger has not fired yet.";
   } else if (["HOLD", "TIGHTEN", "SELL"].includes(tv) || ["HOLD", "TIGHTEN", "SELL"].includes(iv)) {
-    headline = `Managing — trader ${tv.toLowerCase()}, investor ${iv.toLowerCase()}`;
-    if (trader?.why) parts.push(trader.why);
-    if (investor?.why && investor.why !== trader?.why) parts.push(investor.why);
+    headline = `Managing — trader ${tv.toLowerCase()}${iv !== "WAIT" ? `, investor ${iv.toLowerCase()}` : ""}`;
+    if (trader?.why) parts.push(capitalize(trader.why) + ".");
+    if (investor?.why && investor.why !== trader?.why) parts.push(capitalize(investor.why) + ".");
+    if (macroFrag) parts.push(macroFrag);
   } else {
-    headline = `Trader ${tv} · Investor ${iv}`;
-    if (trader?.why) parts.push(trader.why);
-    if (investor?.why) parts.push(investor.why);
+    headline = sread ? `${cap(sread.label)} — no lane action yet` : "No lane action yet";
+    if (trendFrag) parts.push(trendFrag);
+    if (structuralFrag) parts.push(structuralFrag);
+    parts.push("Neither lane is actionable right now — wait for the next scoring pass or use the technical screener.");
+    modelNotEntered = trader?.why ? capitalize(trader.why) + "." : (investor?.why ? capitalize(investor.why) + "." : null);
   }
 
-  if (journey?.direction === "deteriorating" && tv === "WAIT") {
-    parts.push("Journey is deteriorating on the trader lane — wait for improvement before forcing a tactical entry.");
+  if (journey?.direction === "deteriorating" && (tv === "WAIT" || tv === "SETUP_FORMING")) {
+    parts.push("The momentum journey is still deteriorating — let it turn before forcing an entry.");
+  } else if (journey?.direction === "improving" && (tv === "WAIT" || tv === "SETUP_FORMING")) {
+    parts.push("The momentum journey is improving, so the setup is trending toward a trigger.");
   }
 
   return {
@@ -256,10 +340,18 @@ export function buildVerdictGuide(trader, investor, payload = null) {
     model_not_entered: modelNotEntered,
     early_entry: earlyEntry,
     diverge: !!diverge,
+    structural_direction: structuralDir || null,
+    state_label: sread?.label || null,
     trader_verdict: tv,
     investor_verdict: iv,
   };
 }
+
+function capitalize(s) {
+  const str = String(s || "").trim();
+  return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+}
+function cap(s) { return capitalize(s); }
 
 export function rankBuyCandidates(verdictRows, limit = 5) {
   const score = (v) => {

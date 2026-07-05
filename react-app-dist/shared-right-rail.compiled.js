@@ -52,6 +52,11 @@
       opts = opts || {};
       const posture = opts.posture || {};
       const postureDir = String(posture.direction || "").toUpperCase();
+      const postureStrength = String(posture.strength || "").toLowerCase();
+      const planDir = String(opts.planDir || "").toUpperCase();
+      if ((planDir === "LONG" || planDir === "SHORT") && (postureStrength === "lean" || postureStrength === "") && planDir !== postureDir) {
+        return planDir;
+      }
       if (postureDir === "LONG" || postureDir === "SHORT") return postureDir;
       const isExplicitNeutral = posture.strength === "neutral" || posture.posture === "NEUTRAL" || String(posture.label || "").toUpperCase() === "NEUTRAL";
       if (isExplicitNeutral) {
@@ -8082,10 +8087,28 @@
         const v2PostureLabel = String(v2TraderPosture?.label || "").trim();
         const v2PostureStrength = String(v2TraderPosture?.strength || "");
         const v2TimingOverlay = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
+        const v2ProposedPlanDir = (() => {
+          const pc = predictionContract;
+          if (!pc || railTab === "INVESTOR") return "";
+          const cd = String(pc.direction || "").toUpperCase();
+          const contractDir = cd === "LONG" || cd === "SHORT" ? cd : "";
+          const slp = Number(pc?.risk?.stop_loss);
+          const tgts = Array.isArray(pc.targets) ? pc.targets : [];
+          const pxNow = Number(window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc) ?? ticker?._live_price ?? ticker?.price) || 0;
+          let levelDir = "";
+          if (pxNow > 0 && Number.isFinite(slp) && slp > 0) {
+            const tpBelow = tgts.some(t => Number(t?.price) > 0 && Number(t.price) < pxNow);
+            const tpAbove = tgts.some(t => Number(t?.price) > 0 && Number(t.price) > pxNow);
+            if (slp > pxNow && tpBelow) levelDir = "SHORT";else if (slp < pxNow && tpAbove) levelDir = "LONG";else levelDir = slp > pxNow ? "SHORT" : "LONG";
+          }
+          if (levelDir && contractDir && levelDir !== contractDir) return levelDir;
+          return contractDir || levelDir || "";
+        })();
         const v2StructureDir = resolveRailLevelsDirection({
           posture: v2TraderPosture,
           timing: v2TimingOverlay,
           optionsEffectiveDir: optionsTabData?.effective_direction,
+          planDir: v2ProposedPlanDir,
           fallbackDir: v2Dir,
           ticker
         });
@@ -22026,4 +22049,4 @@
   };
 })();
 
-// cache-bust:1783278879082:135362481
+// cache-bust:1783280798010:968696636
