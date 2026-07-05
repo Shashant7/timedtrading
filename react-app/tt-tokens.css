@@ -1950,8 +1950,12 @@ body.tt-rail-scroll-lock .rail-panel {
 .rail-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(8, 10, 14, 0.72);
-  backdrop-filter: blur(2px);
+  /* 2026-07-05 — Dropped `backdrop-filter: blur(2px)`. It forced Chromium to
+     re-sample the page on every repaint; moving the mouse over the workspace
+     chart canvas (which repaints on crosshair) made the page flicker THROUGH
+     the opaque rail panel. Flat dim (slightly more opaque to compensate for
+     the lost blur) composites cleanly with no flash. */
+  background: rgba(8, 10, 14, 0.82);
   z-index: 9100;
   opacity: 1;
 }
@@ -1971,6 +1975,10 @@ body.tt-rail-scroll-lock .rail-panel {
   z-index: 9101;
   transform: translateX(40px);
   opacity: 1;
+  /* Own compositing layer + isolation so the opaque panel always paints
+     above the page — belt-and-braces against overlay flash-through. */
+  isolation: isolate;
+  will-change: transform;
   animation: rail-slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
   /* Single scroll owner: tab body (.tt-rail-area-right-pane), not the
      drawer shell. Nested scroll (panel + pane both overflow-y:auto)
