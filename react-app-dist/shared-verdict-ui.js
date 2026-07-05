@@ -764,7 +764,12 @@
 
   function boot() {
     ensureStyles();
-    if (window.React && !window.TimedVerdictUI) {
+    // Upgrade to the full React-backed object whenever React is available and
+    // the components are not yet registered. The guard checks a COMPONENT (not
+    // just object presence) because the synchronous fallback below assigns a
+    // components-less object first when this script runs during page parse —
+    // the old `!window.TimedVerdictUI` guard then skipped register() entirely.
+    if (window.React && (!window.TimedVerdictUI || !window.TimedVerdictUI.ReadySetupsBoard)) {
       window.TimedVerdictUI = register(window.React);
     }
   }
@@ -781,10 +786,12 @@
     verdictMeta: verdictMeta,
     lifecycleFromStage: lifecycleFromStage,
     inferTraderVerdictFromTicker: inferTraderVerdictFromTicker,
+    inferInvestorVerdictFromTicker: inferInvestorVerdictFromTicker,
+    buildVerdictGuide: buildVerdictGuide,
     rankReadySetupsFromData: rankReadySetupsFromData,
     LIFECYCLE_STEPS: LIFECYCLE_STEPS,
     register: register,
   };
 })();
 
-// cache-bust:1783280798010:968696636
+// cache-bust:1783282157943:731134844
