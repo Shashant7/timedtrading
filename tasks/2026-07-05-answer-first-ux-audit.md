@@ -75,6 +75,22 @@ The signal-outcomes ledger already tracks model calls. Surface: a compact
 public "track record" strip (calls, hit rate, median lead time) on Today +
 splash. No new computation — read the existing ledger.
 
+## Visual mockups (static HTML, real tokens)
+
+`design/mockups/objective3-answer-first.html` — open in a browser. Three
+surfaces, one contract:
+
+1. **Right-rail Verdict Block** — NVDA (no position: trader SETUP_FORMING +
+   investor WAIT, timing + would-be levels, journey sparkline + cell) and
+   BRK-B (open position: TIGHTEN with the exact stop move, deteriorating
+   journey, C4 rotation receipt with its C3 age).
+2. **Today's answers** — question 1 as the first block after the greeting;
+   lane-tagged BUY/FORMING rows with one-line why + honest empty state.
+3. **Notifications (D4)** — bell/activity rows and the Discord embed
+   template: lane chip in the title, verdict word as the action, setup
+   lifecycle strip (FORMING › READY › TRIGGERED › MANAGED › CLOSED),
+   overlay receipts carrying age + expiry.
+
 ## Build order (each its own PR, UI after operator sign-off on this doc)
 
 1. **D2-UI** Right-rail Verdict Block reading `GET /timed/verdict` (contract
