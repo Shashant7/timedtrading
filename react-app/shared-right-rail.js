@@ -3892,6 +3892,9 @@
         const [candlePerfLoading, setCandlePerfLoading] = useState(false);
 
         const [railTab, setRailTab] = useState("ANALYSIS"); // ANALYSIS | TECHNICALS | MODEL | JOURNEY | TRADE_HISTORY | INVESTOR
+        const [phaseDVerdict, setPhaseDVerdict] = useState(null);
+        const [phaseDVerdictLoading, setPhaseDVerdictLoading] = useState(false);
+        const VerdictGuideBlock = typeof window !== "undefined" && window.TimedVerdictUI?.VerdictGuideBlock || null;
 
         // 2026-06-23 — Rail IA: 5 top-level groups (Now / Trade / Options /
         // Invest / Context). INTERNAL railTab keys unchanged (SNAPSHOT /
@@ -3993,6 +3996,32 @@
               if (!cancelled && j?.ok) setStrategyAlignment(j);
             } catch (_) { /* best-effort */ }
           })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, API_BASE]);
+
+        // Phase D — cross-lane verdict guide (trader + investor reconcile).
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym || !window._ttIsPro) {
+            setPhaseDVerdict(null);
+            setPhaseDVerdictLoading(false);
+            return;
+          }
+          let cancelled = false;
+          setPhaseDVerdictLoading(true);
+          const fetchFn = window.TimedVerdictUI?.fetchVerdict
+            || ((opts) => fetch(`${API_BASE}/timed/verdict?ticker=${encodeURIComponent(opts.ticker)}`, { credentials: "include" }).then((r) => r.json()));
+          fetchFn({ ticker: sym, cacheTtlMs: 60000 }).then((j) => {
+            if (!cancelled) {
+              setPhaseDVerdict(j);
+              setPhaseDVerdictLoading(false);
+            }
+          }).catch(() => {
+            if (!cancelled) {
+              setPhaseDVerdict(null);
+              setPhaseDVerdictLoading(false);
+            }
+          });
           return () => { cancelled = true; };
         }, [tickerSymbol, API_BASE]);
 
@@ -8557,6 +8586,14 @@
                     } : {}),
                   }}
                 >
+                  {window._ttIsPro && VerdictGuideBlock && (
+                    <VerdictGuideBlock
+                      ticker={tickerSymbol}
+                      data={phaseDVerdict}
+                      loading={phaseDVerdictLoading}
+                      tickerPayload={ticker}
+                    />
+                  )}
                   {/* CHART TAB (V15 P0.7.161, 2026-05-14)
                       Pure tab body — renders the price chart inside the same
                       right pane that hosts every other tab. No portal, no

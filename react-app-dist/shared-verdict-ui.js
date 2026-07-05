@@ -87,6 +87,101 @@
     return { lane: "trader", verdict: verdict, timing: timing, why: why.join("; ") };
   }
 
+  /** Lightweight client mirror of buildInvestorVerdict for card surfaces. */
+  function inferInvestorVerdictFromTicker(t) {
+    if (!t || typeof t !== "object") return null;
+    var stage = String(t.investor_stage || t.investorStage || "").toLowerCase();
+    if (!stage) return null;
+    var journey = t._journey && t._journey.features;
+    var score = Number(t.investor_score);
+    var why = [];
+    var verdict, timing = null;
+    if (stage === "accumulate") {
+      verdict = "BUY"; timing = "scale in";
+      why.push("accumulate zone" + (Number.isFinite(score) ? ", score " + score : ""));
+    } else if (stage === "watch" && journey && journey.direction === "improving") {
+      verdict = "SETUP_FORMING"; timing = "on zone entry";
+      why.push("watch zone with improving journey");
+    } else if (stage === "exit" || stage === "reduce") {
+      verdict = "SELL"; timing = "now"; why.push("investor stage " + stage);
+    } else {
+      verdict = "WAIT"; why.push("zone " + stage + " — wait for accumulate");
+    }
+    return { lane: "investor", verdict: verdict, timing: timing, why: why.join("; ") };
+  }
+
+  /** Client mirror of worker/buildVerdictGuide — keeps rail guide fresh before worker deploy. */
+  function buildVerdictGuide(trader, investor, payload) {
+    if (!trader && !investor) return null;
+    payload = payload || {};
+    var tv = String((trader && trader.verdict) || "WAIT").toUpperCase();
+    var iv = investor ? String(investor.verdict || "WAIT").toUpperCase() : "WAIT";
+    var state = String(payload.state || "");
+    var bearish = state.indexOf("BEAR") >= 0;
+    var journey = payload._journey && payload._journey.features;
+    var timing = payload.timing_overlay;
+    var macroRiskOff = timing && (timing.posture === "RISK_OFF"
+      || (Array.isArray(timing.warnings) && timing.warnings.some(function (w) { return String(w).indexOf("macro_risk_off") >= 0; })));
+    var parts = [];
+    var headline = "Lane guide";
+    var modelNotEntered = null;
+    var earlyEntry = null;
+    var diverge = (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING"))
+      || (tv === "BUY" && iv === "WAIT")
+      || (bearish && iv === "BUY" && tv !== "BUY");
+
+    if (iv === "BUY" && tv === "WAIT") {
+      headline = "Horizons diverge — accumulate vs no trader entry";
+      parts.push(bearish
+        ? "Short-term trader read is bearish or choppy; the tactical entry trigger has not fired."
+        : "Trader lane has no entry signal yet — the stage must reach enter before the model opens a position.");
+      parts.push("Investor lane flags an accumulate zone; the longer thesis may still be intact.");
+      if (macroRiskOff) parts.push("Broader market drawdown / risk-off timing is weighing on the short-term read.");
+      modelNotEntered = (trader && trader.why) || "The model has not opened a trader position.";
+      earlyEntry = "Scaling in before the model's scale-in call is appropriate only inside the published buy zone, with capped size and a defined invalidation level.";
+    } else if (tv === "BUY" && iv === "WAIT") {
+      headline = "Trader entry active — investor lane not yet accumulate";
+      parts.push("Tactical entry conditions are met on the trader lane.");
+      parts.push("Investor lane is not in accumulate yet — shorter-term trade and longer-term build run on different clocks.");
+      if (investor && investor.why) modelNotEntered = investor.why;
+    } else if (tv === "BUY" && iv === "BUY") {
+      headline = "Both lanes align";
+      parts.push("Trader entry and investor accumulate agree. Size each lane by its horizon rules.");
+    } else if (tv === "SETUP_FORMING") {
+      headline = "Setup building — confirmation pending";
+      parts.push("Trader setup is forming; the entry trigger has not fired yet.");
+      if (iv === "BUY") {
+        parts.push("Investor accumulate may still be valid on a separate, longer clock.");
+        earlyEntry = "Do not confuse a forming trader setup with investor scale-in — each lane has its own invalidation.";
+      }
+      modelNotEntered = trader && trader.why;
+    } else if (tv === "WAIT" && iv === "WAIT") {
+      headline = "No lane action yet";
+      parts.push("Neither lane is actionable right now. Watch the technical screener below or wait for the next scoring pass.");
+      modelNotEntered = (trader && trader.why) || (investor && investor.why);
+    } else if (["HOLD", "TIGHTEN", "SELL"].indexOf(tv) >= 0 || ["HOLD", "TIGHTEN", "SELL"].indexOf(iv) >= 0) {
+      headline = "Managing — trader " + tv.toLowerCase() + ", investor " + iv.toLowerCase();
+      if (trader && trader.why) parts.push(trader.why);
+      if (investor && investor.why && investor.why !== (trader && trader.why)) parts.push(investor.why);
+    } else {
+      headline = "Trader " + tv + " · Investor " + iv;
+      if (trader && trader.why) parts.push(trader.why);
+      if (investor && investor.why) parts.push(investor.why);
+    }
+    if (journey && journey.direction === "deteriorating" && tv === "WAIT") {
+      parts.push("Journey is deteriorating on the trader lane — wait for improvement before forcing a tactical entry.");
+    }
+    return {
+      headline: headline,
+      narrative: parts.filter(Boolean).join(" "),
+      model_not_entered: modelNotEntered,
+      early_entry: earlyEntry,
+      diverge: !!diverge,
+      trader_verdict: tv,
+      investor_verdict: iv,
+    };
+  }
+
   function ensureStyles() {
     if (document.getElementById("tt-verdict-ui-styles")) return;
     var el = document.createElement("style");
@@ -111,6 +206,13 @@
       ".tt-vb__levels b{color:var(--ds-text-body,#e5e7eb);font-weight:600;font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-vb__journey{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;font-size:11px;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-vb__proof{border-top:1px solid rgba(255,255,255,.05);padding:9px 16px;font-size:11px;color:var(--ds-text-faint,#6b7280);display:flex;justify-content:space-between;align-items:center}",
+      ".tt-vb--guide .tt-vb__inner{padding:14px 16px 12px}",
+      ".tt-vb__guide-head{font-size:13px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);margin-bottom:6px;line-height:1.35}",
+      ".tt-vb__guide-narrative{font-size:12px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin:0 0 10px}",
+      ".tt-vb__callout{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af)}",
+      ".tt-vb__callout strong{color:var(--ds-text-body,#e5e7eb);font-weight:700}",
+      ".tt-vb__callout--wait{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)}",
+      ".tt-vb__callout--info{background:rgba(20,184,166,.08);border:1px solid rgba(20,184,166,.18)}",
       ".tt-lane-badge{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:2px 7px;border-radius:4px;margin-left:8px}",
       ".tt-lane-badge--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
       ".tt-lane-badge--investor{background:rgba(192,132,252,.15);color:#c084fc}",
@@ -136,6 +238,7 @@
       ".tt-ready-chip--lane-investor{background:rgba(192,132,252,.15);color:#c084fc}",
       ".tt-ready-card__meta{font-size:10px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-ready-card__why{margin:0;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}",
+      ".tt-ready-card__lanes{font-size:9.5px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
       ".tt-trust{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:10px 16px;border:1px solid var(--ds-stroke,rgba(255,255,255,.07));border-radius:10px;background:rgba(255,255,255,.02);margin-bottom:16px;font-size:11.5px;color:var(--ds-text-muted,#9ca3af)}",
@@ -181,7 +284,6 @@
 
   /** Rank actionable setups from the live /timed/all map (Today already has this). */
   function rankReadySetupsFromData(data, limit) {
-    limit = limit || 12;
     var rows = [];
     if (!data || typeof data !== "object") return rows;
     Object.keys(data).forEach(function (sym) {
@@ -195,15 +297,17 @@
       var rankNum = Number.isFinite(rank) ? rank : null;
       var price = headlinePrice(t);
       var score = 0;
+      var traderVerdict = inferTraderVerdictFromTicker(t, null);
+      var investorVerdict = inferInvestorVerdictFromTicker(t);
 
-      var tv = inferTraderVerdictFromTicker(t, null);
+      var tv = traderVerdict;
       if (tv && (tv.verdict === "BUY" || tv.verdict === "SETUP_FORMING")) {
         score = tv.verdict === "BUY" ? 100 : 50;
         if (journey && journey.direction === "improving") score += 20;
         if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
         tv.price = price;
         tv.rank = rankNum;
-        rows.push({ ticker: key, rank: rankNum, lane: "trader", trader: tv, score: score });
+        rows.push({ ticker: key, rank: rankNum, lane: "trader", trader: tv, traderVerdict: traderVerdict, investorVerdict: investorVerdict, score: score });
         return;
       }
       if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
@@ -217,6 +321,8 @@
             why: "entry lane (" + stage + ")",
             price: price, rank: rankNum,
           },
+          traderVerdict: traderVerdict,
+          investorVerdict: investorVerdict,
           score: score,
         });
         return;
@@ -232,6 +338,8 @@
             why: "trigger ready" + (journey && journey.direction === "improving" ? "; journey improving" : ""),
             price: price, rank: rankNum,
           },
+          traderVerdict: traderVerdict,
+          investorVerdict: investorVerdict,
           score: score,
         });
         return;
@@ -239,19 +347,24 @@
       if (invStage === "accumulate") {
         score = 85;
         if (journey && journey.direction === "improving") score += 15;
+        var iv = investorVerdict || {
+          lane: "investor", verdict: "BUY", timing: "scale in",
+          why: "accumulate zone" + (t.investor_score != null ? ", score " + t.investor_score : ""),
+        };
+        iv.price = price;
+        iv.rank = rankNum;
         rows.push({
           ticker: key, rank: rankNum, lane: "investor",
-          trader: {
-            lane: "investor", verdict: "BUY", timing: "scale in",
-            why: "accumulate zone" + (t.investor_score != null ? ", score " + t.investor_score : ""),
-            price: price, rank: rankNum,
-          },
+          trader: iv,
+          traderVerdict: traderVerdict,
+          investorVerdict: investorVerdict,
           score: score,
         });
       }
     });
     rows.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
-    return rows.slice(0, limit);
+    if (limit != null && limit > 0) return rows.slice(0, limit);
+    return rows;
   }
 
   function register(React) {
@@ -354,6 +467,39 @@
       );
     }
 
+    function VerdictGuideBlock(props) {
+      var sym = String(props.ticker || "").toUpperCase();
+      var data = props.data;
+      var loading = props.loading;
+      var payload = props.tickerPayload;
+      if (!sym || !window._ttIsPro) return null;
+      if (loading) {
+        return h("div", { className: "tt-vb tt-vb--guide" },
+          h("div", { className: "tt-vb__inner", style: { color: "var(--ds-text-faint)", fontSize: 12 } }, "Loading lane guide…"),
+        );
+      }
+      if (!data || !data.ok) return null;
+      if (!data.trader && !data.investor) return null;
+      var guide = data.guide || buildVerdictGuide(data.trader, data.investor, payload);
+      if (!guide) return null;
+      return h("div", { className: "tt-vb tt-vb--guide" },
+        h("div", { className: "tt-vb__inner" },
+          h("div", { className: "tt-vb__guide-head" }, guide.headline),
+          guide.narrative && h("p", { className: "tt-vb__guide-narrative" }, guide.narrative),
+          data.trader && h(VerdictLaneRow, { verdict: data.trader, showEntry: true, shortVerdict: true }),
+          data.investor && h(VerdictLaneRow, { verdict: data.investor, shortVerdict: true }),
+          guide.model_not_entered && h("div", { className: "tt-vb__callout tt-vb__callout--wait" },
+            h("strong", null, "Why the model has not entered: "),
+            guide.model_not_entered,
+          ),
+          guide.early_entry && h("div", { className: "tt-vb__callout tt-vb__callout--info" },
+            h("strong", null, "Early vs model: "),
+            guide.early_entry,
+          ),
+        ),
+      );
+    }
+
     function useVerdict(ticker, opts) {
       opts = opts || {};
       var sym = String(ticker || "").toUpperCase();
@@ -384,14 +530,14 @@
       useEffect(function () {
         if (!window._ttIsPro || (tickerData && Object.keys(tickerData).length > 0)) return;
         var alive = true;
-        fetchVerdict({ limit: 12, cacheTtlMs: 120000 }).then(function (j) {
+        fetchVerdict({ cacheTtlMs: 120000 }).then(function (j) {
           if (alive) setApiPack(j);
         }).catch(function () {});
         return function () { alive = false; };
       }, [tickerData]);
       var candidates = useMemo(function () {
         if (tickerData && typeof tickerData === "object" && Object.keys(tickerData).length > 0) {
-          return rankReadySetupsFromData(tickerData, 12);
+          return rankReadySetupsFromData(tickerData);
         }
         return (apiPack && apiPack.candidates) || [];
       }, [tickerData, apiPack]);
@@ -400,7 +546,7 @@
         h("div", { className: "tt-sec-title" }, "READY SETUPS"),
         h("h2", { className: "tt-ready__title" }, "What the model would act on"),
         h("p", { className: "tt-ready__sub" },
-          "Cross-lane entry and accumulate flags from live scoring — separate from the technical lane screener and Growth Ideas fundamentals below.",
+          "Every name the model marks enter-ready or accumulate — scroll the strip. Separate from the technical screener and Growth Ideas fundamentals below.",
         ),
       );
 
@@ -426,13 +572,18 @@
             var price = tv.price;
             var rank = row.rank != null ? row.rank : tv.rank;
             var verdictCls = tv.verdict === "BUY" ? "buy" : "forming";
-            var railTab = lane === "investor" ? "INVESTOR" : "SNAPSHOT";
+            var railTab = lane === "investor" ? "INVESTOR" : "SETUP";
+            var traderV = row.traderVerdict || tv;
+            var investorV = row.investorVerdict;
+            var laneLine = investorV
+              ? ("Trader " + verdictLabel(traderV.verdict, true) + " · Investor " + verdictLabel(investorV.verdict, true))
+              : null;
             return h("button", {
               key: sym + "-" + lane,
               type: "button",
               className: "tt-ready-card",
               role: "listitem",
-              title: sym + " — open " + (lane === "investor" ? "Investor" : "Now") + " in detail panel",
+              title: sym + " — open " + (lane === "investor" ? "Investor" : "Trader") + " tab",
               onClick: function () { if (onSelect) onSelect(sym, railTab); },
             },
               h("div", { className: "tt-ready-card__head" },
@@ -448,6 +599,7 @@
                 price != null ? fmtPx(price) : "—",
                 rank != null ? " · rank " + rank : "",
               ),
+              laneLine && h("div", { className: "tt-ready-card__lanes" }, laneLine),
               h("p", { className: "tt-ready-card__why" }, tv.why || "—"),
             );
           }),
@@ -499,6 +651,7 @@
       VerdictWord: VerdictWord,
       VerdictChip: VerdictChip,
       VerdictBlock: VerdictBlock,
+      VerdictGuideBlock: VerdictGuideBlock,
       LifecycleStrip: LifecycleStrip,
       ReadySetupsBoard: ReadySetupsBoard,
       TodaysAnswers: TodaysAnswers,
@@ -510,6 +663,8 @@
       verdictMeta: verdictMeta,
       lifecycleFromStage: lifecycleFromStage,
       inferTraderVerdictFromTicker: inferTraderVerdictFromTicker,
+      inferInvestorVerdictFromTicker: inferInvestorVerdictFromTicker,
+      buildVerdictGuide: buildVerdictGuide,
       LIFECYCLE_STEPS: LIFECYCLE_STEPS,
     };
   }
@@ -539,4 +694,4 @@
   };
 })();
 
-// cache-bust:1783278305168:897765774
+// cache-bust:1783278879082:135362481

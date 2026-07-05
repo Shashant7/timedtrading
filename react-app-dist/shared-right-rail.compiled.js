@@ -5357,6 +5357,9 @@
       const [candlePerf, setCandlePerf] = useState(null);
       const [candlePerfLoading, setCandlePerfLoading] = useState(false);
       const [railTab, setRailTab] = useState("ANALYSIS");
+      const [phaseDVerdict, setPhaseDVerdict] = useState(null);
+      const [phaseDVerdictLoading, setPhaseDVerdictLoading] = useState(false);
+      const VerdictGuideBlock = typeof window !== "undefined" && window.TimedVerdictUI?.VerdictGuideBlock || null;
       const RAIL_TAB_GROUP_OF = {
         SNAPSHOT: "NOW",
         SETUP: "TRADE",
@@ -5439,6 +5442,36 @@
             if (!cancelled && j?.ok) setStrategyAlignment(j);
           } catch (_) {}
         })();
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, API_BASE]);
+      useEffect(() => {
+        const sym = String(tickerSymbol || "").trim().toUpperCase();
+        if (!sym || !window._ttIsPro) {
+          setPhaseDVerdict(null);
+          setPhaseDVerdictLoading(false);
+          return;
+        }
+        let cancelled = false;
+        setPhaseDVerdictLoading(true);
+        const fetchFn = window.TimedVerdictUI?.fetchVerdict || (opts => fetch(`${API_BASE}/timed/verdict?ticker=${encodeURIComponent(opts.ticker)}`, {
+          credentials: "include"
+        }).then(r => r.json()));
+        fetchFn({
+          ticker: sym,
+          cacheTtlMs: 60000
+        }).then(j => {
+          if (!cancelled) {
+            setPhaseDVerdict(j);
+            setPhaseDVerdictLoading(false);
+          }
+        }).catch(() => {
+          if (!cancelled) {
+            setPhaseDVerdict(null);
+            setPhaseDVerdictLoading(false);
+          }
+        });
         return () => {
           cancelled = true;
         };
@@ -9729,7 +9762,12 @@
               padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
             } : {})
           }
-        }, v2RailTab === "CHART" && !_isWorkspace && React.createElement("div", {
+        }, window._ttIsPro && VerdictGuideBlock && React.createElement(VerdictGuideBlock, {
+          ticker: tickerSymbol,
+          data: phaseDVerdict,
+          loading: phaseDVerdictLoading,
+          tickerPayload: ticker
+        }), v2RailTab === "CHART" && !_isWorkspace && React.createElement("div", {
           key: `chart-tab-${tickerSymbol}`,
           className: "tt-rail-chart-tab",
           style: {
@@ -21988,4 +22026,4 @@
   };
 })();
 
-// cache-bust:1783278305168:897765774
+// cache-bust:1783278879082:135362481

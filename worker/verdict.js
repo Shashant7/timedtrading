@@ -126,9 +126,12 @@ export function buildTraderVerdict(payload, openTrade = null, nowMs = Date.now()
 
 /** Investor-lane verdict from the investor score/stage row (+ position). Pure. */
 export function buildInvestorVerdict(payload, investorRow = null, investorPosition = null, nowMs = Date.now()) {
-  if (!investorRow && !investorPosition) return null;
-  const stage = String(investorRow?.stage || investorRow?.investor_stage || "").toLowerCase();
-  const score = num(investorRow?.score);
+  const payloadStage = payload?.investor_stage || payload?.investorStage;
+  const effectiveRow = investorRow
+    || (payloadStage ? { stage: payloadStage, score: payload?.investor_score } : null);
+  if (!effectiveRow && !investorPosition) return null;
+  const stage = String(effectiveRow?.stage || effectiveRow?.investor_stage || "").toLowerCase();
+  const score = num(effectiveRow?.score ?? payload?.investor_score);
   const price = num(payload?._live_price) ?? num(payload?.price) ?? num(payload?.close);
   const owned = !!investorPosition;
   const avgEntry = owned ? num(investorPosition.avg_entry) : null;
@@ -179,6 +182,85 @@ export function buildInvestorVerdict(payload, investorRow = null, investorPositi
  * verdicts across the universe. Pure; caller supplies the per-ticker
  * verdict list.
  */
+/**
+ * Cross-lane narrative for the right-rail guide — reconciles trader vs
+ * investor when horizons diverge (e.g. trader WAIT + bearish posture while
+ * investor accumulate stays valid).
+ */
+export function buildVerdictGuide(trader, investor, payload = null) {
+  if (!trader && !investor) return null;
+  const tv = String(trader?.verdict || "WAIT").toUpperCase();
+  const iv = investor ? String(investor.verdict || "WAIT").toUpperCase() : "WAIT";
+  const state = String(payload?.state || "");
+  const bearish = state.includes("BEAR");
+  const journey = payload?._journey?.features;
+  const timing = payload?.timing_overlay;
+  const macroRiskOff = timing?.posture === "RISK_OFF"
+    || (Array.isArray(timing?.warnings) && timing.warnings.some((w) => String(w).includes("macro_risk_off")));
+
+  const parts = [];
+  let headline = "Lane guide";
+  let modelNotEntered = null;
+  let earlyEntry = null;
+
+  const diverge = (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING"))
+    || (tv === "BUY" && iv === "WAIT")
+    || (bearish && iv === "BUY" && tv !== "BUY");
+
+  if (iv === "BUY" && tv === "WAIT") {
+    headline = "Horizons diverge — accumulate vs no trader entry";
+    parts.push(bearish
+      ? "Short-term trader read is bearish or choppy; the tactical entry trigger has not fired."
+      : "Trader lane has no entry signal yet — the stage must reach enter before the model opens a position.");
+    parts.push("Investor lane flags an accumulate zone; the longer thesis may still be intact.");
+    if (macroRiskOff) parts.push("Broader market drawdown / risk-off timing is weighing on the short-term read.");
+    modelNotEntered = trader?.why || "The model has not opened a trader position.";
+    earlyEntry = "Scaling in before the model's scale-in call is appropriate only inside the published buy zone, with capped size and a defined invalidation level.";
+  } else if (tv === "BUY" && iv === "WAIT") {
+    headline = "Trader entry active — investor lane not yet accumulate";
+    parts.push("Tactical entry conditions are met on the trader lane.");
+    parts.push("Investor lane is not in accumulate yet — shorter-term trade and longer-term build run on different clocks.");
+    if (investor?.why) modelNotEntered = investor.why;
+  } else if (tv === "BUY" && iv === "BUY") {
+    headline = "Both lanes align";
+    parts.push("Trader entry and investor accumulate agree. Size each lane by its horizon rules.");
+  } else if (tv === "SETUP_FORMING") {
+    headline = "Setup building — confirmation pending";
+    parts.push("Trader setup is forming; the entry trigger has not fired yet.");
+    if (iv === "BUY") {
+      parts.push("Investor accumulate may still be valid on a separate, longer clock.");
+      earlyEntry = "Do not confuse a forming trader setup with investor scale-in — each lane has its own invalidation.";
+    }
+    modelNotEntered = trader?.why;
+  } else if (tv === "WAIT" && iv === "WAIT") {
+    headline = "No lane action yet";
+    parts.push("Neither lane is actionable right now. Watch the technical screener below or wait for the next scoring pass.");
+    modelNotEntered = trader?.why || investor?.why;
+  } else if (["HOLD", "TIGHTEN", "SELL"].includes(tv) || ["HOLD", "TIGHTEN", "SELL"].includes(iv)) {
+    headline = `Managing — trader ${tv.toLowerCase()}, investor ${iv.toLowerCase()}`;
+    if (trader?.why) parts.push(trader.why);
+    if (investor?.why && investor.why !== trader?.why) parts.push(investor.why);
+  } else {
+    headline = `Trader ${tv} · Investor ${iv}`;
+    if (trader?.why) parts.push(trader.why);
+    if (investor?.why) parts.push(investor.why);
+  }
+
+  if (journey?.direction === "deteriorating" && tv === "WAIT") {
+    parts.push("Journey is deteriorating on the trader lane — wait for improvement before forcing a tactical entry.");
+  }
+
+  return {
+    headline,
+    narrative: parts.filter(Boolean).join(" "),
+    model_not_entered: modelNotEntered,
+    early_entry: earlyEntry,
+    diverge: !!diverge,
+    trader_verdict: tv,
+    investor_verdict: iv,
+  };
+}
+
 export function rankBuyCandidates(verdictRows, limit = 5) {
   const score = (v) => {
     if (!v) return -1;

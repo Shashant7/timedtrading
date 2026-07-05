@@ -1,7 +1,7 @@
 // worker/verdict.test.js — Phase D2: the three-questions answer contract.
 
 import { describe, it, expect } from "vitest";
-import { buildTraderVerdict, buildInvestorVerdict, rankBuyCandidates } from "./verdict.js";
+import { buildTraderVerdict, buildInvestorVerdict, buildVerdictGuide, rankBuyCandidates } from "./verdict.js";
 
 function payload(overrides = {}) {
   return {
@@ -93,6 +93,32 @@ describe("buildInvestorVerdict — lane separation", () => {
 
   it("no investor data at all → null (ticker is trader-only)", () => {
     expect(buildInvestorVerdict(payload(), null, null)).toBeNull();
+  });
+
+  it("payload investor_stage fallback when scores row missing", () => {
+    const v = buildInvestorVerdict(payload({ investor_stage: "accumulate", investor_score: 64 }), null, null);
+    expect(v.verdict).toBe("BUY");
+    expect(v.why).toContain("accumulate");
+  });
+});
+
+describe("buildVerdictGuide — cross-lane narrative", () => {
+  it("trader WAIT + bearish + investor BUY → diverge guide with early-entry note", () => {
+    const trader = buildTraderVerdict(payload({
+      state: "HTF_BEAR_LTF_BEAR",
+      kanban_stage: "watch",
+      _journey: { features: { direction: "flat", score_slope_1h: 0 } },
+    }));
+    const investor = buildInvestorVerdict(payload({ investor_stage: "accumulate", investor_score: 64 }), null, null);
+    const guide = buildVerdictGuide(trader, investor, payload({
+      state: "HTF_BEAR_LTF_BEAR",
+      timing_overlay: { posture: "RISK_OFF", warnings: ["macro_risk_off"] },
+    }));
+    expect(guide.diverge).toBe(true);
+    expect(guide.headline).toContain("diverge");
+    expect(guide.narrative).toContain("accumulate");
+    expect(guide.model_not_entered).toBeTruthy();
+    expect(guide.early_entry).toContain("buy zone");
   });
 });
 
