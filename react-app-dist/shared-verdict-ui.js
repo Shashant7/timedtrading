@@ -118,18 +118,26 @@
       ".tt-lc{padding:1px 6px;border-radius:3px;background:rgba(255,255,255,.04)}",
       ".tt-lc--on{background:rgba(20,184,166,.14);color:#14b8a6;font-weight:700}",
       ".tt-lc--done{color:var(--ds-text-muted,#9ca3af)}",
-      ".tt-answers{border:1px solid var(--ds-stroke,rgba(255,255,255,.07));border-radius:14px;background:var(--ds-bg-surface,rgba(255,255,255,.022));margin-bottom:16px;overflow:hidden}",
-      ".tt-answers__head{padding:13px 18px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}",
-      ".tt-answers__head h2{font-size:14px;margin:0;font-weight:700}",
-      ".tt-answers__meta{font-size:11px;color:var(--ds-text-faint,#6b7280)}",
-      ".tt-answers__row{display:grid;grid-template-columns:110px 108px 1fr auto;gap:10px;align-items:center;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer}",
-      ".tt-answers__row:last-child{border-bottom:none}",
-      ".tt-answers__row:hover{background:rgba(255,255,255,.02)}",
-      ".tt-answers__sym{font-weight:800;font-size:14px}",
-      ".tt-answers__sub{font-size:10.5px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace)}",
-      ".tt-answers__cta{font-size:11px;color:#14b8a6;white-space:nowrap;font-weight:600}",
-      ".tt-answers__empty{padding:16px 18px;color:var(--ds-text-faint,#6b7280);font-size:12.5px;font-style:italic}",
-      ".tt-answers__locked{padding:16px 18px;font-size:12.5px;color:var(--ds-text-muted,#9ca3af)}",
+      ".tt-ready{margin-bottom:18px}",
+      ".tt-ready__head{margin-bottom:8px}",
+      ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:4px 0 0}",
+      ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin:6px 0 0;max-width:52em}",
+      ".tt-ready-scroll{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:thin;-webkit-overflow-scrolling:touch}",
+      ".tt-ready-scroll::-webkit-scrollbar{height:6px}",
+      ".tt-ready-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}",
+      ".tt-ready-card{flex:0 0 210px;scroll-snap-align:start;display:flex;flex-direction:column;gap:7px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));color:var(--ds-text-body,#e5e7eb);transition:border-color .15s,background .15s}",
+      ".tt-ready-card:hover{border-color:rgba(20,184,166,.35);background:rgba(255,255,255,.03)}",
+      ".tt-ready-card__head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}",
+      ".tt-ready-card__sym{font-weight:800;font-size:14px;font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em}",
+      ".tt-ready-chip{display:inline-flex;align-items:center;font-size:8px;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:999px;white-space:nowrap;line-height:1.2}",
+      ".tt-ready-chip--buy{background:rgba(52,211,153,.14);color:#34d399}",
+      ".tt-ready-chip--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
+      ".tt-ready-chip--lane-trader{background:rgba(96,165,250,.15);color:#60a5fa}",
+      ".tt-ready-chip--lane-investor{background:rgba(192,132,252,.15);color:#c084fc}",
+      ".tt-ready-card__meta{font-size:10px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace)}",
+      ".tt-ready-card__why{margin:0;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}",
+      ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
+      ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
       ".tt-trust{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:10px 16px;border:1px solid var(--ds-stroke,rgba(255,255,255,.07));border-radius:10px;background:rgba(255,255,255,.02);margin-bottom:16px;font-size:11.5px;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-trust b{color:var(--ds-text-body,#e5e7eb);font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-trust__label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280)}",
@@ -140,7 +148,7 @@
   function fetchVerdict(opts) {
     opts = opts || {};
     var ticker = opts.ticker ? String(opts.ticker).toUpperCase() : "";
-    var limit = opts.limit || 5;
+    var limit = opts.limit || 12;
     var url = API_BASE + "/timed/verdict" + (ticker ? "?ticker=" + encodeURIComponent(ticker) : "?limit=" + limit);
     var fetchOpts = { credentials: "include" };
     if (window.TTFetchCache && opts.cacheTtlMs) {
@@ -173,7 +181,7 @@
 
   /** Rank actionable setups from the live /timed/all map (Today already has this). */
   function rankReadySetupsFromData(data, limit) {
-    limit = limit || 5;
+    limit = limit || 12;
     var rows = [];
     if (!data || typeof data !== "object") return rows;
     Object.keys(data).forEach(function (sym) {
@@ -376,72 +384,74 @@
       useEffect(function () {
         if (!window._ttIsPro || (tickerData && Object.keys(tickerData).length > 0)) return;
         var alive = true;
-        fetchVerdict({ limit: 8, cacheTtlMs: 120000 }).then(function (j) {
+        fetchVerdict({ limit: 12, cacheTtlMs: 120000 }).then(function (j) {
           if (alive) setApiPack(j);
         }).catch(function () {});
         return function () { alive = false; };
       }, [tickerData]);
       var candidates = useMemo(function () {
         if (tickerData && typeof tickerData === "object" && Object.keys(tickerData).length > 0) {
-          return rankReadySetupsFromData(tickerData, 5);
+          return rankReadySetupsFromData(tickerData, 12);
         }
         return (apiPack && apiPack.candidates) || [];
       }, [tickerData, apiPack]);
+
+      var headCopy = h("div", { className: "tt-ready__head" },
+        h("div", { className: "tt-sec-title" }, "READY SETUPS"),
+        h("h2", { className: "tt-ready__title" }, "What the model would act on"),
+        h("p", { className: "tt-ready__sub" },
+          "Cross-lane entry and accumulate flags from live scoring — separate from the technical lane screener and Growth Ideas fundamentals below.",
+        ),
+      );
+
       if (!window._ttIsPro) {
-        return h("section", { className: "tt-answers" },
-          h("div", { className: "tt-answers__head" },
-            h("div", null,
-              h("div", { className: "tt-sec-title" }, "READY SETUPS"),
-              h("h2", { className: "tt-sec-h2", style: { margin: "4px 0 0" } }, "What the model would act on"),
-            ),
-            h("span", { className: "tt-answers__meta" }, "Pro"),
-          ),
-          h("div", { className: "tt-answers__locked" }, "Upgrade to Pro to see ranked setups the model would act on."),
+        return h("section", { className: "tt-ready" },
+          headCopy,
+          h("div", { className: "tt-ready__locked" }, "Upgrade to Pro to see ranked setups the model would act on."),
         );
       }
-      var count = candidates.length;
-      return h("section", { className: "tt-answers" },
-        h("div", { className: "tt-answers__head" },
-          h("div", null,
-            h("div", { className: "tt-sec-title" }, "READY SETUPS"),
-            h("h2", { className: "tt-sec-h2", style: { margin: "4px 0 0" } }, "What the model would act on"),
-          ),
-          h("span", { className: "tt-answers__meta" },
-            count ? (count + " name" + (count === 1 ? "" : "s") + " · Pro") : "Scanning universe · Pro",
-          ),
+      if (candidates.length === 0) {
+        return h("section", { className: "tt-ready" },
+          headCopy,
+          h("div", { className: "tt-ready__empty" }, "No entry or accumulate setups right now — the strip stays empty rather than forcing picks. Refreshes with each scoring pass."),
+        );
+      }
+      return h("section", { className: "tt-ready" },
+        headCopy,
+        h("div", { className: "tt-ready-scroll", role: "list" },
+          candidates.map(function (row) {
+            var sym = String(row.ticker || "").toUpperCase();
+            var tv = row.trader || {};
+            var lane = row.lane || tv.lane || "trader";
+            var price = tv.price;
+            var rank = row.rank != null ? row.rank : tv.rank;
+            var verdictCls = tv.verdict === "BUY" ? "buy" : "forming";
+            var railTab = lane === "investor" ? "INVESTOR" : "SNAPSHOT";
+            return h("button", {
+              key: sym + "-" + lane,
+              type: "button",
+              className: "tt-ready-card",
+              role: "listitem",
+              title: sym + " — open " + (lane === "investor" ? "Investor" : "Now") + " in detail panel",
+              onClick: function () { if (onSelect) onSelect(sym, railTab); },
+            },
+              h("div", { className: "tt-ready-card__head" },
+                h("span", { className: "tt-ready-card__sym" }, sym),
+                h("span", { className: "tt-ready-chip tt-ready-chip--" + verdictCls },
+                  verdictLabel(tv.verdict, true),
+                ),
+                h("span", { className: "tt-ready-chip tt-ready-chip--lane-" + lane },
+                  lane === "investor" ? "INVESTOR" : "TRADER",
+                ),
+              ),
+              h("div", { className: "tt-ready-card__meta" },
+                price != null ? fmtPx(price) : "—",
+                rank != null ? " · rank " + rank : "",
+              ),
+              h("p", { className: "tt-ready-card__why" }, tv.why || "—"),
+            );
+          }),
         ),
-        count === 0
-          ? h("div", { className: "tt-answers__empty" }, "No entry or accumulate setups right now — the board stays empty rather than forcing picks. Refreshes with each scoring pass.")
-          : candidates.map(function (row) {
-              var sym = String(row.ticker || "").toUpperCase();
-              var tv = row.trader || {};
-              var lane = row.lane || tv.lane || "trader";
-              var price = tv.price;
-              var rank = row.rank != null ? row.rank : tv.rank;
-              var cta = tv.verdict === "BUY" ? "Open plan →" : "Watch setup →";
-              return h("div", {
-                key: sym + "-" + lane,
-                className: "tt-answers__row",
-                role: "button",
-                tabIndex: 0,
-                onClick: function () { if (onSelect) onSelect(sym); },
-                onKeyDown: function (e) { if (e.key === "Enter" && onSelect) onSelect(sym); },
-              },
-                h("div", null,
-                  h("div", { className: "tt-answers__sym" }, sym),
-                  h("div", { className: "tt-answers__sub" },
-                    price != null ? fmtPx(price) : "—",
-                    rank != null ? " · rank " + rank : "",
-                  ),
-                ),
-                h("div", null,
-                  h(VerdictWord, { verdict: tv.verdict, short: true }),
-                  h(LaneBadge, { lane: lane }),
-                ),
-                h("div", { className: "tt-vb__why" }, tv.why || "—"),
-                h("div", { className: "tt-answers__cta" }, cta),
-              );
-            }),
       );
     }
 
@@ -529,4 +539,4 @@
   };
 })();
 
-// cache-bust:1783276617048:878924342
+// cache-bust:1783278305168:897765774

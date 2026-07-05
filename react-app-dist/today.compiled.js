@@ -3093,16 +3093,21 @@ function GrowthIdeasStrip({
       className: "tt-opp-meta"
     }, row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`), Number.isFinite(pct) && h("span", {
       style: {
-        color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
+        color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+        fontWeight: 700
       }
-    }, fmtPctOpp(pct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`)), row.dip_buy && h("div", {
+    }, fmtPctOpp(pct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", {
+      style: {
+        color: "var(--tt-accent)"
+      }
+    }, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`)), row.dip_buy && h("div", {
       className: "tt-opp-dip"
-    }, "Dip posture active"), h(GrowthZoneBar, {
+    }, "Dip posture active"), h("p", {
+      className: "tt-opp-why"
+    }, why), h(GrowthZoneBar, {
       row,
       ctoItem: ctoBySym[sym]
-    }), h("p", {
-      className: "tt-opp-why"
-    }, why));
+    }));
   }))));
 }
 function FocusRail({
@@ -4896,7 +4901,7 @@ function TickerLaneSection({
     className: "tt-sec-title"
   }, "TECHNICAL SETUPS"), h("div", {
     className: "tt-sec-h"
-  }, "Easy Search & Filter")), h(LaneControls, {
+  }, "Setup lanes, patterns, and momentum")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -6600,6 +6605,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783276617048:878924342
+// cache-bust:1783278305168:897765774
 
-// cache-bust:1783276617048:878924342
+// cache-bust:1783278305168:897765774

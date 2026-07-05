@@ -81,6 +81,7 @@
       .tt-opp-card {
         flex: 0 0 260px; scroll-snap-align: start;
         display: flex; flex-direction: column; gap: 8px;
+        min-height: 172px;
         padding: 12px 14px; border-radius: var(--vf-radius-md, 18px); cursor: pointer; text-align: left;
         background: var(--tt-bg-surface); border: 1px solid var(--tt-border);
         transition: border-color 0.15s, background 0.15s;
@@ -94,8 +95,8 @@
         padding: 2px 7px; border-radius: 999px; border: 1px solid rgba(56,242,161,0.35);
         color: var(--tt-accent); white-space: nowrap;
       }
-      .tt-opp-meta { display: flex; flex-wrap: wrap; gap: 8px; font-family: var(--tt-font-mono); font-size: 10px; color: var(--tt-text-muted); }
-      .tt-opp-why { margin: 0; font-size: 11.5px; line-height: 1.4; color: var(--tt-text-muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+      .tt-opp-meta { display: flex; flex-wrap: wrap; gap: 8px; font-family: var(--tt-font-mono); font-size: 10.5px; color: var(--tt-text-muted); font-weight: 500; }
+      .tt-opp-why { margin: 0; font-size: 12px; line-height: 1.45; color: var(--tt-text-muted); flex: 1 1 auto; min-height: 2.9em; }
       .tt-opp-dip { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; color: var(--tt-up-soft); text-transform: uppercase; }
       .tt-opp-zone { margin-top: 8px; }
       .tt-opp-zone-labels {
@@ -145,8 +146,9 @@
         gap: 6px 10px;
         margin-top: 6px;
         font-family: var(--tt-font-mono);
-        font-size: 9px;
-        color: var(--tt-text-dim);
+        font-size: 10px;
+        color: var(--tt-text-muted);
+        font-weight: 500;
       }
       .tt-opp-zone-prob { color: var(--tt-accent); font-weight: 700; }
       .tt-pattern-chip {
@@ -4397,13 +4399,13 @@
                 ),
                 h("div", { className: "tt-opp-meta" },
                   row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`),
-                  Number.isFinite(pct) && h("span", { style: { color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" } }, fmtPctOpp(pct)),
+                  Number.isFinite(pct) && h("span", { style: { color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)", fontWeight: 700 } }, fmtPctOpp(pct)),
                   row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`),
-                  row.trajectory?.cagr_pct != null && h("span", null, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`),
+                  row.trajectory?.cagr_pct != null && h("span", { style: { color: "var(--tt-accent)" } }, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`),
                 ),
                 row.dip_buy && h("div", { className: "tt-opp-dip" }, "Dip posture active"),
-                h(GrowthZoneBar, { row, ctoItem: ctoBySym[sym] }),
                 h("p", { className: "tt-opp-why" }, why),
+                h(GrowthZoneBar, { row, ctoItem: ctoBySym[sym] }),
               );
             }),
           ),
@@ -6135,7 +6137,7 @@
         const body = h(React.Fragment, null,
           h("div", { className: "tt-viewport-map-head" },
             h("div", { className: "tt-sec-title" }, "TECHNICAL SETUPS"),
-            h("div", { className: "tt-sec-h" }, "Easy Search & Filter"),
+            h("div", { className: "tt-sec-h" }, "Setup lanes, patterns, and momentum"),
           ),
           h(LaneControls, {
             chips,
