@@ -5443,6 +5443,39 @@
           cancelled = true;
         };
       }, [tickerSymbol, API_BASE]);
+      const [phaseDVerdict, setPhaseDVerdict] = useState(null);
+      const [phaseDVerdictLoading, setPhaseDVerdictLoading] = useState(false);
+      const PhaseDVerdictBlock = typeof window !== "undefined" && window.TimedVerdictUI?.VerdictBlock || null;
+      useEffect(() => {
+        const sym = tickerSymbol;
+        if (!sym || !window._ttIsPro) {
+          setPhaseDVerdict(null);
+          setPhaseDVerdictLoading(false);
+          return;
+        }
+        let cancelled = false;
+        setPhaseDVerdictLoading(true);
+        const fetchFn = window.TimedVerdictUI?.fetchVerdict || (opts => fetch(`${API_BASE}/timed/verdict?ticker=${encodeURIComponent(opts.ticker)}`, {
+          credentials: "include"
+        }).then(r => r.json()));
+        fetchFn({
+          ticker: sym,
+          cacheTtlMs: 60000
+        }).then(j => {
+          if (!cancelled) {
+            setPhaseDVerdict(j);
+            setPhaseDVerdictLoading(false);
+          }
+        }).catch(() => {
+          if (!cancelled) {
+            setPhaseDVerdict(null);
+            setPhaseDVerdictLoading(false);
+          }
+        });
+        return () => {
+          cancelled = true;
+        };
+      }, [tickerSymbol, API_BASE]);
       const [cioVerdict, setCioVerdict] = useState(null);
       const [cioVerdictLoading, setCioVerdictLoading] = useState(false);
       const [cioVerdictError, setCioVerdictError] = useState(null);
@@ -9729,7 +9762,11 @@
               padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
             } : {})
           }
-        }, v2RailTab === "CHART" && !_isWorkspace && React.createElement("div", {
+        }, window._ttIsPro && PhaseDVerdictBlock && React.createElement(PhaseDVerdictBlock, {
+          ticker: tickerSymbol,
+          data: phaseDVerdict,
+          loading: phaseDVerdictLoading
+        }), v2RailTab === "CHART" && !_isWorkspace && React.createElement("div", {
           key: `chart-tab-${tickerSymbol}`,
           className: "tt-rail-chart-tab",
           style: {
@@ -21988,4 +22025,4 @@
   };
 })();
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672

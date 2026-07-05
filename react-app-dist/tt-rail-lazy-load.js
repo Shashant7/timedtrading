@@ -14,6 +14,7 @@
   var RAIL_SCRIPTS = [
     "/vendor/lightweight-charts.standalone.production.js?v=vendor",
     "shared-rail-helpers.js" + _bust,
+    "shared-verdict-ui.js" + _bust,
     "shared-right-rail.compiled.js" + _bust,
     "ticker-spider-chart.js" + _bust,
     "shared-rail-bootstrap.js" + _bust,
@@ -51,4 +52,4 @@
   };
 })();
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672
