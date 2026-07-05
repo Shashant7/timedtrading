@@ -102,23 +102,40 @@ describe("buildInvestorVerdict — lane separation", () => {
   });
 });
 
-describe("buildVerdictGuide — cross-lane narrative", () => {
-  it("trader WAIT + bearish + investor BUY → diverge guide with early-entry note", () => {
+describe("buildVerdictGuide — cross-lane narrative (grounded)", () => {
+  it("BE case: HTF_BULL_LTF_BEAR, trader WAIT, investor BUY → long thesis intact + LONG structure", () => {
     const trader = buildTraderVerdict(payload({
-      state: "HTF_BEAR_LTF_BEAR",
+      state: "HTF_BULL_LTF_BEAR",
       kanban_stage: "watch",
       _journey: { features: { direction: "flat", score_slope_1h: 0 } },
     }));
+    // Structural direction follows HTF, not the raw "contains BEAR" test.
+    expect(trader.verdict).toBe("WAIT");
+    expect(trader.direction).toBe("LONG");
     const investor = buildInvestorVerdict(payload({ investor_stage: "accumulate", investor_score: 64 }), null, null);
     const guide = buildVerdictGuide(trader, investor, payload({
-      state: "HTF_BEAR_LTF_BEAR",
+      state: "HTF_BULL_LTF_BEAR",
+      score: 58, rank: 59, sl: 259.02,
       timing_overlay: { posture: "RISK_OFF", warnings: ["macro_risk_off"] },
     }));
     expect(guide.diverge).toBe(true);
-    expect(guide.headline).toContain("diverge");
+    expect(guide.structural_direction).toBe("LONG");
+    expect(guide.headline).toContain("Long-term thesis intact");
+    expect(guide.narrative).toContain("Higher-timeframe trend is up");
     expect(guide.narrative).toContain("accumulate");
+    expect(guide.narrative).toContain("risk-off");
     expect(guide.model_not_entered).toBeTruthy();
     expect(guide.early_entry).toContain("buy zone");
+    expect(guide.early_entry).toContain("259");
+  });
+
+  it("HTF_BEAR fully aligned + trader BUY + investor BUY → both lanes align", () => {
+    const trader = buildTraderVerdict(payload({ state: "HTF_BULL_LTF_BULL", kanban_stage: "enter" }));
+    const investor = buildInvestorVerdict(payload({ investor_stage: "accumulate", investor_score: 71 }), null, null);
+    const guide = buildVerdictGuide(trader, investor, payload({ state: "HTF_BULL_LTF_BULL", kanban_stage: "enter" }));
+    expect(guide.trader_verdict).toBe("BUY");
+    expect(guide.headline).toContain("align");
+    expect(guide.diverge).toBe(false);
   });
 });
 

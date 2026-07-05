@@ -110,73 +110,141 @@
     return { lane: "investor", verdict: verdict, timing: timing, why: why.join("; ") };
   }
 
-  /** Client mirror of worker/buildVerdictGuide — keeps rail guide fresh before worker deploy. */
+  var STATE_READS = {
+    HTF_BULL_LTF_BULL: { htf: "up", ltf: "up", structuralDir: "LONG", label: "trend aligned up", ltfPhrase: "short-term momentum is also up" },
+    HTF_BULL_LTF_PULLBACK: { htf: "up", ltf: "pulling back", structuralDir: "LONG", label: "bullish pullback", ltfPhrase: "short-term is pulling back into the trend" },
+    HTF_BULL_LTF_BEAR: { htf: "up", ltf: "bearish", structuralDir: "LONG", label: "bull trend, bearish momentum", ltfPhrase: "short-term momentum has turned down" },
+    HTF_BEAR_LTF_BEAR: { htf: "down", ltf: "down", structuralDir: "SHORT", label: "trend aligned down", ltfPhrase: "short-term momentum is also down" },
+    HTF_BEAR_LTF_PULLBACK: { htf: "down", ltf: "bouncing", structuralDir: "SHORT", label: "bearish bounce", ltfPhrase: "short-term is bouncing against the trend" },
+    HTF_BEAR_LTF_BULL: { htf: "down", ltf: "bullish", structuralDir: "SHORT", label: "bear trend, bullish momentum", ltfPhrase: "short-term momentum has turned up" },
+  };
+  function readState(state) {
+    var key = String(state || "").toUpperCase();
+    if (STATE_READS[key]) { var o = {}; for (var k in STATE_READS[key]) o[k] = STATE_READS[key][k]; o.state = key; return o; }
+    var htfBull = key.indexOf("HTF_BULL") === 0;
+    var htfBear = key.indexOf("HTF_BEAR") === 0;
+    if (!htfBull && !htfBear) return null;
+    return {
+      htf: htfBull ? "up" : "down",
+      ltf: key.indexOf("LTF_BEAR") >= 0 ? "bearish" : key.indexOf("LTF_BULL") >= 0 ? "bullish" : "mixed",
+      structuralDir: htfBull ? "LONG" : "SHORT",
+      label: htfBull ? "higher-timeframe up" : "higher-timeframe down",
+      ltfPhrase: key.indexOf("LTF_BEAR") >= 0 ? "short-term momentum has turned down" : key.indexOf("LTF_BULL") >= 0 ? "short-term momentum has turned up" : "short-term is mixed",
+      state: key,
+    };
+  }
+  function fmtUsdShort(n) {
+    var x = Number(n);
+    if (!Number.isFinite(x)) return null;
+    return "$" + (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(2));
+  }
+  function capFirst(s) {
+    var str = String(s || "").trim();
+    return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
+  }
+
+  /** Client mirror of worker/buildVerdictGuide — grounded in state/score/levels. */
   function buildVerdictGuide(trader, investor, payload) {
     if (!trader && !investor) return null;
     payload = payload || {};
     var tv = String((trader && trader.verdict) || "WAIT").toUpperCase();
     var iv = investor ? String(investor.verdict || "WAIT").toUpperCase() : "WAIT";
-    var state = String(payload.state || "");
-    var bearish = state.indexOf("BEAR") >= 0;
+    var sread = readState(payload.state);
+    var score = Number(payload.score); if (!Number.isFinite(score)) score = null;
+    var rank = Number(payload.rank); if (!Number.isFinite(rank)) rank = null;
+    var numN = function (v) { if (v === null || v === undefined || v === "") return null; var n = Number(v); return Number.isFinite(n) ? n : null; };
+    var structuralDir = (sread && sread.structuralDir) || String((trader && trader.direction) || "").toUpperCase();
+    var stop = numN(trader && trader.stop); if (stop === null) stop = numN(payload.sl);
+    var target = numN(trader && trader.target); if (target === null) target = numN(payload.tp_trim); if (target === null) target = numN(payload.tp_exit);
+    var entryTrigger = numN(trader && trader.entry_price);
+    var invScore = numN(investor && investor.score); if (invScore === null) invScore = numN(payload.investor_score);
     var journey = payload._journey && payload._journey.features;
     var timing = payload.timing_overlay;
+    var extension = Number(timing && timing.extension_score); if (!Number.isFinite(extension)) extension = null;
     var macroRiskOff = timing && (timing.posture === "RISK_OFF"
       || (Array.isArray(timing.warnings) && timing.warnings.some(function (w) { return String(w).indexOf("macro_risk_off") >= 0; })));
+
+    var scoreFrag = score !== null ? ("score " + score + (rank !== null ? ", rank " + rank : "")) : (rank !== null ? ("rank " + rank) : "");
+    var trendFrag = sread
+      ? ("Higher-timeframe trend is " + sread.htf + " and " + sread.ltfPhrase + (scoreFrag ? " (" + scoreFrag + ")" : "") + ".")
+      : (scoreFrag ? ("Model " + scoreFrag + ".") : "");
+    var structuralFrag = (function () {
+      if (!structuralDir) return "";
+      var bits = [];
+      if (entryTrigger !== null) bits.push("triggers near " + fmtUsdShort(entryTrigger));
+      if (target !== null) bits.push("first target " + fmtUsdShort(target));
+      if (stop !== null) bits.push("invalidates " + (structuralDir === "SHORT" ? "above " : "below ") + fmtUsdShort(stop));
+      return "The structural setup is a " + structuralDir + " plan" + (bits.length ? " — " + bits.join(", ") : "") + ".";
+    })();
+    var macroFrag = macroRiskOff
+      ? "The broader market is risk-off right now, which is weighing on the short-term read."
+      : (extension !== null && extension >= 60 ? "Price is extended near-term, so timing favors patience over chasing." : "");
+
     var parts = [];
     var headline = "Lane guide";
     var modelNotEntered = null;
     var earlyEntry = null;
     var diverge = (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING"))
       || (tv === "BUY" && iv === "WAIT")
-      || (bearish && iv === "BUY" && tv !== "BUY");
+      || (sread && sread.ltf === "bearish" && iv === "BUY" && tv !== "BUY");
 
-    if (iv === "BUY" && tv === "WAIT") {
-      headline = "Horizons diverge — accumulate vs no trader entry";
-      parts.push(bearish
-        ? "Short-term trader read is bearish or choppy; the tactical entry trigger has not fired."
-        : "Trader lane has no entry signal yet — the stage must reach enter before the model opens a position.");
-      parts.push("Investor lane flags an accumulate zone; the longer thesis may still be intact.");
-      if (macroRiskOff) parts.push("Broader market drawdown / risk-off timing is weighing on the short-term read.");
-      modelNotEntered = (trader && trader.why) || "The model has not opened a trader position.";
-      earlyEntry = "Scaling in before the model's scale-in call is appropriate only inside the published buy zone, with capped size and a defined invalidation level.";
-    } else if (tv === "BUY" && iv === "WAIT") {
+    if (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING")) {
+      headline = (sread && sread.htf === "up")
+        ? "Long-term thesis intact — short-term still choppy"
+        : "Investor accumulate open — trader entry not yet triggered";
+      if (trendFrag) parts.push(trendFrag);
+      if (structuralFrag) parts.push(structuralFrag);
+      parts.push("Investor lane reads accumulate" + (invScore !== null ? " (score " + invScore + ")" : "") + " — the longer thesis is still in play.");
+      if (macroFrag) parts.push(macroFrag);
+      modelNotEntered = (trader && trader.why)
+        ? capFirst(trader.why) + "."
+        : (tv === "SETUP_FORMING" ? "The setup is forming but the entry trigger has not fired." : "No trader entry signal yet.");
+      earlyEntry = "Accumulating ahead of the model is reasonable ONLY inside the published buy zone (Key Levels), with capped size and a hard invalidation"
+        + (stop !== null ? " — treat a close " + (structuralDir === "SHORT" ? "above " : "below ") + fmtUsdShort(stop) + " as the line where the thesis breaks" : "") + ".";
+    } else if (tv === "BUY" && iv !== "BUY") {
       headline = "Trader entry active — investor lane not yet accumulate";
-      parts.push("Tactical entry conditions are met on the trader lane.");
-      parts.push("Investor lane is not in accumulate yet — shorter-term trade and longer-term build run on different clocks.");
-      if (investor && investor.why) modelNotEntered = investor.why;
+      if (trendFrag) parts.push(trendFrag);
+      if (structuralFrag) parts.push(structuralFrag);
+      parts.push("The tactical trade is live on its own clock; the investor build has not opened yet.");
+      if (investor && investor.why) modelNotEntered = capFirst(investor.why) + ".";
     } else if (tv === "BUY" && iv === "BUY") {
-      headline = "Both lanes align";
-      parts.push("Trader entry and investor accumulate agree. Size each lane by its horizon rules.");
+      headline = "Both lanes align — trade and build agree";
+      if (trendFrag) parts.push(trendFrag);
+      if (structuralFrag) parts.push(structuralFrag);
+      parts.push("Trader entry and investor accumulate agree; size each lane by its own horizon rules.");
     } else if (tv === "SETUP_FORMING") {
       headline = "Setup building — confirmation pending";
-      parts.push("Trader setup is forming; the entry trigger has not fired yet.");
-      if (iv === "BUY") {
-        parts.push("Investor accumulate may still be valid on a separate, longer clock.");
-        earlyEntry = "Do not confuse a forming trader setup with investor scale-in — each lane has its own invalidation.";
-      }
-      modelNotEntered = trader && trader.why;
-    } else if (tv === "WAIT" && iv === "WAIT") {
-      headline = "No lane action yet";
-      parts.push("Neither lane is actionable right now. Watch the technical screener below or wait for the next scoring pass.");
-      modelNotEntered = (trader && trader.why) || (investor && investor.why);
+      if (trendFrag) parts.push(trendFrag);
+      if (structuralFrag) parts.push(structuralFrag);
+      if (macroFrag) parts.push(macroFrag);
+      modelNotEntered = (trader && trader.why) ? capFirst(trader.why) + "." : "The entry trigger has not fired yet.";
     } else if (["HOLD", "TIGHTEN", "SELL"].indexOf(tv) >= 0 || ["HOLD", "TIGHTEN", "SELL"].indexOf(iv) >= 0) {
-      headline = "Managing — trader " + tv.toLowerCase() + ", investor " + iv.toLowerCase();
-      if (trader && trader.why) parts.push(trader.why);
-      if (investor && investor.why && investor.why !== (trader && trader.why)) parts.push(investor.why);
+      headline = "Managing — trader " + tv.toLowerCase() + (iv !== "WAIT" ? ", investor " + iv.toLowerCase() : "");
+      if (trader && trader.why) parts.push(capFirst(trader.why) + ".");
+      if (investor && investor.why && investor.why !== (trader && trader.why)) parts.push(capFirst(investor.why) + ".");
+      if (macroFrag) parts.push(macroFrag);
     } else {
-      headline = "Trader " + tv + " · Investor " + iv;
-      if (trader && trader.why) parts.push(trader.why);
-      if (investor && investor.why) parts.push(investor.why);
+      headline = sread ? (capFirst(sread.label) + " — no lane action yet") : "No lane action yet";
+      if (trendFrag) parts.push(trendFrag);
+      if (structuralFrag) parts.push(structuralFrag);
+      parts.push("Neither lane is actionable right now — wait for the next scoring pass or use the technical screener.");
+      modelNotEntered = (trader && trader.why) ? capFirst(trader.why) + "." : ((investor && investor.why) ? capFirst(investor.why) + "." : null);
     }
-    if (journey && journey.direction === "deteriorating" && tv === "WAIT") {
-      parts.push("Journey is deteriorating on the trader lane — wait for improvement before forcing a tactical entry.");
+
+    if (journey && journey.direction === "deteriorating" && (tv === "WAIT" || tv === "SETUP_FORMING")) {
+      parts.push("The momentum journey is still deteriorating — let it turn before forcing an entry.");
+    } else if (journey && journey.direction === "improving" && (tv === "WAIT" || tv === "SETUP_FORMING")) {
+      parts.push("The momentum journey is improving, so the setup is trending toward a trigger.");
     }
+
     return {
       headline: headline,
       narrative: parts.filter(Boolean).join(" "),
       model_not_entered: modelNotEntered,
       early_entry: earlyEntry,
       diverge: !!diverge,
+      structural_direction: structuralDir || null,
+      state_label: (sread && sread.label) || null,
       trader_verdict: tv,
       investor_verdict: iv,
     };
@@ -227,20 +295,23 @@
       ".tt-ready-scroll{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:thin;-webkit-overflow-scrolling:touch}",
       ".tt-ready-scroll::-webkit-scrollbar{height:6px}",
       ".tt-ready-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}",
-      ".tt-ready-card{flex:0 0 210px;scroll-snap-align:start;display:flex;flex-direction:column;gap:7px;padding:11px 13px;border-radius:14px;cursor:pointer;text-align:left;background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));color:var(--ds-text-body,#e5e7eb);transition:border-color .15s,background .15s}",
-      ".tt-ready-card:hover{border-color:rgba(20,184,166,.35);background:rgba(255,255,255,.03)}",
-      ".tt-ready-card__head{display:flex;align-items:center;gap:5px;flex-wrap:wrap}",
-      ".tt-ready-card__sym{font-weight:800;font-size:14px;font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em}",
-      ".tt-ready-chip{display:inline-flex;align-items:center;font-size:8px;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:999px;white-space:nowrap;line-height:1.2}",
-      ".tt-ready-chip--buy{background:rgba(52,211,153,.14);color:#34d399}",
-      ".tt-ready-chip--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
-      ".tt-ready-chip--lane-trader{background:rgba(96,165,250,.15);color:#60a5fa}",
-      ".tt-ready-chip--lane-investor{background:rgba(192,132,252,.15);color:#c084fc}",
-      ".tt-ready-card__meta{font-size:10px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace)}",
+      ".tt-ready-card{flex:0 0 232px;scroll-snap-align:start;display:flex;flex-direction:column;gap:8px;min-height:120px;padding:13px 15px;border-radius:var(--vf-radius-md,18px);cursor:pointer;text-align:left;background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));color:var(--ds-text-body,#e5e7eb);transition:border-color .15s,background .15s}",
+      ".tt-ready-card:hover{border-color:rgba(56,242,161,.35);background:var(--ds-bg-glass,rgba(255,255,255,.04))}",
+      ".tt-ready-card__head{display:flex;align-items:center;gap:8px}",
+      ".tt-ready-card__sym{font-weight:800;font-size:15px;font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em;flex:1 1 auto;min-width:0}",
+      ".tt-ready-card__chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap}",
+      ".tt-ready-word{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:10px;letter-spacing:.03em;padding:3px 9px;border-radius:7px;white-space:nowrap;line-height:1.2}",
+      ".tt-ready-word__dot{width:6px;height:6px;border-radius:50%;background:currentColor}",
+      ".tt-ready-word--buy{background:var(--ds-up-bg,rgba(52,211,153,.14));color:var(--ds-up,#34d399)}",
+      ".tt-ready-word--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
+      ".tt-ready-card__meta{font-size:10.5px;color:var(--ds-text-muted,#9ca3af);font-family:var(--tt-font-mono,ui-monospace,monospace);font-weight:500}",
       ".tt-ready-card__why{margin:0;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}",
-      ".tt-ready-card__lanes{font-size:9.5px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em}",
+      ".tt-ready-card__lanes{font-size:9.5px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em;margin-top:auto}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
+      ".tt-ready-skel{flex:0 0 232px;min-height:120px;padding:13px 15px;border-radius:var(--vf-radius-md,18px);background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));display:flex;flex-direction:column;gap:10px}",
+      ".tt-ready-skel__bar{border-radius:6px;background:linear-gradient(90deg,var(--ds-bg-surface,rgba(255,255,255,.03)),var(--ds-bg-glass,rgba(255,255,255,.07)),var(--ds-bg-surface,rgba(255,255,255,.03)));background-size:200% 100%;animation:tt-ready-shimmer 1.6s ease-in-out infinite}",
+      "@keyframes tt-ready-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}",
       ".tt-trust{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:10px 16px;border:1px solid var(--ds-stroke,rgba(255,255,255,.07));border-radius:10px;background:rgba(255,255,255,.02);margin-bottom:16px;font-size:11.5px;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-trust b{color:var(--ds-text-body,#e5e7eb);font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-trust__label{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280)}",
@@ -521,26 +592,45 @@
       return { data: data, loading: loading };
     }
 
+    function ReadySetupsSkeleton() {
+      return h("div", { className: "tt-ready-scroll", "aria-hidden": "true" },
+        [0, 1, 2, 3].map(function (i) {
+          return h("div", { key: i, className: "tt-ready-skel" },
+            h("div", { className: "tt-ready-skel__bar", style: { width: "58%", height: 15 } }),
+            h("div", { className: "tt-ready-skel__bar", style: { width: "42%", height: 11 } }),
+            h("div", { className: "tt-ready-skel__bar", style: { width: "100%", height: 11 } }),
+            h("div", { className: "tt-ready-skel__bar", style: { width: "80%", height: 11 } }),
+          );
+        }),
+      );
+    }
+
     function ReadySetupsBoard(props) {
       var onSelect = props.onSelectTicker;
       var tickerData = props.tickerData;
       var _s = useState(null);
       var apiPack = _s[0];
       var setApiPack = _s[1];
+      var _t = useState(false);
+      var apiTried = _t[0];
+      var setApiTried = _t[1];
+      var hasTickerData = tickerData && typeof tickerData === "object" && Object.keys(tickerData).length > 0;
       useEffect(function () {
-        if (!window._ttIsPro || (tickerData && Object.keys(tickerData).length > 0)) return;
+        if (!window._ttIsPro || hasTickerData) return;
         var alive = true;
         fetchVerdict({ cacheTtlMs: 120000 }).then(function (j) {
-          if (alive) setApiPack(j);
-        }).catch(function () {});
+          if (alive) { setApiPack(j); setApiTried(true); }
+        }).catch(function () { if (alive) setApiTried(true); });
         return function () { alive = false; };
-      }, [tickerData]);
+      }, [hasTickerData]);
       var candidates = useMemo(function () {
-        if (tickerData && typeof tickerData === "object" && Object.keys(tickerData).length > 0) {
-          return rankReadySetupsFromData(tickerData);
-        }
+        if (hasTickerData) return rankReadySetupsFromData(tickerData);
         return (apiPack && apiPack.candidates) || [];
-      }, [tickerData, apiPack]);
+      }, [hasTickerData, tickerData, apiPack]);
+      // Loading = the source data hasn't resolved yet (parent /timed/all still
+      // in flight AND our own verdict fetch hasn't returned). Show a skeleton
+      // rather than a premature empty state.
+      var loading = !hasTickerData && !apiTried;
 
       var headCopy = h("div", { className: "tt-ready__head" },
         h("div", { className: "tt-sec-title" }, "READY SETUPS"),
@@ -555,6 +645,9 @@
           headCopy,
           h("div", { className: "tt-ready__locked" }, "Upgrade to Pro to see ranked setups the model would act on."),
         );
+      }
+      if (loading) {
+        return h("section", { className: "tt-ready" }, headCopy, h(ReadySetupsSkeleton, null));
       }
       if (candidates.length === 0) {
         return h("section", { className: "tt-ready" },
@@ -588,19 +681,19 @@
             },
               h("div", { className: "tt-ready-card__head" },
                 h("span", { className: "tt-ready-card__sym" }, sym),
-                h("span", { className: "tt-ready-chip tt-ready-chip--" + verdictCls },
+                h("span", { className: "tt-ready-word tt-ready-word--" + verdictCls },
+                  h("span", { className: "tt-ready-word__dot" }),
                   verdictLabel(tv.verdict, true),
                 ),
-                h("span", { className: "tt-ready-chip tt-ready-chip--lane-" + lane },
-                  lane === "investor" ? "INVESTOR" : "TRADER",
+              ),
+              h("div", { className: "tt-ready-card__chips" },
+                h(LaneBadge, { lane: lane }),
+                price != null && h("span", { className: "tt-ready-card__meta" },
+                  fmtPx(price) + (rank != null ? " · rank " + rank : ""),
                 ),
               ),
-              h("div", { className: "tt-ready-card__meta" },
-                price != null ? fmtPx(price) : "—",
-                rank != null ? " · rank " + rank : "",
-              ),
-              laneLine && h("div", { className: "tt-ready-card__lanes" }, laneLine),
               h("p", { className: "tt-ready-card__why" }, tv.why || "—"),
+              laneLine && h("div", { className: "tt-ready-card__lanes" }, laneLine),
             );
           }),
         ),

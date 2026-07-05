@@ -71,6 +71,18 @@
       opts = opts || {};
       const posture = opts.posture || {};
       const postureDir = String(posture.direction || "").toUpperCase();
+      const postureStrength = String(posture.strength || "").toLowerCase();
+      const planDir = String(opts.planDir || "").toUpperCase();
+      // A concrete model plan (real SL/TP + contract direction) is more
+      // authoritative than a short-term directional *lean*. Without this the
+      // Reference Levels claim SHORT (from a "Leaning bearish" posture) while
+      // the Trade Plan above renders LONG — the exact BE contradiction the
+      // operator flagged. Plan direction wins over a mere lean.
+      if ((planDir === "LONG" || planDir === "SHORT")
+        && (postureStrength === "lean" || postureStrength === "")
+        && planDir !== postureDir) {
+        return planDir;
+      }
       if (postureDir === "LONG" || postureDir === "SHORT") return postureDir;
       const isExplicitNeutral = posture.strength === "neutral"
         || posture.posture === "NEUTRAL"
@@ -6883,10 +6895,37 @@
           // posture is explicitly Neutral, do not fall back to contract
           // direction (NFLX: Neutral chip + compression rally + long call
           // was showing bearish Key Levels from a stale SHORT contract).
+          // Concrete proposed-plan direction from the prediction contract
+          // (levels + contract) — mirrors the Trade Plan's resolveProposedPlanDir
+          // so Reference Levels never contradict the Trade Plan (BE: LONG plan
+          // must not sit under a SHORT reference header driven by a bearish lean).
+          const v2ProposedPlanDir = (() => {
+            const pc = predictionContract;
+            if (!pc || railTab === "INVESTOR") return "";
+            const cd = String(pc.direction || "").toUpperCase();
+            const contractDir = (cd === "LONG" || cd === "SHORT") ? cd : "";
+            const slp = Number(pc?.risk?.stop_loss);
+            const tgts = Array.isArray(pc.targets) ? pc.targets : [];
+            const pxNow = Number(
+              window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
+              ?? ticker?._live_price ?? ticker?.price
+            ) || 0;
+            let levelDir = "";
+            if (pxNow > 0 && Number.isFinite(slp) && slp > 0) {
+              const tpBelow = tgts.some((t) => Number(t?.price) > 0 && Number(t.price) < pxNow);
+              const tpAbove = tgts.some((t) => Number(t?.price) > 0 && Number(t.price) > pxNow);
+              if (slp > pxNow && tpBelow) levelDir = "SHORT";
+              else if (slp < pxNow && tpAbove) levelDir = "LONG";
+              else levelDir = slp > pxNow ? "SHORT" : "LONG";
+            }
+            if (levelDir && contractDir && levelDir !== contractDir) return levelDir;
+            return contractDir || levelDir || "";
+          })();
           const v2StructureDir = resolveRailLevelsDirection({
             posture: v2TraderPosture,
             timing: v2TimingOverlay,
             optionsEffectiveDir: optionsTabData?.effective_direction,
+            planDir: v2ProposedPlanDir,
             fallbackDir: v2Dir,
             ticker,
           });
