@@ -622,11 +622,14 @@ function PerformanceSection({
 function OpenPositionsTable({
   rows,
   mode,
-  accent
+  accent,
+  verdictMap
 }) {
   if (!Array.isArray(rows)) return null;
   const fmtPnl = n => Number.isFinite(n) ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}` : "—";
   const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
+  const VUI = window.TimedVerdictUI || {};
+  const showVerdict = window._ttIsPro && mode === "trader";
   return h("div", {
     className: "op-pane"
   }, h("div", {
@@ -655,7 +658,7 @@ function OpenPositionsTable({
     "data-accent": accent || "trader"
   }, h("table", {
     className: "tbl tbl--condensed"
-  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), h("th", null, "Bias"), h("th", {
+  }, h("thead", null, h("tr", null, h("th", null, "Ticker"), showVerdict && h("th", null, "Verdict"), h("th", null, "Bias"), h("th", {
     className: "num"
   }, "Entry"), h("th", {
     className: "num"
@@ -663,13 +666,15 @@ function OpenPositionsTable({
     className: "num"
   }, "Open P&L $"), h("th", null, "Entry Date"))), h("tbody", null, rows.length === 0 ? h("tr", null, h("td", {
     className: "empty",
-    colSpan: 6
+    colSpan: showVerdict ? 7 : 6
   }, "No open positions.")) : rows.map(r => {
     const openTicker = () => {
       if (typeof r._onSelect === "function") r._onSelect(r.sym);else window.location.href = `/index-react.html?ticker=${encodeURIComponent(r.sym)}`;
     };
     const plPctCls = r.plPct == null ? "" : r.plPct >= 0 ? "up" : "dn";
     const plDollarCls = r.plDollar == null ? "" : r.plDollar >= 0 ? "up" : "dn";
+    const vd = verdictMap && verdictMap[r.sym];
+    const tv = vd && vd.trader;
     return h("tr", {
       key: r._key
     }, h("td", {
@@ -678,7 +683,11 @@ function OpenPositionsTable({
       style: {
         cursor: "pointer"
       }
-    }, r.sym), h("td", {
+    }, r.sym), showVerdict && h("td", null, tv && VUI.VerdictChip ? h(VUI.VerdictChip, {
+      verdict: tv.verdict,
+      why: tv.why,
+      size: 10
+    }) : "—"), h("td", {
       className: r.dir === "LONG" ? "up" : "dn"
     }, r.dir), h("td", {
       className: "num"
@@ -942,6 +951,27 @@ function PortfolioApp() {
   const investorRows = useMemo(() => buildInvestorRows(investorPositions || [], priceMap, onSelectTicker), [investorPositions, priceMap, onSelectTicker]);
   const traderOpenPl = useMemo(() => traderRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0), [traderRows]);
   const investorOpenPl = useMemo(() => investorRows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0), [investorRows]);
+  const [verdictMap, setVerdictMap] = useState({});
+  useEffect(() => {
+    if (!window._ttIsPro || !window.TimedVerdictUI?.fetchVerdict) return;
+    const syms = [...new Set([...traderRows.map(r => r.sym), ...investorRows.map(r => r.sym)].filter(Boolean))];
+    if (!syms.length) return;
+    let alive = true;
+    Promise.all(syms.map(sym => window.TimedVerdictUI.fetchVerdict({
+      ticker: sym,
+      cacheTtlMs: 120000
+    }).then(j => j && j.ok ? [sym, j] : null).catch(() => null))).then(pairs => {
+      if (!alive) return;
+      const next = {};
+      pairs.forEach(p => {
+        if (p) next[p[0]] = p[1];
+      });
+      setVerdictMap(next);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [traderRows, investorRows]);
   return h(React.Fragment, null, loading && h("div", {
     className: "tt-loadbar",
     role: "progressbar",
@@ -988,11 +1018,13 @@ function PortfolioApp() {
   }, h(OpenPositionsTable, {
     rows: traderRows,
     mode: "trader",
-    accent: "trader"
+    accent: "trader",
+    verdictMap
   }), h(OpenPositionsTable, {
     rows: investorRows,
     mode: "investor",
-    accent: "investor"
+    accent: "investor",
+    verdictMap
   })) : h("section", {
     className: "tt-row"
   }, h("div", {
@@ -1069,6 +1101,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672
 
-// cache-bust:1783102836632:587171630
+// cache-bust:1783274907384:747068672

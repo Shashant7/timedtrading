@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="shared-verdict-ui.js?v=20260705a"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
@@ -893,12 +894,14 @@
       // / Entry Date. Current price + Status dropped — Current is
       // implicit in the live Open P&L; Status was redundant with the
       // section header ("ACTIVE TRADER · OPEN POSITIONS").
-      function OpenPositionsTable({ rows, mode, accent }) {
+      function OpenPositionsTable({ rows, mode, accent, verdictMap }) {
         if (!Array.isArray(rows)) return null;
         const fmtPnl = (n) => Number.isFinite(n)
           ? `${n >= 0 ? "+" : "-"}${fmtUsdDec(Math.abs(n))}`
           : "—";
         const totalPl = rows.reduce((s, r) => s + (Number.isFinite(r.plDollar) ? r.plDollar : 0), 0);
+        const VUI = window.TimedVerdictUI || {};
+        const showVerdict = window._ttIsPro && mode === "trader";
 
         return h("div", { className: "op-pane" },
           h("div", { className: "op-head" },
@@ -917,6 +920,7 @@
               h("thead", null,
                 h("tr", null,
                   h("th", null, "Ticker"),
+                  showVerdict && h("th", null, "Verdict"),
                   h("th", null, "Bias"),
                   h("th", { className: "num" }, "Entry"),
                   h("th", { className: "num" }, "Open P&L %"),
@@ -926,7 +930,7 @@
               ),
               h("tbody", null,
                 rows.length === 0
-                  ? h("tr", null, h("td", { className: "empty", colSpan: 6 }, "No open positions."))
+                  ? h("tr", null, h("td", { className: "empty", colSpan: showVerdict ? 7 : 6 }, "No open positions."))
                   : rows.map((r) => {
                       const openTicker = () => {
                         if (typeof r._onSelect === "function") r._onSelect(r.sym);
@@ -934,8 +938,15 @@
                       };
                       const plPctCls = r.plPct == null ? "" : (r.plPct >= 0 ? "up" : "dn");
                       const plDollarCls = r.plDollar == null ? "" : (r.plDollar >= 0 ? "up" : "dn");
+                      const vd = verdictMap && verdictMap[r.sym];
+                      const tv = vd && vd.trader;
                       return h("tr", { key: r._key },
                         h("td", { className: "sym", onClick: openTicker, style: { cursor: "pointer" } }, r.sym),
+                        showVerdict && h("td", null,
+                          tv && VUI.VerdictChip
+                            ? h(VUI.VerdictChip, { verdict: tv.verdict, why: tv.why, size: 10 })
+                            : "—",
+                        ),
                         h("td", { className: r.dir === "LONG" ? "up" : "dn" }, r.dir),
                         h("td", { className: "num" }, fmtUsdDec(r.ep)),
                         h("td", { className: `num ${plPctCls}` },
@@ -1247,6 +1258,28 @@
           [investorRows],
         );
 
+        const [verdictMap, setVerdictMap] = useState({});
+        useEffect(() => {
+          if (!window._ttIsPro || !window.TimedVerdictUI?.fetchVerdict) return;
+          const syms = [...new Set([
+            ...traderRows.map((r) => r.sym),
+            ...investorRows.map((r) => r.sym),
+          ].filter(Boolean))];
+          if (!syms.length) return;
+          let alive = true;
+          Promise.all(syms.map((sym) =>
+            window.TimedVerdictUI.fetchVerdict({ ticker: sym, cacheTtlMs: 120000 })
+              .then((j) => (j && j.ok ? [sym, j] : null))
+              .catch(() => null),
+          )).then((pairs) => {
+            if (!alive) return;
+            const next = {};
+            pairs.forEach((p) => { if (p) next[p[0]] = p[1]; });
+            setVerdictMap(next);
+          });
+          return () => { alive = false; };
+        }, [traderRows, investorRows]);
+
         return h(React.Fragment, null,
           loading && h("div", { className: "tt-loadbar", role: "progressbar", "aria-label": "Loading Portfolio" }),
           h("main", null,
@@ -1299,11 +1332,13 @@
                     rows: traderRows,
                     mode: "trader",
                     accent: "trader",
+                    verdictMap,
                   }),
                   h(OpenPositionsTable, {
                     rows: investorRows,
                     mode: "investor",
                     accent: "investor",
+                    verdictMap,
                   }),
                 )
               : h("section", { className: "tt-row" },
