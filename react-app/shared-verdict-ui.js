@@ -160,12 +160,99 @@
     return fetch(url, { credentials: "include" }).then(function (r) { return r.json(); });
   }
 
+  function headlinePrice(t) {
+    try {
+      var p = window.TimedPriceUtils && window.TimedPriceUtils.getHeadlinePrice
+        ? window.TimedPriceUtils.getHeadlinePrice(t)
+        : null;
+      if (Number.isFinite(Number(p))) return Number(p);
+    } catch (_) {}
+    var n = Number(t && (t._live_price != null ? t._live_price : t.price != null ? t.price : t.close));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /** Rank actionable setups from the live /timed/all map (Today already has this). */
+  function rankReadySetupsFromData(data, limit) {
+    limit = limit || 5;
+    var rows = [];
+    if (!data || typeof data !== "object") return rows;
+    Object.keys(data).forEach(function (sym) {
+      var t = data[sym];
+      if (!t || typeof t !== "object") return;
+      var key = String(sym).toUpperCase();
+      var stage = String(t.kanban_stage || "").toLowerCase();
+      var invStage = String(t.investor_stage || t.investorStage || "").toLowerCase();
+      var journey = t._journey && t._journey.features;
+      var rank = Number(t.rank);
+      var rankNum = Number.isFinite(rank) ? rank : null;
+      var price = headlinePrice(t);
+      var score = 0;
+
+      var tv = inferTraderVerdictFromTicker(t, null);
+      if (tv && (tv.verdict === "BUY" || tv.verdict === "SETUP_FORMING")) {
+        score = tv.verdict === "BUY" ? 100 : 50;
+        if (journey && journey.direction === "improving") score += 20;
+        if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
+        tv.price = price;
+        tv.rank = rankNum;
+        rows.push({ ticker: key, rank: rankNum, lane: "trader", trader: tv, score: score });
+        return;
+      }
+      if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
+        score = 100;
+        if (journey && journey.direction === "improving") score += 20;
+        if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
+        rows.push({
+          ticker: key, rank: rankNum, lane: "trader",
+          trader: {
+            lane: "trader", verdict: "BUY", timing: "now",
+            why: "entry lane (" + stage + ")",
+            price: price, rank: rankNum,
+          },
+          score: score,
+        });
+        return;
+      }
+      if (stage === "in_review") {
+        score = 55;
+        if (journey && journey.direction === "improving") score += 20;
+        if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
+        rows.push({
+          ticker: key, rank: rankNum, lane: "trader",
+          trader: {
+            lane: "trader", verdict: "SETUP_FORMING", timing: "on confirmation",
+            why: "trigger ready" + (journey && journey.direction === "improving" ? "; journey improving" : ""),
+            price: price, rank: rankNum,
+          },
+          score: score,
+        });
+        return;
+      }
+      if (invStage === "accumulate") {
+        score = 85;
+        if (journey && journey.direction === "improving") score += 15;
+        rows.push({
+          ticker: key, rank: rankNum, lane: "investor",
+          trader: {
+            lane: "investor", verdict: "BUY", timing: "scale in",
+            why: "accumulate zone" + (t.investor_score != null ? ", score " + t.investor_score : ""),
+            price: price, rank: rankNum,
+          },
+          score: score,
+        });
+      }
+    });
+    rows.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
+    return rows.slice(0, limit);
+  }
+
   function register(React) {
     if (!React) return null;
     ensureStyles();
     var h = React.createElement;
     var useState = React.useState;
     var useEffect = React.useEffect;
+    var useMemo = React.useMemo;
 
     function LaneBadge(props) {
       var lane = String(props.lane || "trader").toLowerCase();
@@ -248,14 +335,13 @@
         );
       }
       if (!data || !data.ok) return null;
+      var showTrader = data.trader && data.trader.verdict && data.trader.verdict !== "WAIT";
+      var showInvestor = data.investor && data.investor.verdict && data.investor.verdict !== "WAIT";
+      if (!showTrader && !showInvestor) return null;
       return h("div", { className: "tt-vb" },
         h("div", { className: "tt-vb__inner" },
-          data.trader && h(VerdictLaneRow, { verdict: data.trader, showEntry: true, shortVerdict: compact }),
-          data.investor && h(VerdictLaneRow, { verdict: data.investor, shortVerdict: compact }),
-        ),
-        !compact && h("div", { className: "tt-vb__proof" },
-          "Contract: GET /timed/verdict",
-          h("span", { style: { color: "#14b8a6", cursor: "pointer" }, onClick: props.onExpandProof }, "Show proof ▾"),
+          showTrader && h(VerdictLaneRow, { verdict: data.trader, showEntry: true, shortVerdict: compact }),
+          showInvestor && h(VerdictLaneRow, { verdict: data.investor, shortVerdict: compact }),
         ),
       );
     }
@@ -281,47 +367,60 @@
       return { data: data, loading: loading };
     }
 
-    function TodaysAnswers(props) {
+    function ReadySetupsBoard(props) {
       var onSelect = props.onSelectTicker;
+      var tickerData = props.tickerData;
       var _s = useState(null);
-      var pack = _s[0];
-      var setPack = _s[1];
+      var apiPack = _s[0];
+      var setApiPack = _s[1];
       useEffect(function () {
-        if (!window._ttIsPro) return;
+        if (!window._ttIsPro || (tickerData && Object.keys(tickerData).length > 0)) return;
         var alive = true;
-        fetchVerdict({ limit: 5, cacheTtlMs: 120000 }).then(function (j) {
-          if (alive) setPack(j);
+        fetchVerdict({ limit: 8, cacheTtlMs: 120000 }).then(function (j) {
+          if (alive) setApiPack(j);
         }).catch(function () {});
         return function () { alive = false; };
-      }, []);
+      }, [tickerData]);
+      var candidates = useMemo(function () {
+        if (tickerData && typeof tickerData === "object" && Object.keys(tickerData).length > 0) {
+          return rankReadySetupsFromData(tickerData, 5);
+        }
+        return (apiPack && apiPack.candidates) || [];
+      }, [tickerData, apiPack]);
       if (!window._ttIsPro) {
         return h("section", { className: "tt-answers" },
           h("div", { className: "tt-answers__head" },
-            h("h2", null, "Today's answers"),
+            h("div", null,
+              h("div", { className: "tt-sec-title" }, "READY SETUPS"),
+              h("h2", { className: "tt-sec-h2", style: { margin: "4px 0 0" } }, "What the model would act on"),
+            ),
             h("span", { className: "tt-answers__meta" }, "Pro"),
           ),
-          h("div", { className: "tt-answers__locked" }, "Upgrade to Pro to see ranked buy candidates from the model."),
+          h("div", { className: "tt-answers__locked" }, "Upgrade to Pro to see ranked setups the model would act on."),
         );
       }
-      var candidates = (pack && pack.candidates) || [];
-      var count = pack && pack.count != null ? pack.count : candidates.length;
+      var count = candidates.length;
       return h("section", { className: "tt-answers" },
         h("div", { className: "tt-answers__head" },
-          h("h2", null, "Today's answers"),
+          h("div", null,
+            h("div", { className: "tt-sec-title" }, "READY SETUPS"),
+            h("h2", { className: "tt-sec-h2", style: { margin: "4px 0 0" } }, "What the model would act on"),
+          ),
           h("span", { className: "tt-answers__meta" },
-            count + " actionable · Pro",
+            count ? (count + " name" + (count === 1 ? "" : "s") + " · Pro") : "Scanning universe · Pro",
           ),
         ),
-        candidates.length === 0
-          ? h("div", { className: "tt-answers__empty" }, "Nothing qualifies right now — no filler picks. Next check in 5 minutes.")
+        count === 0
+          ? h("div", { className: "tt-answers__empty" }, "No entry or accumulate setups right now — the board stays empty rather than forcing picks. Refreshes with each scoring pass.")
           : candidates.map(function (row) {
               var sym = String(row.ticker || "").toUpperCase();
               var tv = row.trader || {};
+              var lane = row.lane || tv.lane || "trader";
               var price = tv.price;
-              var rank = row.rank || tv.rank;
+              var rank = row.rank != null ? row.rank : tv.rank;
               var cta = tv.verdict === "BUY" ? "Open plan →" : "Watch setup →";
               return h("div", {
-                key: sym,
+                key: sym + "-" + lane,
                 className: "tt-answers__row",
                 role: "button",
                 tabIndex: 0,
@@ -337,17 +436,17 @@
                 ),
                 h("div", null,
                   h(VerdictWord, { verdict: tv.verdict, short: true }),
-                  h(LaneBadge, { lane: "trader" }),
+                  h(LaneBadge, { lane: lane }),
                 ),
                 h("div", { className: "tt-vb__why" }, tv.why || "—"),
                 h("div", { className: "tt-answers__cta" }, cta),
               );
             }),
-        candidates.length > 0 && h("div", { className: "tt-answers__empty", style: { borderTop: "1px solid rgba(255,255,255,.04)" } },
-          "Nothing else qualifies right now — no filler picks.",
-        ),
       );
     }
+
+    // Legacy export name — prefer ReadySetupsBoard.
+    var TodaysAnswers = ReadySetupsBoard;
 
     function TrustStrip() {
       var _s = useState(null);
@@ -391,7 +490,9 @@
       VerdictChip: VerdictChip,
       VerdictBlock: VerdictBlock,
       LifecycleStrip: LifecycleStrip,
+      ReadySetupsBoard: ReadySetupsBoard,
       TodaysAnswers: TodaysAnswers,
+      rankReadySetupsFromData: rankReadySetupsFromData,
       TrustStrip: TrustStrip,
       useVerdict: useVerdict,
       fetchVerdict: fetchVerdict,
@@ -422,6 +523,7 @@
     verdictMeta: verdictMeta,
     lifecycleFromStage: lifecycleFromStage,
     inferTraderVerdictFromTicker: inferTraderVerdictFromTicker,
+    rankReadySetupsFromData: rankReadySetupsFromData,
     LIFECYCLE_STEPS: LIFECYCLE_STEPS,
     register: register,
   };

@@ -65,7 +65,10 @@
 
   window.ttApplyPendingRailDeepLink = function ttApplyPendingRailDeepLink() {
     const urlCtx = parseUrlRailContext();
-    const persisted = readPersistedRailDeepLink();
+    // Only open from URL ?ticker= (or sessionStorage left by a login redirect
+    // before the URL was restored). Never resurrect a ticker after the rail
+    // was closed — ttClearRailUrlParams clears sessionStorage.
+    const persisted = urlCtx.ticker ? null : readPersistedRailDeepLink();
     const ticker = urlCtx.ticker || persisted?.ticker;
     if (!ticker) return false;
 
@@ -287,13 +290,13 @@
 
   window.ttClearRailUrlParams = function ttClearRailUrlParams() {
     try {
+      clearPersistedRailDeepLink();
       const u = new URL(window.location.href);
+      u.searchParams.delete("ticker");
       u.searchParams.delete("railTab");
       u.searchParams.delete("trade_id");
       u.searchParams.delete("autopsy");
       u.searchParams.delete("ev");
-      const t = String(u.searchParams.get("ticker") || "").trim();
-      if (!t) u.searchParams.delete("ticker");
       window.history.replaceState({}, "", u.toString());
     } catch (_) {}
   };
@@ -382,4 +385,4 @@
   };
 })();
 
-// cache-bust:1783275493380:791031854
+// cache-bust:1783276617048:878924342

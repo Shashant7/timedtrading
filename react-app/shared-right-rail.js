@@ -3996,37 +3996,6 @@
           return () => { cancelled = true; };
         }, [tickerSymbol, API_BASE]);
 
-        // Phase D2 — GET /timed/verdict answer contract (Objective 3).
-        // Pinned at top of right pane so every tab leads with the same
-        // trader/investor verdict words the engine uses for decisions.
-        const [phaseDVerdict, setPhaseDVerdict] = useState(null);
-        const [phaseDVerdictLoading, setPhaseDVerdictLoading] = useState(false);
-        const PhaseDVerdictBlock = (typeof window !== "undefined" && window.TimedVerdictUI?.VerdictBlock) || null;
-        useEffect(() => {
-          const sym = tickerSymbol;
-          if (!sym || !window._ttIsPro) {
-            setPhaseDVerdict(null);
-            setPhaseDVerdictLoading(false);
-            return;
-          }
-          let cancelled = false;
-          setPhaseDVerdictLoading(true);
-          const fetchFn = window.TimedVerdictUI?.fetchVerdict
-            || ((opts) => fetch(`${API_BASE}/timed/verdict?ticker=${encodeURIComponent(opts.ticker)}`, { credentials: "include" }).then((r) => r.json()));
-          fetchFn({ ticker: sym, cacheTtlMs: 60000 }).then((j) => {
-            if (!cancelled) {
-              setPhaseDVerdict(j);
-              setPhaseDVerdictLoading(false);
-            }
-          }).catch(() => {
-            if (!cancelled) {
-              setPhaseDVerdict(null);
-              setPhaseDVerdictLoading(false);
-            }
-          });
-          return () => { cancelled = true; };
-        }, [tickerSymbol, API_BASE]);
-
         // 2026-05-28 — AI CIO verdict for the active trader position.
         // Lazy-fetched when effectiveTraderTrade is open (any rail tab —
         // Snapshot Position panel + Trader open-position card need it).
@@ -8588,13 +8557,6 @@
                     } : {}),
                   }}
                 >
-                  {window._ttIsPro && PhaseDVerdictBlock && (
-                    <PhaseDVerdictBlock
-                      ticker={tickerSymbol}
-                      data={phaseDVerdict}
-                      loading={phaseDVerdictLoading}
-                    />
-                  )}
                   {/* CHART TAB (V15 P0.7.161, 2026-05-14)
                       Pure tab body — renders the price chart inside the same
                       right pane that hosts every other tab. No portal, no

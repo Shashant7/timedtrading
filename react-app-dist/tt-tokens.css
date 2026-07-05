@@ -1934,6 +1934,19 @@ body.vf-page .kanban-card.inv-kanban-card {
  * /index-react.html uses (no full page nav).
  * ═══════════════════════════════════════════════════════════════════════ */
 
+/* When the rail is open, freeze the page underneath so hover/repaint on
+   journey cards (especially the desktop 60px sliver) cannot flash through. */
+body.tt-rail-scroll-lock #root,
+body.tt-rail-scroll-lock .tt-sticky-top,
+body.tt-rail-scroll-lock nav.topnav {
+  pointer-events: none;
+  user-select: none;
+}
+body.tt-rail-scroll-lock .rail-backdrop,
+body.tt-rail-scroll-lock .rail-panel {
+  pointer-events: auto;
+}
+
 .rail-backdrop {
   position: fixed;
   inset: 0;

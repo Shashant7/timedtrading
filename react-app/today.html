@@ -7105,8 +7105,7 @@
               universe: universeSet,
             }),
             h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
-            window.TimedVerdictUI?.TodaysAnswers && h(window.TimedVerdictUI.TodaysAnswers, { onSelectTicker }),
-            window.TimedVerdictUI?.TrustStrip && h(window.TimedVerdictUI.TrustStrip, null),
+            window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, { onSelectTicker, tickerData: data }),
             h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker, cal, allTickers }),
             data
               ? h(MarketPulseWithMovers, { data, onSelectTicker })
