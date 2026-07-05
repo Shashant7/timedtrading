@@ -244,19 +244,23 @@ What already exists to build on (do NOT rebuild):
       from the on-payload 48-frame ring, zero extra reads for
       downstream consumers. First cron-path frames land Monday's open
       (the */5 cost gate skips weekends).
-- [ ] **C3. Overlay provenance + maturation.** Every advisory input (FSD
-      tactical note, CRO research note, macro overlay, CIO memo) gets
-      `issued_at`, `expires_at` (or a maturation condition), and a
-      `status` (active/maturing/expired). Scoring and CIO prompts read
-      only ACTIVE overlays; expiry is enforced centrally, not per
-      consumer. Retires the "system quotes a stale semis note" failure
-      mode.
-- [ ] **C4. Thematic propagation → action.** When an active overlay calls
-      a rotation (e.g. semis stall → Mag 7/software), map it to concrete
-      book actions via the existing management hooks: tighten SL to
-      BE/profit-lock on affected holdings, trim, or flag a hedge
-      suggestion. Start shadow-mode (log the action it WOULD take + why),
-      promote after a week of sane shadow output.
+- [x] **C3. Overlay provenance + maturation.** **DONE — PR #978 (merged +
+      deployed 2026-07-05).** `worker/overlay-provenance.js`: TTLs by
+      horizon (tactical 10d / intermediate 30d / structural 90d; explicit
+      expires_at wins), status lifecycle active→maturing→expired,
+      `filterActiveOverlay` enforced centrally in ALL read paths
+      (strategy-overrides cache, strategy-context loadCROOverride, CIO
+      memory preload); `stampOverlayProvenance` at cro-apply write time.
+      Legacy blobs fail open. 14 tests.
+- [x] **C4. Thematic propagation → action.** **DONE (shadow mode) —
+      PR #979 (merged + deployed 2026-07-05).** `worker/rotation-shadow.js`:
+      active overlay (C3-filtered) × journey direction (C2) × PnL →
+      TIGHTEN_SL_PROFIT_LOCK / TRIM_OR_EXIT_REVIEW / TIGHTEN_SL_BREAKEVEN /
+      HEDGE_REVIEW / WATCH_CLOSE per flagged position. Hourly cron pass,
+      logs + 30-day deduped KV ring, NEVER mutates the book.
+      `GET /timed/admin/rotation-shadow` (?run=1). Live-verified against
+      the real active overlay (17 positions scanned). PROMOTION to live
+      management hooks after a week of sane shadow output. 12 tests.
 - [ ] **C5. Cross-ticker correlation (later).** Corridor-transition
       correlation across tickers/sectors/indexes. Explicitly out of scope
       until C1–C4 are live and trusted.
@@ -280,18 +284,20 @@ Everything else is supporting evidence, and should be one click deeper.
 
 ### Phase D — design first, then build
 
-- [ ] **D1. Answer-first audit.** For each journey page (Today, Active
-      Trader, Investor, Portfolio), write down which of the 3 questions it
-      answers ABOVE THE FOLD today, and what noise sits in front of the
-      answer. Deliverable: one-page audit doc + mock direction. (Design
-      constraints: DESIGN.md/Verda, no "you/your" copy.)
-- [ ] **D2. Per-ticker verdict block.** One component (right rail top +
-      ticker cards) that renders: verdict (BUY/HOLD/SELL/WAIT), the lane
-      it belongs to (Trader vs Investor — visually unmissable), entry/exit
-      price, timing ("now" / "on confirmation of X"), and a one-line why.
-      Backed by the existing plan/scores; enriched by `_journey` (C2) so
-      "when" can be "setup forming — 2 of 3 conditions met" instead of a
-      surprise alert.
+- [x] **D1. Answer-first audit.** **DONE — PR #980 (merged 2026-07-05).**
+      `tasks/2026-07-05-answer-first-ux-audit.md`: page-by-page audit vs
+      the 3 questions, noise inventory (biggest gap: Today leads with
+      commentary), Verdict Block spec, lane-separation rule, UI build
+      order (5 small PRs, pending operator sign-off on the doc).
+- [x] **D2 (contract). Per-ticker verdict block — DATA CONTRACT DONE —
+      PRs #980 + #981 (merged + deployed 2026-07-05).** `worker/verdict.js`:
+      BUY / SETUP_FORMING / HOLD / TIGHTEN / SELL / WAIT per lane with
+      timing, price, stop/target, PnL, one-line why; `rankBuyCandidates`
+      answers question 1. `GET /timed/verdict[?ticker=]` (Pro-gated).
+      D1 positions are the position source of truth (#981). Live-verified:
+      GS → HOLD +2.4% plan-intact; BRK-B → TIGHTEN (trim lane); anon →
+      upgrade_required. **UI component (right rail + cards) is the next
+      PR after operator sign-off on the D1 audit.**
 - [ ] **D3. Setup lifecycle surface.** Replace "random alert fired" with a
       visible progression: FORMING → READY → TRIGGERED → MANAGED →
       CLOSED, driven by setup_sequences + entry gates. Users watch a setup
