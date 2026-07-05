@@ -29,6 +29,7 @@
 
 import { getProposal, markProposalApplied } from "./fsd-extractor.js";
 import { markPublicationApplied } from "./fsd-ingestion.js";
+import { stampOverlayProvenance } from "../overlay-provenance.js";
 
 const OVERRIDE_KV_KEY = "cro:tactical_overrides";
 const APPLIED_HISTORY_KV_KEY = "cro:tactical_overrides:history";
@@ -49,6 +50,9 @@ export async function loadTacticalOverrideBlob(env) {
 export async function writeTacticalOverrideBlob(env, blob) {
   const kv = croKv(env);
   if (!kv) return { ok: false, error_kind: "kv_unavailable" };
+  // C3 (2026-07-05) — every overlay is born with a lifespan: issued_at /
+  // expires_at stamped at write time (explicit values on the proposal win).
+  blob = stampOverlayProvenance(blob);
   // KV values are bounded but plenty large for our shape (~2KB).
   await kv.put(OVERRIDE_KV_KEY, JSON.stringify(blob));
   // Best-effort short history (last 10 applies).
