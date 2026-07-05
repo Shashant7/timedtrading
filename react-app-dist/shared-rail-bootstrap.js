@@ -131,7 +131,7 @@
   // while /timed/latest returns the full payload for a single ticker.
   // /index-react.html does the same dance in TickerDetailsLoader.
   const e = React.createElement;
-  const { useState, useEffect, useMemo, useCallback } = React;
+  const { useState, useEffect, useLayoutEffect, useMemo, useCallback } = React;
   const ReactDOM = window.ReactDOM;
 
   function buildRailPortal(children) {
@@ -141,14 +141,29 @@
     return children;
   }
 
-  /** Lock page scroll when the rail opens without shifting layout. */
+  /** Lock page scroll when the rail opens without shifting layout or jumping. */
   function lockPageScrollForRail() {
     var docEl = document.documentElement;
     var body = document.body;
+    var scrollY = window.scrollY || window.pageYOffset || 0;
     var scrollbarWidth = Math.max(0, window.innerWidth - docEl.clientWidth);
-    var prevOverflow = body.style.overflow;
-    var prevPaddingRight = body.style.paddingRight;
+    var prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+      overflow: body.style.overflow,
+      paddingRight: body.style.paddingRight,
+    };
     body.classList.add("tt-rail-scroll-lock");
+    // Pin the viewport in place: `overflow:hidden` alone can reset scrollY
+    // for one frame on open (Today page flash to top before the panel paints).
+    body.style.position = "fixed";
+    body.style.top = "-" + scrollY + "px";
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
     body.style.overflow = "hidden";
     if (scrollbarWidth > 0) {
       body.style.paddingRight = scrollbarWidth + "px";
@@ -162,12 +177,18 @@
       }
     });
     return function unlockPageScrollForRail() {
-      body.style.overflow = prevOverflow;
-      body.style.paddingRight = prevPaddingRight;
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      body.style.paddingRight = prev.paddingRight;
       body.classList.remove("tt-rail-scroll-lock");
       fixedEls.forEach(function (el, i) {
         el.style.paddingRight = fixedPrev[i].paddingRight;
       });
+      window.scrollTo(0, scrollY);
     };
   }
 
@@ -331,7 +352,7 @@
       };
     }, [ticker, fullPayload, tickerSym]);
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       if (!ticker) return;
       window.__ttRailOpenSym = tickerSym;
       const onKey = (ev) => { if (ev.key === "Escape") onClose && onClose(); };
@@ -380,4 +401,4 @@
   window.TimedRightRail.Overlay = RailOverlay;
 })();
 
-// cache-bust:1783290356274:71909623
+// cache-bust:1783292703072:421165165
