@@ -2231,6 +2231,18 @@ body.tt-rail-scroll-lock .rail-panel {
   padding-bottom: max(88px, calc(64px + env(safe-area-inset-bottom, 0px)));
   -webkit-overflow-scrolling: touch;
 }
+/* Chart tab: verdict guide + chart must scroll together on mobile
+   (overflow:hidden trapped touch scroll when chart flex:1 filled viewport). */
+.tt-rail-body--chart {
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.tt-rail-chart-tab-canvas {
+  flex: 0 0 auto !important;
+  height: min(52vh, 420px) !important;
+  max-height: 420px;
+}
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
 .tt-rail-area-left-pane,
 .tt-rail-area-right-pane {
