@@ -805,7 +805,11 @@ async function loadCROOverride(env) {
   try {
     const raw = await kv.get(CRO_OVERRIDE_KV_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    // C3 (2026-07-05) — central expiry enforcement: expired overlays read
+    // as null (callers fall back to the in-code baseline playbook);
+    // matured tactical lines are dropped per-signal.
+    const { filterActiveOverlay } = await import("./overlay-provenance.js");
+    return filterActiveOverlay(JSON.parse(raw));
   } catch (_) { return null; }
 }
 

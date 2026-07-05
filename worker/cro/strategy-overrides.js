@@ -3,6 +3,13 @@
 // structural stance changes from FSD publications merge on top of the
 // in-code playbook at read time and sync into timed:admin:sector_ratings
 // for rankTickersInSector scoring boosts.
+//
+// C3 (2026-07-05, stabilization plan): every read goes through
+// filterActiveOverlay — expired overlays vanish centrally (consumers fall
+// back to the in-code baseline), matured tactical lines are dropped even
+// while longer-horizon stances live on.
+
+import { filterActiveOverlay } from "../overlay-provenance.js";
 
 export const CRO_STRATEGY_OVERRIDE_KV_KEY = "cro:tactical_overrides";
 
@@ -228,7 +235,9 @@ export async function loadStrategyOverrideCache(env, { force = false } = {}) {
   if (!kv) return _overrideCache;
   try {
     const raw = await kv.get(CRO_STRATEGY_OVERRIDE_KV_KEY);
-    _overrideCache = raw ? parseStrategyOverrideBlob(JSON.parse(raw)) : null;
+    // C3 — central expiry: an expired overlay reads as null everywhere.
+    const active = raw ? filterActiveOverlay(JSON.parse(raw), now) : null;
+    _overrideCache = active ? parseStrategyOverrideBlob(active) : null;
     _overrideLoadedAt = now;
   } catch (_) {
     _overrideCache = null;
