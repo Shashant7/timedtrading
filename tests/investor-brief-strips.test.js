@@ -42,4 +42,12 @@ describe("Investor brief strip helpers", () => {
     expect(lane.formatInvestorActionAgo(3 * 86400000)).toBe("3d ago");
     expect(lane.formatInvestorActionAgo(45 * 60000)).toBe("45m ago");
   });
+
+  it("classifies buy-side lot actions for chip tinting", () => {
+    expect(lane.isInvestorBuySideLotAction("BUY")).toBe(true);
+    expect(lane.isInvestorBuySideLotAction("DCA_BUY")).toBe(true);
+    expect(lane.isInvestorBuySideLotAction("ADD")).toBe(true);
+    expect(lane.isInvestorBuySideLotAction("SELL")).toBe(false);
+    expect(lane.isInvestorBuySideLotAction("TRIM")).toBe(false);
+  });
 });
