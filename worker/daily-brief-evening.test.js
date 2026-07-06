@@ -6,6 +6,9 @@ import {
   patchBriefIndexDayPctProse,
   formatIndexSessionGroundTruthBlock,
   priorRthCloseFromPriceFeedRow,
+  formatBriefInvestorActionsBlock,
+  formatBriefInvestorLotLine,
+  buildBriefUniverseMovers,
 } from "./daily-brief.js";
 
 describe("buildPremarketGapContext session window", () => {
@@ -75,5 +78,62 @@ describe("formatIndexSessionGroundTruthBlock", () => {
     expect(block).toMatch(/GROUND TRUTH/);
     expect(block).toContain("SPY: +0.78%");
     expect(block).toContain("QQQ: +1.70%");
+  });
+});
+
+describe("formatBriefInvestorActionsBlock", () => {
+  it("lists every investor lot fill for Model Actions Today", () => {
+    const lots = [
+      { ticker: "PLTR", action: "BUY", shares: 120, price: 142.5, reason: "ACCUMULATE" },
+      { ticker: "ANET", action: "BUY", shares: 40, price: 118.2, reason: "ACCUMULATE" },
+      { ticker: "TJX", action: "DCA_BUY", shares: 25, price: 132.8, reason: "ADD_ON" },
+    ];
+    const block = formatBriefInvestorActionsBlock(lots);
+    expect(block).toContain("PLTR BUY");
+    expect(block).toContain("ANET BUY");
+    expect(block).toContain("TJX DCA_BUY");
+    expect(block).not.toMatch(/no investor lot actions/i);
+  });
+
+  it("formatBriefInvestorLotLine includes shares, price, and reason", () => {
+    const line = formatBriefInvestorLotLine({
+      ticker: "PLTR",
+      action: "BUY",
+      shares: 120,
+      price: 142.5,
+      reason: "ACCUMULATE",
+    });
+    expect(line).toBe("PLTR BUY 120 sh @ $142.50 (ACCUMULATE)");
+  });
+});
+
+describe("buildBriefUniverseMovers", () => {
+  it("prefers timed:all micro cache for RTH movers (Today page parity)", async () => {
+    const env = {
+      KV_TIMED: {
+        async get(key) {
+          if (key !== "timed:all:micro:v3:admin:full") return null;
+          return JSON.stringify({
+            data: {
+              IOT: { ticker: "IOT", day_change_pct: 12.4, price: 52.1 },
+              QYLS: { ticker: "QYLS", day_change_pct: 11.2, price: 18.3 },
+              TENB: { ticker: "TENB", day_change_pct: 10.8, price: 44.6 },
+              IREN: { ticker: "IREN", day_change_pct: 10.1, price: 9.7 },
+              RBRK: { ticker: "RBRK", day_change_pct: 9.5, price: 62.0 },
+              AYI: { ticker: "AYI", day_change_pct: 3.2, price: 312.5 },
+              SPY: { ticker: "SPY", day_change_pct: 0.5, price: 600 },
+            },
+          });
+        },
+      },
+    };
+    const movers = await buildBriefUniverseMovers(env, {}, true);
+    expect(movers).toContain("IOT");
+    expect(movers).toContain("QYLS");
+    expect(movers).toContain("TENB");
+    expect(movers).toContain("IREN");
+    expect(movers).toContain("RBRK");
+    expect(movers).toContain("Gainers:");
+    expect(movers).not.toContain("SPY");
   });
 });

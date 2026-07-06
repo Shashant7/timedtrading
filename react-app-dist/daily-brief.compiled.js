@@ -853,7 +853,7 @@ function BriefCard({
   }), !isMorning && brief.croNote && React.createElement(CRODeskWrapPanel, {
     croNote: brief.croNote,
     accentColor: accentColor
-  }), React.createElement(IndexOutlookSection, {
+  }), isMorning && React.createElement(IndexOutlookSection, {
     brief: brief,
     accentColor: accentColor,
     bgDim: bgDim,
@@ -2744,6 +2744,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783370222459:533053837
+// cache-bust:1783372735310:824211437
 
-// cache-bust:1783370222459:533053837
+// cache-bust:1783372735310:824211437
