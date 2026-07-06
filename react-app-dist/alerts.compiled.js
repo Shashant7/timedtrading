@@ -179,7 +179,7 @@ function AlertCard({
     className: "font-semibold text-[#d4a017]"
   }, meta.trimmed_pct, "%") : qty_pct_delta ? React.createElement("span", {
     className: "font-semibold text-[#d4a017]"
-  }, Math.abs(Number(qty_pct_delta)).toFixed(0), "%") : null, React.createElement("span", null, fmtPrice(entry_price), " \u2192 ", fmtPrice(price || meta.current_price || meta.trim_price)), (pnl_realized != null || meta.pnl_pct != null) && React.createElement("span", {
+  }, Math.abs(Number(qty_pct_delta) * 100).toFixed(0), "%") : null, React.createElement("span", null, fmtPrice(entry_price), " \u2192 ", fmtPrice(price || meta.current_price || meta.trim_price)), (pnl_realized != null || meta.pnl_pct != null) && React.createElement("span", {
     className: Number(pnl_realized || meta.pnl_pct || 0) >= 0 ? "text-[#4ade80]" : "text-[#f87171]"
   }, meta.pnl_pct != null ? fmtPct(meta.pnl_pct) : fmtUsd(pnl_realized)), meta.remaining_pct != null && React.createElement("span", {
     className: "text-[#374151]"
@@ -813,6 +813,6 @@ try {
 } catch (error) {
   console.error("Error rendering Alerts app:", error);
 }
-// cache-bust:1783311167165:753004248
+// cache-bust:1783349555048:97428658
 
-// cache-bust:1783311167165:753004248
+// cache-bust:1783349555048:97428658

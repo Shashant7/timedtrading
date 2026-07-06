@@ -56,6 +56,28 @@ describe("module contracts", () => {
     }
   });
 
+  it("worker/trade-trim-display.js exposes trim economics helpers", async () => {
+    const mod = await import("../worker/trade-trim-display.js");
+    for (const fn of [
+      "formatTrimDeltaPct",
+      "buildTrimEconomicsSummary",
+      "isPhantomTrimRealized",
+    ]) {
+      expect(typeof mod[fn], `expected exported function ${fn}`).toBe("function");
+    }
+  });
+
+  it("worker/runner-stale-policy.js exposes stale fuse helpers", async () => {
+    const mod = await import("../worker/runner-stale-policy.js");
+    for (const fn of [
+      "ratchetRunnerPeak",
+      "runnerStaleAnchorMs",
+      "assessRunnerStaleDefer",
+    ]) {
+      expect(typeof mod[fn], `expected exported function ${fn}`).toBe("function");
+    }
+  });
+
   it("worker/sanity-sweep.js exposes the cron + endpoint helpers", async () => {
     const mod = await import("../worker/sanity-sweep.js");
     for (const fn of [

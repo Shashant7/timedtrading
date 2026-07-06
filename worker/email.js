@@ -3,6 +3,11 @@
 
 import { optionsPlayEmailHtml } from "./options-plays.js";
 import { buildSignal, renderEmailSubject } from "./signal-grammar.js";
+import {
+  buildTrimEconomicsSummary,
+  formatTrimDeltaPct,
+  formatTrimTotalPct,
+} from "./trade-trim-display.js";
 
 // 2026-06-22 — Email-specific brief cleanup.
 //
@@ -1130,10 +1135,12 @@ function _fmtEtClock(ts) {
 // profit-take that fed into the realized P&L.
 //
 // Returns null when there is no DB binding, no trade_id, or no trims found.
-async function _fetchTradeTrims(env, tradeId, direction, entry) {
+async function _fetchTradeTrims(env, tradeId, direction, entry, shares) {
   const db = env?.DB;
   if (!db || !tradeId) return null;
   let rows = [];
+  let entryShares = Number(shares);
+  let trimmedPct = null;
   try {
     const res = await db
       .prepare(
@@ -1145,43 +1152,38 @@ async function _fetchTradeTrims(env, tradeId, direction, entry) {
       .bind(String(tradeId))
       .all();
     rows = (res && res.results) || [];
+    if (!Number.isFinite(entryShares) || entryShares <= 0) {
+      const tradeRow = await db
+        .prepare(
+          `SELECT shares, trimmed_pct FROM trades WHERE trade_id = ?1 LIMIT 1`,
+        )
+        .bind(String(tradeId))
+        .first();
+      entryShares = Number(tradeRow?.shares);
+      trimmedPct = Number(tradeRow?.trimmed_pct);
+      if (Number.isFinite(trimmedPct) && trimmedPct > 1) trimmedPct = trimmedPct / 100;
+    }
   } catch (_) {
     return null;
   }
   if (!rows.length) return null;
 
-  const isLong = String(direction || "").toUpperCase() !== "SHORT";
-  const entryPx = Number(entry);
-  const hasEntry = Number.isFinite(entryPx) && entryPx > 0;
-  let totalRealized = 0;
-  let anyRealized = false;
+  const rawTrims = rows.map((r) => ({
+    ts: Number(r.ts),
+    price: Number.isFinite(Number(r.price)) ? Number(r.price) : null,
+    deltaPct: Number.isFinite(Number(r.qty_pct_delta)) ? Number(r.qty_pct_delta) : null,
+    totalPct: Number.isFinite(Number(r.qty_pct_total)) ? Number(r.qty_pct_total) : null,
+    realized: Number.isFinite(Number(r.pnl_realized)) ? Number(r.pnl_realized) : null,
+    reason: r.reason || null,
+  }));
 
-  const trims = rows.map((r) => {
-    const px = Number(r.price);
-    const deltaPct = Number(r.qty_pct_delta);
-    const totalPct = Number(r.qty_pct_total);
-    const realized = Number(r.pnl_realized);
-    if (Number.isFinite(realized)) {
-      totalRealized += realized;
-      anyRealized = true;
-    }
-    // Gain vs entry for this fill (direction-aware).
-    let gainPct = null;
-    if (hasEntry && Number.isFinite(px) && px > 0) {
-      gainPct = ((px - entryPx) / entryPx) * 100 * (isLong ? 1 : -1);
-    }
-    return {
-      ts: Number(r.ts),
-      price: Number.isFinite(px) ? px : null,
-      deltaPct: Number.isFinite(deltaPct) ? deltaPct : null,
-      totalPct: Number.isFinite(totalPct) ? totalPct : null,
-      realized: Number.isFinite(realized) ? realized : null,
-      gainPct,
-      reason: r.reason || null,
-    };
+  return buildTrimEconomicsSummary({
+    trims: rawTrims,
+    entryPrice: entry,
+    entryShares,
+    direction,
+    dropNoOps: true,
   });
-
-  return { trims, totalRealized: anyRealized ? totalRealized : null };
 }
 
 // Render a labelled section (DiscordEmbed-style: bold label, value beneath)
@@ -1312,15 +1314,17 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   let exitTrimsSection = "";
   let exitTrimData = null;
   if (isExit) {
-    const trimData = await _fetchTradeTrims(env, trade_id, direction, entry);
+    const trimData = await _fetchTradeTrims(env, trade_id, direction, entry, shares);
     exitTrimData = trimData;
     if (trimData && trimData.trims.length > 0) {
       const rowsHtml = trimData.trims.map((t, i) => {
         const when = _fmtEtClock(t.ts);
         const pxStr = t.price != null ? `$${t.price.toFixed(2)}` : "—";
-        const sizeStr = t.deltaPct != null
-          ? `${Math.round(t.deltaPct)}%`
-          : (t.totalPct != null ? `to ${Math.round(t.totalPct)}%` : "");
+        const sizeStr = t.deltaPctLabel
+          || formatTrimDeltaPct(t.deltaPct)
+          || t.totalPctLabel
+          || formatTrimTotalPct(t.totalPct)
+          || "";
         const gainStr = t.gainPct != null
           ? `<span style="color:${t.gainPct >= 0 ? "#10b981" : "#f43f5e"}">${t.gainPct >= 0 ? "+" : ""}${t.gainPct.toFixed(2)}% vs entry</span>`
           : "";
@@ -1612,7 +1616,11 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     _txtParts.push("", "Trims along the way:");
     exitTrimData.trims.forEach((t, i) => {
       const pxStr = t.price != null ? `$${t.price.toFixed(2)}` : "—";
-      const sizeStr = t.deltaPct != null ? ` (${Math.round(t.deltaPct)}%)` : (t.totalPct != null ? ` (to ${Math.round(t.totalPct)}%)` : "");
+      const sizeStr = t.deltaPctLabel
+        ? ` (${t.deltaPctLabel})`
+        : formatTrimDeltaPct(t.deltaPct)
+          ? ` (${formatTrimDeltaPct(t.deltaPct)})`
+          : (t.totalPctLabel ? ` (${t.totalPctLabel})` : (formatTrimTotalPct(t.totalPct) ? ` (${formatTrimTotalPct(t.totalPct)})` : ""));
       const gainStr = t.gainPct != null ? ` · ${t.gainPct >= 0 ? "+" : ""}${t.gainPct.toFixed(2)}% vs entry` : "";
       const realizedStr = t.realized != null ? ` · ${t.realized >= 0 ? "+" : "-"}$${Math.abs(t.realized).toFixed(2)}` : "";
       _txtParts.push(`  Trim ${i + 1}${sizeStr} @ ${pxStr}${gainStr}${realizedStr}`);

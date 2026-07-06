@@ -206,7 +206,7 @@
               {type === "TRIM" && (
                 <div className="flex items-center gap-3 text-[11px] text-[#6b7280] tabular-nums">
                   {meta.trimmed_pct ? <span className="font-semibold text-[#d4a017]">{meta.trimmed_pct}%</span>
-                    : qty_pct_delta ? <span className="font-semibold text-[#d4a017]">{Math.abs(Number(qty_pct_delta)).toFixed(0)}%</span>
+                    : qty_pct_delta ? <span className="font-semibold text-[#d4a017]">{Math.abs(Number(qty_pct_delta) * 100).toFixed(0)}%</span>
                     : null}
                   <span>{fmtPrice(entry_price)} → {fmtPrice(price || meta.current_price || meta.trim_price)}</span>
                   {(pnl_realized != null || meta.pnl_pct != null) && (
