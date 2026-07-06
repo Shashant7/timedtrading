@@ -327,10 +327,12 @@
       /* Ready cards reuse the shared TTLaneCard chrome (logo + symbol + big
          price + change + spark wash), but expand the mid-height so the
          zone bars (INV / PB / TGT per active lane) fit cleanly. */
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card{flex:0 0 268px;scroll-snap-align:start;height:auto;min-height:0;max-height:none}",
+      ".ds-tickercard.tt-lane-card.tt-ready-lane-card{flex:0 0 268px;scroll-snap-align:start;height:auto;min-height:0;max-height:none;width:268px;box-sizing:border-box}",
       ".ds-tickercard.tt-lane-card.tt-ready-lane-card--single{--tt-lane-card-h:auto;--tt-lane-mid-h:auto;--tt-lane-chips-h:auto}",
       ".ds-tickercard.tt-lane-card.tt-ready-lane-card--dual{--tt-lane-card-h:auto;--tt-lane-mid-h:auto;--tt-lane-chips-h:auto}",
       ".ds-tickercard.tt-lane-card.tt-ready-lane-card .tt-lane-card__mid{flex:0 0 auto;height:auto;min-height:0;max-height:none;overflow:visible;padding-top:6px}",
+      ".ds-tickercard.tt-lane-card.tt-ready-lane-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap}",
+      ".ds-tickercard.tt-lane-card.tt-ready-lane-card .tt-lane-card__meta{min-width:0;flex:1 1 auto}",
       ".tt-ready-card__blocker{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start;margin-top:4px}",
       ".tt-ready-card__conf{font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:5px;background:rgba(167,139,250,.10);color:#c4b5fd;border:1px solid rgba(167,139,250,.22);white-space:nowrap;font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-ready-word{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:9px;letter-spacing:.05em;padding:2px 7px;border-radius:5px;white-space:nowrap;line-height:1.2}",
@@ -352,7 +354,7 @@
       ".tt-ready-zone__labels span:nth-child(1){color:#fca5a5}",
       ".tt-ready-zone__labels span:nth-child(2){color:#6ee7b7}",
       ".tt-ready-zone__labels span:nth-child(3){color:#fcd34d}",
-      ".tt-ready-zone__track{position:relative;height:6px;border-radius:999px;overflow:hidden;background:var(--ds-bg-glass,rgba(255,255,255,.04));border:1px solid var(--ds-stroke,rgba(255,255,255,.07))}",
+      ".tt-ready-zone__track{position:relative;height:8px;border-radius:999px;overflow:hidden;background:var(--ds-bg-glass,rgba(255,255,255,.04));border:1px solid var(--ds-stroke,rgba(255,255,255,.07))}",
       ".tt-ready-zone__seg{position:absolute;top:0;bottom:0}",
       ".tt-ready-zone__seg--inv{background:rgba(248,113,113,.72)}",
       ".tt-ready-zone__seg--pb{background:rgba(56,242,161,.62)}",
@@ -663,7 +665,6 @@
       if (sectorState === "risk_on") { confluence.push({ label: "Risk-On", weight: 15 }); conflScore += 15; }
       var invScore = Number(t.investor_score);
       if (Number.isFinite(invScore) && invScore >= 70) {
-        confluence.push({ label: "Investor " + Math.round(invScore), weight: 20 });
         conflScore += 20;
       }
       var tierLabel = String(t.tier_label || "").toUpperCase();
@@ -672,10 +673,8 @@
         conflScore += 20;
       }
       if (rankNum != null && rankNum <= 20) {
-        confluence.push({ label: "Top " + rankNum, weight: 20 });
         conflScore += 20;
       } else if (rankNum != null && rankNum <= 50) {
-        confluence.push({ label: "Rank " + rankNum, weight: 10 });
         conflScore += 10;
       }
       if (flags.sq30_release) { confluence.push({ label: "Squeeze Release", weight: 15 }); conflScore += 15; }
@@ -1258,7 +1257,7 @@
             laneNames.forEach(function (l, i) {
               chipRow.push(h(LaneBadge, { key: "lane-" + l + "-" + i, lane: l }));
             });
-            confluence.slice(0, 2).forEach(function (c) {
+            confluence.slice(0, 1).forEach(function (c) {
               chipRow.push(h("span", {
                 key: "conf-" + c.label,
                 className: "tt-ready-card__conf",
@@ -1487,4 +1486,4 @@
   };
 })();
 
-// cache-bust:1783362802025:200460806
+// cache-bust:1783363675205:655541339
