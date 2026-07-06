@@ -848,6 +848,90 @@ input, button, select, textarea {
 .tt-zone-bar__meta--tagged {
   align-items: center;
 }
+.tt-zone-plan--compact {
+  margin-top: 0;
+}
+.tt-zone-plan__bar {
+  margin-top: 0;
+}
+.tt-zone-plan__shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.tt-zone-plan__shade--inv { background: rgba(248, 113, 113, 0.20); }
+.tt-zone-plan__shade--pb { background: rgba(56, 242, 161, 0.16); }
+.tt-zone-plan__shade--tgt { background: rgba(245, 194, 92, 0.16); }
+.tt-zone-plan__fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  z-index: 1;
+  pointer-events: none;
+}
+.tt-zone-plan__tick {
+  position: absolute;
+  top: -8px;
+  bottom: -8px;
+  width: 12px;
+  transform: translateX(-6px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: help;
+  z-index: 2;
+}
+.tt-zone-plan__tick-line {
+  width: 2px;
+  height: calc(100% - 8px);
+}
+.tt-zone-plan__tick-label {
+  position: absolute;
+  transform: translateX(-50%);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: help;
+}
+.tt-zone-plan__dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ds-accent);
+  box-shadow: 0 0 0 2px var(--ds-bg-surface), 0 0 0 3px var(--ds-accent-glow, rgba(56, 242, 161, 0.40));
+  cursor: help;
+  z-index: 3;
+}
+/* Strip cards — match Viewport chip density (9px, tight padding). */
+.tt-strip-card .tt-lane-card__chips .ds-chip,
+.tt-strip-card .tt-lane-card__chips .tt-lane-badge {
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  max-height: 16px;
+}
+.tt-strip-card .tt-lane-badge {
+  margin-left: 0;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.tt-strip-card .tt-lane-badge--trader {
+  background: rgba(96, 165, 250, 0.12);
+  border-color: rgba(96, 165, 250, 0.28);
+  color: #60a5fa;
+}
+.tt-strip-card .tt-lane-badge--investor {
+  background: rgba(192, 132, 252, 0.12);
+  border-color: rgba(192, 132, 252, 0.28);
+  color: #c084fc;
+}
 .tt-lane-card__pos {
   display: flex;
   align-items: center;

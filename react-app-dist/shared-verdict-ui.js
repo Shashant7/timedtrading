@@ -321,6 +321,7 @@
       ".tt-ready__head{margin-bottom:8px}",
       ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:4px 0 0}",
       ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin:6px 0 0;max-width:52em}",
+      ".tt-universe-panel .tt-ready__sub{max-width:none}",
       ".tt-ready-scroll{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:thin;-webkit-overflow-scrolling:touch}",
       ".tt-ready-scroll::-webkit-scrollbar{height:6px}",
       ".tt-ready-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}",
@@ -329,7 +330,11 @@
       ".tt-strip-card .ds-tickercard.tt-lane-card{width:100%!important;flex:0 0 auto;min-height:118px;height:auto;max-height:none}",
       ".tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--active,.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--owned{--tt-lane-card-h:auto;--tt-lane-mid-h:auto}",
       ".tt-strip-card .tt-lane-card__mid{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;padding-top:4px}",
-      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap}",
+      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap;gap:3px 4px}",
+      ".tt-strip-card .tt-lane-card__chips .ds-chip,.tt-strip-card .tt-lane-card__chips .tt-lane-badge{padding:1px 6px;font-size:9px;font-weight:700;letter-spacing:.04em;line-height:1.15;max-height:16px}",
+      ".tt-strip-card .tt-lane-badge{margin-left:0;border-radius:999px;border:1px solid transparent}",
+      ".tt-strip-card .tt-lane-badge--trader{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.28);color:#60a5fa}",
+      ".tt-strip-card .tt-lane-badge--investor{background:rgba(192,132,252,.12);border-color:rgba(192,132,252,.28);color:#c084fc}",
       ".tt-strip-card__foot{display:flex;flex-direction:column;gap:4px;padding:6px 6px 2px;min-width:0;border-top:1px dashed rgba(255,255,255,.06)}",
       ".tt-strip-card__hint{margin:0;font-size:10.5px;line-height:1.4;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-zone-bar{margin-top:2px}",
@@ -338,20 +343,9 @@
       ".tt-zone-bar__lane{padding:1px 5px;border-radius:4px;font-size:8px;letter-spacing:.06em}",
       ".tt-zone-bar__lane--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
       ".tt-zone-bar__lane--investor{background:rgba(192,132,252,.15);color:#c084fc}",
-      ".tt-zone-bar__labels{display:flex;justify-content:space-between;gap:4px;font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:2px}",
-      ".tt-zone-bar__labels span:nth-child(1){color:#fca5a5}",
-      ".tt-zone-bar__labels span:nth-child(2){color:#6ee7b7}",
-      ".tt-zone-bar__labels span:nth-child(3){color:#fcd34d}",
-      ".tt-zone-bar__track{position:relative;height:8px;border-radius:999px;overflow:hidden;background:var(--ds-bg-glass,rgba(255,255,255,.04));border:1px solid var(--ds-stroke,rgba(255,255,255,.07))}",
-      ".tt-zone-bar__seg{position:absolute;top:0;bottom:0}",
-      ".tt-zone-bar__seg--inv{background:rgba(248,113,113,.72)}",
-      ".tt-zone-bar__seg--pb{background:rgba(56,242,161,.62)}",
-      ".tt-zone-bar__seg--tgt{background:rgba(245,194,92,.68)}",
-      ".tt-zone-bar__marker{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--ds-text-body,#e5e7eb);box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%);z-index:2}",
       ".tt-zone-bar__meta{display:flex;flex-wrap:wrap;gap:4px 10px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:9.5px;color:var(--ds-text-body,#e5e7eb);font-weight:600}",
       ".tt-zone-bar__meta--tagged{gap:4px 8px}",
       ".tt-zone-bar__prob{color:var(--ds-accent,#38f2a1);font-weight:700}",
-      ".tt-zone-bar--compact .tt-zone-bar__track{margin-top:0}",
       ".tt-ready-card__blocker{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
@@ -1187,7 +1181,7 @@
         h("h2", { className: "tt-ready__title" }, "What the model would act on today"),
         h("p", { className: "tt-ready__sub" },
           embedded
-            ? "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. ACCUMULATE / SCALE IN / BUY labels reflect zone position, not a market-order signal."
+            ? "Top 10 primed names — technical trigger plus sector, fundamentals, and momentum confluence. Zone labels (ACCUMULATE, SCALE IN, BUY) reflect positioning, not market orders."
             : "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. Labels reflect lane + zone: BUY NOW (trader entry), BUY (live buy zone), SCALE IN / ACCUMULATE (investor thesis — add on dips, not chase).",
         ),
       );
@@ -1462,4 +1456,4 @@
   };
 })();
 
-// cache-bust:1783369020464:288945902
+// cache-bust:1783370222459:533053837

@@ -112,7 +112,7 @@
     return `$${v.toFixed(v >= 100 ? 0 : 2)}`;
   }
 
-  /** INV / PB / TGT track only — lives on the lane card mid section. */
+  /** INV / PB / TGT plan bar — Active Trader position-track styling with zone shading. */
   function zoneBarTrack(zm, opts) {
     opts = opts || {};
     if (!zm || typeof zm.pct !== "function") return null;
@@ -122,37 +122,77 @@
     const pbLoPct = zm.pct(pbLo);
     const pbHiPct = zm.pct(pbHi);
     const pricePct = zm.pct(zm.price);
+    const invPct = zm.pct(zm.inv);
+    const tgtPct = zm.pct(zm.tgt);
+    const pbMid = (Number(pbLo) + Number(pbHi)) / 2;
+    const pbMidPct = zm.pct(pbMid);
     const laneLabel = zm.lane === "investor" ? "INVESTOR" : zm.lane === "trader" ? "TRADER" : null;
-    return h("div", { className: "tt-zone-bar" + (compact ? " tt-zone-bar--compact" : "") },
+
+    const ticks = [
+      { pct: invPct, label: "INV", color: "var(--ds-dn)", px: zm.inv },
+      { pct: pbMidPct, label: "PB", color: "var(--ds-up)", px: pbMid },
+      { pct: tgtPct, label: "TGT", color: "var(--ds-accent)", px: zm.tgt },
+    ].sort((a, b) => a.pct - b.pct);
+
+    const fillStart = Math.min(pbMidPct, pricePct);
+    const fillW = Math.abs(pricePct - pbMidPct);
+    const fillBg = pricePct >= pbLoPct && pricePct <= pbHiPct
+      ? "var(--ds-up-bg)"
+      : pricePct > pbHiPct
+        ? "rgba(245,194,92,0.14)"
+        : "var(--ds-dn-bg)";
+
+    return h("div", { className: "tt-zone-plan" + (compact ? " tt-zone-plan--compact" : "") },
       !compact && laneLabel && h("div", { className: "tt-zone-bar__lane-row" },
         h("span", {
           className: "tt-zone-bar__lane tt-zone-bar__lane--" + (zm.lane === "investor" ? "investor" : "trader"),
         }, laneLabel),
         h("span", null, opts.planLabel || (zm.lane === "investor" ? "Buy zone plan" : "Trader plan")),
       ),
-      !compact && h("div", { className: "tt-zone-bar__labels" },
-        h("span", null, "Invalidation"),
-        h("span", null, "Pullback"),
-        h("span", null, "Target"),
-      ),
-      h("div", { className: "tt-zone-bar__track", title: opts.trackTitle || "Invalidation, pullback band, and target." },
-        h("div", {
-          className: "tt-zone-bar__seg tt-zone-bar__seg--inv",
-          style: { left: "0%", width: `${pbLoPct}%` },
-        }),
-        h("div", {
-          className: "tt-zone-bar__seg tt-zone-bar__seg--pb",
-          style: { left: `${pbLoPct}%`, width: `${Math.max(0, pbHiPct - pbLoPct)}%` },
-        }),
-        h("div", {
-          className: "tt-zone-bar__seg tt-zone-bar__seg--tgt",
-          style: { left: `${pbHiPct}%`, width: `${Math.max(0, 100 - pbHiPct)}%` },
-        }),
-        h("div", {
-          className: "tt-zone-bar__marker",
-          style: { left: `${pricePct}%` },
-          title: `Live ${fmtZonePx(zm.price)}`,
-        }),
+      h("div", { className: "tt-lane-card__position tt-zone-plan__bar" },
+        h("div", { className: "tt-lane-card__pos-track" },
+          h("div", {
+            className: "tt-zone-plan__shade tt-zone-plan__shade--inv",
+            style: { left: "0%", width: `${pbLoPct}%` },
+          }),
+          h("div", {
+            className: "tt-zone-plan__shade tt-zone-plan__shade--pb",
+            style: { left: `${pbLoPct}%`, width: `${Math.max(0, pbHiPct - pbLoPct)}%` },
+          }),
+          h("div", {
+            className: "tt-zone-plan__shade tt-zone-plan__shade--tgt",
+            style: { left: `${pbHiPct}%`, width: `${Math.max(0, 100 - pbHiPct)}%` },
+          }),
+          fillW > 0.4 && h("div", {
+            className: "tt-zone-plan__fill",
+            style: {
+              left: `${fillStart}%`,
+              width: `${fillW}%`,
+              background: fillBg,
+            },
+          }),
+          ...ticks.map((tick, i) => h("div", {
+            key: "tick-" + i,
+            className: "tt-zone-plan__tick",
+            style: { left: `${tick.pct}%` },
+            title: `${tick.label}: ${fmtZonePx(tick.px)}`,
+          },
+            h("div", { className: "tt-zone-plan__tick-line", style: { background: tick.color } }),
+          )),
+          h("div", {
+            className: "tt-zone-plan__dot",
+            style: { left: `${pricePct}%` },
+            title: `Live ${fmtZonePx(zm.price)}`,
+          }),
+        ),
+        h("div", { className: "tt-lane-card__pos-labels" },
+          ...ticks.map((tick, i) => h("span", {
+            key: "lbl-" + i,
+            className: "tt-zone-plan__tick-label",
+            style: { left: `${tick.pct}%`, color: tick.color },
+            title: `${tick.label}: ${fmtZonePx(tick.px)}`,
+          }, tick.label)),
+        ),
       ),
     );
   }
@@ -286,4 +326,4 @@
   boot();
 })();
 
-// cache-bust:1783369020464:288945902
+// cache-bust:1783370222459:533053837
