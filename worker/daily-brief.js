@@ -4476,6 +4476,13 @@ async function callOpenAI(env, systemPrompt, userPrompt, { type = "morning" } = 
 
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
+    if (resp.status === 429) {
+      const lower = errText.toLowerCase();
+      if (lower.includes("insufficient_quota") || lower.includes("exceeded your current quota")) {
+        throw new Error("openai_quota_exceeded");
+      }
+      throw new Error("openai_rate_limited");
+    }
     throw new Error(`OpenAI ${resp.status}: ${errText.slice(0, 200)}`);
   }
 

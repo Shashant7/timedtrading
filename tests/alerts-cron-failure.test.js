@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { recordCronFailure, cronErrorSignature, cronErrorSeverityBand } from "../worker/alerts.js";
+import { recordCronFailure, cronErrorSignature, cronErrorSeverityBand, isOpenAiQuotaError, normalizeBriefCronError } from "../worker/alerts.js";
 
 describe("recordCronFailure discord dedup", () => {
   let kvStore;
@@ -120,6 +120,24 @@ describe("recordCronFailure discord dedup", () => {
     expect(discordCalls).toBe(0);
     const tomb = JSON.parse(kvStore.get("timed:cron:failure:freshness_quarantine_NVDA"));
     expect(tomb.count).toBe(1);
+  });
+
+  it("normalizeBriefCronError marks OpenAI quota as degraded and skipDiscord", async () => {
+    const raw = 'OpenAI 429: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.';
+    const norm = normalizeBriefCronError(raw);
+    expect(norm.degraded).toBe(true);
+    expect(norm.skipDiscord).toBe(true);
+    expect(norm.error).toMatch(/openai_quota_exceeded/i);
+    expect(isOpenAiQuotaError(raw)).toBe(true);
+
+    const env = makeEnv();
+    await recordCronFailure(env, {
+      op: "intraday_flash",
+      error: norm.error,
+      caller: "scheduled_event",
+      skipDiscord: norm.skipDiscord,
+    });
+    expect(discordCalls).toBe(0);
   });
 });
 
