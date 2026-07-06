@@ -798,11 +798,18 @@
       var tv = String((data.trader && data.trader.verdict) || "WAIT").toUpperCase();
       var shortLine = TRADER_PLAY[tv] || TRADER_PLAY.WAIT;
 
-      // Long-term (investor) horizon — label + plain line from the fresh stage.
+      // Long-term (investor) horizon — resolve to the kanban lane the Investor
+      // page shows so an UNOWNED watch/core_hold demotes to On Radar (matches
+      // resolveInvestorKanbanStage in shared-rail-helpers / investor-panel).
       var invStage = String((props.investorData && props.investorData.stage) || payload.investor_stage || payload.investorStage || "").toLowerCase();
-      if (props.investorData && window.TimedRailHelpers && window.TimedRailHelpers.resolveInvestorKanbanStage) {
-        var kanbanStage = window.TimedRailHelpers.resolveInvestorKanbanStage(props.investorData);
-        if (kanbanStage === "accumulate_queued" || kanbanStage === "accumulate_entered") invStage = kanbanStage;
+      var invOwned = !!(props.investorData && props.investorData.position && props.investorData.position.owned);
+      if (window.TimedRailHelpers && window.TimedRailHelpers.resolveInvestorKanbanStage) {
+        var kanbanRow = props.investorData || { stage: invStage };
+        var kanbanStage = window.TimedRailHelpers.resolveInvestorKanbanStage(kanbanRow);
+        if (kanbanStage) invStage = kanbanStage;
+      } else if (!invOwned) {
+        if (invStage === "watch" || invStage === "core_hold") invStage = "research_on_watch";
+        else if (invStage === "reduce") invStage = "research_low";
       }
       var play = investorStagePlay(invStage);
       var iv = String((data.investor && data.investor.verdict) || "WAIT").toUpperCase();
@@ -1099,4 +1106,4 @@
   };
 })();
 
-// cache-bust:1783350500579:944421788
+// cache-bust:1783355839515:484002027

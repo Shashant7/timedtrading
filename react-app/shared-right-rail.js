@@ -8626,11 +8626,14 @@
                     } : {}),
                   }}
                 >
-                  {/* Verdict playbook — Now tab only. It scans both lanes +
-                      fresh levels into one short-term/long-term read; other
-                      tabs (Chart, Trade, Options, Invest, Context) have their
+                  {/* Verdict playbook — Now + Invest tabs. It scans both lanes +
+                      fresh levels into one short-term/long-term read; the
+                      Invest tab shows the same guide so the coherent verdict
+                      is visible when arriving from the Investor page (which
+                      deep-links to railTab=INVESTOR).
+                      Other tabs (Chart, Trade, Options, Context) have their
                       own purpose-built content and must not carry it. */}
-                  {window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && (
+                  {window._ttIsPro && VerdictGuideBlock && (v2RailTab === "SNAPSHOT" || v2RailTab === "INVESTOR") && (
                     <VerdictGuideBlock
                       ticker={tickerSymbol}
                       data={phaseDVerdict}
