@@ -324,46 +324,35 @@
       ".tt-ready-scroll{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:thin;-webkit-overflow-scrolling:touch}",
       ".tt-ready-scroll::-webkit-scrollbar{height:6px}",
       ".tt-ready-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}",
-      /* Ready cards reuse the shared TTLaneCard chrome (logo + symbol + big
-         price + change + spark wash), but expand the mid-height so the
-         zone bars (INV / PB / TGT per active lane) fit cleanly. */
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card{flex:0 0 268px;scroll-snap-align:start;height:auto;min-height:0;max-height:none;width:268px;box-sizing:border-box}",
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card--single{--tt-lane-card-h:auto;--tt-lane-mid-h:auto;--tt-lane-chips-h:auto}",
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card--dual{--tt-lane-card-h:auto;--tt-lane-mid-h:auto;--tt-lane-chips-h:auto}",
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card .tt-lane-card__mid{flex:0 0 auto;height:auto;min-height:0;max-height:none;overflow:visible;padding-top:6px}",
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap}",
-      ".ds-tickercard.tt-lane-card.tt-ready-lane-card .tt-lane-card__meta{min-width:0;flex:1 1 auto}",
-      ".tt-ready-card__blocker{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start;margin-top:4px}",
-      ".tt-ready-card__conf{font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:5px;background:rgba(167,139,250,.10);color:#c4b5fd;border:1px solid rgba(167,139,250,.22);white-space:nowrap;font-family:var(--tt-font-mono,ui-monospace,monospace)}",
-      ".tt-ready-word{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:9px;letter-spacing:.05em;padding:2px 7px;border-radius:5px;white-space:nowrap;line-height:1.2}",
-      ".tt-ready-word__dot{width:5px;height:5px;border-radius:50%;background:currentColor}",
-      ".tt-ready-word--buy{background:var(--ds-up-bg,rgba(52,211,153,.14));color:var(--ds-up,#34d399)}",
-      ".tt-ready-word--accumulate{background:rgba(96,165,250,.12);color:#60a5fa}",
-      ".tt-ready-word--queued{background:rgba(167,139,250,.12);color:#c084fc}",
-      ".tt-ready-word--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
-      ".tt-ready-card__hint{font-size:10px;line-height:1.35;color:var(--ds-text-faint,#6b7280);margin:0 0 4px}",
-      /* Zone bar — INV / PB / TGT, styled to match the Growth Ideas bar
-         but sized to fit under a ticker-card chrome. */
-      ".tt-ready-zone{margin-top:6px}",
-      ".tt-ready-zone + .tt-ready-zone{margin-top:8px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.06)}",
-      ".tt-ready-zone__row{display:flex;align-items:center;gap:6px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:3px}",
-      ".tt-ready-zone__lane{padding:1px 5px;border-radius:4px;font-size:8px;letter-spacing:.06em}",
-      ".tt-ready-zone__lane--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
-      ".tt-ready-zone__lane--investor{background:rgba(192,132,252,.15);color:#c084fc}",
-      ".tt-ready-zone__labels{display:flex;justify-content:space-between;gap:4px;font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:2px}",
-      ".tt-ready-zone__labels span:nth-child(1){color:#fca5a5}",
-      ".tt-ready-zone__labels span:nth-child(2){color:#6ee7b7}",
-      ".tt-ready-zone__labels span:nth-child(3){color:#fcd34d}",
-      ".tt-ready-zone__track{position:relative;height:8px;border-radius:999px;overflow:hidden;background:var(--ds-bg-glass,rgba(255,255,255,.04));border:1px solid var(--ds-stroke,rgba(255,255,255,.07))}",
-      ".tt-ready-zone__seg{position:absolute;top:0;bottom:0}",
-      ".tt-ready-zone__seg--inv{background:rgba(248,113,113,.72)}",
-      ".tt-ready-zone__seg--pb{background:rgba(56,242,161,.62)}",
-      ".tt-ready-zone__seg--tgt{background:rgba(245,194,92,.68)}",
-      ".tt-ready-zone__marker{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--ds-text-body,#e5e7eb);box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%);z-index:2}",
-      ".tt-ready-zone__meta{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:9.5px;color:var(--ds-text-body,#e5e7eb);font-weight:600}",
+      /* Universal strip stack — Viewport lane card + foot row (Today Ready / Growth). */
+      ".tt-strip-card{flex:0 0 280px;width:280px;max-width:280px;scroll-snap-align:start;display:flex;flex-direction:column;gap:6px;min-width:0}",
+      ".tt-strip-card .ds-tickercard.tt-lane-card{width:100%!important;flex:0 0 auto;min-height:118px;height:auto;max-height:none}",
+      ".tt-strip-card .tt-lane-card__mid{flex:0 0 auto;height:auto;min-height:0;max-height:none;overflow:visible;padding-top:4px}",
+      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap}",
+      ".tt-strip-card__foot{display:flex;flex-direction:column;gap:4px;padding:0 6px 2px;min-width:0}",
+      ".tt-strip-card__hint{margin:0;font-size:10.5px;line-height:1.4;color:var(--ds-text-muted,#9ca3af)}",
+      ".tt-zone-bar{margin-top:2px}",
+      ".tt-zone-bar + .tt-zone-bar{margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.06)}",
+      ".tt-zone-bar__lane-row{display:flex;align-items:center;gap:6px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:3px}",
+      ".tt-zone-bar__lane{padding:1px 5px;border-radius:4px;font-size:8px;letter-spacing:.06em}",
+      ".tt-zone-bar__lane--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
+      ".tt-zone-bar__lane--investor{background:rgba(192,132,252,.15);color:#c084fc}",
+      ".tt-zone-bar__labels{display:flex;justify-content:space-between;gap:4px;font-size:8px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:2px}",
+      ".tt-zone-bar__labels span:nth-child(1){color:#fca5a5}",
+      ".tt-zone-bar__labels span:nth-child(2){color:#6ee7b7}",
+      ".tt-zone-bar__labels span:nth-child(3){color:#fcd34d}",
+      ".tt-zone-bar__track{position:relative;height:8px;border-radius:999px;overflow:hidden;background:var(--ds-bg-glass,rgba(255,255,255,.04));border:1px solid var(--ds-stroke,rgba(255,255,255,.07))}",
+      ".tt-zone-bar__seg{position:absolute;top:0;bottom:0}",
+      ".tt-zone-bar__seg--inv{background:rgba(248,113,113,.72)}",
+      ".tt-zone-bar__seg--pb{background:rgba(56,242,161,.62)}",
+      ".tt-zone-bar__seg--tgt{background:rgba(245,194,92,.68)}",
+      ".tt-zone-bar__marker{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--ds-text-body,#e5e7eb);box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%);z-index:2}",
+      ".tt-zone-bar__meta{display:flex;flex-wrap:wrap;gap:4px 10px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:9.5px;color:var(--ds-text-body,#e5e7eb);font-weight:600}",
+      ".tt-zone-bar__prob{color:var(--ds-accent,#38f2a1);font-weight:700}",
+      ".tt-ready-card__blocker{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
-      ".tt-ready-skel{flex:0 0 268px;min-height:184px;padding:12px 14px;border-radius:var(--vf-radius-md,18px);background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));display:flex;flex-direction:column;gap:10px}",
+      ".tt-ready-skel{flex:0 0 280px;min-height:118px;padding:12px 14px;border-radius:var(--vf-radius-md,18px);background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));display:flex;flex-direction:column;gap:10px}",
       ".tt-ready-skel__bar{border-radius:6px;background:linear-gradient(90deg,var(--ds-bg-surface,rgba(255,255,255,.03)),var(--ds-bg-glass,rgba(255,255,255,.07)),var(--ds-bg-surface,rgba(255,255,255,.03)));background-size:200% 100%;animation:tt-ready-shimmer 1.6s ease-in-out infinite}",
       "@keyframes tt-ready-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}",
       ".tt-trust{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:10px 16px;border:1px solid var(--ds-stroke,rgba(255,255,255,.07));border-radius:10px;background:rgba(255,255,255,.02);margin-bottom:16px;font-size:11.5px;color:var(--ds-text-muted,#9ca3af)}",
@@ -601,6 +590,14 @@
       hint: tv.why || null,
       title: tv.why || verdict,
     };
+  }
+
+  function verdictChipClass(cls) {
+    if (cls === "buy") return "ds-chip--up";
+    if (cls === "queued") return "ds-chip--accent";
+    if (cls === "accumulate") return "ds-chip--accent";
+    if (cls === "forming") return "ds-chip--solid";
+    return "ds-chip--solid";
   }
 
   /** Rank actionable setups from the live /timed/all map — curated, confluence-weighted. */
@@ -1214,6 +1211,9 @@
       }
       var savedSet = props.savedSet;
       var onToggleSaved = props.onToggleSaved;
+      var sparkCache = props.sparkCache || null;
+      var ensureSpark = props.ensureSpark || null;
+      var tickerData = props.tickerData || null;
       var LaneCard = window.TTLaneCard;
       return wrap(h(React.Fragment, null,
         headCopy,
@@ -1222,13 +1222,23 @@
             var sym = String(row.ticker || "").toUpperCase();
             var tv = row.trader || {};
             var lane = row.lane || tv.lane || "trader";
+            var tRow = (tickerData && tickerData[sym]) || {};
             var price = row.price != null ? row.price : tv.price;
             var rank = row.rank != null ? row.rank : tv.rank;
-            var disp = row.display || resolveReadySetupCardDisplay(row);
+            var disp = row.display || resolveReadySetupCardDisplay(row, tRow);
             var railTab = "NOW";
             var confluence = Array.isArray(row.confluence) ? row.confluence : [];
             var isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
             var dayPct = Number.isFinite(row.dayPct) ? Number(row.dayPct) : null;
+            var dayChg = null;
+            try {
+              var utils = window.TimedPriceUtils;
+              if (utils && typeof utils.getDailyChange === "function") {
+                var dc = utils.getDailyChange(tRow);
+                if (Number.isFinite(dc && dc.dayChg)) dayChg = Number(dc.dayChg);
+                if (dayPct === null && Number.isFinite(dc && dc.dayPct)) dayPct = Number(dc.dayPct);
+              }
+            } catch (_) { /* best effort */ }
             var dir = dayPct == null || Math.abs(dayPct) < 0.05
               ? "flat"
               : dayPct > 0 ? "up" : "dn";
@@ -1239,20 +1249,18 @@
             var zones = [];
             if (row.traderZone) zones.push(row.traderZone);
             if (row.investorZone) zones.push(row.investorZone);
+            var extLine = LaneCard && LaneCard.extLineFromTicker ? LaneCard.extLineFromTicker(tRow) : null;
+            var sparkSvg = LaneCard && LaneCard.sparkSvgFromCache
+              ? LaneCard.sparkSvgFromCache(sym, Number(price), dir, sparkCache, ensureSpark)
+              : "";
 
-            // Build the chip row — mirrors ViewportCard on the Technical
-            // Setups strip so the two card families look the same. The
-            // verdict word (BUY / SETUP FORMING) replaces the trader-bias
-            // chip since Ready Setups leads with an action.
             var chipRow = [
               h("span", {
                 key: "verdict",
-                className: "tt-ready-word tt-ready-word--" + disp.cls,
+                className: "ds-chip ds-chip--sm " + verdictChipClass(disp.cls),
+                style: { fontFamily: "var(--tt-font-mono)" },
                 title: disp.title || "TT lane verdict",
-              },
-                h("span", { className: "tt-ready-word__dot" }),
-                disp.label,
-              ),
+              }, disp.label),
             ];
             laneNames.forEach(function (l, i) {
               chipRow.push(h(LaneBadge, { key: "lane-" + l + "-" + i, lane: l }));
@@ -1260,13 +1268,11 @@
             confluence.slice(0, 1).forEach(function (c) {
               chipRow.push(h("span", {
                 key: "conf-" + c.label,
-                className: "tt-ready-card__conf",
+                className: "ds-chip ds-chip--sm",
                 title: "Confluence factor",
               }, c.label));
             });
 
-            // Bottom-bar metric chips — reuse the shared rank / score
-            // renderer so R# / S# tiles look identical to Ticker Cards.
             var metrics = LaneCard && LaneCard.rankScoreMetricChips
               ? LaneCard.rankScoreMetricChips({
                   rank: rank,
@@ -1276,45 +1282,58 @@
                 })
               : [];
 
-            var midBody = null;
-            if (zones.length > 0 || disp.hint || row.blocker) {
-              midBody = h(React.Fragment, null,
-                disp.hint && h("p", { className: "tt-ready-card__hint" }, disp.hint),
-                row.blocker && h("div", { className: "tt-ready-card__blocker" }, row.blocker),
-                zones.map(function (zm, idx) { return h(ReadyZoneBar, { key: zm.lane + "-" + idx, zone: zm }); }),
-              );
-            }
+            var midBody = zones.length > 0 && LaneCard && LaneCard.zoneBarTrack
+              ? h(React.Fragment, null,
+                  zones.map(function (zm, idx) {
+                    return h(React.Fragment, { key: zm.lane + "-" + idx },
+                      LaneCard.zoneBarTrack(zm, {
+                        trackTitle: zm.lane === "investor"
+                          ? "Investor lane — invalidation floor, add-on-pullback zone, and target."
+                          : "Trader plan — stop, pullback / entry zone, and first TP target.",
+                      }),
+                    );
+                  }),
+                )
+              : null;
 
-            var cardExtraCls = "tt-ready-lane-card " + (zones.length > 1 ? "tt-ready-lane-card--dual" : "tt-ready-lane-card--single");
-
-            // Prefer the shared TTLaneCard so Ready cards match Technical
-            // Setup / Active Trader lane cards exactly. Fall back to a plain
-            // button when the shared component hasn't loaded yet.
-            if (LaneCard && typeof LaneCard.create === "function") {
-              return LaneCard.create({
-                sym: sym,
-                button: {
-                  onClick: function () { if (onSelect) onSelect(sym, railTab); },
-                  title: sym + " — open Now tab with lane guide",
-                  className: cardExtraCls,
-                  style: { textAlign: "left", padding: "var(--ds-space-3)" },
-                },
-                chipRow: chipRow,
-                quote: {
-                  price: Number.isFinite(Number(price)) ? Number(price) : null,
-                  dayPct: dayPct,
-                  dayChg: null,
-                  dir: dir,
-                  extLine: null,
-                },
-                midBody: midBody,
-                metrics: metrics,
-                isSaved: isSaved,
-                onToggleSaved: onToggleSaved,
+            var footEls = [];
+            if (disp.hint) footEls.push(h("p", { key: "hint", className: "tt-strip-card__hint" }, disp.hint));
+            if (row.blocker) footEls.push(h("div", { key: "blocker", className: "tt-ready-card__blocker" }, row.blocker));
+            if (LaneCard && LaneCard.zoneBarMeta) {
+              zones.forEach(function (zm, idx) {
+                footEls.push(h(React.Fragment, { key: "meta-" + zm.lane + "-" + idx },
+                  LaneCard.zoneBarMeta(zm),
+                ));
               });
             }
 
-            // ── Fallback path (TTLaneCard not loaded) ──
+            if (LaneCard && typeof LaneCard.create === "function") {
+              return h("div", { key: sym + "-" + lane, className: "tt-strip-card", role: "listitem" },
+                LaneCard.create({
+                  sym: sym,
+                  button: {
+                    onClick: function () { if (onSelect) onSelect(sym, railTab); },
+                    title: sym + " — open Now tab with lane guide",
+                    style: { textAlign: "left", padding: "var(--ds-space-3)" },
+                  },
+                  chipRow: chipRow,
+                  quote: {
+                    price: Number.isFinite(Number(price)) ? Number(price) : null,
+                    dayPct: dayPct,
+                    dayChg: dayChg,
+                    dir: dir,
+                    extLine: extLine,
+                  },
+                  sparkSvg: sparkSvg,
+                  midBody: midBody,
+                  metrics: metrics,
+                  isSaved: isSaved,
+                  onToggleSaved: onToggleSaved,
+                }),
+                footEls.length > 0 && h("div", { className: "tt-strip-card__foot" }, footEls),
+              );
+            }
+
             return h("button", {
               key: sym + "-" + lane,
               type: "button",
@@ -1323,71 +1342,25 @@
               onClick: function () { if (onSelect) onSelect(sym, railTab); },
             },
               h("div", null, sym),
-              h("span", {
-                className: "tt-ready-word tt-ready-word--" + disp.cls,
-                title: disp.title || undefined,
-              }, disp.label),
-              disp.hint && h("p", { className: "tt-ready-card__hint" }, disp.hint),
+              h("span", null, disp.label),
+              disp.hint && h("p", { className: "tt-strip-card__hint" }, disp.hint),
               price != null && h("div", null, fmtPx(price)),
-              zones.length > 0 && zones.map(function (zm, idx) {
-                return h(ReadyZoneBar, { key: zm.lane + "-" + idx, zone: zm });
-              }),
             );
           }),
         ),
       ));
     }
 
-    /** Renders one INV / PB / TGT progress bar for a Ready Setup card. */
+    // Legacy zone bar export — prefer TTLaneCard.zoneBarTrack / zoneBarMeta.
     function ReadyZoneBar(props) {
-      var zm = props.zone;
-      if (!zm) return null;
-      var pbLoPct = zm.pct(zm.pb[0]);
-      var pbHiPct = zm.pct(zm.pb[1]);
-      var pricePct = zm.pct(zm.price);
-      var laneLabel = zm.lane === "investor" ? "INVESTOR" : "TRADER";
-      var laneCls = "tt-ready-zone__lane tt-ready-zone__lane--" + (zm.lane === "investor" ? "investor" : "trader");
-      var pbLabel = fmtPx(zm.pb[0]) + "\u2013" + fmtPx(zm.pb[1]);
-      return h("div", { className: "tt-ready-zone" },
-        h("div", { className: "tt-ready-zone__row" },
-          h("span", { className: laneCls }, laneLabel),
-          h("span", null, zm.lane === "investor" ? "Buy zone plan" : "Trader plan"),
-        ),
-        h("div", { className: "tt-ready-zone__labels" },
-          h("span", null, "Invalidation"),
-          h("span", null, "Pullback"),
-          h("span", null, "Target"),
-        ),
-        h("div", {
-          className: "tt-ready-zone__track",
-          title: zm.lane === "investor"
-            ? "Investor lane — invalidation floor, add-on-pullback zone, and target."
-            : "Trader plan — stop, pullback / entry zone, and first TP target.",
-        },
-          h("div", {
-            className: "tt-ready-zone__seg tt-ready-zone__seg--inv",
-            style: { left: "0%", width: pbLoPct + "%" },
-          }),
-          h("div", {
-            className: "tt-ready-zone__seg tt-ready-zone__seg--pb",
-            style: { left: pbLoPct + "%", width: Math.max(0, pbHiPct - pbLoPct) + "%" },
-          }),
-          h("div", {
-            className: "tt-ready-zone__seg tt-ready-zone__seg--tgt",
-            style: { left: pbHiPct + "%", width: Math.max(0, 100 - pbHiPct) + "%" },
-          }),
-          h("div", {
-            className: "tt-ready-zone__marker",
-            style: { left: pricePct + "%" },
-            title: "Live " + fmtPx(zm.price),
-          }),
-        ),
-        h("div", { className: "tt-ready-zone__meta" },
-          h("span", null, "Inv ", fmtPx(zm.inv)),
-          h("span", null, "PB ", pbLabel),
-          h("span", null, "Tgt ", fmtPx(zm.tgt)),
-        ),
-      );
+      var LaneCard = window.TTLaneCard;
+      if (LaneCard && LaneCard.zoneBarTrack) {
+        return h(React.Fragment, null,
+          LaneCard.zoneBarTrack(props.zone),
+          LaneCard.zoneBarMeta(props.zone),
+        );
+      }
+      return null;
     }
 
     // Legacy export name — prefer ReadySetupsBoard.
