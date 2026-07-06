@@ -30,7 +30,7 @@
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-lane-card.js?v=20260629-rank-score"></script>
     <script src="ds-components.js?v=20260501a"></script>
-    <script src="investor-panel.js?v=20260629-rank-score"></script>
+    <script src="investor-panel.js?v=20260706a"></script>
     <!-- Right rail factory + helpers + bootstrap so card clicks open the
          ticker detail panel inline (verbatim port of /index-react's rail).
          lightweight-charts powers the Chart tab; ticker-spider-chart
@@ -105,6 +105,31 @@
       }
       main { max-width: 1600px; margin: 0 auto; padding: 18px 24px 96px; }
       @media (max-width: 720px) { main { padding: 14px 12px 96px; } }
+      /* Horizontal chip strips (matches today.html Earnings / Movers). */
+      .tt-strip-scroll {
+        display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px;
+        scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+      }
+      .tt-strip-scroll::-webkit-scrollbar { height: 6px; }
+      .tt-strip-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
+      .tt-strip-chip {
+        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+        padding: 6px 11px; border-radius: 999px; cursor: pointer;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.10);
+        color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
+        font-family: var(--tt-font);
+      }
+      .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
+      .tt-trow__logo {
+        width: 22px; height: 22px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.04);
+        display: inline-flex; align-items: center; justify-content: center;
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.02em;
+        color: var(--tt-text-dim);
+        overflow: hidden;
+        flex-shrink: 0;
+      }
       .tt-row { margin-bottom: 28px; }
       @media (max-width: 720px) { .tt-row { margin-bottom: 20px; } }
       .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
