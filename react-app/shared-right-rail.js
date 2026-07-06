@@ -8620,7 +8620,8 @@
                     ...(v2RailTab === "CHART" ? {
                       display: "flex",
                       flexDirection: "column",
-                      overflow: "hidden",
+                      overflowY: "auto",
+                      overflowX: "hidden",
                       padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)",
                     } : {}),
                   }}
@@ -8631,6 +8632,9 @@
                       data={phaseDVerdict}
                       loading={phaseDVerdictLoading}
                       tickerPayload={ticker}
+                      predictionContract={predictionContract}
+                      investorData={investorData}
+                      livePrice={v2Price}
                     />
                   )}
                   {/* CHART TAB (V15 P0.7.161, 2026-05-14)
@@ -8719,7 +8723,7 @@
                           index-react.html). */}
                       <div
                         className="tt-rail-chart-canvas tt-rail-chart-tab-canvas"
-                        style={{ flex: "1 1 auto", minHeight: 280 }}
+                        style={{ flex: "0 0 auto", minHeight: 280, height: "min(52vh, 420px)" }}
                       >
                         {chartCandles && chartCandles.length >= 2
                           ? _railChartElement

@@ -9781,7 +9781,8 @@
             ...(v2RailTab === "CHART" ? {
               display: "flex",
               flexDirection: "column",
-              overflow: "hidden",
+              overflowY: "auto",
+              overflowX: "hidden",
               padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
             } : {})
           }
@@ -9789,7 +9790,10 @@
           ticker: tickerSymbol,
           data: phaseDVerdict,
           loading: phaseDVerdictLoading,
-          tickerPayload: ticker
+          tickerPayload: ticker,
+          predictionContract: predictionContract,
+          investorData: investorData,
+          livePrice: v2Price
         }), v2RailTab === "CHART" && !_isWorkspace && React.createElement("div", {
           key: `chart-tab-${tickerSymbol}`,
           className: "tt-rail-chart-tab",
@@ -9867,8 +9871,9 @@
         }, "TV \u2197"))), React.createElement("div", {
           className: "tt-rail-chart-canvas tt-rail-chart-tab-canvas",
           style: {
-            flex: "1 1 auto",
-            minHeight: 280
+            flex: "0 0 auto",
+            minHeight: 280,
+            height: "min(52vh, 420px)"
           }
         }, chartCandles && chartCandles.length >= 2 ? _railChartElement : chartLoading ? React.createElement("div", {
           style: {
@@ -22049,4 +22054,4 @@
   };
 })();
 
-// cache-bust:1783290356274:71909623
+// cache-bust:1783295791477:968813632

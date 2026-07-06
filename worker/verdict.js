@@ -297,7 +297,7 @@ export function buildVerdictGuide(trader, investor, payload = null) {
     modelNotEntered = trader?.why
       ? capitalize(trader.why) + "."
       : (tv === "SETUP_FORMING" ? "The setup is forming but the entry trigger has not fired." : "No trader entry signal yet.");
-    earlyEntry = `Accumulating ahead of the model is reasonable ONLY inside the published buy zone (Key Levels), with capped size and a hard invalidation${stop !== null ? ` — treat a close ${structuralDir === "SHORT" ? "above" : "below"} ${fmtUsd(stop)} as the line where the thesis breaks` : ""}.`;
+    earlyEntry = `Accumulating ahead of the model is reasonable ONLY inside the buy zone and stop line shown in Key levels below, with capped size and a hard invalidation${stop !== null ? ` — treat a close ${structuralDir === "SHORT" ? "above" : "below"} ${fmtUsd(stop)} as the line where the thesis breaks` : ""}.`;
   } else if (tv === "BUY" && iv !== "BUY") {
     headline = "Trader entry active — investor lane not yet accumulate";
     if (trendFrag) parts.push(trendFrag);

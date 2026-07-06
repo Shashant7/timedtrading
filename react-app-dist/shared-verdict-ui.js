@@ -199,7 +199,7 @@
       modelNotEntered = (trader && trader.why)
         ? capFirst(trader.why) + "."
         : (tv === "SETUP_FORMING" ? "The setup is forming but the entry trigger has not fired." : "No trader entry signal yet.");
-      earlyEntry = "Accumulating ahead of the model is reasonable ONLY inside the published buy zone (Key Levels), with capped size and a hard invalidation"
+      earlyEntry = "Accumulating ahead of the model is reasonable ONLY inside the buy zone and stop line shown in Key levels below, with capped size and a hard invalidation"
         + (stop !== null ? " — treat a close " + (structuralDir === "SHORT" ? "above " : "below ") + fmtUsdShort(stop) + " as the line where the thesis breaks" : "") + ".";
     } else if (tv === "BUY" && iv !== "BUY") {
       headline = "Trader entry active — investor lane not yet accumulate";
@@ -281,6 +281,17 @@
       ".tt-vb__callout strong{color:var(--ds-text-body,#e5e7eb);font-weight:700}",
       ".tt-vb__callout--wait{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06)}",
       ".tt-vb__callout--info{background:rgba(20,184,166,.08);border:1px solid rgba(20,184,166,.18)}",
+      ".tt-vb__key-levels{margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06)}",
+      ".tt-vb__key-levels-head{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:8px}",
+      ".tt-vb__key-levels-grid{display:flex;flex-direction:column;gap:4px}",
+      ".tt-vb__kl-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:4px 0;border-top:1px solid rgba(255,255,255,.04)}",
+      ".tt-vb__kl-row:first-child{border-top:none;padding-top:0}",
+      ".tt-vb__kl-row--now{background:rgba(56,242,161,.08);margin:0 -8px;padding:6px 8px;border-radius:6px;border-top:none}",
+      ".tt-vb__kl-label{font-size:11px;color:var(--ds-text-muted,#9ca3af);line-height:1.35}",
+      ".tt-vb__kl-price{font-size:12px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-weight:700;color:var(--ds-text-body,#e5e7eb);text-align:right;white-space:nowrap}",
+      ".tt-vb__kl-price--up{color:var(--ds-up,#34d399)}",
+      ".tt-vb__kl-price--dn{color:var(--ds-dn,#ef4444)}",
+      ".tt-vb__kl-price--accent{color:var(--ds-accent,#38f2a1)}",
       ".tt-lane-badge{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:2px 7px;border-radius:4px;margin-left:8px}",
       ".tt-lane-badge--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
       ".tt-lane-badge--investor{background:rgba(192,132,252,.15);color:#c084fc}",
@@ -538,6 +549,67 @@
       );
     }
 
+    function buildGuideKeyLevels(trader, investor, payload, opts) {
+      opts = opts || {};
+      var pc = opts.predictionContract;
+      var invData = opts.investorData;
+      var numN = function (v) { if (v === null || v === undefined || v === "") return null; var n = Number(v); return Number.isFinite(n) ? n : null; };
+      var px = numN(opts.livePrice || payload.price || payload._live_price);
+      var rows = [];
+      var stop = numN(trader && trader.stop);
+      if (stop === null && pc && pc.risk) stop = numN(pc.risk.stop_loss);
+      if (stop === null) stop = numN(payload.sl);
+      var target = numN(trader && trader.target);
+      if (target === null && pc && Array.isArray(pc.targets) && pc.targets[0]) target = numN(pc.targets[0].price);
+      if (target === null) target = numN(payload.tp_trim || payload.tp_exit);
+      var entry = numN(trader && trader.entry_price);
+      if (Number.isFinite(px) && px > 0) {
+        rows.push({ label: "Current price", price: px, tone: "accent", now: true });
+      }
+      if (entry !== null) rows.push({ label: "Entry trigger", price: entry, tone: "accent" });
+      if (stop !== null) rows.push({ label: "Stop / invalidation", price: stop, tone: "dn" });
+      if (target !== null) rows.push({ label: "First target", price: target, tone: "up" });
+      var invZone = invData && (invData.accumulate_zone || invData.buy_zone || invData.zone);
+      if (invZone) {
+        var zLo = numN(invZone.low != null ? invZone.low : invZone.min);
+        var zHi = numN(invZone.high != null ? invZone.high : invZone.max);
+        if (zLo !== null && zHi !== null) {
+          rows.push({ label: "Investor buy zone", range: fmtPx(zLo) + " – " + fmtPx(zHi), tone: "up" });
+        }
+      }
+      if (pc && Array.isArray(pc.levels)) {
+        var sup = pc.levels.filter(function (l) { return l.role === "support"; }).sort(function (a, b) { return b.price - a.price; }).slice(0, 2);
+        var res = pc.levels.filter(function (l) { return l.role === "resistance"; }).sort(function (a, b) { return a.price - b.price; }).slice(0, 2);
+        sup.forEach(function (l) {
+          rows.push({ label: l.label || "Support", price: Number(l.price), tone: "up" });
+        });
+        res.forEach(function (l) {
+          rows.push({ label: l.label || "Resistance", price: Number(l.price), tone: "dn" });
+        });
+      }
+      return rows.length > 0 ? rows : null;
+    }
+
+    function GuideKeyLevels(props) {
+      var rows = props.rows;
+      if (!rows || !rows.length) return null;
+      return h("div", { className: "tt-vb__key-levels" },
+        h("div", { className: "tt-vb__key-levels-head" }, "Key levels"),
+        h("div", { className: "tt-vb__key-levels-grid" },
+          rows.map(function (r, i) {
+            var priceCls = "tt-vb__kl-price" + (r.tone === "up" ? " tt-vb__kl-price--up" : r.tone === "dn" ? " tt-vb__kl-price--dn" : r.tone === "accent" ? " tt-vb__kl-price--accent" : "");
+            return h("div", {
+              key: (r.label || "row") + "-" + i,
+              className: "tt-vb__kl-row" + (r.now ? " tt-vb__kl-row--now" : ""),
+            },
+              h("span", { className: "tt-vb__kl-label" }, r.label),
+              h("span", { className: priceCls }, r.range || fmtPx(r.price)),
+            );
+          }),
+        ),
+      );
+    }
+
     function VerdictGuideBlock(props) {
       var sym = String(props.ticker || "").toUpperCase();
       var data = props.data;
@@ -553,6 +625,11 @@
       if (!data.trader && !data.investor) return null;
       var guide = data.guide || buildVerdictGuide(data.trader, data.investor, payload);
       if (!guide) return null;
+      var levelRows = buildGuideKeyLevels(data.trader, data.investor, payload, {
+        predictionContract: props.predictionContract,
+        investorData: props.investorData,
+        livePrice: props.livePrice,
+      });
       return h("div", { className: "tt-vb tt-vb--guide" },
         h("div", { className: "tt-vb__inner" },
           h("div", { className: "tt-vb__guide-head" }, guide.headline),
@@ -563,6 +640,7 @@
             h("strong", null, "Why the model has not entered: "),
             guide.model_not_entered,
           ),
+          h(GuideKeyLevels, { rows: levelRows }),
           guide.early_entry && h("div", { className: "tt-vb__callout tt-vb__callout--info" },
             h("strong", null, "Early vs model: "),
             guide.early_entry,
@@ -665,7 +743,7 @@
             var price = tv.price;
             var rank = row.rank != null ? row.rank : tv.rank;
             var verdictCls = tv.verdict === "BUY" ? "buy" : "forming";
-            var railTab = lane === "investor" ? "INVESTOR" : "SETUP";
+            var railTab = "NOW";
             var traderV = row.traderVerdict || tv;
             var investorV = row.investorVerdict;
             var laneLine = investorV
@@ -676,7 +754,7 @@
               type: "button",
               className: "tt-ready-card",
               role: "listitem",
-              title: sym + " — open " + (lane === "investor" ? "Investor" : "Trader") + " tab",
+              title: sym + " — open Now tab with lane guide",
               onClick: function () { if (onSelect) onSelect(sym, railTab); },
             },
               h("div", { className: "tt-ready-card__head" },
@@ -794,4 +872,4 @@
   };
 })();
 
-// cache-bust:1783290356274:71909623
+// cache-bust:1783295791477:968813632
