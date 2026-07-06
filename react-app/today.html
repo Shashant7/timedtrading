@@ -7163,6 +7163,8 @@
                   onSelectTicker,
                   tickerData: data,
                   embedded: true,
+                  savedSet,
+                  onToggleSaved: toggleSaved,
                 }),
                 h("div", { className: "tt-universe-panel__divider" }),
                 h(GrowthIdeasStrip, { onSelectTicker, user, embedded: true, data, savedSet, onToggleSaved: toggleSaved }),

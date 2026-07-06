@@ -51,7 +51,7 @@ describe("Today ReadySetupsBoard smoke", () => {
       });
     }).not.toThrow();
     expect(container.textContent).toMatch(/READY SETUPS/);
-    root.unmount();
+    act(() => { root.unmount(); });
   });
 
   it("rankReadySetupsFromData filters recently exited accumulate names", () => {
