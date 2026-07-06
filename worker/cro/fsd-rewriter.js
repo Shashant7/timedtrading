@@ -409,11 +409,14 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
   }
 
   const attribution = `Source: Fundstrat Direct — ${meta?.title ? `"${meta.title.slice(0, 100)}"` : "research"}${meta?.source_url ? ` (read original)` : ""}`;
+  const { sanitizeFsdCopy, sanitizeFsdTitle } = await import("./fsd-sanitize.js");
   const payload = {
-    tt_summary_title: String(parsed.tt_summary_title || "").slice(0, 300),
-    tt_summary_body: String(parsed.tt_summary_body || "").slice(0, 2000),
+    // Post-process: LLM sometimes leaves author bylines / source brand in the
+    // headline even with the prompt instruction. Strip them defensively.
+    tt_summary_title: sanitizeFsdTitle(String(parsed.tt_summary_title || "").slice(0, 300), "Market Intel update"),
+    tt_summary_body: sanitizeFsdCopy(String(parsed.tt_summary_body || "").slice(0, 2000)),
     tt_key_points: Array.isArray(parsed.tt_key_points) ? parsed.tt_key_points.slice(0, 8) : [],
-    tt_cta: String(parsed.tt_cta || "").slice(0, 400),
+    tt_cta: sanitizeFsdCopy(String(parsed.tt_cta || "").slice(0, 400)),
     attribution,
     model_used: llm.model,
     prompt_tokens: llm.prompt_tokens || null,

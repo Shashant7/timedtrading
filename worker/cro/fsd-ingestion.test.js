@@ -72,4 +72,23 @@ describe("Market Intel Discord title", () => {
     );
     expect(title).toContain("MAGS, SPY, QQQ +1 · Breadth improving into the close");
   });
+
+  it("strips credentialed author bylines from FSD raw titles", () => {
+    const title = buildMarketIntelDiscordTitle(
+      ["SPY"],
+      "Mark L. Newton, CMT – Monday's Technology rebound has helped $SPX attempt",
+    );
+    expect(title).not.toMatch(/Mark L\. Newton/);
+    expect(title).not.toMatch(/CMT/);
+    expect(title).toMatch(/Monday's Technology rebound/);
+  });
+
+  it("strips source-brand references from headlines", () => {
+    const title = buildMarketIntelDiscordTitle(
+      ["SPY"],
+      "Fundstrat Direct — SPY holding support above 640",
+    );
+    expect(title).not.toMatch(/Fundstrat/i);
+    expect(title).toMatch(/SPY holding support/);
+  });
 });
