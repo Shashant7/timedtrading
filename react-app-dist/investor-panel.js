@@ -776,6 +776,88 @@
 
   /* Search + filter row — rendered directly above the kanban lanes so
      operators can narrow the board without scrolling past account stats. */
+  const INVESTOR_RECENT_DAYS = 5;
+  const INVESTOR_RECENT_WINDOW_MS = INVESTOR_RECENT_DAYS * 86400000;
+
+  function formatInvestorActionAgo(ms) {
+    const d = Math.floor(ms / 86400000);
+    if (d >= 1) return `${d}d ago`;
+    const h = Math.floor(ms / 3600000);
+    if (h >= 1) return `${h}h ago`;
+    const m = Math.floor(ms / 60000);
+    return m >= 1 ? `${m}m ago` : "just now";
+  }
+
+  function filterRecentInvestorActions(actions, nowMs, windowMs) {
+    return (actions || []).filter((a) => nowMs - Number(a.ts) <= windowMs);
+  }
+
+  function BriefStripTickerLogo({ sym, size = 18 }) {
+    const ref = useRef(null);
+    const SYM = String(sym || "").toUpperCase();
+    const mono = SYM.slice(0, 2) || "?";
+    const bg = useMemo(() => {
+      let hash = 0;
+      for (let i = 0; i < SYM.length; i++) hash = ((hash << 5) - hash) + SYM.charCodeAt(i);
+      return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+    }, [SYM]);
+    useEffect(() => {
+      const el = ref.current;
+      if (!el || el.dataset.dsInit) return;
+      el.dataset.dsInit = "1";
+      const url = SYM && window.DS
+        ? window.DS.tickerLogoUrl(SYM)
+        : (SYM ? `/timed/logo/${encodeURIComponent(SYM)}.png` : null);
+      if (!url) return;
+      const img = new Image();
+      img.src = url;
+      img.alt = SYM;
+      img.onload = () => {
+        while (el.firstChild) el.removeChild(el.firstChild);
+        el.style.background = "#ffffff";
+        el.style.color = "transparent";
+        el.appendChild(img);
+      };
+    }, [SYM]);
+    return React.createElement("span", {
+      ref,
+      className: "tt-trow__logo",
+      style: {
+        width: size,
+        height: size,
+        background: bg,
+        fontSize: Math.max(8, Math.round(size * 0.38)),
+        color: "#fff",
+      },
+    }, mono);
+  }
+
+  function InvestorBriefStrip({ title, children }) {
+    if (!children || (Array.isArray(children) && children.length === 0)) return null;
+    return React.createElement("div", { className: "tt-investor-brief-strip", style: { marginTop: "var(--ds-space-2)" } },
+      React.createElement("div", { className: "tt-sec-title", style: { marginBottom: 6 } }, title),
+      React.createElement("div", { className: "tt-strip-scroll" }, children),
+    );
+  }
+
+  function InvestorBriefTickerChip({ sym, sub, title, onClick, borderColor }) {
+    const SYM = String(sym || "").toUpperCase();
+    if (!SYM) return null;
+    return React.createElement("button", {
+      type: "button",
+      className: "tt-strip-chip",
+      title: title || SYM,
+      onClick: () => onClick && onClick(SYM),
+      style: borderColor ? { borderColor } : undefined,
+    },
+      React.createElement(BriefStripTickerLogo, { sym: SYM, size: 18 }),
+      React.createElement("span", {
+        style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" },
+      }, SYM),
+      sub && React.createElement("span", { style: { fontSize: 10, color: "var(--tt-text-dim)" } }, sub),
+    );
+  }
+
   function InvestorSearchRow({ searchQuery, onSearchQueryChange, filterGroup, onFilterGroupChange, chipCounts, savedCount }) {
     const q = searchQuery || "";
     return React.createElement("section", { className: "tt-row inv-controls", style: { marginTop: 8, marginBottom: 12 } },
@@ -1184,6 +1266,7 @@
         }
       }
       recentActions.sort((a, b) => b.ts - a.ts);
+      const recentBuys = filterRecentInvestorActions(recentActions, Date.now(), INVESTOR_RECENT_WINDOW_MS);
       const regimeWord = health?.regime === "RISK_ON" ? "bullish"
                        : health?.regime === "RISK_OFF" ? "bearish"
                        : "cautious";
@@ -1200,23 +1283,10 @@
         : buyZoneTickers.length > 0
           ? `${buyZoneTickers.length} ${buyZoneTickers.length === 1 ? "name has" : "names have"} an active accumulate / buy-zone thesis — model is monitoring for execution alignment. No rebalance queue or Reduce flags this pass.`
           : `No actionable Buy Zone or Reduce signals right now — model is letting current positions run.`;
-      const formatAgo = (ms) => {
-        const d = Math.floor(ms / 86400000);
-        if (d >= 1) return `${d}d ago`;
-        const h = Math.floor(ms / 3600000);
-        if (h >= 1) return `${h}h ago`;
-        const m = Math.floor(ms / 60000);
-        return m >= 1 ? `${m}m ago` : "just now";
-      };
-      const recentText = recentActions.map((a) => {
-        const lbl = a.action === "DCA_BUY" ? "DCA" : a.action;
-        const sh = a.shares > 0 ? ` ${a.shares.toFixed(a.shares >= 10 ? 1 : 2)}sh` : "";
-        return `${lbl} ${a.ticker}${sh} ${formatAgo(Date.now() - a.ts)}`;
-      });
       return {
         marketLine,
         actionLine,
-        recentActions: recentText,
+        recentBuys,
         buyZone: buyZoneTickers,
         rsHigh,
       };
@@ -1291,50 +1361,40 @@
         },
           React.createElement("div", null, narrative.marketLine),
           React.createElement("div", null, narrative.actionLine),
-          narrative.recentActions.length > 0 && React.createElement("div", {
-            style: {
-              display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--ds-space-2)",
-              fontSize: "var(--ds-fs-meta)",
-              fontFamily: "var(--tt-font-mono)",
-              color: "var(--ds-text-muted)",
-              padding: "6px 8px",
-              borderLeft: "2px solid rgba(166,247,207,0.4)",
-              background: "rgba(166,247,207,0.05)",
-              borderRadius: "0 4px 4px 0",
-            },
-          },
-            React.createElement("span", { style: { color: "var(--vf-spring, #A6F7CF)", fontWeight: 700, flexShrink: 0 } }, "RECENT"),
-            ...narrative.recentActions.map((line, i) => React.createElement("span", { key: `ra${i}`, style: { color: "var(--ds-text-body)", whiteSpace: "nowrap" } }, line)),
+          React.createElement(InvestorBriefStrip, { title: "RECENT BUYS" },
+            narrative.recentBuys.map((a, i) => {
+              const lbl = a.action === "DCA_BUY" ? "DCA" : a.action;
+              const sh = a.shares > 0 ? `${a.shares.toFixed(a.shares >= 10 ? 1 : 2)}sh` : "";
+              const ago = formatInvestorActionAgo(Date.now() - a.ts);
+              const sub = [lbl, sh, ago].filter(Boolean).join(" \u00b7 ");
+              const isBuy = String(a.action || "").toUpperCase() !== "SELL";
+              return React.createElement(InvestorBriefTickerChip, {
+                key: `${a.ticker}-${a.ts}-${i}`,
+                sym: a.ticker,
+                sub,
+                title: `${lbl} ${a.ticker}${sh ? ` ${sh}` : ""} \u00b7 ${ago}`,
+                onClick: onSelectTicker,
+                borderColor: isBuy ? "rgba(52,211,153,0.4)" : "rgba(244,63,94,0.35)",
+              });
+            }),
           ),
-          narrative.rsHigh.length > 0 && React.createElement("div", {
-            style: {
-              display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--ds-space-2)",
-              fontSize: "var(--ds-fs-meta)",
-              fontFamily: "var(--tt-font-mono)",
-              color: "var(--ds-text-muted)",
-              padding: "6px 8px",
-              borderLeft: "2px solid rgba(59,130,246,0.45)",
-              background: "rgba(59,130,246,0.06)",
-              borderRadius: "0 4px 4px 0",
-            },
-          },
-            React.createElement("span", { style: { color: "var(--ds-accent)", fontWeight: 700, flexShrink: 0 } }, "FRESH 3M RS"),
-            ...narrative.rsHigh.map((sym, i) => React.createElement("span", { key: `rs${i}`, style: { color: "var(--ds-text-body)", whiteSpace: "nowrap" } }, sym)),
+          React.createElement(InvestorBriefStrip, { title: "FRESH 3M RS" },
+            narrative.rsHigh.map((sym, i) => React.createElement(InvestorBriefTickerChip, {
+              key: `rs${sym}-${i}`,
+              sym,
+              title: `${sym} \u00b7 fresh 3-month RS high`,
+              onClick: onSelectTicker,
+              borderColor: "rgba(59,130,246,0.4)",
+            })),
           ),
-          narrative.buyZone.length > 0 && React.createElement("div", {
-            style: {
-              display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--ds-space-2)",
-              fontSize: "var(--ds-fs-meta)",
-              fontFamily: "var(--tt-font-mono)",
-              color: "var(--ds-text-muted)",
-              padding: "6px 8px",
-              borderLeft: "2px solid rgba(52,211,153,0.45)",
-              background: "rgba(52,211,153,0.06)",
-              borderRadius: "0 4px 4px 0",
-            },
-          },
-            React.createElement("span", { style: { color: "var(--ds-up)", fontWeight: 700, flexShrink: 0 } }, "BUY ZONE"),
-            ...narrative.buyZone.map((sym, i) => React.createElement("span", { key: `bz${i}`, style: { color: "var(--ds-text-body)", whiteSpace: "nowrap" } }, sym)),
+          React.createElement(InvestorBriefStrip, { title: "BUY ZONE" },
+            narrative.buyZone.map((sym, i) => React.createElement(InvestorBriefTickerChip, {
+              key: `bz${sym}-${i}`,
+              sym,
+              title: `${sym} \u00b7 accumulate / buy-zone thesis`,
+              onClick: onSelectTicker,
+              borderColor: "rgba(52,211,153,0.4)",
+            })),
           ),
         ),
       ),
@@ -1389,8 +1449,12 @@
     isAccumulateEntered,
     resolveKanbanStage,
     countInvestorNavBadge,
+    filterRecentInvestorActions,
+    INVESTOR_RECENT_DAYS,
+    INVESTOR_RECENT_WINDOW_MS,
+    formatInvestorActionAgo,
   });
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1783310386864:790790195
+// cache-bust:1783311167165:753004248
