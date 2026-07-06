@@ -690,49 +690,56 @@
       if (owned === items.length) return owned;
       return `${owned}/${items.length}`;
     };
-    return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
-      React.createElement(InvestorKanbanBandHeader, {
-        band: "doing",
-        label: "DOING",
-        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
-      }),
-      ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
-        React.createElement(InvestorKanbanColumn, {
-          key: stage,
-          laneKey: stage,
-          title: stageMeta[stage].label,
-          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
-          icon: stageMeta[stage].icon,
-          color: stageMeta[stage].color,
-          count: laneCount(stage),
-          items: grouped[stage],
-          renderCard,
-          laneScrollRef,
-        }),
-      ),
-      React.createElement(InvestorKanbanBandHeader, {
+    const renderLaneColumn = (stage) => React.createElement(InvestorKanbanColumn, {
+      key: stage,
+      laneKey: stage,
+      title: stageMeta[stage].label,
+      hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+      action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+      actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+      icon: stageMeta[stage].icon,
+      color: stageMeta[stage].color,
+      count: laneCount(stage),
+      items: grouped[stage],
+      renderCard,
+      laneScrollRef,
+    });
+    /* One WATCHING header (On Radar), DOING block, then trailing research
+       lanes without repeating the band label. */
+    const kanbanSections = [
+      {
+        showHeader: true,
         band: "watching",
         label: "WATCHING",
         hint: "Monitoring — no action expected yet",
+        stageKeys: ["research_on_watch"],
+      },
+      {
+        showHeader: true,
+        band: "doing",
+        label: "DOING",
+        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
+        stageKeys: ["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited"],
+      },
+      {
+        showHeader: false,
+        stageKeys: ["research_low", "research_avoid"],
+      },
+    ];
+    return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
+      kanbanSections.flatMap((section, sectionIdx) => {
+        const lanes = section.stageKeys.filter((s) => visibleStages.includes(s));
+        if (lanes.length === 0) return [];
+        const header = section.showHeader !== false
+          ? [React.createElement(InvestorKanbanBandHeader, {
+            key: `band-${sectionIdx}`,
+            band: section.band,
+            label: section.label,
+            hint: section.hint,
+          })]
+          : [];
+        return [...header, ...lanes.map(renderLaneColumn)];
       }),
-      ...visibleStages.filter((s) => stageMeta[s]?.band === "watching").map(stage =>
-        React.createElement(InvestorKanbanColumn, {
-          key: stage,
-          laneKey: stage,
-          title: stageMeta[stage].label,
-          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
-          icon: stageMeta[stage].icon,
-          color: stageMeta[stage].color,
-          count: laneCount(stage),
-          items: grouped[stage],
-          renderCard,
-          laneScrollRef,
-        }),
-      ),
     );
   }
 
@@ -1413,4 +1420,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1783290356274:71909623
+// cache-bust:1783297624837:996209437
