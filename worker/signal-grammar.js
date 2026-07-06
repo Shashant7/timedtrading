@@ -230,15 +230,20 @@ export const INVESTOR_PASSIVE_ALERT_VERBS = Object.freeze([
   "MODEL · INFO",
 ]);
 
-/** Actionable investor verbs — executed, trigger-ready, or queued-by-policy. */
-export const INVESTOR_ACTIONABLE_ALERT_VERBS = Object.freeze([
-  "MODEL · QUEUE",
+/** Executed investor verbs — rebalance fills only (activity strip + bell). */
+export const INVESTOR_EXECUTED_ALERT_VERBS = Object.freeze([
   "MODEL · BOUGHT",
-  "MODEL · REDUCE",
+  "MODEL · ADD",
   "MODEL · TRIMMED",
   "MODEL · EXITED",
+]);
+
+/** Legacy alias — email/Discord may still reference broader investor verbs. */
+export const INVESTOR_ACTIONABLE_ALERT_VERBS = Object.freeze([
+  ...INVESTOR_EXECUTED_ALERT_VERBS,
+  "MODEL · QUEUE",
+  "MODEL · REDUCE",
   "MODEL · REVIEW",
-  "MODEL · ADD",
   "ACCUMULATE",
   "QUEUE",
   "ADD ON PULLBACK",
@@ -248,7 +253,7 @@ export const INVESTOR_ACTIONABLE_ALERT_VERBS = Object.freeze([
 ]);
 
 const _INVESTOR_PASSIVE_SET = new Set(INVESTOR_PASSIVE_ALERT_VERBS);
-const _INVESTOR_ACTIONABLE_SET = new Set(INVESTOR_ACTIONABLE_ALERT_VERBS);
+const _INVESTOR_EXECUTED_SET = new Set(INVESTOR_EXECUTED_ALERT_VERBS);
 
 const TRADER_EXEC_FEED_TYPES = new Set([
   "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT",
@@ -426,8 +431,9 @@ export function notificationMetaFromSignal(signal) {
 }
 
 /**
- * Activity strip / merged feed — exclude passive watch; include done,
- * trigger-ready (TRADE_EXIT_SIGNAL), and queued investor accumulate.
+ * Activity strip / merged feed — exclude passive watch; include trader
+ * fills + exit signals, and investor rebalance executions only (no
+ * reduce/queue/review warnings).
  */
 export function isActionableFeedEvent(ev, meta) {
   if (!ev) return false;
@@ -444,15 +450,7 @@ export function isActionableFeedEvent(ev, meta) {
 
   if (t === "INVESTOR_SIGNAL") {
     const verb = normalizeInvestorVerb(ev.action);
-    if (_INVESTOR_PASSIVE_SET.has(verb)) return false;
-    if (_INVESTOR_ACTIONABLE_SET.has(verb)) return true;
-    if (invType === "thesis_invalidation") return true;
-    if (meta) {
-      if (meta.execState === "recommended") return true;
-      if (meta.mode === "doing" && meta.execState === "done") return true;
-      if (meta.label === "WATCH" || meta.label === "UPDATE") return false;
-    }
-    return false;
+    return _INVESTOR_EXECUTED_SET.has(verb);
   }
 
   return false;
@@ -467,11 +465,7 @@ export function isActionableNotification(n) {
   if (t === "investor_signal") {
     const verb = investorVerbFromNotification(n);
     if (_INVESTOR_PASSIVE_SET.has(verb)) return false;
-    if (_INVESTOR_ACTIONABLE_SET.has(verb)) return true;
-    const exec = String(n.exec_state || "").toLowerCase();
-    const cls = String(n.alert_class || n.mode || "").toLowerCase();
-    if (exec === "recommended" || exec === "done" || cls === "doing") return true;
-    return false;
+    return _INVESTOR_EXECUTED_SET.has(verb);
   }
 
   if (t === "kanban") {

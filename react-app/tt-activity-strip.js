@@ -499,11 +499,11 @@
     const invT = String(ev?.investor_alert_type || "").toLowerCase();
     if (invT === "position_open" || invT === "position_add" || invT === "position_trim" || invT === "position_close") return true;
     if (t === "INVESTOR_SIGNAL") {
+      const invT = String(ev?.investor_alert_type || "").toLowerCase();
+      if (invT === "position_open" || invT === "position_add" || invT === "position_trim" || invT === "position_close") return true;
       const act = String(ev?.action || "").toUpperCase();
-      if (act.includes("ON RADAR") || act.includes("WATCH") || act.includes("INFO")) return false;
-      if (act.includes("QUEUE") || act.includes("ACCUMULATE") || act.includes("BOUGHT")
-          || act.includes("REDUCE") || act.includes("REVIEW")) return true;
-      return meta.mode === "doing" && meta.label !== "WATCH";
+      if (act.includes("BOUGHT") || act.includes("ADD") || act.includes("TRIMMED") || act.includes("EXITED")) return true;
+      return false;
     }
     return false;
   }
