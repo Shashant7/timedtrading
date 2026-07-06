@@ -336,7 +336,10 @@
       ".tt-ready-word{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:9px;letter-spacing:.05em;padding:2px 7px;border-radius:5px;white-space:nowrap;line-height:1.2}",
       ".tt-ready-word__dot{width:5px;height:5px;border-radius:50%;background:currentColor}",
       ".tt-ready-word--buy{background:var(--ds-up-bg,rgba(52,211,153,.14));color:var(--ds-up,#34d399)}",
+      ".tt-ready-word--accumulate{background:rgba(96,165,250,.12);color:#60a5fa}",
+      ".tt-ready-word--queued{background:rgba(167,139,250,.12);color:#c084fc}",
       ".tt-ready-word--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
+      ".tt-ready-card__hint{font-size:10px;line-height:1.35;color:var(--ds-text-faint,#6b7280);margin:0 0 4px}",
       /* Zone bar — INV / PB / TGT, styled to match the Growth Ideas bar
          but sized to fit under a ticker-card chrome. */
       ".tt-ready-zone{margin-top:6px}",
@@ -466,14 +469,19 @@
     else tgt = price * 1.12;
     // Invalidation: use structural floor if present, else 12% risk anchor.
     if (!(inv > 0) || inv >= price) inv = price * 0.88;
-    // Buy-zone: 4-8% below current price (add-on-pullback band).
-    var pbLo = price * 0.94;
-    var pbHi = price * 0.98;
-    if (pbLo <= inv) pbLo = inv + (price - inv) * 0.35;
-    if (pbHi <= pbLo) pbHi = price;
-    if (pbHi >= tgt) pbHi = price;
     var span = tgt - inv;
     if (!(span > 0)) return null;
+    // Add-on band: slice of the inv→target span (not % below live price, so a
+    // trending name can sit above the band while a pullback can enter it).
+    var pbLo = inv + span * 0.28;
+    var pbHi = inv + span * 0.52;
+    if (pbLo <= inv) pbLo = inv + span * 0.22;
+    if (pbHi <= pbLo) pbHi = pbLo + span * 0.12;
+    if (pbHi > tgt) pbHi = tgt * 0.98;
+    if (pbLo >= pbHi) {
+      pbLo = price * 0.94;
+      pbHi = price * 0.98;
+    }
     var pad = span * 0.04;
     var minPx = inv - pad;
     var maxPx = tgt + pad;
@@ -485,6 +493,111 @@
       subLabels: {
         tgtDetail: (fv > price) ? "Fair value" : "10% premium target",
       },
+    };
+  }
+
+  /** Pullback band bounds — prefer live accumZone, else the card planning band. */
+  function resolveInvestorPbBounds(t, price, investorZone) {
+    var az = t && (t.accumZone || t.investor_accum_zone);
+    var zLo = numN(az && (az.zoneBottom != null ? az.zoneBottom : az.low != null ? az.low : az.min));
+    var zHi = numN(az && (az.zoneTop != null ? az.zoneTop : az.high != null ? az.high : az.max));
+    if (zLo != null && zHi != null && zHi > zLo) return { lo: zLo, hi: zHi, source: "accumZone" };
+    if (investorZone && investorZone.pb && investorZone.pb.length >= 2) {
+      return { lo: investorZone.pb[0], hi: investorZone.pb[1], source: "plan" };
+    }
+    return null;
+  }
+
+  /** True when price sits in the live investor buy zone (not just accumulate thesis). */
+  function isInvestorLiveBuyZone(t, price) {
+    if (!(price > 0)) return false;
+    var az = t && (t.accumZone || t.investor_accum_zone);
+    if (az && az.inZone === true) return true;
+    var zLo = numN(az && (az.zoneBottom != null ? az.zoneBottom : az.low != null ? az.low : az.min));
+    var zHi = numN(az && (az.zoneTop != null ? az.zoneTop : az.high != null ? az.high : az.max));
+    if (zLo != null && zHi != null && price >= zLo && price <= zHi) return true;
+    return false;
+  }
+
+  /**
+   * Ready Setup card headline — avoids a bare "BUY" when price is above the
+   * add-on band. Trader entry → BUY NOW; investor in live zone → BUY;
+   * in PB band → SCALE IN; above PB → ACCUMULATE; queued → QUEUED.
+   */
+  function resolveReadySetupCardDisplay(row, tickerRow) {
+    row = row || {};
+    tickerRow = tickerRow || {};
+    var tv = row.trader || {};
+    var price = row.price;
+    var invStage = String(row.invStage || tickerRow.investor_stage || tickerRow.investorStage || "").toLowerCase();
+
+    if (row.traderPrimed) {
+      return {
+        label: "BUY NOW",
+        cls: "buy",
+        hint: row.investorPrimed
+          ? "Trader entry live; investor lane also active."
+          : "Trader entry live — size to the stop.",
+        title: "Trader entry lane is active" + (tv.why ? " (" + tv.why + ")." : "."),
+      };
+    }
+
+    if (row.investorPrimed) {
+      if (invStage === "accumulate_queued" || row.blocker === "Next rebalance") {
+        return {
+          label: "QUEUED",
+          cls: "queued",
+          hint: "Waits for the next rebalance inside the buy zone.",
+          title: "Execution-ready but queued for the next investor rebalance.",
+        };
+      }
+      if (isInvestorLiveBuyZone(tickerRow, price)) {
+        return {
+          label: "BUY",
+          cls: "buy",
+          hint: "Live buy zone — scale in per model rules.",
+          title: "Price is in the investor buy zone; the model may add on rebalance.",
+        };
+      }
+      var pb = resolveInvestorPbBounds(tickerRow, price, row.investorZone);
+      if (pb && price > pb.hi) {
+        return {
+          label: "ACCUMULATE",
+          cls: "accumulate",
+          hint: "Thesis active — add on dips into the PB band, not at extension.",
+          title: "High-conviction accumulate name. Do not chase — wait for a pullback into the green PB band.",
+        };
+      }
+      if (pb && price >= pb.lo && price <= pb.hi) {
+        return {
+          label: "SCALE IN",
+          cls: "accumulate",
+          hint: "Inside the add-on band — scale in with capped size.",
+          title: "Price is inside the planned pullback band; scale in with invalidation below Inv.",
+        };
+      }
+      return {
+        label: "ACCUMULATE",
+        cls: "accumulate",
+        hint: "Scale in on pullbacks — do not chase extension.",
+        title: "Investor accumulate thesis — add on dips, not at extension.",
+      };
+    }
+
+    var verdict = String(tv.verdict || "WAIT").toUpperCase();
+    if (verdict === "SETUP_FORMING") {
+      return {
+        label: "FORMING",
+        cls: "forming",
+        hint: "Wait for the trigger to confirm.",
+        title: tv.why || "Setup forming.",
+      };
+    }
+    return {
+      label: verdictLabel(verdict, true),
+      cls: verdict === "BUY" ? "buy" : "forming",
+      hint: tv.why || null,
+      title: tv.why || verdict,
     };
   }
 
@@ -633,8 +746,22 @@
         companyName: t.companyName || t.name || null,
         traderPrimed: !!traderPrimed,
         investorPrimed: !!investorPrimed,
+        invStage: invStage,
+        accumZone: t.accumZone || t.investor_accum_zone || null,
         traderZone: traderZone,
         investorZone: investorZone,
+        display: resolveReadySetupCardDisplay({
+          ticker: key,
+          rank: rankNum,
+          lane: traderPrimed ? "trader" : "investor",
+          trader: tv,
+          blocker: blocker,
+          price: price,
+          traderPrimed: !!traderPrimed,
+          investorPrimed: !!investorPrimed,
+          invStage: invStage,
+          investorZone: investorZone,
+        }, t),
       });
     });
 
@@ -1061,8 +1188,8 @@
         h("h2", { className: "tt-ready__title" }, "What the model would act on today"),
         h("p", { className: "tt-ready__sub" },
           embedded
-            ? "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. Not every candidate; the model's shortlist for capital."
-            : "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. Investor BUY uses the same buy-zone thesis as the Investor page brief.",
+            ? "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. ACCUMULATE / SCALE IN / BUY labels reflect zone position, not a market-order signal."
+            : "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. Labels reflect lane + zone: BUY NOW (trader entry), BUY (live buy zone), SCALE IN / ACCUMULATE (investor thesis — add on dips, not chase).",
         ),
       );
 
@@ -1098,8 +1225,8 @@
             var lane = row.lane || tv.lane || "trader";
             var price = row.price != null ? row.price : tv.price;
             var rank = row.rank != null ? row.rank : tv.rank;
+            var disp = row.display || resolveReadySetupCardDisplay(row);
             var railTab = "NOW";
-            var verdictCls = tv.verdict === "BUY" ? "buy" : "forming";
             var confluence = Array.isArray(row.confluence) ? row.confluence : [];
             var isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
             var dayPct = Number.isFinite(row.dayPct) ? Number(row.dayPct) : null;
@@ -1121,11 +1248,11 @@
             var chipRow = [
               h("span", {
                 key: "verdict",
-                className: "tt-ready-word tt-ready-word--" + verdictCls,
-                title: "TT lane verdict",
+                className: "tt-ready-word tt-ready-word--" + disp.cls,
+                title: disp.title || "TT lane verdict",
               },
                 h("span", { className: "tt-ready-word__dot" }),
-                verdictLabel(tv.verdict, true),
+                disp.label,
               ),
             ];
             laneNames.forEach(function (l, i) {
@@ -1151,8 +1278,9 @@
               : [];
 
             var midBody = null;
-            if (zones.length > 0) {
+            if (zones.length > 0 || disp.hint || row.blocker) {
               midBody = h(React.Fragment, null,
+                disp.hint && h("p", { className: "tt-ready-card__hint" }, disp.hint),
                 row.blocker && h("div", { className: "tt-ready-card__blocker" }, row.blocker),
                 zones.map(function (zm, idx) { return h(ReadyZoneBar, { key: zm.lane + "-" + idx, zone: zm }); }),
               );
@@ -1196,6 +1324,11 @@
               onClick: function () { if (onSelect) onSelect(sym, railTab); },
             },
               h("div", null, sym),
+              h("span", {
+                className: "tt-ready-word tt-ready-word--" + disp.cls,
+                title: disp.title || undefined,
+              }, disp.label),
+              disp.hint && h("p", { className: "tt-ready-card__hint" }, disp.hint),
               price != null && h("div", null, fmtPx(price)),
               zones.length > 0 && zones.map(function (zm, idx) {
                 return h(ReadyZoneBar, { key: zm.lane + "-" + idx, zone: zm });
@@ -1307,6 +1440,7 @@
       ReadySetupsBoard: ReadySetupsBoard,
       TodaysAnswers: TodaysAnswers,
       rankReadySetupsFromData: rankReadySetupsFromData,
+      resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
       TrustStrip: TrustStrip,
       useVerdict: useVerdict,
       fetchVerdict: fetchVerdict,
@@ -1347,6 +1481,7 @@
     inferInvestorVerdictFromTicker: inferInvestorVerdictFromTicker,
     buildVerdictGuide: buildVerdictGuide,
     rankReadySetupsFromData: rankReadySetupsFromData,
+    resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
     LIFECYCLE_STEPS: LIFECYCLE_STEPS,
     register: register,
   };
