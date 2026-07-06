@@ -316,6 +316,8 @@
       ".tt-lc--on{background:rgba(20,184,166,.14);color:#14b8a6;font-weight:700}",
       ".tt-lc--done{color:var(--ds-text-muted,#9ca3af)}",
       ".tt-ready{margin-bottom:18px}",
+      ".tt-universe-panel .tt-ready{margin-bottom:0}",
+      ".tt-universe-panel__ready{margin:0}",
       ".tt-ready__head{margin-bottom:8px}",
       ".tt-ready__title{font-family:var(--tt-font-display,inherit);font-size:18px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);letter-spacing:-.02em;margin:4px 0 0}",
       ".tt-ready__sub{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin:6px 0 0;max-width:52em}",
@@ -872,26 +874,33 @@
         h("div", { className: "tt-sec-title" }, "READY SETUPS"),
         h("h2", { className: "tt-ready__title" }, "What the model would act on"),
         h("p", { className: "tt-ready__sub" },
-          "Every name the model marks enter-ready or accumulate — scroll the strip. Investor BUY cards use the same accumulate / buy-zone thesis as the Investor page brief.",
+          embedded
+            ? "Every name the model marks enter-ready or accumulate — scroll the strip."
+            : "Every name the model marks enter-ready or accumulate — scroll the strip. Investor BUY cards use the same accumulate / buy-zone thesis as the Investor page brief.",
         ),
       );
 
+      var wrap = function (children) {
+        if (embedded) return h("div", { className: "tt-universe-panel__ready" }, children);
+        return h("section", { className: "tt-ready" }, children);
+      };
+
       if (!window._ttIsPro) {
-        return h("section", { className: "tt-ready" },
+        return wrap(h(React.Fragment, null,
           headCopy,
           h("div", { className: "tt-ready__locked" }, "Upgrade to Pro to see ranked setups the model would act on."),
-        );
+        ));
       }
       if (loading) {
-        return h("section", { className: "tt-ready" }, headCopy, h(ReadySetupsSkeleton, null));
+        return wrap(h(React.Fragment, null, headCopy, h(ReadySetupsSkeleton, null)));
       }
       if (candidates.length === 0) {
-        return h("section", { className: "tt-ready" },
+        return wrap(h(React.Fragment, null,
           headCopy,
           h("div", { className: "tt-ready__empty" }, "No entry or accumulate setups right now — the strip stays empty rather than forcing picks. Refreshes with each scoring pass."),
-        );
+        ));
       }
-      return h("section", { className: "tt-ready" },
+      return wrap(h(React.Fragment, null,
         headCopy,
         h("div", { className: "tt-ready-scroll", role: "list" },
           candidates.map(function (row) {
@@ -933,7 +942,7 @@
             );
           }),
         ),
-      );
+      ));
     }
 
     // Legacy export name — prefer ReadySetupsBoard.
