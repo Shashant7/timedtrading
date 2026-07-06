@@ -143,8 +143,9 @@ Handoff: `tasks/2026-06-23-journey-ux-handoff.md`.
 Trimming (trim **today** only via `tradeTrimmedToday()`), Closed. Exiting
 lane removed; engine `exit`/`exiting` → Defending.
 
-**Investor kanban (2026-07-06):** One WATCHING header (On Radar) then DOING;
-Low Conviction and Avoid trail without a second band label. Bubble map
+**Investor kanban (2026-07-06):** Flat lane stack, no band headers — On Radar →
+Queued → Entered → Core Hold → Hold & Watch → Reduce → Exited → Low Conviction
+→ Avoid. Bubble map
 has lane filter chips (On Radar, Queued, Hold & Watch, etc.). After shared-JS
 merges always run full `npm run build:frontend` or browsers keep stale `?v=`.
 
