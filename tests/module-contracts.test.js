@@ -78,6 +78,11 @@ describe("module contracts", () => {
     }
   });
 
+  it("worker/runner-peak-trim-ladder.js exposes peak trim helper", async () => {
+    const mod = await import("../worker/runner-peak-trim-ladder.js");
+    expect(typeof mod.assessRunnerPeakTrimLadder).toBe("function");
+  });
+
   it("worker/sanity-sweep.js exposes the cron + endpoint helpers", async () => {
     const mod = await import("../worker/sanity-sweep.js");
     for (const fn of [

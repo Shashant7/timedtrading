@@ -148,8 +148,46 @@ export const STRUCTURAL_INVESTOR_REDUCE_REASONS = new Set([
   "weekly_supertrend_bearish",
 ]);
 
+/** Reduce reasons that warrant immediate trim/alert (skip session-count gate). */
+export const IMMEDIATE_INVESTOR_REDUCE_REASONS = new Set([
+  "primary_invalidation_breach",
+  "monthly_supertrend_bearish",
+  "weekly_supertrend_bearish",
+]);
+
 export function isStructuralInvestorReduce(stageReason) {
   return STRUCTURAL_INVESTOR_REDUCE_REASONS.has(String(stageReason || ""));
+}
+
+export function isImmediateInvestorReduce(stageReason) {
+  return IMMEDIATE_INVESTOR_REDUCE_REASONS.has(String(stageReason || ""));
+}
+
+/**
+ * Gate Model Thesis Shift alerts so a one-hour score dip (TWLO Jul 2026:
+ * score < 30 → reduce email, next hour score 57 → Hold & Watch lane) does
+ * not fire before the lane would show Reducing. Mirrors auto-rebalance
+ * reduce_trim_min_sessions for non-structural reasons.
+ */
+export function shouldFireInvestorThesisShiftAlert(curr, aprev, opts = {}) {
+  if (String(curr?.stage || "") !== "reduce") return false;
+  const prevStage = String(aprev?.stage || "");
+  if (!prevStage || prevStage === "reduce" || prevStage === "exited") return false;
+  const reason = String(curr.stageReason || "");
+  const minSessions = Number(opts.minSessions) || DEFAULT_INVESTOR_CONFIG.reduce_trim_min_sessions || 2;
+  const streak = Number(opts.reduceStreak) || 0;
+  if (isImmediateInvestorReduce(reason)) return true;
+  if (reason === "investor_score_very_low" && Number(curr.score) >= 30) return false;
+  return streak >= minSessions;
+}
+
+/** Update per-ticker consecutive reduce compute streak (resets when stage != reduce). */
+export function bumpInvestorReduceStreak(streakMap, ticker, stage) {
+  const sym = String(ticker || "").toUpperCase();
+  if (!sym) return streakMap || {};
+  const next = { ...(streakMap || {}) };
+  next[sym] = String(stage || "") === "reduce" ? (Number(next[sym]) || 0) + 1 : 0;
+  return next;
 }
 
 /**
