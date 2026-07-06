@@ -51,11 +51,7 @@ export function stripBriefMarkdownForDisplay(md) {
     "\n",
   );
 
-  // Investor Portfolio — structured block elsewhere.
-  cleaned = cleaned.replace(
-    /\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi,
-    "\n",
-  );
+  // Investor Portfolio narrative stays in the body — chip row renders above it.
 
   // Stale LLM Key Levels — live mechanical copy renders at end of brief.
   cleaned = cleaned.replace(
@@ -71,4 +67,33 @@ export function stripBriefMarkdownForDisplay(md) {
   );
 
   return cleaned.trim();
+}
+
+/** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
+export function parseBriefDisplaySections(md) {
+  const cleaned = stripBriefMarkdownForDisplay(md);
+  if (!cleaned) return [];
+  const chunks = cleaned.split(/\n(?=##\s+)/).map((c) => c.trim()).filter(Boolean);
+  return chunks.map((chunk) => {
+    const m = chunk.match(/^##\s+(.+?)(?:\n([\s\S]*))?$/);
+    if (!m) return { title: "", body: chunk, key: null };
+    const title = m[1].trim();
+    const body = (m[2] || "").trim();
+    const lower = title.toLowerCase();
+    let key = null;
+    if (lower.includes("model actions")) key = "modelActions";
+    else if (lower.includes("top movers")) key = "topMovers";
+    else if (lower.includes("active trader")) key = "activeTrader";
+    else if (lower.includes("investor portfolio")) key = "investorPortfolio";
+    return { title, body, key };
+  });
+}
+
+export function briefSectionChipKey(title) {
+  const lower = String(title || "").toLowerCase();
+  if (lower.includes("model actions")) return "modelActions";
+  if (lower.includes("top movers")) return "topMovers";
+  if (lower.includes("active trader")) return "activeTrader";
+  if (lower.includes("investor portfolio")) return "investorPortfolio";
+  return null;
 }

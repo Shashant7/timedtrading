@@ -44,10 +44,8 @@
       /\n#{1,3}\s*Session\s+Recap\b[\s\S]*?(?=\n#{1,3}\s)/gi,
       "\n",
     );
-    cleaned = cleaned.replace(
-      /\n#{1,3}\s*Investor\s*Portfolio\b[\s\S]*?(?=\n#{1,3}\s|$)/gi,
-      "\n",
-    );
+
+    // Investor Portfolio narrative stays in the body — chip row renders above it.
     cleaned = cleaned.replace(
       /\n#{1,3}\s*Key Levels\s*(?:&|and)\s*Game Plan\b[\s\S]*?(?=\n#{1,3}\s|\n\*\*Risk Factors\b|$)/gi,
       "\n",
@@ -60,7 +58,65 @@
     return cleaned.trim();
   }
 
-  window.TimedBriefMarkdown = { stripBriefMarkdownForDisplay };
+  /** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
+  function parseBriefDisplaySections(md) {
+    const cleaned = stripBriefMarkdownForDisplay(md);
+    if (!cleaned) return [];
+    const chunks = cleaned.split(/\n(?=##\s+)/).map((c) => c.trim()).filter(Boolean);
+    return chunks.map((chunk) => {
+      const m = chunk.match(/^##\s+(.+?)(?:\n([\s\S]*))?$/);
+      if (!m) return { title: "", body: chunk, key: null };
+      const title = m[1].trim();
+      const body = (m[2] || "").trim();
+      const lower = title.toLowerCase();
+      let key = null;
+      if (lower.includes("model actions")) key = "modelActions";
+      else if (lower.includes("top movers")) key = "topMovers";
+      else if (lower.includes("active trader")) key = "activeTrader";
+      else if (lower.includes("investor portfolio")) key = "investorPortfolio";
+      return { title, body, key };
+    });
+  }
+
+  function briefSectionChipKey(title) {
+    const lower = String(title || "").toLowerCase();
+    if (lower.includes("model actions")) return "modelActions";
+    if (lower.includes("top movers")) return "topMovers";
+    if (lower.includes("active trader")) return "activeTrader";
+    if (lower.includes("investor portfolio")) return "investorPortfolio";
+    return null;
+  }
+
+  function parseBriefTopMoversText(text) {
+    if (!text || typeof text !== "string") return { gainers: [], losers: [] };
+    const parseSide = (line, sign) => {
+      const out = [];
+      const alt = /\b([A-Z][A-Z0-9.-]{0,9})\b\s*([+-]\d+(?:\.\d+)?)%/g;
+      let m;
+      while ((m = alt.exec(line)) != null) {
+        const ticker = String(m[1] || "").toUpperCase();
+        const pct = Number(m[2]);
+        if (!ticker || !Number.isFinite(pct)) continue;
+        if (sign === "up" && pct <= 0) continue;
+        if (sign === "dn" && pct >= 0) continue;
+        out.push({ ticker, pct, price: null });
+      }
+      return out;
+    };
+    const gainersLine = text.split("\n").find((l) => /gainers?/i.test(l)) || text;
+    const losersLine = text.split("\n").find((l) => /losers?/i.test(l)) || "";
+    return {
+      gainers: parseSide(gainersLine, "up"),
+      losers: parseSide(losersLine, "dn"),
+    };
+  }
+
+  window.TimedBriefMarkdown = {
+    stripBriefMarkdownForDisplay,
+    parseBriefDisplaySections,
+    briefSectionChipKey,
+    parseBriefTopMoversText,
+  };
 })();
 
-// cache-bust:1783370222459:533053837
+// cache-bust:1783377109633:694811914

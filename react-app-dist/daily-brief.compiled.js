@@ -7,12 +7,9 @@ const {
   useRef
 } = React;
 const API_BASE = "";
-function renderMarkdown(md) {
+function renderMarkdownBody(md) {
   if (!md) return "";
   let cleaned = md.replace(/ (#{2,4}) /g, "\n\n$1 ").replace(/ - \*\*/g, "\n- **").replace(/ - ([A-Z])/g, "\n- $1");
-  if (window.TimedBriefMarkdown?.stripBriefMarkdownForDisplay) {
-    cleaned = window.TimedBriefMarkdown.stripBriefMarkdownForDisplay(cleaned);
-  }
   const _toHtml = typeof marked !== "undefined" && marked.parse ? marked.parse(cleaned, {
     breaks: true,
     gfm: true
@@ -26,6 +23,309 @@ function renderMarkdown(md) {
   const _esc = document.createElement("div");
   _esc.textContent = cleaned;
   return _esc.innerHTML.replace(/\n/g, "<br/>");
+}
+function renderMarkdown(md) {
+  if (!md) return "";
+  let cleaned = md.replace(/ (#{2,4}) /g, "\n\n$1 ").replace(/ - \*\*/g, "\n- **").replace(/ - ([A-Z])/g, "\n- $1");
+  if (window.TimedBriefMarkdown?.stripBriefMarkdownForDisplay) {
+    cleaned = window.TimedBriefMarkdown.stripBriefMarkdownForDisplay(cleaned);
+  }
+  return renderMarkdownBody(cleaned);
+}
+function fmtBriefPct(pct, digits = 1) {
+  const v = Number(pct);
+  if (!Number.isFinite(v)) return null;
+  return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+}
+function BriefTickerLogo({
+  sym,
+  size = 18
+}) {
+  const SYM = String(sym || "").toUpperCase();
+  const mono = SYM.slice(0, 2) || "?";
+  const bg = (() => {
+    let hash = 0;
+    for (let i = 0; i < SYM.length; i++) hash = (hash << 5) - hash + SYM.charCodeAt(i);
+    return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+  })();
+  const url = SYM && window.DS ? window.DS.tickerLogoUrl(SYM) : SYM ? `/timed/logo/${encodeURIComponent(SYM)}.png` : null;
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !url) return;
+    const img = new Image();
+    img.src = url;
+    img.alt = SYM;
+    img.onload = () => {
+      el.textContent = "";
+      el.style.background = "#ffffff";
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.borderRadius = "50%";
+      img.style.objectFit = "cover";
+      el.appendChild(img);
+    };
+  }, [SYM, url]);
+  return React.createElement("span", {
+    ref: ref,
+    className: "tt-trow__logo",
+    style: {
+      width: size,
+      height: size,
+      background: bg,
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: "50%",
+      overflow: "hidden",
+      fontSize: Math.max(8, size * 0.38),
+      fontWeight: 700,
+      color: "#fff",
+      flexShrink: 0
+    }
+  }, mono);
+}
+function BriefTickerChip({
+  sym,
+  pct,
+  pct2,
+  sub,
+  href,
+  title,
+  actionChip
+}) {
+  const SYM = String(sym || "").toUpperCase();
+  if (!SYM) return null;
+  const pctStr = fmtBriefPct(pct);
+  const pct2Str = fmtBriefPct(pct2, 2);
+  const pctColor = Number(pct) >= 0 ? "var(--tt-up-soft, #34d399)" : "var(--tt-dn-soft, #fb7185)";
+  const inner = React.createElement(React.Fragment, null, React.createElement(BriefTickerLogo, {
+    sym: SYM,
+    size: 18
+  }), React.createElement("span", {
+    style: {
+      fontWeight: 700,
+      fontSize: 12,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, SYM), actionChip && React.createElement("span", {
+    className: `ds-chip ds-chip--sm ${actionChip.cls || "ds-chip--solid"}`,
+    style: {
+      fontSize: 8,
+      padding: "0 5px",
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: actionChip.title || actionChip.label
+  }, actionChip.label), sub && !actionChip && React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim, #8AA39A)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, sub), pctStr && React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      color: pctColor,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, pctStr), pct2Str && React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "var(--tt-text-dim, #6E867D)",
+      fontFamily: "var(--tt-font-mono)"
+    },
+    title: "Today"
+  }, "(", pct2Str, " today)"));
+  if (href) {
+    return React.createElement("a", {
+      href: href,
+      className: "tt-strip-chip",
+      title: title || SYM
+    }, inner);
+  }
+  return React.createElement("span", {
+    className: "tt-strip-chip",
+    style: {
+      cursor: "default"
+    },
+    title: title || SYM
+  }, inner);
+}
+function modelActionChipMeta(row) {
+  const action = String(row?.action || "").toUpperCase();
+  if (action === "EXIT") return {
+    label: "EXIT",
+    cls: "ds-chip--dn",
+    title: "Exit today"
+  };
+  if (action === "ENTRY") return {
+    label: "ENTRY",
+    cls: "ds-chip--accent",
+    title: "New entry"
+  };
+  if (action === "TRIM") return {
+    label: "TRIM",
+    cls: "ds-chip--solid",
+    title: "Trim today"
+  };
+  if (action === "DEFEND") return {
+    label: "DEFEND",
+    cls: "ds-chip--solid",
+    title: "Stop tightened"
+  };
+  if (action === "BUY" || action === "DCA_BUY") return {
+    label: action.replace("_", " "),
+    cls: "ds-chip--up",
+    title: "Investor action"
+  };
+  if (action === "SELL" || action === "TRIM") return {
+    label: action,
+    cls: "ds-chip--dn",
+    title: "Investor action"
+  };
+  return {
+    label: action || "ACT",
+    cls: "ds-chip--solid",
+    title: "Model action"
+  };
+}
+function BriefChipStrip({
+  sectionKey,
+  infographic,
+  sectionBody
+}) {
+  const info = infographic || {};
+  if (sectionKey === "modelActions") {
+    const rows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
+    if (!rows.length) return null;
+    return React.createElement("div", {
+      className: "tt-brief-chip-block"
+    }, React.createElement("div", {
+      className: "tt-strip-scroll"
+    }, rows.map((row, i) => {
+      const sym = String(row.ticker || "").toUpperCase();
+      const href = row.lane === "investor" ? `/investor.html?ticker=${encodeURIComponent(sym)}` : `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
+      const meta = modelActionChipMeta(row);
+      const sub = Number.isFinite(Number(row.price)) && Number(row.price) > 0 ? `@ $${Number(row.price).toFixed(2)}` : row.sub ? String(row.sub).replace(/_/g, " ").slice(0, 24) : null;
+      return React.createElement(BriefTickerChip, {
+        key: `${sym}-${row.action}-${i}`,
+        sym: sym,
+        pct: row.pct,
+        sub: sub,
+        href: href,
+        actionChip: meta,
+        title: `${sym} ${meta.label}${sub ? ` ${sub}` : ""}`
+      });
+    })));
+  }
+  if (sectionKey === "topMovers") {
+    const gainers = Array.isArray(info.topMovers?.gainers) ? info.topMovers.gainers : [];
+    const losers = Array.isArray(info.topMovers?.losers) ? info.topMovers.losers : [];
+    const parsed = !gainers.length && !losers.length && window.TimedBriefMarkdown?.parseBriefTopMoversText ? window.TimedBriefMarkdown.parseBriefTopMoversText(sectionBody || "") : {
+      gainers,
+      losers
+    };
+    const g = parsed.gainers || gainers;
+    const l = parsed.losers || losers;
+    if (!g.length && !l.length) return null;
+    return React.createElement("div", {
+      className: "tt-brief-chip-block"
+    }, g.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+      className: "tt-brief-chip-label"
+    }, "Gainers"), React.createElement("div", {
+      className: "tt-strip-scroll",
+      style: {
+        marginBottom: l.length ? 10 : 0
+      }
+    }, g.map(row => React.createElement(BriefTickerChip, {
+      key: `g-${row.ticker}`,
+      sym: row.ticker,
+      pct: row.pct,
+      href: `/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`,
+      title: `${row.ticker} ${fmtBriefPct(row.pct) || ""}`
+    })))), l.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+      className: "tt-brief-chip-label"
+    }, "Losers"), React.createElement("div", {
+      className: "tt-strip-scroll"
+    }, l.map(row => React.createElement(BriefTickerChip, {
+      key: `l-${row.ticker}`,
+      sym: row.ticker,
+      pct: row.pct,
+      href: `/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`,
+      title: `${row.ticker} ${fmtBriefPct(row.pct) || ""}`
+    })))));
+  }
+  if (sectionKey === "activeTrader") {
+    const rows = Array.isArray(info.traderPositions) ? info.traderPositions : [];
+    if (!rows.length) return null;
+    return React.createElement("div", {
+      className: "tt-brief-chip-block"
+    }, React.createElement("div", {
+      className: "tt-strip-scroll"
+    }, rows.map(p => {
+      const sym = String(p.ticker || "").toUpperCase();
+      return React.createElement(BriefTickerChip, {
+        key: p.tradeId || sym,
+        sym: sym,
+        pct: p.pnlPct,
+        pct2: p.dayPct,
+        sub: String(p.direction || "").toUpperCase(),
+        href: `/active-trader.html?ticker=${encodeURIComponent(sym)}`,
+        title: `${sym} ${String(p.direction || "").toUpperCase()} open P&L ${fmtBriefPct(p.pnlPct) || "n/a"}`
+      });
+    })));
+  }
+  if (sectionKey === "investorPortfolio") {
+    const rows = Array.isArray(info.investorHoldings) ? info.investorHoldings : [];
+    if (!rows.length) return null;
+    return React.createElement("div", {
+      className: "tt-brief-chip-block"
+    }, React.createElement("div", {
+      className: "tt-strip-scroll"
+    }, rows.map(p => {
+      const sym = String(p.ticker || "").toUpperCase();
+      return React.createElement(BriefTickerChip, {
+        key: sym,
+        sym: sym,
+        pct: p.unrealPct,
+        pct2: p.dayPct,
+        sub: p.stage ? String(p.stage).replace(/_/g, " ") : null,
+        href: `/investor.html?ticker=${encodeURIComponent(sym)}`,
+        title: `${sym} total return ${fmtBriefPct(p.unrealPct) || "n/a"}`
+      });
+    })));
+  }
+  return null;
+}
+function BriefContent({
+  content,
+  infographic
+}) {
+  const sections = useMemo(() => {
+    if (window.TimedBriefMarkdown?.parseBriefDisplaySections) {
+      return window.TimedBriefMarkdown.parseBriefDisplaySections(content || "");
+    }
+    return [{
+      title: "",
+      body: content || "",
+      key: null
+    }];
+  }, [content]);
+  if (!sections.length) return null;
+  return React.createElement("div", {
+    className: "brief-content"
+  }, sections.map((sec, idx) => React.createElement("div", {
+    key: `${sec.title || "sec"}-${idx}`
+  }, sec.title && React.createElement("h2", null, sec.title), sec.key && React.createElement(BriefChipStrip, {
+    sectionKey: sec.key,
+    infographic: infographic,
+    sectionBody: sec.body
+  }), sec.body ? React.createElement("div", {
+    dangerouslySetInnerHTML: {
+      __html: renderMarkdownBody(sec.body)
+    }
+  }) : null)));
 }
 function LiveKeyLevelsPanel({
   entries,
@@ -232,54 +532,28 @@ function BriefInfographic({
     className: "flex flex-wrap gap-1.5"
   }, data.traderPositions.map(p => {
     const sym = String(p.ticker || "").toUpperCase();
-    const pnl = Number(p.pnlPct);
-    const day = Number(p.dayPct);
-    const pnlColor = !Number.isFinite(pnl) ? "#8AA39A" : pnl >= 0 ? "#34d399" : "#fb7185";
-    return React.createElement("a", {
+    return React.createElement(BriefTickerChip, {
       key: p.tradeId || sym + (p.entryPrice || ""),
-      href: `/active-trader.html?ticker=${encodeURIComponent(sym)}`,
-      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors",
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, React.createElement("span", {
-      className: "font-bold text-white"
-    }, sym), React.createElement("span", {
-      className: "text-[#8AA39A]"
-    }, String(p.direction || "").toUpperCase()), Number.isFinite(pnl) && React.createElement("span", {
-      style: {
-        color: pnlColor
-      }
-    }, pnl >= 0 ? "+" : "", pnl.toFixed(1), "%"), Number.isFinite(day) && Math.abs(day) >= 0.01 && React.createElement("span", {
-      className: "text-[#6E867D]"
-    }, "(", day >= 0 ? "+" : "", day.toFixed(2), "% today)"));
+      sym: sym,
+      pct: p.pnlPct,
+      pct2: p.dayPct,
+      sub: String(p.direction || "").toUpperCase(),
+      href: `/active-trader.html?ticker=${encodeURIComponent(sym)}`
+    });
   }))), Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0 && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
   }, "Investor"), React.createElement("div", {
     className: "flex flex-wrap gap-1.5"
   }, data.investorHoldings.map(p => {
     const sym = String(p.ticker || "").toUpperCase();
-    const unreal = Number(p.unrealPct);
-    const day = Number(p.dayPct);
-    const pnlColor = !Number.isFinite(unreal) ? "#8AA39A" : unreal >= 0 ? "#34d399" : "#fb7185";
-    return React.createElement("a", {
+    return React.createElement(BriefTickerChip, {
       key: sym,
-      href: `/investor.html?ticker=${encodeURIComponent(sym)}`,
-      className: "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors",
-      style: {
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, React.createElement("span", {
-      className: "font-bold text-white"
-    }, sym), p.stage && React.createElement("span", {
-      className: "text-[#8AA39A]"
-    }, String(p.stage).replace(/_/g, " ")), Number.isFinite(unreal) && React.createElement("span", {
-      style: {
-        color: pnlColor
-      }
-    }, unreal >= 0 ? "+" : "", unreal.toFixed(1), "%"), Number.isFinite(day) && Math.abs(day) >= 0.01 && React.createElement("span", {
-      className: "text-[#6E867D]"
-    }, "(", day >= 0 ? "+" : "", day.toFixed(2), "% today)"));
+      sym: sym,
+      pct: p.unrealPct,
+      pct2: p.dayPct,
+      sub: p.stage ? String(p.stage).replace(/_/g, " ") : null,
+      href: `/investor.html?ticker=${encodeURIComponent(sym)}`
+    });
   })))), indicies.some(i => i.levels?.gamePlan) && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
   }, "Index playbook \xB7 today's options plays"), React.createElement("div", {
@@ -845,11 +1119,9 @@ function BriefCard({
     data: brief.infographic
   }), isMorning && brief.sessionContext && React.createElement(SessionContextBanner, {
     sessionContext: brief.sessionContext
-  }), React.createElement("div", {
-    className: "brief-content",
-    dangerouslySetInnerHTML: {
-      __html: renderMarkdown(brief.content)
-    }
+  }), React.createElement(BriefContent, {
+    content: brief.content,
+    infographic: brief.infographic
   }), !isMorning && brief.croNote && React.createElement(CRODeskWrapPanel, {
     croNote: brief.croNote,
     accentColor: accentColor
@@ -2744,6 +3016,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783372735310:824211437
+// cache-bust:1783377109633:694811914
 
-// cache-bust:1783372735310:824211437
+// cache-bust:1783377109633:694811914

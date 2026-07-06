@@ -9,6 +9,9 @@ import {
   formatBriefInvestorActionsBlock,
   formatBriefInvestorLotLine,
   buildBriefUniverseMovers,
+  buildBriefModelActionChips,
+  parseBriefTopMoversText,
+  formatBriefUniverseMoversText,
 } from "./daily-brief.js";
 
 describe("buildPremarketGapContext session window", () => {
@@ -128,12 +131,35 @@ describe("buildBriefUniverseMovers", () => {
       },
     };
     const movers = await buildBriefUniverseMovers(env, {}, true);
-    expect(movers).toContain("IOT");
-    expect(movers).toContain("QYLS");
-    expect(movers).toContain("TENB");
-    expect(movers).toContain("IREN");
-    expect(movers).toContain("RBRK");
-    expect(movers).toContain("Gainers:");
-    expect(movers).not.toContain("SPY");
+    expect(movers.text).toContain("IOT");
+    expect(movers.text).toContain("QYLS");
+    expect(movers.text).toContain("TENB");
+    expect(movers.text).toContain("IREN");
+    expect(movers.text).toContain("RBRK");
+    expect(movers.text).toContain("Gainers:");
+    expect(movers.text).not.toContain("SPY");
+    expect(movers.gainers.map((g) => g.ticker)).toContain("IOT");
+  });
+});
+
+describe("buildBriefModelActionChips", () => {
+  it("builds trader + investor action chips for Model Actions Today", () => {
+    const chips = buildBriefModelActionChips({
+      todayEntries: [{ ticker: "GS", direction: "LONG", price: 700, reason: "breakout" }],
+      todayExits: [{ ticker: "SNDK", direction: "LONG", price: 1745, pnlPct: 18.6 }],
+      todayInvestorActions: [
+        { ticker: "PLTR", action: "BUY", price: 131.37, shares: 38, reason: "auto_entry_accumulate" },
+      ],
+    });
+    expect(chips.some((c) => c.ticker === "PLTR" && c.lane === "investor")).toBe(true);
+    expect(chips.some((c) => c.ticker === "SNDK" && c.action === "EXIT")).toBe(true);
+  });
+});
+
+describe("parseBriefTopMoversText", () => {
+  it("parses gainers/losers lines into chip rows", () => {
+    const parsed = parseBriefTopMoversText("Gainers: IOT +15.6%, RBRK +10.0%\nLosers: STRL -14.3%");
+    expect(parsed.gainers.map((g) => g.ticker)).toEqual(["IOT", "RBRK"]);
+    expect(parsed.losers[0].ticker).toBe("STRL");
   });
 });
