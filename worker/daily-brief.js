@@ -31,17 +31,33 @@ import {
 } from "./day-trade-game-plan.js";
 import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
-import { quoteReceiptTimestamp, PF_FRESH_MS, PF_VALUE_FRESH_MS_CLOSED } from "./feed/feed-outputs.js";
+import {
+  quoteReceiptTimestamp,
+  PF_FRESH_MS,
+  PF_VALUE_FRESH_MS_CLOSED,
+  isPriceFeedTickFresh,
+} from "./feed/feed-outputs.js";
 
 export function priceFeedValueTsMs(row) {
   return quoteReceiptTimestamp(row);
 }
 
 export function isPriceFeedRowFresh(row, marketOpen = true, nowMs = Date.now()) {
+  if (!row || typeof row !== "object") return false;
   const ts = priceFeedValueTsMs(row);
-  if (!(ts > 0)) return false;
   const maxAge = marketOpen ? PF_FRESH_MS : PF_VALUE_FRESH_MS_CLOSED;
-  return (nowMs - ts) <= maxAge;
+  if (ts > 0 && (nowMs - ts) <= maxAge) return true;
+  // Holiday / weekend: poll `t` still advances while vendor q_ts may stay on
+  // the last RTH print. Accept a fresh poll plus either an extended print or
+  // the last RTH close baseline so the brief does not fall back to week-old
+  // timed:latest scoring snapshots on Monday pre-market.
+  if (!marketOpen && isPriceFeedTickFresh(row, nowMs)) {
+    const extP = Number(row.ahp);
+    if (Number.isFinite(extP) && extP > 0) return true;
+    const rthP = Number(row.p);
+    if (Number.isFinite(rthP) && rthP > 0) return true;
+  }
+  return false;
 }
 
 function freshPriceFeedRow(pf, sym, marketOpen = true, nowMs = Date.now()) {
@@ -131,6 +147,45 @@ export function buildPremarketGapContext(pf, marketOpen, nowMs = Date.now()) {
   return lines.length > 0 ? lines.join("\n") : null;
 }
 
+/** When timed:prices lacks a usable EXT row (long weekend / stale q_ts), pull live index quotes. */
+export async function enrichBriefIndexQuotesFromTd(env, pf, marketOpen) {
+  if (marketOpen || !pf || typeof pf !== "object") return pf;
+  const out = { ...pf };
+  let enriched = 0;
+  for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+    const row = out[sym];
+    if (liveSpotFromPriceFeedRow(row, false)) continue;
+    try {
+      const result = await tdFetchQuote(env, [sym]);
+      const snap = result?.snapshots?.[sym];
+      const extP = Number(snap?.extendedPrice) || Number(snap?.price);
+      const rthClose = Number(snap?.dailyClose) || Number(row?.p);
+      const priorClose = priorRthCloseFromPriceFeedRow(row, false)
+        || Number(snap?.prevDailyClose)
+        || rthClose;
+      if (!(extP > 0) || !(priorClose > 0)) continue;
+      const nowMs = Date.now();
+      const ahdp = Math.round(((extP - priorClose) / priorClose) * 10000) / 100;
+      out[sym] = {
+        ...(row || {}),
+        p: rthClose > 0 ? rthClose : row?.p,
+        pc: Number(row?.pc) > 0 ? row.pc : priorClose,
+        ahp: Math.round(extP * 100) / 100,
+        ahdc: Math.round((extP - priorClose) * 100) / 100,
+        ahdp,
+        t: nowMs,
+        q_ts: Number(snap?.trade_ts) || nowMs,
+        p_ts: nowMs,
+      };
+      enriched += 1;
+    } catch (_) { /* best-effort */ }
+  }
+  if (enriched > 0) {
+    console.log(`[BRIEF] TwelveData fallback enriched ${enriched} index quote(s) for extended session`);
+  }
+  return out;
+}
+
 /** Ground-truth RTH day-change for SPY/QQQ/IWM from validated brief market rows. */
 export function collectIndexSessionMoves(data) {
   const out = {};
@@ -188,9 +243,36 @@ export function patchBriefIndexDayPctProse(content, moves = {}) {
     });
   }
   if (patched > 0) {
-    console.log(`[BRIEF] Patched ${patched} index day-% mention(s) to RTH ground truth`);
+    console.log(`[BRIEF] Patched ${patched} index day-% mention(s) to session ground truth`);
   }
   return out;
+}
+
+/** Rewrite SPY/QQQ/IWM spot prices in stored prose when live timed:prices moved. */
+export function patchBriefIndexPriceProse(content, moves = {}) {
+  if (!content || typeof content !== "string" || !moves || typeof moves !== "object") return content;
+  let out = content;
+  let patched = 0;
+  for (const sym of ["SPY", "QQQ", "IWM"]) {
+    const price = Number(moves[sym]?.price);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const formatted = `$${price.toFixed(2)}`;
+    const re = new RegExp(`\\b${sym}\\b([^\\n$]{0,40}?)\\$\\d{2,5}\\.\\d{2}`, "gi");
+    out = out.replace(re, (match, mid) => {
+      if (match.includes(formatted)) return match;
+      patched += 1;
+      return `${sym}${mid}${formatted}`;
+    });
+  }
+  if (patched > 0) {
+    console.log(`[BRIEF] Patched ${patched} index price mention(s) to live session spot`);
+  }
+  return out;
+}
+
+/** Patch both index spot prices and day-change percentages in stored markdown. */
+export function patchBriefIndexLiveProse(content, moves = {}) {
+  return patchBriefIndexPriceProse(patchBriefIndexDayPctProse(content, moves), moves);
 }
 
 /** Prompt block for macro prints that already have Actual values (PCE/CPI/NFP @ 8:30 ET). */
@@ -1503,7 +1585,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   ]);
 
   // Cross-reference: use timed:prices (cron-updated) to validate/supplement index ETF data
-  const _pf = (priceFeedRaw?.prices || priceFeedRaw) || {};
+  let _pf = (priceFeedRaw?.prices || priceFeedRaw) || {};
+  _pf = await enrichBriefIndexQuotesFromTd(env, _pf, _briefSessionMktOpen);
 
   // Validate market data — if scoring payload has stale or absurd data, fix using price feed.
   function validateMarketData(data, ticker, proxyTicker, pf, sameScale, marketOpen) {
@@ -5788,6 +5871,22 @@ function d1RowToBriefPayload(row) {
   };
 }
 
+function collectIndexMovesFromInfographic(indices = []) {
+  const out = {};
+  for (const idx of indices) {
+    const sym = String(idx?.sym || "").toUpperCase();
+    if (!["SPY", "QQQ", "IWM"].includes(sym)) continue;
+    const dayPct = Number(idx?.chgPct ?? idx?.dayChangePct);
+    const price = Number(idx?.price);
+    if (!Number.isFinite(dayPct) && !(Number.isFinite(price) && price > 0)) continue;
+    out[sym] = {
+      dayPct: Number.isFinite(dayPct) ? Math.round(dayPct * 100) / 100 : undefined,
+      price: Number.isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : null,
+    };
+  }
+  return out;
+}
+
 /** GET /timed/daily-brief — returns current brief from KV with D1 fallback */
 export async function handleGetBrief(env) {
   const KV = env?.KV_TIMED;
@@ -5840,6 +5939,10 @@ export async function handleGetBrief(env) {
         if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY, { useRthClose: type === "evening" });
         if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ, { useRthClose: type === "evening" });
         if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM, { useRthClose: type === "evening" });
+        const liveMoves = collectIndexMovesFromInfographic(slot.infographic.indices);
+        if (slot.content && Object.keys(liveMoves).length > 0) {
+          slot.content = patchBriefIndexLiveProse(slot.content, liveMoves);
+        }
         const hasPredCards = !!(slot.esPrediction || slot.spyPrediction || slot.qqqPrediction || slot.iwmPrediction);
         slot.liveKeyLevels = buildLiveKeyLevelsEntries(slot.infographic.indices, { includeGamePlan: !hasPredCards });
         slot.liveKeyLevelsAt = Date.now();
