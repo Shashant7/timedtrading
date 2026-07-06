@@ -1371,11 +1371,10 @@
       .tt-universe-panel__growth { margin: 0; }
       .tt-universe-panel .tt-ready-scroll,
       .tt-universe-panel .tt-opp-scroll { gap: 10px; }
-      .tt-universe-panel .ds-tickercard.tt-ready-lane-card,
-      .tt-universe-panel .tt-opp-card {
-        flex: 0 0 268px;
-        width: 268px;
-        max-width: 268px;
+      .tt-universe-panel .tt-strip-card {
+        flex: 0 0 280px;
+        width: 280px;
+        max-width: 280px;
       }
       .tt-universe-panel__divider {
         height: 1px;
@@ -4220,50 +4219,27 @@
         };
       }
 
-      function GrowthZoneBar({ row, ctoItem, livePrice }) {
+      function GrowthZoneBar({ row, ctoItem, livePrice, mode }) {
         const zm = buildGrowthZoneModel(row, ctoItem, livePrice);
         if (!zm) return null;
-        const fmtPx = (n) => `$${Number(n).toFixed(Number(n) >= 100 ? 0 : 2)}`;
-        const fmtProb = (p) => (Number.isFinite(p) ? `${Math.round(p * 100)}%` : null);
-        const invPct = zm.pct(zm.inv);
-        const pbLoPct = zm.pct(zm.pbLo);
-        const pbHiPct = zm.pct(zm.pbHi);
-        const tgtPct = zm.pct(zm.tgt);
-        const pricePct = zm.pct(zm.price);
-        return h("div", { className: "tt-opp-zone" },
-          h("div", { className: "tt-opp-zone-labels" },
-            h("span", null, "Invalidation"),
-            h("span", null, "Pullback"),
-            h("span", null, "Target"),
-          ),
-          h("div", { className: "tt-opp-zone-track", title: "Daily CTO levels — invalidation, pullback add zone, and upside target." },
-            h("div", {
-              className: "tt-opp-zone-seg tt-opp-zone-seg--inv",
-              style: { left: "0%", width: `${pbLoPct}%` },
-            }),
-            h("div", {
-              className: "tt-opp-zone-seg tt-opp-zone-seg--pb",
-              style: { left: `${pbLoPct}%`, width: `${Math.max(0, pbHiPct - pbLoPct)}%` },
-            }),
-            h("div", {
-              className: "tt-opp-zone-seg tt-opp-zone-seg--tgt",
-              style: { left: `${pbHiPct}%`, width: `${Math.max(0, 100 - pbHiPct)}%` },
-            }),
-            h("div", {
-              className: "tt-opp-zone-marker",
-              style: { left: `${pricePct}%` },
-              title: `Today ${fmtPx(zm.price)}`,
-            }),
-          ),
-          h("div", { className: "tt-opp-zone-meta" },
-            h("span", null, `Inv ${fmtPx(zm.inv)}`, fmtProb(zm.invProb) && h("span", { className: "tt-opp-zone-prob" }, ` · ${fmtProb(zm.invProb)} hit`)),
-            h("span", null, `PB ${fmtPx(zm.pbLo)}–${fmtPx(zm.pbHi)}`),
-            h("span", null, `Tgt ${fmtPx(zm.tgt)}`, fmtProb(zm.tgtProb) && h("span", { className: "tt-opp-zone-prob" }, ` · ${fmtProb(zm.tgtProb)} reach`)),
-          ),
-        );
+        const LaneCard = window.TTLaneCard;
+        if (!LaneCard) return null;
+        if (mode === "meta") {
+          return LaneCard.zoneBarMeta(zm, {
+            extraMeta: h(React.Fragment, null,
+              row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`),
+              row.trajectory?.cagr_pct != null && h("span", { style: { color: "var(--tt-accent)" } },
+                `${row.trajectory.cagr_pct >= 0 ? "+" : ""}${Number(row.trajectory.cagr_pct).toFixed(1)}% runway`),
+            ),
+          });
+        }
+        return LaneCard.zoneBarTrack(zm, {
+          planLabel: "Growth plan",
+          trackTitle: "Daily CTO levels — invalidation, pullback add zone, and upside target.",
+        });
       }
 
-      function GrowthIdeasStrip({ onSelectTicker, user, embedded, data, savedSet, onToggleSaved }) {
+      function GrowthIdeasStrip({ onSelectTicker, user, embedded, data, savedSet, onToggleSaved, sparkCache, ensureSpark }) {
         const [rows, setRows] = useState(() => {
           const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
           const list = Array.isArray(cached?.holdings) ? cached.holdings : [];
@@ -4420,6 +4396,80 @@
                   ? `Revenue runway ~${fmtPctOpp(row.trajectory.cagr_pct)} CAGR`
                   : "Growth profile flagged by fundamentals");
               const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
+              const LaneCard = window.TTLaneCard;
+              const dir = liveDayPct == null || Math.abs(liveDayPct) < 0.05
+                ? "flat"
+                : liveDayPct > 0 ? "up" : "dn";
+              let dayChg = null;
+              try {
+                if (liveT && typeof getDailyChange === "function") {
+                  const dc = getDailyChange(liveT);
+                  if (Number.isFinite(Number(dc?.dayChg))) dayChg = Number(dc.dayChg);
+                }
+              } catch (_) {}
+              const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT || {}) : null;
+              const sparkSvg = LaneCard?.sparkSvgFromCache
+                ? LaneCard.sparkSvgFromCache(sym, livePrice, dir, sparkCache, ensureSpark)
+                : "";
+              const rank = Number(liveT?.rank_position ?? liveT?.rank ?? row?.rank) || null;
+              const score = Number(liveT?.investor_score ?? row?.investor_score) || null;
+              const metrics = LaneCard?.rankScoreMetricChips
+                ? LaneCard.rankScoreMetricChips({ rank, score })
+                : [];
+              const chipRow = [];
+              if (row.tier_label) {
+                chipRow.push(h("span", {
+                  key: "tier",
+                  className: "ds-chip ds-chip--sm ds-chip--accent",
+                  title: "Growth tier",
+                }, row.tier_label));
+              }
+              if (row.dip_buy) {
+                chipRow.push(h("span", {
+                  key: "dip",
+                  className: "ds-chip ds-chip--sm ds-chip--up",
+                  title: "Pullback posture active",
+                }, "Dip active"));
+              }
+              const zm = buildGrowthZoneModel(row, ctoBySym[sym], livePrice);
+              const midBody = zm && LaneCard?.zoneBarTrack
+                ? LaneCard.zoneBarTrack(zm, {
+                    planLabel: "Growth plan",
+                    trackTitle: "Daily CTO levels — invalidation, pullback add zone, and upside target.",
+                  })
+                : null;
+              const footEls = [
+                h("p", { key: "why", className: "tt-strip-card__hint" }, why),
+                h(GrowthZoneBar, { key: "meta", row, ctoItem: ctoBySym[sym], livePrice, mode: "meta" }),
+              ].filter(Boolean);
+
+              if (LaneCard?.create) {
+                return h("div", { key: sym, className: "tt-strip-card", role: "listitem" },
+                  LaneCard.create({
+                    sym,
+                    button: {
+                      onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
+                      title: `${sym} — open Fundamentals`,
+                      style: { textAlign: "left", padding: "var(--ds-space-3)" },
+                    },
+                    chipRow,
+                    quote: {
+                      price: livePrice,
+                      dayPct: liveDayPct,
+                      dayChg,
+                      dir,
+                      extLine,
+                    },
+                    sparkSvg,
+                    midBody,
+                    metrics,
+                    isSaved,
+                    onToggleSaved,
+                  }),
+                  h("div", { className: "tt-strip-card__foot" }, footEls),
+                );
+              }
+
               return h("button", {
                 key: sym,
                 type: "button",
@@ -4427,40 +4477,8 @@
                 onClick: () => onSelectTicker && onSelectTicker(sym, "FUNDAMENTALS"),
                 title: `${sym} — open Fundamentals`,
               },
-                h("div", { className: "tt-opp-card-head" },
-                  h("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 } },
-                    h(TickerLogo, { sym, size: 22 }),
-                    h("div", { style: { minWidth: 0 } },
-                      h("div", { className: "tt-opp-ticker" }, sym),
-                      row.companyName && h("div", { style: { fontSize: 10, color: "var(--tt-text-dim)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 } }, row.companyName),
-                    ),
-                  ),
-                  h("div", { style: { display: "flex", alignItems: "center", gap: 6 } },
-                    row.tier_label && h("span", { className: "tt-opp-chip" }, row.tier_label),
-                    onToggleSaved && h("span", {
-                      role: "button",
-                      "aria-label": isSaved ? `Unsave ${sym}` : `Save ${sym}`,
-                      "aria-pressed": isSaved,
-                      title: isSaved ? "Saved — click to remove" : "Save to watchlist",
-                      onClick: (e) => { e.stopPropagation(); e.preventDefault(); onToggleSaved(sym); },
-                      style: {
-                        cursor: "pointer", fontSize: 15, lineHeight: 1,
-                        color: isSaved ? "#f5c25c" : "var(--tt-text-dim)",
-                        padding: "2px 4px", borderRadius: 4,
-                        userSelect: "none",
-                      },
-                    }, isSaved ? "★" : "☆"),
-                  ),
-                ),
-                h("div", { className: "tt-opp-meta" },
-                  livePrice != null && h("span", null, `$${livePrice.toFixed(2)}`),
-                  Number.isFinite(liveDayPct) && h("span", { style: { color: liveDayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)", fontWeight: 700 } }, fmtPctOpp(liveDayPct)),
-                  row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`),
-                  row.trajectory?.cagr_pct != null && h("span", { style: { color: "var(--tt-accent)" } }, `${fmtPctOpp(row.trajectory.cagr_pct)} runway`),
-                ),
-                row.dip_buy && h("div", { className: "tt-opp-dip" }, "Dip posture active"),
-                h("p", { className: "tt-opp-why" }, why),
-                h(GrowthZoneBar, { row, ctoItem: ctoBySym[sym], livePrice }),
+                h("div", null, sym),
+                h("p", { className: "tt-strip-card__hint" }, why),
               );
             }),
           ),
@@ -7174,9 +7192,20 @@
                   embedded: true,
                   savedSet,
                   onToggleSaved: toggleSaved,
+                  sparkCache,
+                  ensureSpark,
                 }),
                 h("div", { className: "tt-universe-panel__divider" }),
-                h(GrowthIdeasStrip, { onSelectTicker, user, embedded: true, data, savedSet, onToggleSaved: toggleSaved }),
+                h(GrowthIdeasStrip, {
+                  onSelectTicker,
+                  user,
+                  embedded: true,
+                  data,
+                  savedSet,
+                  onToggleSaved: toggleSaved,
+                  sparkCache,
+                  ensureSpark,
+                }),
                 h("div", { className: "tt-universe-panel__divider" }),
                 data
                   ? h(TickerLaneSection, {

@@ -83,6 +83,96 @@
     return { rank, score };
   }
 
+  function sparkClosesFromEntry(entry) {
+    if (Array.isArray(entry)) return entry;
+    if (entry && Array.isArray(entry.closes)) return entry.closes;
+    return null;
+  }
+
+  function sparkSvgFromCache(sym, price, dir, sparkCache, ensureSpark) {
+    const upper = String(sym || "").toUpperCase();
+    if (typeof ensureSpark === "function") ensureSpark(upper);
+    const entry = sparkCache && sparkCache[upper];
+    const closes = sparkClosesFromEntry(entry);
+    const points = (closes && closes.length >= 2) ? closes : [price || 0, price || 0];
+    if (window.DS && Number.isFinite(price) && price > 0) {
+      return window.DS.sparklineSvg(points, {
+        width: 280,
+        height: 44,
+        direction: dir || "flat",
+        strokeWidth: 1.4,
+      });
+    }
+    return "";
+  }
+
+  function fmtZonePx(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "—";
+    return `$${v.toFixed(v >= 100 ? 0 : 2)}`;
+  }
+
+  /** INV / PB / TGT track only — lives on the lane card mid section. */
+  function zoneBarTrack(zm, opts) {
+    opts = opts || {};
+    if (!zm || typeof zm.pct !== "function") return null;
+    const pbLo = zm.pb ? zm.pb[0] : zm.pbLo;
+    const pbHi = zm.pb ? zm.pb[1] : zm.pbHi;
+    const pbLoPct = zm.pct(pbLo);
+    const pbHiPct = zm.pct(pbHi);
+    const pricePct = zm.pct(zm.price);
+    const laneLabel = zm.lane === "investor" ? "INVESTOR" : zm.lane === "trader" ? "TRADER" : null;
+    return h("div", { className: "tt-zone-bar" },
+      laneLabel && h("div", { className: "tt-zone-bar__lane-row" },
+        h("span", {
+          className: "tt-zone-bar__lane tt-zone-bar__lane--" + (zm.lane === "investor" ? "investor" : "trader"),
+        }, laneLabel),
+        h("span", null, opts.planLabel || (zm.lane === "investor" ? "Buy zone plan" : "Trader plan")),
+      ),
+      h("div", { className: "tt-zone-bar__labels" },
+        h("span", null, "Invalidation"),
+        h("span", null, "Pullback"),
+        h("span", null, "Target"),
+      ),
+      h("div", { className: "tt-zone-bar__track", title: opts.trackTitle || "Invalidation, pullback band, and target." },
+        h("div", {
+          className: "tt-zone-bar__seg tt-zone-bar__seg--inv",
+          style: { left: "0%", width: `${pbLoPct}%` },
+        }),
+        h("div", {
+          className: "tt-zone-bar__seg tt-zone-bar__seg--pb",
+          style: { left: `${pbLoPct}%`, width: `${Math.max(0, pbHiPct - pbLoPct)}%` },
+        }),
+        h("div", {
+          className: "tt-zone-bar__seg tt-zone-bar__seg--tgt",
+          style: { left: `${pbHiPct}%`, width: `${Math.max(0, 100 - pbHiPct)}%` },
+        }),
+        h("div", {
+          className: "tt-zone-bar__marker",
+          style: { left: `${pricePct}%` },
+          title: `Live ${fmtZonePx(zm.price)}`,
+        }),
+      ),
+    );
+  }
+
+  /** Price levels row — sits below the lane card in the strip stack. */
+  function zoneBarMeta(zm, opts) {
+    opts = opts || {};
+    if (!zm) return null;
+    const pbLo = zm.pb ? zm.pb[0] : zm.pbLo;
+    const pbHi = zm.pb ? zm.pb[1] : zm.pbHi;
+    const fmtProb = (p) => (Number.isFinite(Number(p)) ? `${Math.round(Number(p) * 100)}%` : null);
+    const invProb = fmtProb(zm.invProb);
+    const tgtProb = fmtProb(zm.tgtProb);
+    return h("div", { className: "tt-zone-bar__meta" },
+      h("span", null, `Inv ${fmtZonePx(zm.inv)}`, invProb && h("span", { className: "tt-zone-bar__prob" }, ` · ${invProb} hit`)),
+      h("span", null, `PB ${fmtZonePx(pbLo)}\u2013${fmtZonePx(pbHi)}`),
+      h("span", null, `Tgt ${fmtZonePx(zm.tgt)}`, tgtProb && h("span", { className: "tt-zone-bar__prob" }, ` · ${tgtProb} reach`)),
+      opts.extraMeta || null,
+    );
+  }
+
   function rankScoreMetricChips(opts) {
     const {
       rank,
@@ -180,6 +270,9 @@
     saveButton,
     traderRankScore,
     rankScoreMetricChips,
+    sparkSvgFromCache,
+    zoneBarTrack,
+    zoneBarMeta,
   };
   }
 
