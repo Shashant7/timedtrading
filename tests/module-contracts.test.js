@@ -83,6 +83,12 @@ describe("module contracts", () => {
     expect(typeof mod.assessRunnerPeakTrimLadder).toBe("function");
   });
 
+  it("worker/runner-top-formation.js exposes 1H top-formation helper", async () => {
+    const mod = await import("../worker/runner-top-formation.js");
+    expect(typeof mod.assessRunnerTopFormation).toBe("function");
+    expect(mod.RUNNER_TOP_FORMATION_DEFAULTS).toBeTruthy();
+  });
+
   it("worker/sanity-sweep.js exposes the cron + endpoint helpers", async () => {
     const mod = await import("../worker/sanity-sweep.js");
     for (const fn of [
