@@ -324,24 +324,46 @@
       ".tt-ready-scroll{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:thin;-webkit-overflow-scrolling:touch}",
       ".tt-ready-scroll::-webkit-scrollbar{height:6px}",
       ".tt-ready-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:999px}",
-      ".tt-ready-card{flex:0 0 232px;scroll-snap-align:start;display:flex;flex-direction:column;gap:8px;min-height:120px;padding:13px 15px;border-radius:var(--vf-radius-md,18px);cursor:pointer;text-align:left;background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));color:var(--ds-text-body,#e5e7eb);transition:border-color .15s,background .15s}",
+      ".tt-ready-card{flex:0 0 268px;scroll-snap-align:start;display:flex;flex-direction:column;gap:8px;min-height:184px;padding:12px 14px;border-radius:var(--vf-radius-md,18px);cursor:pointer;text-align:left;background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));color:var(--ds-text-body,#e5e7eb);transition:border-color .15s,background .15s}",
       ".tt-ready-card:hover{border-color:rgba(56,242,161,.35);background:var(--ds-bg-glass,rgba(255,255,255,.04))}",
-      ".tt-ready-card__head{display:flex;align-items:center;gap:8px}",
-      ".tt-ready-card__sym{font-weight:800;font-size:15px;font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em;flex:1 1 auto;min-width:0}",
+      ".tt-ready-card__head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}",
+      ".tt-ready-card__id{display:flex;align-items:center;gap:8px;min-width:0;flex:1 1 auto}",
+      ".tt-ready-card__sym{font-weight:800;font-size:14px;font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em;color:var(--ds-text-headline,#f4f5f7)}",
+      ".tt-ready-card__co{font-size:10px;color:var(--ds-text-faint,#6b7280);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:170px}",
+      ".tt-ready-card__save{cursor:pointer;font-size:15px;line-height:1;padding:2px 4px;border-radius:4px;user-select:none;color:var(--ds-text-faint,#6b7280);background:none;border:none}",
+      ".tt-ready-card__save--on{color:#f5c25c}",
       ".tt-ready-card__chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap}",
       ".tt-ready-word{display:inline-flex;align-items:center;gap:5px;font-weight:800;font-size:10px;letter-spacing:.03em;padding:3px 9px;border-radius:7px;white-space:nowrap;line-height:1.2}",
       ".tt-ready-word__dot{width:6px;height:6px;border-radius:50%;background:currentColor}",
       ".tt-ready-word--buy{background:var(--ds-up-bg,rgba(52,211,153,.14));color:var(--ds-up,#34d399)}",
       ".tt-ready-word--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
-      ".tt-ready-card__meta{font-size:10.5px;color:var(--ds-text-muted,#9ca3af);font-family:var(--tt-font-mono,ui-monospace,monospace);font-weight:500}",
+      ".tt-ready-card__meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:var(--ds-text-body,#e5e7eb);font-family:var(--tt-font-mono,ui-monospace,monospace);font-weight:600}",
+      ".tt-ready-card__meta--dim{color:var(--ds-text-muted,#9ca3af);font-weight:500}",
       ".tt-ready-card__why{margin:0;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}",
       ".tt-ready-card__blocker{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start}",
       ".tt-ready-card__confluence{display:flex;flex-wrap:wrap;gap:4px}",
       ".tt-ready-card__conf{font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:5px;background:rgba(167,139,250,.10);color:#c4b5fd;border:1px solid rgba(167,139,250,.22);white-space:nowrap;font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-ready-card__lanes{font-size:9.5px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em;margin-top:auto}",
+      /* Zone bar — INV / PB / TGT, styled to match the Growth Ideas bar. */
+      ".tt-ready-zone{margin-top:6px}",
+      ".tt-ready-zone__row{display:flex;align-items:center;gap:6px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:3px}",
+      ".tt-ready-zone__lane{padding:1px 5px;border-radius:4px;font-size:8.5px;letter-spacing:.06em}",
+      ".tt-ready-zone__lane--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
+      ".tt-ready-zone__lane--investor{background:rgba(192,132,252,.15);color:#c084fc}",
+      ".tt-ready-zone__labels{display:flex;justify-content:space-between;gap:4px;font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);margin-bottom:3px}",
+      ".tt-ready-zone__labels span:nth-child(1){color:#fca5a5}",
+      ".tt-ready-zone__labels span:nth-child(2){color:#6ee7b7}",
+      ".tt-ready-zone__labels span:nth-child(3){color:#fcd34d}",
+      ".tt-ready-zone__track{position:relative;height:8px;border-radius:999px;overflow:hidden;background:var(--ds-bg-glass,rgba(255,255,255,.04));border:1px solid var(--ds-stroke,rgba(255,255,255,.07))}",
+      ".tt-ready-zone__seg{position:absolute;top:0;bottom:0}",
+      ".tt-ready-zone__seg--inv{background:rgba(248,113,113,.72)}",
+      ".tt-ready-zone__seg--pb{background:rgba(56,242,161,.62)}",
+      ".tt-ready-zone__seg--tgt{background:rgba(245,194,92,.68)}",
+      ".tt-ready-zone__marker{position:absolute;top:-3px;width:3px;height:14px;border-radius:2px;background:var(--ds-text-body,#e5e7eb);box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%);z-index:2}",
+      ".tt-ready-zone__meta{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:5px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:10px;color:var(--ds-text-body,#e5e7eb);font-weight:600}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
-      ".tt-ready-skel{flex:0 0 232px;min-height:120px;padding:13px 15px;border-radius:var(--vf-radius-md,18px);background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));display:flex;flex-direction:column;gap:10px}",
+      ".tt-ready-skel{flex:0 0 268px;min-height:184px;padding:12px 14px;border-radius:var(--vf-radius-md,18px);background:var(--ds-bg-surface,rgba(255,255,255,.022));border:1px solid var(--ds-stroke,rgba(255,255,255,.07));display:flex;flex-direction:column;gap:10px}",
       ".tt-ready-skel__bar{border-radius:6px;background:linear-gradient(90deg,var(--ds-bg-surface,rgba(255,255,255,.03)),var(--ds-bg-glass,rgba(255,255,255,.07)),var(--ds-bg-surface,rgba(255,255,255,.03)));background-size:200% 100%;animation:tt-ready-shimmer 1.6s ease-in-out infinite}",
       "@keyframes tt-ready-shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}",
       ".tt-trust{display:flex;flex-wrap:wrap;gap:16px;align-items:center;padding:10px 16px;border:1px solid var(--ds-stroke,rgba(255,255,255,.07));border-radius:10px;background:rgba(255,255,255,.02);margin-bottom:16px;font-size:11.5px;color:var(--ds-text-muted,#9ca3af)}",
@@ -379,10 +401,96 @@
       var p = window.TimedPriceUtils && window.TimedPriceUtils.getHeadlinePrice
         ? window.TimedPriceUtils.getHeadlinePrice(t)
         : null;
-      if (Number.isFinite(Number(p))) return Number(p);
+      var pn = Number(p);
+      if (Number.isFinite(pn) && pn > 0) return pn;
     } catch (_) {}
     var n = Number(t && (t._live_price != null ? t._live_price : t.price != null ? t.price : t.close));
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /**
+   * Build an INV / PB / TGT zone model for the TRADER lane from /timed/all
+   * fields (sl, entry_ref, tp_trim). Returns null when the levels don't
+   * form a coherent long ladder (INV < PX < TGT).
+   */
+  function buildTraderZoneModel(t, priceIn) {
+    if (!t || typeof t !== "object") return null;
+    var price = Number(priceIn) || headlinePrice(t);
+    if (!(price > 0)) return null;
+    var sl = Number(t.sl_dynamic || t.sl);
+    var entryRef = Number(t.entry_ref || t.entry_price || t.entryPrice || price);
+    var tp1 = Number(t.tp_trim || t.tp);
+    var tp2 = Number(t.tp_exit);
+    var runner = Number(t.tp_runner || t.tp_target_price);
+    // Long-only zones for now (Ready Setups skews LONG).
+    if (!(sl > 0) || sl >= price) return null;
+    var target = null;
+    if (tp1 > price) target = tp1;
+    else if (tp2 > price) target = tp2;
+    else if (runner > price) target = runner;
+    if (!(target > price)) return null;
+    // Pullback band: between SL and current entry_ref (or a ~40% slice from INV).
+    var pbLo = entryRef > sl && entryRef < price ? entryRef : sl + (price - sl) * 0.55;
+    var pbHi = entryRef > pbLo && entryRef <= price ? Math.max(entryRef, price) : price;
+    if (pbLo <= sl) pbLo = sl + (price - sl) * 0.55;
+    if (pbHi <= pbLo) pbHi = price;
+    var span = target - sl;
+    if (!(span > 0)) return null;
+    var pad = span * 0.04;
+    var minPx = sl - pad;
+    var maxPx = target + pad;
+    var pct = function (px) { return Math.max(0, Math.min(100, ((px - minPx) / (maxPx - minPx)) * 100)); };
+    return {
+      inv: sl, pb: [pbLo, pbHi], tgt: target,
+      price: price, minPx: minPx, maxPx: maxPx, pct: pct,
+      lane: "trader",
+      subLabels: {
+        tgtDetail: (tp2 && tp2 > tp1) ? "TP1 " + fmtPx(tp1) : null,
+      },
+    };
+  }
+
+  /**
+   * Build an INV / PB / TGT zone model for the INVESTOR lane. Uses:
+   *  - `t._fair_value.fair_value` as the target (or a modest premium above)
+   *  - A conservative pullback band derived from fair value distance
+   *  - A structural invalidation floor: prefers `t.primary_invalidation_price`
+   *    / `t.thesisInvalidationPrice`, else a fair-value-anchored discount.
+   * Falls back to null when there is nothing coherent (e.g. missing FV).
+   */
+  function buildInvestorZoneModel(t, priceIn) {
+    if (!t || typeof t !== "object") return null;
+    var price = Number(priceIn) || headlinePrice(t);
+    if (!(price > 0)) return null;
+    var fv = Number(t._fair_value && t._fair_value.fair_value) || Number(t.fair_value_price);
+    var inv = Number(t.primary_invalidation_price || t.thesisInvalidationPrice || t.primaryInvalidation && t.primaryInvalidation.price);
+    // Target: fair value if above price, otherwise a modest 10% premium.
+    var tgt = null;
+    if (fv > price) tgt = fv;
+    else if (fv > 0) tgt = price * 1.10;
+    else tgt = price * 1.12;
+    // Invalidation: use structural floor if present, else 12% risk anchor.
+    if (!(inv > 0) || inv >= price) inv = price * 0.88;
+    // Buy-zone: 4-8% below current price (add-on-pullback band).
+    var pbLo = price * 0.94;
+    var pbHi = price * 0.98;
+    if (pbLo <= inv) pbLo = inv + (price - inv) * 0.35;
+    if (pbHi <= pbLo) pbHi = price;
+    if (pbHi >= tgt) pbHi = price;
+    var span = tgt - inv;
+    if (!(span > 0)) return null;
+    var pad = span * 0.04;
+    var minPx = inv - pad;
+    var maxPx = tgt + pad;
+    var pct = function (px) { return Math.max(0, Math.min(100, ((px - minPx) / (maxPx - minPx)) * 100)); };
+    return {
+      inv: inv, pb: [pbLo, pbHi], tgt: tgt,
+      price: price, minPx: minPx, maxPx: maxPx, pct: pct,
+      lane: "investor",
+      subLabels: {
+        tgtDetail: (fv > price) ? "Fair value" : "10% premium target",
+      },
+    };
   }
 
   /** Rank actionable setups from the live /timed/all map — curated, confluence-weighted. */
@@ -500,6 +608,21 @@
         tv = traderVerdict || { lane: "trader", verdict: "SETUP_FORMING", timing: "on confirmation", why: "trigger ready", price: price, rank: rankNum };
       }
 
+      // Attach zone models per active lane so the card can render a
+      // Growth Ideas-style INV/PB/TGT bar for each lane the model has primed.
+      var traderZone = traderPrimed ? buildTraderZoneModel(t, price) : null;
+      var investorZone = investorPrimed ? buildInvestorZoneModel(t, price) : null;
+      var isFinite = function (n) { return Number.isFinite(Number(n)); };
+      var dayPct = null;
+      try {
+        var utils = window.TimedPriceUtils;
+        if (utils && typeof utils.getDailyChange === "function") {
+          var dc = utils.getDailyChange(t);
+          if (isFinite(dc && dc.dayPct)) dayPct = Number(dc.dayPct);
+        }
+      } catch (_) { /* best effort */ }
+      if (dayPct === null && isFinite(t.dailyChgPct)) dayPct = Number(t.dailyChgPct);
+
       rows.push({
         ticker: key,
         rank: rankNum,
@@ -510,6 +633,13 @@
         confluence: confluence.slice(0, 5),
         blocker: blocker,
         score: score,
+        price: price,
+        dayPct: dayPct,
+        companyName: t.companyName || t.name || null,
+        traderPrimed: !!traderPrimed,
+        investorPrimed: !!investorPrimed,
+        traderZone: traderZone,
+        investorZone: investorZone,
       });
     });
 
@@ -961,6 +1091,8 @@
           h("div", { className: "tt-ready__empty" }, "No high-confluence setups yet — the strip stays empty rather than forcing picks. Broaden the search using Technical Setups below."),
         ));
       }
+      var savedSet = props.savedSet;
+      var onToggleSaved = props.onToggleSaved;
       return wrap(h(React.Fragment, null,
         headCopy,
         h("div", { className: "tt-ready-scroll", role: "list" },
@@ -968,20 +1100,28 @@
             var sym = String(row.ticker || "").toUpperCase();
             var tv = row.trader || {};
             var lane = row.lane || tv.lane || "trader";
-            var price = tv.price;
+            var price = row.price != null ? row.price : tv.price;
             var rank = row.rank != null ? row.rank : tv.rank;
             var verdictCls = tv.verdict === "BUY" ? "buy" : "forming";
             var railTab = "NOW";
-            var traderV = row.traderVerdict || tv;
-            var investorV = row.investorVerdict;
-            var laneLine = investorV
-              ? ("Trader " + verdictLabel(traderV.verdict, true) + " · Investor " + verdictLabel(investorV.verdict, true))
-              : null;
             var confluence = Array.isArray(row.confluence) ? row.confluence : [];
             var confluenceChips = confluence.slice(0, 3).map(function (c) {
               return h("span", { key: c.label, className: "tt-ready-card__conf" }, c.label);
             });
             var blocker = row.blocker;
+            var isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
+            var dayPct = row.dayPct;
+            var dayColor = null;
+            if (Number.isFinite(dayPct)) {
+              dayColor = dayPct >= 0 ? "var(--ds-up,#34d399)" : "var(--ds-dn,#ef4444)";
+            }
+            var laneBadges = [];
+            if (row.traderPrimed) laneBadges.push("trader");
+            if (row.investorPrimed) laneBadges.push("investor");
+            if (laneBadges.length === 0) laneBadges.push(lane);
+            var zones = [];
+            if (row.traderZone) zones.push(row.traderZone);
+            if (row.investorZone) zones.push(row.investorZone);
             return h("button", {
               key: sym + "-" + lane,
               type: "button",
@@ -991,25 +1131,97 @@
               onClick: function () { if (onSelect) onSelect(sym, railTab); },
             },
               h("div", { className: "tt-ready-card__head" },
-                h("span", { className: "tt-ready-card__sym" }, sym),
+                h("div", { className: "tt-ready-card__id" },
+                  h("div", { style: { minWidth: 0 } },
+                    h("div", { className: "tt-ready-card__sym" }, sym),
+                    row.companyName && h("div", { className: "tt-ready-card__co", title: row.companyName }, row.companyName),
+                  ),
+                ),
                 h("span", { className: "tt-ready-word tt-ready-word--" + verdictCls },
                   h("span", { className: "tt-ready-word__dot" }),
                   verdictLabel(tv.verdict, true),
                 ),
+                onToggleSaved && h("span", {
+                  role: "button",
+                  "aria-label": isSaved ? ("Unsave " + sym) : ("Save " + sym),
+                  "aria-pressed": isSaved ? "true" : "false",
+                  title: isSaved ? "Saved — click to remove" : "Save to watchlist",
+                  className: "tt-ready-card__save" + (isSaved ? " tt-ready-card__save--on" : ""),
+                  onClick: function (e) {
+                    e.stopPropagation(); e.preventDefault();
+                    if (onToggleSaved) onToggleSaved(sym);
+                  },
+                }, isSaved ? "\u2605" : "\u2606"),
               ),
-              h("div", { className: "tt-ready-card__chips" },
-                h(LaneBadge, { lane: lane }),
-                price != null && h("span", { className: "tt-ready-card__meta" },
-                  fmtPx(price) + (rank != null ? " · rank " + rank : ""),
+              h("div", { className: "tt-ready-card__meta" },
+                price != null && h("span", null, fmtPx(price)),
+                Number.isFinite(dayPct) && h("span", { style: { color: dayColor } },
+                  (dayPct >= 0 ? "+" : "") + Number(dayPct).toFixed(2) + "%",
                 ),
+                rank != null && h("span", { className: "tt-ready-card__meta--dim" }, "rank " + rank),
+                laneBadges.map(function (b, i) { return h(LaneBadge, { key: b + "-" + i, lane: b }); }),
               ),
               blocker && h("div", { className: "tt-ready-card__blocker" }, blocker),
               confluenceChips.length > 0 && h("div", { className: "tt-ready-card__confluence" }, confluenceChips),
-              laneLine && h("div", { className: "tt-ready-card__lanes" }, laneLine),
+              zones.length > 0 && h("div", { className: "tt-ready-card__zones" },
+                zones.map(function (zm, idx) { return h(ReadyZoneBar, { key: zm.lane + "-" + idx, zone: zm }); }),
+              ),
             );
           }),
         ),
       ));
+    }
+
+    /** Renders one INV / PB / TGT progress bar for a Ready Setup card. */
+    function ReadyZoneBar(props) {
+      var zm = props.zone;
+      if (!zm) return null;
+      var pbLoPct = zm.pct(zm.pb[0]);
+      var pbHiPct = zm.pct(zm.pb[1]);
+      var pricePct = zm.pct(zm.price);
+      var laneLabel = zm.lane === "investor" ? "INVESTOR" : "TRADER";
+      var laneCls = "tt-ready-zone__lane tt-ready-zone__lane--" + (zm.lane === "investor" ? "investor" : "trader");
+      var pbLabel = fmtPx(zm.pb[0]) + "\u2013" + fmtPx(zm.pb[1]);
+      return h("div", { className: "tt-ready-zone" },
+        h("div", { className: "tt-ready-zone__row" },
+          h("span", { className: laneCls }, laneLabel),
+          h("span", null, zm.lane === "investor" ? "Buy zone plan" : "Trader plan"),
+        ),
+        h("div", { className: "tt-ready-zone__labels" },
+          h("span", null, "Invalidation"),
+          h("span", null, "Pullback"),
+          h("span", null, "Target"),
+        ),
+        h("div", {
+          className: "tt-ready-zone__track",
+          title: zm.lane === "investor"
+            ? "Investor lane — invalidation floor, add-on-pullback zone, and target."
+            : "Trader plan — stop, pullback / entry zone, and first TP target.",
+        },
+          h("div", {
+            className: "tt-ready-zone__seg tt-ready-zone__seg--inv",
+            style: { left: "0%", width: pbLoPct + "%" },
+          }),
+          h("div", {
+            className: "tt-ready-zone__seg tt-ready-zone__seg--pb",
+            style: { left: pbLoPct + "%", width: Math.max(0, pbHiPct - pbLoPct) + "%" },
+          }),
+          h("div", {
+            className: "tt-ready-zone__seg tt-ready-zone__seg--tgt",
+            style: { left: pbHiPct + "%", width: Math.max(0, 100 - pbHiPct) + "%" },
+          }),
+          h("div", {
+            className: "tt-ready-zone__marker",
+            style: { left: pricePct + "%" },
+            title: "Live " + fmtPx(zm.price),
+          }),
+        ),
+        h("div", { className: "tt-ready-zone__meta" },
+          h("span", null, "Inv ", fmtPx(zm.inv)),
+          h("span", null, "PB ", pbLabel),
+          h("span", null, "Tgt ", fmtPx(zm.tgt)),
+        ),
+      );
     }
 
     // Legacy export name — prefer ReadySetupsBoard.
@@ -1106,4 +1318,4 @@
   };
 })();
 
-// cache-bust:1783355839515:484002027
+// cache-bust:1783357134528:585318395

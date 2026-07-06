@@ -6202,7 +6202,9 @@ function TodayApp({
   }, window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, {
     onSelectTicker,
     tickerData: data,
-    embedded: true
+    embedded: true,
+    savedSet,
+    onToggleSaved: toggleSaved
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), h(GrowthIdeasStrip, {
@@ -6671,6 +6673,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783355839515:484002027
+// cache-bust:1783357134528:585318395
 
-// cache-bust:1783355839515:484002027
+// cache-bust:1783357134528:585318395
