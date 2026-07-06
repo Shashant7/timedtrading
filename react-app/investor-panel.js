@@ -1149,7 +1149,7 @@
     /* V15 P0.7.144 (2026-05-13) — split the Investor Brief into:
        - Market summary (one sentence on regime + breadth)
        - Action summary (lane counts in plain English)
-       - Recent actions (last 3 model lot actions across all owned positions)
+       - Recent actions (model lot actions across owned positions)
        - Watchlist highlights (buy zone + RS new highs)
        Returned as a structured object so the UI can render each piece
        in its own block (previous single-string layout was getting cut
@@ -1212,7 +1212,7 @@
         const m = Math.floor(ms / 60000);
         return m >= 1 ? `${m}m ago` : "just now";
       };
-      const recentText = recentActions.slice(0, 3).map((a) => {
+      const recentText = recentActions.map((a) => {
         const lbl = a.action === "DCA_BUY" ? "DCA" : a.action;
         const sh = a.shares > 0 ? ` ${a.shares.toFixed(a.shares >= 10 ? 1 : 2)}sh` : "";
         return `${lbl} ${a.ticker}${sh} ${formatAgo(Date.now() - a.ts)}`;
@@ -1223,8 +1223,7 @@
         recentActions: recentText,
         buyZone: buyZone.slice(0, 8),
         buyZoneOverflow: Math.max(0, buyZone.length - 8),
-        rsHigh: rsHigh.slice(0, 8),
-        rsHighOverflow: Math.max(0, rsHigh.length - 8),
+        rsHigh,
       };
     }, [allTickers, health]);
 
@@ -1304,30 +1303,37 @@
               fontFamily: "var(--tt-font-mono)",
               color: "var(--ds-text-muted)",
               padding: "6px 8px",
-              /* Verda: spring (soft mint) replaces the legacy violet. */
               borderLeft: "2px solid rgba(166,247,207,0.4)",
               background: "rgba(166,247,207,0.05)",
               borderRadius: "0 4px 4px 0",
             },
           },
-            React.createElement("span", { style: { color: "var(--vf-spring, #A6F7CF)", fontWeight: 700 } }, "RECENT"),
-            ...narrative.recentActions.map((line, i) => React.createElement("span", { key: `ra${i}`, style: { color: "var(--ds-text-body)" } }, line)),
+            React.createElement("span", { style: { color: "var(--vf-spring, #A6F7CF)", fontWeight: 700, flexShrink: 0 } }, "RECENT"),
+            ...narrative.recentActions.map((line, i) => React.createElement("span", { key: `ra${i}`, style: { color: "var(--ds-text-body)", whiteSpace: "nowrap" } }, line)),
           ),
-          (narrative.buyZone.length > 0 || narrative.rsHigh.length > 0) && React.createElement("div", {
+          narrative.rsHigh.length > 0 && React.createElement("div", {
             style: {
-              display: "flex", flexDirection: "column", gap: 4,
+              display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--ds-space-2)",
+              fontSize: "var(--ds-fs-meta)",
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-muted)",
+              padding: "6px 8px",
+              borderLeft: "2px solid rgba(59,130,246,0.45)",
+              background: "rgba(59,130,246,0.06)",
+              borderRadius: "0 4px 4px 0",
+            },
+          },
+            React.createElement("span", { style: { color: "var(--ds-accent)", fontWeight: 700, flexShrink: 0 } }, "FRESH 3M RS"),
+            ...narrative.rsHigh.map((sym, i) => React.createElement("span", { key: `rs${i}`, style: { color: "var(--ds-text-body)", whiteSpace: "nowrap" } }, sym)),
+          ),
+          narrative.buyZone.length > 0 && React.createElement("div", {
+            style: {
               fontSize: "var(--ds-fs-meta)",
               color: "var(--ds-text-muted)",
             },
           },
-            narrative.buyZone.length > 0 && React.createElement("div", null,
-              React.createElement("span", { style: { color: "var(--ds-up)", fontWeight: 700 } }, "Buy Zone: "),
-              `${narrative.buyZone.join(", ")}${narrative.buyZoneOverflow > 0 ? ` +${narrative.buyZoneOverflow} more` : ""}.`,
-            ),
-            narrative.rsHigh.length > 0 && React.createElement("div", null,
-              React.createElement("span", { style: { color: "var(--ds-accent)", fontWeight: 700 } }, "Fresh 3M-high RS: "),
-              `${narrative.rsHigh.join(", ")}${narrative.rsHighOverflow > 0 ? ` +${narrative.rsHighOverflow} more` : ""}.`,
-            ),
+            React.createElement("span", { style: { color: "var(--ds-up)", fontWeight: 700 } }, "Buy Zone: "),
+            `${narrative.buyZone.join(", ")}${narrative.buyZoneOverflow > 0 ? ` +${narrative.buyZoneOverflow} more` : ""}.`,
           ),
         ),
       ),
