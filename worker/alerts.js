@@ -402,6 +402,44 @@ export async function recordCronSuccess(env, op) {
   } catch {}
 }
 
+/**
+ * Brief / flash cron outcome — heals tombstones on success, idempotent skip,
+ * and OpenAI quota/rate-limit degradations (not infra failures).
+ */
+export async function recordBriefCronOutcome(env, op, outcome) {
+  const safeOp = String(op || "unknown").slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
+  if (outcome?.ok) {
+    return recordCronSuccess(env, safeOp);
+  }
+  const norm = normalizeBriefCronError(outcome?.error || "unknown");
+  if (norm.degraded) {
+    return recordCronSuccess(env, safeOp);
+  }
+  return recordCronFailure(env, {
+    op: safeOp,
+    error: norm.error,
+    caller: outcome?.caller || "scheduled_event",
+    skipDiscord: norm.skipDiscord,
+  });
+}
+
+const BRIEF_CRON_OPS = ["intraday_flash", "daily_brief_morning", "daily_brief_evening"];
+
+/** Clear active tombstones left by OpenAI quota/rate-limit skips (not infra). */
+export async function healDegradedBriefTombstones(env) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return;
+  for (const op of BRIEF_CRON_OPS) {
+    try {
+      const row = await KV.get(`timed:cron:failure:${op}`, "json");
+      if (!row || Number(row.count) <= 0) continue;
+      if (isOpenAiQuotaError(row.error) || isOpenAiRateLimitError(row.error)) {
+        await recordCronSuccess(env, op);
+      }
+    } catch {}
+  }
+}
+
 /** Get Discord alert mode: "critical" (default) or "all". */
 export function getDiscordAlertMode(env) {
   const raw = String(env?.DISCORD_ALERT_MODE || "critical")
