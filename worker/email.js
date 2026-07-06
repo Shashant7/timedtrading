@@ -1918,7 +1918,13 @@ export async function sendInvestorAlertEmails(env, alert) {
 
   // 1H chart — ~2 trading days of context (aligned with rebalance execution emails).
   const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
-  const _chartImgUrl = _investorChartUrl(data.ticker, _workerUrl);
+  const _alertKind = type === "position_close" ? "close" : type === "position_trim" ? "trim" : null;
+  const _chartImgUrl = _investorChartUrl(data.ticker, _workerUrl, {
+    price: data.price,
+    invalidation_price: data.invalidation_price,
+    actionKind: _alertKind,
+    executed_at: data.executed_at,
+  });
   const chartImgHtml = `
 <div style="margin:18px 0 8px">
   <a href="https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}" style="display:block;line-height:0;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.08)">
@@ -2177,27 +2183,69 @@ export async function sendInvestorWeeklyDigest(env) {
 // FOMC" in one line). Sent to investor_alerts opted-in users.
 // Compliance voice: "the portfolio / this position", never "you/your".
 // ─────────────────────────────────────────────────────────────────────────────
-function _investorChartUrl(sym, baseUrl) {
+function _investorChartUrl(sym, baseUrl, ctx = {}) {
   const workerUrl = baseUrl || "https://timed-trading.com";
-  return `${workerUrl}/timed/chart-image?ticker=${encodeURIComponent(sym)}&tf=60&bars=48`;
+  const p = new URLSearchParams();
+  p.set("ticker", String(sym || "").toUpperCase());
+  p.set("tf", "60");
+  p.set("bars", "48");
+  const price = Number(ctx?.price ?? ctx?.entry);
+  const invPx = Number(ctx?.invalidation_price ?? ctx?.sl);
+  const execAt = Number(ctx?.executed_at ?? ctx?.ts);
+  const kind = String(ctx?.actionKind || ctx?.kind || "");
+  const _pos = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
+  // Annotate execution price on the chart so a stale last-candle print
+  // (e.g. IESC $654 on chart vs $681 exit) doesn't contradict the card.
+  if (_pos(price)) p.set("entry", String(Number(price)));
+  if (_pos(invPx) && (kind === "close" || kind === "trim")) p.set("sl", String(Number(invPx)));
+  const subtitleParts = [];
+  if (kind === "close") subtitleParts.push("EXIT");
+  else if (kind === "trim") subtitleParts.push("TRIM");
+  else if (kind === "open") subtitleParts.push("ENTRY");
+  else if (kind === "add") subtitleParts.push("ADD");
+  const et = _rebalanceEtLabel(execAt);
+  if (et) subtitleParts.push(et);
+  if (subtitleParts.length) p.set("subtitle", subtitleParts.join(" · "));
+  if (Number.isFinite(execAt) && execAt > 0) p.set("v", String(Math.floor(execAt)));
+  return `${workerUrl}/timed/chart-image?${p.toString()}`;
 }
 
 function _reasonGroupLabel(item) {
   const ev = String(item?.event_label || item?.eventLabel || "").trim();
   if (ev) return ev;
   const r = String(item?.reason || "").toLowerCase();
-  if (r.includes("primary_invalidation") || r.includes("invalidation_breach")) {
+  const sr = String(item?.stageReason || item?.stage_reason || "").toLowerCase();
+  const isClose = _isInvestorRebalanceClose(item);
+  if (r.includes("primary_invalidation") || r.includes("invalidation_breach")
+      || sr.includes("primary_invalidation")) {
     return "Full exit — invalidation floor breached";
   }
-  if (r.includes("exhaustion") || r.includes("lock_in")) return "Partial trim — locking in gains";
-  if (r.includes("event_risk") || r.includes("event-risk")) return "Partial trim — event risk";
-  if (r.includes("reduce_stage") || r.includes("auto_reduce")) return "Partial trim — trend weakened";
-  if (r.includes("fsd_removed")) return "Full exit — removed from research coverage";
+  if (r.includes("fsd_removed") || (isClose && r.includes("fsd"))) {
+    return "Full exit — removed from research coverage";
+  }
+  if (r.includes("exhaustion") || r.includes("lock_in")) {
+    return isClose ? "Full exit — exhaustion / profit lock" : "Partial trim — locking in gains";
+  }
+  if (r.includes("event_risk") || r.includes("event-risk") || r.startsWith("pre_")) {
+    return isClose ? "Full exit — event risk" : "Partial trim — event risk";
+  }
+  if (r.includes("reduce_stage") || r.includes("auto_reduce")) {
+    return isClose ? "Full exit — trend weakened" : "Partial trim — trend weakened";
+  }
   return r ? r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Risk management";
 }
 
 function _isInvestorRebalanceClose(item) {
-  return !!item?.closed || (item?.remaining != null && Number(item.remaining) <= 0.0001);
+  if (!item) return false;
+  if (item.closed) return true;
+  const rem = item.remaining ?? item.total_shares_after ?? item.total_shares;
+  if (rem != null && Number(rem) <= 0.0001) return true;
+  return false;
+}
+
+function _resolveRebalanceActionKind(item, hintedKind) {
+  if (hintedKind === "add" || hintedKind === "open") return hintedKind;
+  return _isInvestorRebalanceClose(item) ? "close" : "trim";
 }
 
 function _rebalanceEtLabel(ts) {
@@ -2262,25 +2310,31 @@ function _rebalanceThesisLine(item, actionKind) {
 function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
   const sym = String(item?.ticker || "").toUpperCase();
   if (!sym) return "";
+  const kind = _resolveRebalanceActionKind(item, actionKind);
   const price = Number(item?.price);
   const shares = Number(item?.shares);
   const totalAfter = Number(item?.total_shares_after ?? item?.remaining ?? item?.total_shares);
   const value = Number(item?.value);
   const pnl = Number(item?.pnl);
   const workerUrl = baseUrl || "https://timed-trading.com";
-  const chartUrl = _investorChartUrl(sym, workerUrl);
-  const actionLabel = actionKind === "add" ? "ADD"
-    : actionKind === "open" ? "NEW ENTRY"
-    : actionKind === "close" ? "FULL EXIT"
+  const chartUrl = _investorChartUrl(sym, workerUrl, {
+    price,
+    invalidation_price: item?.invalidation_price,
+    actionKind: kind,
+    executed_at: item?.executed_at ?? item?.ts,
+  });
+  const actionLabel = kind === "add" ? "ADD"
+    : kind === "open" ? "NEW ENTRY"
+    : kind === "close" ? "FULL EXIT"
     : "TRIM / REDUCE";
-  const actionColor = actionKind === "close" ? (BRAND.danger || "#ef4444")
-    : actionKind === "trim" ? (BRAND.warning || "#f59e0b")
+  const actionColor = kind === "close" ? (BRAND.danger || "#ef4444")
+    : kind === "trim" ? (BRAND.warning || "#f59e0b")
     : BRAND.green;
   const shareLine = Number.isFinite(shares) && shares > 0
-    ? `${actionKind === "add" || actionKind === "open" ? "Bought" : "Sold"} ${shares.toFixed(shares >= 10 ? 1 : 2)} sh${Number.isFinite(price) ? ` @ $${price.toFixed(2)}` : ""}`
+    ? `${kind === "add" || kind === "open" ? "Bought" : "Sold"} ${shares.toFixed(shares >= 10 ? 1 : 2)} sh${Number.isFinite(price) ? ` @ $${price.toFixed(2)}` : ""}`
     : null;
   const totalLine = Number.isFinite(totalAfter) && totalAfter >= 0
-    ? (actionKind === "close" ? "Position closed — 0 sh remaining"
+    ? (kind === "close" ? "Position closed — 0 sh remaining"
       : `Total after action: ${totalAfter.toFixed(totalAfter >= 10 ? 1 : 2)} sh`)
     : null;
   const invPx = Number(item?.invalidation_price);
@@ -2290,7 +2344,7 @@ function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
     : null;
   const execEt = _rebalanceEtLabel(item?.executed_at ?? item?.ts);
   const cio = String(item?.cio_reasoning || "").trim();
-  const thesis = _rebalanceThesisLine(item, actionKind);
+  const thesis = _rebalanceThesisLine(item, kind);
   return `<div style="margin:0 0 20px;padding:14px 16px;border:1px solid ${BRAND.border};border-radius:12px;background:${BRAND.cardBg}">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
       <div>
@@ -2308,26 +2362,23 @@ function _buildRebalanceTickerCard(item, actionKind, baseUrl) {
     <div style="margin:10px 0 4px;border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border}">
       <img src="${chartUrl}" alt="${_esc(sym)} 1H chart" width="560" style="display:block;width:100%;max-width:560px;height:auto"/>
     </div>
-    <div style="font-size:10px;color:${BRAND.textMuted}">1H chart · last ~2 trading days</div>
+    <div style="font-size:10px;color:${BRAND.textMuted}">1H chart · execution price marked · refreshes every 5 min</div>
   </div>`;
 }
 
-export async function sendInvestorRebalanceDigest(env, summary) {
-  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+/** Build HTML body for the Investor Rebalance digest (exported for tests). */
+export function buildInvestorRebalanceDigestBody(summary, baseUrl) {
   const allTrims = Array.isArray(summary?.trims) ? summary.trims : [];
-  // Full closes (exits) are materially different from partial trims — the model
-  // is OUT of the name. Surface them in their own prominent section so an exit
-  // of a recently-entered position isn't buried under "trimmed/reduced".
   const closes = allTrims.filter((t) => _isInvestorRebalanceClose(t));
   const trims = allTrims.filter((t) => !_isInvestorRebalanceClose(t));
   const added = Array.isArray(summary?.added) ? summary.added : [];
   const opened = Array.isArray(summary?.opened) ? summary.opened : [];
   const totalActions = closes.length + trims.length + added.length + opened.length;
-  if (totalActions === 0) return { ok: true, sent: 0, recipients: 0, reason: "no_actions" };
-  if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
+  if (totalActions === 0) {
+    return { bodyHtml: "", headlineBits: [], closes, trims, added, opened, count: 0 };
+  }
 
   const nowLabel = new Date().toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const section = (title, color, inner) =>
     `<div style="margin:16px 0">
       <div style="font-size:11px;font-weight:800;letter-spacing:0.1em;color:${color};margin-bottom:8px">${_esc(title)}</div>
@@ -2355,6 +2406,15 @@ export async function sendInvestorRebalanceDigest(env, summary) {
     <p style="margin:16px 0 0;font-size:11px;color:${BRAND.textMuted}">Long-horizon portfolio actions — not short-term trade signals. The model phases in and out gradually.</p>
     <p style="margin:10px 0 0;font-size:12px"><a href="https://timed-trading.com/investor.html" style="color:${BRAND.green}">Open the Investor page →</a></p>
   `;
+  return { bodyHtml, headlineBits, closes, trims, added, opened, count: totalActions };
+}
+
+export async function sendInvestorRebalanceDigest(env, summary) {
+  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+  const { bodyHtml, headlineBits, count, closes, trims, added, opened } = buildInvestorRebalanceDigestBody(summary, baseUrl);
+  if (!count) return { ok: true, sent: 0, recipients: 0, reason: "no_actions" };
+  if (!opted.length) return { ok: true, sent: 0, recipients: 0, reason: "no_recipients" };
 
   let sent = 0;
   for (const user of opted) {
@@ -2391,7 +2451,7 @@ function _buildQueueTickerCard(alert, baseUrl) {
   const sym = String(data.ticker || "").toUpperCase();
   if (!sym) return "";
   const workerUrl = baseUrl || "https://timed-trading.com";
-  const chartUrl = _investorChartUrl(sym, workerUrl);
+  const chartUrl = _investorChartUrl(sym, workerUrl, { price: data.price });
   const score = Number(data.score);
   const zone = String(data.zoneType || "").replace(/_/g, " ");
   const confidence = Number(data.confidence);
@@ -2487,7 +2547,7 @@ function _buildReduceTickerCard(alert, baseUrl) {
   const sym = String(data.ticker || "").toUpperCase();
   if (!sym) return "";
   const workerUrl = baseUrl || "https://timed-trading.com";
-  const chartUrl = _investorChartUrl(sym, workerUrl);
+  const chartUrl = _investorChartUrl(sym, workerUrl, { price: data.price });
   const price = _emailDisplayPrice(data.price);
   const reasons = Array.isArray(data.reasons) ? data.reasons.filter(Boolean) : [];
   const cio = String(data.cio_reasoning || "").trim();
