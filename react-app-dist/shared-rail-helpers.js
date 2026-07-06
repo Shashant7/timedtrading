@@ -1117,6 +1117,7 @@
         accumZone: raw?.accumZone || raw?.investor_accum_zone,
         position: raw?.position || raw?.investor_position,
         actionTier: raw?.actionTier || raw?.investor_action_tier,
+        recentlyExited: raw?.recentlyExited,
       };
     },
     /** Cross-page Investor Buy Zone thesis — matches Today Ready Setups investor lane. */
@@ -1124,13 +1125,17 @@
       const row = window.TimedRailHelpers.normalizeInvestorScoreRow(raw, sym);
       const stage = String(row?.stage || "").toLowerCase();
       if (stage !== "accumulate") return false;
+      if (stage === "exited" || (row?.recentlyExited && typeof row.recentlyExited === "object")) return false;
       const kanban = window.TimedRailHelpers.resolveInvestorKanbanStage(row);
-      return kanban !== "research_avoid";
+      return kanban !== "research_avoid" && kanban !== "exited";
     },
     resolveInvestorKanbanStage(row) {
       if (window.TTInvestorLane?.resolveKanbanStage) return window.TTInvestorLane.resolveKanbanStage(row);
       let stage = String(row?.stage || "research_avoid");
       if (stage === "research") stage = "research_avoid";
+      if (stage === "exited" || (row?.recentlyExited && typeof row.recentlyExited === "object")) {
+        return "exited";
+      }
       const owned = !!(row?.position?.owned);
       if (!owned) {
         if (stage === "core_hold" || stage === "watch") stage = "research_on_watch";
@@ -1285,6 +1290,22 @@
       };
     },
   };
+
+  // Investor + rail display helpers were appended inside TimedCTORead by mistake —
+  // callers expect them on TimedRailHelpers (Today Ready Setups, Investor Brief).
+  Object.assign(window.TimedRailHelpers, {
+    stageDisplayLabel: window.TimedCTORead.stageDisplayLabel,
+    deriveInvestorActionTier: window.TimedCTORead.deriveInvestorActionTier,
+    isInvestorExecuteReady: window.TimedCTORead.isInvestorExecuteReady,
+    normalizeInvestorScoreRow: window.TimedCTORead.normalizeInvestorScoreRow,
+    isInvestorBuyZoneThesis: window.TimedCTORead.isInvestorBuyZoneThesis,
+    resolveInvestorKanbanStage: window.TimedCTORead.resolveInvestorKanbanStage,
+    INVESTOR_LANE_CHIP_META: window.TimedCTORead.INVESTOR_LANE_CHIP_META,
+    INVESTOR_TIER_CHIP_META: window.TimedCTORead.INVESTOR_TIER_CHIP_META,
+    sanitizeUserFacingCopy: window.TimedCTORead.sanitizeUserFacingCopy,
+    buildInvestorDisplayContext: window.TimedCTORead.buildInvestorDisplayContext,
+    buildTraderLaneCardProps: window.TimedCTORead.buildTraderLaneCardProps,
+  });
 })();
 
-// cache-bust:1783306220400:392064129
+// cache-bust:1783307314948:446886108
