@@ -792,7 +792,14 @@ export const MARKET_INTEL_DISCORD_TITLE_MAX = 256;
  */
 export function buildMarketIntelDiscordTitle(matchedTickers, summaryTitle) {
   const tickers = (matchedTickers || []).map((t) => String(t || "").toUpperCase()).filter(Boolean);
-  const headline = String(summaryTitle || "Market Intel update").replace(/\s+/g, " ").trim();
+  // Defensive scrub — callers may pass raw FSD titles from the fallback path.
+  // Regex is inline (module import at top would be circular).
+  const scrubbed = String(summaryTitle || "Market Intel update")
+    .replace(/\b[A-Z][A-Za-z.]*(?:\s+[A-Z]\.?)?\s+[A-Z][A-Za-z-]+\s*,\s*(?:CMT|CFA|CFP|PhD|MBA|CAIA|FRM)\b\.?/g, "")
+    .replace(/\b(Fundstrat(?:\s+Direct)?|FSD|Fundstrat\.com|fundstratdirect\.com|FS Insight|FSInsight)\b/gi, "")
+    .replace(/^\s*[\u2013\u2014\-:|,]\s*/, "")
+    .replace(/\s*[\u2013\u2014\-:|,]\s*$/, "");
+  const headline = (scrubbed || "Market Intel update").replace(/\s+/g, " ").trim();
   const tickerPart = tickers.length <= 3
     ? tickers.join(", ")
     : `${tickers.slice(0, 3).join(", ")} +${tickers.length - 3}`;
@@ -850,20 +857,24 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
     `SELECT title, source_url FROM ${PUBLICATIONS_TABLE} WHERE pub_id = ?`,
   ).bind(pubId).first().catch(() => null);
 
-  let summary_title = meta?.title || "Market Intel update";
+  const { sanitizeFsdCopy, sanitizeFsdTitle } = await import("./fsd-sanitize.js");
+  // Raw FSD titles carry author + credentials + source brand ("Mark L.
+  // Newton, CMT – Monday's Technology rebound…"). Strip both before use so
+  // the fallback path never leaks byline / brand into Discord/Slack.
+  let summary_title = sanitizeFsdTitle(meta?.title, "Market Intel update");
   let summary_body = null;
   try {
     const { rewriteFSDPublication } = await import("./fsd-rewriter.js");
     const rw = await rewriteFSDPublication(env, pubId);
     if (rw.ok) {
-      summary_title = rw.tt_summary_title || summary_title;
-      summary_body = rw.tt_summary_body || null;
+      if (rw.tt_summary_title) summary_title = sanitizeFsdTitle(rw.tt_summary_title, summary_title);
+      if (rw.tt_summary_body) summary_body = sanitizeFsdCopy(rw.tt_summary_body);
     }
   } catch (_) {}
   if (!summary_body) {
-    // Fall back to the raw excerpt.
+    // Fall back to the raw excerpt (also sanitized).
     const tx = await loadPublicationText(env, pubId);
-    if (tx?.text_excerpt) summary_body = String(tx.text_excerpt).slice(0, 500);
+    if (tx?.text_excerpt) summary_body = sanitizeFsdCopy(String(tx.text_excerpt).slice(0, 500));
   }
 
   try {
@@ -876,7 +887,9 @@ async function maybeNotifyDiscordForFlashInsight(env, pubId) {
       fields: [
         { name: "Mentioned (active universe)", value: matched.map((t) => `\`${t}\``).join(" "), inline: false },
         ...(summary_body ? [{ name: "TT summary", value: summary_body.slice(0, 900), inline: false }] : []),
-        ...(meta?.source_url ? [{ name: "Source", value: `[Read on fundstratdirect.com](${meta.source_url})`, inline: false }] : []),
+        // Source-brand link intentionally omitted — attribution belongs on
+        // the research desk / Intel panel, not in the alert. The in-app
+        // pointer below is enough for the operator to trace.
         { name: "View in app", value: `Open the ticker's right-rail → Catalysts tab (Intel panel)`, inline: false },
       ],
       footer: { text: `pub_id=${pubId} · Timed Trading intel routing` },
