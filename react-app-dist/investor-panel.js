@@ -812,6 +812,10 @@
       const img = new Image();
       img.src = url;
       img.alt = SYM;
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.borderRadius = "50%";
+      img.style.objectFit = "cover";
       img.onload = () => {
         while (el.firstChild) el.removeChild(el.firstChild);
         el.style.background = "#ffffff";
@@ -1367,7 +1371,8 @@
               const sh = a.shares > 0 ? `${a.shares.toFixed(a.shares >= 10 ? 1 : 2)}sh` : "";
               const ago = formatInvestorActionAgo(Date.now() - a.ts);
               const sub = [lbl, sh, ago].filter(Boolean).join(" \u00b7 ");
-              const isBuy = String(a.action || "").toUpperCase() !== "SELL";
+              const actType = String(a.action || "").toUpperCase();
+              const isBuy = actType === "BUY" || actType === "DCA_BUY" || actType === "ADD";
               return React.createElement(InvestorBriefTickerChip, {
                 key: `${a.ticker}-${a.ts}-${i}`,
                 sym: a.ticker,
