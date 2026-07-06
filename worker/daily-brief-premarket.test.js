@@ -4,6 +4,9 @@ import {
   liveDayPctFromPriceFeedRow,
   liveDayChgFromPriceFeedRow,
   priorRthCloseFromPriceFeedRow,
+  isPriceFeedRowFresh,
+  patchBriefIndexPriceProse,
+  patchBriefIndexLiveProse,
 } from "./daily-brief.js";
 
 describe("daily-brief premarket price helpers", () => {
@@ -46,5 +49,42 @@ describe("daily-brief premarket price helpers", () => {
     expect(liveSpotFromPriceFeedRow(stale, true)).toBeNull();
     expect(liveDayPctFromPriceFeedRow(stale, true)).toBeNull();
     expect(liveDayChgFromPriceFeedRow(stale, true)).toBeNull();
+  });
+
+  it("accepts fresh poll + extended print when q_ts is older than 26h (long weekend)", () => {
+    const weekAgo = now - 4 * 24 * 60 * 60 * 1000;
+    const row = {
+      p: 746.77,
+      pc: 741,
+      ahp: 724.5,
+      ahdp: -2.98,
+      t: now - 2 * 60 * 1000,
+      q_ts: weekAgo,
+      p_ts: weekAgo,
+    };
+    expect(isPriceFeedRowFresh(row, false, now)).toBe(true);
+    expect(liveSpotFromPriceFeedRow(row, false)).toBe(724.5);
+    expect(liveDayPctFromPriceFeedRow(row, false)).toBe(-2.98);
+  });
+
+  it("patches stale index spot prices in stored prose", () => {
+    const content = "QQQ at $712.60 is down -1.73% pre-market while SPY at $744.78 is flat.";
+    const patched = patchBriefIndexPriceProse(content, {
+      QQQ: { price: 724.12 },
+      SPY: { price: 746.05 },
+    });
+    expect(patched).toContain("QQQ at $724.12");
+    expect(patched).toContain("SPY at $746.05");
+  });
+
+  it("patches both price and day-change in live prose helper", () => {
+    const content = "QQQ at $712.60 is down -1.73% while SPY is +0.86%.";
+    const patched = patchBriefIndexLiveProse(content, {
+      QQQ: { price: 724.12, dayPct: 1.45 },
+      SPY: { price: 746.05, dayPct: -0.11 },
+    });
+    expect(patched).toContain("$724.12");
+    expect(patched).toContain("+1.45%");
+    expect(patched).toContain("-0.11%");
   });
 });
