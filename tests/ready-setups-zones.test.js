@@ -18,6 +18,7 @@ describe("Ready Setups zone-bar cards", () => {
     window.React = React;
     window._ttIsPro = true;
     loadScript("react-app/shared-rail-helpers.js");
+    loadScript("react-app/shared-lane-card.js");
     loadScript("react-app/shared-verdict-ui.js");
   });
 
