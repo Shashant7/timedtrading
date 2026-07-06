@@ -704,25 +704,25 @@
       renderCard,
       laneScrollRef,
     });
-    /* On Radar first (above Queued); Low Conviction then Avoid in trailing
-       WATCHING band. */
+    /* One WATCHING header (On Radar), DOING block, then trailing research
+       lanes without repeating the band label. */
     const kanbanSections = [
       {
+        showHeader: true,
         band: "watching",
         label: "WATCHING",
         hint: "Monitoring — no action expected yet",
         stageKeys: ["research_on_watch"],
       },
       {
+        showHeader: true,
         band: "doing",
         label: "DOING",
         hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
         stageKeys: ["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited"],
       },
       {
-        band: "watching",
-        label: "WATCHING",
-        hint: "Monitoring — no action expected yet",
+        showHeader: false,
         stageKeys: ["research_low", "research_avoid"],
       },
     ];
@@ -730,15 +730,15 @@
       kanbanSections.flatMap((section, sectionIdx) => {
         const lanes = section.stageKeys.filter((s) => visibleStages.includes(s));
         if (lanes.length === 0) return [];
-        return [
-          React.createElement(InvestorKanbanBandHeader, {
+        const header = section.showHeader !== false
+          ? [React.createElement(InvestorKanbanBandHeader, {
             key: `band-${sectionIdx}`,
             band: section.band,
             label: section.label,
             hint: section.hint,
-          }),
-          ...lanes.map(renderLaneColumn),
-        ];
+          })]
+          : [];
+        return [...header, ...lanes.map(renderLaneColumn)];
       }),
     );
   }
