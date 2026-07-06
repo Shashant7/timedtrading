@@ -1294,6 +1294,109 @@ export async function fetchBriefLiveInvestorScores(env) {
   }
 }
 
+/** Investor lot fills today (BUY / DCA_BUY / SELL / TRIM) — Model Actions fuel. */
+export async function fetchBriefInvestorLotsToday(db, todayStart, todayEnd) {
+  if (!db) return [];
+  try {
+    const res = await db.prepare(
+      `SELECT ticker, action, shares, price, value, ts, reason
+       FROM investor_lots
+       WHERE ts >= ?1 AND ts < ?2
+       ORDER BY ts ASC`,
+    ).bind(todayStart, todayEnd).all();
+    return res?.results || [];
+  } catch (e) {
+    console.warn("[BRIEF] D1 investor_lots today fetch failed:", String(e?.message || e).slice(0, 200));
+    return [];
+  }
+}
+
+const BRIEF_MOVER_SKIP = new Set([
+  "SPY", "QQQ", "DIA", "IWM", "VIX",
+  "XLE", "XLK", "XLF", "XLU", "XLP", "XLY", "XLI", "XLV", "XLB", "XLRE", "XLC",
+  "GLD", "TLT", "SLV", "USO", "BTCUSD", "ETHUSD",
+]);
+
+function dayPctFromBriefTicker(t) {
+  if (!t || typeof t !== "object") return null;
+  const pct = Number(
+    t.day_change_pct ?? t.dailyChgPct ?? t.daily_change_pct
+    ?? t.change_pct ?? t.pct_change ?? t.session_change_pct,
+  );
+  return Number.isFinite(pct) ? pct : null;
+}
+
+function priceFromBriefTicker(t) {
+  if (!t || typeof t !== "object") return null;
+  const price = Number(t._live_price ?? t.price ?? t.close ?? t.p);
+  return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+/** Format one investor lot row for the brief prompt. */
+export function formatBriefInvestorLotLine(lot) {
+  const sym = String(lot?.ticker || "").toUpperCase();
+  const action = String(lot?.action || "ACTION").toUpperCase();
+  const shares = Number(lot?.shares);
+  const price = Number(lot?.price);
+  const reason = String(lot?.reason || "").replace(/_/g, " ").trim();
+  const shStr = Number.isFinite(shares) && shares > 0 ? `${Math.round(shares)} sh` : "shares n/a";
+  const pxStr = Number.isFinite(price) && price > 0 ? `$${price.toFixed(2)}` : "price n/a";
+  return `${sym} ${action} ${shStr} @ ${pxStr}${reason ? ` (${reason})` : ""}`;
+}
+
+/** Prompt block for investor Model Actions Today. */
+export function formatBriefInvestorActionsBlock(lots) {
+  const rows = Array.isArray(lots) ? lots : [];
+  if (!rows.length) return "No investor lot actions today.";
+  return rows.map(formatBriefInvestorLotLine).join("\n");
+}
+
+/**
+ * RTH top movers for the brief — prefer /timed/all micro cache (Today page parity),
+ * supplement from timed:prices when needed.
+ */
+export async function buildBriefUniverseMovers(env, pf, marketOpen = true) {
+  const movers = [];
+  const seen = new Set();
+
+  const pushMover = (ticker, pct, price) => {
+    const sym = String(ticker || "").toUpperCase();
+    if (!sym || BRIEF_MOVER_SKIP.has(sym) || seen.has(sym)) return;
+    if (!Number.isFinite(pct) || !Number.isFinite(price) || price <= 0) return;
+    if (Math.abs(pct) < 1.0) return;
+    seen.add(sym);
+    movers.push({ ticker: sym, pct, price });
+  };
+
+  try {
+    const micro = await kvGetJSON(env?.KV_TIMED, "timed:all:micro:v3:admin:full");
+    const map = micro?.data;
+    if (map && typeof map === "object") {
+      for (const t of Object.values(map)) {
+        pushMover(t?.ticker, dayPctFromBriefTicker(t), priceFromBriefTicker(t));
+      }
+    }
+  } catch (_) { /* best effort */ }
+
+  if (movers.length < 4 && pf && typeof pf === "object") {
+    for (const [ticker, d] of Object.entries(pf)) {
+      if (BRIEF_MOVER_SKIP.has(ticker) || !d || typeof d !== "object") continue;
+      if (seen.has(String(ticker).toUpperCase())) continue;
+      if (!isPriceFeedRowFresh(d, marketOpen)) continue;
+      pushMover(ticker, liveDayPctFromPriceFeedRow(d, marketOpen), liveSpotFromPriceFeedRow(d, marketOpen));
+    }
+  }
+
+  if (!movers.length) return null;
+  const fmt = (m) => `${m.ticker} $${m.price.toFixed(2)} (${m.pct >= 0 ? "+" : ""}${m.pct.toFixed(1)}%)`;
+  const gainers = movers.filter((m) => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 8);
+  const losers = movers.filter((m) => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 8);
+  const parts = [];
+  if (gainers.length) parts.push(`Gainers: ${gainers.map(fmt).join(", ")}`);
+  if (losers.length) parts.push(`Losers: ${losers.map(fmt).join(", ")}`);
+  return parts.length ? parts.join("\n") : null;
+}
+
 function mapBriefInvestorPositionRow(p, investorProfileMap = {}, liveScores = {}) {
   const sym = String(p.ticker || "").toUpperCase();
   const learned = investorProfileMap[sym] || {};
@@ -1898,6 +2001,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   let todayTradeEntries = [];
   let todayTradeExits = [];
   let todayTradeTrimsDefends = [];
+  let todayInvestorLots = [];
   let investorPositions = [];
   const investorProfileMap = {};
   let liveInvestorScores = {};
@@ -1907,7 +2011,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     // For morning brief, also include yesterday's exits for context
     const yesterdayStart = todayStart - 86400000;
     try {
-      const [entryRes, exitRes, trimRes, investorRes] = await Promise.all([
+      const [entryRes, exitRes, trimRes, investorRes, investorLotsRes] = await Promise.all([
         db.prepare(
           "SELECT te.*, t.ticker, t.direction, t.rank, t.rr, t.status AS trade_status FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id WHERE te.type = 'ENTRY' AND te.ts >= ?1 AND te.ts < ?2 ORDER BY te.ts DESC"
         ).bind(todayStart, todayEnd).all().catch(() => ({ results: [] })),
@@ -1918,11 +2022,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
           "SELECT te.*, t.ticker, t.direction, t.status AS trade_status FROM trade_events te JOIN trades t ON te.trade_id = t.trade_id WHERE te.type IN ('TRIM', 'DEFEND') AND te.ts >= ?1 AND te.ts < ?2 ORDER BY te.ts DESC"
         ).bind(todayStart, todayEnd).all().catch(() => ({ results: [] })),
         fetchBriefInvestorPositionsFromD1(db),
+        fetchBriefInvestorLotsToday(db, todayStart, todayEnd),
       ]);
       liveInvestorScores = await fetchBriefLiveInvestorScores(env);
       todayTradeEntries = (entryRes?.results || []).slice(0, 10);
       todayTradeExits = (exitRes?.results || []).slice(0, 10);
       todayTradeTrimsDefends = (trimRes?.results || []).slice(0, 10);
+      todayInvestorLots = (investorLotsRes || []).slice(0, 20);
       investorPositions = Array.isArray(investorRes) ? investorRes : (investorRes?.results || []);
       const investorTickers = [...new Set(investorPositions.map(p => String(p.ticker || '').toUpperCase()).filter(Boolean))];
       if (investorTickers.length > 0) {
@@ -2116,6 +2222,15 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       qtyPctDelta: e.qty_pct_delta, qtyPctTotal: e.qty_pct_total,
       reason: e.reason,
     })),
+    todayInvestorActions: todayInvestorLots.map((l) => ({
+      ticker: l.ticker,
+      action: l.action,
+      shares: l.shares,
+      price: l.price,
+      value: l.value,
+      reason: l.reason,
+      ts: l.ts,
+    })),
     // Investor portfolio positions
     investorPositions: investorPositions.map((p) => mapBriefInvestorPositionRow(p, investorProfileMap, liveInvestorScores)),
     econNews: (finnhubEconNews || []).slice(0, 10),
@@ -2129,34 +2244,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf, _briefSessionMktOpen),
     premarketGapContext: type === "evening" ? null : buildPremarketGapContext(_pf, mktOpen),
     crossAssetContext: buildCrossAssetContext(_pf, _briefSessionMktOpen),
-    // 2026-06-22 — RTH top movers across the TT universe (gainers/losers),
-    // for the brief's "Today's Top Movers" section. Computed from the
-    // price-feed raw map (same `dp` daily-change source the intraday brief
-    // uses). Index/sector/futures proxies are excluded — these are the
-    // single-name movers a reader scans for.
-    ttUniverseMovers: (() => {
-      try {
-        const skip = new Set(["SPY","QQQ","DIA","IWM","VIX","XLE","XLK","XLF","XLU","XLP","XLY","XLI","XLV","XLB","XLRE","XLC","GLD","TLT","SLV","USO"]);
-        const movers = [];
-        for (const [ticker, d] of Object.entries(_pf || {})) {
-          if (skip.has(ticker) || !d || typeof d !== "object") continue;
-          if (!isPriceFeedRowFresh(d, _briefSessionMktOpen)) continue;
-          const pct = liveDayPctFromPriceFeedRow(d, _briefSessionMktOpen);
-          const price = liveSpotFromPriceFeedRow(d, _briefSessionMktOpen);
-          if (Number.isFinite(pct) && Number.isFinite(price) && price > 0 && Math.abs(pct) >= 1.0) {
-            movers.push({ ticker, pct, price });
-          }
-        }
-        if (!movers.length) return null;
-        const fmt = (m) => `${m.ticker} $${m.price.toFixed(2)} (${m.pct >= 0 ? "+" : ""}${m.pct.toFixed(1)}%)`;
-        const gainers = movers.filter(m => m.pct > 0).sort((a, b) => b.pct - a.pct).slice(0, 6);
-        const losers = movers.filter(m => m.pct < 0).sort((a, b) => a.pct - b.pct).slice(0, 6);
-        const parts = [];
-        if (gainers.length) parts.push(`Top Gainers: ${gainers.map(fmt).join(", ")}`);
-        if (losers.length) parts.push(`Top Losers: ${losers.map(fmt).join(", ")}`);
-        return parts.length ? parts.join("\n") : null;
-      } catch (_) { return null; }
-    })(),
+    ttUniverseMovers: await buildBriefUniverseMovers(env, _pf, _briefSessionMktOpen),
     priceFeedRaw: _pf,
     // 2026-05-30 — Inheritance fix. The Daily Brief now sees the
     // synthesized 8-layer root-strategy verdict per top-conviction
@@ -3843,14 +3931,13 @@ function buildRetailFriendlyOutputSpec(type) {
   // site and trust the model."
   const sections = isEvening
     ? `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) how the session went in one sentence, (b) playbook tie-in — one sentence linking today's tape to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model acted or stayed patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
-2. **Model Actions Today** (~70 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** accumulate/add/reduce/exit by name OR "no investor actions — monitoring." One clause each on WHY from the data.)
+2. **Model Actions Today** (~70 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** cite EVERY name from the "Investor Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no investor actions" ONLY when that block is empty. One clause each on WHY from the data.)
 3. **The Market Read** (~200 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
-4. **Index Outlook — SPY, QQQ, IWM** (~260 words — how should one view each index next session. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: scorecard (call vs result), one narrative sentence, bull/bear triggers + targets, Day Gate range, key SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings. Do NOT add ### ES or ### NQ.)
-5. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing the single names with their % moves. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
-6. **Active Trader Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
-7. **Investor Portfolio** (~80 words — open holdings only if not already covered in Model Actions: ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
-8. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
-9. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
+4. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing EVERY name shown in that block with its % move. Do not omit or substitute tickers. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
+5. **Active Trader Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
+6. **Investor Portfolio** (~80 words — open holdings only if not already covered in Model Actions: ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
+7. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
+8. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) today's market mood in one sentence, (b) playbook tie-in — one sentence linking the setup to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model is entering or staying patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
 2. **Model Actions Today** (~60 words — two labeled lines: **Trader model:** what it is stalking or holding (no entry yet is OK — say why). **Investor model:** what it is monitoring or holding. Separate lanes — do not merge.)
 3. **The Market Read** (~220 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
@@ -4205,6 +4292,9 @@ ${(data.todayTrimsDefends || []).length > 0
     ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total trimmed: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
     : "No trims or defends today."}
 
+## Investor Model — Actions Today (MUST cite in Model Actions Today — do not say "no investor actions" when this block lists fills):
+${formatBriefInvestorActionsBlock(data.todayInvestorActions)}
+
 ## Investor Portfolio — Current Holdings:
 ${(data.investorPositions || []).length > 0
     ? data.investorPositions.map(p => {
@@ -4317,7 +4407,7 @@ ${formatSMCForPrompt(data.iwmTechnical?.smcLevels)}
 ## Sector ETF Performance (sorted by magnitude):
 ${data.sectors.map(s => `${s.sym}: ${s.dayChangePct >= 0 ? "+" : ""}${s.dayChangePct.toFixed(2)}% ($${s.price.toFixed(2)})`).join("\n")}
 
-## Today's RTH Top Movers (single names across the TT universe — USE for the "Today's Top Movers" section):
+## Today's RTH Top Movers (single names across the TT universe — USE for the "Today's Top Movers" section; list EVERY name below, do not omit):
 ${data.ttUniverseMovers || "No standout single-name movers in the universe today (all within ±1%)."}
 
 ## This Morning's SPY Prediction:
@@ -4402,6 +4492,9 @@ ${(data.todayTrimsDefends || []).length > 0
     ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
     : "No trims or defends today."}
 
+## Investor Model — Actions Today (MUST cite in Model Actions Today — do not say "no investor actions" when this block lists fills):
+${formatBriefInvestorActionsBlock(data.todayInvestorActions)}
+
 ## Investor Portfolio — Current Holdings:
 ${(data.investorPositions || []).length > 0
     ? data.investorPositions.map(p => {
@@ -4416,7 +4509,7 @@ ${(data.investorPositions || []).length > 0
 
 STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~750 words total. This brief is read top-to-bottom as ONE coherent piece — each section flows into the next, no repetition across sections.
 
-OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly, in this order: The Market Read → Index Outlook — SPY, QQQ, IWM → Today's Top Movers → Active Trader Report → Investor Portfolio → Looking Ahead → On Watch — Entry Radar. Do NOT emit separate Session Recap, Sector Themes, per-index Scorecard, CRO Desk, or Key Levels headings — those are merged into The Market Read and Index Outlook.
+OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly, in this order: The Market Read → Today's Top Movers → Active Trader Report → Investor Portfolio → Looking Ahead → On Watch — Entry Radar. Do NOT emit Index Outlook, Session Recap, Sector Themes, per-index Scorecard, CRO Desk, or Key Levels headings — index recap belongs in The Market Read only.
 
 Inside each ### SPY / ### QQQ / ### IWM block: include **SPY Prediction**: (matching label) plus scorecard result (evening) and trigger levels.
 
@@ -4787,7 +4880,7 @@ export function buildDiscordBriefEmbed(type, data, content, esPrediction, spyPre
     fields.push({ name: "Open Positions", value: posStr, inline: false });
   }
 
-  if (outlookField) fields.push(outlookField);
+  if (outlookField && isMorning) fields.push(outlookField);
 
   return {
     title: isMorning ? `☀️ Morning Brief — ${data.today}` : `🌙 Evening Brief — ${data.today}`,

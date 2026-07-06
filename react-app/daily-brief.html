@@ -1046,7 +1046,9 @@
             {!isMorning && brief.croNote && (
               <CRODeskWrapPanel croNote={brief.croNote} accentColor={accentColor} />
             )}
-            <IndexOutlookSection brief={brief} accentColor={accentColor} bgDim={bgDim} isMorning={isMorning} />
+            {isMorning && (
+              <IndexOutlookSection brief={brief} accentColor={accentColor} bgDim={bgDim} isMorning={isMorning} />
+            )}
           </div>
         );
       }
