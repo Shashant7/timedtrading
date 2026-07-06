@@ -3,8 +3,8 @@
 const DEFAULT_MODEL = "gpt-4o-mini";
 const FUNDAMENTALS_KV_PREFIX = "timed:fundamentals_narrative:v1:";
 const CATALYSTS_KV_PREFIX = "timed:catalysts_narrative:v1:";
-const FUNDAMENTALS_TTL_SEC = 6 * 60 * 60;
-const CATALYSTS_TTL_SEC = 45 * 60;
+const FUNDAMENTALS_TTL_SEC = 12 * 60 * 60;
+const CATALYSTS_TTL_SEC = 90 * 60;
 
 async function callOpenAI(env, systemPrompt, userPrompt, { maxTokens = 600 } = {}) {
   const key = env?.OPENAI_API_KEY;

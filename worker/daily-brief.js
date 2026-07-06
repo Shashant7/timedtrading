@@ -4435,6 +4435,47 @@ const BRIEF_MAX_COMPLETION_TOKENS = {
   intraday: 1200,
 };
 
+/** ET calendar date for brief idempotency keys (YYYY-MM-DD). */
+export function getBriefEtDate(now = new Date()) {
+  return now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+/** True when a cron-fired brief for this ET date + type already exists in D1. */
+export async function findExistingDailyBrief(env, type, dateEt) {
+  const db = env?.DB;
+  if (!db) return null;
+  const t = String(type || "morning").toLowerCase();
+  const d = String(dateEt || getBriefEtDate());
+  try {
+    await d1EnsureBriefSchema(env);
+    const row = await db.prepare(
+      "SELECT id, published_at FROM daily_briefs WHERE date = ?1 AND type = ?2 LIMIT 1",
+    ).bind(d, t).first();
+    if (row?.id && Number(row.published_at) > 0) return row;
+  } catch (_) { /* best effort */ }
+  return null;
+}
+
+/** True when an intraday flash for this ET date + hour slot (11 or 14) already exists. */
+export async function findExistingIntradayFlashSlot(env, dateEt, etHour) {
+  const KV = env?.KV_TIMED;
+  if (!KV) return null;
+  const h = Number(etHour);
+  if (!Number.isFinite(h)) return null;
+  const d = String(dateEt || getBriefEtDate());
+  const entries = (await kvGetJSON(KV, "timed:daily-brief:intraday")) || [];
+  const match = entries.find((e) => {
+    if (e?.date !== d || !e?.publishedAt) return false;
+    const ts = Number(e.publishedAt);
+    if (!Number.isFinite(ts) || ts <= 0) return false;
+    const entryHour = parseInt(new Date(ts).toLocaleString("en-US", {
+      timeZone: "America/New_York", hour: "numeric", hour12: false,
+    }), 10);
+    return entryHour === h;
+  });
+  return match || null;
+}
+
 function resolveBriefOpenAiTimeoutMs(env, type = "morning") {
   const t = String(type || "morning").toLowerCase();
   const perType = Number(env?.[`DAILY_BRIEF_${t.toUpperCase()}_TIMEOUT_MS`]);
@@ -5538,6 +5579,15 @@ export async function generateDailyBrief(env, type, opts = {}) {
   const db = env?.DB;
   if (!KV) return { ok: false, error: "no_kv" };
 
+  const briefType = String(type || "morning").toLowerCase();
+  if (opts.skipIfExists && db) {
+    const existing = await findExistingDailyBrief(env, briefType, opts.dateEt || getBriefEtDate());
+    if (existing) {
+      console.log(`[DAILY BRIEF] Skipping ${briefType} — already generated (${existing.id})`);
+      return { ok: true, skipped: "already_generated", id: existing.id, elapsed: 0 };
+    }
+  }
+
   console.log(`[DAILY BRIEF] Generating ${type} brief...`);
   const start = Date.now();
 
@@ -6254,6 +6304,16 @@ Three bullets max (plain English, no jargon): mood · playbook tie-in · act vs 
 export async function generateIntradayBrief(env, opts = {}) {
   const KV = env?.KV_TIMED;
   if (!KV) return { ok: false, error: "no_kv" };
+
+  const etHour = Number(opts.intradayEtHour);
+  const dateEt = opts.dateEt || getBriefEtDate();
+  if (opts.skipIfExists && Number.isFinite(etHour)) {
+    const existing = await findExistingIntradayFlashSlot(env, dateEt, etHour);
+    if (existing) {
+      console.log(`[INTRADAY BRIEF] Skipping flash — slot ${etHour}:00 ET already published (${existing.id})`);
+      return { ok: true, skipped: "already_generated", id: existing.id, elapsed: 0 };
+    }
+  }
 
   console.log("[INTRADAY BRIEF] Generating flash insight...");
   const start = Date.now();
