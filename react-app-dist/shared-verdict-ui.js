@@ -32,6 +32,13 @@
     return "$" + x.toFixed(2);
   }
 
+  /** Strict numeric coercion — null/""/undefined → null (not 0). */
+  function numN(v) {
+    if (v === null || v === undefined || v === "") return null;
+    var n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
   function fmtPct(n) {
     var x = Number(n);
     if (!Number.isFinite(x)) return "—";
@@ -292,6 +299,15 @@
       ".tt-vb__kl-price--up{color:var(--ds-up,#34d399)}",
       ".tt-vb__kl-price--dn{color:var(--ds-dn,#ef4444)}",
       ".tt-vb__kl-price--accent{color:var(--ds-accent,#38f2a1)}",
+      ".tt-vb__kl-price--warn{color:#fbbf24}",
+      ".tt-vb__kl-dist{font-size:10px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);margin-left:8px;white-space:nowrap;font-weight:500}",
+      ".tt-vb__horizon{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid rgba(255,255,255,.05)}",
+      ".tt-vb__horizon:first-of-type{border-top:none;padding-top:2px}",
+      ".tt-vb__htag{flex:0 0 46px;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);line-height:1.25;padding-top:4px}",
+      ".tt-vb__hbody{flex:1;min-width:0}",
+      ".tt-vb__hhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
+      ".tt-vb__hline{font-size:12px;color:var(--ds-text-muted,#9ca3af);line-height:1.45;margin-top:5px}",
+      ".tt-vb__stage-word{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-size:13px;letter-spacing:.02em;padding:3px 10px;border-radius:8px;background:rgba(167,139,250,.14);color:#c084fc}",
       ".tt-lane-badge{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:2px 7px;border-radius:4px;margin-left:8px}",
       ".tt-lane-badge--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
       ".tt-lane-badge--investor{background:rgba(192,132,252,.15);color:#c084fc}",
@@ -555,101 +571,237 @@
       );
     }
 
+    // Plain-English short-term (trader) playbook line per verdict.
+    var TRADER_PLAY = {
+      BUY: "Entry is live now — size the position to the stop shown below.",
+      HOLD: "Trade is working — hold and let the plan run.",
+      TIGHTEN: "Momentum is fading — tighten the stop or take partial profit.",
+      SELL: "Exit signal is active — close or stop out now.",
+      SETUP_FORMING: "Setup is building — wait for the trigger to confirm before entering.",
+      WAIT: "No tradable setup yet — wait for a trigger to fire.",
+    };
+
+    // Long-term (investor) playbook — label + color + plain line, keyed to
+    // the same lane vocabulary the Investor board uses.
+    var INV_STAGE_PLAY = {
+      accumulate: { label: "Accumulate", color: "#34d399", line: "Model is scaling into the buy zone — add on dips, never chase extension." },
+      core_hold: { label: "Core Hold", color: "#60a5fa", line: "Owned and healthy — hold the core; add only on a meaningful pullback." },
+      watch: { label: "Hold & Watch", color: "#60a5fa", line: "Owned but signals are mixed — hold flat, no adds or trims yet." },
+      reduce: { label: "Reduce", color: "#fb923c", line: "Thesis is weakening — trim into strength and respect the invalidation." },
+      research_on_watch: { label: "On Radar", color: "#a78bfa", line: "Not owned — tracking only. No capital until it reaches Accumulate." },
+      research_low: { label: "Low Conviction", color: "#a78bfa", line: "Not owned — low conviction. Better setups exist elsewhere." },
+      research_avoid: { label: "Avoid", color: "#8AA39A", line: "Not owned — multiple red flags. The model skips it." },
+      exited: { label: "Exited", color: "#8AA39A", line: "Recently closed — watching for a fresh Accumulate signal." },
+    };
+    function investorStagePlay(stage) {
+      var s = String(stage || "").toLowerCase();
+      return INV_STAGE_PLAY[s] || null;
+    }
+
+    /**
+     * Build a single, freshness-validated Key-Levels ladder anchored to the
+     * live price. Every level is checked against the live price so a stale
+     * or wrong-side number (e.g. a short stop rendered as a long invalidation)
+     * is dropped instead of contradicting the price. Short-term levels come
+     * from the active trader plan; long-term levels come from the fresh
+     * investor detail (invalidation / fair value / buy zone).
+     */
     function buildGuideKeyLevels(trader, investor, payload, opts) {
       opts = opts || {};
+      payload = payload || {};
       var pc = opts.predictionContract;
       var invData = opts.investorData;
-      var numN = function (v) { if (v === null || v === undefined || v === "") return null; var n = Number(v); return Number.isFinite(n) ? n : null; };
-      var px = numN(opts.livePrice || payload.price || payload._live_price);
+      var px = numN(opts.livePrice);
+      if (px === null) px = numN(payload.price);
+      if (px === null) px = numN(payload._live_price);
+      if (px === null) px = numN(payload.close);
+      if (!(px > 0)) px = null;
       var rows = [];
-      var stop = numN(trader && trader.stop);
-      if (stop === null && pc && pc.risk) stop = numN(pc.risk.stop_loss);
-      if (stop === null) stop = numN(payload.sl);
-      var target = numN(trader && trader.target);
-      if (target === null && pc && Array.isArray(pc.targets) && pc.targets[0]) target = numN(pc.targets[0].price);
-      if (target === null) target = numN(payload.tp_trim || payload.tp_exit);
-      var entry = numN(trader && trader.entry_price);
-      if (Number.isFinite(px) && px > 0) {
-        rows.push({ label: "Current price", price: px, tone: "accent", now: true });
+      var seen = {};
+      // side: "below" must sit under the live price, "above" over it, null = no gate.
+      function add(label, price, tone, side) {
+        var p = numN(price);
+        if (p === null || !(p > 0)) return;
+        if (px !== null && side === "below" && p >= px) return;
+        if (px !== null && side === "above" && p <= px) return;
+        var key = p.toFixed(2);
+        if (seen[key]) return;
+        seen[key] = 1;
+        rows.push({ label: label, price: p, tone: tone });
       }
-      if (entry !== null) rows.push({ label: "Entry trigger", price: entry, tone: "accent" });
-      if (stop !== null) rows.push({ label: "Stop / invalidation", price: stop, tone: "dn" });
-      if (target !== null) rows.push({ label: "First target", price: target, tone: "up" });
-      var invZone = invData && (invData.accumulate_zone || invData.buy_zone || invData.zone);
-      if (invZone) {
-        var zLo = numN(invZone.low != null ? invZone.low : invZone.min);
-        var zHi = numN(invZone.high != null ? invZone.high : invZone.max);
-        if (zLo !== null && zHi !== null) {
-          rows.push({ label: "Investor buy zone", range: fmtPx(zLo) + " – " + fmtPx(zHi), tone: "up" });
+      // Short-term (trader) plan — only when a setup is active + direction-consistent.
+      var tv = String((trader && trader.verdict) || "").toUpperCase();
+      var tActive = ["BUY", "HOLD", "TIGHTEN", "SELL"].indexOf(tv) >= 0;
+      var tDir = String((trader && trader.direction) || "LONG").toUpperCase();
+      if (tActive) {
+        add("Entry trigger", trader.entry_price, "accent", null);
+        add("Trader stop", trader.stop, "dn", tDir === "SHORT" ? "above" : "below");
+        add("Trader target", trader.target, "up", tDir === "SHORT" ? "below" : "above");
+      }
+      // Long-term (investor) plan — long-biased, fresh from the investor detail.
+      if (invData) {
+        var invPrice = numN(invData.primaryInvalidation && invData.primaryInvalidation.price);
+        if (invPrice === null) invPrice = numN(invData.thesisInvalidationPrice);
+        var fv = numN(invData.fairValue && invData.fairValue.fair_value);
+        if (fv === null) fv = numN(invData._fair_value && invData._fair_value.fair_value);
+        var az = invData.accumZone || invData.accumulate_zone || invData.buy_zone || invData.zone;
+        var zHi = numN(az && (az.zoneTop != null ? az.zoneTop : az.high != null ? az.high : az.max));
+        var zLo = numN(az && (az.zoneBottom != null ? az.zoneBottom : az.low != null ? az.low : az.min));
+        if (zHi !== null && zLo !== null && zHi > 0 && zLo > 0 && (px === null || zHi < px)) {
+          var zKey = zLo.toFixed(2) + "-" + zHi.toFixed(2);
+          if (!seen[zKey]) {
+            seen[zKey] = 1;
+            rows.push({ label: "Investor buy zone", range: fmtPx(zLo) + " – " + fmtPx(zHi), _sort: (zLo + zHi) / 2, tone: "up" });
+          }
         }
+        add("Fair value estimate", fv, "warn", null);
+        add("Investor invalidation", invPrice, "dn", "below");
       }
-      if (pc && Array.isArray(pc.levels)) {
-        var sup = pc.levels.filter(function (l) { return l.role === "support"; }).sort(function (a, b) { return b.price - a.price; }).slice(0, 2);
-        var res = pc.levels.filter(function (l) { return l.role === "resistance"; }).sort(function (a, b) { return a.price - b.price; }).slice(0, 2);
-        sup.forEach(function (l) {
-          rows.push({ label: l.label || "Support", price: Number(l.price), tone: "up" });
-        });
-        res.forEach(function (l) {
-          rows.push({ label: l.label || "Resistance", price: Number(l.price), tone: "dn" });
-        });
+      // Fallback S/R from the prediction contract only when we have nothing else.
+      if (rows.length === 0 && pc && Array.isArray(pc.levels)) {
+        pc.levels.filter(function (l) { return l.role === "resistance"; }).slice(0, 2)
+          .forEach(function (l) { add(l.label || "Resistance", l.price, "dn", "above"); });
+        pc.levels.filter(function (l) { return l.role === "support"; }).slice(0, 2)
+          .forEach(function (l) { add(l.label || "Support", l.price, "up", "below"); });
       }
-      return rows.length > 0 ? rows : null;
+      if (rows.length === 0) return null;
+      return { px: px, rows: rows };
     }
 
     function GuideKeyLevels(props) {
-      var rows = props.rows;
-      if (!rows || !rows.length) return null;
+      var data = props.data;
+      if (!data || !Array.isArray(data.rows) || !data.rows.length) return null;
+      var px = data.px;
+      var ladder = data.rows.slice();
+      if (Number.isFinite(px) && px > 0) {
+        ladder.push({ label: "Current price", price: px, tone: "accent", now: true });
+      }
+      // Price ladder — highest at top, lowest at bottom, live price in place.
+      ladder.sort(function (a, b) {
+        var ap = Number.isFinite(a._sort) ? a._sort : a.price;
+        var bp = Number.isFinite(b._sort) ? b._sort : b.price;
+        return (bp || 0) - (ap || 0);
+      });
       return h("div", { className: "tt-vb__key-levels" },
-        h("div", { className: "tt-vb__key-levels-head" }, "Key levels"),
+        h("div", { className: "tt-vb__key-levels-head" }, "Key levels · live"),
         h("div", { className: "tt-vb__key-levels-grid" },
-          rows.map(function (r, i) {
-            var priceCls = "tt-vb__kl-price" + (r.tone === "up" ? " tt-vb__kl-price--up" : r.tone === "dn" ? " tt-vb__kl-price--dn" : r.tone === "accent" ? " tt-vb__kl-price--accent" : "");
+          ladder.map(function (r, i) {
+            var priceCls = "tt-vb__kl-price"
+              + (r.tone === "up" ? " tt-vb__kl-price--up"
+                : r.tone === "dn" ? " tt-vb__kl-price--dn"
+                : r.tone === "warn" ? " tt-vb__kl-price--warn"
+                : r.tone === "accent" ? " tt-vb__kl-price--accent" : "");
+            var refP = Number.isFinite(r._sort) ? r._sort : r.price;
+            var dist = (!r.now && Number.isFinite(px) && px > 0 && Number.isFinite(refP))
+              ? ((refP - px) / px) * 100 : null;
             return h("div", {
               key: (r.label || "row") + "-" + i,
               className: "tt-vb__kl-row" + (r.now ? " tt-vb__kl-row--now" : ""),
             },
               h("span", { className: "tt-vb__kl-label" }, r.label),
-              h("span", { className: priceCls }, r.range || fmtPx(r.price)),
+              h("span", { className: priceCls },
+                r.range || fmtPx(r.price),
+                dist !== null && h("span", { className: "tt-vb__kl-dist" }, (dist >= 0 ? "+" : "") + dist.toFixed(1) + "%"),
+              ),
             );
           }),
         ),
       );
     }
 
+    /**
+     * VerdictGuideBlock — condensed two-horizon playbook (Now tab only).
+     * Scans the trader + investor lanes and the fresh level set, then presents
+     * ONE coherent read: a short-term (trader) line, a long-term (investor)
+     * line, and a single freshness-checked Key-Levels ladder. No stale or
+     * wrong-side numbers, no duplicated level panels.
+     */
     function VerdictGuideBlock(props) {
       var sym = String(props.ticker || "").toUpperCase();
       var data = props.data;
       var loading = props.loading;
-      var payload = props.tickerPayload;
+      var payload = props.tickerPayload || {};
       if (!sym || !window._ttIsPro) return null;
       if (loading) {
         return h("div", { className: "tt-vb tt-vb--guide" },
-          h("div", { className: "tt-vb__inner", style: { color: "var(--ds-text-faint)", fontSize: 12 } }, "Loading lane guide…"),
+          h("div", { className: "tt-vb__inner", style: { color: "var(--ds-text-faint)", fontSize: 12 } }, "Loading playbook…"),
         );
       }
       if (!data || !data.ok) return null;
       if (!data.trader && !data.investor) return null;
       var guide = data.guide || buildVerdictGuide(data.trader, data.investor, payload);
       if (!guide) return null;
-      var levelRows = buildGuideKeyLevels(data.trader, data.investor, payload, {
+
+      var levels = buildGuideKeyLevels(data.trader, data.investor, payload, {
         predictionContract: props.predictionContract,
         investorData: props.investorData,
         livePrice: props.livePrice,
       });
+
+      var px = numN(props.livePrice);
+      if (px === null) px = numN(payload.price);
+      if (px === null) px = numN(payload._live_price);
+      if (px === null) px = numN(payload.close);
+
+      // Short-term (trader) horizon.
+      var tv = String((data.trader && data.trader.verdict) || "WAIT").toUpperCase();
+      var shortLine = TRADER_PLAY[tv] || TRADER_PLAY.WAIT;
+
+      // Long-term (investor) horizon — label + plain line from the fresh stage.
+      var invStage = String((props.investorData && props.investorData.stage) || payload.investor_stage || payload.investorStage || "").toLowerCase();
+      var play = investorStagePlay(invStage);
+      var iv = String((data.investor && data.investor.verdict) || "WAIT").toUpperCase();
+      var invScore = numN(props.investorData && props.investorData.score);
+      if (invScore === null) invScore = numN(payload.investor_score);
+      var longLine = play ? play.line : (data.investor && data.investor.why ? capFirst(data.investor.why) + "." : null);
+
+      // Coherent early-entry note: only for a live accumulate signal whose
+      // fresh invalidation actually sits below the current price.
+      var invFloor = null;
+      if (props.investorData) {
+        invFloor = numN(props.investorData.primaryInvalidation && props.investorData.primaryInvalidation.price);
+        if (invFloor === null) invFloor = numN(props.investorData.thesisInvalidationPrice);
+      }
+      var earlyEntry = null;
+      if (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING") && invFloor !== null && (!(px > 0) || invFloor < px)) {
+        earlyEntry = "Accumulating ahead of the model is only reasonable inside the buy zone with capped size — the long-term thesis breaks on a close below " + fmtPx(invFloor) + ".";
+      }
+
       return h("div", { className: "tt-vb tt-vb--guide" },
         h("div", { className: "tt-vb__inner" },
           h("div", { className: "tt-vb__guide-head" }, guide.headline),
-          guide.narrative && h("p", { className: "tt-vb__guide-narrative" }, guide.narrative),
-          data.trader && h(VerdictLaneRow, { verdict: data.trader, showEntry: true, shortVerdict: true }),
-          data.investor && h(VerdictLaneRow, { verdict: data.investor, shortVerdict: true }),
-          guide.model_not_entered && h("div", { className: "tt-vb__callout tt-vb__callout--wait" },
-            h("strong", null, "Why the model has not entered: "),
-            guide.model_not_entered,
+
+          data.trader && h("div", { className: "tt-vb__horizon" },
+            h("div", { className: "tt-vb__htag" }, "Short", h("br"), "term"),
+            h("div", { className: "tt-vb__hbody" },
+              h("div", { className: "tt-vb__hhead" },
+                h(VerdictWord, { verdict: tv, short: true }),
+                h(LaneBadge, { lane: "trader" }),
+                data.trader.timing && h("span", { className: "tt-vb__timing" }, fmtTiming(data.trader.timing)),
+              ),
+              h("div", { className: "tt-vb__hline" }, shortLine),
+            ),
           ),
-          h(GuideKeyLevels, { rows: levelRows }),
-          guide.early_entry && h("div", { className: "tt-vb__callout tt-vb__callout--info" },
-            h("strong", null, "Early vs model: "),
-            guide.early_entry,
+
+          (play || data.investor) && h("div", { className: "tt-vb__horizon" },
+            h("div", { className: "tt-vb__htag" }, "Long", h("br"), "term"),
+            h("div", { className: "tt-vb__hbody" },
+              h("div", { className: "tt-vb__hhead" },
+                play
+                  ? h("span", { className: "tt-vb__stage-word", style: { background: play.color + "22", color: play.color } }, play.label)
+                  : h(VerdictWord, { verdict: iv, short: true }),
+                h(LaneBadge, { lane: "investor" }),
+                invScore !== null && h("span", { className: "tt-vb__timing", style: { color: "var(--ds-text-faint)" } }, "score " + invScore),
+              ),
+              longLine && h("div", { className: "tt-vb__hline" }, longLine),
+            ),
+          ),
+
+          levels && h(GuideKeyLevels, { data: levels }),
+
+          earlyEntry && h("div", { className: "tt-vb__callout tt-vb__callout--info" },
+            h("strong", null, "Buying early: "),
+            earlyEntry,
           ),
         ),
       );
@@ -878,4 +1030,4 @@
   };
 })();
 
-// cache-bust:1783303736703:612229197
+// cache-bust:1783305829712:369547444

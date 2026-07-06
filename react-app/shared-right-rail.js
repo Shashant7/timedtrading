@@ -8626,7 +8626,11 @@
                     } : {}),
                   }}
                 >
-                  {window._ttIsPro && VerdictGuideBlock && (
+                  {/* Verdict playbook — Now tab only. It scans both lanes +
+                      fresh levels into one short-term/long-term read; other
+                      tabs (Chart, Trade, Options, Invest, Context) have their
+                      own purpose-built content and must not carry it. */}
+                  {window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && (
                     <VerdictGuideBlock
                       ticker={tickerSymbol}
                       data={phaseDVerdict}
@@ -8668,7 +8672,12 @@
                       style={{
                         display: "flex",
                         flexDirection: "column",
-                        flex: "1 1 auto",
+                        /* 2026-07-06 — natural height (not flex:1) so the
+                           right pane's own overflow-y:auto scrolls on mobile
+                           when the capped chart canvas + header exceed the
+                           viewport. flex:1 previously forced the wrapper to
+                           the pane height and swallowed the scroll. */
+                        flex: "0 0 auto",
                         minHeight: 0,
                         gap: "var(--ds-space-2)",
                       }}

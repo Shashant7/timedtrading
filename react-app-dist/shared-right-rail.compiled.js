@@ -9786,7 +9786,7 @@
               padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
             } : {})
           }
-        }, window._ttIsPro && VerdictGuideBlock && React.createElement(VerdictGuideBlock, {
+        }, window._ttIsPro && VerdictGuideBlock && v2RailTab === "SNAPSHOT" && React.createElement(VerdictGuideBlock, {
           ticker: tickerSymbol,
           data: phaseDVerdict,
           loading: phaseDVerdictLoading,
@@ -9800,7 +9800,7 @@
           style: {
             display: "flex",
             flexDirection: "column",
-            flex: "1 1 auto",
+            flex: "0 0 auto",
             minHeight: 0,
             gap: "var(--ds-space-2)"
           }
@@ -22054,4 +22054,4 @@
   };
 })();
 
-// cache-bust:1783295791477:968813632
+// cache-bust:1783305829712:369547444
