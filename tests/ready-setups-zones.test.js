@@ -105,13 +105,15 @@ describe("Ready Setups zone-bar cards", () => {
     });
     const html = container.innerHTML;
     expect(html).toContain("tt-strip-card");
+    expect(html).toContain("tt-strip-card__foot");
+    expect(html).toContain("tt-zone-bar--compact");
     expect(html).toContain("tt-zone-bar__seg--inv");
     expect(html).toContain("tt-zone-bar__seg--pb");
     expect(html).toContain("tt-zone-bar__seg--tgt");
     expect(html).toContain("tt-zone-bar__marker");
-    expect(container.textContent).toMatch(/Invalidation/);
-    expect(container.textContent).toMatch(/Pullback/);
-    expect(container.textContent).toMatch(/Target/);
+    expect(container.textContent).toMatch(/Inv\s+\$/);
+    expect(container.textContent).toMatch(/PB\s+\$/);
+    expect(container.textContent).toMatch(/Tgt\s+\$/);
     // Both lane badges present.
     expect(container.textContent).toMatch(/TRADER/);
     expect(container.textContent).toMatch(/INVESTOR/);

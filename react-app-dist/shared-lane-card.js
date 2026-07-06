@@ -116,20 +116,21 @@
   function zoneBarTrack(zm, opts) {
     opts = opts || {};
     if (!zm || typeof zm.pct !== "function") return null;
+    const compact = !!opts.compact;
     const pbLo = zm.pb ? zm.pb[0] : zm.pbLo;
     const pbHi = zm.pb ? zm.pb[1] : zm.pbHi;
     const pbLoPct = zm.pct(pbLo);
     const pbHiPct = zm.pct(pbHi);
     const pricePct = zm.pct(zm.price);
     const laneLabel = zm.lane === "investor" ? "INVESTOR" : zm.lane === "trader" ? "TRADER" : null;
-    return h("div", { className: "tt-zone-bar" },
-      laneLabel && h("div", { className: "tt-zone-bar__lane-row" },
+    return h("div", { className: "tt-zone-bar" + (compact ? " tt-zone-bar--compact" : "") },
+      !compact && laneLabel && h("div", { className: "tt-zone-bar__lane-row" },
         h("span", {
           className: "tt-zone-bar__lane tt-zone-bar__lane--" + (zm.lane === "investor" ? "investor" : "trader"),
         }, laneLabel),
         h("span", null, opts.planLabel || (zm.lane === "investor" ? "Buy zone plan" : "Trader plan")),
       ),
-      h("div", { className: "tt-zone-bar__labels" },
+      !compact && h("div", { className: "tt-zone-bar__labels" },
         h("span", null, "Invalidation"),
         h("span", null, "Pullback"),
         h("span", null, "Target"),
@@ -165,7 +166,13 @@
     const fmtProb = (p) => (Number.isFinite(Number(p)) ? `${Math.round(Number(p) * 100)}%` : null);
     const invProb = fmtProb(zm.invProb);
     const tgtProb = fmtProb(zm.tgtProb);
-    return h("div", { className: "tt-zone-bar__meta" },
+    const laneTag = opts.laneTag && zm.lane
+      ? h("span", {
+          className: "tt-zone-bar__lane tt-zone-bar__lane--" + (zm.lane === "investor" ? "investor" : "trader"),
+        }, zm.lane === "investor" ? "INV" : "AT")
+      : null;
+    return h("div", { className: "tt-zone-bar__meta" + (laneTag ? " tt-zone-bar__meta--tagged" : "") },
+      laneTag,
       h("span", null, `Inv ${fmtZonePx(zm.inv)}`, invProb && h("span", { className: "tt-zone-bar__prob" }, ` · ${invProb} hit`)),
       h("span", null, `PB ${fmtZonePx(pbLo)}\u2013${fmtZonePx(pbHi)}`),
       h("span", null, `Tgt ${fmtZonePx(zm.tgt)}`, tgtProb && h("span", { className: "tt-zone-bar__prob" }, ` · ${tgtProb} reach`)),
@@ -279,4 +286,4 @@
   boot();
 })();
 
-// cache-bust:1783367703758:236176954
+// cache-bust:1783369020464:288945902

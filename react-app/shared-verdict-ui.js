@@ -327,9 +327,10 @@
       /* Universal strip stack — Viewport lane card + foot row (Today Ready / Growth). */
       ".tt-strip-card{flex:0 0 280px;width:280px;max-width:280px;scroll-snap-align:start;display:flex;flex-direction:column;gap:6px;min-width:0}",
       ".tt-strip-card .ds-tickercard.tt-lane-card{width:100%!important;flex:0 0 auto;min-height:118px;height:auto;max-height:none}",
-      ".tt-strip-card .tt-lane-card__mid{flex:0 0 auto;height:auto;min-height:0;max-height:none;overflow:visible;padding-top:4px}",
+      ".tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--active,.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--owned{--tt-lane-card-h:auto;--tt-lane-mid-h:auto}",
+      ".tt-strip-card .tt-lane-card__mid{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;padding-top:4px}",
       ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap}",
-      ".tt-strip-card__foot{display:flex;flex-direction:column;gap:4px;padding:0 6px 2px;min-width:0}",
+      ".tt-strip-card__foot{display:flex;flex-direction:column;gap:4px;padding:6px 6px 2px;min-width:0;border-top:1px dashed rgba(255,255,255,.06)}",
       ".tt-strip-card__hint{margin:0;font-size:10.5px;line-height:1.4;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-zone-bar{margin-top:2px}",
       ".tt-zone-bar + .tt-zone-bar{margin-top:6px;padding-top:6px;border-top:1px dashed rgba(255,255,255,.06)}",
@@ -348,7 +349,9 @@
       ".tt-zone-bar__seg--tgt{background:rgba(245,194,92,.68)}",
       ".tt-zone-bar__marker{position:absolute;top:-3px;width:3px;height:12px;border-radius:2px;background:var(--ds-text-body,#e5e7eb);box-shadow:0 0 0 1px rgba(0,0,0,.35);transform:translateX(-50%);z-index:2}",
       ".tt-zone-bar__meta{display:flex;flex-wrap:wrap;gap:4px 10px;font-family:var(--tt-font-mono,ui-monospace,monospace);font-size:9.5px;color:var(--ds-text-body,#e5e7eb);font-weight:600}",
+      ".tt-zone-bar__meta--tagged{gap:4px 8px}",
       ".tt-zone-bar__prob{color:var(--ds-accent,#38f2a1);font-weight:700}",
+      ".tt-zone-bar--compact .tt-zone-bar__track{margin-top:0}",
       ".tt-ready-card__blocker{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
@@ -1217,7 +1220,7 @@
       var LaneCard = window.TTLaneCard;
       return wrap(h(React.Fragment, null,
         headCopy,
-        h("div", { className: "tt-ready-scroll", role: "list" },
+        h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list" },
           candidates.map(function (row) {
             var sym = String(row.ticker || "").toUpperCase();
             var tv = row.trader || {};
@@ -1249,6 +1252,10 @@
             var zones = [];
             if (row.traderZone) zones.push(row.traderZone);
             if (row.investorZone) zones.push(row.investorZone);
+            var primaryZone = null;
+            if (row.traderPrimed && row.traderZone) primaryZone = row.traderZone;
+            else if (row.investorPrimed && row.investorZone) primaryZone = row.investorZone;
+            else if (zones.length) primaryZone = zones[0];
             var extLine = LaneCard && LaneCard.extLineFromTicker ? LaneCard.extLineFromTicker(tRow) : null;
             var sparkSvg = LaneCard && LaneCard.sparkSvgFromCache
               ? LaneCard.sparkSvgFromCache(sym, Number(price), dir, sparkCache, ensureSpark)
@@ -1282,27 +1289,23 @@
                 })
               : [];
 
-            var midBody = zones.length > 0 && LaneCard && LaneCard.zoneBarTrack
-              ? h(React.Fragment, null,
-                  zones.map(function (zm, idx) {
-                    return h(React.Fragment, { key: zm.lane + "-" + idx },
-                      LaneCard.zoneBarTrack(zm, {
-                        trackTitle: zm.lane === "investor"
-                          ? "Investor lane — invalidation floor, add-on-pullback zone, and target."
-                          : "Trader plan — stop, pullback / entry zone, and first TP target.",
-                      }),
-                    );
-                  }),
-                )
+            var midBody = primaryZone && LaneCard && LaneCard.zoneBarTrack
+              ? LaneCard.zoneBarTrack(primaryZone, {
+                  compact: true,
+                  trackTitle: primaryZone.lane === "investor"
+                    ? "Investor lane — invalidation floor, add-on-pullback zone, and target."
+                    : "Trader plan — stop, pullback / entry zone, and first TP target.",
+                })
               : null;
 
             var footEls = [];
             if (disp.hint) footEls.push(h("p", { key: "hint", className: "tt-strip-card__hint" }, disp.hint));
             if (row.blocker) footEls.push(h("div", { key: "blocker", className: "tt-ready-card__blocker" }, row.blocker));
             if (LaneCard && LaneCard.zoneBarMeta) {
+              var tagLanes = zones.length > 1;
               zones.forEach(function (zm, idx) {
                 footEls.push(h(React.Fragment, { key: "meta-" + zm.lane + "-" + idx },
-                  LaneCard.zoneBarMeta(zm),
+                  LaneCard.zoneBarMeta(zm, { laneTag: tagLanes }),
                 ));
               });
             }

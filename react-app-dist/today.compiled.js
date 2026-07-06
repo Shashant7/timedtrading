@@ -2881,6 +2881,7 @@ function GrowthZoneBar({
     });
   }
   return LaneCard.zoneBarTrack(zm, {
+    compact: true,
     planLabel: "Growth plan",
     trackTitle: "Daily CTO levels — invalidation, pullback add zone, and upside target."
   });
@@ -3093,6 +3094,7 @@ function GrowthIdeasStrip({
     }
     const zm = buildGrowthZoneModel(row, ctoBySym[sym], livePrice);
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
+      compact: true,
       planLabel: "Growth plan",
       trackTitle: "Daily CTO levels — invalidation, pullback add zone, and upside target."
     }) : null;
@@ -6657,6 +6659,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783367703758:236176954
+// cache-bust:1783369020464:288945902
 
-// cache-bust:1783367703758:236176954
+// cache-bust:1783369020464:288945902
