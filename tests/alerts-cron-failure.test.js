@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { recordCronFailure, cronErrorSignature, cronErrorSeverityBand, isOpenAiQuotaError, normalizeBriefCronError } from "../worker/alerts.js";
+import { recordCronFailure, cronErrorSignature, cronErrorSeverityBand, isOpenAiQuotaError, normalizeBriefCronError, recordBriefCronOutcome, recordCronSuccess, healDegradedBriefTombstones } from "../worker/alerts.js";
 
 describe("recordCronFailure discord dedup", () => {
   let kvStore;
@@ -138,6 +138,34 @@ describe("recordCronFailure discord dedup", () => {
       skipDiscord: norm.skipDiscord,
     });
     expect(discordCalls).toBe(0);
+  });
+
+  it("recordBriefCronOutcome heals tombstone on OpenAI quota skip", async () => {
+    const env = makeEnv();
+    await recordCronFailure(env, {
+      op: "intraday_flash",
+      error: "openai_quota_exceeded — AI brief skipped",
+      caller: "scheduled_event",
+      skipDiscord: true,
+    });
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(1);
+    await recordBriefCronOutcome(env, "intraday_flash", {
+      ok: false,
+      error: 'OpenAI 429: quota exceeded',
+    });
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(0);
+  });
+
+  it("healDegradedBriefTombstones clears active quota tombstones", async () => {
+    const env = makeEnv();
+    await recordCronFailure(env, {
+      op: "intraday_flash",
+      error: "openai_quota_exceeded — AI brief skipped",
+      caller: "scheduled_event",
+      skipDiscord: true,
+    });
+    await healDegradedBriefTombstones(env);
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(0);
   });
 });
 
