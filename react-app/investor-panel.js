@@ -792,6 +792,11 @@
     return (actions || []).filter((a) => nowMs - Number(a.ts) <= windowMs);
   }
 
+  function isInvestorBuySideLotAction(actionType) {
+    const act = String(actionType || "").toUpperCase();
+    return act === "BUY" || act === "DCA_BUY" || act === "ADD";
+  }
+
   function BriefStripTickerLogo({ sym, size = 18 }) {
     const ref = useRef(null);
     const SYM = String(sym || "").toUpperCase();
@@ -812,6 +817,10 @@
       const img = new Image();
       img.src = url;
       img.alt = SYM;
+      img.style.width = "100%";
+      img.style.height = "100%";
+      img.style.borderRadius = "50%";
+      img.style.objectFit = "cover";
       img.onload = () => {
         while (el.firstChild) el.removeChild(el.firstChild);
         el.style.background = "#ffffff";
@@ -1367,7 +1376,7 @@
               const sh = a.shares > 0 ? `${a.shares.toFixed(a.shares >= 10 ? 1 : 2)}sh` : "";
               const ago = formatInvestorActionAgo(Date.now() - a.ts);
               const sub = [lbl, sh, ago].filter(Boolean).join(" \u00b7 ");
-              const isBuy = String(a.action || "").toUpperCase() !== "SELL";
+              const isBuy = isInvestorBuySideLotAction(a.action);
               return React.createElement(InvestorBriefTickerChip, {
                 key: `${a.ticker}-${a.ts}-${i}`,
                 sym: a.ticker,
@@ -1450,6 +1459,7 @@
     resolveKanbanStage,
     countInvestorNavBadge,
     filterRecentInvestorActions,
+    isInvestorBuySideLotAction,
     INVESTOR_RECENT_DAYS,
     INVESTOR_RECENT_WINDOW_MS,
     formatInvestorActionAgo,
