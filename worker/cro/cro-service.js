@@ -510,35 +510,55 @@ export async function ensureCRONoteForBriefCadenceWithTimeout(env, slot = "morni
   ]);
 }
 
+/**
+ * Pure gate for brief-cadence CRO refresh. Morning/evening no longer force a
+ * fresh synthesis on every brief — only when the note is missing, stale, or
+ * new FSD intel landed since the last note (saves ~2-4 gpt-4o-mini calls/day).
+ */
+export function shouldRefreshCroForBriefCadence(slot, note, opts = {}) {
+  const etToday = opts.etToday || getCROEtDate();
+  const nowMs = Number(opts.nowMs) || Date.now();
+  const hasNewFsd = opts.hasNewFsd === true;
+  const noteIsToday = note?.as_of_date === etToday;
+  const noteAgeMs = note ? nowMs - Number(note.produced_at || 0) : Infinity;
+  const s = String(slot || "morning").toLowerCase();
+
+  if (s === "morning") {
+    return !noteIsToday || noteAgeMs > 6 * 3600000 || hasNewFsd;
+  }
+  if (s === "evening") {
+    return !noteIsToday || noteAgeMs > 4 * 3600000 || hasNewFsd;
+  }
+  if (s === "intraday") {
+    if (!noteIsToday) return true;
+    if (noteAgeMs > 2 * 3600000) return true;
+    return hasNewFsd;
+  }
+  return !noteIsToday;
+}
+
+async function hasNewFsdSinceNote(env, note) {
+  if (!note) return true;
+  try {
+    const recent = await listRecentPublications(env, { limit: 8 });
+    const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
+    return newestFetched > Number(note.produced_at || 0);
+  } catch (_) {
+    return false;
+  }
+}
+
 export async function ensureCRONoteForBriefCadence(env, slot = "morning") {
   const etToday = getCROEtDate();
   const note = await loadLatestCRONote(env);
-  let force = false;
-
-  if (slot === "morning" || slot === "evening") {
-    // Day-open and day-close bookends always get a fresh synthesis.
-    force = true;
-  } else if (slot === "intraday") {
-    if (!note || note.as_of_date !== etToday) {
-      force = true;
-    } else {
-      const ageMs = Date.now() - Number(note.produced_at || 0);
-      if (ageMs > 2 * 3600000) force = true;
-      if (!force) {
-        try {
-          const recent = await listRecentPublications(env, { limit: 8 });
-          const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
-          if (newestFetched > Number(note.produced_at || 0)) force = true;
-        } catch (_) { /* keep force as-is */ }
-      }
-    }
-  }
+  const hasNewFsd = await hasNewFsdSinceNote(env, note);
+  const force = shouldRefreshCroForBriefCadence(slot, note, { etToday, hasNewFsd });
 
   if (!force && note?.as_of_date === etToday) {
     return { ok: true, skipped: "note_fresh_for_cadence", slot, note_id: note.note_id };
   }
 
-  console.log(`[CRO_DAILY] Brief-cadence refresh (${slot}) for ${etToday} force=${force}`);
+  console.log(`[CRO_DAILY] Brief-cadence refresh (${slot}) for ${etToday} force=${force} new_fsd=${hasNewFsd}`);
   const r = await runCRODaily(env, { asOfDate: etToday, force });
   return { ...r, slot, cadence_refresh: !r.skipped };
 }
