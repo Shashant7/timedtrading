@@ -427,6 +427,12 @@
         return;
       }
       if (invStage === "accumulate") {
+        var invRow = (window.TimedRailHelpers && window.TimedRailHelpers.normalizeInvestorScoreRow)
+          ? window.TimedRailHelpers.normalizeInvestorScoreRow(t, key)
+          : { stage: invStage, investor_stage: invStage, score: t.investor_score };
+        if (window.TimedRailHelpers && window.TimedRailHelpers.isInvestorBuyZoneThesis) {
+          if (!window.TimedRailHelpers.isInvestorBuyZoneThesis(invRow, key)) return;
+        }
         score = 85;
         if (journey && journey.direction === "improving") score += 15;
         var iv = investorVerdict || {
@@ -714,7 +720,7 @@
         h("div", { className: "tt-sec-title" }, "READY SETUPS"),
         h("h2", { className: "tt-ready__title" }, "What the model would act on"),
         h("p", { className: "tt-ready__sub" },
-          "Every name the model marks enter-ready or accumulate — scroll the strip. Separate from the technical screener and Growth Ideas fundamentals below.",
+          "Every name the model marks enter-ready or accumulate — scroll the strip. Investor BUY cards use the same accumulate / buy-zone thesis as the Investor page brief.",
         ),
       );
 

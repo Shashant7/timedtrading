@@ -1163,19 +1163,11 @@
       for (const t of allTickers) {
         const s = resolveKanbanStage(t);
         if (counts[s] != null) counts[s] += 1;
-        // V15 P0.7.155 (2026-05-14) — align "Buy Zone" in the brief with
-        // the Accumulate lane in the kanban. Previously listed any ticker
-        // with t.accumZone?.inZone === true, which is a pure technical
-        // signal (price-action accumulation pattern) decoupled from the
-        // stage classifier — so a ticker could land in the Brief's Buy
-        // Zone while sitting in the Avoid lane (HIMX example reported by
-        // the user). The user-facing contract is "Brief Buy Zone =
-        // Accumulate lane", so gate on stage. Also exclude owned
-        // positions — model handles adds via auto-rebalance, suggesting
-        // them as fresh buys is misleading.
-        const _isOwned = !!t.position?.owned;
-        if (s === "accumulate_queued" && isExecuteReady(t) && t.accumZone?.inZone && !_isOwned) {
-          buyZone.push(t.ticker);
+        // Buy Zone strip — same universe as Today Ready Setups investor lane:
+        // raw accumulate thesis (On Radar + Queued), excluding Avoid.
+        const _buyZoneRow = window.TimedRailHelpers?.normalizeInvestorScoreRow?.(t, t.ticker) || t;
+        if (window.TimedRailHelpers?.isInvestorBuyZoneThesis?.(_buyZoneRow, t.ticker)) {
+          buyZone.push({ ticker: t.ticker, score: Number(t.score) || 0 });
         }
         // RS-new-high stays as-is (pure technical watchlist signal,
         // independent of lane), but exclude Avoid lane so we don't
@@ -1199,11 +1191,15 @@
       const breadthPct = Number(health?.breadth?.pctAboveD200);
       const marketLine = `Market is ${regimeWord}${Number.isFinite(score) ? ` (Health ${Math.round(score)}/100)` : ""}` +
         `${Number.isFinite(breadthPct) ? `, with ${Math.round(breadthPct)}% of stocks above their 200-day MA` : ""}.`;
+      buyZone.sort((a, b) => (b.score - a.score) || String(a.ticker).localeCompare(String(b.ticker)));
+      const buyZoneTickers = buyZone.map((x) => x.ticker);
       const accumulateTotal = counts.accumulate_queued + counts.accumulate_entered;
       const actionable = accumulateTotal + counts.reduce;
       const actionLine = actionable > 0
         ? `${actionable} ${actionable === 1 ? "name is" : "names are"} actionable — ${counts.accumulate_queued} queued for rebalance, ${counts.accumulate_entered} entered, ${counts.reduce} flagged for Reduce. ${counts.core_hold} core hold${counts.core_hold === 1 ? "" : "s"}.`
-        : `No actionable Buy Zone or Reduce signals right now — model is letting current positions run.`;
+        : buyZoneTickers.length > 0
+          ? `${buyZoneTickers.length} ${buyZoneTickers.length === 1 ? "name has" : "names have"} an active accumulate / buy-zone thesis — model is monitoring for execution alignment. No rebalance queue or Reduce flags this pass.`
+          : `No actionable Buy Zone or Reduce signals right now — model is letting current positions run.`;
       const formatAgo = (ms) => {
         const d = Math.floor(ms / 86400000);
         if (d >= 1) return `${d}d ago`;
@@ -1221,8 +1217,7 @@
         marketLine,
         actionLine,
         recentActions: recentText,
-        buyZone: buyZone.slice(0, 8),
-        buyZoneOverflow: Math.max(0, buyZone.length - 8),
+        buyZone: buyZoneTickers,
         rsHigh,
       };
     }, [allTickers, health]);
@@ -1328,12 +1323,18 @@
           ),
           narrative.buyZone.length > 0 && React.createElement("div", {
             style: {
+              display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--ds-space-2)",
               fontSize: "var(--ds-fs-meta)",
+              fontFamily: "var(--tt-font-mono)",
               color: "var(--ds-text-muted)",
+              padding: "6px 8px",
+              borderLeft: "2px solid rgba(52,211,153,0.45)",
+              background: "rgba(52,211,153,0.06)",
+              borderRadius: "0 4px 4px 0",
             },
           },
-            React.createElement("span", { style: { color: "var(--ds-up)", fontWeight: 700 } }, "Buy Zone: "),
-            `${narrative.buyZone.join(", ")}${narrative.buyZoneOverflow > 0 ? ` +${narrative.buyZoneOverflow} more` : ""}.`,
+            React.createElement("span", { style: { color: "var(--ds-up)", fontWeight: 700, flexShrink: 0 } }, "BUY ZONE"),
+            ...narrative.buyZone.map((sym, i) => React.createElement("span", { key: `bz${i}`, style: { color: "var(--ds-text-body)", whiteSpace: "nowrap" } }, sym)),
           ),
         ),
       ),
@@ -1392,4 +1393,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1783302973145:299293528
+// cache-bust:1783303736703:612229197
