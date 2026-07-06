@@ -829,6 +829,25 @@ input, button, select, textarea {
   max-height: var(--tt-lane-mid-h);
   overflow: hidden;
 }
+/* Today strip cards — zone track sits in mid; never clip to the AT 38px mid slot. */
+.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--active,
+.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--owned {
+  --tt-lane-card-h: auto;
+  --tt-lane-mid-h: auto;
+}
+.tt-strip-card .tt-lane-card__mid {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.tt-zone-bar--compact .tt-zone-bar__track {
+  margin-top: 0;
+}
+.tt-zone-bar__meta--tagged {
+  align-items: center;
+}
 .tt-lane-card__pos {
   display: flex;
   align-items: center;
