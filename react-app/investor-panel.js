@@ -602,13 +602,13 @@
     /* V15 P0.7.152 (2026-05-14) — lane order follows the action arc.
        User spec: "We need to present the lanes in order of action:
        On Radar → Accumulate → Core Hold → Hold & Watch → Reduce →
-       Avoid → Exited → Low Conviction."
+       Exited → Avoid → Low Conviction."
        The reasoning: the user reads top-down and the lanes should
        trace the lifecycle of a name from "I'm watching this"
        through "I own it and the model is managing it" through "the
        model has cooled off on this".
     */
-    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_avoid", "exited", "research_low"];
+    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited", "research_avoid", "research_low"];
     /* V15 P0.7.144/.152 — lane labels + per-lane action chip.
        The action chip ("BUY NOW" / "HOLDING" / etc.) sits next to
        the lane title so a new user can answer "what should I do
@@ -704,7 +704,7 @@
       renderCard,
       laneScrollRef,
     });
-    /* On Radar first (above Queued); Avoid directly under Reduce; Low
+    /* On Radar first (above Queued); Avoid directly under Exited; Low
        Conviction stays in a trailing WATCHING band. */
     const kanbanSections = [
       {
@@ -717,7 +717,7 @@
         band: "doing",
         label: "DOING",
         hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
-        stageKeys: ["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_avoid", "exited"],
+        stageKeys: ["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited", "research_avoid"],
       },
       {
         band: "watching",
