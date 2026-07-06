@@ -335,6 +335,9 @@
       ".tt-ready-word--forming{background:rgba(20,184,166,.14);color:#14b8a6}",
       ".tt-ready-card__meta{font-size:10.5px;color:var(--ds-text-muted,#9ca3af);font-family:var(--tt-font-mono,ui-monospace,monospace);font-weight:500}",
       ".tt-ready-card__why{margin:0;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}",
+      ".tt-ready-card__blocker{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#f59e0b;padding:2px 8px;border-radius:6px;border:1px solid rgba(245,158,11,.28);background:rgba(245,158,11,.08);align-self:flex-start}",
+      ".tt-ready-card__confluence{display:flex;flex-wrap:wrap;gap:4px}",
+      ".tt-ready-card__conf{font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:5px;background:rgba(167,139,250,.10);color:#c4b5fd;border:1px solid rgba(167,139,250,.22);white-space:nowrap;font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-ready-card__lanes{font-size:9.5px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);letter-spacing:.02em;margin-top:auto}",
       ".tt-ready__empty{font-size:12.5px;color:var(--ds-text-faint,#6b7280);font-style:italic;padding:4px 2px 8px}",
       ".tt-ready__locked{font-size:12.5px;color:var(--ds-text-muted,#9ca3af);padding:4px 2px 8px}",
@@ -382,10 +385,12 @@
     return Number.isFinite(n) ? n : null;
   }
 
-  /** Rank actionable setups from the live /timed/all map (Today already has this). */
+  /** Rank actionable setups from the live /timed/all map — curated, confluence-weighted. */
   function rankReadySetupsFromData(data, limit) {
     var rows = [];
     if (!data || typeof data !== "object") return rows;
+    var HARD_LIMIT = (limit != null && limit > 0) ? limit : 10;
+
     Object.keys(data).forEach(function (sym) {
       var t = data[sym];
       if (!t || typeof t !== "object") return;
@@ -396,81 +401,120 @@
       var rank = Number(t.rank);
       var rankNum = Number.isFinite(rank) ? rank : null;
       var price = headlinePrice(t);
-      var score = 0;
+      var flags = (t && t.flags) || {};
       var traderVerdict = inferTraderVerdictFromTicker(t, null);
       var investorVerdict = inferInvestorVerdictFromTicker(t);
 
-      var tv = traderVerdict;
-      if (tv && (tv.verdict === "BUY" || tv.verdict === "SETUP_FORMING")) {
-        score = tv.verdict === "BUY" ? 100 : 50;
-        if (journey && journey.direction === "improving") score += 20;
-        if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
-        tv.price = price;
-        tv.rank = rankNum;
-        rows.push({ ticker: key, rank: rankNum, lane: "trader", trader: tv, traderVerdict: traderVerdict, investorVerdict: investorVerdict, score: score });
-        return;
-      }
-      if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") {
-        score = 100;
-        if (journey && journey.direction === "improving") score += 20;
-        if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
-        rows.push({
-          ticker: key, rank: rankNum, lane: "trader",
-          trader: {
-            lane: "trader", verdict: "BUY", timing: "now",
-            why: "entry lane (" + stage + ")",
-            price: price, rank: rankNum,
-          },
-          traderVerdict: traderVerdict,
-          investorVerdict: investorVerdict,
-          score: score,
-        });
-        return;
-      }
-      if (stage === "in_review") {
-        score = 55;
-        if (journey && journey.direction === "improving") score += 20;
-        if (rankNum != null) score += Math.max(0, 100 - rankNum) / 10;
-        rows.push({
-          ticker: key, rank: rankNum, lane: "trader",
-          trader: {
-            lane: "trader", verdict: "SETUP_FORMING", timing: "on confirmation",
-            why: "trigger ready" + (journey && journey.direction === "improving" ? "; journey improving" : ""),
-            price: price, rank: rankNum,
-          },
-          traderVerdict: traderVerdict,
-          investorVerdict: investorVerdict,
-          score: score,
-        });
-        return;
-      }
-      if (invStage === "accumulate") {
-        var invRow = (window.TimedRailHelpers && window.TimedRailHelpers.normalizeInvestorScoreRow)
+      // Eligibility — the model would ACT on this now if capacity allowed.
+      // Trader lane: an actual entry lane (in_review is too broad — belongs in Technical Setups).
+      // Investor lane: buy-zone execute (accumulate) OR queued for next rebalance.
+      var traderPrimed = stage === "enter" || stage === "enter_now" || stage === "just_flipped";
+      var investorPrimed = false;
+      var invRow = null;
+      if (invStage === "accumulate" || invStage === "accumulate_queued") {
+        invRow = (window.TimedRailHelpers && window.TimedRailHelpers.normalizeInvestorScoreRow)
           ? window.TimedRailHelpers.normalizeInvestorScoreRow(t, key)
           : { stage: invStage, investor_stage: invStage, score: t.investor_score };
-        if (window.TimedRailHelpers && window.TimedRailHelpers.isInvestorBuyZoneThesis) {
-          if (!window.TimedRailHelpers.isInvestorBuyZoneThesis(invRow, key)) return;
+        // Filter out recently exited names on either stage; the accumulate-only
+        // buy-zone thesis is skipped for accumulate_queued (queued already
+        // qualified but is waiting on rebalance capacity).
+        var recentlyExited = !!(invRow && invRow.recentlyExited);
+        if (recentlyExited) {
+          investorPrimed = false;
+        } else if (invStage === "accumulate") {
+          if (window.TimedRailHelpers && window.TimedRailHelpers.isInvestorBuyZoneThesis) {
+            investorPrimed = window.TimedRailHelpers.isInvestorBuyZoneThesis(invRow, key);
+          } else {
+            investorPrimed = true;
+          }
+        } else {
+          investorPrimed = true;
         }
-        score = 85;
-        if (journey && journey.direction === "improving") score += 15;
-        var iv = investorVerdict || {
+      }
+      if (!traderPrimed && !investorPrimed) return;
+
+      // Confluence — count NON-technical factors that raise this into "worth acting".
+      var confluence = [];
+      var conflScore = 0;
+      if (flags.momentum_elite) { confluence.push({ label: "Momentum Elite", weight: 30 }); conflScore += 30; }
+      if (flags.thesis_match) { confluence.push({ label: "Thesis Match", weight: 25 }); conflScore += 25; }
+      var themeTilt = Number(t._theme_tilt);
+      if (Number.isFinite(themeTilt) && themeTilt >= 2) {
+        confluence.push({ label: "Theme Hot", weight: 22 });
+        conflScore += 22;
+      }
+      var sectorState = t.market_internals && t.market_internals.sector_rotation && t.market_internals.sector_rotation.state;
+      if (sectorState === "risk_on") { confluence.push({ label: "Risk-On", weight: 15 }); conflScore += 15; }
+      var invScore = Number(t.investor_score);
+      if (Number.isFinite(invScore) && invScore >= 70) {
+        confluence.push({ label: "Investor " + Math.round(invScore), weight: 20 });
+        conflScore += 20;
+      }
+      var tierLabel = String(t.tier_label || "").toUpperCase();
+      if (tierLabel === "COMPOUND CORE" || tierLabel === "COMPOUND_CORE") {
+        confluence.push({ label: "Compound Core", weight: 20 });
+        conflScore += 20;
+      }
+      if (rankNum != null && rankNum <= 20) {
+        confluence.push({ label: "Top " + rankNum, weight: 20 });
+        conflScore += 20;
+      } else if (rankNum != null && rankNum <= 50) {
+        confluence.push({ label: "Rank " + rankNum, weight: 10 });
+        conflScore += 10;
+      }
+      if (flags.sq30_release) { confluence.push({ label: "Squeeze Release", weight: 15 }); conflScore += 15; }
+      if (journey && journey.direction === "improving") { confluence.push({ label: "Improving", weight: 10 }); conflScore += 10; }
+
+      // Base score — trigger imminence.
+      var baseScore = 0;
+      if (stage === "enter_now" || stage === "just_flipped") baseScore = 120;
+      else if (stage === "enter") baseScore = 100;
+      else if (invStage === "accumulate") baseScore = 80;
+      else if (invStage === "accumulate_queued") baseScore = 60;
+
+      var score = baseScore + conflScore;
+
+      // Blocker — what's holding the model back from just doing it?
+      var blocker = null;
+      if (flags.portfolio_no_cash) blocker = "Waiting for capital";
+      else if (invStage === "accumulate_queued") blocker = "Next rebalance";
+      else if (flags.pre_earnings_block || flags.pre_earnings) blocker = "Pre-earnings window";
+      else if (sectorState === "risk_off") blocker = "Sector risk-off";
+
+      // Trader verdict — prefer entry-lane verbiage; else fall back to inference.
+      var tv;
+      if (traderPrimed) {
+        tv = {
+          lane: "trader", verdict: "BUY", timing: "now",
+          why: "entry lane (" + stage + ")",
+          price: price, rank: rankNum,
+        };
+      } else if (invRow) {
+        tv = investorVerdict || {
           lane: "investor", verdict: "BUY", timing: "scale in",
           why: "accumulate zone" + (t.investor_score != null ? ", score " + t.investor_score : ""),
         };
-        iv.price = price;
-        iv.rank = rankNum;
-        rows.push({
-          ticker: key, rank: rankNum, lane: "investor",
-          trader: iv,
-          traderVerdict: traderVerdict,
-          investorVerdict: investorVerdict,
-          score: score,
-        });
+        tv.price = price;
+        tv.rank = rankNum;
+      } else {
+        tv = traderVerdict || { lane: "trader", verdict: "SETUP_FORMING", timing: "on confirmation", why: "trigger ready", price: price, rank: rankNum };
       }
+
+      rows.push({
+        ticker: key,
+        rank: rankNum,
+        lane: traderPrimed ? "trader" : "investor",
+        trader: tv,
+        traderVerdict: traderVerdict,
+        investorVerdict: investorVerdict,
+        confluence: confluence.slice(0, 5),
+        blocker: blocker,
+        score: score,
+      });
     });
+
     rows.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
-    if (limit != null && limit > 0) return rows.slice(0, limit);
-    return rows;
+    return rows.slice(0, HARD_LIMIT);
   }
 
   function register(React) {
@@ -882,11 +926,11 @@
 
       var headCopy = h("div", { className: "tt-ready__head" },
         h("div", { className: "tt-sec-title" }, "READY SETUPS"),
-        h("h2", { className: "tt-ready__title" }, "What the model would act on"),
+        h("h2", { className: "tt-ready__title" }, "What the model would act on today"),
         h("p", { className: "tt-ready__sub" },
           embedded
-            ? "Every name the model marks enter-ready or accumulate — scroll the strip."
-            : "Every name the model marks enter-ready or accumulate — scroll the strip. Investor BUY cards use the same accumulate / buy-zone thesis as the Investor page brief.",
+            ? "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. Not every candidate; the model's shortlist for capital."
+            : "Top 10 primed names — technical trigger plus sector / fundamentals / momentum confluence. Investor BUY uses the same buy-zone thesis as the Investor page brief.",
         ),
       );
 
@@ -907,7 +951,7 @@
       if (candidates.length === 0) {
         return wrap(h(React.Fragment, null,
           headCopy,
-          h("div", { className: "tt-ready__empty" }, "No entry or accumulate setups right now — the strip stays empty rather than forcing picks. Refreshes with each scoring pass."),
+          h("div", { className: "tt-ready__empty" }, "No high-confluence setups yet — the strip stays empty rather than forcing picks. Broaden the search using Technical Setups below."),
         ));
       }
       return wrap(h(React.Fragment, null,
@@ -926,6 +970,11 @@
             var laneLine = investorV
               ? ("Trader " + verdictLabel(traderV.verdict, true) + " · Investor " + verdictLabel(investorV.verdict, true))
               : null;
+            var confluence = Array.isArray(row.confluence) ? row.confluence : [];
+            var confluenceChips = confluence.slice(0, 3).map(function (c) {
+              return h("span", { key: c.label, className: "tt-ready-card__conf" }, c.label);
+            });
+            var blocker = row.blocker;
             return h("button", {
               key: sym + "-" + lane,
               type: "button",
@@ -947,7 +996,8 @@
                   fmtPx(price) + (rank != null ? " · rank " + rank : ""),
                 ),
               ),
-              h("p", { className: "tt-ready-card__why" }, tv.why || "—"),
+              blocker && h("div", { className: "tt-ready-card__blocker" }, blocker),
+              confluenceChips.length > 0 && h("div", { className: "tt-ready-card__confluence" }, confluenceChips),
               laneLine && h("div", { className: "tt-ready-card__lanes" }, laneLine),
             );
           }),

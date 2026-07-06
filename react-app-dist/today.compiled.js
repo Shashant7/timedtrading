@@ -2823,8 +2823,10 @@ function MacroStrip({
 }
 const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
 const CTO_FEED_URL = `${API_BASE}/timed/cto/feed?limit=120`;
-function buildGrowthZoneModel(row, ctoItem) {
-  const price = Number(row?.price);
+function buildGrowthZoneModel(row, ctoItem, livePrice) {
+  var priceCandidate = Number(livePrice);
+  if (!Number.isFinite(priceCandidate) || priceCandidate <= 0) priceCandidate = Number(row?.price);
+  const price = priceCandidate;
   if (!Number.isFinite(price) || price <= 0) return null;
   const down = ctoItem?.top_downside;
   const up = ctoItem?.top_upside;
@@ -2861,9 +2863,10 @@ function buildGrowthZoneModel(row, ctoItem) {
 }
 function GrowthZoneBar({
   row,
-  ctoItem
+  ctoItem,
+  livePrice
 }) {
-  const zm = buildGrowthZoneModel(row, ctoItem);
+  const zm = buildGrowthZoneModel(row, ctoItem, livePrice);
   if (!zm) return null;
   const fmtPx = n => `$${Number(n).toFixed(Number(n) >= 100 ? 0 : 2)}`;
   const fmtProb = p => Number.isFinite(p) ? `${Math.round(p * 100)}%` : null;
@@ -2914,7 +2917,10 @@ function GrowthZoneBar({
 function GrowthIdeasStrip({
   onSelectTicker,
   user,
-  embedded
+  embedded,
+  data,
+  savedSet,
+  onToggleSaved
 }) {
   const [rows, setRows] = useState(() => {
     const cached = CACHE?.peek(HOLDBOOK_CACHE_URL);
@@ -3060,8 +3066,26 @@ function GrowthIdeasStrip({
     className: "tt-opp-scroll"
   }, rows.map(row => {
     const sym = String(row.ticker || "").toUpperCase();
+    const liveT = data && data[sym] ? data[sym] : null;
+    let livePrice = null;
+    try {
+      if (liveT && window.TimedPriceUtils?.getHeadlinePrice) {
+        const p = window.TimedPriceUtils.getHeadlinePrice(liveT);
+        if (Number.isFinite(Number(p)) && Number(p) > 0) livePrice = Number(p);
+      }
+    } catch (_) {}
+    if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
+    if (livePrice == null && Number.isFinite(Number(row?.price))) livePrice = Number(row.price);
+    let liveDayPct = null;
+    try {
+      if (liveT && typeof getDailyChange === "function") {
+        const dc = getDailyChange(liveT);
+        if (Number.isFinite(Number(dc?.dayPct))) liveDayPct = Number(dc.dayPct);
+      }
+    } catch (_) {}
+    if (liveDayPct == null && Number.isFinite(Number(row?.dailyChgPct))) liveDayPct = Number(row.dailyChgPct);
     const why = Array.isArray(row.hold_thesis) && row.hold_thesis[0] ? row.hold_thesis[0] : row.trajectory?.cagr_pct != null ? `Revenue runway ~${fmtPctOpp(row.trajectory.cagr_pct)} CAGR` : "Growth profile flagged by fundamentals";
-    const pct = Number(row.dailyChgPct);
+    const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
     return h("button", {
       key: sym,
       type: "button",
@@ -3074,29 +3098,63 @@ function GrowthIdeasStrip({
       style: {
         display: "flex",
         alignItems: "center",
-        gap: 8
+        gap: 8,
+        minWidth: 0
       }
     }, h(TickerLogo, {
       sym,
       size: 22
-    }), h("div", null, h("div", {
+    }), h("div", {
+      style: {
+        minWidth: 0
+      }
+    }, h("div", {
       className: "tt-opp-ticker"
     }, sym), row.companyName && h("div", {
       style: {
         fontSize: 10,
         color: "var(--tt-text-dim)",
-        marginTop: 1
+        marginTop: 1,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        maxWidth: 180
       }
-    }, row.companyName))), row.tier_label && h("span", {
-      className: "tt-opp-chip"
-    }, row.tier_label)), h("div", {
-      className: "tt-opp-meta"
-    }, row.price != null && h("span", null, `$${Number(row.price).toFixed(2)}`), Number.isFinite(pct) && h("span", {
+    }, row.companyName))), h("div", {
       style: {
-        color: pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+        display: "flex",
+        alignItems: "center",
+        gap: 6
+      }
+    }, row.tier_label && h("span", {
+      className: "tt-opp-chip"
+    }, row.tier_label), onToggleSaved && h("span", {
+      role: "button",
+      "aria-label": isSaved ? `Unsave ${sym}` : `Save ${sym}`,
+      "aria-pressed": isSaved,
+      title: isSaved ? "Saved — click to remove" : "Save to watchlist",
+      onClick: e => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggleSaved(sym);
+      },
+      style: {
+        cursor: "pointer",
+        fontSize: 15,
+        lineHeight: 1,
+        color: isSaved ? "#f5c25c" : "var(--tt-text-dim)",
+        padding: "2px 4px",
+        borderRadius: 4,
+        userSelect: "none"
+      }
+    }, isSaved ? "★" : "☆"))), h("div", {
+      className: "tt-opp-meta"
+    }, livePrice != null && h("span", null, `$${livePrice.toFixed(2)}`), Number.isFinite(liveDayPct) && h("span", {
+      style: {
+        color: liveDayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
         fontWeight: 700
       }
-    }, fmtPctOpp(pct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", {
+    }, fmtPctOpp(liveDayPct)), row.fair_value_price != null && h("span", null, `FV $${Number(row.fair_value_price).toFixed(0)}`), row.trajectory?.cagr_pct != null && h("span", {
       style: {
         color: "var(--tt-accent)"
       }
@@ -3106,7 +3164,8 @@ function GrowthIdeasStrip({
       className: "tt-opp-why"
     }, why), h(GrowthZoneBar, {
       row,
-      ctoItem: ctoBySym[sym]
+      ctoItem: ctoBySym[sym],
+      livePrice
     }));
   }))));
 }
@@ -4901,7 +4960,7 @@ function TickerLaneSection({
     className: "tt-sec-title"
   }, "TECHNICAL SETUPS"), h("div", {
     className: "tt-sec-h"
-  }, "Setup lanes, patterns, and momentum")), h(LaneControls, {
+  }, "Every ticker with a live technical setup — chart pattern, entry zone, momentum shift. Filter with the lane chips.")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -5928,7 +5987,8 @@ function TodayApp({
     });
   }, [data, tradeByTicker]);
   const {
-    saved: savedSet
+    saved: savedSet,
+    toggle: toggleSaved
   } = useSavedTickers();
   const chips = useMemo(() => computeInsightChips(allTickers, {
     isAdmin,
@@ -6148,7 +6208,10 @@ function TodayApp({
   }), h(GrowthIdeasStrip, {
     onSelectTicker,
     user,
-    embedded: true
+    embedded: true,
+    data,
+    savedSet,
+    onToggleSaved: toggleSaved
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), data ? h(TickerLaneSection, {
@@ -6608,6 +6671,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783311167165:753004248
+// cache-bust:1783350500579:944421788
 
-// cache-bust:1783311167165:753004248
+// cache-bust:1783350500579:944421788

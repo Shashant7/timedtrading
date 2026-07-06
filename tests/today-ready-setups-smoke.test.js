@@ -57,11 +57,67 @@ describe("Today ReadySetupsBoard smoke", () => {
   it("rankReadySetupsFromData filters recently exited accumulate names", () => {
     const rank = window.TimedVerdictUI.rankReadySetupsFromData;
     const rows = rank({
-      IESC: { investor_stage: "accumulate", recentlyExited: { last_action_type: "SELL" }, score: 60 },
-      NVDA: { investor_stage: "accumulate", score: 80, simEligible: true, accumZone: { inZone: true } },
+      IESC: {
+        ticker: "IESC",
+        investor_stage: "accumulate",
+        recentlyExited: { last_action_type: "SELL" },
+        investor_score: 60,
+      },
+      NVDA: {
+        ticker: "NVDA",
+        investor_stage: "accumulate",
+        investor_score: 80,
+        rank: 5,
+        flags: { momentum_elite: true },
+      },
     });
     const syms = rows.map((r) => r.ticker);
     expect(syms).toContain("NVDA");
     expect(syms).not.toContain("IESC");
+  });
+
+  it("rankReadySetupsFromData caps output and prefers high-confluence names", () => {
+    const rank = window.TimedVerdictUI.rankReadySetupsFromData;
+    const data = {};
+    for (let i = 0; i < 30; i++) {
+      data[`T${i}`] = {
+        ticker: `T${i}`,
+        kanban_stage: "enter",
+        rank: 60 + i,
+      };
+    }
+    data.HOT = {
+      ticker: "HOT",
+      kanban_stage: "enter_now",
+      rank: 3,
+      flags: { momentum_elite: true, thesis_match: true, sq30_release: true },
+      _theme_tilt: 4,
+      market_internals: { sector_rotation: { state: "risk_on" } },
+    };
+    const rows = rank(data, 10);
+    expect(rows.length).toBeLessThanOrEqual(10);
+    expect(rows[0].ticker).toBe("HOT");
+    expect(rows[0].confluence.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("rankReadySetupsFromData surfaces blocker labels", () => {
+    const rank = window.TimedVerdictUI.rankReadySetupsFromData;
+    const rows = rank({
+      CAPITAL: {
+        ticker: "CAPITAL",
+        kanban_stage: "enter",
+        rank: 4,
+        flags: { portfolio_no_cash: true, momentum_elite: true },
+      },
+      QUEUED: {
+        ticker: "QUEUED",
+        investor_stage: "accumulate_queued",
+        rank: 5,
+        investor_score: 80,
+      },
+    });
+    const byTicker = Object.fromEntries(rows.map((r) => [r.ticker, r]));
+    expect(byTicker.CAPITAL?.blocker).toMatch(/capital/i);
+    expect(byTicker.QUEUED?.blocker).toMatch(/rebalance/i);
   });
 });
