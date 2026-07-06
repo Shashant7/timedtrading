@@ -1869,7 +1869,9 @@
       if (t === "investor_signal") {
         const title = String(n?.title || "").toUpperCase();
         if (title.includes("ON RADAR") || title.includes("WATCH") || title.includes("INFO")) return false;
-        return true;
+        if (title.includes("REDUCE") || title.includes("QUEUE") || title.includes("REVIEW")) return false;
+        if (title.includes("BOUGHT") || title.includes("ADD") || title.includes("TRIMMED") || title.includes("EXITED")) return true;
+        return false;
       }
       if (t === "kanban") {
         const title = String(n?.title || "").toUpperCase();

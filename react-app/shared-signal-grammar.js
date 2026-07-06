@@ -71,11 +71,14 @@
   }
 
   var INVESTOR_PASSIVE_ALERT_VERBS = ["MODEL · ON RADAR", "MODEL · WATCH", "MODEL · INFO"];
-  var INVESTOR_ACTIONABLE_ALERT_VERBS = [
-    "MODEL · QUEUE", "MODEL · BOUGHT", "MODEL · REDUCE", "MODEL · TRIMMED", "MODEL · EXITED",
-    "MODEL · REVIEW", "MODEL · ADD", "ACCUMULATE", "QUEUE", "ADD ON PULLBACK",
-    "REDUCE / EXIT", "TRIM / REDUCE", "REVIEW PORTFOLIO",
+  var INVESTOR_EXECUTED_ALERT_VERBS = [
+    "MODEL · BOUGHT", "MODEL · ADD", "MODEL · TRIMMED", "MODEL · EXITED",
   ];
+  var INVESTOR_ACTIONABLE_ALERT_VERBS = INVESTOR_EXECUTED_ALERT_VERBS.concat([
+    "MODEL · QUEUE", "MODEL · REDUCE", "MODEL · REVIEW",
+    "ACCUMULATE", "QUEUE", "ADD ON PULLBACK",
+    "REDUCE / EXIT", "TRIM / REDUCE", "REVIEW PORTFOLIO",
+  ]);
   var TRADER_EXEC_FEED_TYPES = [
     "TRADE_ENTRY", "TRADE_TRIM", "TRADE_EXIT", "ENTRY", "ENTER", "ADD", "ADD_ENTRY",
     "TRIM", "TP_HIT_TRIM", "EXIT", "TP_HIT_EXIT", "SL_HIT",
@@ -220,15 +223,7 @@
     if (INVESTOR_EXEC_ALERT_TYPES.indexOf(invType) >= 0) return true;
     if (t === "INVESTOR_SIGNAL") {
       var verb = normalizeInvestorVerb(ev.action);
-      if (verbInSet(verb, INVESTOR_PASSIVE_ALERT_VERBS)) return false;
-      if (verbInSet(verb, INVESTOR_ACTIONABLE_ALERT_VERBS)) return true;
-      if (invType === "thesis_invalidation") return true;
-      if (meta) {
-        if (meta.execState === "recommended") return true;
-        if (meta.mode === "doing" && meta.execState === "done") return true;
-        if (meta.label === "WATCH" || meta.label === "UPDATE") return false;
-      }
-      return false;
+      return verbInSet(verb, INVESTOR_EXECUTED_ALERT_VERBS);
     }
     return false;
   }
@@ -240,11 +235,7 @@
     if (t === "investor_signal") {
       var verb = investorVerbFromNotification(n);
       if (verbInSet(verb, INVESTOR_PASSIVE_ALERT_VERBS)) return false;
-      if (verbInSet(verb, INVESTOR_ACTIONABLE_ALERT_VERBS)) return true;
-      var exec = String(n.exec_state || "").toLowerCase();
-      var cls = String(n.alert_class || n.mode || "").toLowerCase();
-      if (exec === "recommended" || exec === "done" || cls === "doing") return true;
-      return false;
+      return verbInSet(verb, INVESTOR_EXECUTED_ALERT_VERBS);
     }
     if (t === "kanban") {
       var stage = kanbanStageFromNotification(n);

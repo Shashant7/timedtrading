@@ -136,12 +136,39 @@ describe("isActionableFeedEvent", () => {
     })).toBe(false);
   });
 
-  it("includes execution-ready queue", () => {
+  it("excludes investor reduce/queue/review warnings", () => {
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "TWLO",
+      action: "MODEL · REDUCE",
+      investor_alert_type: "thesis_invalidation",
+    })).toBe(false);
     expect(isActionableFeedEvent({
       type: "INVESTOR_SIGNAL",
       ticker: "SOFI",
       action: "MODEL · QUEUE",
       investor_alert_type: "accumulation_zone",
+    })).toBe(false);
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "SPY",
+      action: "MODEL · REVIEW",
+      investor_alert_type: "rebalancing",
+    })).toBe(false);
+  });
+
+  it("includes executed investor rebalance fills", () => {
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "FIX",
+      action: "MODEL · BOUGHT",
+      investor_alert_type: "position_open",
+    })).toBe(true);
+    expect(isActionableFeedEvent({
+      type: "INVESTOR_SIGNAL",
+      ticker: "TWLO",
+      action: "MODEL · EXITED",
+      investor_alert_type: "position_close",
     })).toBe(true);
   });
 });
@@ -165,6 +192,25 @@ describe("isActionableNotification", () => {
       type: "kanban",
       title: "Under Review: MU",
       body: "MU moved to in_review (from enter)",
+    })).toBe(true);
+  });
+
+  it("excludes investor reduce warnings from bell", () => {
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "INVESTOR · REDUCE: TWLO",
+      body: "The TT Investor model moved TWLO to Reduce",
+    })).toBe(false);
+  });
+
+  it("includes executed investor fills in bell", () => {
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "INVESTOR · BOUGHT: FIX",
+    })).toBe(true);
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "INVESTOR · EXITED: TWLO",
     })).toBe(true);
   });
 });
