@@ -104,10 +104,11 @@ describe("Ready Setups zone-bar cards", () => {
       }));
     });
     const html = container.innerHTML;
-    expect(html).toContain("tt-ready-zone__seg--inv");
-    expect(html).toContain("tt-ready-zone__seg--pb");
-    expect(html).toContain("tt-ready-zone__seg--tgt");
-    expect(html).toContain("tt-ready-zone__marker");
+    expect(html).toContain("tt-strip-card");
+    expect(html).toContain("tt-zone-bar__seg--inv");
+    expect(html).toContain("tt-zone-bar__seg--pb");
+    expect(html).toContain("tt-zone-bar__seg--tgt");
+    expect(html).toContain("tt-zone-bar__marker");
     expect(container.textContent).toMatch(/Invalidation/);
     expect(container.textContent).toMatch(/Pullback/);
     expect(container.textContent).toMatch(/Target/);
