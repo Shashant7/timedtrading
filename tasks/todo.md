@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Bugbot fixes (#997/#998/#1001) — PR #1002 (draft, review before merge).**
+- [ ] **Bugbot fixes (#997/#998/#1001) — PR #1002 (ready for review; Bugbot pending).**
       Fixes: ReadySetupsBoard `embedded` prop, VerdictGuideBlock key levels,
       exited names in BUY ZONE strip, TimedRailHelpers investor helper wiring.
       **Process:** always wait for Bugbot + human review before merging PRs.
