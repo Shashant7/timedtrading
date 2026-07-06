@@ -588,30 +588,14 @@ function ATCard({
         title: exitChip.title
       };
     }
-    if (stage === "trim") return {
-      label: "Trim",
-      cls: "ds-chip--accent"
-    };
-    if (stage === "defend") return {
-      label: "Defend",
-      cls: "ds-chip--dn"
-    };
+    if (stage === "trim" || stage === "defend") return null;
     if (stage === "exit") return {
       label: "Closed",
       cls: "ds-chip--dn"
     };
-    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return {
-      label: "Enter",
-      cls: "ds-chip--accent"
-    };
-    if (stage === "hold" || stage === "active" || stage === "just_entered") return {
-      label: "Hold",
-      cls: "ds-chip--up"
-    };
-    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return {
-      label: "Setup",
-      cls: ""
-    };
+    if (stage === "enter" || stage === "enter_now" || stage === "just_flipped") return null;
+    if (stage === "hold" || stage === "active" || stage === "just_entered") return null;
+    if (stage === "setup" || stage === "setup_watch" || stage === "flip_watch") return null;
     return null;
   })();
   const isTTSel = typeof window.isTickerTTSelected === "function" ? window.isTickerTTSelected(sym) : false;
@@ -872,23 +856,9 @@ function ATCard({
     rank,
     score
   }) : [];
-  const VUI = window.TimedVerdictUI || {};
-  const inferredVerdict = VUI.inferTraderVerdictFromTicker ? VUI.inferTraderVerdictFromTicker(t, resolvedOpen) : null;
-  const lifecycleStep = VUI.lifecycleFromStage ? VUI.lifecycleFromStage(stage, !!resolvedOpen) : null;
-  const topBanner = inferredVerdict || lifecycleStep ? h("div", {
-    style: {
-      marginBottom: 6
-    }
-  }, inferredVerdict && VUI.VerdictChip && h(VUI.VerdictChip, {
-    verdict: inferredVerdict.verdict,
-    why: inferredVerdict.why,
-    size: 11
-  }), lifecycleStep && VUI.LifecycleStrip && h(VUI.LifecycleStrip, {
-    current: lifecycleStep
-  })) : null;
   return LC.create({
     sym,
-    topBanner,
+    topBanner: null,
     button: {
       onClick: () => onOpen(sym),
       style: cardStyle,
@@ -2067,6 +2037,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783311167165:753004248
+// cache-bust:1783353130095:208362972
 
-// cache-bust:1783311167165:753004248
+// cache-bust:1783353130095:208362972
