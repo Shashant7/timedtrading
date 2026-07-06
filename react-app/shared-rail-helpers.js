@@ -1104,6 +1104,29 @@
       const tier = window.TimedRailHelpers?.deriveInvestorActionTier?.(row);
       return tier === "act_now" || tier === "ready";
     },
+    /** Normalize investor fields from /timed/investor/scores or /timed/all rows. */
+    normalizeInvestorScoreRow(raw, sym) {
+      const ticker = String(sym || raw?.ticker || "").toUpperCase();
+      const stage = String(raw?.stage || raw?.investor_stage || raw?.investorStage || "").toLowerCase();
+      return {
+        ticker,
+        stage,
+        investor_stage: raw?.investor_stage || raw?.investorStage || raw?.stage || stage,
+        score: raw?.score ?? raw?.investor_score,
+        simEligible: raw?.simEligible ?? raw?.investor_sim_eligible,
+        accumZone: raw?.accumZone || raw?.investor_accum_zone,
+        position: raw?.position || raw?.investor_position,
+        actionTier: raw?.actionTier || raw?.investor_action_tier,
+      };
+    },
+    /** Cross-page Investor Buy Zone thesis — matches Today Ready Setups investor lane. */
+    isInvestorBuyZoneThesis(raw, sym) {
+      const row = window.TimedRailHelpers.normalizeInvestorScoreRow(raw, sym);
+      const stage = String(row?.stage || "").toLowerCase();
+      if (stage !== "accumulate") return false;
+      const kanban = window.TimedRailHelpers.resolveInvestorKanbanStage(row);
+      return kanban !== "research_avoid";
+    },
     resolveInvestorKanbanStage(row) {
       if (window.TTInvestorLane?.resolveKanbanStage) return window.TTInvestorLane.resolveKanbanStage(row);
       let stage = String(row?.stage || "research_avoid");
