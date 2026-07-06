@@ -1359,13 +1359,14 @@
         color: var(--tt-text);
         letter-spacing: 0.02em;
       }
-      /* Growth Ideas + lane/bubble map — one unified panel */
+      /* Ready Setups + Growth Ideas + lane/bubble map — one unified panel */
       .tt-universe-panel {
         display: flex;
         flex-direction: column;
         gap: 0;
         padding: 18px 20px 16px;
       }
+      .tt-universe-panel__ready,
       .tt-universe-panel__growth { margin: 0; }
       .tt-universe-panel__divider {
         height: 1px;
@@ -7108,13 +7109,18 @@
               universe: universeSet,
             }),
             h(StatusHeader, { cal, briefDate: brief?.date, brief, briefSlot, data }),
-            window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, { onSelectTicker, tickerData: data }),
             h(TodayHero, { brief, briefSlot, data, earnings, onSelectTicker, cal, allTickers }),
             data
               ? h(MarketPulseWithMovers, { data, onSelectTicker })
               : h(MarketStateSkeleton, null),
             h("section", { className: "tt-row" },
               h("div", { className: "tt-card tt-universe-panel" },
+                window.TimedVerdictUI?.ReadySetupsBoard && h(window.TimedVerdictUI.ReadySetupsBoard, {
+                  onSelectTicker,
+                  tickerData: data,
+                  embedded: true,
+                }),
+                h("div", { className: "tt-universe-panel__divider" }),
                 h(GrowthIdeasStrip, { onSelectTicker, user, embedded: true }),
                 h("div", { className: "tt-universe-panel__divider" }),
                 data
