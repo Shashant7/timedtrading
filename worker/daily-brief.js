@@ -3708,6 +3708,36 @@ function formatSMCForPrompt(smcLevels) {
   return parts.length > 0 ? parts.join("\n") : "No significant levels detected.";
 }
 
+// Shared beginner + product-objective block for morning, evening, and
+// intraday cadences. Keeps web brief, email lead, and Discord description
+// aligned on plain-English framing before the technical depth.
+function buildBeginnerAlignmentSpec(type) {
+  const cadence = type === "evening"
+    ? "closing recap"
+    : type === "intraday"
+      ? "mid-session pulse"
+      : "opening game plan";
+  return `
+## Beginner + Product Alignment (ALL cadences — email, Discord, and web use the same hooks)
+
+The brief serves TWO readers on every send:
+1. **Newer market participants** — need plain English, cause-and-effect, and clear "what to do" without jargon walls.
+2. **Active traders** — need levels, triggers, and model state after the plain-English layer.
+
+Product objectives to weave in (do not paste this block verbatim):
+- **Playbook continuity**: tie today's tape to the active strategy vintage (sector tilts, phase, tactical overlay) in one plain sentence.
+- **Two lanes**: separate **Trader** (days–weeks, setups/entries) from **Investor** (weeks–months, accumulation/hold/trim). Never blend them in one paragraph.
+- **Model transparency**: state what the model DID (entries/exits/trims/holds) and what it did NOT do (patient / no lane action) — with WHY from the data.
+- **Act vs wait**: end the At a Glance section with one line on when action is justified vs when patience is correct.
+
+Voice rules for the plain-English layer:
+- Define terms once, inline: "VIX (volatility index — higher = more fear)".
+- Lead with **what it means for portfolios**, then cite the number.
+- No futures symbols (ES/NQ). SPY/QQQ/IWM only.
+- This ${cadence} must feel like the same editorial desk as the other cadences — not a different author.
+`;
+}
+
 // 2026-05-29 — Area A. Section-order override appended to both
 // morning + evening prompts. The earlier sections in the prompt
 // cover data + tone in detail; this block at the end FORCES the
@@ -3729,20 +3759,24 @@ function buildRetailFriendlyOutputSpec(type) {
   // the Daily Brief is the hook to get users to come back in to the
   // site and trust the model."
   const sections = isEvening
-    ? `1. **The Market Read** (~230 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
-2. **Index Outlook — SPY, QQQ, IWM** (~280 words — how should one view each index next session. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: scorecard (call vs result), one narrative sentence, bull/bear triggers + targets, Day Gate range, key SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings. Do NOT add ### ES or ### NQ.)
-3. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing the single names with their % moves. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
-4. **Active Trader Report** (~90 words — FIRST what the Active Trader model DID today: entries / exits / trims-&-defends by name with the reason (from the Entries/Exits/Trims data). THEN how the OPEN positions are doing: per position one line — ticker, today's chg%, open P&L, thesis status, next action. If nothing happened today, say "no new trader actions today" and go straight to open positions.)
-5. **Investor Portfolio** (~90 words — FIRST what the Investor model DID today (accumulate / add / reduce / exit by name with reason, if any). THEN the open holdings — ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
-6. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
-7. **On Watch — Entry Radar** (~70 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
-    : `1. **The Market Read** (~250 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
-2. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after prints land, lead with actual vs estimate)
-3. **Index Outlook & Game Plan** (~350 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
-4. **On Watch — Entry Radar** (~80 words — per ticker, one line — lane + WHY)
-5. **Risk Factors** (1-2 key risks, ≤20 words each)
-6. **Active Trader Report** (~80 words — per position: ticker, today's chg%, P&L, thesis status, action)
-7. **Investor Portfolio** — ONE LINE PER HOLDING (bullet list). Format each line: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Do not run holdings together in a paragraph.`;
+    ? `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) how the session went in one sentence, (b) playbook tie-in — one sentence linking today's tape to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model acted or stayed patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
+2. **Model Actions Today** (~70 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** accumulate/add/reduce/exit by name OR "no investor actions — monitoring." One clause each on WHY from the data.)
+3. **The Market Read** (~200 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
+4. **Index Outlook — SPY, QQQ, IWM** (~260 words — how should one view each index next session. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: scorecard (call vs result), one narrative sentence, bull/bear triggers + targets, Day Gate range, key SMC levels, weekly undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate "Prediction Scorecard" or "Key Levels" headings. Do NOT add ### ES or ### NQ.)
+5. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing the single names with their % moves. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
+6. **Active Trader Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
+7. **Investor Portfolio** (~80 words — open holdings only if not already covered in Model Actions: ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
+8. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
+9. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
+    : `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) today's market mood in one sentence, (b) playbook tie-in — one sentence linking the setup to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model is entering or staying patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
+2. **Model Actions Today** (~60 words — two labeled lines: **Trader model:** what it is stalking or holding (no entry yet is OK — say why). **Investor model:** what it is monitoring or holding. Separate lanes — do not merge.)
+3. **The Market Read** (~220 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
+4. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after prints land, lead with actual vs estimate)
+5. **Index Outlook & Game Plan** (~320 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
+6. **On Watch — Entry Radar** (~70 words — per ticker, one line — lane + WHY)
+7. **Risk Factors** (1-2 key risks, ≤20 words each)
+8. **Active Trader Report** (~70 words — per position: ticker, today's chg%, P&L, thesis status, action)
+9. **Investor Portfolio** — ONE LINE PER HOLDING (bullet list). Format each line: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Do not run holdings together in a paragraph.`;
 
   return `
 
@@ -3777,6 +3811,11 @@ ${sections}
 - **Active Trader Report / Investor Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
 - **NEVER claim "no macro events today" unless the economic-data section above explicitly listed real sources returning a confirmed-empty calendar.** Missing data ≠ a quiet calendar.
+- **At a Glance is mandatory** and must stay jargon-free. Email subject + Discord description pull from this section — if it reads like a textbook, rewrite it.
+- **Model Actions Today** must always appear and must label Trader vs Investor lanes explicitly.
+- **Educational transparency**: Active Trader / On Watch names are what the model is tracking — NOT buy recommendations. Say so once in At a Glance or Model Actions if any names are listed.
+
+${buildBeginnerAlignmentSpec(type)}
 
 CRITICAL: This output spec overrides any contradictory structure earlier in this prompt. The sections listed above, in this exact order, are the required output — do NOT add separate "Desk's Read", "Market Context", "Sector Themes", per-index "Prediction", or standalone "Key Levels" headings.
 `;
@@ -5096,18 +5135,26 @@ export function extractPredictionLine(content, label) {
   return null;
 }
 
-/** Market Context / Bigger Picture blurb for Today hero (~150 words). */
-function extractBriefLead(content) {
+/** Market Context / At a Glance blurb for Today hero + email/Discord lead (~150 words). */
+export function extractBriefLead(content) {
   if (!content || typeof content !== "string") return null;
   const MAX = 1400;
   const lines = content.split(/\r?\n/);
   let afterTodaysThree = false;
   let capturing = false;
+  let preferAtAGlance = false;
   const parts = [];
   for (const raw of lines) {
     const line = raw.trim();
     if (/^#{1,6}\s/.test(line)) {
       const heading = line.replace(/^#{1,6}\s+/, "").replace(/\*\*/g, "").trim();
+      if (/at a glance/i.test(heading)) {
+        preferAtAGlance = true;
+        afterTodaysThree = true;
+        capturing = true;
+        parts.length = 0;
+        continue;
+      }
       if (/today'?s three/i.test(heading)) {
         afterTodaysThree = true;
         capturing = false;
@@ -5116,15 +5163,23 @@ function extractBriefLead(content) {
       }
       if (capturing && parts.length > 0) break;
       if (afterTodaysThree || /market\s*read/i.test(heading) || /market\s*context/i.test(heading) || /desk'?s?\s*read/i.test(heading)) {
+        if (preferAtAGlance) continue;
         capturing = true;
         parts.length = 0;
         afterTodaysThree = true;
         continue;
       }
-      if (!capturing && parts.length === 0) {
+      if (!capturing && parts.length === 0 && !preferAtAGlance) {
         capturing = true;
         continue;
       }
+      continue;
+    }
+    if (/^TLDR:/i.test(line)) {
+      parts.length = 0;
+      parts.push(line.replace(/^TLDR:\s*/i, "").trim());
+      capturing = true;
+      preferAtAGlance = true;
       continue;
     }
     if (/^\d+\.\s/.test(line) && !capturing) {
@@ -5133,7 +5188,12 @@ function extractBriefLead(content) {
     }
     if (!capturing) continue;
     if (!line) continue;
-    if (/^[-*+]\s/.test(line) || /^\d+\.\s/.test(line)) break;
+    if (/^[-*+]\s/.test(line)) {
+      parts.push(line.replace(/^[-*+]\s+/, "").replace(/\*\*/g, "").trim());
+      if (parts.join(" ").length >= MAX) break;
+      continue;
+    }
+    if (/^\d+\.\s/.test(line)) break;
     if (parts.length > 0 && /^[a-z;,]/.test(line)) continue;
     const cleaned = line.replace(/\*\*/g, "").trim();
     if (cleaned.length < 12) continue;
@@ -5871,13 +5931,15 @@ export async function handleGetArchiveBrief(env, briefId) {
 // INTRADAY FLASH BRIEF — real-time market insights in a technician's voice
 // ═══════════════════════════════════════════════════════════════════════
 
-const INTRADAY_SYSTEM_PROMPT = `You are a veteran market technician writing real-time flash insights for active traders. You've traded through every market cycle and you call it like you see it. Your voice is institutional — clear, direct, evidence-driven, never attributing to any external strategist or firm by name. Your insights land in a live feed that traders check throughout the session.
+const INTRADAY_SYSTEM_PROMPT = `You are the Timed Trading market desk writing a mid-session pulse for subscribers who check in between the morning and evening briefs. You write for TWO audiences: newer investors who need plain English first, and active traders who need levels after the plain layer.
+
+Your voice matches the morning and evening briefs — same editorial desk, not a different author. NEVER cite continuous futures symbols (ES1!, NQ1!, SPX index levels without SPY ETF context, etc.) — use SPY, QQQ, IWM only.
 
 ## Your Voice
-First-person, authoritative, direct. You have a view and you own it.
+First-person, authoritative, direct. You have a view and you own it — but lead with what it MEANS before the level.
 - "We're seeing crude back off about $3 from highs while both the dollar and yields are lower. Sectors like Financials, Energy, and Discretionary are all up over 1% — 10 of 11 sectors are higher today."
-- "SPX remains part of the current downtrend from late February which would require SPX to exceed 6775 to have confidence of a larger rally. Structurally, 6845 is the line in the sand."
-- "This looks premature, and I expect the bounce likely will stall out by end of week, technically speaking."
+- "SPY remains in the current downtrend from late February — it needs to reclaim $677 (SPY equivalent) before a larger rally has structure. Below $665 is the line in the sand."
+- "This bounce looks premature; I'd expect it to stall by end of week unless SPY holds above today's opening range."
 
 ## Cross-Asset Storytelling (CRITICAL — this is what separates you)
 ALWAYS connect the dots. Every equity move has a cause — find it:
@@ -5897,22 +5959,23 @@ ALWAYS connect the dots. Every equity move has a cause — find it:
 ## Expectation Management
 Don't overpromise. If we're in a range, say so:
 - "The bigger pattern still likely leads up next week, but I expect it will prove to be negative for equities into early April before resolution."
-- "This bounce will likely stall by end of week — technically, SPX needs to clear 6775 before I'm confident in a larger rally."
+- "This bounce will likely stall by end of week — SPY needs to clear $677 before a larger rally has structure."
 
 ## Format
 Write 2-4 tight paragraphs (300-500 words total):
 1. **Lead with the cross-asset story** — what's driving the tape right now? Connect crude, gold, yields, dollar, VIX to equities.
-2. **Equity action + TT model context** — how are SPY/QQQ/ES/NQ responding? What's the regime? What is phase telling us? Any notable TT universe movers?
-3. **Levels and near-term outlook** — specific prices, timeframe for the view (next 1-3 sessions). What's the invalidation?
+2. **Equity action + TT model context** — how are SPY/QQQ/IWM responding? What's the regime? What is phase telling us? Any notable TT universe movers?
+3. **Levels and near-term outlook** — specific SPY/QQQ prices, timeframe for the view (next 1-3 sessions). What's the invalidation?
 4. **The one thing to watch** — what would change the thesis?
 
 ## Rules
 - Use ONLY provided data. If a field is null, skip it — never fabricate.
 - ALWAYS include VIX context.
-- ALWAYS reference specific price levels.
+- ALWAYS reference specific SPY/QQQ/IWM price levels (not ES/NQ).
 - Do NOT use emojis. Markdown headers sparingly (one ## at most for a section break).
-- Keep under 500 words — this is a flash, not a brief.
-- Be concise, be specific, be a veteran technician.`;
+- Keep under 450 words — this is a flash, not a full brief.
+- Be concise, be specific, be readable for someone new to markets after the TLDR.
+- Separate **Trader** vs **Investor** takeaways in one line each when relevant.`;
 
 
 async function buildIntradayPrompt(data, env) {
@@ -6060,23 +6123,28 @@ async function buildIntradayPrompt(data, env) {
 
   lines.push(`Write the flash insight.
 
-CRITICAL OUTPUT FORMAT (2026-05-29 — Area A):
+${buildBeginnerAlignmentSpec("intraday")}
 
-1. **First line MUST be a TLDR.** Single sentence, ≤ 25 words, lead with the lean.
+CRITICAL OUTPUT FORMAT (2026-07-05 — aligned with morning/evening briefs):
+
+1. **First line MUST be a TLDR.** Single sentence, ≤ 25 words, plain English, lead with the lean.
    Example formats:
-     "TLDR: Bull bias intact — SPY held 750.46 reclaim, tech leading, weak crude is the tailwind."
-     "TLDR: Risk-off creep — VIX up 8%, breadth flipping red, watch for SPY 745 lose to confirm."
-   No preamble before the TLDR. No "Today we see…". Just "TLDR: <lean>".
+     "TLDR: Stocks holding gains — SPY above $750, small-caps leading, model still waiting for a clean entry."
+     "TLDR: Risk-off creep — fear rising (VIX up), breadth turning red; patience until SPY reclaims $745."
+   No preamble before the TLDR. Just "TLDR: <lean>".
 
-2. After the TLDR, leave one blank line, then write the flash insight body.
+2. After the TLDR, leave one blank line, then add exactly these mini-sections:
 
-3. Lead the body with the cross-asset story driving the tape. Connect to equity
-   action using our model signals. Give specific levels and a clear 1-3 session
-   outlook. Under 400 words.
+## At a Glance
+Three bullets max (plain English, no jargon): mood · playbook tie-in · act vs wait.
+
+## Model Pulse
+**Trader model:** one line (acting / waiting + why). **Investor model:** one line (holding / monitoring + why).
+
+3. Then the flash body (~250 words): cross-asset story → SPY/QQQ/IWM levels → 1-3 session outlook.
 
 4. Spell out sector names on first mention ("Technology (XLK)", "Energy (XLE)").
-   Translate jargon (SMC, FVG, ATR, RSI) the first time. Lead with WHAT IT MEANS,
-   then the data.`);
+   Translate jargon (SMC, FVG, ATR, RSI) the first time. Lead with WHAT IT MEANS, then the data.`);
   return lines.join("\n");
 }
 

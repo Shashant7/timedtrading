@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { stripBriefMarkdownForDisplay } from "../worker/daily-brief-markdown.js";
-import { extractPredictionLine } from "../worker/daily-brief.js";
+import { extractPredictionLine, extractBriefLead } from "../worker/daily-brief.js";
 
 describe("extractPredictionLine", () => {
   it("extracts from merged Index Outlook ### SPY sub-heading", () => {
@@ -26,6 +26,33 @@ Lean: BULL — breadth firm
     const content = `## SPY Prediction
 SPY stays inside the day range.`;
     expect(extractPredictionLine(content, "SPY")).toContain("inside the day range");
+  });
+});
+
+describe("extractBriefLead", () => {
+  it("prefers At a Glance bullets over Market Read prose", () => {
+    const content = `SUBJECT: Test hook
+
+## At a Glance
+- Stocks opened higher after strong jobs data.
+- Playbook still favors dips in large-cap tech.
+- Model is patient — no new entries yet.
+
+## The Market Read
+Dense technical prose about SMC and FVG levels that should not appear in the lead.`;
+    const lead = extractBriefLead(content);
+    expect(lead).toContain("Stocks opened higher");
+    expect(lead).toContain("Model is patient");
+    expect(lead).not.toContain("SMC");
+  });
+
+  it("uses intraday TLDR when At a Glance is absent", () => {
+    const content = `TLDR: SPY holding gains while the model waits for a cleaner setup.
+
+## Model Pulse
+Trader model: waiting.`;
+    const lead = extractBriefLead(content);
+    expect(lead).toContain("SPY holding gains");
   });
 });
 
