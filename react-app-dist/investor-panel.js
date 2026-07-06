@@ -602,13 +602,13 @@
     /* V15 P0.7.152 (2026-05-14) — lane order follows the action arc.
        User spec: "We need to present the lanes in order of action:
        On Radar → Accumulate → Core Hold → Hold & Watch → Reduce →
-       Exited → Low Conviction → Avoid."
+       Avoid → Exited → Low Conviction."
        The reasoning: the user reads top-down and the lanes should
        trace the lifecycle of a name from "I'm watching this"
        through "I own it and the model is managing it" through "the
        model has cooled off on this".
     */
-    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "exited", "research_low", "research_avoid"];
+    const stages = ["research_on_watch", "accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_avoid", "exited", "research_low"];
     /* V15 P0.7.144/.152 — lane labels + per-lane action chip.
        The action chip ("BUY NOW" / "HOLDING" / etc.) sits next to
        the lane title so a new user can answer "what should I do
@@ -690,49 +690,56 @@
       if (owned === items.length) return owned;
       return `${owned}/${items.length}`;
     };
-    return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
-      React.createElement(InvestorKanbanBandHeader, {
-        band: "doing",
-        label: "DOING",
-        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
-      }),
-      ...visibleStages.filter((s) => stageMeta[s]?.band !== "watching").map(stage =>
-        React.createElement(InvestorKanbanColumn, {
-          key: stage,
-          laneKey: stage,
-          title: stageMeta[stage].label,
-          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
-          icon: stageMeta[stage].icon,
-          color: stageMeta[stage].color,
-          count: laneCount(stage),
-          items: grouped[stage],
-          renderCard,
-          laneScrollRef,
-        }),
-      ),
-      React.createElement(InvestorKanbanBandHeader, {
+    const renderLaneColumn = (stage) => React.createElement(InvestorKanbanColumn, {
+      key: stage,
+      laneKey: stage,
+      title: stageMeta[stage].label,
+      hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
+      action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
+      actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
+      icon: stageMeta[stage].icon,
+      color: stageMeta[stage].color,
+      count: laneCount(stage),
+      items: grouped[stage],
+      renderCard,
+      laneScrollRef,
+    });
+    /* On Radar first (above Queued); Avoid directly under Reduce; Low
+       Conviction stays in a trailing WATCHING band. */
+    const kanbanSections = [
+      {
         band: "watching",
         label: "WATCHING",
         hint: "Monitoring — no action expected yet",
+        stageKeys: ["research_on_watch"],
+      },
+      {
+        band: "doing",
+        label: "DOING",
+        hint: "Model acted at rebalance, or will act on the next one if still qualified — not a manual buy order",
+        stageKeys: ["accumulate_queued", "accumulate_entered", "core_hold", "watch", "reduce", "research_avoid", "exited"],
+      },
+      {
+        band: "watching",
+        label: "WATCHING",
+        hint: "Monitoring — no action expected yet",
+        stageKeys: ["research_low"],
+      },
+    ];
+    return React.createElement("div", { className: "flex-1 overflow-y-auto space-y-1 min-h-0", "data-coachmark": "action-board" },
+      kanbanSections.flatMap((section, sectionIdx) => {
+        const lanes = section.stageKeys.filter((s) => visibleStages.includes(s));
+        if (lanes.length === 0) return [];
+        return [
+          React.createElement(InvestorKanbanBandHeader, {
+            key: `band-${sectionIdx}`,
+            band: section.band,
+            label: section.label,
+            hint: section.hint,
+          }),
+          ...lanes.map(renderLaneColumn),
+        ];
       }),
-      ...visibleStages.filter((s) => stageMeta[s]?.band === "watching").map(stage =>
-        React.createElement(InvestorKanbanColumn, {
-          key: stage,
-          laneKey: stage,
-          title: stageMeta[stage].label,
-          hint: (stage === "accumulate_queued" && _entryHold) ? (entryPosture.guidance || stageMeta[stage].title) : stageMeta[stage].title,
-          action: (stage === "accumulate_queued" && _entryHold) ? `PAUSED · ${entryPosture.eventKey || "EVENT"}` : stageMeta[stage].action,
-          actionColor: (stage === "accumulate_queued" && _entryHold) ? "#f59e0b" : stageMeta[stage].actionColor,
-          icon: stageMeta[stage].icon,
-          color: stageMeta[stage].color,
-          count: laneCount(stage),
-          items: grouped[stage],
-          renderCard,
-          laneScrollRef,
-        }),
-      ),
     );
   }
 
@@ -1413,4 +1420,4 @@
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
 })();
 
-// cache-bust:1783290356274:71909623
+// cache-bust:1783296414170:628308498

@@ -143,8 +143,9 @@ Handoff: `tasks/2026-06-23-journey-ux-handoff.md`.
 Trimming (trim **today** only via `tradeTrimmedToday()`), Closed. Exiting
 lane removed; engine `exit`/`exiting` → Defending.
 
-**Investor kanban (2026-06-23):** DOING band above WATCHING; bubble map has
-lane filter chips (On Radar, Queued, Hold & Watch, etc.). After shared-JS
+**Investor kanban (2026-07-06):** On Radar (WATCHING) above Queued; Avoid
+under Reduce in the DOING band; Low Conviction in trailing WATCHING. Bubble map
+has lane filter chips (On Radar, Queued, Hold & Watch, etc.). After shared-JS
 merges always run full `npm run build:frontend` or browsers keep stale `?v=`.
 
 **VIX (2026-06-23):** Canonical symbol is `VIX` (TwelveData CBOE index).
