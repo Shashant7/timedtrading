@@ -587,6 +587,8 @@
     // the same lane vocabulary the Investor board uses.
     var INV_STAGE_PLAY = {
       accumulate: { label: "Accumulate", color: "#34d399", line: "Model is scaling into the buy zone — add on dips, never chase extension." },
+      accumulate_queued: { label: "Queued", color: "#34d399", line: "Execution-ready — the model waits for the next rebalance to enter inside the buy zone." },
+      accumulate_entered: { label: "Entered", color: "#22c55e", line: "The model opened or added on a prior rebalance — hold and add only on pullbacks." },
       core_hold: { label: "Core Hold", color: "#60a5fa", line: "Owned and healthy — hold the core; add only on a meaningful pullback." },
       watch: { label: "Hold & Watch", color: "#60a5fa", line: "Owned but signals are mixed — hold flat, no adds or trims yet." },
       reduce: { label: "Reduce", color: "#fb923c", line: "Thesis is weakening — trim into strength and respect the invalidation." },
@@ -624,6 +626,8 @@
       function add(label, price, tone, side) {
         var p = numN(price);
         if (p === null || !(p > 0)) return;
+        // Side gates need a live anchor — skip wrong-side levels until price loads.
+        if (px === null && side) return;
         if (px !== null && side === "below" && p >= px) return;
         if (px !== null && side === "above" && p <= px) return;
         var key = p.toFixed(2);
@@ -649,7 +653,7 @@
         var az = invData.accumZone || invData.accumulate_zone || invData.buy_zone || invData.zone;
         var zHi = numN(az && (az.zoneTop != null ? az.zoneTop : az.high != null ? az.high : az.max));
         var zLo = numN(az && (az.zoneBottom != null ? az.zoneBottom : az.low != null ? az.low : az.min));
-        if (zHi !== null && zLo !== null && zHi > 0 && zLo > 0 && (px === null || zHi < px)) {
+        if (zHi !== null && zLo !== null && zHi > 0 && zLo > 0) {
           var zKey = zLo.toFixed(2) + "-" + zHi.toFixed(2);
           if (!seen[zKey]) {
             seen[zKey] = 1;
@@ -657,7 +661,8 @@
           }
         }
         add("Fair value estimate", fv, "warn", null);
-        add("Investor invalidation", invPrice, "dn", "below");
+        // Keep invalidation visible even after a breach — it is thesis context, not a directional gate.
+        add("Investor invalidation", invPrice, "dn", null);
       }
       // Fallback S/R from the prediction contract only when we have nothing else.
       if (rows.length === 0 && pc && Array.isArray(pc.levels)) {
@@ -751,6 +756,10 @@
 
       // Long-term (investor) horizon — label + plain line from the fresh stage.
       var invStage = String((props.investorData && props.investorData.stage) || payload.investor_stage || payload.investorStage || "").toLowerCase();
+      if (props.investorData && window.TimedRailHelpers && window.TimedRailHelpers.resolveInvestorKanbanStage) {
+        var kanbanStage = window.TimedRailHelpers.resolveInvestorKanbanStage(props.investorData);
+        if (kanbanStage === "accumulate_queued" || kanbanStage === "accumulate_entered") invStage = kanbanStage;
+      }
       var play = investorStagePlay(invStage);
       var iv = String((data.investor && data.investor.verdict) || "WAIT").toUpperCase();
       var invScore = numN(props.investorData && props.investorData.score);
@@ -765,7 +774,7 @@
         if (invFloor === null) invFloor = numN(props.investorData.thesisInvalidationPrice);
       }
       var earlyEntry = null;
-      if (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING") && invFloor !== null && (!(px > 0) || invFloor < px)) {
+      if (iv === "BUY" && (tv === "WAIT" || tv === "SETUP_FORMING") && invFloor !== null && px > 0 && invFloor < px) {
         earlyEntry = "Accumulating ahead of the model is only reasonable inside the buy zone with capped size — the long-term thesis breaks on a close below " + fmtPx(invFloor) + ".";
       }
 
@@ -844,6 +853,7 @@
     }
 
     function ReadySetupsBoard(props) {
+      var embedded = !!props.embedded;
       var onSelect = props.onSelectTicker;
       var tickerData = props.tickerData;
       var _s = useState(null);
@@ -1039,4 +1049,4 @@
   };
 })();
 
-// cache-bust:1783306220400:392064129
+// cache-bust:1783307314948:446886108

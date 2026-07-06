@@ -22,6 +22,11 @@
 
 ### Active
 
+- [ ] **Bugbot fixes (#997/#998/#1001) — PR #1002 (ready for review; Bugbot pending).**
+      Fixes: ReadySetupsBoard `embedded` prop, VerdictGuideBlock key levels,
+      exited names in BUY ZONE strip, TimedRailHelpers investor helper wiring.
+      **Process:** always wait for Bugbot + human review before merging PRs.
+
 - [x] **NVDA feed SL hard-close (2026-07-02).** */1 price-feed now triggers
       immediate `processTradeSimulation` hard close on confirmed SL breach
       (worst-case price via `feed-sl-close.js`). TRADE UPDATE + OOH reconcile
