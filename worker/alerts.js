@@ -267,6 +267,52 @@ export function cronErrorSignature(error) {
   return String(error || "").replace(/\d+(\.\d+)?/g, "#");
 }
 
+/** OpenAI billing/quota exhaustion (429 + insufficient_quota / billing copy). */
+export function isOpenAiQuotaError(error) {
+  const s = String(error || "").toLowerCase();
+  if (s === "openai_quota_exceeded") return true;
+  return (s.includes("openai 429") || s.includes("openai_quota"))
+    && (
+      s.includes("quota")
+      || s.includes("insufficient_quota")
+      || s.includes("billing")
+      || s.includes("exceeded your current")
+    );
+}
+
+/** OpenAI transient rate limit (429 without quota/billing wording). */
+export function isOpenAiRateLimitError(error) {
+  const s = String(error || "").toLowerCase();
+  if (s === "openai_rate_limited") return true;
+  return s.includes("openai 429") && !isOpenAiQuotaError(error);
+}
+
+/**
+ * Normalize AI brief cron errors so quota/rate-limit outages read as
+ * billing/degraded skips — not infra failures that page #system-alerts.
+ */
+export function normalizeBriefCronError(error) {
+  if (isOpenAiQuotaError(error)) {
+    return {
+      error: "openai_quota_exceeded — AI brief skipped (top up OpenAI billing)",
+      skipDiscord: true,
+      degraded: true,
+    };
+  }
+  if (isOpenAiRateLimitError(error)) {
+    return {
+      error: "openai_rate_limited — AI brief skipped (retry next slot)",
+      skipDiscord: true,
+      degraded: true,
+    };
+  }
+  return {
+    error: String(error || "unknown").slice(0, 500),
+    skipDiscord: false,
+    degraded: false,
+  };
+}
+
 /**
  * Severity band for count-bearing errors: first percentage in the message
  * mapped to 0 (<25%) / 1 (>=25%) / 2 (>=50%) / 3 (>=75%). Null when the
