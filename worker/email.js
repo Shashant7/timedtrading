@@ -966,6 +966,67 @@ function markdownToEmailHtml(md) {
   return `<p style="margin:0 0 12px;font-size:14px;color:${BRAND.textSecondary};line-height:1.6;font-family:${EMAIL_FONT_UI}">${html}</p>`;
 }
 
+function _emailBriefPct(pct, digits = 1) {
+  const v = Number(pct);
+  if (!Number.isFinite(v)) return "";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+}
+
+function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
+  const SYM = String(sym || "").toUpperCase();
+  if (!SYM) return "";
+  const logo = `${baseUrl}/timed/logo/${encodeURIComponent(SYM)}.png`;
+  const pctStr = _emailBriefPct(pct);
+  const pct2Str = _emailBriefPct(pct2, 2);
+  const color = Number(pct) >= 0 ? BRAND.green : "#fb7185";
+  return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;margin:0 6px 6px 0;border-radius:999px;border:1px solid ${BRAND.border};background:rgba(255,255,255,0.04);vertical-align:middle">
+    <img src="${logo}" alt="" width="18" height="18" style="border-radius:50%;background:#fff;object-fit:cover" />
+    <span style="font-family:ui-monospace,monospace;font-weight:700;color:${BRAND.textPrimary};font-size:12px">${_esc(SYM)}</span>
+    ${sub ? `<span style="font-size:10px;color:${BRAND.textMuted}">${_esc(sub)}</span>` : ""}
+    ${pctStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${color};font-size:11px">${pctStr}</span>` : ""}
+    ${pct2Str ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">(${pct2Str} today)</span>` : ""}
+  </span>`;
+}
+
+/** Inject logo ticker chips under key brief sections (parity with web tt-strip-chip). */
+export function injectEmailBriefTickerChips(html, infographic, baseUrl) {
+  if (!html || !infographic) return html || "";
+  const info = infographic;
+  let out = html;
+  const inject = (title, chipsHtml) => {
+    if (!chipsHtml) return;
+    const re = new RegExp(`(<h2[^>]*>${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</h2>)`, "i");
+    out = out.replace(re, `$1<div style="margin:10px 0 14px;line-height:1">${chipsHtml}</div>`);
+  };
+  const modelRows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
+  if (modelRows.length) {
+    inject("Model Actions Today", modelRows.map((r) => buildEmailBriefTickerChip(
+      r.ticker, r.pct, String(r.action || "").replace(/_/g, " "), baseUrl,
+    )).join(""));
+  }
+  const g = info.topMovers?.gainers || [];
+  const l = info.topMovers?.losers || [];
+  if (g.length || l.length) {
+    inject("Today's Top Movers", [
+      ...g.map((r) => buildEmailBriefTickerChip(r.ticker, r.pct, null, baseUrl)),
+      ...l.map((r) => buildEmailBriefTickerChip(r.ticker, r.pct, null, baseUrl)),
+    ].join(""));
+  }
+  const trader = Array.isArray(info.traderPositions) ? info.traderPositions : [];
+  if (trader.length) {
+    inject("Active Trader Report", trader.map((p) => buildEmailBriefTickerChip(
+      p.ticker, p.pnlPct, String(p.direction || "").toUpperCase(), baseUrl, p.dayPct,
+    )).join(""));
+  }
+  const inv = Array.isArray(info.investorHoldings) ? info.investorHoldings : [];
+  if (inv.length) {
+    inject("Investor Portfolio", inv.map((p) => buildEmailBriefTickerChip(
+      p.ticker, p.unrealPct, p.stage ? String(p.stage).replace(/_/g, " ") : null, baseUrl, p.dayPct,
+    )).join(""));
+  }
+  return out;
+}
+
 export async function sendDailyBriefEmail(env, userEmail, brief) {
   const { type, content, date, esPrediction, stats, infographic, spyPrediction, qqqPrediction, iwmPrediction, liveKeyLevels, croNote } = brief;
   // 2026-05-21 — support label / subject overrides for non-brief reuses of
@@ -986,7 +1047,11 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     : null;
 
   const strippedContent = stripBriefMarkdownForEmail(content);
-  const briefHtml = markdownToEmailHtml(strippedContent);
+  const briefHtml = injectEmailBriefTickerChips(
+    markdownToEmailHtml(strippedContent),
+    infographic,
+    baseUrl,
+  );
   const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
 
   const longDate = (() => {

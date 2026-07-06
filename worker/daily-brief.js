@@ -1394,7 +1394,117 @@ export async function buildBriefUniverseMovers(env, pf, marketOpen = true) {
   const parts = [];
   if (gainers.length) parts.push(`Gainers: ${gainers.map(fmt).join(", ")}`);
   if (losers.length) parts.push(`Losers: ${losers.map(fmt).join(", ")}`);
-  return parts.length ? parts.join("\n") : null;
+  const text = parts.length ? parts.join("\n") : null;
+  if (!text) return null;
+  return { text, gainers, losers };
+}
+
+/** Prompt / legacy string from movers block (string or structured object). */
+export function formatBriefUniverseMoversText(movers) {
+  if (!movers) return null;
+  if (typeof movers === "string") return movers;
+  return movers.text || null;
+}
+
+/** Parse legacy movers prose back into chip rows (older stored briefs). */
+export function parseBriefTopMoversText(text) {
+  if (!text || typeof text !== "string") return { gainers: [], losers: [] };
+  const parseSide = (line, sign) => {
+    const out = [];
+    const re = /\b([A-Z][A-Z0-9.-]{0,9})\b[^+\d-]*?(?:\$[\d.]+[^(%]*)?\(([+-]?\d+(?:\.\d+)?)%\)/g;
+    let m;
+    while ((m = re.exec(line)) != null) {
+      const ticker = String(m[1] || "").toUpperCase();
+      const pct = Number(m[2]);
+      if (!ticker || !Number.isFinite(pct)) continue;
+      if (sign === "up" && pct <= 0) continue;
+      if (sign === "dn" && pct >= 0) continue;
+      out.push({ ticker, pct, price: null });
+    }
+    if (out.length) return out;
+    const alt = /\b([A-Z][A-Z0-9.-]{0,9})\b\s*([+-]\d+(?:\.\d+)?)%/g;
+    while ((m = alt.exec(line)) != null) {
+      const ticker = String(m[1] || "").toUpperCase();
+      const pct = Number(m[2]);
+      if (!ticker || !Number.isFinite(pct)) continue;
+      if (sign === "up" && pct <= 0) continue;
+      if (sign === "dn" && pct >= 0) continue;
+      out.push({ ticker, pct, price: null });
+    }
+    return out;
+  };
+  const gainersLine = text.split("\n").find((l) => /gainers?/i.test(l)) || "";
+  const losersLine = text.split("\n").find((l) => /losers?/i.test(l)) || "";
+  return {
+    gainers: parseSide(gainersLine, "up"),
+    losers: parseSide(losersLine, "dn"),
+  };
+}
+
+export function normalizeBriefTopMovers(data) {
+  const raw = data?.ttUniverseMoversData || data?.ttUniverseMovers;
+  if (raw && typeof raw === "object" && (raw.gainers || raw.losers)) {
+    return {
+      gainers: Array.isArray(raw.gainers) ? raw.gainers : [],
+      losers: Array.isArray(raw.losers) ? raw.losers : [],
+    };
+  }
+  return parseBriefTopMoversText(formatBriefUniverseMoversText(raw));
+}
+
+/** Structured chip rows for Model Actions Today (trader + investor fills). */
+export function buildBriefModelActionChips(data) {
+  const chips = [];
+  const push = (row) => {
+    const sym = String(row?.ticker || "").toUpperCase();
+    if (!sym) return;
+    chips.push({ ...row, ticker: sym });
+  };
+  for (const e of data?.todayEntries || []) {
+    push({
+      ticker: e.ticker,
+      lane: "trader",
+      action: "ENTRY",
+      direction: e.direction,
+      price: e.price,
+      pct: null,
+      sub: e.reason || null,
+    });
+  }
+  for (const e of data?.todayExits || []) {
+    push({
+      ticker: e.ticker,
+      lane: "trader",
+      action: "EXIT",
+      direction: e.direction,
+      price: e.price,
+      pct: e.pnlPct,
+      sub: e.exitReason || e.tradeStatus || null,
+    });
+  }
+  for (const e of data?.todayTrimsDefends || []) {
+    push({
+      ticker: e.ticker,
+      lane: "trader",
+      action: e.type || "TRIM",
+      direction: e.direction,
+      price: e.price,
+      pct: e.qtyPctDelta,
+      sub: e.reason || null,
+    });
+  }
+  for (const l of data?.todayInvestorActions || []) {
+    push({
+      ticker: l.ticker,
+      lane: "investor",
+      action: l.action || "BUY",
+      price: l.price,
+      shares: l.shares,
+      pct: null,
+      sub: l.reason || null,
+    });
+  }
+  return chips;
 }
 
 function mapBriefInvestorPositionRow(p, investorProfileMap = {}, liveScores = {}) {
@@ -2244,7 +2354,13 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf, _briefSessionMktOpen),
     premarketGapContext: type === "evening" ? null : buildPremarketGapContext(_pf, mktOpen),
     crossAssetContext: buildCrossAssetContext(_pf, _briefSessionMktOpen),
-    ttUniverseMovers: await buildBriefUniverseMovers(env, _pf, _briefSessionMktOpen),
+    ...(await (async () => {
+      const moversBlock = await buildBriefUniverseMovers(env, _pf, _briefSessionMktOpen);
+      return {
+        ttUniverseMoversData: moversBlock,
+        ttUniverseMovers: formatBriefUniverseMoversText(moversBlock),
+      };
+    })()),
     priceFeedRaw: _pf,
     // 2026-05-30 — Inheritance fix. The Daily Brief now sees the
     // synthesized 8-layer root-strategy verdict per top-conviction
@@ -5149,6 +5265,8 @@ function buildBriefInfographic(data, type) {
     },
     traderPositions,
     investorHoldings,
+    topMovers: normalizeBriefTopMovers(data),
+    modelActionChips: buildBriefModelActionChips(data),
     indices,
     sectors: sectorMini,
     macro,

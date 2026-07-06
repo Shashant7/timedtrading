@@ -78,7 +78,8 @@ AAPL and MSFT in one paragraph.
     expect(out).toContain("hot CPI");
     expect(out).not.toMatch(/Market Context/i);
     expect(out).not.toMatch(/Index Outlook/i);
-    expect(out).not.toMatch(/Investor Portfolio/i);
+    expect(out).toContain("Investor Portfolio");
+    expect(out).toContain("AAPL and MSFT");
     expect(out).toContain("Risk Factors");
   });
 

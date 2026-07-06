@@ -19,7 +19,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
-    <script src="daily-brief-markdown.js?v=20260618"></script>
+    <script src="daily-brief-markdown.js?v=20260706-chips"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <!-- 2026-06-16 — Bubble map (market pulse + open positions) at the end of
          the brief. Reuses the shared SVG plot from the Today page. -->
@@ -231,6 +231,27 @@
         border-top: 1px solid rgba(255,255,255,0.06);
         margin: 20px 0;
       }
+      /* Ticker chips — parity with Today page tt-strip-chip */
+      .tt-strip-scroll {
+        display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 10px;
+        scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+        flex-wrap: wrap;
+      }
+      .tt-strip-scroll::-webkit-scrollbar { height: 6px; }
+      .tt-strip-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 999px; }
+      .tt-strip-chip {
+        flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+        padding: 6px 11px; border-radius: 999px; cursor: pointer;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.10);
+        color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
+        text-decoration: none;
+      }
+      a.tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
+      .tt-brief-chip-label {
+        font-size: 9px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--tt-text-3); margin: 0 0 6px;
+      }
+      .tt-brief-chip-block { margin: 0 0 14px; }
     </style>
   </head>
   <body class="vf-page ds-v2">
@@ -244,17 +265,12 @@
       const API_BASE = "";
 
       // ── Markdown Renderer ──────────────────────────────────────────────────
-      function renderMarkdown(md) {
+      function renderMarkdownBody(md) {
         if (!md) return "";
         let cleaned = md
           .replace(/ (#{2,4}) /g, "\n\n$1 ")
           .replace(/ - \*\*/g, "\n- **")
           .replace(/ - ([A-Z])/g, "\n- $1");
-
-        if (window.TimedBriefMarkdown?.stripBriefMarkdownForDisplay) {
-          cleaned = window.TimedBriefMarkdown.stripBriefMarkdownForDisplay(cleaned);
-        }
-
         const _toHtml = (typeof marked !== "undefined" && marked.parse)
           ? marked.parse(cleaned, { breaks: true, gfm: true })
           : cleaned.replace(/\n/g, "<br/>");
@@ -264,6 +280,268 @@
         const _esc = document.createElement("div");
         _esc.textContent = cleaned;
         return _esc.innerHTML.replace(/\n/g, "<br/>");
+      }
+
+      function renderMarkdown(md) {
+        if (!md) return "";
+        let cleaned = md
+          .replace(/ (#{2,4}) /g, "\n\n$1 ")
+          .replace(/ - \*\*/g, "\n- **")
+          .replace(/ - ([A-Z])/g, "\n- $1");
+        if (window.TimedBriefMarkdown?.stripBriefMarkdownForDisplay) {
+          cleaned = window.TimedBriefMarkdown.stripBriefMarkdownForDisplay(cleaned);
+        }
+        return renderMarkdownBody(cleaned);
+      }
+
+      function fmtBriefPct(pct, digits = 1) {
+        const v = Number(pct);
+        if (!Number.isFinite(v)) return null;
+        return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+      }
+
+      function BriefTickerLogo({ sym, size = 18 }) {
+        const SYM = String(sym || "").toUpperCase();
+        const mono = SYM.slice(0, 2) || "?";
+        const bg = (() => {
+          let hash = 0;
+          for (let i = 0; i < SYM.length; i++) hash = ((hash << 5) - hash) + SYM.charCodeAt(i);
+          return `hsl(${Math.abs(hash) % 360}, 35%, 28%)`;
+        })();
+        const url = SYM && window.DS ? window.DS.tickerLogoUrl(SYM) : (SYM ? `/timed/logo/${encodeURIComponent(SYM)}.png` : null);
+        const ref = useRef(null);
+        useEffect(() => {
+          const el = ref.current;
+          if (!el || !url) return;
+          const img = new Image();
+          img.src = url;
+          img.alt = SYM;
+          img.onload = () => {
+            el.textContent = "";
+            el.style.background = "#ffffff";
+            img.style.width = "100%";
+            img.style.height = "100%";
+            img.style.borderRadius = "50%";
+            img.style.objectFit = "cover";
+            el.appendChild(img);
+          };
+        }, [SYM, url]);
+        return (
+          <span
+            ref={ref}
+            className="tt-trow__logo"
+            style={{
+              width: size, height: size, background: bg,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              borderRadius: "50%", overflow: "hidden", fontSize: Math.max(8, size * 0.38),
+              fontWeight: 700, color: "#fff", flexShrink: 0,
+            }}
+          >{mono}</span>
+        );
+      }
+
+      function BriefTickerChip({ sym, pct, pct2, sub, href, title, actionChip }) {
+        const SYM = String(sym || "").toUpperCase();
+        if (!SYM) return null;
+        const pctStr = fmtBriefPct(pct);
+        const pct2Str = fmtBriefPct(pct2, 2);
+        const pctColor = Number(pct) >= 0 ? "var(--tt-up-soft, #34d399)" : "var(--tt-dn-soft, #fb7185)";
+        const inner = (
+          <>
+            <BriefTickerLogo sym={SYM} size={18} />
+            <span style={{ fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" }}>{SYM}</span>
+            {actionChip && (
+              <span className={`ds-chip ds-chip--sm ${actionChip.cls || "ds-chip--solid"}`}
+                    style={{ fontSize: 8, padding: "0 5px", fontFamily: "var(--tt-font-mono)" }}
+                    title={actionChip.title || actionChip.label}>
+                {actionChip.label}
+              </span>
+            )}
+            {sub && !actionChip && (
+              <span style={{ fontSize: 10, color: "var(--tt-text-dim, #8AA39A)", fontFamily: "var(--tt-font-mono)" }}>{sub}</span>
+            )}
+            {pctStr && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: pctColor, fontFamily: "var(--tt-font-mono)" }}>{pctStr}</span>
+            )}
+            {pct2Str && (
+              <span style={{ fontSize: 10, color: "var(--tt-text-dim, #6E867D)", fontFamily: "var(--tt-font-mono)" }} title="Today">
+                ({pct2Str} today)
+              </span>
+            )}
+          </>
+        );
+        if (href) {
+          return (
+            <a href={href} className="tt-strip-chip" title={title || SYM}>{inner}</a>
+          );
+        }
+        return (
+          <span className="tt-strip-chip" style={{ cursor: "default" }} title={title || SYM}>{inner}</span>
+        );
+      }
+
+      function modelActionChipMeta(row) {
+        const action = String(row?.action || "").toUpperCase();
+        if (action === "EXIT") return { label: "EXIT", cls: "ds-chip--dn", title: "Exit today" };
+        if (action === "ENTRY") return { label: "ENTRY", cls: "ds-chip--accent", title: "New entry" };
+        if (action === "TRIM") return { label: "TRIM", cls: "ds-chip--solid", title: "Trim today" };
+        if (action === "DEFEND") return { label: "DEFEND", cls: "ds-chip--solid", title: "Stop tightened" };
+        if (action === "BUY" || action === "DCA_BUY") return { label: action.replace("_", " "), cls: "ds-chip--up", title: "Investor action" };
+        if (action === "SELL" || action === "TRIM") return { label: action, cls: "ds-chip--dn", title: "Investor action" };
+        return { label: action || "ACT", cls: "ds-chip--solid", title: "Model action" };
+      }
+
+      function BriefChipStrip({ sectionKey, infographic, sectionBody }) {
+        const info = infographic || {};
+        if (sectionKey === "modelActions") {
+          const rows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
+          if (!rows.length) return null;
+          return (
+            <div className="tt-brief-chip-block">
+              <div className="tt-strip-scroll">
+                {rows.map((row, i) => {
+                  const sym = String(row.ticker || "").toUpperCase();
+                  const href = row.lane === "investor"
+                    ? `/investor.html?ticker=${encodeURIComponent(sym)}`
+                    : `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
+                  const meta = modelActionChipMeta(row);
+                  const sub = Number.isFinite(Number(row.price)) && Number(row.price) > 0
+                    ? `@ $${Number(row.price).toFixed(2)}`
+                    : (row.sub ? String(row.sub).replace(/_/g, " ").slice(0, 24) : null);
+                  return (
+                    <BriefTickerChip
+                      key={`${sym}-${row.action}-${i}`}
+                      sym={sym}
+                      pct={row.pct}
+                      sub={sub}
+                      href={href}
+                      actionChip={meta}
+                      title={`${sym} ${meta.label}${sub ? ` ${sub}` : ""}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+        if (sectionKey === "topMovers") {
+          const gainers = Array.isArray(info.topMovers?.gainers) ? info.topMovers.gainers : [];
+          const losers = Array.isArray(info.topMovers?.losers) ? info.topMovers.losers : [];
+          const parsed = (!gainers.length && !losers.length && window.TimedBriefMarkdown?.parseBriefTopMoversText)
+            ? window.TimedBriefMarkdown.parseBriefTopMoversText(sectionBody || "")
+            : { gainers, losers };
+          const g = parsed.gainers || gainers;
+          const l = parsed.losers || losers;
+          if (!g.length && !l.length) return null;
+          return (
+            <div className="tt-brief-chip-block">
+              {g.length > 0 && (
+                <>
+                  <div className="tt-brief-chip-label">Gainers</div>
+                  <div className="tt-strip-scroll" style={{ marginBottom: l.length ? 10 : 0 }}>
+                    {g.map((row) => (
+                      <BriefTickerChip
+                        key={`g-${row.ticker}`}
+                        sym={row.ticker}
+                        pct={row.pct}
+                        href={`/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`}
+                        title={`${row.ticker} ${fmtBriefPct(row.pct) || ""}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+              {l.length > 0 && (
+                <>
+                  <div className="tt-brief-chip-label">Losers</div>
+                  <div className="tt-strip-scroll">
+                    {l.map((row) => (
+                      <BriefTickerChip
+                        key={`l-${row.ticker}`}
+                        sym={row.ticker}
+                        pct={row.pct}
+                        href={`/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`}
+                        title={`${row.ticker} ${fmtBriefPct(row.pct) || ""}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        }
+        if (sectionKey === "activeTrader") {
+          const rows = Array.isArray(info.traderPositions) ? info.traderPositions : [];
+          if (!rows.length) return null;
+          return (
+            <div className="tt-brief-chip-block">
+              <div className="tt-strip-scroll">
+                {rows.map((p) => {
+                  const sym = String(p.ticker || "").toUpperCase();
+                  return (
+                    <BriefTickerChip
+                      key={p.tradeId || sym}
+                      sym={sym}
+                      pct={p.pnlPct}
+                      pct2={p.dayPct}
+                      sub={String(p.direction || "").toUpperCase()}
+                      href={`/active-trader.html?ticker=${encodeURIComponent(sym)}`}
+                      title={`${sym} ${String(p.direction || "").toUpperCase()} open P&L ${fmtBriefPct(p.pnlPct) || "n/a"}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+        if (sectionKey === "investorPortfolio") {
+          const rows = Array.isArray(info.investorHoldings) ? info.investorHoldings : [];
+          if (!rows.length) return null;
+          return (
+            <div className="tt-brief-chip-block">
+              <div className="tt-strip-scroll">
+                {rows.map((p) => {
+                  const sym = String(p.ticker || "").toUpperCase();
+                  return (
+                    <BriefTickerChip
+                      key={sym}
+                      sym={sym}
+                      pct={p.unrealPct}
+                      pct2={p.dayPct}
+                      sub={p.stage ? String(p.stage).replace(/_/g, " ") : null}
+                      href={`/investor.html?ticker=${encodeURIComponent(sym)}`}
+                      title={`${sym} total return ${fmtBriefPct(p.unrealPct) || "n/a"}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+        return null;
+      }
+
+      function BriefContent({ content, infographic }) {
+        const sections = useMemo(() => {
+          if (window.TimedBriefMarkdown?.parseBriefDisplaySections) {
+            return window.TimedBriefMarkdown.parseBriefDisplaySections(content || "");
+          }
+          return [{ title: "", body: content || "", key: null }];
+        }, [content]);
+        if (!sections.length) return null;
+        return (
+          <div className="brief-content">
+            {sections.map((sec, idx) => (
+              <div key={`${sec.title || "sec"}-${idx}`}>
+                {sec.title && <h2>{sec.title}</h2>}
+                {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />}
+                {sec.body ? (
+                  <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(sec.body) }} />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        );
       }
 
       // ── Live Key Levels & Game Plan (refreshed from timed:prices) ─────────
@@ -461,20 +739,15 @@
                     <div className="flex flex-wrap gap-1.5">
                       {data.traderPositions.map((p) => {
                         const sym = String(p.ticker || "").toUpperCase();
-                        const pnl = Number(p.pnlPct);
-                        const day = Number(p.dayPct);
-                        const pnlColor = !Number.isFinite(pnl) ? "#8AA39A" : pnl >= 0 ? "#34d399" : "#fb7185";
                         return (
-                          <a key={p.tradeId || sym + (p.entryPrice || "")} href={`/active-trader.html?ticker=${encodeURIComponent(sym)}`}
-                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
-                             style={{ fontFamily: "var(--tt-font-mono)" }}>
-                            <span className="font-bold text-white">{sym}</span>
-                            <span className="text-[#8AA39A]">{String(p.direction || "").toUpperCase()}</span>
-                            {Number.isFinite(pnl) && <span style={{ color: pnlColor }}>{pnl >= 0 ? "+" : ""}{pnl.toFixed(1)}%</span>}
-                            {Number.isFinite(day) && Math.abs(day) >= 0.01 && (
-                              <span className="text-[#6E867D]">({day >= 0 ? "+" : ""}{day.toFixed(2)}% today)</span>
-                            )}
-                          </a>
+                          <BriefTickerChip
+                            key={p.tradeId || sym + (p.entryPrice || "")}
+                            sym={sym}
+                            pct={p.pnlPct}
+                            pct2={p.dayPct}
+                            sub={String(p.direction || "").toUpperCase()}
+                            href={`/active-trader.html?ticker=${encodeURIComponent(sym)}`}
+                          />
                         );
                       })}
                     </div>
@@ -486,20 +759,15 @@
                     <div className="flex flex-wrap gap-1.5">
                       {data.investorHoldings.map((p) => {
                         const sym = String(p.ticker || "").toUpperCase();
-                        const unreal = Number(p.unrealPct);
-                        const day = Number(p.dayPct);
-                        const pnlColor = !Number.isFinite(unreal) ? "#8AA39A" : unreal >= 0 ? "#34d399" : "#fb7185";
                         return (
-                          <a key={sym} href={`/investor.html?ticker=${encodeURIComponent(sym)}`}
-                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
-                             style={{ fontFamily: "var(--tt-font-mono)" }}>
-                            <span className="font-bold text-white">{sym}</span>
-                            {p.stage && <span className="text-[#8AA39A]">{String(p.stage).replace(/_/g, " ")}</span>}
-                            {Number.isFinite(unreal) && <span style={{ color: pnlColor }}>{unreal >= 0 ? "+" : ""}{unreal.toFixed(1)}%</span>}
-                            {Number.isFinite(day) && Math.abs(day) >= 0.01 && (
-                              <span className="text-[#6E867D]">({day >= 0 ? "+" : ""}{day.toFixed(2)}% today)</span>
-                            )}
-                          </a>
+                          <BriefTickerChip
+                            key={sym}
+                            sym={sym}
+                            pct={p.unrealPct}
+                            pct2={p.dayPct}
+                            sub={p.stage ? String(p.stage).replace(/_/g, " ") : null}
+                            href={`/investor.html?ticker=${encodeURIComponent(sym)}`}
+                          />
                         );
                       })}
                     </div>
@@ -1042,7 +1310,7 @@
             {isMorning && brief.sessionContext && (
               <SessionContextBanner sessionContext={brief.sessionContext} />
             )}
-            <div className="brief-content" dangerouslySetInnerHTML={{ __html: renderMarkdown(brief.content) }} />
+            <BriefContent content={brief.content} infographic={brief.infographic} />
             {!isMorning && brief.croNote && (
               <CRODeskWrapPanel croNote={brief.croNote} accentColor={accentColor} />
             )}
