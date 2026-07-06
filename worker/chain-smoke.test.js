@@ -78,6 +78,17 @@ describe("runChainSmoke", () => {
     expect(res.links.feed.detail).toContain("SPY:quote");
   });
 
+  it("quiet-tape vendor lag → feed ok when poll is fresh (SPY/QQQ watchdog shape)", async () => {
+    const env = healthyEnv({
+      kvBlobs: {
+        "timed:prices": { prices: { SPY: { p: 600, t: NOW - 1 * MIN, p_ts: NOW - 24 * MIN, q_ts: NOW - 24 * MIN } } },
+      },
+    });
+    const res = await runChainSmoke(env, OPTS);
+    expect(res.ok).toBe(true);
+    expect(res.links.feed.status).toBe("ok");
+  });
+
   it("stale 10m candles during RTH → candles link fails (the Jul 2 shape)", async () => {
     const env = healthyEnv({
       candleNewest: { "SPY:10": NOW - 70 * MIN, "SPY:30": NOW - 100 * MIN },

@@ -29,6 +29,7 @@ const MIN = 60 * 1000;
 // summary's job; the smoke check only pages on "this link is broken").
 const FEED_POLL_MAX_MS_OPEN = 10 * MIN;      // */1 cron missing 10+ ticks
 const FEED_QUOTE_MAX_MS_OPEN = 15 * MIN;     // vendor value frozen (GS zombie)
+const FEED_QUOTE_LAG_GRACE_MS = 25 * MIN;    // quiet-tape ETFs: poll fresh, trade_ts lags
 const CANDLE_10M_MAX_MS_RTH = 60 * MIN;      // freshness hard SLO for 10m
 const CANDLE_30M_MAX_MS_RTH = 90 * MIN;      // freshness hard SLO for 30m
 const SCORING_INGEST_MAX_MS_OPEN = 30 * MIN; // */5 scoring missing 6+ ticks
@@ -79,8 +80,13 @@ export async function runChainSmoke(env, opts = {}) {
       if (!opHours) continue; // feed idles outside operating hours
       if (pollAge === null || pollAge * MIN > FEED_POLL_MAX_MS_OPEN) {
         failures.push(`${sym}:poll=${pollAge ?? "missing"}m`);
-      } else if (marketOpen && (quoteAge === null || quoteAge * MIN > FEED_QUOTE_MAX_MS_OPEN)) {
-        failures.push(`${sym}:quote=${quoteAge ?? "missing"}m`);
+      } else if (marketOpen) {
+        const pollAgeMs = pollAge * MIN;
+        const quoteAgeMs = quoteAge === null ? Infinity : quoteAge * MIN;
+        const quoteLagMs = quoteAgeMs - pollAgeMs;
+        if (quoteAgeMs > FEED_QUOTE_MAX_MS_OPEN && quoteLagMs > FEED_QUOTE_LAG_GRACE_MS) {
+          failures.push(`${sym}:quote=${quoteAge ?? "missing"}m`);
+        }
       }
     }
     links.feed.status = !opHours ? "idle" : failures.length ? "fail" : "ok";
