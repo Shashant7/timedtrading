@@ -13,6 +13,9 @@ alwaysApply: true
 ## KV Price Format (`timed:prices`)
 - Short keys: `p` (price), `pc` (prev close), `dc` (day change $), `dp` (day change %), `dh`/`dl`/`dv` (daily high/low/volume), `t` (timestamp).
 - Extended hours: `ahp` (extended price), `ahdc` (AH change $), `ahdp` (AH change %).
+- **Value timestamps are mandatory**: `q_ts` (vendor quote/event receipt) and `p_ts` (last actual price move). ALL freshness gates (`isPriceValueFresh`, client `quoteReceiptTs`) key off these — never poll `t`. EVERY writer (cron REST, stale sweep, WS stream DO) MUST stamp them and never regress an existing stamp (`mergeStreamRowIntoKv`). A writer that omits them makes its own prices invisible: gates reject the rows and the UI serves the prior-day scoring close (MU/WDC/SOXL 2026-07-07).
+- Blob-level fields (`stale_symbols`, `stale_symbol_count`, `market_open`) must survive partial writers — the stream DO preserves them on rewrite.
+- Display-staleness guardrail: `price_value_freshness` cron op pages when ≥10 symbols have value stamps >20 min old during RTH; `/timed/health` exposes writer-independent `valueStaleCount`/`valueStaleSymbols`.
 - Session-aware persistence using `isNyRegularMarketOpen()` (handles holidays, weekends, early closes):
   - **Market closed**: Preserve previous `dc`/`dp`/`pc` when TwelveData zeros them out (day-roll). Preserve `ahp`/`ahdc`/`ahdp` so EXT movers row stays visible.
   - **Market open (RTH)**: Let fresh values flow through. NEVER write `ahp`/`ahdc`/`ahdp` to KV during RTH — TwelveData returns stale extended-hours values even when the market is open. Gate on `isNyRegularMarketOpen()` before populating ext fields. Frontend also guards: cards/movers suppress EXT display when `isNyRegularMarketOpen()` is true.

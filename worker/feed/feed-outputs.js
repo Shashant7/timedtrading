@@ -54,6 +54,40 @@ export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {
   return (nowMs - ts) <= maxAge;
 }
 
+// Futures / index gauges have their own TV-heartbeat lane and never carry
+// vendor quote receipts — exclude from equity value-staleness accounting.
+const VALUE_STALE_EXCLUDE = new Set(["SPX", "US500", "VIX", "VVIX", "NDX", "DJI", "RUT", "DXY", "TNX"]);
+
+function isValueStaleEligible(sym) {
+  return !/[!:.$/]/.test(sym) && !VALUE_STALE_EXCLUDE.has(sym);
+}
+
+/**
+ * Count symbols whose vendor value timestamp (q_ts/p_ts) is outside the
+ * freshness window. This is the DISPLAY-side staleness signal: any symbol
+ * counted here is being rejected by overlayTimedPricesRow and the client
+ * merge gates, i.e. users are seeing the prior scoring snapshot instead of
+ * the live price (MU/WDC/SOXL incident 2026-07-07). Computed directly from
+ * the blob rows so it works no matter which writer (cron REST or stream DO)
+ * last wrote timed:prices.
+ */
+export function summarizeValueStaleSymbols(prices, nowMs = Date.now(), marketOpen = true, sampleLimit = 10, opts = {}) {
+  const graceMs = Number(opts.graceMs) || 0;
+  const maxAge = (marketOpen ? PF_FRESH_MS : PF_VALUE_FRESH_MS_CLOSED) + graceMs;
+  const stale = [];
+  for (const [sym, row] of Object.entries(prices || {})) {
+    if (!isValueStaleEligible(sym)) continue;
+    const ts = quoteReceiptTimestamp(row);
+    if (ts > 0 && (nowMs - ts) <= maxAge) continue;
+    stale.push({ sym, age_min: ts > 0 ? Math.round((nowMs - ts) / 60000) : null });
+  }
+  stale.sort((a, b) => (b.age_min ?? Infinity) - (a.age_min ?? Infinity));
+  return {
+    count: stale.length,
+    symbols: stale.slice(0, sampleLimit).map((s) => (s.age_min != null ? `${s.sym}:${s.age_min}m` : `${s.sym}:never`)),
+  };
+}
+
 /**
  * Overlay one timed:prices row onto a ticker payload (snapshot / latest).
  * Always writes live price; resolves prev_close with TD-first logic.
