@@ -163,6 +163,104 @@
       } catch (_) { return null; }
     }
 
+    /** Per-ticker harmonic composite wave (magenta overlay + projection). */
+    function HarmonicWaveRailBlock({ sym }) {
+      const [payload, setPayload] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [err, setErr] = useState(null);
+      const ticker = String(sym || "").trim().toUpperCase();
+
+      useEffect(() => {
+        if (!ticker) {
+          setPayload(null);
+          setErr(null);
+          setLoading(false);
+          return;
+        }
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        const HC = window.TTHarmonicChart || {};
+        const url = HC.buildUrl
+          ? HC.buildUrl(API_BASE, ticker)
+          : `${API_BASE}/timed/harmonic-cycle?ticker=${encodeURIComponent(ticker)}`;
+        (async () => {
+          try {
+            const j = await _cachedJson(url, { ttlMs: 10 * 60 * 1000, maxAgeMs: 60 * 60 * 1000 });
+            if (cancelled) return;
+            if (j?.ok && j.wave_series) {
+              setPayload(j);
+              setErr(null);
+            } else {
+              setPayload(null);
+              setErr(String(j?.reason || j?.error || "unavailable"));
+            }
+          } catch (_) {
+            if (!cancelled) {
+              setPayload(null);
+              setErr("fetch_failed");
+            }
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
+        return () => { cancelled = true; };
+      }, [ticker]);
+
+      if (!ticker) return null;
+      const HC = window.TTHarmonicChart || {};
+      const CI = window.TTCycleIntel || {};
+      const meta = payload && HC.formatMeta
+        ? HC.formatMeta(payload)
+        : (payload && CI.formatHarmonicLabel ? CI.formatHarmonicLabel(payload) : null);
+      const svg = payload && HC.renderSvg ? HC.renderSvg(payload, { width: 520, height: 140 }) : null;
+
+      return (
+        <div style={{
+          marginBottom: "var(--ds-space-3)",
+          padding: "8px 10px",
+          borderRadius: "var(--ds-radius-xs)",
+          background: "rgba(255,0,255,0.06)",
+          border: "1px solid rgba(255,0,255,0.22)",
+        }}>
+          <div style={{ fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", color: "#ff66ff", fontWeight: 700, marginBottom: 4 }}>
+            Harmonic cycle · composite wave
+          </div>
+          {meta && (
+            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 6, lineHeight: 1.45 }}>
+              {meta}
+            </div>
+          )}
+          {loading && (
+            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic", padding: "12px 0", textAlign: "center" }}>
+              Loading harmonic cycle…
+            </div>
+          )}
+          {!loading && err && (
+            <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-faint)", fontStyle: "italic", padding: "8px 0" }}>
+              Composite wave unavailable ({err})
+            </div>
+          )}
+          {!loading && svg && (
+            <>
+              <div dangerouslySetInnerHTML={{ __html: svg }} style={{ width: "100%", lineHeight: 0 }} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: "var(--ds-text-faint)" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <i style={{ display: "inline-block", width: 14, height: 0, borderTop: "2px solid rgba(226,232,240,0.85)" }} /> Price
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <i style={{ display: "inline-block", width: 14, height: 0, borderTop: "2px solid #ff00ff" }} /> Composite wave
+                </span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <i style={{ display: "inline-block", width: 14, height: 0, borderTop: "2px dashed #ff00ff", opacity: 0.75 }} /> Projection
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Investor stage guidance — single source for header, portfolio, model
     // ═══════════════════════════════════════════════════════════════════════
@@ -10201,6 +10299,7 @@
                                 </div>
                               );
                             })()}
+                            <HarmonicWaveRailBlock sym={tickerSymbol} />
                             {predictionContract?.thesis && (
                               <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
                             )}
