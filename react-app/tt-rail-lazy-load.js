@@ -16,6 +16,7 @@
     "shared-rail-helpers.js" + _bust,
     "shared-verdict-ui.js" + _bust,
     "tt-cycle-intel.js" + _bust,
+    "tt-harmonic-chart.js" + _bust,
     "shared-right-rail.compiled.js" + _bust,
     "ticker-spider-chart.js" + _bust,
     "shared-rail-bootstrap.js" + _bust,
