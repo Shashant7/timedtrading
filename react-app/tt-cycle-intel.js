@@ -86,10 +86,25 @@
   function formatSpotlightLabel(sp) {
     if (!sp) return "—";
     const c = cycleLabel(sp.computed_cycle);
-    const cyclical = sp.cyclical_phase ? ` · ${sp.cyclical_phase}` : "";
+    const harmonic = sp.harmonic && sp.harmonic.ok ? formatHarmonicSummary(sp.harmonic) : null;
+    const cyclical = harmonic || (sp.cyclical_phase ? ` · ${sp.cyclical_phase}` : "");
     const desk = sp.fsd_phase ? ` · desk ${sp.fsd_phase}` : "";
     const src = sp.cycle_source === "own_regime" ? "" : (sp.home_index ? ` · via ${sp.home_index}` : "");
     return `${c}${cyclical}${desk}${src}`;
+  }
+
+  function formatHarmonicSummary(h) {
+    if (!h || !h.ok) return null;
+    const periods = Array.isArray(h.dominant_periods) ? h.dominant_periods.slice(0, 3).join("d · ") : "";
+    const pct = Number.isFinite(h.phase_pct) ? Math.round(h.phase_pct * 100) : null;
+    const head = h.label || "harmonic cycle";
+    const tail = [
+      h.primary_period ? `${h.primary_period}d primary` : null,
+      pct != null ? `${pct}% phase` : null,
+      h.direction ? h.direction : null,
+      periods ? `mix ${periods}d` : null,
+    ].filter(Boolean).join(" · ");
+    return ` · ${head}${tail ? ` (${tail})` : ""}`;
   }
 
   function formatRotationState(state) {
@@ -138,6 +153,7 @@
     formatIndexMix,
     formatTransition,
     formatSpotlightLabel,
+    formatHarmonicSummary,
     formatRotationState,
     formatSectorWatchReason,
   };

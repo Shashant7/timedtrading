@@ -15,6 +15,7 @@ import {
   resolveTickerCycle,
 } from "./market-regime-index.js";
 import { SECTOR_ETF_MAP, getSector } from "./sector-mapping.js";
+import { analyzeHarmonicCycleForTicker } from "./harmonic-cycle.js";
 
 export const DAILY_CYCLE_KV_KEY = "timed:daily_cycle_composite";
 export const DAILY_CYCLE_PREV_KV_KEY = "timed:daily_cycle_composite:prev";
@@ -519,6 +520,15 @@ export async function buildDailyCycleComposite(env, opts = {}) {
       snap = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
     } catch (_) {}
     const saty = resolved.saty_phase_pct ?? snap?.saty_phase_pct ?? snap?.phase_pct ?? null;
+    let harmonic = null;
+    if (typeof opts.getCandles === "function" && opts.harmonic !== false) {
+      harmonic = await analyzeHarmonicCycleForTicker(env, sym, opts.getCandles, {
+        minBars: opts.harmonicMinBars || 240,
+        topN: 5,
+      });
+      if (!harmonic?.ok) harmonic = null;
+    }
+    const cyclicalFromSaty = inferCyclicalPhaseLabel(saty, snap?.phase_zone);
     const entry = {
       symbol: sym,
       role,
@@ -528,7 +538,8 @@ export async function buildDailyCycleComposite(env, opts = {}) {
       home_index: resolved.home_index,
       saty_phase_pct: saty,
       phase_zone: snap?.phase_zone ?? null,
-      cyclical_phase: inferCyclicalPhaseLabel(saty, snap?.phase_zone),
+      cyclical_phase: harmonic?.label || cyclicalFromSaty,
+      harmonic,
       fsd_phase: fsdPhase,
       fsd_refs: fsdEntries.slice(0, 2),
       alignment: cycleAlignment(resolved.computed_cycle, fsdPhase),
@@ -559,7 +570,9 @@ export async function buildDailyCycleComposite(env, opts = {}) {
       label: sectorWatchLabel(row.sector, cfg),
       reason: pick.reason,
       sector_cycle: row.computed_cycle,
-      cyclical_phase: row.cyclical_phase,
+      cyclical_phase: (tickers.find((t) => t.harmonic?.ok && t.role === "leader") || tickers.find((t) => t.harmonic?.ok))?.cyclical_phase
+        || row.cyclical_phase,
+      harmonic: (tickers.find((t) => t.harmonic?.ok && t.role === "leader") || tickers.find((t) => t.harmonic?.ok))?.harmonic || null,
       alignment: row.alignment,
       tickers,
     });
@@ -606,7 +619,7 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     sector_rotation: sectorRotation,
     spotlights,
     tickers,
-    source: "daily-cycle-composite.v3",
+    source: "daily-cycle-composite.v4",
   };
 }
 
