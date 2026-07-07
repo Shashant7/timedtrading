@@ -656,6 +656,35 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         });
         ctx.waitUntil(deps.notifyPriceHub(env, { type: "prices", data: prices, updated_at: priceUpdateTs }));
 
+        // ── 2026-07-07 (MU/WDC/SOXL incident) — DISPLAY-STALENESS GUARDRAIL ─
+        // Any symbol whose vendor value timestamp (q_ts/p_ts) exceeds the
+        // freshness window is being REJECTED by every overlay gate, i.e.
+        // users see the prior-day scoring snapshot (MU at Monday's close
+        // with Monday's +0.94% during a -6% day). The stale sweep should
+        // keep this near zero; if it can't (stream not stamping, REST
+        // rate-limited, sweep cap saturated), page the operator via the
+        // cron tombstone lane instead of failing silently. 10-min window
+        // + 10-min grace: only symbols >20 min stale count, so quiet-tape
+        // trade_ts lag doesn't false-page.
+        if (_marketOpen) {
+          try {
+            const { summarizeValueStaleSymbols } = await import("./feed-outputs.js");
+            const { recordCronFailure, recordCronSuccess } = await import("../alerts.js");
+            const _vs = summarizeValueStaleSymbols(prices, priceUpdateTs, true, 10, { graceMs: 10 * 60 * 1000 });
+            if (_vs.count >= 10) {
+              ctx.waitUntil(recordCronFailure(env, {
+                op: "price_value_freshness",
+                error: `${_vs.count} symbols with vendor quote >20m stale during RTH — users may see prior-day prices. Worst: ${_vs.symbols.join(", ")}`,
+                caller: "price_feed_cron",
+              }).catch(() => {}));
+            } else {
+              ctx.waitUntil(recordCronSuccess(env, "price_value_freshness").catch(() => {}));
+            }
+          } catch (e) {
+            console.warn("[PRICE FEED] value-staleness guardrail error:", String(e?.message || e).slice(0, 200));
+          }
+        }
+
         console.log(`[PRICE FEED] source=${pricesSource}, doFresh=${doFresh}, restFallback=${restFallbackCount}, tvOverlay=${tvOverlayCount}, total=${Object.keys(prices).length}`);
 
         // ── SL/TP exit on price loop ──

@@ -3329,3 +3329,32 @@ Rule: the candle chain's `defaultSessionClip` must match the backtest basis —
 5/10/15/30 = extended hours, 60/240 = RTH. Only the daily-rollup reconcile clips
 to RTH (it compares to the official RTH daily). Never blanket-RTH-clip the
 indicator derive.
+
+## 2026-07-07 — Every timed:prices writer MUST stamp q_ts/p_ts (MU/WDC/SOXL prior-day price incident)
+
+A user caught MU displayed at $984.75 (Monday's close, +0.94%) during a -6%
+selloff; WDC and SOXL same. The feed itself was LIVE — `timed:prices` had
+p=925.5 for MU — but every gate rejected it:
+- The freshness doctrine (GS zombie fix) gates on `q_ts`/`p_ts`, never poll `t`.
+- The TwelveData WS stream DO (`PriceStream._flushPrices`) wrote rows with
+  `p` + `t` ONLY. Its live ticks never advanced `q_ts`/`p_ts` — only the cron
+  REST paths stamp them, and during RTH with a healthy stream the REST
+  pipeline doesn't run; only the capped stale sweep re-stamps (120/min).
+- Result: symbols aged past the 10-min window in rotation → server overlay
+  (`overlayTimedPricesRow`) refused → `/timed/all` served the scoring
+  snapshot's prior-day close; the CLIENT merge (`tt-live-data.js
+  quoteReceiptTs`) refused too — so even a hard refresh showed stale prices.
+- Silent because the stream's KV write also DROPPED the cron's
+  `stale_symbol_count` accounting — `/timed/health` read null.
+
+Rules:
+1. ANY writer of timed:prices rows must stamp `q_ts` (vendor event/quote
+   receipt) and `p_ts` (last actual price move), and never regress them
+   below an existing stamp (`mergeStreamRowIntoKv`).
+2. Blob-level fields (`stale_symbols`, `stale_symbol_count`, `market_open`)
+   must survive partial writers.
+3. Display-staleness guardrail: the */1 feed cron pages
+   `price_value_freshness` (cron tombstone → Discord) when ≥10 symbols have
+   vendor stamps >20 min old during RTH; `/timed/health` exposes
+   writer-independent `valueStaleCount`/`valueStaleSymbols` computed from
+   row stamps directly.

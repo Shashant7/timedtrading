@@ -22,6 +22,70 @@ const HEARTBEAT_INTERVAL_MS = 10_000;
 const CRYPTO_MAP = { BTCUSD: "BTC/USD", ETHUSD: "ETH/USD" };
 const CRYPTO_REVERSE = { "BTC/USD": "BTCUSD", "ETH/USD": "ETHUSD" };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Vendor-value timestamp stamping (2026-07-07 MU/WDC/SOXL incident).
+//
+// Every freshness gate in the platform (isPriceValueFresh in
+// feed/feed-outputs.js, quoteReceiptTs in react-app/tt-live-data.js) keys off
+// `q_ts` / `p_ts` — NEVER the poll timestamp `t` (GS zombie doctrine). The
+// stream flush used to write `p` + `t` only, so live WS ticks aged out of the
+// 10-min RTH freshness window as soon as the last REST sweep stamp got old:
+// /timed/all refused the overlay and served the scoring snapshot's prior-day
+// close (MU shown at $984.75 = Monday's close, +0.94% = Monday's change,
+// while the feed's own `p` was live at $925). Hard refresh didn't help
+// because the client merge gate rejected the rows for the same reason.
+//
+// Rule: EVERY writer of timed:prices rows must stamp q_ts (vendor event /
+// quote receipt time) and p_ts (last time `p` actually moved).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Build one flush row from stream symState — always carries q_ts/p_ts. */
+export function buildStreamFlushRow(s, now = Date.now()) {
+  const pc = s.prevClose || 0;
+
+  let dayChg = null, dayChgPct = null;
+  if (pc > 0) {
+    dayChg = Math.round((s.last - pc) * 100) / 100;
+    dayChgPct = Math.round(((s.last - pc) / pc) * 10000) / 100;
+  }
+
+  const lastTs = Number(s.lastTs) || now;
+  return {
+    p: Math.round(s.last * 100) / 100,
+    pc: Math.round(pc * 100) / 100,
+    dc: dayChg,
+    dp: dayChgPct,
+    dh: Math.round((s.dayHigh || 0) * 100) / 100,
+    dl: Math.round((s.dayLow || 0) * 100) / 100,
+    dv: s.dayVol || 0,
+    t: lastTs,
+    q_ts: lastTs,
+    p_ts: Number(s.lastChangeTs) || lastTs,
+  };
+}
+
+/**
+ * Merge one stream flush row onto the existing KV row. Never regresses
+ * q_ts/p_ts below what a REST path already stamped; preserves REST-written
+ * extended-hours fields and other metadata the stream doesn't know about.
+ */
+export function mergeStreamRowIntoKv(ex, row) {
+  const base = ex || {};
+  const merged = row.pc > 0
+    ? { ...base, ...row }
+    : {
+        ...base,
+        p: row.p,
+        t: row.t,
+        dh: row.dh || base.dh,
+        dl: row.dl || base.dl,
+        dv: row.dv || base.dv,
+      };
+  merged.q_ts = Math.max(Number(base.q_ts) || 0, Number(row.q_ts) || 0);
+  merged.p_ts = Math.max(Number(base.p_ts) || 0, Number(row.p_ts) || 0);
+  return merged;
+}
+
 export class PriceStream {
   constructor(state, env) {
     this.state = state;
@@ -138,12 +202,14 @@ export class PriceStream {
         if (data.price > 0 && (nextTs > (existing.lastTs || 0) || priceChanged)) {
           existing.last = data.price;
           existing.lastTs = priceChanged ? Math.max(nextTs, Date.now()) : nextTs;
+          if (priceChanged) existing.lastChangeTs = existing.lastTs;
         }
         existing.dirty = true;
       } else {
         this.symState[sym] = {
           last: data.price || 0,
           lastTs: data.trade_ts || Date.now(),
+          lastChangeTs: data.trade_ts || Date.now(),
           prevClose: data.prevDailyClose || 0,
           dailyClose: data.dailyClose || 0,
           dayOpen: data.dailyOpen || 0,
@@ -169,38 +235,14 @@ export class PriceStream {
     }
     if (dirtySyms.length === 0) return;
 
-    const session = this._getSession();
     const now = Date.now();
     const pricesData = {};
 
     for (const sym of dirtySyms) {
       const s = this.symState[sym];
-      const pc = s.prevClose || 0;
-      const dc = s.dailyClose || 0;
-
-      let dayChg = null, dayChgPct = null;
-      let ahChg = null, ahChgPct = null;
-
-      if (pc > 0) {
-        dayChg = Math.round((s.last - pc) * 100) / 100;
-        dayChgPct = Math.round(((s.last - pc) / pc) * 10000) / 100;
-      }
-      if ((session === "AH" || session === "PRE") && dc > 0) {
-        ahChg = Math.round((s.last - dc) * 100) / 100;
-        ahChgPct = Math.round(((s.last - dc) / dc) * 10000) / 100;
-      }
-
-      pricesData[sym] = {
-        p: Math.round(s.last * 100) / 100,
-        pc: Math.round(pc * 100) / 100,
-        dc: dayChg,
-        dp: dayChgPct,
-        dh: Math.round((s.dayHigh || 0) * 100) / 100,
-        dl: Math.round((s.dayLow || 0) * 100) / 100,
-        dv: s.dayVol || 0,
-        t: s.lastTs || now,
-      };
-
+      // Rows always carry q_ts/p_ts — every downstream freshness gate keys
+      // off these, and a bare p+t row reads as a zombie (MU/WDC/SOXL 2026-07-07).
+      pricesData[sym] = buildStreamFlushRow(s, now);
       s.dirty = false;
     }
 
@@ -233,20 +275,16 @@ export class PriceStream {
       try {
         let existing = {};
         let existingCount = 0;
+        let existingBlob = null;
         try {
-          const raw = await this.env.KV_TIMED.get("timed:prices", "json");
-          existing = raw?.prices || {};
+          existingBlob = await this.env.KV_TIMED.get("timed:prices", "json");
+          existing = existingBlob?.prices || {};
           existingCount = Object.keys(existing).length;
         } catch (_) {}
 
         const merged = { ...existing };
         for (const [sym, data] of Object.entries(pricesData)) {
-          const ex = existing[sym] || {};
-          if (data.pc > 0) {
-            merged[sym] = { ...ex, ...data };
-          } else {
-            merged[sym] = { ...ex, p: data.p, t: data.t, dh: data.dh || ex.dh, dl: data.dl || ex.dl, dv: data.dv || ex.dv };
-          }
+          merged[sym] = mergeStreamRowIntoKv(existing[sym], data);
         }
 
         const mergedCount = Object.keys(merged).length;
@@ -258,6 +296,12 @@ export class PriceStream {
             updated_at: now,
             ticker_count: mergedCount,
             _source: "twelvedata_stream",
+            // Preserve the cron sweep's stale accounting — dropping these
+            // blinded /timed/health (staleSymbolCount read null) whenever
+            // the stream was the last writer.
+            ...(existingBlob?.stale_symbols !== undefined ? { stale_symbols: existingBlob.stale_symbols } : {}),
+            ...(existingBlob?.stale_symbol_count !== undefined ? { stale_symbol_count: existingBlob.stale_symbol_count } : {}),
+            ...(existingBlob?.market_open !== undefined ? { market_open: existingBlob.market_open } : {}),
           }));
           this.lastKvWrite = now;
         }
@@ -364,6 +408,8 @@ export class PriceStream {
           prices[sym] = {
             p: s.last,
             t: s.lastTs,
+            q_ts: s.lastTs,
+            p_ts: s.lastChangeTs || s.lastTs,
             pc,
             dc: pc > 0 ? Math.round((s.last - pc) * 100) / 100 : 0,
             dp: pc > 0 ? Math.round(((s.last - pc) / pc) * 10000) / 100 : 0,
@@ -573,16 +619,18 @@ export class PriceStream {
       // when the event timestamp is more than 2 minutes stale.
       const ts = (eventTs > 0 && (Date.now() - eventTs) < 120000) ? eventTs : Date.now();
       if (existing) {
-        if (ts >= (existing.lastTs || 0) || Math.abs(price - (existing.last || 0)) > 0.0001) {
+        const priceMoved = Math.abs(price - (existing.last || 0)) > 0.0001;
+        if (ts >= (existing.lastTs || 0) || priceMoved) {
           existing.last = price;
           existing.lastTs = Math.max(ts, existing.lastTs || 0);
+          if (priceMoved) existing.lastChangeTs = existing.lastTs;
           if (price > (existing.dayHigh || 0)) existing.dayHigh = price;
           if (existing.dayLow <= 0 || price < existing.dayLow) existing.dayLow = price;
           existing.dirty = true;
         }
       } else {
         this.symState[sym] = {
-          last: price, lastTs: ts,
+          last: price, lastTs: ts, lastChangeTs: ts,
           prevClose: 0, dailyClose: 0,
           dayOpen: 0, dayHigh: price, dayLow: price, dayVol: 0,
           dirty: true,
