@@ -329,8 +329,9 @@
       ".tt-strip-card{flex:0 0 280px;width:280px;max-width:280px;scroll-snap-align:start;display:flex;flex-direction:column;gap:6px;min-width:0}",
       ".tt-strip-card .ds-tickercard.tt-lane-card{width:100%!important;flex:0 0 auto;min-height:118px;height:auto;max-height:none}",
       ".tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--active,.tt-strip-card .ds-tickercard.tt-lane-card.tt-lane-card--owned{--tt-lane-card-h:auto;--tt-lane-mid-h:auto}",
+      ".tt-strip-card .tt-lane-card__main{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;align-items:flex-start}",
       ".tt-strip-card .tt-lane-card__mid{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;padding-top:4px}",
-      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap;gap:3px 4px}",
+      ".tt-strip-card .tt-lane-card__chips{overflow:visible;max-height:none;height:auto;flex-wrap:wrap;gap:3px 4px;align-content:flex-start}",
       ".tt-strip-card .tt-lane-card__chips .ds-chip,.tt-strip-card .tt-lane-card__chips .tt-lane-badge{padding:1px 6px;font-size:9px;font-weight:700;letter-spacing:.04em;line-height:1.15;max-height:16px}",
       ".tt-strip-card .tt-lane-badge{margin-left:0;border-radius:999px;border:1px solid transparent}",
       ".tt-strip-card .tt-lane-badge--trader{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.28);color:#60a5fa}",
@@ -482,6 +483,81 @@
         tgtDetail: (fv > price) ? "Fair value" : "10% premium target",
       },
     };
+  }
+
+  /** Normalize CTO feed row or /timed/cto/ticker payload for zone probabilities. */
+  function normalizeCtoFeedItem(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    var sym = String(raw.ticker || "").toUpperCase();
+    if (!sym) return null;
+    var up = raw.top_upside;
+    var dn = raw.top_downside;
+    if (Array.isArray(up)) up = up[0];
+    if (Array.isArray(dn)) dn = dn[0];
+    return {
+      ticker: sym,
+      top_upside: up ? {
+        price: up.price,
+        adj_prob: up.adj_prob != null ? up.adj_prob : up.regime_adjusted_prob,
+      } : null,
+      top_downside: dn ? {
+        price: dn.price,
+        adj_prob: dn.adj_prob != null ? dn.adj_prob : dn.regime_adjusted_prob,
+      } : null,
+    };
+  }
+
+  /** Attach CTO invalidation/target hit probabilities to a zone bar model. */
+  function attachCtoProbToZone(zm, ctoItem) {
+    if (!zm) return zm;
+    var norm = normalizeCtoFeedItem(ctoItem);
+    if (!norm) return zm;
+    var invProb = Number(norm.top_downside && norm.top_downside.adj_prob);
+    var tgtProb = Number(norm.top_upside && norm.top_upside.adj_prob);
+    if (!Number.isFinite(invProb) && !Number.isFinite(tgtProb)) return zm;
+    var out = Object.assign({}, zm);
+    if (Number.isFinite(invProb)) out.invProb = invProb;
+    if (Number.isFinite(tgtProb)) out.tgtProb = tgtProb;
+    return out;
+  }
+
+  /** Load CTO map for strip cards — bulk feed plus per-ticker backfill for gaps. */
+  function fetchCtoMapForSymbols(symbols) {
+    var uniq = [];
+    (symbols || []).forEach(function (s) {
+      var u = String(s || "").toUpperCase();
+      if (u && uniq.indexOf(u) < 0) uniq.push(u);
+    });
+    if (!uniq.length) return Promise.resolve({});
+    var feedUrl = API_BASE + "/timed/cto/feed?limit=120";
+    var fetchFeed = window.TTFetchCache && window.TTFetchCache.get
+      ? window.TTFetchCache.get(feedUrl, {
+          ttlMs: 5 * 60 * 1000,
+          maxAgeMs: 30 * 60 * 1000,
+          fetchOpts: { credentials: "include" },
+        })
+      : fetch(feedUrl, { credentials: "include" }).then(function (r) { return r.json(); });
+    return fetchFeed.then(function (j) {
+      var map = {};
+      if (j && j.ok && Array.isArray(j.items)) {
+        j.items.forEach(function (it) {
+          var n = normalizeCtoFeedItem(it);
+          if (n) map[n.ticker] = n;
+        });
+      }
+      var missing = uniq.filter(function (s) { return !map[s]; });
+      if (!missing.length) return map;
+      return Promise.all(missing.slice(0, 16).map(function (sym) {
+        var u = API_BASE + "/timed/cto/ticker?ticker=" + encodeURIComponent(sym);
+        return fetch(u, { credentials: "include" })
+          .then(function (r) { return r.json(); })
+          .then(function (p) {
+            var n = normalizeCtoFeedItem(p);
+            if (n) map[n.ticker] = n;
+          })
+          .catch(function () {});
+      })).then(function () { return map; });
+    }).catch(function () { return {}; });
   }
 
   /** Pullback band bounds — prefer live accumZone, else the card planning band. */
@@ -1171,6 +1247,18 @@
         if (hasTickerData) return rankReadySetupsFromData(tickerData);
         return (apiPack && apiPack.candidates) || [];
       }, [hasTickerData, tickerData, apiPack]);
+      var _cto = useState({});
+      var ctoBySym = _cto[0];
+      var setCtoBySym = _cto[1];
+      useEffect(function () {
+        if (!window._ttIsPro || !candidates.length) return;
+        var alive = true;
+        var syms = candidates.map(function (r) { return String(r.ticker || "").toUpperCase(); });
+        fetchCtoMapForSymbols(syms).then(function (m) {
+          if (alive) setCtoBySym(m || {});
+        }).catch(function () {});
+        return function () { alive = false; };
+      }, [candidates]);
       // Loading = the source data hasn't resolved yet (parent /timed/all still
       // in flight AND our own verdict fetch hasn't returned). Show a skeleton
       // rather than a premature empty state.
@@ -1297,9 +1385,10 @@
             if (row.blocker) footEls.push(h("div", { key: "blocker", className: "tt-ready-card__blocker" }, row.blocker));
             if (LaneCard && LaneCard.zoneBarMeta) {
               var tagLanes = zones.length > 1;
+              var ctoItem = ctoBySym[sym];
               zones.forEach(function (zm, idx) {
                 footEls.push(h(React.Fragment, { key: "meta-" + zm.lane + "-" + idx },
-                  LaneCard.zoneBarMeta(zm, { laneTag: tagLanes }),
+                  LaneCard.zoneBarMeta(attachCtoProbToZone(zm, ctoItem), { laneTag: tagLanes }),
                 ));
               });
             }
@@ -1410,6 +1499,9 @@
       TodaysAnswers: TodaysAnswers,
       rankReadySetupsFromData: rankReadySetupsFromData,
       resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
+      attachCtoProbToZone: attachCtoProbToZone,
+      fetchCtoMapForSymbols: fetchCtoMapForSymbols,
+      normalizeCtoFeedItem: normalizeCtoFeedItem,
       TrustStrip: TrustStrip,
       useVerdict: useVerdict,
       fetchVerdict: fetchVerdict,
@@ -1456,4 +1548,4 @@
   };
 })();
 
-// cache-bust:1783370222459:533053837
+// cache-bust:1783430201761:579367582

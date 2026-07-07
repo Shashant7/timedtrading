@@ -122,4 +122,23 @@ describe("Ready Setups zone-bar cards", () => {
     expect(container.textContent).toContain("\u2606");
     act(() => { root.unmount(); });
   });
+
+  it("attachCtoProbToZone adds hit/reach probabilities from CTO payload", () => {
+    const attach = window.TimedVerdictUI.attachCtoProbToZone;
+    const zm = { inv: 96, tgt: 109, pb: [100, 103], price: 97 };
+    const out = attach(zm, {
+      ticker: "MNST",
+      top_downside: { price: 96.54, adj_prob: 0.97 },
+      top_upside: { price: 109, adj_prob: 0.94 },
+    });
+    expect(out.invProb).toBe(0.97);
+    expect(out.tgtProb).toBe(0.94);
+    const meta = window.TTLaneCard.zoneBarMeta(out);
+    const html = document.createElement("div");
+    const root = createRoot(html);
+    act(() => { root.render(meta); });
+    expect(html.textContent).toMatch(/97% hit/);
+    expect(html.textContent).toMatch(/94% reach/);
+    act(() => { root.unmount(); });
+  });
 });

@@ -2830,8 +2830,18 @@ function buildGrowthZoneModel(row, ctoItem, livePrice) {
   if (!Number.isFinite(price) || price <= 0) return null;
   const down = ctoItem?.top_downside;
   const up = ctoItem?.top_upside;
-  let inv = Number(down?.price);
-  let tgt = Number(up?.price);
+  const norm = window.TimedVerdictUI?.normalizeCtoFeedItem ? window.TimedVerdictUI.normalizeCtoFeedItem({
+    ticker: row?.ticker,
+    top_downside: down,
+    top_upside: up
+  }) : {
+    top_downside: down,
+    top_upside: up
+  };
+  const downN = norm?.top_downside;
+  const upN = norm?.top_upside;
+  let inv = Number(downN?.price);
+  let tgt = Number(upN?.price);
   const fv = Number(row?.fair_value_price);
   if (!Number.isFinite(inv) || inv >= price) inv = price * 0.9;
   if (!Number.isFinite(tgt) || tgt <= price) {
@@ -2854,8 +2864,8 @@ function buildGrowthZoneModel(row, ctoItem, livePrice) {
     pbLo,
     pbHi,
     price,
-    invProb: Number(down?.adj_prob),
-    tgtProb: Number(up?.adj_prob),
+    invProb: Number(downN?.adj_prob),
+    tgtProb: Number(upN?.adj_prob),
     pct,
     minPx,
     maxPx
@@ -2905,29 +2915,34 @@ function GrowthIdeasStrip({
   const [ctoBySym, setCtoBySym] = useState({});
   useEffect(() => {
     let alive = true;
-    const loadCto = async () => {
-      try {
-        const j = window.TTFetchCache ? await window.TTFetchCache.get(CTO_FEED_URL, {
-          ttlMs: 5 * 60 * 1000,
-          maxAgeMs: 30 * 60 * 1000,
-          fetchOpts: {
-            credentials: "include"
-          }
-        }) : await fetchJsonRetry(CTO_FEED_URL);
-        if (!alive || !j?.ok || !Array.isArray(j.items)) return;
-        const map = {};
+    if (!rows?.length) return () => {
+      alive = false;
+    };
+    const syms = rows.map(r => String(r?.ticker || "").toUpperCase()).filter(Boolean);
+    const load = window.TimedVerdictUI?.fetchCtoMapForSymbols ? window.TimedVerdictUI.fetchCtoMapForSymbols(syms) : (async () => {
+      const j = window.TTFetchCache ? await window.TTFetchCache.get(CTO_FEED_URL, {
+        ttlMs: 5 * 60 * 1000,
+        maxAgeMs: 30 * 60 * 1000,
+        fetchOpts: {
+          credentials: "include"
+        }
+      }) : await fetchJsonRetry(CTO_FEED_URL);
+      const map = {};
+      if (j?.ok && Array.isArray(j.items)) {
         for (const it of j.items) {
           const sym = String(it?.ticker || "").toUpperCase();
           if (sym) map[sym] = it;
         }
-        setCtoBySym(map);
-      } catch (_) {}
-    };
-    loadCto();
+      }
+      return map;
+    })();
+    Promise.resolve(load).then(map => {
+      if (alive) setCtoBySym(map || {});
+    }).catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [rows]);
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
@@ -6659,6 +6674,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783370222459:533053837
+// cache-bust:1783430201761:579367582
 
-// cache-bust:1783370222459:533053837
+// cache-bust:1783430201761:579367582
