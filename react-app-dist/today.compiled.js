@@ -2733,33 +2733,110 @@ function DailyCycleCompositePanel({
       computed_only: 4,
       none: 5
     };
-    return (rank[a.alignment] ?? 9) - (rank[b.alignment] ?? 9);
+    const cycleRank = {
+      downtrend: 0,
+      transitional: 1,
+      uptrend: 2
+    };
+    const ar = (rank[a.alignment] ?? 9) - (rank[b.alignment] ?? 9);
+    if (ar !== 0) return ar;
+    return (cycleRank[a.computed_cycle] ?? 9) - (cycleRank[b.computed_cycle] ?? 9);
   });
+  const indexMixLabel = CI.formatIndexMix ? CI.formatIndexMix(composite.index_mix) : null;
+  const transitions = Array.isArray(composite.transitions) ? composite.transitions.slice(0, 4) : [];
+  const spotlights = Array.isArray(composite.spotlights) ? composite.spotlights : [];
+  const breadthCol = CI.cycleColor ? CI.cycleColor(composite.breadth_cycle) : "var(--tt-accent)";
   const body = h(React.Fragment, null, !embedded && h("div", {
     className: "tt-sec-title"
   }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
     className: "tt-sec-h"
-  }, "Computed market cycle vs research-desk cycle reads"), h("div", {
+  }, "HTF EMA regime cycle vs research-desk phase reads"), h("div", {
     className: "tt-dcc-banner"
+  }, h("div", {
+    className: "tt-dcc-banner-row"
   }, h("span", {
     className: "tt-dcc-breadth",
     style: {
-      color: "var(--tt-accent)"
-    }
-  }, "Market: ", CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), composite.indices && composite.indices.SPY && h("span", {
+      color: breadthCol
+    },
+    title: "Breadth-weighted cycle across SPY, QQQ, IWM, DIA, RSP"
+  }, "Market HTF cycle: ", CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), indexMixLabel && h("span", {
+    className: "tt-dcc-pill",
+    title: "Per-index cycle mix (SPY/QQQ/IWM/DIA/RSP)"
+  }, "Indices ", indexMixLabel), composite.indices && composite.indices.SPY && h("span", {
+    className: "tt-dcc-pill",
     style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      fontFamily: "var(--tt-font-mono)"
+      color: CI.cycleColor ? CI.cycleColor(composite.indices.SPY.cycle) : undefined
     }
-  }, "SPY ", CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)), h("div", {
+  }, "SPY ", CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)), spotlights.length > 0 && h("div", {
+    className: "tt-dcc-banner-row"
+  }, h("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: "var(--tt-text-muted)"
+    }
+  }, "SEMIS WATCH"), spotlights.map(function (sp) {
+    const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
+    const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
+    let dayPct = null;
+    try {
+      const utils = window.TimedPriceUtils;
+      if (dayRow && utils && typeof utils.getDailyChange === "function") {
+        const dc = utils.getDailyChange(dayRow);
+        if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
+      }
+    } catch (_) {}
+    return h("button", {
+      key: sp.symbol,
+      type: "button",
+      className: "tt-dcc-pill",
+      style: {
+        color: col,
+        cursor: "pointer"
+      },
+      title: CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol,
+      onClick: function () {
+        if (onSelectTicker) onSelectTicker(sp.symbol);
+      }
+    }, sp.symbol, Number.isFinite(dayPct) && h("span", {
+      style: {
+        color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+        marginLeft: 4
+      }
+    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"), h("span", {
+      style: {
+        color: "var(--tt-text-muted)",
+        fontWeight: 600,
+        marginLeft: 4
+      }
+    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle));
+  })), transitions.length > 0 && h("div", {
+    className: "tt-dcc-banner-row"
+  }, h("span", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: "var(--tt-warn)"
+    }
+  }, "RECENT SHIFTS"), transitions.map(function (tr, i) {
+    return h("span", {
+      key: tr.symbol + "-" + i,
+      className: "tt-dcc-trans",
+      title: "Cycle transition since last scoring refresh"
+    }, CI.formatTransition ? CI.formatTransition(tr) : tr.symbol + " " + tr.from + " → " + tr.to);
+  }))), h("div", {
     className: "tt-strip-scroll",
     role: "list",
     "aria-label": "Sector cycle alignment"
   }, sectors.map(function (s) {
     const etf = s.etf || "";
     const alignCol = CI.alignmentColor ? CI.alignmentColor(s.alignment) : "var(--tt-text-muted)";
-    const label = CI.formatCycleChip ? CI.formatCycleChip(s.computed_cycle, s.alignment) : s.computed_cycle || "—";
+    const label = CI.formatCycleChip ? CI.formatCycleChip(s.computed_cycle, s.alignment, {
+      short: true
+    }) : s.computed_cycle || "—";
     const tickerRow = data && etf ? data[String(etf).toUpperCase()] : null;
     let dayPct = null;
     try {
@@ -2770,9 +2847,9 @@ function DailyCycleCompositePanel({
       }
     } catch (_) {}
     const chgCol = Number.isFinite(dayPct) ? dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-dim)";
-    const title = [s.sector, "ETF " + etf, Number.isFinite(dayPct) ? "Day " + (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%" : null, "Computed market cycle: " + (s.computed_cycle || "n/a"), s.fsd_phase ? "Research desk phase: " + s.fsd_phase : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
+    const title = [s.sector, "ETF " + etf, Number.isFinite(dayPct) ? "Day " + (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%" : null, "HTF cycle: " + (s.computed_cycle || "n/a"), s.own_cycle && s.own_cycle !== s.computed_cycle ? "Own regime: " + s.own_cycle : null, s.cycle_source ? "Source: " + s.cycle_source : null, s.fsd_phase ? "Research desk phase: " + s.fsd_phase : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
     return h("button", {
-      key: etf || s.sector,
+      key: etf,
       type: "button",
       className: "tt-strip-chip",
       title: title,
@@ -6774,6 +6851,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783448042015:286974805
+// cache-bust:1783448745282:94730293
 
-// cache-bust:1783448042015:286974805
+// cache-bust:1783448745282:94730293

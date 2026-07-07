@@ -57,10 +57,45 @@
     return SECTOR_SHORT[name] || String(name || "").replace(/ Sector$/i, "").slice(0, 14);
   }
 
-  function formatCycleChip(cycle, alignment) {
+  const CYCLE_COLOR = {
+    uptrend: "var(--tt-up-soft, #22c55e)",
+    downtrend: "var(--tt-dn-soft, #ef4444)",
+    transitional: "var(--tt-warn, #f59e0b)",
+  };
+
+  function cycleColor(c) {
+    return CYCLE_COLOR[String(c || "").toLowerCase()] || "var(--tt-text-muted, #94a3b8)";
+  }
+
+  function formatIndexMix(mix) {
+    if (!mix || typeof mix !== "object") return null;
+    const parts = [];
+    if (mix.uptrend) parts.push(`${mix.uptrend} up`);
+    if (mix.transitional) parts.push(`${mix.transitional} trans`);
+    if (mix.downtrend) parts.push(`${mix.downtrend} down`);
+    return parts.length ? parts.join(" · ") : null;
+  }
+
+  function formatTransition(t) {
+    if (!t) return "";
+    const from = cycleLabel(t.from);
+    const to = cycleLabel(t.to);
+    return `${t.symbol}: ${from} → ${to}`;
+  }
+
+  function formatSpotlightLabel(sp) {
+    if (!sp) return "—";
+    const c = cycleLabel(sp.computed_cycle);
+    const desk = sp.fsd_phase ? ` · desk ${sp.fsd_phase}` : "";
+    const src = sp.cycle_source === "own_regime" ? "" : (sp.home_index ? ` · via ${sp.home_index}` : "");
+    return `${c}${desk}${src}`;
+  }
+
+  function formatCycleChip(cycle, alignment, opts) {
     const c = cycleLabel(cycle);
-    const cycleCtx = c !== "—" ? `Cycle: ${c}` : c;
+    const cycleCtx = c !== "—" ? `HTF cycle: ${c}` : c;
     const a = String(alignment || "").toLowerCase();
+    if (opts && opts.short) return cycleCtx;
     if (!a || a === "none" || a === "computed_only") return cycleCtx;
     const alignLabel = a === "aligned"
       ? "aligned w/ desk"
@@ -72,9 +107,13 @@
 
   window.TTCycleIntel = {
     cycleLabel,
+    cycleColor,
     alignmentColor,
     modeLabel,
     sectorShort,
     formatCycleChip,
+    formatIndexMix,
+    formatTransition,
+    formatSpotlightLabel,
   };
 })();

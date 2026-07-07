@@ -9,6 +9,7 @@
 import { kvGetJSON } from "./storage.js";
 import {
   CYCLE_INDEXES,
+  cycleFromRegime,
   indexCyclesFromRegimes,
   breadthAwareMarketCycle,
   resolveTickerCycle,
@@ -16,7 +17,10 @@ import {
 import { SECTOR_ETF_MAP, getSector } from "./sector-mapping.js";
 
 export const DAILY_CYCLE_KV_KEY = "timed:daily_cycle_composite";
+export const DAILY_CYCLE_PREV_KV_KEY = "timed:daily_cycle_composite:prev";
 export const DAILY_CYCLE_KV_TTL_SEC = 300;
+/** Semis / AI names the desk tracks for Daily Cycle Composite inflection. */
+export const CYCLE_SPOTLIGHT_TICKERS = ["SMH", "NVDA"];
 
 const CYCLE_TEXT_PATTERNS = [
   { re: /daily\s+cycle\s+composite/gi, kind: "daily_cycle_composite" },
@@ -115,11 +119,12 @@ function safeJson(raw) {
   try { return JSON.parse(String(raw)); } catch { return null; }
 }
 
-async function loadIndexRegimes(env) {
+async function loadIndexRegimes(env, extraSymbols = []) {
   const KV = env?.KV_TIMED;
   const out = {};
   if (!KV) return out;
-  await Promise.all(CYCLE_INDEXES.map(async (idx) => {
+  const symbols = [...new Set([...CYCLE_INDEXES, ...extraSymbols])];
+  await Promise.all(symbols.map(async (idx) => {
     try {
       const d = await kvGetJSON(KV, `timed:latest:${idx}`);
       if (d && (d.regime_class || d.ema_regime_daily != null || d.htf_score != null)) {
@@ -203,13 +208,84 @@ function sectorForTicker(ticker, sectorMapFn) {
   return null;
 }
 
+/** Resolve computed cycle for a symbol — prefer its own EMA/HTF regime, else home index. */
+export function resolveComputedCycle(sym, regimesBySymbol, tickerIndexMap, cyclesByIndex, breadthCycle) {
+  const reg = regimesBySymbol[sym] || {};
+  const ownCycle = cycleFromRegime(reg.ema_regime_daily, reg.htf_score);
+  const home = resolveTickerCycle(sym, tickerIndexMap, cyclesByIndex, breadthCycle);
+  const computed = ownCycle || home.cycle || cyclesByIndex[sym] || null;
+  return {
+    computed_cycle: computed,
+    own_cycle: ownCycle,
+    home_index: home.index,
+    home_index_cycle: home.cycle,
+    cycle_source: ownCycle ? "own_regime" : (home.source === "home_index" ? "home_index" : "breadth"),
+    saty_phase_pct: reg.saty_phase_pct ?? null,
+    ema_regime_daily: reg.ema_regime_daily ?? null,
+    htf_score: reg.htf_score ?? null,
+  };
+}
+
+/** Breadth mix across benchmark indices for the banner row. */
+export function summarizeIndexMix(cyclesByIndex = {}) {
+  const mix = { uptrend: 0, downtrend: 0, transitional: 0 };
+  for (const idx of CYCLE_INDEXES) {
+    const c = cyclesByIndex[idx];
+    if (c && mix[c] != null) mix[c] += 1;
+  }
+  return mix;
+}
+
+/** Detect cycle label changes vs the prior composite snapshot. */
+export function detectCycleTransitions(prev, built) {
+  if (!prev || !built) return [];
+  const out = [];
+  const push = (scope, symbol, from, to) => {
+    if (!from || !to || from === to) return;
+    out.push({ scope, symbol, from, to, at: built.generated_at });
+  };
+  push("market", "MARKET", prev.breadth_cycle, built.breadth_cycle);
+  const prevSectors = {};
+  (prev.sectors || []).forEach((s) => { if (s.etf) prevSectors[s.etf] = s; });
+  (built.sectors || []).forEach((s) => {
+    const p = prevSectors[s.etf];
+    if (p) push("sector", s.etf, p.computed_cycle, s.computed_cycle);
+  });
+  const prevSpot = {};
+  (prev.spotlights || []).forEach((s) => { if (s.symbol) prevSpot[s.symbol] = s; });
+  (built.spotlights || []).forEach((s) => {
+    const p = prevSpot[s.symbol];
+    if (p) push("spotlight", s.symbol, p.computed_cycle, s.computed_cycle);
+  });
+  return out;
+}
+
+async function maybeAlertCycleTransitions(env, transitions = []) {
+  if (!transitions.length) return;
+  try {
+    const { notifyDiscord } = await import("./alerts.js");
+    const lines = transitions.slice(0, 8).map((t) =>
+      `**${t.symbol}** (${t.scope}): ${t.from} → **${t.to}**`,
+    );
+    await notifyDiscord(env, {
+      title: "Daily Cycle Composite — cycle transition",
+      description: lines.join("\n"),
+      color: transitions.some((t) => t.to === "downtrend") ? 0xef4444 : 0x22c55e,
+      footer: { text: "Computed from EMA regime + HTF score · refreshes each scoring cycle" },
+    }, "system");
+  } catch (_) { /* best-effort */ }
+}
+
 /**
  * Build the cross-sector Daily Cycle Composite snapshot.
  */
 export async function buildDailyCycleComposite(env, opts = {}) {
-  const regimesByIndex = await loadIndexRegimes(env);
+  const sectorEtfs = [...new Set(Object.values(SECTOR_ETF_MAP))];
+  const regimeSymbols = [...new Set([...sectorEtfs, ...CYCLE_SPOTLIGHT_TICKERS])];
+  const regimesByIndex = await loadIndexRegimes(env, regimeSymbols);
   const cyclesByIndex = indexCyclesFromRegimes(regimesByIndex);
   const breadthCycle = breadthAwareMarketCycle(cyclesByIndex);
+  const indexMix = summarizeIndexMix(cyclesByIndex);
 
   let tickerIndexMap = null;
   try {
@@ -218,7 +294,7 @@ export async function buildDailyCycleComposite(env, opts = {}) {
   } catch (_) {}
 
   const fsdRefs = await loadFsdCycleRefsFromDb(env, opts);
-  const getSector = opts.getSectorForTicker || null;
+  const getSectorFn = opts.getSectorForTicker || null;
 
   const indices = {};
   for (const idx of CYCLE_INDEXES) {
@@ -234,21 +310,50 @@ export async function buildDailyCycleComposite(env, opts = {}) {
   }
 
   const sectors = [];
+  const seenEtf = new Set();
   for (const [sector, etf] of Object.entries(SECTOR_ETF_MAP)) {
-    const etfReg = regimesByIndex[etf] || {};
-    const home = resolveTickerCycle(etf, tickerIndexMap, cyclesByIndex, breadthCycle);
+    if (seenEtf.has(etf)) continue;
+    seenEtf.add(etf);
+    const resolved = resolveComputedCycle(etf, regimesByIndex, tickerIndexMap, cyclesByIndex, breadthCycle);
     const sectorFsd = fsdRefs.bySector[sector] || [];
     const fsdPhase = sectorFsd.length ? inferFsdCyclePhase(sectorFsd.flatMap((e) => e.refs)) : null;
     sectors.push({
       sector,
       etf,
-      computed_cycle: home.cycle || cyclesByIndex[etf] || null,
-      home_index: home.index,
-      home_index_cycle: home.cycle,
-      saty_phase_pct: etfReg.saty_phase_pct ?? null,
+      computed_cycle: resolved.computed_cycle,
+      own_cycle: resolved.own_cycle,
+      cycle_source: resolved.cycle_source,
+      home_index: resolved.home_index,
+      home_index_cycle: resolved.home_index_cycle,
+      saty_phase_pct: resolved.saty_phase_pct,
+      ema_regime_daily: resolved.ema_regime_daily,
+      htf_score: resolved.htf_score,
       fsd_refs: sectorFsd,
       fsd_phase: fsdPhase,
-      alignment: cycleAlignment(home.cycle || cyclesByIndex[etf], fsdPhase),
+      alignment: cycleAlignment(resolved.computed_cycle, fsdPhase),
+    });
+  }
+
+  const spotlights = [];
+  for (const sym of CYCLE_SPOTLIGHT_TICKERS) {
+    const resolved = resolveComputedCycle(sym, regimesByIndex, tickerIndexMap, cyclesByIndex, breadthCycle);
+    const fsdEntries = fsdRefs.byTicker[sym] || [];
+    const fsdPhase = fsdEntries.length ? inferFsdCyclePhase(fsdEntries.flatMap((e) => e.refs)) : null;
+    let snap = null;
+    try {
+      snap = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
+    } catch (_) {}
+    spotlights.push({
+      symbol: sym,
+      label: sym === "SMH" ? "Semis ETF" : "NVDA",
+      computed_cycle: resolved.computed_cycle,
+      own_cycle: resolved.own_cycle,
+      cycle_source: resolved.cycle_source,
+      home_index: resolved.home_index,
+      saty_phase_pct: resolved.saty_phase_pct ?? snap?.saty_phase_pct ?? snap?.phase_pct ?? null,
+      fsd_phase: fsdPhase,
+      fsd_refs: fsdEntries.slice(0, 2),
+      alignment: cycleAlignment(resolved.computed_cycle, fsdPhase),
     });
   }
 
@@ -259,7 +364,7 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     : Object.keys(fsdRefs.byTicker).slice(0, 30);
 
   for (const sym of wantTickers) {
-    const resolved = resolveTickerCycle(sym, tickerIndexMap, cyclesByIndex, breadthCycle);
+    const resolved = resolveComputedCycle(sym, regimesByIndex, tickerIndexMap, cyclesByIndex, breadthCycle);
     let snap = null;
     try {
       snap = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
@@ -267,13 +372,18 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     const fsdEntries = fsdRefs.byTicker[sym] || [];
     const fsdPhase = fsdEntries.length ? inferFsdCyclePhase(fsdEntries.flatMap((e) => e.refs)) : null;
     tickers[sym] = {
-      computed: resolved,
+      computed: {
+        cycle: resolved.computed_cycle,
+        index: resolved.home_index,
+        source: resolved.cycle_source,
+        own_cycle: resolved.own_cycle,
+      },
       saty_phase_pct: snap?.saty_phase_pct ?? snap?.phase_pct ?? null,
       investor_score: snap?.investor_score ?? snap?.investorScore ?? null,
-      sector: sectorForTicker(sym, getSector),
+      sector: sectorForTicker(sym, getSectorFn),
       fsd_refs: fsdEntries,
       fsd_phase: fsdPhase,
-      alignment: cycleAlignment(resolved.cycle, fsdPhase),
+      alignment: cycleAlignment(resolved.computed_cycle, fsdPhase),
     };
   }
 
@@ -281,10 +391,12 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     ok: true,
     generated_at: new Date().toISOString(),
     breadth_cycle: breadthCycle,
+    index_mix: indexMix,
     indices,
     sectors,
+    spotlights,
     tickers,
-    source: "daily-cycle-composite.v1",
+    source: "daily-cycle-composite.v2",
   };
 }
 
@@ -332,6 +444,17 @@ export async function getDailyCycleComposite(env, opts = {}) {
 
   if (KV) {
     try {
+      const prev = await kvGetJSON(KV, DAILY_CYCLE_PREV_KV_KEY);
+      built.transitions = detectCycleTransitions(prev, built);
+      if (built.transitions.length > 0 && !opts.skipAlerts) {
+        await maybeAlertCycleTransitions(env, built.transitions);
+      }
+      await KV.put(DAILY_CYCLE_PREV_KV_KEY, JSON.stringify({
+        generated_at: built.generated_at,
+        breadth_cycle: built.breadth_cycle,
+        sectors: (built.sectors || []).map((s) => ({ etf: s.etf, computed_cycle: s.computed_cycle })),
+        spotlights: (built.spotlights || []).map((s) => ({ symbol: s.symbol, computed_cycle: s.computed_cycle })),
+      }), { expirationTtl: 86400 * 7 });
       await KV.put(DAILY_CYCLE_KV_KEY, JSON.stringify(built), { expirationTtl: DAILY_CYCLE_KV_TTL_SEC * 2 });
     } catch (_) {}
   }
