@@ -3,7 +3,10 @@ import {
   isBriefOpenTradeStatus,
   mapBriefOpenTradeRow,
   buildInfographicPositionRows,
+  liveDayPctFromPriceFeedRow,
+  countInvestorOpenBook,
 } from "./daily-brief.js";
+import { parseBriefPositionGuidanceByTicker } from "./daily-brief-markdown.js";
 import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
 describe("daily-brief open positions", () => {
@@ -46,5 +49,35 @@ describe("daily-brief open positions", () => {
     expect(resolveOwnedInvestorKanbanStage({ stage: "accumulate", actionTier: "monitor" }, "accumulate")).toBe("watch");
     expect(resolveOwnedInvestorKanbanStage({ stage: "accumulate", actionTier: "act_now" }, "accumulate")).toBe("accumulate");
     expect(resolveOwnedInvestorKanbanStage(null, "accumulate")).toBe("accumulate");
+  });
+
+  it("liveDayPctFromPriceFeedRow falls back to p vs pc when dp is zero during RTH", () => {
+    const now = Date.now();
+    const pct = liveDayPctFromPriceFeedRow(
+      { p: 101, pc: 100, dp: 0, t: now, q_ts: now },
+      true,
+      now,
+    );
+    expect(pct).toBeCloseTo(1, 2);
+  });
+
+  it("countInvestorOpenBook merges D1 rows with score-owned tickers", () => {
+    const n = countInvestorOpenBook(
+      [{ ticker: "NVDA", status: "OPEN", total_shares: 10 }],
+      { AAPL: { position: { owned: true } }, MSFT: { position: { owned: true } } },
+    );
+    expect(n).toBe(3);
+  });
+
+  it("parseBriefPositionGuidanceByTicker maps ticker bullets to guidance lines", () => {
+    const body = [
+      "- **BRK-B**: thesis intact · HOLD near $514",
+      "- **TWLO** watch · software laggard",
+      "KO · accumulate on dips",
+    ].join("\n");
+    const map = parseBriefPositionGuidanceByTicker(body);
+    expect(map["BRK-B"]).toContain("thesis intact");
+    expect(map.TWLO).toContain("watch");
+    expect(map.KO).toContain("accumulate");
   });
 });

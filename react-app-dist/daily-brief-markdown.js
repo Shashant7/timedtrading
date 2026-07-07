@@ -58,6 +58,29 @@
     return cleaned.trim();
   }
 
+  function parseBriefPositionGuidanceByTicker(body) {
+    var map = {};
+    if (!body || typeof body !== "string") return map;
+    var lines = body.split(/\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var line = String(lines[i] || "").trim().replace(/^[-*•]\s+/, "");
+      if (!line) continue;
+      var m = line.match(/^\*\*([A-Z][A-Z0-9.-]{0,9})\*\*:?\s*(.+)$/i);
+      if (m) {
+        map[m[1].toUpperCase()] = m[2].trim();
+        continue;
+      }
+      m = line.match(/^\*\*([A-Z][A-Z0-9.-]{0,9})\*\*\s+(.+)$/i);
+      if (m) {
+        map[m[1].toUpperCase()] = m[2].trim();
+        continue;
+      }
+      m = line.match(/^([A-Z][A-Z0-9.-]{0,9})\s*[·—–-]\s*(.+)/);
+      if (m) map[m[1].toUpperCase()] = m[2].trim();
+    }
+    return map;
+  }
+
   /** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
   function parseBriefDisplaySections(md) {
     const cleaned = stripBriefMarkdownForDisplay(md);
@@ -114,9 +137,10 @@
   window.TimedBriefMarkdown = {
     stripBriefMarkdownForDisplay,
     parseBriefDisplaySections,
+    parseBriefPositionGuidanceByTicker,
     briefSectionChipKey,
     parseBriefTopMoversText,
   };
 })();
 
-// cache-bust:1783377109633:694811914
+// cache-bust:1783431419318:844354980
