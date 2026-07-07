@@ -2725,21 +2725,7 @@ function DailyCycleCompositePanel({
         fontWeight: 600,
         marginLeft: 4
       }
-    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle), sp.cyclical_phase && h("span", {
-      style: {
-        color: "var(--tt-text-faint)",
-        fontWeight: 500,
-        marginLeft: 4,
-        fontSize: 10
-      }
-    }, sp.cyclical_phase), sp.harmonic && sp.harmonic.primary_period && h("span", {
-      style: {
-        color: "var(--tt-text-faint)",
-        fontWeight: 500,
-        marginLeft: 4,
-        fontSize: 10
-      }
-    }, sp.harmonic.primary_period + "d"));
+    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle));
   }
   const _latent = function () {
     if (!data) return null;
@@ -2794,8 +2780,8 @@ function DailyCycleCompositePanel({
     className: "tt-market-read-cell"
   }, h("div", {
     className: "tt-market-read-label",
-    title: "Hidden Markov model over index returns — a probabilistic read that shifts with returns, volatility, and covariance"
-  }, "Regime (HMM)"), _latentMeta ? h(React.Fragment, null, h("div", {
+    title: "Probabilistic read on index returns and volatility"
+  }, "Regime"), _latentMeta ? h(React.Fragment, null, h("div", {
     className: "tt-market-read-value",
     style: {
       color: _latentMeta.color
@@ -2813,8 +2799,8 @@ function DailyCycleCompositePanel({
     className: "tt-market-read-cell"
   }, h("div", {
     className: "tt-market-read-label",
-    title: "Deterministic daily EMA stack + HTF momentum score, breadth-weighted across SPY, QQQ, IWM, DIA, RSP — a technical trend lens, not harmonic cyclical analysis"
-  }, "HTF Trend (Breadth)"), h("div", {
+    title: "Breadth-weighted trend across major indices"
+  }, "Trend"), h("div", {
     className: "tt-market-read-value",
     style: {
       color: breadthCol
@@ -2835,12 +2821,12 @@ function DailyCycleCompositePanel({
   }, _sessionETDate ? h("code", null, _sessionETDate + " ET") : "—")));
   const readHelp = h("p", {
     className: "tt-market-read-help"
-  }, "These lenses can disagree — that's a signal, not a bug. ", h("strong", null, "Regime"), " (HMM) is probabilistic; ", h("strong", null, "HTF Trend"), " is the EMA-stack rule on benchmark indices; ", h("strong", null, "Cyclical phase"), " on leader rows comes from Saty phase % (quarter/year style — like the NVDA harmonic peak/trough read). ", h("strong", null, "Session"), " is the trading clock.");
+  }, "Regime, trend, and session answer different questions — they can disagree, and that is often the point.");
   const body = h(React.Fragment, null, !embedded && h("div", {
     className: "tt-sec-title"
   }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
     className: "tt-sec-h"
-  }, "Three lenses on where the tape is: regime, HTF cycle, per-name reads"), marketReadCard, readHelp, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
+  }, "Market read, sector rotation, and the names leading each move"), marketReadCard, readHelp, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
     className: "tt-dcc-rotation-row"
   }, h("span", {
     className: "tt-dcc-row-title"
@@ -2910,7 +2896,7 @@ function DailyCycleCompositePanel({
       className: "tt-dcc-row-title"
     }, grp.label || (CI.sectorShort ? CI.sectorShort(grp.sector) + " leaders" : "Sector leaders"), h("span", {
       className: "tt-dcc-row-title-sub"
-    }, reasonLabel, grp.sector_cycle ? " · sector HTF " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "", grp.cyclical_phase ? " · " + grp.cyclical_phase : "", grp.harmonic && grp.harmonic.primary_period ? " · harmonic " + grp.harmonic.primary_period + "d" : "")), h("div", {
+    }, reasonLabel, Number.isFinite(grp.rotation_day_pct) ? " · " + (grp.rotation_day_pct >= 0 ? "+" : "") + grp.rotation_day_pct.toFixed(2) + "%" : "", grp.sector_cycle ? " · sector " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "")), h("div", {
       style: {
         display: "flex",
         flexWrap: "wrap",
@@ -2952,9 +2938,9 @@ function DailyCycleCompositePanel({
     }, CI.formatTransition ? CI.formatTransition(tr) : tr.symbol + " " + tr.from + " → " + tr.to);
   }))), h("div", {
     className: "tt-dcc-row-title"
-  }, "Sector HTF trends", h("span", {
+  }, "Sector trends", h("span", {
     className: "tt-dcc-row-title-sub"
-  }, "each ETF's EMA-stack trend plus intraday % — sorted by strongest divergence first")), h("div", {
+  }, "each sector ETF trend and day % — sorted by strongest divergence first")), h("div", {
     className: "tt-strip-scroll",
     role: "list",
     "aria-label": "Sector cycle alignment"
@@ -6978,6 +6964,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783459005134:402036532
+// cache-bust:1783460201998:474082008
 
-// cache-bust:1783459005134:402036532
+// cache-bust:1783460201998:474082008

@@ -9,6 +9,11 @@ import {
   detectCycleTransitions,
   summarizeIndexMix,
   selectSectorWatchGroups,
+  selectSectorWatchFromRotation,
+  buildSectorLeaderPool,
+  rankSectorLeaders,
+  isGicsSectorEtf,
+  SECTOR_LEADER_CONFIG,
   buildSectorRotationSnapshot,
   sectorWatchLabel,
   inferCyclicalPhaseLabel,
@@ -93,6 +98,51 @@ describe("summarizeIndexMix", () => {
   });
 });
 
+describe("selectSectorWatchFromRotation", () => {
+  it("maps rotation gainers and losers to sector leader rows", () => {
+    const sectors = [
+      { sector: "Financials", etf: "XLF", day_change_pct: 1.1 },
+      { sector: "Communication Services", etf: "XLC", day_change_pct: 0.9 },
+      { sector: "Utilities", etf: "XLU", day_change_pct: -0.8 },
+    ];
+    const rot = {
+      gainers: [{ etf: "XLF", sector: "Financials", day_pct: 1.1 }, { etf: "XLC", sector: "Communication Services", day_pct: 0.9 }],
+      losers: [{ etf: "XLU", sector: "Utilities", day_pct: -0.8 }],
+    };
+    const picks = selectSectorWatchFromRotation(sectors, rot, { maxGroups: 4 });
+    expect(picks.map((p) => p.sectorRow.etf)).toEqual(["XLF", "XLC", "XLU"]);
+    expect(picks[0].reason).toBe("leading_today");
+    expect(picks[2].reason).toBe("lagging_today");
+  });
+});
+
+describe("rankSectorLeaders", () => {
+  it("ranks by day pct and excludes sector ETF symbols from output", () => {
+    const pool = ["JPM", "GS", "XLF", "BAC"];
+    const pct = { JPM: 1.2, GS: 0.8, XLF: 1.1, BAC: 0.3 };
+    const leaders = rankSectorLeaders(pool.filter((s) => s !== "XLF"), pct, { maxLeaders: 3 });
+    expect(leaders).toEqual(["JPM", "GS", "BAC"]);
+  });
+
+  it("includes SOXL in semis pool ranking", () => {
+    const pool = ["NVDA", "AMD", "SOXL", "SMH"];
+    const pct = { NVDA: 2.1, AMD: 1.5, SOXL: 3.2, SMH: 1.0 };
+    const leaders = rankSectorLeaders(pool, pct, { maxLeaders: 4 });
+    expect(leaders[0]).toBe("SOXL");
+    expect(leaders).toContain("NVDA");
+  });
+});
+
+describe("buildSectorLeaderPool", () => {
+  it("merges curated pool with theme members", () => {
+    const pool = buildSectorLeaderPool("Financials", SECTOR_LEADER_CONFIG.Financials, {});
+    expect(pool).toContain("JPM");
+    expect(pool).toContain("SOFI");
+    expect(isGicsSectorEtf("XLF")).toBe(true);
+    expect(pool).not.toContain("XLF");
+  });
+});
+
 describe("selectSectorWatchGroups", () => {
   it("surfaces Financials when its cycle diverges from market breadth", () => {
     const sectors = [
@@ -129,8 +179,8 @@ describe("buildSectorRotationSnapshot", () => {
 
 describe("inferCyclicalPhaseLabel", () => {
   it("maps phase zone to cyclical language", () => {
-    expect(inferCyclicalPhaseLabel(0.82, "distribution")).toBe("late cycle / peak");
-    expect(inferCyclicalPhaseLabel(0.15, null)).toBe("early cycle");
+    expect(inferCyclicalPhaseLabel(0.82, "distribution")).toBe("Late phase");
+    expect(inferCyclicalPhaseLabel(0.15, null)).toBe("Early phase");
   });
 });
 
@@ -141,12 +191,15 @@ describe("buildDailyCycleComposite", () => {
         get: async (key) => {
           if (key === "timed:ticker-index-map") return JSON.stringify({ map: { NVDA: "QQQ" } });
           if (key.startsWith("timed:latest:")) {
+            const sym = key.split(":").pop();
+            const sectorEtfs = { XLK: 0.5, XLF: 0.4, XLC: 0.3, XLE: -0.2, XLU: -0.3 };
             return JSON.stringify({
               regime_class: "BULL",
               ema_regime_daily: 2,
               htf_score: 18,
               saty_phase_pct: 0.35,
               investor_score: 72,
+              day_change_pct: sectorEtfs[sym] ?? 0.1,
             });
           }
           return null;

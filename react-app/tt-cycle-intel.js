@@ -86,32 +86,16 @@
   function formatSpotlightLabel(sp) {
     if (!sp) return "—";
     const c = cycleLabel(sp.computed_cycle);
-    const harmonic = sp.harmonic && sp.harmonic.ok ? formatHarmonicSummary(sp.harmonic) : null;
-    const cyclical = harmonic || (sp.cyclical_phase ? ` · ${sp.cyclical_phase}` : "");
+    const phase = sp.cyclical_phase ? ` · ${sp.cyclical_phase}` : "";
     const desk = sp.fsd_phase ? ` · desk ${sp.fsd_phase}` : "";
-    const src = sp.cycle_source === "own_regime" ? "" : (sp.home_index ? ` · via ${sp.home_index}` : "");
-    return `${c}${cyclical}${desk}${src}`;
-  }
-
-  function formatHarmonicSummary(h) {
-    if (!h || !h.ok) return null;
-    const periods = Array.isArray(h.dominant_periods) ? h.dominant_periods.slice(0, 3).join("d · ") : "";
-    const pct = Number.isFinite(h.phase_pct) ? Math.round(h.phase_pct * 100) : null;
-    const head = h.label || "harmonic cycle";
-    const tail = [
-      h.primary_period ? `${h.primary_period}d primary` : null,
-      pct != null ? `${pct}% phase` : null,
-      h.direction ? h.direction : null,
-      periods ? `mix ${periods}d` : null,
-    ].filter(Boolean).join(" · ");
-    return ` · ${head}${tail ? ` (${tail})` : ""}`;
+    return `${c}${phase}${desk}`;
   }
 
   function formatRotationState(state) {
     const map = {
-      risk_on: "Risk-on rotation",
-      risk_off: "Risk-off rotation",
-      balanced: "Balanced rotation",
+      risk_on: "Growth sectors leading",
+      risk_off: "Defensive sectors leading",
+      balanced: "Mixed rotation",
       unknown: "Rotation n/a",
     };
     return map[String(state || "").toLowerCase()] || state || "—";
@@ -119,19 +103,21 @@
 
   function formatSectorWatchReason(reason) {
     const map = {
-      cycle_shift: "cycle just shifted",
-      vs_market: "vs market breadth",
-      desk_divergence: "desk diverges",
-      pinned: "desk focus",
+      leading_today: "leading today",
+      lagging_today: "lagging today",
+      cycle_shift: "cycle shift",
+      vs_market: "vs market",
+      desk_divergence: "desk view differs",
+      pinned: "in focus",
       rotation: "rotation watch",
-      own_regime: "own regime",
+      own_regime: "own trend",
     };
     return map[String(reason || "").toLowerCase()] || reason || "";
   }
 
   function formatCycleChip(cycle, alignment, opts) {
     const c = cycleLabel(cycle);
-    const cycleCtx = c !== "—" ? `HTF cycle: ${c}` : c;
+    const cycleCtx = c !== "—" ? `Trend: ${c}` : c;
     const a = String(alignment || "").toLowerCase();
     if (opts && opts.short) return cycleCtx;
     if (!a || a === "none" || a === "computed_only") return cycleCtx;
@@ -153,7 +139,6 @@
     formatIndexMix,
     formatTransition,
     formatSpotlightLabel,
-    formatHarmonicSummary,
     formatRotationState,
     formatSectorWatchReason,
   };

@@ -374,7 +374,7 @@ const THEMES = {
   ai_infra_energy:   ["NEE","VST","CEG","PWR","TLN","NXT","AES","BE","CWEN","NRG","FSLR","ENPH","SEDG","ARRY","SHLS"],
   ai_infra_cooling:  ["VRT","MOD","JCI","DOV","BMI"],
   ai_infra_dc_reit:  ["DLR","EQIX","IRM","COR"],
-  ai_infra_semicap:  ["AMAT","LRCX","KLAC","ASML","ENTG","KLIC","ONTO","ICHR"],
+  ai_infra_semicap:  ["AMAT","LRCX","KLAC","ASML","ENTG","KLIC","ONTO","ICHR","SMH","SOXL"],
 
   // AI software / data infra.
   ai_software:       ["PLTR","SNOW","DDOG","CRWD","ZS","PANW","NOW","NET","S","CFLT","DT","ESTC","TEAM","MDB"],
