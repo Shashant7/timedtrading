@@ -16,9 +16,11 @@ const DAYS = daysIdx >= 0 ? Number(process.argv[daysIdx + 1]) : 7;
 
 function queryD1(sql) {
   const oneLine = sql.replace(/\s+/g, " ").trim();
-  const cmd = `cd "${workerDir}" && ../node_modules/.bin/wrangler d1 execute --env production timed-trading-ledger --remote --json --command "${oneLine.replace(/"/g, '\\"')}"`;
+  const cmd = `cd "${workerDir}" && ../node_modules/.bin/wrangler d1 execute --env production timed-trading-ledger --remote --command '${oneLine.replace(/'/g, "'\"'\"'")}'`;
   const raw = execSync(cmd, { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
-  return JSON.parse(raw)[0]?.results || [];
+  const m = raw.match(/"results":\s*(\[[\s\S]*?\])\s*,\s*"success"/);
+  if (!m) throw new Error("could not parse D1 output");
+  return JSON.parse(m[1]);
 }
 
 const sinceMs = `(strftime('%s','now') - ${DAYS}*86400)*1000`;

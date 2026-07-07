@@ -71,12 +71,40 @@ Canonical implementation log: [`docs/self-calibrating-loop.md`](../docs/self-cal
 **Validation commands:**
 
 ```bash
+# Phase A — provenance accrual (is the ledger filling up correctly?)
 node scripts/validate-decision-records-live.mjs --wrangler-d1 production --remote
-node scripts/trust-spine-scorecard.mjs --days 7
+
+# Phase B — live conviction outcomes (can we flip fusion ON?)
+node scripts/validate-conviction-live.mjs --wrangler-d1 production --remote
+
+# Corpus lower-bound (historical, missing focus_conviction — informational only)
 node scripts/validate-conviction-corpus.mjs
+
+node scripts/trust-spine-scorecard.mjs --days 7
 node scripts/check-scoring-version-bump.mjs   # CI guard
 npm test -- worker/trust-spine/trust-spine.test.js
 ```
+
+### Forward validation — how we know it's done
+
+Forward validation is **two phases**. Both must clear before flipping behavioral flags (`deep_audit_conviction_fusion_enabled`, `portfolio_dd_breaker_enabled`, etc.).
+
+| Phase | Script | PASS means | Current (2026-07-07) |
+|-------|--------|------------|----------------------|
+| **A — Provenance accrual** | `validate-decision-records-live.mjs` | ≥50 `decision_records`, ≥2 `config_hash` epochs | **PASS** (62 rows, 6 epochs) |
+| **B — Live conviction outcomes** | `validate-conviction-live.mjs` | ≥30 closed ENTRY rows joined to trades; all 5 promotion gates pass (same as corpus Slice E) | **NOT READY** (7 closed) |
+
+**Phase B promotion gates** (all must PASS):
+
+1. `gate_fired_n_oos` — confirm-stack fired trades in out-of-sample window ≥ 30
+2. `confirm_beats_baseline_wr` — confirm-stack WR > baseline WR
+3. `confirm_positive_expectancy` — confirm-stack mean PnL% > 0
+4. `oos_sqn_holds_70pct` — out-of-sample SQN ≥ 70% of in-sample SQN
+5. `tierA_beats_tierC_wr` — Tier A WR > Tier C WR (n ≥ 5 each)
+
+**When Phase B PASSes:** flip `deep_audit_conviction_fusion_enabled` ON live-small under the autonomy governor; repeat a similar gate for bleeder shield before flipping `deep_audit_bleeder_shield_enabled`.
+
+**Operational cadence:** re-run Phase A + B weekly (GitHub Actions `trust-spine-weekly.yml` covers Phase A + scorecard; add Phase B to the workflow after first deploy of this script).
 
 ---
 
