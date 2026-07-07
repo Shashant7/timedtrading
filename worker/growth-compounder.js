@@ -2,7 +2,7 @@
 // -----------------------------------------------------------------------------
 // Growth compounder playbook — revenue path + hold thesis + dip-buy lane
 // for Investor Mode. Pure module (no I/O).
-// Fundamentals snapshots (timed:fundamentals_v5:{T}) supply revenue history,
+// Fundamentals snapshots (timed:fundamentals_v6:{T}) supply revenue history,
 // analyst consensus, growth classes, and fair-value quality grades.
 // -----------------------------------------------------------------------------
 

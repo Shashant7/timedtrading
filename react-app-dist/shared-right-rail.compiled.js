@@ -15000,6 +15000,12 @@
           const grw = F.growth || {};
           const earn = F.earnings || {};
           const pxs = F.price_summary || {};
+          const week52ReturnPct = (() => {
+            const v = Number(pxs.fifty_two_week_change_pct);
+            if (!Number.isFinite(v)) return null;
+            if (Math.abs(v) > 500) return Number((v / 100).toFixed(2));
+            return v;
+          })();
           const _isEtf = (() => {
             const hasNoEarnings = !Array.isArray(earn.history) || earn.history.length === 0;
             const hasNoEps = val.pe_ttm == null && val.pe_forward == null;
@@ -15110,9 +15116,9 @@
                 fontSize: "var(--ds-fs-md)",
                 fontWeight: 600,
                 fontFamily: "var(--tt-font-mono)",
-                color: pxs.fifty_two_week_change_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
+                color: week52ReturnPct != null && week52ReturnPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)"
               }
-            }, fmtPctSigned(pxs.fifty_two_week_change_pct))), React.createElement("div", null, React.createElement("div", {
+            }, week52ReturnPct != null ? fmtPctSigned(week52ReturnPct) : "—")), React.createElement("div", null, React.createElement("div", {
               style: {
                 fontSize: "var(--ds-fs-caption)",
                 color: "var(--ds-text-muted)",
@@ -15175,6 +15181,7 @@
           const fvClass = val.fair_value_class ?? compFv.fv_class ?? null;
           const fvPremiumPct = val.fair_value_premium_pct ?? compFv.fv_premium_pct ?? null;
           const fairColor = fvClass === "discount" ? "var(--ds-up)" : fvClass === "premium" ? "var(--ds-dn)" : fvClass === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+          const fvUnavailableReason = fvPrice == null ? Number(earn.eps_ttm) <= 0 || Number(val.pe_ttm) < 0 ? "Not estimated — negative or missing TTM EPS" : "Not estimated — insufficient forward EPS inputs" : null;
           const sortedHistory = (() => {
             const rows = Array.isArray(earn.history) ? [...earn.history] : [];
             const k = fundamentalsSortKey;
@@ -15223,6 +15230,8 @@
             className: "ds-fundamentals-tab",
             style: {
               fontFamily: "var(--ds-font-sans, 'Inter', 'Inter Variable', system-ui, -apple-system, sans-serif)",
+              paddingBottom: "max(88px, calc(64px + env(safe-area-inset-bottom)))",
+              WebkitOverflowScrolling: "touch",
               "--ds-fs-h2": "13px",
               "--ds-fs-h3": "11px",
               "--ds-fs-md": "10px",
@@ -15251,7 +15260,7 @@
               }, N.quality_chip || "Analyst view")
             }, React.createElement("div", {
               style: {
-                fontSize: "var(--ds-fs-emph)",
+                fontSize: 14,
                 fontWeight: 700,
                 color: "var(--ds-text-body)",
                 lineHeight: 1.45,
@@ -15268,7 +15277,7 @@
             }, (N.bullets || []).slice(0, 3).map((b, i) => React.createElement("li", {
               key: `fb-${i}`,
               style: {
-                fontSize: "var(--ds-fs-meta)",
+                fontSize: 12,
                 color: "var(--ds-text-muted)",
                 lineHeight: 1.45
               }
@@ -15357,7 +15366,15 @@
           }), React.createElement(Metric, {
             label: "EV",
             value: fmtBigUsd(val.enterprise_value)
-          })), fvPrice != null && React.createElement("div", {
+          }), React.createElement(Metric, {
+            label: "Fair Value",
+            value: fvPrice != null ? `$${fmtNum(fvPrice, 2)}` : "—",
+            delta: fvClass ? String(fvClass).toUpperCase() : undefined,
+            deltaClass: fvClass === "discount" ? "up" : fvClass === "premium" ? "dn" : undefined
+          }), val.current_price != null && React.createElement(Metric, {
+            label: "Current",
+            value: `$${fmtNum(val.current_price, 2)}`
+          })), fvPrice != null ? React.createElement("div", {
             style: {
               marginTop: "var(--ds-space-3)",
               padding: "var(--ds-space-3)",
@@ -15468,7 +15485,33 @@
               fontWeight: 600,
               color: "var(--ds-text)"
             }
-          }, val.fair_value_methods.conservative != null ? `$${fmtNum(val.fair_value_methods.conservative, 2)}` : "—"))))), (grw.eps_growth_pct != null || grw.rev_growth_pct != null) && React.createElement(Panel, {
+          }, val.fair_value_methods.conservative != null ? `$${fmtNum(val.fair_value_methods.conservative, 2)}` : "—")))) : React.createElement("div", {
+            style: {
+              marginTop: "var(--ds-space-3)",
+              padding: "var(--ds-space-3)",
+              background: "var(--ds-bg-glass)",
+              borderRadius: "var(--ds-radius-xs)",
+              border: "1px solid var(--ds-border-faint)"
+            }
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 4
+            }
+          }, React.createElement("span", {
+            className: "ds-caption",
+            style: {
+              color: "var(--ds-text-muted)"
+            }
+          }, "FAIR VALUE")), React.createElement("div", {
+            style: {
+              fontSize: "var(--ds-fs-meta)",
+              color: "var(--ds-text-muted)",
+              lineHeight: 1.45
+            }
+          }, fvUnavailableReason || "Not estimated for this ticker."))), (grw.eps_growth_pct != null || grw.rev_growth_pct != null) && React.createElement(Panel, {
             title: "Growth (Q YoY)"
           }, React.createElement("div", {
             style: {
@@ -15846,7 +15889,7 @@
           }), React.createElement(Metric, {
             label: "200-day MA",
             value: pxs.day_200_ma != null ? `$${fmtNum(pxs.day_200_ma, 2)}` : "—"
-          })), pxs.fifty_two_week_change_pct != null && React.createElement("div", {
+          })), week52ReturnPct != null && React.createElement("div", {
             style: {
               marginTop: "var(--ds-space-2)",
               display: "flex",
@@ -15859,11 +15902,11 @@
               color: "var(--ds-text-muted)"
             }
           }, "52W RETURN"), React.createElement("span", {
-            className: `ds-chip ds-chip--sm ${pxs.fifty_two_week_change_pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
+            className: `ds-chip ds-chip--sm ${week52ReturnPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`,
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, fmtPctSigned(pxs.fifty_two_week_change_pct)))), React.createElement("div", {
+          }, fmtPctSigned(week52ReturnPct)))), React.createElement("div", {
             style: {
               marginTop: "var(--ds-space-2)",
               padding: "var(--ds-space-2)",
@@ -22054,4 +22097,4 @@
   };
 })();
 
-// cache-bust:1783370222459:533053837
+// cache-bust:1783390785475:949551568
