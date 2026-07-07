@@ -2732,7 +2732,14 @@ function DailyCycleCompositePanel({
         marginLeft: 4,
         fontSize: 10
       }
-    }, sp.cyclical_phase));
+    }, sp.cyclical_phase), sp.harmonic && sp.harmonic.primary_period && h("span", {
+      style: {
+        color: "var(--tt-text-faint)",
+        fontWeight: 500,
+        marginLeft: 4,
+        fontSize: 10
+      }
+    }, sp.harmonic.primary_period + "d"));
   }
   const _latent = function () {
     if (!data) return null;
@@ -2903,7 +2910,7 @@ function DailyCycleCompositePanel({
       className: "tt-dcc-row-title"
     }, grp.label || (CI.sectorShort ? CI.sectorShort(grp.sector) + " leaders" : "Sector leaders"), h("span", {
       className: "tt-dcc-row-title-sub"
-    }, reasonLabel, grp.sector_cycle ? " · sector HTF " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "", grp.cyclical_phase ? " · " + grp.cyclical_phase : "")), h("div", {
+    }, reasonLabel, grp.sector_cycle ? " · sector HTF " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "", grp.cyclical_phase ? " · " + grp.cyclical_phase : "", grp.harmonic && grp.harmonic.primary_period ? " · harmonic " + grp.harmonic.primary_period + "d" : "")), h("div", {
       style: {
         display: "flex",
         flexWrap: "wrap",
@@ -6971,6 +6978,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783458503135:526671800
+// cache-bust:1783459005134:402036532
 
-// cache-bust:1783458503135:526671800
+// cache-bust:1783459005134:402036532
