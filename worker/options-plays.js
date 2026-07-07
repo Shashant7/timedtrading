@@ -2426,6 +2426,12 @@ function rankByProfile(strategies, profile, { ticker } = {}) {
     const aInv = a._investor_boost ? -50 : 0;
     const bInv = b._investor_boost ? -50 : 0;
     if (aInv !== bInv) return aInv - bInv;
+    const aOptFirst = a._options_first_boost ? -80 : 0;
+    const bOptFirst = b._options_first_boost ? -80 : 0;
+    if (aOptFirst !== bOptFirst) return aOptFirst - bOptFirst;
+    const aStockDep = a._options_first_deprioritize ? 35 : 0;
+    const bStockDep = b._options_first_deprioritize ? 35 : 0;
+    if (aStockDep !== bStockDep) return aStockDep - bStockDep;
     const aBoost = confluenceBoost(a);
     const bBoost = confluenceBoost(b);
     if (aBoost !== bBoost) return aBoost - bBoost;
@@ -2845,6 +2851,21 @@ export function buildOptionsLadder(contract, opts = {}) {
     if (warns.length > 0) s.warnings = warns;
   }
 
+  const convictionTier = String(
+    opts.convictionTier || opts.tickerData?.__conviction_tier || contract?.tier || "",
+  ).toUpperCase();
+  const optionsFirstActive = verdictMode === "RIDE" && convictionTier === "A";
+  if (optionsFirstActive) {
+    for (const s of ladder) {
+      if (s.archetype === "long_call" || s.archetype === "long_put" || s.archetype === "vertical_spread") {
+        s._options_first_boost = true;
+      }
+      if (s.archetype === "stock_long" || s.archetype === "stock_short") {
+        s._options_first_deprioritize = true;
+      }
+    }
+  }
+
   const ranked = rankByProfile(ladder, profile, { ticker: tickerSym });
   const primary = ranked[0] || null;
 
@@ -2897,6 +2918,7 @@ export function buildOptionsLadder(contract, opts = {}) {
       reason: moonshotDecision.reason || null,
       motion: moonshotDecision.motion || null,
     },
+    options_first_recommended: optionsFirstActive,
     ...(() => {
       const setup_guidance = buildOptionsSetupGuidance({
         confluence: verdict,

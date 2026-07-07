@@ -65,6 +65,12 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
   // (no effect) until the operator opts in via model_config.
   const markovFavor = Number(d.__regime_favor_mult) || 1.0;
 
+  const prState = d?._env?._portfolioRiskPause || {};
+  const portfolioDd = Number(d.__portfolio_dd_size_mult ?? prState.dd_size_mult) || 1.0;
+  const portfolioSector = Number(d.__sector_size_mult ?? prState.sector_size_mult) || 1.0;
+  const portfolioCombined = Number(d.__portfolio_size_mult ?? prState.portfolio_size_mult)
+    || (portfolioDd * portfolioSector);
+
   const miOverall = String(
     d._marketInternals?.overall || d._env?._marketInternals?.overall || "",
   );
@@ -72,11 +78,14 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
     : miOverall === "balanced" ? 0.8 : 1.0;
 
   const rawCombined = regime * daRegime * rvol * danger * meanRevert
-    * pdz * spy * orb * chop * markovFavor * internals;
+    * pdz * spy * orb * chop * markovFavor * internals * portfolioCombined;
   const combined = Math.max(SIZING_MULT_FLOOR, rawCombined);
 
   return {
-    breakdown: { regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, markovFavor, internals },
+    breakdown: {
+      regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, markovFavor, internals,
+      portfolioDd, portfolioSector, portfolioCombined,
+    },
     rawCombined,
     combined,
   };

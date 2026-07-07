@@ -23,10 +23,12 @@
 ### Active
 
 - [ ] **TT Trust Spine — north star plan** ([`plans/tt-trust-spine.plan.md`](../plans/tt-trust-spine.plan.md)).
-      Foundation in progress (PR `cursor/tt-trust-spine-foundation-dbdd`): investor TRIM
-      provenance, `/timed/health` `feeds` block, CI `SCORING_VERSION` guard,
-      `validate-decision-records-live.mjs`. Next: forward conviction validation,
-      broker manifest `log`→`on`, Edge calibrated EV slice.
+      Foundation merged (PR #1037). Complete wiring in progress (PR
+      `cursor/tt-trust-spine-complete-dbdd`): trust-spine routes, autonomy
+      ladder, scorecard CI, portfolio sector cap + DD size haircut, options-first
+      tier-A RIDE, engine-snapshot `trust_spine`, decision-card provenance.
+      Next: forward conviction validation, broker manifest `log`→`on`, notification
+      taxonomy, SI autonomy UI.
 
 - [x] **Daily Cycle Composite + FSD level-conditioned modes (2026-07-07).**
       Backend: `GET /timed/daily-cycle-composite`, FSD levels on
