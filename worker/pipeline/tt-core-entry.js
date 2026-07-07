@@ -28,6 +28,22 @@ import {
 } from "../lib/smart-gates.js";
 
 const FRESHNESS_MIN = 0.3;
+
+/**
+ * 2026-07-07 XLI churn fix — ATH/ATL breakouts must not fire during opening
+ * noise. The generic opening-noise rejection only covered momentum triggers;
+ * ATH breakouts fired 1-4 min after the open on the first scoring cycle of
+ * the day (daily_structure computed against a shifted window + first prints)
+ * and stopped out within minutes (XLI Jul 1 + Jul 7, both 9:31-9:33 ET).
+ */
+export function shouldRejectAthBreakoutOpeningNoise(daCfg, nowEtParts) {
+  const enabled = String(
+    daCfg?.deep_audit_ath_breakout_opening_noise_enabled ?? "true",
+  ) === "true";
+  if (!enabled) return false;
+  const endMin = Number(daCfg?.deep_audit_ripster_opening_noise_end_minute) || 45;
+  return nowEtParts?.hour === 9 && Number(nowEtParts?.minute) < endMin;
+}
 const TT_CORE_TRACE_CASES = new Map([
   ["FIX:1751378400000", "fix_bad_pullback_hard_cap"],
   ["FIX:1751392800000", "fix_bad_pullback_doa"],
@@ -4040,6 +4056,13 @@ export function evaluateEntry(ctx) {
     momentumTrigger,
   });
   if (athBreakoutTrigger) {
+    if (shouldRejectAthBreakoutOpeningNoise(daCfg, nowEt)) {
+      return rejectEntry("tt_ath_breakout_opening_noise", {
+        hour: nowEt.hour,
+        minute: nowEt.minute,
+        requiredMinute: openNoiseEndMin,
+      });
+    }
     return qualifyEntry(
       side === "LONG" ? "tt_ath_breakout" : "tt_atl_breakdown",
       "medium",
