@@ -561,7 +561,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           // excluded (REST equity quotes can't heal them; they have their
           // own TV-heartbeat lane) so they don't permanently occupy the
           // stale list and page the operator forever.
-          const _NON_SWEEPABLE = new Set(["SPX", "US500", "VIX", "VVIX", "NDX", "DJI", "RUT", "DXY", "TNX"]);
+          const _NON_SWEEPABLE = new Set(["SPX", "US500", "VIX", "VVIX", "NDX", "DJI", "RUT", "DXY", "TNX", "TEST"]);
           const _sweepEligible = (sym) => !/[!:.$/]/.test(sym) && !_NON_SWEEPABLE.has(sym);
           const _sweepUniverse = [...new Set([...allTickers, ...Object.keys(prices)])];
           const _staleList = _sweepUniverse.filter((sym) => {

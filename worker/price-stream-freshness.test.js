@@ -122,4 +122,15 @@ describe("summarizeValueStaleSymbols", () => {
     expect(res.count).toBe(1);
     expect(res.symbols[0]).toBe("DEAD:45m");
   });
+
+  it("excludes junk TEST rows from display-staleness accounting", () => {
+    const now = Date.now();
+    const prices = {
+      TEST: { p: 1, q_ts: now - 90 * 60_000, p_ts: now - 90 * 60_000 },
+      MU: { p: 925, q_ts: now - 33 * 60_000, p_ts: now - 33 * 60_000 },
+    };
+    const res = summarizeValueStaleSymbols(prices, now, true);
+    expect(res.count).toBe(1);
+    expect(res.symbols[0]).toBe("MU:33m");
+  });
 });

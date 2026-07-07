@@ -116,10 +116,21 @@ jobs:
             fi
 
             if [ "$NY_RTH" = "true" ]; then
+              # 2026-07-07 — Primary RTH display-staleness gate: valueStaleCount
+              # (writer-independent q_ts/p_ts ages). staleSymbolCount counts
+              # sweep survivors including quiet discovery names REST could not
+              # heal — paging at >5 false-alarms on a 300+ ticker blob while
+              # SPY/QQQ chain smoke stays green (MU/WDC incident doctrine).
+              VALUE_STALE=$(echo "$HEALTH" | jq -r '.valueStaleCount // "null"')
+              VALUE_LIST=$(echo "$HEALTH" | jq -r '(.valueStaleSymbols // []) | join(",")')
               STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
-              if [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 5 ]; then
-                STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
+              STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
+              if [ "$VALUE_STALE" != "null" ] && [ "$VALUE_STALE" -ge 15 ]; then
+                FAILED="yes"; DETAIL="$DETAIL $BASE: ${VALUE_STALE} symbols display-stale (vendor quote aged) — ${VALUE_LIST}."
+              elif [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 50 ]; then
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
+              elif [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 20 ]; then
+                echo "::notice::$BASE: ${STALESYMS} symbols in stale sweep survivors (${STALELIST}) — valueStaleCount=${VALUE_STALE}."
               fi
               FRESH_STALE=$(echo "$HEALTH" | jq -r '.freshness.stale // "null"')
               FRESH_SLO=$(echo "$HEALTH" | jq -r '.freshness.slo_ok // true')
