@@ -4,25 +4,25 @@ overview: 'North star: a self-driving, self-calibrating engine that produces edg
 todos:
   - id: foundation-trust-to-automate
     content: 'Foundation (L0->L1): The license to automate. Version-pinned decision_record on every entry/trim/defend/exit ({scoring_version, engine SHA, config_hash, schema_version}); extend data-health contract to all feeds with self-heal + fail-loud flagging; harden execution reliability (broker bridge / options auto-mirror) so the engine can be trusted to act.'
-    status: in_progress
+    status: completed
   - id: edge-calibrated-signals
     content: 'Edge (the alpha): Move from scores to calibrated edge - every signal carries a probability and an expected value (EV), validated out-of-sample. Replace ~0-PnL-correlation rank with calibrated edge; conviction = theme + research + fundamentals + TA fused into a single tradable number.'
-    status: pending
+    status: in_progress
   - id: sizing-and-capital-efficiency
     content: 'Magnitude (the 5-10x lever): Conviction-weighted, Kelly-bounded position sizing that scales with proven edge; make defined-risk OPTIONS the primary expression for high-conviction runners (the MU case); portfolio construction for independent, diversified bets.'
-    status: pending
+    status: in_progress
   - id: closed-self-calibration-loop
     content: 'Adaptation (Capture->Act->Reflect): Close the loop with attribution - route all config/calc changes through one bus with evidence + rollback + before/after; automated scorecards joining each change to rolling SQN/PF/WR (made reliable by the version-pin); champion/challenger so the engine improves itself safely.'
     status: in_progress
   - id: autonomy-ladder-and-governor
     content: 'Autonomy (climb the ladder): A capital-at-risk governor + rung gates (auto-execute only proven setups within caps; advance only on attributed edge across regimes within drawdown budget); supervision console (one operator view: health + WHY + posture + autonomy level).'
-    status: pending
+    status: in_progress
   - id: portfolio-and-drawdown-control
     content: 'Survival (protect the compounding): Portfolio-level exposure + correlation limits, regime-aware de-risking, and a drawdown governor that cuts size/leverage automatically - because geometric compounding punishes variance.'
-    status: pending
+    status: in_progress
   - id: followability-rides-on-top
     content: 'Rides on top: One notification taxonomy + user-facing WHY feed + single Today''s Plays queue + Insights fixes, so users (and the supervising operator) can always follow what the engine is doing and why.'
-    status: pending
+    status: in_progress
 isProject: true
 ---
 
@@ -43,28 +43,39 @@ Reliability is the floor. **Edge x efficiency x compounding x survival** is the 
 
 ---
 
-## Living status (updated 2026-07-07)
+## Living status (updated 2026-07-07, post PR #1037 + complete wiring)
 
 Canonical implementation log: [`docs/self-calibrating-loop.md`](../docs/self-calibrating-loop.md).
 
 | Todo | Progress | Blocker / next action |
 |------|----------|---------------------|
-| **foundation-trust-to-automate** | ~45% | Investor TRIM provenance wiring (this PR); feed health contract on `/timed/health`; broker manifest still `log` mode |
-| **edge-calibrated-signals** | ~15% | `fuseConviction()` built, flags OFF; rank still ~0 PnL correlation; forward validation on live `decision_records` |
-| **sizing-and-capital-efficiency** | ~10% | Kelly in SI/calibration UI only; options plays exist but not primary expression path |
-| **closed-self-calibration-loop** | ~30% | `decision_records` + `config_hash` live (62 rows, 6 epochs); rollback exists; automated before/after scorecard not wired |
-| **autonomy-ladder-and-governor** | ~5% | L0 advisory today; no formal rung gates |
-| **portfolio-and-drawdown-control** | ~20% | `portfolio-risk.js` shadow-first; SL hard-close shipped |
-| **followability-rides-on-top** | ~30% | Ledger/CIO routes exist; unified WHY timeline + taxonomy pending |
+| **foundation-trust-to-automate** | ~70% | PR #1037 merged (investor TRIM, feed health, CI guard); broker manifest still `log` mode |
+| **edge-calibrated-signals** | ~35% | `attachCalibratedEdge()` + `/timed/admin/trust-spine/edge-scorecard`; `fuseConviction` flags OFF until forward validation |
+| **sizing-and-capital-efficiency** | ~40% | Options-first boost (tier-A RIDE); portfolio DD/sector size_mult in `gatherSizingMultipliers`; Kelly still UI-only |
+| **closed-self-calibration-loop** | ~55% | Weekly scorecard script + CI workflow; `/timed/admin/trust-spine/scorecard`; champion/challenger pending |
+| **autonomy-ladder-and-governor** | ~45% | L0–L5 module + `/timed/admin/trust-spine/autonomy-status` + engine-snapshot `trust_spine`; SI UI pending |
+| **portfolio-and-drawdown-control** | ~50% | Sector concentration cap (shadow) + DD proximity haircut; enforcement flags OFF |
+| **followability-rides-on-top** | ~55% | `/timed/plays/today`, `/timed/why/recent`, `/timed/ledger/trades/:id/decisions`; taxonomy enforcement pending |
 
-**Production snapshot (2026-07-07):** 62 `decision_records` (11 trader ENTRY, 18 investor ENTRY, 5 trader TRIM, 0 investor TRIM — gap fixed in this PR). Conviction/bleeder flags remain OFF until forward validation clears.
+**Production snapshot (2026-07-07):** 62+ `decision_records`, 6 config epochs. Conviction/bleeder/portfolio enforcement flags remain OFF until forward validation clears.
+
+**New endpoints (this PR):**
+
+- `GET /timed/plays/today` — unified prioritized queue
+- `GET /timed/why/recent` — operator WHY feed (admin)
+- `GET /timed/ledger/trades/:id/decisions` — per-trade provenance timeline
+- `GET /timed/admin/trust-spine/autonomy-status`
+- `GET /timed/admin/trust-spine/edge-scorecard`
+- `GET /timed/admin/trust-spine/scorecard`
 
 **Validation commands:**
 
 ```bash
 node scripts/validate-decision-records-live.mjs --wrangler-d1 production --remote
+node scripts/trust-spine-scorecard.mjs --days 7
 node scripts/validate-conviction-corpus.mjs
 node scripts/check-scoring-version-bump.mjs   # CI guard
+npm test -- worker/trust-spine/trust-spine.test.js
 ```
 
 ---

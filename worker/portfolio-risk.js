@@ -29,6 +29,7 @@
 // mirroring the proven Loop 2 plumbing.
 
 import { sumRealizedPnlExcludingPhantoms } from "./phase-c-loops.js";
+import { evaluateSectorConcentration } from "./trust-spine/sector-concentration.js";
 
 const STATE_KEY = "phase-c:portfolio-risk";
 const SAMPLES_KEY = "phase-c:equity-samples";
@@ -151,6 +152,22 @@ export async function evaluatePortfolioRisk(env, { openRows, priceMap, realizedP
   const ddTrip = samples >= 5 && ddPct >= ddThreshold;
   const budgetTrip = book.open_notional_pct != null && book.open_notional_pct >= notionalThreshold;
 
+  const sectorMaxPct = _num(daCfg.portfolio_sector_max_pct, 40);
+  const sectorConc = evaluateSectorConcentration(openRows, priceMap, sectorMaxPct);
+
+  // Shadow-first drawdown proximity haircut — reduces size as equity
+  // approaches the breaker threshold without blocking entries.
+  const ddHaircutEnabled = String(daCfg.portfolio_dd_size_haircut_enabled ?? "true") !== "false";
+  let dd_size_mult = 1.0;
+  if (ddHaircutEnabled && samples >= 5 && ddThreshold > 0) {
+    const ratio = ddPct / ddThreshold;
+    if (ratio >= 1) dd_size_mult = 0.5;
+    else if (ratio >= 0.8) dd_size_mult = 0.75;
+    else if (ratio >= 0.6) dd_size_mult = 0.9;
+  }
+  const sector_size_mult = sectorConc.sector_trip ? 0.85 : 1.0;
+  const portfolio_size_mult = +(dd_size_mult * sector_size_mult).toFixed(3);
+
   const state = {
     computed_at: Date.now(),
     ...book,
@@ -169,7 +186,14 @@ export async function evaluatePortfolioRisk(env, { openRows, priceMap, realizedP
       ? `portfolio_dd_${ddPct}pct_vs_${ddThreshold}pct`
       : budgetTrip && budgetEnforced
         ? `capital_budget_${book.open_notional_pct}pct_vs_${notionalThreshold}pct`
-        : null,
+        : sectorConc.sector_trip && String(daCfg.portfolio_sector_cap_enabled ?? "false") === "true"
+          ? sectorConc.block_reason
+          : null,
+    sector_concentration: sectorConc,
+    sector_trip: sectorConc.sector_trip,
+    dd_size_mult,
+    sector_size_mult,
+    portfolio_size_mult,
   };
 
   if (KV) {

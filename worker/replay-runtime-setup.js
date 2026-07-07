@@ -466,6 +466,18 @@ export const REPLAY_DA_KEYS = [
   "loop2_breaker_wr",         // last-10 WR < X → trip (default 0.30)
   "loop2_breaker_day_pnl",    // today PnL < X% → trip (default -1.5)
   "loop2_breaker_consec_loss",// X consecutive losses → trip (default 4)
+  // Trust Spine — autonomy ladder + portfolio survival knobs
+  "autonomy_level",
+  "trust_spine_autonomy_level",
+  "portfolio_dd_breaker_pct",
+  "portfolio_dd_breaker_enabled",
+  "portfolio_max_open_notional_pct",
+  "portfolio_risk_budget_enabled",
+  "portfolio_sector_max_pct",
+  "portfolio_sector_cap_enabled",
+  "portfolio_dd_size_haircut_enabled",
+  "portfolio_shock_dd_proximity_pct",
+  "portfolio_regime_shock_enforce",
   // Loop 3 — Personality-aware management
   "loop3_personality_management_enabled",
   // ─────────────────────────────────────────────────────────────────────
