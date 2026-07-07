@@ -57,21 +57,66 @@
         color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
       }
       .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
-      /* Daily Cycle Composite — market-wide sector cycle row */
-      .tt-dcc-banner {
-        display: flex; flex-direction: column; gap: 8px;
-        padding: 10px 12px; margin-bottom: 10px; border-radius: 10px;
-        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      /* Daily Cycle Composite — market-wide sector cycle row.
+         2026-07-07 redesign: three distinct "lenses" (HMM regime,
+         breadth HTF cycle, session) split into a dedicated read-card
+         so the trader never has to reconcile "Bear Trend" (HMM) with
+         "Uptrend" (breadth EMA) — they measure different things. */
+      .tt-market-read {
+        display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px; padding: 12px 14px; margin-bottom: 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.10);
       }
-      .tt-dcc-banner-row {
-        display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+      @media (max-width: 640px) {
+        .tt-market-read { grid-template-columns: 1fr; }
       }
-      .tt-dcc-breadth {
-        font-family: var(--tt-font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+      .tt-market-read-cell {
+        display: flex; flex-direction: column; gap: 4px; min-width: 0;
+      }
+      .tt-market-read-cell + .tt-market-read-cell {
+        padding-left: 12px; border-left: 1px solid rgba(255,255,255,0.06);
+      }
+      @media (max-width: 640px) {
+        .tt-market-read-cell + .tt-market-read-cell {
+          padding-left: 0; border-left: none;
+          padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);
+        }
+      }
+      .tt-market-read-label {
+        font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--tt-text-faint, #64748b);
+        font-family: var(--tt-font-mono);
+      }
+      .tt-market-read-value {
+        font-size: 15px; font-weight: 700; line-height: 1.15;
+      }
+      .tt-market-read-detail {
+        font-size: 11px; color: var(--tt-text-muted); line-height: 1.35;
+      }
+      .tt-market-read-detail code {
+        font-family: var(--tt-font-mono); font-size: 10.5px;
+        padding: 1px 5px; border-radius: 4px;
+        background: rgba(255,255,255,0.06); color: var(--tt-text);
+      }
+      .tt-market-read-help {
+        font-size: 10.5px; color: var(--tt-text-faint); line-height: 1.4;
+        margin: 0 0 10px; padding: 0 2px;
+      }
+      .tt-market-read-help strong { color: var(--tt-text-muted); font-weight: 600; }
+      .tt-dcc-row-title {
+        font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--tt-text-muted);
+        margin-bottom: 6px;
+      }
+      .tt-dcc-row-title-sub {
+        font-size: 10.5px; color: var(--tt-text-faint); font-weight: 500;
+        letter-spacing: 0; text-transform: none; margin-left: 8px;
       }
       .tt-dcc-pill {
         display: inline-flex; align-items: center; gap: 6px;
-        padding: 3px 8px; border-radius: 999px;
+        padding: 3px 9px; border-radius: 999px;
         font-family: var(--tt-font-mono); font-size: 10.5px; font-weight: 700;
         border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
       }
@@ -80,6 +125,14 @@
       }
       .tt-dcc-chip-dot {
         width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+      }
+      .tt-dcc-spotlight-row {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+        margin-bottom: 10px;
+      }
+      .tt-dcc-shifts-row {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+        margin-bottom: 10px;
       }
       .tt-macro-chip--released { box-shadow: 0 0 0 1px rgba(56,242,161,0.35); animation: tt-macro-pulse 2.5s ease-in-out infinite; }
       @keyframes tt-macro-pulse { 0%,100% { box-shadow: 0 0 0 1px rgba(56,242,161,0.25); } 50% { box-shadow: 0 0 0 2px rgba(56,242,161,0.55); } }
@@ -4073,49 +4126,14 @@
         const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
         if (order.length === 0) return null;
 
-        // 2026-05-22 Phase C — HMM latent regime badge. Universe-wide
-        // signal attached to every ticker payload by the scoring path.
-        // We read the first available ticker (any ticker has the same
-        // latent_regime — it's the same blob per tick) and show a small
-        // pill. Hides when no model has been trained yet.
-        const _latent = (() => {
-          for (const sym of order) {
-            const lr = data?.[sym]?.latent_regime;
-            if (lr && lr.state) return lr;
-          }
-          return null;
-        })();
-        const _LATENT_META = {
-          BULL_TREND: { color: "var(--tt-up, #34d399)",   label: "BULL TREND" },
-          CHOP:       { color: "var(--tt-accent, #f5c25c)", label: "CHOP" },
-          BEAR_TREND: { color: "var(--tt-dn, #f87171)",  label: "BEAR TREND" },
-        };
-        const _latentMeta = _latent ? (_LATENT_META[_latent.state] || { color: "var(--tt-text-muted)", label: _latent.state }) : null;
-        const _postSummary = _latent?.posterior
-          ? Object.entries(_latent.posterior).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ")
-          : "";
+        // 2026-07-07 — MARKET REGIME pill removed from this header; it's
+        // now part of the Market Read card in DailyCycleCompositePanel so
+        // trader sees regime / HTF cycle / session as three clearly-labeled
+        // lenses on ONE line instead of a floating pill that read as if it
+        // disagreed with the HTF cycle read a few pixels below.
 
         const body = h(React.Fragment, null,
-          h("div", {
-            style: { display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" },
-          },
-            h("h2", { className: "tt-sec-h", style: { margin: 0 } }, "Where the indices stand"),
-            _latentMeta && h("span", {
-              title: _postSummary ? `HMM latent regime — posterior: ${_postSummary}` : "HMM latent regime",
-              style: {
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "3px 9px", borderRadius: 999,
-                background: `${_latentMeta.color}22`,
-                color: _latentMeta.color,
-                fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
-                fontFamily: "var(--tt-font-mono, ui-monospace, monospace)",
-                whiteSpace: "nowrap",
-              },
-            },
-              h("span", { style: { width: 6, height: 6, borderRadius: "50%", background: _latentMeta.color, boxShadow: `0 0 0 2px ${_latentMeta.color}33` } }),
-              `MARKET REGIME · ${_latentMeta.label}`,
-            ),
-          ),
+          h("h2", { className: "tt-sec-h", style: { margin: 0 } }, "Where the indices stand"),
           h("div", { className: "tt-mp-tiles-row" },
             order.map(sym => h(MarketPulseTile, { key: sym, sym, t: data[sym], onSelectTicker })),
           ),
@@ -4163,27 +4181,118 @@
         const spotlights = Array.isArray(composite.spotlights) ? composite.spotlights : [];
         const breadthCol = CI.cycleColor ? CI.cycleColor(composite.breadth_cycle) : "var(--tt-accent)";
 
+        // 2026-07-07 — Read the HMM latent regime + market session so the
+        // Market Read card can present regime / HTF cycle / session as three
+        // clearly-labeled lenses. The trader stops wondering why "BEAR TREND"
+        // (HMM) coexists with "Uptrend" (breadth EMA) — they answer different
+        // questions.
+        const _latent = (function () {
+          if (!data) return null;
+          for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+            const lr = data[sym]?.latent_regime;
+            if (lr && lr.state) return lr;
+          }
+          return null;
+        })();
+        const _LATENT_META = {
+          BULL_TREND: { color: "var(--tt-up, #34d399)",   label: "Bull Trend" },
+          CHOP:       { color: "var(--tt-accent, #f5c25c)", label: "Chop" },
+          BEAR_TREND: { color: "var(--tt-dn, #f87171)",  label: "Bear Trend" },
+        };
+        const _latentMeta = _latent ? (_LATENT_META[_latent.state] || { color: "var(--tt-text-muted)", label: _latent.state }) : null;
+        const _postSummary = _latent?.posterior
+          ? Object.entries(_latent.posterior)
+              .sort(function (a, b) { return (b[1] || 0) - (a[1] || 0); })
+              .map(function (kv) { return kv[0].replace("_TREND", "").toLowerCase() + " " + Math.round((kv[1] || 0) * 100) + "%"; })
+              .join(" · ")
+          : "";
+
+        // Session — pulled from any ticker's market_session block written by
+        // the scoring cron; falls back to a computed answer if unavailable.
+        let _sessionPhase = null, _sessionOpen = null, _sessionETDate = null;
+        if (data) {
+          for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+            const ms = data[sym]?.market_session;
+            if (ms && ms.session_phase) {
+              _sessionPhase = ms.session_phase;
+              _sessionOpen = ms.market_open;
+              _sessionETDate = ms.et_date || null;
+              break;
+            }
+          }
+        }
+        const _sessionLabel = _sessionOpen === true || _sessionPhase === "rth"
+          ? "RTH open"
+          : _sessionPhase === "premarket"
+            ? "Pre-market"
+            : _sessionPhase === "afterhours"
+              ? "After-hours"
+              : _sessionPhase === "closed"
+                ? "Closed"
+                : (_sessionOpen === false ? "Closed" : "—");
+        const _sessionCol = (_sessionOpen === true || _sessionPhase === "rth")
+          ? "var(--tt-up-soft, #34d399)"
+          : (_sessionPhase === "premarket" || _sessionPhase === "afterhours")
+            ? "var(--tt-accent, #f5c25c)"
+            : "var(--tt-text-muted)";
+
+        const marketReadCard = h("div", { className: "tt-market-read" },
+          h("div", { className: "tt-market-read-cell" },
+            h("div", { className: "tt-market-read-label", title: "Hidden Markov model over index returns — a probabilistic read that shifts with returns, volatility, and covariance" }, "Regime (HMM)"),
+            _latentMeta
+              ? h(React.Fragment, null,
+                  h("div", { className: "tt-market-read-value", style: { color: _latentMeta.color } }, _latentMeta.label),
+                  h("div", { className: "tt-market-read-detail" },
+                    _postSummary ? h("code", null, _postSummary) : "posterior unavailable",
+                  ),
+                )
+              : h(React.Fragment, null,
+                  h("div", { className: "tt-market-read-value", style: { color: "var(--tt-text-muted)" } }, "—"),
+                  h("div", { className: "tt-market-read-detail" }, "HMM not yet trained"),
+                ),
+          ),
+          h("div", { className: "tt-market-read-cell" },
+            h("div", { className: "tt-market-read-label", title: "Deterministic daily EMA stack + HTF momentum score, breadth-weighted across SPY, QQQ, IWM, DIA, RSP" }, "HTF Cycle (Breadth)"),
+            h("div", { className: "tt-market-read-value", style: { color: breadthCol } },
+              CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle,
+            ),
+            h("div", { className: "tt-market-read-detail" },
+              indexMixLabel ? h("code", null, indexMixLabel) : "index mix unavailable",
+              composite.indices && composite.indices.SPY && h("span", null,
+                " · SPY ", h("code", null, CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle),
+              ),
+            ),
+          ),
+          h("div", { className: "tt-market-read-cell" },
+            h("div", { className: "tt-market-read-label" }, "Session"),
+            h("div", { className: "tt-market-read-value", style: { color: _sessionCol } }, _sessionLabel),
+            h("div", { className: "tt-market-read-detail" },
+              _sessionETDate ? h("code", null, _sessionETDate + " ET") : "—",
+            ),
+          ),
+        );
+
+        const readHelp = h("p", { className: "tt-market-read-help" },
+          "These three lenses can disagree — that's a signal, not a bug. ",
+          h("strong", null, "Regime"),
+          " (HMM) is a probabilistic read; ",
+          h("strong", null, "HTF Cycle"),
+          " is a deterministic EMA-stack rule averaged across benchmark indices; ",
+          h("strong", null, "Session"),
+          " is the trading clock. A bearish HMM under an uptrend breadth cycle typically means rising vol / narrowing leadership.",
+        );
+
         const body = h(React.Fragment, null,
           !embedded && h("div", { className: "tt-sec-title" }, "DAILY CYCLE COMPOSITE"),
-          !embedded && h("div", { className: "tt-sec-h" }, "HTF EMA regime cycle vs research-desk phase reads"),
-          h("div", { className: "tt-dcc-banner" },
-            h("div", { className: "tt-dcc-banner-row" },
-              h("span", {
-                className: "tt-dcc-breadth",
-                style: { color: breadthCol },
-                title: "Breadth-weighted cycle across SPY, QQQ, IWM, DIA, RSP",
-              }, "Market HTF cycle: ", CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle),
-              indexMixLabel && h("span", {
-                className: "tt-dcc-pill",
-                title: "Per-index cycle mix (SPY/QQQ/IWM/DIA/RSP)",
-              }, "Indices ", indexMixLabel),
-              composite.indices && composite.indices.SPY && h("span", {
-                className: "tt-dcc-pill",
-                style: { color: CI.cycleColor ? CI.cycleColor(composite.indices.SPY.cycle) : undefined },
-              }, "SPY ", CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle),
+          !embedded && h("div", { className: "tt-sec-h" }, "Three lenses on where the tape is: regime, HTF cycle, per-name reads"),
+          marketReadCard,
+          readHelp,
+          spotlights.length > 0 && h("div", { className: "tt-dcc-spotlight-row" },
+            h("span", { className: "tt-dcc-row-title" },
+              "Semis / AI leaders",
+              h("span", { className: "tt-dcc-row-title-sub" }, "each name's own HTF cycle — independent of the market breadth read above"),
             ),
-            spotlights.length > 0 && h("div", { className: "tt-dcc-banner-row" },
-              h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-text-muted)" } }, "SEMIS WATCH"),
+            h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, width: "100%" } },
               spotlights.map(function (sp) {
                 const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
                 const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
@@ -4216,14 +4325,23 @@
                 );
               }),
             ),
-            transitions.length > 0 && h("div", { className: "tt-dcc-banner-row" },
-              h("span", { style: { fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", color: "var(--tt-warn)" } }, "RECENT SHIFTS"),
+          ),
+          transitions.length > 0 && h("div", { className: "tt-dcc-shifts-row" },
+            h("span", { className: "tt-dcc-row-title" },
+              "Recent cycle shifts",
+              h("span", { className: "tt-dcc-row-title-sub" }, "since the last scoring refresh — potential trend-change alert"),
+            ),
+            h("div", { style: { display: "flex", flexWrap: "wrap", gap: 8, width: "100%" } },
               transitions.map(function (tr, i) {
                 return h("span", { key: tr.symbol + "-" + i, className: "tt-dcc-trans", title: "Cycle transition since last scoring refresh" },
                   CI.formatTransition ? CI.formatTransition(tr) : (tr.symbol + " " + tr.from + " → " + tr.to),
                 );
               }),
             ),
+          ),
+          h("div", { className: "tt-dcc-row-title" },
+            "Sector cycles",
+            h("span", { className: "tt-dcc-row-title-sub" }, "each ETF's own HTF cycle plus its intraday % — sorted by strongest divergence first"),
           ),
           h("div", { className: "tt-strip-scroll", role: "list", "aria-label": "Sector cycle alignment" },
             sectors.map(function (s) {
