@@ -2142,57 +2142,84 @@ function DayTradePredictions({
     maximumFractionDigits: 2
   }) : "—";
   if (items.length === 0) return null;
-  return h("section", {
-    className: "tt-card tt-card-pad"
-  }, h("div", {
+  const levelPill = (label, value, target, tone) => h("div", {
     style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 8,
-      flexWrap: "wrap",
-      marginBottom: 4
+      flex: "1 1 120px",
+      minWidth: 0,
+      padding: "8px 10px",
+      borderRadius: 8,
+      border: `1px solid ${tone === "up" ? "rgba(52,211,153,0.25)" : "rgba(248,113,113,0.25)"}`,
+      background: tone === "up" ? "rgba(52,211,153,0.06)" : "rgba(248,113,113,0.06)"
     }
   }, h("div", {
-    className: "tt-sec-title",
     style: {
-      margin: 0
+      fontSize: 9.5,
+      fontWeight: 700,
+      letterSpacing: "0.06em",
+      color: tone === "up" ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+      marginBottom: 3
     }
-  }, "DAY-TRADE PREDICTIONS"), h("span", {
+  }, label), h("div", {
     style: {
-      fontSize: 10.5,
-      color: "var(--tt-text-dim)"
+      fontSize: 13,
+      fontWeight: 700,
+      fontFamily: "var(--tt-font-mono)",
+      color: "var(--tt-text)"
     }
-  }, pred.grades_note || "")), h("div", {
-    className: "tt-sec-h",
-    style: {
-      fontSize: 15,
-      marginBottom: 4
-    }
-  }, "How the day may unfold — with a grade after the close"), pred.levels_live && h("div", {
+  }, fmt(value)), Number.isFinite(Number(target)) && h("div", {
     style: {
       fontSize: 10.5,
       color: "var(--tt-text-muted)",
-      marginBottom: 10
+      marginTop: 2,
+      fontFamily: "var(--tt-font-mono)"
     }
-  }, h("span", {
+  }, `target ${fmt(target)}`));
+  return h("section", {
+    className: "tt-card tt-card-pad"
+  }, pred.levels_live && h("div", {
     style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      marginBottom: 12,
+      fontSize: 10,
       fontWeight: 700,
-      color: pred.market_open ? "#34d399" : "#fbbf24"
+      letterSpacing: "0.04em",
+      padding: "3px 8px",
+      borderRadius: 999,
+      color: pred.market_open ? "#34d399" : "#fbbf24",
+      border: `1px solid ${pred.market_open ? "rgba(52,211,153,0.35)" : "rgba(245,158,11,0.35)"}`,
+      background: pred.market_open ? "rgba(52,211,153,0.08)" : "rgba(245,158,11,0.08)"
     }
-  }, pred.market_open ? "LIVE LEVELS" : "LIVE LEVELS (pre/post-market)"), " — regenerated off the current price, not the 9am close."), h("div", {
+  }, pred.market_open ? "LIVE LEVELS" : "LIVE LEVELS (pre/post-market)", h("span", {
     style: {
-      display: "flex",
-      flexDirection: "column",
-      gap: 2
+      fontWeight: 500,
+      color: "var(--tt-text-muted)",
+      letterSpacing: 0
+    }
+  }, "· refreshed off current price")), h("div", {
+    style: {
+      display: "grid",
+      gap: 12
     }
   }, items.map(it => {
     const lv = it.levels;
-    return h("div", {
+    return h("article", {
       key: it.sym,
       style: {
-        padding: "11px 0",
-        borderBottom: "1px solid var(--tt-border)"
+        padding: "12px 14px",
+        borderRadius: 10,
+        border: "1px solid var(--tt-border)",
+        background: "rgba(255,255,255,0.02)"
+      }
+    }, h("div", {
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 10,
+        flexWrap: "wrap",
+        marginBottom: 8
       }
     }, h("div", {
       style: {
@@ -2208,14 +2235,20 @@ function DayTradePredictions({
         border: "none",
         color: "var(--tt-text)",
         fontWeight: 800,
-        fontSize: 16,
+        fontSize: 17,
         fontFamily: "var(--tt-font-mono)",
         cursor: "pointer",
         padding: 0,
         minWidth: 44,
         textAlign: "left"
       }
-    }, it.sym), h("span", {
+    }, it.sym), Number.isFinite(it.spot) && h("span", {
+      style: {
+        fontSize: 12,
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-text-muted)"
+      }
+    }, `spot ${fmt(it.spot)}`)), h("span", {
       title: it.grade_label,
       style: {
         fontSize: 10,
@@ -2223,52 +2256,39 @@ function DayTradePredictions({
         color: gradeColor(it.grade),
         border: `1px solid ${gradeColor(it.grade)}`,
         borderRadius: 5,
-        padding: "1px 6px",
+        padding: "2px 7px",
         whiteSpace: "nowrap"
       }
-    }, it.grade ? `${it.grade} · ${it.grade_label}` : it.gradeable ? "Grades ~4pm" : "—"), lv && h("div", {
-      style: {
-        marginLeft: "auto",
-        display: "flex",
-        gap: 12,
-        flexWrap: "wrap",
-        justifyContent: "flex-end",
-        fontSize: 11.5,
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, Number.isFinite(it.spot) && h("span", {
-      style: {
-        color: "var(--tt-text)",
-        fontWeight: 700
-      }
-    }, `spot ${fmt(it.spot)}`), Number.isFinite(lv.bull_trigger) && h("span", {
-      style: {
-        color: "var(--tt-up-soft)"
-      }
-    }, `▲ ${fmt(lv.bull_trigger)}${Number.isFinite(lv.bull_target) ? ` → ${fmt(lv.bull_target)}` : ""}`), Number.isFinite(lv.bear_trigger) && h("span", {
-      style: {
-        color: "var(--tt-dn-soft)"
-      }
-    }, `▼ ${fmt(lv.bear_trigger)}${Number.isFinite(lv.bear_target) ? ` → ${fmt(lv.bear_target)}` : ""}`), Number.isFinite(it.close) && h("span", {
-      style: {
-        color: "var(--tt-text-dim)"
-      }
-    }, `close ${fmt(it.close)}`))), it.narrative && h("div", {
+    }, it.grade ? `${it.grade} · ${it.grade_label}` : it.gradeable ? "Grades after close" : "—")), it.narrative && h("p", {
       style: {
         fontSize: 12.5,
         color: "var(--tt-text-muted)",
-        lineHeight: 1.5,
-        marginTop: 6
+        lineHeight: 1.55,
+        margin: "0 0 10px"
       }
-    }, it.narrative));
+    }, it.narrative), lv && h("div", {
+      style: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap"
+      }
+    }, Number.isFinite(lv.bull_trigger) && levelPill("BULL RECLAIM", lv.bull_trigger, lv.bull_target, "up"), Number.isFinite(lv.bear_trigger) && levelPill("BEAR BREAK", lv.bear_trigger, lv.bear_target, "dn"), Number.isFinite(it.close) && h("div", {
+      style: {
+        flex: "0 0 auto",
+        alignSelf: "center",
+        fontSize: 10.5,
+        color: "var(--tt-text-dim)",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, `prior close ${fmt(it.close)}`)));
   })), h("div", {
     style: {
       fontSize: 10,
       color: "var(--tt-text-faint)",
-      marginTop: 8,
+      marginTop: 10,
       lineHeight: 1.5
     }
-  }, "Levels are the brief's intraday game plan; the grade scores the session high/low vs the predicted triggers/targets after the close. The matching 0/1DTE option play for each index is in “Options Plays · Day Trade Index ETFs” below. Educational, not advice."));
+  }, pred.grades_note || "Grades score the session high/low vs the predicted triggers and targets after the close. Educational context only — not a trade recommendation."));
 }
 function TodayHero({
   brief,
@@ -2681,7 +2701,8 @@ function MarketState({
 }
 function DailyCycleCompositePanel({
   embedded,
-  onSelectTicker
+  onSelectTicker,
+  data
 }) {
   const [composite, setComposite] = useState(null);
   const CI = window.TTCycleIntel || {};
@@ -2739,7 +2760,17 @@ function DailyCycleCompositePanel({
     const etf = s.etf || "";
     const alignCol = CI.alignmentColor ? CI.alignmentColor(s.alignment) : "var(--tt-text-muted)";
     const label = CI.formatCycleChip ? CI.formatCycleChip(s.computed_cycle, s.alignment) : s.computed_cycle || "—";
-    const title = [s.sector, "ETF " + etf, "Cycle: " + (s.computed_cycle || "n/a"), s.fsd_phase ? "Desk phase: " + s.fsd_phase : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
+    const tickerRow = data && etf ? data[String(etf).toUpperCase()] : null;
+    let dayPct = null;
+    try {
+      const utils = window.TimedPriceUtils;
+      if (tickerRow && utils && typeof utils.getDailyChange === "function") {
+        const dc = utils.getDailyChange(tickerRow);
+        if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
+      }
+    } catch (_) {}
+    const chgCol = Number.isFinite(dayPct) ? dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-dim)";
+    const title = [s.sector, "ETF " + etf, Number.isFinite(dayPct) ? "Day " + (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%" : null, "Computed market cycle: " + (s.computed_cycle || "n/a"), s.fsd_phase ? "Research desk phase: " + s.fsd_phase : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
     return h("button", {
       key: etf || s.sector,
       type: "button",
@@ -2759,9 +2790,16 @@ function DailyCycleCompositePanel({
         fontWeight: 700,
         fontSize: 11
       }
-    }, etf), h("span", {
+    }, etf), Number.isFinite(dayPct) && h("span", {
       style: {
         fontSize: 11,
+        fontWeight: 700,
+        fontFamily: "var(--tt-font-mono)",
+        color: chgCol
+      }
+    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"), h("span", {
+      style: {
+        fontSize: 10.5,
         color: "var(--tt-text-muted)"
       }
     }, label));
@@ -2789,7 +2827,8 @@ function MarketPulseWithMovers({
     className: "tt-mp-divider"
   }), h(DailyCycleCompositePanel, {
     embedded: true,
-    onSelectTicker
+    onSelectTicker,
+    data
   }), h("div", {
     className: "tt-mp-divider"
   }), h(TopMovers, {
@@ -2920,61 +2959,31 @@ function MacroStrip({
 }
 const HOLDBOOK_CACHE_URL = `${API_BASE}/timed/investor/holdbook`;
 const CTO_FEED_URL = `${API_BASE}/timed/cto/feed?limit=120`;
-function buildGrowthZoneModel(row, ctoItem, livePrice) {
-  var priceCandidate = Number(livePrice);
-  if (!Number.isFinite(priceCandidate) || priceCandidate <= 0) priceCandidate = Number(row?.price);
-  const price = priceCandidate;
-  if (!Number.isFinite(price) || price <= 0) return null;
-  const down = ctoItem?.top_downside;
-  const up = ctoItem?.top_upside;
-  const norm = window.TimedVerdictUI?.normalizeCtoFeedItem ? window.TimedVerdictUI.normalizeCtoFeedItem({
-    ticker: row?.ticker,
-    top_downside: down,
-    top_upside: up
-  }) : {
-    top_downside: down,
-    top_upside: up
-  };
-  const downN = norm?.top_downside;
-  const upN = norm?.top_upside;
-  let inv = Number(downN?.price);
-  let tgt = Number(upN?.price);
-  const fv = Number(row?.fair_value_price);
-  if (!Number.isFinite(inv) || inv >= price) inv = price * 0.9;
-  if (!Number.isFinite(tgt) || tgt <= price) {
-    tgt = Number.isFinite(fv) && fv > price ? fv : price * 1.12;
+function buildGrowthZoneModel(row, ctoItem, livePrice, liveT) {
+  const VU = window.TimedVerdictUI;
+  const buildInv = VU && typeof VU.buildInvestorZoneModel === "function" ? VU.buildInvestorZoneModel : null;
+  if (!buildInv) return null;
+  const t = Object.assign({}, row || {}, liveT || {});
+  if (!t._fair_value && row && row.fair_value_price != null) {
+    t._fair_value = {
+      fair_value: row.fair_value_price
+    };
   }
-  if (inv >= tgt) {
-    inv = price * 0.92;
-    tgt = price * 1.1;
+  if (t.fair_value_price == null && row && row.fair_value_price != null) {
+    t.fair_value_price = row.fair_value_price;
   }
-  const span = tgt - inv;
-  const pbLo = inv + span * 0.28;
-  const pbHi = inv + span * 0.48;
-  const pad = span * 0.04 || price * 0.01;
-  const minPx = inv - pad;
-  const maxPx = tgt + pad;
-  const pct = px => Math.max(0, Math.min(100, (px - minPx) / (maxPx - minPx) * 100));
-  return {
-    inv,
-    tgt,
-    pbLo,
-    pbHi,
-    price,
-    invProb: Number(downN?.adj_prob),
-    tgtProb: Number(upN?.adj_prob),
-    pct,
-    minPx,
-    maxPx
-  };
+  let zm = buildInv(t, livePrice);
+  if (zm && VU.attachCtoProbToZone) zm = VU.attachCtoProbToZone(zm, ctoItem);
+  return zm;
 }
 function GrowthZoneBar({
   row,
   ctoItem,
   livePrice,
+  liveT,
   mode
 }) {
-  const zm = buildGrowthZoneModel(row, ctoItem, livePrice);
+  const zm = buildGrowthZoneModel(row, ctoItem, livePrice, liveT);
   if (!zm) return null;
   const LaneCard = window.TTLaneCard;
   if (!LaneCard) return null;
@@ -2989,8 +2998,8 @@ function GrowthZoneBar({
   }
   return LaneCard.zoneBarTrack(zm, {
     compact: true,
-    planLabel: "Growth plan",
-    trackTitle: "Daily CTO levels — invalidation, pullback add zone, and upside target."
+    planLabel: "Investor plan",
+    trackTitle: "Investor lane — invalidation floor, add-on-pullback zone, and target."
   });
 }
 function GrowthIdeasStrip({
@@ -3204,11 +3213,11 @@ function GrowthIdeasStrip({
         title: "Pullback posture active"
       }, "Dip active"));
     }
-    const zm = buildGrowthZoneModel(row, ctoBySym[sym], livePrice);
+    const zm = buildGrowthZoneModel(row, ctoBySym[sym], livePrice, liveT);
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
-      planLabel: "Growth plan",
-      trackTitle: "Daily CTO levels — invalidation, pullback add zone, and upside target."
+      planLabel: "Investor plan",
+      trackTitle: "Investor lane — invalidation floor, add-on-pullback zone, and target."
     }) : null;
     const footEls = [h("p", {
       key: "why",
@@ -3218,6 +3227,7 @@ function GrowthIdeasStrip({
       row,
       ctoItem: ctoBySym[sym],
       livePrice,
+      liveT,
       mode: "meta"
     })].filter(Boolean);
     if (LaneCard?.create) {
@@ -6338,13 +6348,6 @@ function TodayApp({
     sub: "ES / SPY / QQQ / IWM / DIA — plan, triggers, post-close grade"
   }, h(DayTradePredictions, {
     onSelectTicker
-  })), marketSession.showDayTradeSections && h(Disclosure, {
-    id: "options",
-    title: "Options Plays of the Day",
-    sub: "0/1DTE index plays + top swing structures"
-  }, h(OptionsPlaysOfTheDay, {
-    onSelectTicker,
-    layout: "row"
   })), data && h(Disclosure, {
     id: "heatmap",
     title: "Universe Heat Map",
@@ -6771,6 +6774,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783446425840:517345257
+// cache-bust:1783448042015:286974805
 
-// cache-bust:1783446425840:517345257
+// cache-bust:1783448042015:286974805

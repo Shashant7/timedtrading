@@ -1500,6 +1500,7 @@
       rankReadySetupsFromData: rankReadySetupsFromData,
       resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
       attachCtoProbToZone: attachCtoProbToZone,
+      buildInvestorZoneModel: buildInvestorZoneModel,
       fetchCtoMapForSymbols: fetchCtoMapForSymbols,
       normalizeCtoFeedItem: normalizeCtoFeedItem,
       TrustStrip: TrustStrip,
@@ -1543,6 +1544,8 @@
     buildVerdictGuide: buildVerdictGuide,
     rankReadySetupsFromData: rankReadySetupsFromData,
     resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
+    buildInvestorZoneModel: buildInvestorZoneModel,
+    attachCtoProbToZone: attachCtoProbToZone,
     LIFECYCLE_STEPS: LIFECYCLE_STEPS,
     register: register,
   };
