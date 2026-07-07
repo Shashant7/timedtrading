@@ -1873,11 +1873,7 @@
         if (title.includes("BOUGHT") || title.includes("ADD") || title.includes("TRIMMED") || title.includes("EXITED")) return true;
         return false;
       }
-      if (t === "kanban") {
-        const title = String(n?.title || "").toUpperCase();
-        if (title.startsWith("SETUP:")) return false;
-        return true;
-      }
+      if (t === "kanban") return false;
       return false;
     }, []);
 

@@ -1873,11 +1873,7 @@
         if (title.includes("BOUGHT") || title.includes("ADD") || title.includes("TRIMMED") || title.includes("EXITED")) return true;
         return false;
       }
-      if (t === "kanban") {
-        const title = String(n?.title || "").toUpperCase();
-        if (title.startsWith("SETUP:")) return false;
-        return true;
-      }
+      if (t === "kanban") return false;
       return false;
     }, []);
 
@@ -2960,4 +2956,4 @@
   window.TimedPushRegister = registerPushNotifications;
 })();
 
-// cache-bust:1783377400388:834814849
+// cache-bust:1783393942317:2458537
