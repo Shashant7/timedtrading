@@ -34701,7 +34701,7 @@
         "event_type": "macro",
         "event_name": "Jun ISM Srvcs PMI",
         "impact": "medium",
-        "surprise_pct": null,
+        "surprise_pct": 0.93,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35147,6 +35147,24 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-09",
+        "event_type": "macro",
+        "event_name": "Jun Existing Home Sales",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-09",
+        "event_type": "macro",
+        "event_name": "Jun Existing Home Sales m/m",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-07-10",
         "event_type": "earnings",
         "event_name": "DAL Earnings",
@@ -35172,14 +35190,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 38.3517
+        "sql_duration_ms": 36.6231
       },
-      "duration": 38.3517,
+      "duration": 36.6231,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4323729408,
-      "rows_read": 3907,
+      "size_after": 4358557696,
+      "rows_read": 3909,
       "rows_written": 0,
       "total_attempts": 1
     }
