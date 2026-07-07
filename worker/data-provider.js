@@ -651,11 +651,16 @@ export async function cronFetchCrypto(env) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // Match REPLAY_TFS — 5m used only by live cron (rolling), not backtest. 15m for leading_ltf experiment.
-const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10"];
+// 2026-07-07 — 5m in the "all" set: the live candle-continuity sync writes
+// 5m every minute during RTH, so onboards / heals that don't seed 5m leave
+// a gap at the base of the intraday chain (10/15/30 derive-and-agg from 5m).
+// Order matters — heavy history TFs first so a rate-limit stall on 5m never
+// starves the higher-value bars.
+const BACKFILL_TFS = ["M", "W", "D", "240", "60", "30", "15", "10", "5"];
 
 const DEEP_START_DAYS = {
   "M": 365 * 10, "W": 365 * 6, "D": 365 * 3, "240": 365 * 2,
-  "60": 365 * 2, "30": 450, "15": 450, "10": 450,
+  "60": 365 * 2, "30": 450, "15": 450, "10": 450, "5": 90,
 };
 
 export async function backfill(env, tickers, tfKey = "all", opts = null) {

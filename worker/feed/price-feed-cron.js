@@ -832,11 +832,16 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               const priorityTickers = typeof deps.collectPriorityChartTickers === "function"
                 ? await deps.collectPriorityChartTickers(env).catch(() => [])
                 : [];
+              // 2026-07-07 (scoring-chain-read follow-up) — heal budget sized
+              // to fully drain the freshness stale queue in a few minutes. With
+              // ~20 chain gaps and a `*/1` cron, 12/tick clears within 2
+              // minutes; each per-ticker onboard sequences REST calls to stay
+              // under TwelveData's 8-req/min limit so the cap is spend-safe.
               await healChainGaps(env, ctx, candidates, {
                 backfill: deps.backfillCandles,
                 onboard: deps.ensureTickerOnboard,
               }, {
-                maxTickers: 6,
+                maxTickers: 12,
                 priorityTickers,
               });
             } catch (e) {
