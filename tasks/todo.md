@@ -23,10 +23,10 @@
 ### Active
 
 - [x] **Daily Cycle Composite + FSD level-conditioned modes (2026-07-07).**
-      `GET /timed/daily-cycle-composite` joins breadth/index cycles with FSD
-      publication cycle refs; `/timed/ticker-scenario` overlays FSD S/R levels
-      + `level_modes`/`runtime_policy_overlay`; scoring stamps `_fsd_level_modes`
-      into ticker learning policy resolution.
+      Backend: `GET /timed/daily-cycle-composite`, FSD levels on
+      `/timed/ticker-scenario`, scoring policy merge. UI (2026-07-07):
+      Today Market Pulse sector cycle row; Right Rail TT Intel in Model
+      Guidance, Reference Levels, Catalysts, and AI CIO context.
 
 - [ ] **Bugbot fixes (#997/#998/#1001) — PR #1002 (ready for review; Bugbot pending).**
       Fixes: ReadySetupsBoard `embedded` prop, VerdictGuideBlock key levels,

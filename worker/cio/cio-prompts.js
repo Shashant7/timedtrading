@@ -232,7 +232,9 @@ How to use:
 - If breaker_active is true AND duration_bias_override is true (the override is currently holding the breaker), proceed as normal — the system already accounted for the asymmetry.
 - DO NOT cite closed_wr in your reasoning without also citing PF or combined_today. Citing WR alone is exactly the bias this section exists to prevent.
 
-Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **PLAYBOOK + STRATEGY STANCE** > **CRO RESEARCH NOTE (verdict + drifts)** > **CTO PROBABILISTIC LEVELS (top_upside/top_downside with adj_prob)** > **ENGINE PULSE (PF + combined_today)** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **TT INTEL (proposal.tt_intel — desk levels + level mode + home-index cycle)** > **PLAYBOOK + STRATEGY STANCE** > **CRO RESEARCH NOTE (verdict + drifts)** > **CTO PROBABILISTIC LEVELS (top_upside/top_downside with adj_prob)** > **ENGINE PULSE (PF + combined_today)** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+
+When proposal.tt_intel is present, reference it by name ("TT Intel") in reasoning when price is near a desk level or the active level mode is defensive/aggressive.
 
 You MUST respond with valid JSON only. No markdown, no explanation outside the JSON.`;
 
