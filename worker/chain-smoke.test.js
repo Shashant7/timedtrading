@@ -8,6 +8,7 @@ const MIN = 60 * 1000;
 
 const RTH_SESSION = { market_open: true, within_operating_hours: true, session_type: "RTH", is_holiday: false, source: "test" };
 const CLOSED_SESSION = { market_open: false, within_operating_hours: false, session_type: "CLOSED", is_holiday: true, source: "test" };
+const AFTERHOURS_SESSION = { market_open: false, within_operating_hours: true, session_type: "AFTERHOURS", is_holiday: false, source: "test" };
 
 function healthyEnv(overrides = {}) {
   const feedRow = { p: 600, t: NOW - 1 * MIN, p_ts: NOW - 2 * MIN, q_ts: NOW - 2 * MIN };
@@ -142,6 +143,21 @@ describe("runChainSmoke", () => {
     expect(res.links.candles.status).toBe("idle");
     expect(res.links.scoring.status).toBe("idle");
     expect(res.links.overlay.status).toBe("idle");
+  });
+
+  it("after-hours (op hours, RTH closed) → feed idle on stale poll stamps", async () => {
+    const env = healthyEnv({
+      kvBlobs: {
+        "timed:prices": {
+          updated_at: NOW - 30 * 1000,
+          prices: { SPY: { p: 600, t: NOW - 200 * MIN, p_ts: NOW - 130 * MIN, q_ts: NOW - 130 * MIN } },
+        },
+      },
+    });
+    const res = await runChainSmoke(env, { ...OPTS, session: AFTERHOURS_SESSION });
+    expect(res.ok).toBe(true);
+    expect(res.links.feed.status).toBe("idle");
+    expect(res.failing_links).toEqual([]);
   });
 
   it("missing feed row during operating hours → feed fails with missing marker", async () => {

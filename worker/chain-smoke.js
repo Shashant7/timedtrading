@@ -13,9 +13,9 @@
 //   overlay  — timed:latest price vs feed price divergence (the API's view)
 //
 // Session-aware via getMarketSession (the B1 canonical resolver): outside
-// operating hours the intraday links report `idle` and never fail. Exposes
-// NO prices — ages, grades and booleans only, so the route can stay public
-// for the external watchdog (same policy as /timed/health).
+// RTH the feed/candles/overlay links report `idle`; scoring idles outside
+// operating hours. Exposes NO prices — ages, grades and booleans only, so
+// the route can stay public for the external watchdog (same policy as /timed/health).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { kvGetJSON } from "./storage.js";
@@ -77,7 +77,10 @@ export async function runChainSmoke(env, opts = {}) {
       const pollAge = ageMin(row?.t, nowMs);
       const quoteAge = ageMin(Math.max(Number(row?.q_ts) || 0, Number(row?.p_ts) || 0), nowMs);
       links.feed.per_ticker[sym] = { poll_age_min: pollAge, quote_age_min: quoteAge };
-      if (!opHours) continue; // feed idles outside operating hours
+      // Match /timed/health + watchdog: strict feed cadence is an RTH signal.
+      // After-hours/pre-market can have a fresh blob (updated_at) while per-row
+      // poll stamps lag — paging on that was a false alarm (Jul 7 watchdog).
+      if (!marketOpen) continue;
       if (pollAge === null || pollAge * MIN > FEED_POLL_MAX_MS_OPEN) {
         failures.push(`${sym}:poll=${pollAge ?? "missing"}m`);
       } else if (marketOpen) {
@@ -89,7 +92,7 @@ export async function runChainSmoke(env, opts = {}) {
         }
       }
     }
-    links.feed.status = !opHours ? "idle" : failures.length ? "fail" : "ok";
+    links.feed.status = !marketOpen ? "idle" : failures.length ? "fail" : "ok";
     if (failures.length) links.feed.detail = failures.join(", ");
   } catch (e) {
     links.feed.status = "fail";
