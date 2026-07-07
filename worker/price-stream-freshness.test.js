@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import { buildStreamFlushRow, mergeStreamRowIntoKv } from "./price-stream.js";
 import {
   isPriceValueFresh,
+  overlayTimedPricesRow,
   summarizeValueStaleSymbols,
 } from "./feed/feed-outputs.js";
 
@@ -67,6 +68,31 @@ describe("mergeStreamRowIntoKv", () => {
     expect(merged.pc).toBe(49); // seeded pc preserved
     expect(merged.dc).toBe(1);
     expect(merged.q_ts).toBe(now);
+  });
+});
+
+describe("incident regression: stream tick must reach /timed/all", () => {
+  it("a stream-flushed row overlays the prior-day scoring snapshot during RTH", () => {
+    const now = Date.now();
+    // Exact incident shape: snapshot baked at Monday close (984.75, +0.94%),
+    // stream ticking live at 925.5 (-6%) on Tuesday.
+    const snapshotRow = { ticker: "MU", price: 984.75, close: 984.75, prev_close: 975.56, day_change_pct: 0.94 };
+    const streamRow = buildStreamFlushRow({
+      last: 925.5, lastTs: now - 15_000, lastChangeTs: now - 15_000, prevClose: 984.75,
+    }, now);
+    const kvRow = mergeStreamRowIntoKv({ q_ts: now - 33 * 60_000, p_ts: now - 33 * 60_000 }, streamRow);
+    overlayTimedPricesRow(snapshotRow, kvRow, { sym: "MU", marketOpen: true });
+    expect(snapshotRow.price).toBe(925.5);
+    expect(snapshotRow._live_price).toBe(925.5);
+    expect(snapshotRow.day_change_pct).toBeCloseTo(-6.02, 1);
+  });
+
+  it("the OLD row shape (p+t only, stale q_ts) is rejected — doctrine unchanged", () => {
+    const now = Date.now();
+    const snapshotRow = { ticker: "MU", price: 984.75, close: 984.75, prev_close: 975.56, day_change_pct: 0.94 };
+    const oldShape = { p: 925.5, pc: 984.75, dp: -6.02, t: now, q_ts: now - 33 * 60_000, p_ts: now - 33 * 60_000 };
+    overlayTimedPricesRow(snapshotRow, oldShape, { sym: "MU", marketOpen: true });
+    expect(snapshotRow.price).toBe(984.75); // gate correctly refuses stale-stamped values
   });
 });
 
