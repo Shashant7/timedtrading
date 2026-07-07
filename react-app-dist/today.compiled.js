@@ -2648,7 +2648,12 @@ function DailyCycleCompositePanel({
   data
 }) {
   const [composite, setComposite] = useState(null);
+  const [waveTicker, setWaveTicker] = useState(null);
+  const [wavePayload, setWavePayload] = useState(null);
+  const [waveLoading, setWaveLoading] = useState(false);
+  const [waveError, setWaveError] = useState(null);
   const CI = window.TTCycleIntel || {};
+  const HC = window.TTHarmonicChart || {};
   useEffect(function () {
     let alive = true;
     const url = `${API_BASE}/timed/daily-cycle-composite`;
@@ -2666,6 +2671,45 @@ function DailyCycleCompositePanel({
       alive = false;
     };
   }, []);
+  useEffect(function () {
+    if (!waveTicker) {
+      setWavePayload(null);
+      setWaveError(null);
+      setWaveLoading(false);
+      return;
+    }
+    let alive = true;
+    setWaveLoading(true);
+    setWaveError(null);
+    const url = HC.buildUrl ? HC.buildUrl(API_BASE, waveTicker) : `${API_BASE}/timed/harmonic-cycle?ticker=${encodeURIComponent(waveTicker)}`;
+    const load = window.TTFetchCache ? window.TTFetchCache.get(url, {
+      ttlMs: 10 * 60 * 1000,
+      maxAgeMs: 60 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include"
+      }
+    }) : fetchJsonRetry(url);
+    Promise.resolve(load).then(function (j) {
+      if (!alive) return;
+      if (j && j.ok && j.wave_series) {
+        setWavePayload(j);
+        setWaveError(null);
+      } else {
+        setWavePayload(null);
+        setWaveError(j && (j.reason || j.error) || "wave_unavailable");
+      }
+    }).catch(function () {
+      if (alive) {
+        setWavePayload(null);
+        setWaveError("fetch_failed");
+      }
+    }).finally(function () {
+      if (alive) setWaveLoading(false);
+    });
+    return function () {
+      alive = false;
+    };
+  }, [waveTicker]);
   if (!composite || !composite.sectors || composite.sectors.length === 0) return null;
   const sectors = composite.sectors.slice().sort(function (a, b) {
     const rank = {
@@ -2694,6 +2738,8 @@ function DailyCycleCompositePanel({
   function renderWatchTicker(sp) {
     const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
     const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
+    const sym = String(sp.symbol || "").toUpperCase();
+    const isWave = waveTicker === sym;
     let dayPct = null;
     try {
       const utils = window.TimedPriceUtils;
@@ -2702,15 +2748,22 @@ function DailyCycleCompositePanel({
         if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
       }
     } catch (_) {}
-    return h("button", {
+    const harmTip = sp.harmonic && CI.formatHarmonicLabel ? CI.formatHarmonicLabel(sp.harmonic) : null;
+    return h("span", {
       key: sp.symbol,
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4
+      }
+    }, h("button", {
       type: "button",
-      className: "tt-dcc-pill",
+      className: "tt-dcc-pill" + (isWave ? " is-wave-selected" : ""),
       style: {
         color: col,
         cursor: "pointer"
       },
-      title: CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol,
+      title: (CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol) + (harmTip ? " · " + harmTip : ""),
       onClick: function () {
         if (onSelectTicker) onSelectTicker(sp.symbol);
       }
@@ -2725,8 +2778,61 @@ function DailyCycleCompositePanel({
         fontWeight: 600,
         marginLeft: 4
       }
-    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle));
+    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle)), h("button", {
+      type: "button",
+      className: "tt-dcc-wave-btn" + (isWave ? " is-active" : ""),
+      title: isWave ? "Hide composite wave chart" : "Show composite wave chart",
+      "aria-label": isWave ? "Hide composite wave chart for " + sym : "Show composite wave chart for " + sym,
+      onClick: function (e) {
+        e.stopPropagation();
+        setWaveTicker(isWave ? null : sym);
+      }
+    }, "~"));
   }
+  const waveMeta = wavePayload && HC.formatMeta ? HC.formatMeta(wavePayload) : null;
+  const waveSvg = wavePayload && HC.renderSvg ? HC.renderSvg(wavePayload, {
+    width: 640,
+    height: 168
+  }) : null;
+  const harmonicPanel = waveTicker && h("div", {
+    className: "tt-harmonic-panel"
+  }, h("div", {
+    className: "tt-harmonic-panel-head"
+  }, h("div", {
+    className: "tt-harmonic-panel-title"
+  }, waveTicker, " · composite wave"), h("button", {
+    type: "button",
+    className: "tt-dcc-wave-btn is-active",
+    title: "Close chart",
+    onClick: function () {
+      setWaveTicker(null);
+    }
+  }, "×")), waveMeta && h("div", {
+    className: "tt-harmonic-panel-meta"
+  }, waveMeta), waveLoading && h("div", {
+    className: "tt-harmonic-panel-loading"
+  }, "Loading harmonic cycle…"), !waveLoading && waveError && h("div", {
+    className: "tt-harmonic-panel-loading"
+  }, "Composite wave unavailable (" + waveError + ")"), !waveLoading && waveSvg && h("div", {
+    dangerouslySetInnerHTML: {
+      __html: waveSvg
+    }
+  }), !waveLoading && waveSvg && h("div", {
+    className: "tt-harmonic-panel-legend"
+  }, h("span", null, h("i", {
+    style: {
+      color: "rgba(226,232,240,0.85)"
+    }
+  }), "Price"), h("span", null, h("i", {
+    style: {
+      color: "#ff00ff"
+    }
+  }), "Composite wave"), h("span", null, h("i", {
+    className: "proj",
+    style: {
+      color: "#ff00ff"
+    }
+  }), "Projection")));
   const _latent = function () {
     if (!data) return null;
     for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
@@ -2904,7 +3010,7 @@ function DailyCycleCompositePanel({
         width: "100%"
       }
     }, (grp.tickers || []).map(renderWatchTicker)));
-  }), spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
+  }), harmonicPanel, spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
     className: "tt-dcc-spotlight-row"
   }, h("span", {
     className: "tt-dcc-row-title"
@@ -6964,6 +7070,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783460201998:474082008
+// cache-bust:1783464183305:756172438
 
-// cache-bust:1783460201998:474082008
+// cache-bust:1783464183305:756172438
