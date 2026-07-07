@@ -170,6 +170,58 @@
         color: #34d399; cursor: pointer; transition: all 0.15s; }
       .mc-btn:hover { background: rgba(52, 211, 153, 0.2); }
       .mc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .mc-bridge-acct {
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+      }
+      .mc-bridge-acct-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #f0f6fc;
+        letter-spacing: -0.01em;
+      }
+      .mc-bridge-acct-sub {
+        font-size: 10px;
+        color: #6b7280;
+        margin-top: 2px;
+      }
+      .mc-bridge-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 8px;
+        margin: 10px 0 12px;
+      }
+      .mc-bridge-stat {
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(0,0,0,0.22);
+        border: 1px solid rgba(255,255,255,0.05);
+      }
+      .mc-bridge-stat-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin-bottom: 3px;
+      }
+      .mc-bridge-stat-value {
+        font-size: 15px;
+        font-weight: 800;
+        color: #f0f6fc;
+        font-variant-numeric: tabular-nums;
+      }
+      .mc-bridge-section-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin-bottom: 6px;
+      }
       @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
       .mc-loading { animation: pulse 1.4s ease-in-out infinite; }
     </style>
@@ -1325,8 +1377,6 @@
       // documented in tasks/2026-06-01-trade-aware-mirror-sync-design.md §1.5.
       function VehicleTogglesCard({ apiBase, user, onSaved }) {
         const initial = React.useMemo(() => {
-          // Hydrate from user record; fall back to defaults for any
-          // vehicle not yet saved.
           const DEFAULTS = {
             equity_long:     { enabled: true,  daily_cap: 3, max_per_order_usd: 300 },
             long_call:       { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
@@ -1398,11 +1448,21 @@
           }
         };
 
+        const enabledCount = ROW_META.filter((m) => rows[m.key]?.enabled).length;
+        const collapseSub = enabledCount > 0
+          ? `${enabledCount} vehicle${enabledCount === 1 ? "" : "s"} on`
+          : "all off";
+
         return (
-          <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-            <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2">
-              <div className="text-[11px] font-semibold text-white">
-                ⚙️ Options Auto-Mirror — per-vehicle toggles
+          <McCollapse
+            id={`bridge-vehicle-prefs-${user?.user_id || "unknown"}`}
+            title="Options auto-mirror (per vehicle)"
+            sub={collapseSub}
+            defaultOpen={false}
+          >
+            <div className="flex items-baseline justify-between flex-wrap gap-2 mb-2 mt-1">
+              <div className="text-[10px] mc-mute italic" style={{ lineHeight: 1.45, maxWidth: 520 }}>
+                Naked-short vehicles are deferred. Option vehicles default to OFF — opt in one at a time.
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {msg && (
@@ -1420,7 +1480,7 @@
                   style={{ fontSize: 10, padding: "3px 8px" }}
                   disabled={busy}
                   onClick={() => submit({ apply_small_account_defaults: true }, "Applying small-account defaults")}
-                >Apply small-account defaults ⚡</button>
+                >Small-account defaults</button>
                 <button
                   className="mc-btn mc-btn-ok"
                   style={{ fontSize: 10, padding: "3px 8px" }}
@@ -1428,9 +1488,6 @@
                   onClick={() => submit({ vehicles: rows }, "Saving")}
                 >Save</button>
               </div>
-            </div>
-            <div className="text-[10px] mc-mute italic mb-2">
-              Naked-short vehicles (short_call · short_put · short_straddle · iron_condor_naked) are deferred and cannot be enabled here. All option vehicles default to OFF — opt in one at a time.
             </div>
             <div className="mc-table-scroll" style={{ background: "rgba(0,0,0,0.20)", borderRadius: 6, border: "1px solid rgba(255,255,255,0.04)" }}>
               <table className="mc-table">
@@ -1492,7 +1549,7 @@
                 </tbody>
               </table>
             </div>
-          </div>
+          </McCollapse>
         );
       }
 
@@ -1700,7 +1757,7 @@
                 <div className="flex items-baseline justify-between gap-2 flex-wrap mb-3">
                   <div>
                     <div className="text-[11px] mc-mute uppercase tracking-wider font-semibold">Connected Broker Accounts</div>
-                    <div className="text-[10px] mc-mute mt-0.5">One card per linked login — equity caps, vehicle prefs, and live toggle are per account.</div>
+                    <div className="text-[10px] mc-mute mt-0.5">Account summary and positions shown first — expand a card for trading limits and options prefs.</div>
                   </div>
                   <button disabled={busy || loading} className="mc-btn" style={{ fontSize: 10, padding: "4px 10px" }} onClick={() => refresh()}>
                     {loading ? "Refreshing…" : "Refresh accounts"}
@@ -1727,39 +1784,112 @@
                       // max_account_pct) and per-day to 3.
                       const suggestedPerOrder = equity > 0 ? Math.max(50, Math.round(equity * 0.25 / 50) * 50) : 300;
                       const suggestedPerDay = 3;
+                      const acctTitle = u.webull_account_label || u.webull_account_type || brokerLabel(u);
+                      const acctIdShort = u.account_id ? String(u.account_id).slice(-8) : null;
+                      const settingsSub = `${enabled ? "LIVE" : "OFF"} · $${Number(caps.max_per_order_usd || 5000).toLocaleString()}/order · ${Number(caps.max_orders_per_day || 3)}/day`;
+                      const positionsMktTotal = positions.reduce((sum, p) => {
+                        const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
+                        return sum + (Number.isFinite(mkt) ? mkt : 0);
+                      }, 0);
                       return (
-                        <div key={u.user_id} className="mb-4" style={{ padding: 10, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
-                          <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
-                            <div className="flex items-baseline gap-2 flex-wrap">
-                              <strong className="text-white text-[13px]">{ownerEmail(u)}</strong>
-                              <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>{brokerLabel(u)}</span>
-                              {u.account_id && <span className="text-[10px] mc-mute font-mono" title="Broker account id">{u.account_id}</span>}
-                              {u.mock_mode && <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>MOCK</span>}
-                              <span className={`mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>{u.status || "—"}</span>
-                              <span className={`mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>
-                                {enabled ? "LIVE TRADING" : "TRADING OFF"}
-                              </span>
-                              {!ok && <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>portfolio unavailable</span>}
-                            </div>
-                            {ok && (
-                              <div className="flex items-baseline gap-4">
-                                {Number.isFinite(Number(u.equity_usd)) && (
-                                  <div className="text-[11px]">
-                                    <span className="mc-mute">Equity </span>
-                                    <span className="font-mono font-semibold text-white">${Number(u.equity_usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
-                                  </div>
-                                )}
-                                {Number.isFinite(Number(u.cash_usd)) && (
-                                  <div className="text-[11px]">
-                                    <span className="mc-mute">Cash </span>
-                                    <span className="font-mono text-white">${Number(u.cash_usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
-                                  </div>
-                                )}
+                        <div key={u.user_id} className="mc-bridge-acct">
+                          <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+                            <div style={{ minWidth: 0 }}>
+                              <div className="mc-bridge-acct-title">{acctTitle}</div>
+                              <div className="mc-bridge-acct-sub">
+                                {ownerEmail(u)}
+                                {acctIdShort ? ` · acct …${acctIdShort}` : ""}
                               </div>
-                            )}
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>{brokerLabel(u)}</span>
+                              {u.mock_mode && <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>MOCK</span>}
+                              <span className={`mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>
+                                {enabled ? "LIVE" : "OFF"}
+                              </span>
+                              {!ok && <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>no balance</span>}
+                            </div>
                           </div>
-                          {/* Inline management controls */}
-                          <div className="flex items-center gap-2 mb-3 flex-wrap" style={{ paddingBottom: 8, borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+
+                          {ok ? (
+                            <div className="mc-bridge-summary">
+                              {Number.isFinite(Number(u.equity_usd)) && (
+                                <div className="mc-bridge-stat">
+                                  <div className="mc-bridge-stat-label">Equity</div>
+                                  <div className="mc-bridge-stat-value">${Number(u.equity_usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                                </div>
+                              )}
+                              {Number.isFinite(Number(u.cash_usd)) && (
+                                <div className="mc-bridge-stat">
+                                  <div className="mc-bridge-stat-label">Cash</div>
+                                  <div className="mc-bridge-stat-value">${Number(u.cash_usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                                </div>
+                              )}
+                              {Number.isFinite(Number(u.buying_power_usd)) && (
+                                <div className="mc-bridge-stat">
+                                  <div className="mc-bridge-stat-label">Buying power</div>
+                                  <div className="mc-bridge-stat-value">${Number(u.buying_power_usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                                </div>
+                              )}
+                              <div className="mc-bridge-stat">
+                                <div className="mc-bridge-stat-label">Positions</div>
+                                <div className="mc-bridge-stat-value">{positions.length}</div>
+                              </div>
+                              {positionsMktTotal > 0 && (
+                                <div className="mc-bridge-stat">
+                                  <div className="mc-bridge-stat-label">Holdings value</div>
+                                  <div className="mc-bridge-stat-value">${positionsMktTotal.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                                </div>
+                              )}
+                            </div>
+                          ) : u?.portfolio?.error ? (
+                            <div className="text-[11px] text-amber-300 mb-2">
+                              {String(u.portfolio.error).slice(0, 240)}
+                            </div>
+                          ) : (
+                            <div className="text-[11px] mc-mute italic mb-2">Portfolio data not loaded — click Refresh accounts.</div>
+                          )}
+
+                          <div className="mc-bridge-section-label">
+                            Open positions{positions.length > 0 ? ` (${positions.length})` : ""}
+                          </div>
+                          {ok && positions.length > 0 ? (
+                            <div className="mc-table-scroll mb-2">
+                              <table className="mc-table">
+                                <thead><tr><th>Ticker</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Avg Cost</th><th style={{textAlign:"right"}}>Mkt Value</th><th style={{textAlign:"right"}}>Unrlz P&amp;L</th></tr></thead>
+                                <tbody>
+                                  {positions.map((p, i) => {
+                                    const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
+                                    const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
+                                    const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
+                                    const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
+                                    const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+                                    return (
+                                      <tr key={`${u.user_id}-${sym}-${i}`}>
+                                        <td className="font-mono">{sym}</td>
+                                        <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(qty) ? qty.toLocaleString("en-US",{maximumFractionDigits:2}) : "—"}</td>
+                                        <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"}</td>
+                                        <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(mkt) ? `$${mkt.toLocaleString("en-US",{maximumFractionDigits:0})}` : "—"}</td>
+                                        <td style={{textAlign:"right"}} className={`font-mono ${pnl > 0 ? "mc-pos" : pnl < 0 ? "mc-neg" : "mc-mute"}`}>
+                                          {Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString("en-US",{maximumFractionDigits:0})}` : "—"}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : ok ? (
+                            <div className="text-[11px] mc-mute italic mb-2">No open positions.</div>
+                          ) : null}
+
+                          <McCollapse
+                            id={`bridge-acct-settings-${u.user_id}`}
+                            title="Trading limits & controls"
+                            sub={settingsSub}
+                            defaultOpen={false}
+                          >
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <button
                               disabled={busy || userRow.status !== "connected"}
                               onClick={async () => {
@@ -1788,10 +1918,6 @@
                                 border: `1px solid ${enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`,
                               }}
                             >{enabled ? "Disable live trading" : "Enable live trading"}</button>
-                            <span className="text-[10px] mc-mute">·</span>
-                            <span className="text-[10px] mc-mute font-mono">
-                              caps: max ${Number(caps.max_per_order_usd || 5000).toLocaleString()}/order · {Number(caps.max_orders_per_day || 3)}/day · {Math.round((caps.max_account_pct || 0.25) * 100)}% per trade
-                            </span>
                             <button
                               disabled={busy}
                               onClick={async () => {
@@ -1920,16 +2046,15 @@
                                   background: "rgba(251,191,36,0.10)", color: "#fbbf24",
                                   border: "1px solid rgba(251,191,36,0.28)",
                                 }}
-                              >Apply small-account defaults ⚡</button>
+                              >Apply small-account defaults</button>
                             )}
                             {caps.max_per_order_usd && Number(userRow.user_caps_updated_at) > 0 && (
                               <span className="text-[10px] mc-mute italic" title={new Date(userRow.user_caps_updated_at).toLocaleString()}>
-                                · saved {fmtAgo(userRow.user_caps_updated_at)} ago
+                                saved {fmtAgo(userRow.user_caps_updated_at)} ago
                               </span>
                             )}
                             {String(u.broker || "").toLowerCase() === "webull" && BC && (
                               <>
-                                <span className="text-[10px] mc-mute">·</span>
                                 <button
                                   disabled={busy}
                                   className="mc-btn"
@@ -1963,47 +2088,8 @@
                               </>
                             )}
                           </div>
-                          {ok && positions.length > 0 && (
-                            <table className="mc-table">
-                              <thead><tr><th>Ticker</th><th style={{textAlign:"right"}}>Qty</th><th style={{textAlign:"right"}}>Avg Cost</th><th style={{textAlign:"right"}}>Mkt Value</th><th style={{textAlign:"right"}}>Unrlz P&amp;L</th></tr></thead>
-                              <tbody>
-                                {positions.map((p, i) => {
-                                  const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
-                                  const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
-                                  const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
-                                  const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
-                                  const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
-                                  return (
-                                    <tr key={`${u.user_id}-${sym}-${i}`}>
-                                      <td className="font-mono">{sym}</td>
-                                      <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(qty) ? qty.toLocaleString("en-US",{maximumFractionDigits:2}) : "—"}</td>
-                                      <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"}</td>
-                                      <td style={{textAlign:"right"}} className="font-mono">{Number.isFinite(mkt) ? `$${mkt.toLocaleString("en-US",{maximumFractionDigits:0})}` : "—"}</td>
-                                      <td style={{textAlign:"right"}} className={`font-mono ${pnl > 0 ? "mc-pos" : pnl < 0 ? "mc-neg" : "mc-mute"}`}>
-                                        {Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString("en-US",{maximumFractionDigits:0})}` : "—"}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          )}
-                          {ok && positions.length === 0 && (
-                            <div className="text-[11px] mc-mute italic">No open positions.</div>
-                          )}
-                          {!ok && u?.portfolio?.error && (
-                            <div className="text-[11px] text-amber-300">
-                              {String(u.portfolio.error).slice(0, 240)}
-                            </div>
-                          )}
+                          </McCollapse>
 
-                          {/* 2026-06-01 — Per-vehicle options auto-mirror
-                              toggle table. Sits beneath positions in
-                              each user's card. Naked-short vehicles are
-                              not listed (deferred at engine + bridge
-                              levels). "Apply small-account defaults"
-                              writes a known-safe preset to the user's
-                              options_prefs.vehicles map. */}
                           <VehicleTogglesCard
                             apiBase={apiBase}
                             user={userRow}
