@@ -41,7 +41,49 @@ deployed as separate Cloudflare Workers.
 
 ---
 
-## Webull Connect (scaffold — awaiting partner credentials)
+## Webull — personal Trading API (operator account)
+
+Use this path when the operator has an **App Key + App Secret** from the
+[Webull Open API portal](https://www.webull.com/open-api) (API Keys Management).
+No Connect partner credentials required.
+
+**Worker:** `tt-broker-bridge` only. The main worker (`timed-trading-ingest`) does
+**not** store Webull keys.
+
+**Vars** (`worker-bridge/wrangler.toml`):
+
+| Var | Value |
+|---|---|
+| `WEBULL_AUTH_MODE` | `personal` |
+| `WEBULL_ENVIRONMENT` | `prod` (live keys) or `uat` (sandbox) |
+
+**Secrets** (Cloudflare Dashboard → Workers → **tt-broker-bridge** → Settings →
+Variables and Secrets → Secrets):
+
+| Secret | Source |
+|---|---|
+| `WEBULL_APP_KEY` | Open API portal → Generate Key |
+| `WEBULL_APP_SECRET` | Shown once at key generation |
+
+Leave **2FA unchecked** on the Webull key application for headless bridge use.
+
+After pasting real values, redeploy the bridge (push to `main` or
+`cd worker-bridge && wrangler deploy`).
+
+**Connect operator account:**
+
+```bash
+curl -s -X POST "https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oauth/start" \
+  -H "Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"shashant@gmail.com"}' | python3 -m json.tool
+```
+
+Personal mode returns `personal: true` and `webull_account_id` immediately (no browser redirect).
+
+---
+
+## Webull Connect (partner OAuth — BYOB path)
 
 Full plan: [`../tasks/2026-06-15-webull-connect-integration-plan.md`](../tasks/2026-06-15-webull-connect-integration-plan.md)
 
@@ -52,7 +94,7 @@ name + redirect URL:
 https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oauth/callback
 ```
 
-After approval, set bridge secrets:
+Set `WEBULL_AUTH_MODE=connect`, then add all four bridge secrets:
 
 ```bash
 cd worker-bridge
@@ -86,7 +128,7 @@ finalizes a mock `broker=webull` user instantly.
 **Key modules:** `bridge-webull.js`, `bridge-webull-api.js`,
 `bridge-webull-auth.js`, `bridge-webull-sign.js`, `bridge-webull-tokens.js`
 
-Vars: `WEBULL_ENVIRONMENT` (`uat`|`prod`), `WEBULL_CONNECT_SCOPE`
+Vars: `WEBULL_AUTH_MODE` (`personal`|`connect`), `WEBULL_ENVIRONMENT` (`uat`|`prod`)
 
 ---
 

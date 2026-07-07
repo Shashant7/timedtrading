@@ -7,11 +7,14 @@ import { recordOauthState, consumeOauthState, readUser, writeUser } from "./brid
 import {
   buildWebullAuthorizeUrl,
   finalizeWebullTokens,
+  pickWebullAccountId,
   webullCreateTokenFromCode,
-  webullConnectConfigured,
+  webullGetAccountList,
 } from "./bridge-webull-api.js";
 import {
   isBridgeMockMode,
+  webullAuthMode,
+  webullCredentialsConfigured,
   webullRedirectUri,
 } from "./bridge-webull-config.js";
 
@@ -34,12 +37,56 @@ export async function handleWebullOauthStart(env, req) {
     };
   }
 
-  if (!webullConnectConfigured(env)) {
+  if (!webullCredentialsConfigured(env)) {
     return {
       ok: false,
-      error: "webull_connect_not_configured",
+      error: "webull_not_configured",
       status: 503,
-      note: "Email connect.api@webull-us.com for Connect API credentials. See tasks/2026-06-15-webull-connect-integration-plan.md",
+      note: webullAuthMode(env) === "personal"
+        ? "Set WEBULL_APP_KEY and WEBULL_APP_SECRET on tt-broker-bridge (WEBULL_AUTH_MODE=personal)."
+        : "Email connect.api@webull-us.com for Connect API credentials. See tasks/2026-06-15-webull-connect-integration-plan.md",
+    };
+  }
+
+  // Personal Trading API: no browser OAuth — bind operator account via signed REST.
+  if (webullAuthMode(env) === "personal") {
+    const accounts = await webullGetAccountList(env, "");
+    const accountId = pickWebullAccountId(accounts);
+    if (!accountId) {
+      return {
+        ok: false,
+        error: "webull_personal_account_list_failed",
+        status: 502,
+        response: accounts.response,
+        note: accounts.error || "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat).",
+      };
+    }
+    const existing = (await readUser(env, userId)) || { user_id: userId };
+    const connected = {
+      ...existing,
+      broker: "webull",
+      status: "connected",
+      connected_at: Date.now(),
+      webull_account_id: accountId,
+      webull_auth_mode: "personal",
+      broker_integration_enabled: existing.broker_integration_enabled ?? false,
+      daily_order_count: existing.daily_order_count || 0,
+      daily_order_count_date: existing.daily_order_count_date || new Date().toISOString().slice(0, 10),
+      total_orders_lifetime: existing.total_orders_lifetime || 0,
+      user_caps: existing.user_caps || {
+        max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
+        max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
+      },
+    };
+    await writeUser(env, userId, connected);
+    return {
+      ok: true,
+      status: 200,
+      personal: true,
+      user_id: userId,
+      webull_account_id: accountId,
+      broker_integration_enabled: connected.broker_integration_enabled,
+      note: "Webull personal API connected. Enable broker_integration_enabled before live orders.",
     };
   }
 
@@ -87,8 +134,8 @@ export async function handleWebullOauthCallback(env, req) {
     return { ok: true, status: 200, broker: "webull", mock: true, ...mock };
   }
 
-  if (!webullConnectConfigured(env)) {
-    return { ok: false, error: "webull_connect_not_configured", status: 503, broker: "webull" };
+  if (!webullCredentialsConfigured(env)) {
+    return { ok: false, error: "webull_not_configured", status: 503, broker: "webull" };
   }
 
   const tokenRes = await webullCreateTokenFromCode(env, code);

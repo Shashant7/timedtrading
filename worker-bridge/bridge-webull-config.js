@@ -14,14 +14,31 @@ export const WEBULL_API_PATHS = {
   orderCancel: "/openapi/trade/order/cancel",
 };
 
+export function webullAuthMode(env) {
+  const mode = String(env?.WEBULL_AUTH_MODE || "connect").toLowerCase();
+  return mode === "personal" ? "personal" : "connect";
+}
+
 export function webullEnvironment(env) {
   return String(env?.WEBULL_ENVIRONMENT || "uat").toLowerCase() === "prod" ? "prod" : "uat";
 }
 
 export function webullApiHost(env) {
+  if (webullAuthMode(env) === "personal") {
+    return webullEnvironment(env) === "prod"
+      ? "api.webull.com"
+      : "us-openapi-alb.uat.webullbroker.com";
+  }
   return webullEnvironment(env) === "prod"
     ? "us-oauth-open-api.webull.com"
     : "us-oauth-open-api.uat.webullbroker.com";
+}
+
+/** Account list path differs between personal Trading API and Connect OAuth. */
+export function webullAccountListPath(env) {
+  return webullAuthMode(env) === "personal"
+    ? "/openapi/account/list"
+    : WEBULL_API_PATHS.accountList;
 }
 
 export function webullApiBaseUrl(env) {
@@ -37,7 +54,12 @@ export function webullTokenRefreshSkewMs(env) {
   return Number.isFinite(n) && n >= 0 ? n : 5 * 60 * 1000;
 }
 
-/** True when all four Connect partner credentials are present. */
+/** Personal Trading API: operator's own App Key + App Secret only. */
+export function webullPersonalConfigured(env) {
+  return !!(env?.WEBULL_APP_KEY && env?.WEBULL_APP_SECRET);
+}
+
+/** Connect API partner flow: all four credentials from connect.api@webull-us.com. */
 export function webullConnectConfigured(env) {
   return !!(
     env?.WEBULL_CONNECT_CLIENT_ID
@@ -45,6 +67,13 @@ export function webullConnectConfigured(env) {
     && env?.WEBULL_APP_KEY
     && env?.WEBULL_APP_SECRET
   );
+}
+
+/** True when the active auth mode has the credentials it needs. */
+export function webullCredentialsConfigured(env) {
+  return webullAuthMode(env) === "personal"
+    ? webullPersonalConfigured(env)
+    : webullConnectConfigured(env);
 }
 
 export function webullRedirectUri(env, req) {
@@ -60,5 +89,5 @@ export function isBridgeMockMode(env) {
 
 /** Live Webull HTTPS calls only when creds exist and mock mode is off. */
 export function webullLiveEnabled(env) {
-  return webullConnectConfigured(env) && !isBridgeMockMode(env);
+  return webullCredentialsConfigured(env) && !isBridgeMockMode(env);
 }
