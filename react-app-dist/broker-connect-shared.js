@@ -38,11 +38,21 @@
     return status?.webull_credentials_configured === true;
   }
 
+  function ownerDisplayEmail(user) {
+    if (!user) return "—";
+    if (user.owner_email) return user.owner_email;
+    const uid = String(user.user_id || "");
+    const i = uid.indexOf("#webull#");
+    return i > 0 ? uid.slice(0, i) : uid;
+  }
+
   function brokerDisplayName(broker, user, status) {
     const id = String(broker || "").toLowerCase();
     if (id === "webull") {
       const mode = user?.webull_auth_mode || webullAuthMode(status);
-      return mode === "personal" ? "Webull · Personal API" : "Webull · Connect OAuth";
+      const base = mode === "personal" ? "Webull · Personal API" : "Webull · Connect OAuth";
+      const label = user?.webull_account_label || user?.webull_account_type;
+      return label ? `${base} · ${label}` : base;
     }
     return BROKERS[id]?.label || (id ? id.toUpperCase() : "Unknown");
   }
@@ -114,6 +124,7 @@
     BROKERS,
     webullAuthMode,
     webullCredentialsReady,
+    ownerDisplayEmail,
     brokerDisplayName,
     brokerAccountId,
     mergeAccountRows,
@@ -125,4 +136,4 @@
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
-// cache-bust:1783451130953:629596100
+// cache-bust:1783451581057:699779409
