@@ -1686,9 +1686,13 @@ function BridgeSection({
   const mockMode = status?.mock_mode !== false;
   const killOn = status?.kill_switch === "on";
   const users = status?.users || [];
-  const webullConfigured = status?.webull_connect_configured === true;
-  const webullUser = (window.TimedBrokerConnect?.findUserByBroker || ((us, id) => (us || []).find(u => String(u?.broker || "").toLowerCase() === id)))(users, "webull");
   const BC = window.TimedBrokerConnect;
+  const webullMode = BC?.webullAuthMode?.(status) || (status?.webull_auth_mode === "personal" ? "personal" : "connect");
+  const webullCredsOk = BC?.webullCredentialsReady?.(status) ?? status?.webull_credentials_configured === true;
+  const connectedAccounts = BC?.mergeAccountRows ? BC.mergeAccountRows(users, portfolio?.users) : users;
+  const webullUsers = BC?.findUsersByBroker?.(users, "webull") || users.filter(u => String(u?.broker || "").toLowerCase() === "webull");
+  const ibkrUsers = BC?.findUsersByBroker?.(users, "ibkr") || users.filter(u => String(u?.broker || "").toLowerCase() === "ibkr");
+  const brokerLabel = u => BC?.brokerDisplayName?.(u?.broker, u, status) || String(u?.broker || "—").toUpperCase();
   const errorKind = status?.error_kind || (status?.error?.includes("URL") ? "url_missing" : status?.error?.includes("OPERATOR_KEY") ? "key_missing" : status?.error ? "unreachable" : null);
   const pillText = errorKind === "url_missing" ? "URL NOT SET" : errorKind === "key_missing" ? "OPERATOR KEY NOT SET" : errorKind === "unreachable" ? "BRIDGE UNREACHABLE" : "NOT LINKED";
   return React.createElement("div", {
@@ -1697,7 +1701,7 @@ function BridgeSection({
     className: "mc-section-title"
   }, React.createElement("span", {
     className: "mc-dot"
-  }), "8. Broker Bridge \u2014 Multi-Broker (IBKR \xB7 Robinhood \xB7 Webull)", !bridgeConfigured && React.createElement("span", {
+  }), "8. Broker Bridge", !bridgeConfigured && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
   }, pillText), bridgeConfigured && mockMode && React.createElement("span", {
     className: "mc-pill mc-pill-warn ml-2"
@@ -1705,7 +1709,12 @@ function BridgeSection({
     className: "mc-pill mc-pill-warn ml-2"
   }, "KILL SWITCH ON"), bridgeConfigured && !mockMode && !killOn && React.createElement("span", {
     className: "mc-pill mc-pill-ok ml-2"
-  }, "LIVE"), loading && React.createElement("span", {
+  }, "LIVE"), bridgeConfigured && webullCredsOk && React.createElement("span", {
+    className: "mc-pill mc-pill-ok ml-2",
+    style: {
+      fontSize: 9
+    }
+  }, "Webull ", webullMode === "personal" ? "Personal API" : "Connect"), loading && React.createElement("span", {
     className: "text-[10px] mc-mute ml-2 mc-loading"
   }, "refreshing\u2026")), err && !bridgeConfigured && React.createElement("div", {
     className: "text-[12px] text-amber-300 mb-3"
@@ -1716,7 +1725,7 @@ function BridgeSection({
   }, "wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production"), React.createElement("br", null), "and paste the bridge worker's operator key (same value used in ", React.createElement("code", null, "worker-bridge/wrangler.toml"), " OPERATOR_KEYS)."), errorKind === "unreachable" && React.createElement(React.Fragment, null, React.createElement("b", null, "Main worker found bridge URL (", status?.bridge_url || "—", ") but the request failed."), React.createElement("br", null), "Check the bridge worker is deployed and the URL is correct.", React.createElement("br", null), React.createElement("code", {
     className: "text-[#fcd34d]"
   }, status?.error)), !errorKind && React.createElement(React.Fragment, null, "Bridge connection failed.", React.createElement("br", null), "Set ", React.createElement("code", null, "BROKER_BRIDGE_URL"), " + ", React.createElement("code", null, "BROKER_BRIDGE_OPERATOR_KEY"), " on main worker, deploy ", React.createElement("code", null, "worker-bridge/"), " as a separate Cloudflare Worker, and refresh.", React.createElement("br", null), "See ", React.createElement("code", null, "tasks/2026-05-29-broker-bridge-phase1-plan.md"), " for the full setup runbook.")), bridgeConfigured && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"
+    className: "grid grid-cols-2 md:grid-cols-5 gap-3 mb-4"
   }, React.createElement("div", {
     className: "mc-kpi"
   }, React.createElement("div", {
@@ -1725,13 +1734,13 @@ function BridgeSection({
     className: `mc-kpi-value text-[15px] ${mockMode ? "mc-warn" : "mc-pos"}`
   }, mockMode ? "MOCK" : "LIVE"), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, mockMode ? "Orders logged, not sent to broker" : "Live broker adapter calls")), React.createElement("div", {
+  }, mockMode ? "Orders logged, not sent" : "Live adapter calls")), React.createElement("div", {
     className: "mc-kpi"
   }, React.createElement("div", {
     className: "mc-kpi-label"
   }, "Kill Switch"), React.createElement("div", {
     className: `mc-kpi-value text-[15px] ${killOn ? "mc-warn" : "mc-pos"}`
-  }, killOn ? "ON · all orders blocked" : "OFF"), React.createElement("div", {
+  }, killOn ? "ON" : "OFF"), React.createElement("div", {
     className: "mc-kpi-sub",
     style: {
       display: "flex",
@@ -1777,181 +1786,51 @@ function BridgeSection({
     className: "mc-kpi"
   }, React.createElement("div", {
     className: "mc-kpi-label"
-  }, "Connected Users"), React.createElement("div", {
+  }, "Connected Accounts"), React.createElement("div", {
     className: "mc-kpi-value"
-  }, users.length), React.createElement("div", {
+  }, connectedAccounts.length), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, users.filter(u => u.broker_integration_enabled).length, " with live trading enabled")), React.createElement("div", {
+  }, connectedAccounts.filter(u => u.broker_integration_enabled).length, " live trading on")), React.createElement("div", {
     className: "mc-kpi"
   }, React.createElement("div", {
     className: "mc-kpi-label"
-  }, "Recent Dispatches"), React.createElement("div", {
+  }, "Webull API"), React.createElement("div", {
+    className: `mc-kpi-value text-[13px] ${webullCredsOk ? "mc-pos" : "mc-warn"}`
+  }, webullCredsOk ? webullMode === "personal" ? "Personal" : "Connect" : "Not set"), React.createElement("div", {
+    className: "mc-kpi-sub"
+  }, status?.webull_environment || "—", " env")), React.createElement("div", {
+    className: "mc-kpi"
+  }, React.createElement("div", {
+    className: "mc-kpi-label"
+  }, "Dispatches"), React.createElement("div", {
     className: "mc-kpi-value"
   }, recent.length), React.createElement("div", {
     className: "mc-kpi-sub"
-  }, "From main worker \u2192 bridge"))), React.createElement("div", {
-    className: "mb-4",
+  }, "main \u2192 bridge"))), React.createElement("div", {
+    className: "flex items-baseline justify-between gap-2 flex-wrap mb-3"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
+  }, "Connected Broker Accounts"), React.createElement("div", {
+    className: "text-[10px] mc-mute mt-0.5"
+  }, "One card per linked login \u2014 equity caps, vehicle prefs, and live toggle are per account.")), React.createElement("button", {
+    disabled: busy || loading,
+    className: "mc-btn",
+    style: {
+      fontSize: 10,
+      padding: "4px 10px"
+    },
+    onClick: () => refresh()
+  }, loading ? "Refreshing…" : "Refresh accounts")), connectedAccounts.length === 0 && React.createElement("div", {
+    className: "mb-4 text-[12px] mc-mute italic",
     style: {
       padding: 12,
-      background: "rgba(255,255,255,0.02)",
-      border: "1px solid rgba(255,255,255,0.06)",
+      border: "1px dashed rgba(255,255,255,0.08)",
       borderRadius: 8
     }
-  }, React.createElement("div", {
-    className: "flex items-baseline justify-between gap-2 flex-wrap mb-2"
-  }, React.createElement("div", {
-    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
-  }, "Connect Brokers"), React.createElement("div", {
-    className: "flex gap-2 flex-wrap"
-  }, React.createElement("span", {
-    className: `mc-pill ${webullConfigured ? "mc-pill-ok" : "mc-pill-warn"}`,
-    style: {
-      fontSize: 9
-    }
-  }, "Webull Connect ", webullConfigured ? "configured" : "awaiting creds"), status?.webull_environment && React.createElement("span", {
-    className: "mc-pill",
-    style: {
-      fontSize: 9
-    }
-  }, "env: ", status.webull_environment))), React.createElement("div", {
-    className: "grid grid-cols-1 md:grid-cols-3 gap-3"
-  }, React.createElement("div", {
-    style: {
-      padding: 10,
-      border: "1px solid rgba(255,255,255,0.05)",
-      borderRadius: 8
-    }
-  }, React.createElement("div", {
-    className: "text-[12px] font-semibold text-white mb-1"
-  }, "Webull"), React.createElement("div", {
-    className: "text-[10px] mc-mute mb-2"
-  }, "OAuth Connect API \xB7 equity mirror \xB7 mock-ready today"), webullUser ? React.createElement("div", {
-    className: "text-[10px] mb-2 font-mono"
-  }, webullUser.user_id, " \xB7 ", webullUser.webull_account_id || webullUser.status, webullUser.mock_mode && React.createElement("span", {
-    className: "mc-pill mc-pill-warn ml-1",
-    style: {
-      fontSize: 8
-    }
-  }, "MOCK")) : React.createElement("div", {
-    className: "text-[10px] mc-mute mb-2"
-  }, "No Webull user connected"), React.createElement("div", {
-    className: "flex flex-wrap gap-2"
-  }, React.createElement("button", {
-    disabled: busy,
-    className: "mc-btn mc-btn-ok",
-    style: {
-      fontSize: 10,
-      padding: "4px 10px"
-    },
-    onClick: async () => {
-      if (busy || !BC) return;
-      const uid = prompt("Connect Webull for user_id (email):", webullUser?.user_id || users[0]?.user_id || "");
-      if (!uid) return;
-      setBusy(true);
-      try {
-        const {
-          ok,
-          json
-        } = await BC.connectWebull(apiBase, String(uid).trim().toLowerCase());
-        if (!ok) {
-          alert(`Connect failed: ${json?.error || json?.note || "unknown"}`);
-          return;
-        }
-        if (json?.authorize_url) {
-          window.open(json.authorize_url, "_blank", "noopener,noreferrer");
-          alert("Complete authorization in the Webull window, then refresh this panel.");
-        } else if (json?.mock) {
-          alert(`Mock Webull connected for ${json.user_id || uid}`);
-        }
-        refresh();
-      } catch (e) {
-        alert(String(e?.message || e));
-      } finally {
-        setBusy(false);
-      }
-    }
-  }, "Connect Webull"), webullUser && React.createElement(React.Fragment, null, React.createElement("button", {
-    disabled: busy,
-    className: "mc-btn",
-    style: {
-      fontSize: 10,
-      padding: "4px 10px"
-    },
-    onClick: async () => {
-      if (busy || !BC) return;
-      if (!confirm(`Disconnect Webull for ${webullUser.user_id}?`)) return;
-      setBusy(true);
-      try {
-        const {
-          ok,
-          json
-        } = await BC.disconnectWebull(apiBase, webullUser.user_id);
-        if (!ok) alert(`Disconnect failed: ${json?.error || "unknown"}`);
-        refresh();
-      } finally {
-        setBusy(false);
-      }
-    }
-  }, "Disconnect"), React.createElement("button", {
-    disabled: busy,
-    className: "mc-btn",
-    style: {
-      fontSize: 10,
-      padding: "4px 10px"
-    },
-    onClick: async () => {
-      if (busy || !BC) return;
-      setBusy(true);
-      try {
-        const {
-          ok,
-          json
-        } = await BC.testWebull(apiBase, webullUser.user_id, "get_portfolio");
-        alert(ok ? `Portfolio probe OK${json?.mock ? " (mock)" : ""}` : `Probe failed: ${json?.error || "unknown"}`);
-      } finally {
-        setBusy(false);
-      }
-    }
-  }, "Test portfolio"))), !webullConfigured && React.createElement("div", {
-    className: "text-[10px] text-amber-300/90 mt-2"
-  }, "Email ", React.createElement("code", null, "connect.api@webull-us.com"), " \u2014 see ", React.createElement("code", null, "tasks/2026-06-15-webull-connect-integration-plan.md"))), React.createElement("div", {
-    style: {
-      padding: 10,
-      border: "1px solid rgba(255,255,255,0.05)",
-      borderRadius: 8,
-      opacity: 0.7
-    }
-  }, React.createElement("div", {
-    className: "text-[12px] font-semibold text-white mb-1"
-  }, "Robinhood"), React.createElement("div", {
-    className: "text-[10px] mc-mute mb-2"
-  }, "Agentic MCP \u2014 OAuth URLs still placeholder"), React.createElement("span", {
-    className: "mc-pill mc-pill-warn",
-    style: {
-      fontSize: 9
-    }
-  }, "Coming soon")), React.createElement("div", {
-    style: {
-      padding: 10,
-      border: "1px solid rgba(255,255,255,0.05)",
-      borderRadius: 8,
-      opacity: 0.7
-    }
-  }, React.createElement("div", {
-    className: "text-[12px] font-semibold text-white mb-1"
-  }, "IBKR"), React.createElement("div", {
-    className: "text-[10px] mc-mute mb-2"
-  }, "Use IBKR connect triplet via bridge / MC operator flow"), React.createElement("span", {
-    className: "mc-pill mc-pill-ok",
-    style: {
-      fontSize: 9
-    }
-  }, "Production path")))), portfolio?.users?.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
-    className: "text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold"
-  }, "Account Balance, Positions & Controls"), portfolio.users.map(u => {
+  }, "No broker accounts connected yet. Use ", React.createElement("strong", null, "Add connection"), " below to link Webull (personal API) or IBKR."), connectedAccounts.map(u => {
     const ok = u?.portfolio?.ok;
     const positions = Array.isArray(u?.positions?.positions) ? u.positions.positions : Array.isArray(u?.positions) ? u.positions : [];
-    const userRow = (status?.users || []).find(x => x.user_id === u.user_id) || {};
+    const userRow = u;
     const enabled = !!userRow.broker_integration_enabled;
     const caps = userRow.user_caps || {};
     const equity = Number(u.equity_usd) || 0;
@@ -1977,9 +1856,20 @@ function BridgeSection({
       style: {
         fontSize: 9
       }
-    }, (u.broker || "ibkr").toUpperCase()), u.account_id && React.createElement("span", {
-      className: "text-[10px] mc-mute font-mono"
-    }, u.account_id), React.createElement("span", {
+    }, brokerLabel(u)), u.account_id && React.createElement("span", {
+      className: "text-[10px] mc-mute font-mono",
+      title: "Broker account id"
+    }, u.account_id), u.mock_mode && React.createElement("span", {
+      className: "mc-pill mc-pill-warn",
+      style: {
+        fontSize: 9
+      }
+    }, "MOCK"), React.createElement("span", {
+      className: `mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`,
+      style: {
+        fontSize: 9
+      }
+    }, u.status || "—"), React.createElement("span", {
       className: `mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`,
       style: {
         fontSize: 9
@@ -2109,7 +1999,64 @@ function BridgeSection({
         color: "#67e8f9",
         border: "1px solid rgba(103,232,249,0.28)"
       }
-    }, "Edit caps"), equity > 0 && equity < 5000 && (caps.max_per_order_usd || 5000) >= 1000 && React.createElement("button", {
+    }, "Edit caps"), React.createElement("button", {
+      disabled: busy,
+      onClick: async () => {
+        if (busy) return;
+        const dayV = prompt(`Max orders per day\n\nCurrent: ${caps.max_orders_per_day || 3}`, String(caps.max_orders_per_day || 3));
+        if (dayV == null) return;
+        const pctV = prompt(`Max account % per trade (0-1)\n\nCurrent: ${caps.max_account_pct ?? 0.25}`, String(caps.max_account_pct ?? 0.25));
+        if (pctV == null) return;
+        const dayN = Number(dayV);
+        const pctN = Number(pctV);
+        if (!Number.isFinite(dayN) || dayN < 0) {
+          alert("Orders/day must be >= 0");
+          return;
+        }
+        if (!Number.isFinite(pctN) || pctN <= 0 || pctN > 1) {
+          alert("Account % must be between 0 and 1");
+          return;
+        }
+        setBusy(true);
+        try {
+          const r = await fetch(`${apiBase}/timed/admin/broker-bridge/user-caps`, {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              user_id: u.user_id,
+              max_orders_per_day: Math.round(dayN),
+              max_account_pct: pctN
+            })
+          });
+          const j = await r.json().catch(() => null);
+          if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);else if (j?.user_caps) {
+            setStatus(prev => prev?.users ? {
+              ...prev,
+              users: prev.users.map(x => x.user_id === u.user_id ? {
+                ...x,
+                user_caps: j.user_caps,
+                user_caps_updated_at: j.updated_at
+              } : x)
+            } : prev);
+          }
+          refresh();
+        } finally {
+          setBusy(false);
+        }
+      },
+      style: {
+        padding: "3px 10px",
+        fontSize: 10,
+        borderRadius: 6,
+        cursor: busy ? "wait" : "pointer",
+        background: "rgba(103,232,249,0.10)",
+        color: "#67e8f9",
+        border: "1px solid rgba(103,232,249,0.28)"
+      }
+    }, "Edit limits"), equity > 0 && equity < 5000 && (caps.max_per_order_usd || 5000) >= 1000 && React.createElement("button", {
       disabled: busy,
       onClick: async () => {
         if (busy) return;
@@ -2164,7 +2111,51 @@ function BridgeSection({
     }, "Apply small-account defaults \u26A1"), caps.max_per_order_usd && Number(userRow.user_caps_updated_at) > 0 && React.createElement("span", {
       className: "text-[10px] mc-mute italic",
       title: new Date(userRow.user_caps_updated_at).toLocaleString()
-    }, "\xB7 saved ", fmtAgo(userRow.user_caps_updated_at), " ago")), ok && positions.length > 0 && React.createElement("table", {
+    }, "\xB7 saved ", fmtAgo(userRow.user_caps_updated_at), " ago"), String(u.broker || "").toLowerCase() === "webull" && BC && React.createElement(React.Fragment, null, React.createElement("span", {
+      className: "text-[10px] mc-mute"
+    }, "\xB7"), React.createElement("button", {
+      disabled: busy,
+      className: "mc-btn",
+      style: {
+        fontSize: 10,
+        padding: "3px 8px"
+      },
+      onClick: async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          const {
+            ok: probeOk,
+            json
+          } = await BC.testWebull(apiBase, u.user_id, "get_portfolio");
+          alert(probeOk ? `Webull portfolio OK${json?.mock ? " (mock)" : ""}${json?.response ? `\n${JSON.stringify(json.response).slice(0, 200)}` : ""}` : `Probe failed: ${json?.error || json?.note || "unknown"}`);
+        } finally {
+          setBusy(false);
+        }
+      }
+    }, "Test Webull"), React.createElement("button", {
+      disabled: busy,
+      className: "mc-btn mc-btn-warn",
+      style: {
+        fontSize: 10,
+        padding: "3px 8px"
+      },
+      onClick: async () => {
+        if (busy) return;
+        if (!confirm(`Disconnect Webull for ${u.user_id}?`)) return;
+        setBusy(true);
+        try {
+          const {
+            ok: discOk,
+            json
+          } = await BC.disconnectWebull(apiBase, u.user_id);
+          if (!discOk) alert(`Disconnect failed: ${json?.error || "unknown"}`);
+          refresh();
+        } finally {
+          setBusy(false);
+        }
+      }
+    }, "Disconnect"))), ok && positions.length > 0 && React.createElement("table", {
       className: "mc-table"
     }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", {
       style: {
@@ -2237,7 +2228,111 @@ function BridgeSection({
         } : prev);
       }
     }));
-  })), autoMirror?.prefs && (() => {
+  }), React.createElement("div", {
+    className: "mb-4",
+    style: {
+      padding: 12,
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.06)",
+      borderRadius: 8
+    }
+  }, React.createElement("div", {
+    className: "text-[11px] mc-mute uppercase tracking-wider font-semibold mb-2"
+  }, "Add Connection"), React.createElement("div", {
+    className: "grid grid-cols-1 md:grid-cols-3 gap-3"
+  }, React.createElement("div", {
+    style: {
+      padding: 10,
+      border: "1px solid rgba(37,99,235,0.25)",
+      borderRadius: 8,
+      background: "rgba(37,99,235,0.04)"
+    }
+  }, React.createElement("div", {
+    className: "text-[12px] font-semibold text-white mb-1"
+  }, "Webull \xB7 Personal API"), React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, webullCredsOk ? `App Key configured on bridge (${webullMode}, ${status?.webull_environment || "prod"}). Connect binds the operator Webull account to a user email.` : "Set WEBULL_APP_KEY and WEBULL_APP_SECRET on tt-broker-bridge."), webullUsers.length > 0 && React.createElement("div", {
+    className: "text-[10px] font-mono mb-2 text-emerald-300/90"
+  }, webullUsers.length, " linked \xB7 ", webullUsers.map(w => w.webull_account_id || w.user_id).join(", ")), React.createElement("button", {
+    disabled: busy || !webullCredsOk || !BC,
+    className: "mc-btn mc-btn-ok",
+    style: {
+      fontSize: 10,
+      padding: "4px 10px"
+    },
+    onClick: async () => {
+      if (busy || !BC) return;
+      const uid = prompt("Link Webull personal API to user_id (email):", webullUsers[0]?.user_id || users[0]?.user_id || "shashant@gmail.com");
+      if (!uid) return;
+      setBusy(true);
+      try {
+        const {
+          ok: connOk,
+          json
+        } = await BC.connectWebull(apiBase, String(uid).trim().toLowerCase());
+        if (!connOk) {
+          alert(`Connect failed: ${json?.error || json?.note || "unknown"}`);
+          return;
+        }
+        if (json?.personal) {
+          alert(`Webull personal API connected.\nUser: ${json.user_id || uid}\nAccount: ${json.webull_account_id || "—"}`);
+        } else if (json?.authorize_url) {
+          window.open(json.authorize_url, "_blank", "noopener,noreferrer");
+          alert("Complete Webull OAuth in the new window, then refresh.");
+        } else if (json?.mock) {
+          alert(`Mock Webull connected for ${json.user_id || uid}`);
+        }
+        refresh();
+      } catch (e) {
+        alert(String(e?.message || e));
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, webullUsers.length > 0 ? "Reconnect Webull" : "Connect Webull"), webullMode === "connect" && !status?.webull_connect_configured && React.createElement("div", {
+    className: "text-[10px] text-amber-300/90 mt-2"
+  }, "Partner OAuth also needs WEBULL_CONNECT_CLIENT_ID/SECRET from connect.api@webull-us.com")), React.createElement("div", {
+    style: {
+      padding: 10,
+      border: "1px solid rgba(245,158,11,0.2)",
+      borderRadius: 8
+    }
+  }, React.createElement("div", {
+    className: "text-[12px] font-semibold text-white mb-1"
+  }, "Interactive Brokers"), React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, "Production path \u2014 LST triplet via bridge env secrets."), ibkrUsers.length > 0 ? React.createElement("span", {
+    className: "mc-pill mc-pill-ok",
+    style: {
+      fontSize: 9
+    }
+  }, ibkrUsers.length, " connected") : React.createElement("span", {
+    className: "mc-pill mc-pill-warn",
+    style: {
+      fontSize: 9
+    }
+  }, "Use bridge IBKR connect flow")), React.createElement("div", {
+    style: {
+      padding: 10,
+      border: "1px solid rgba(255,255,255,0.05)",
+      borderRadius: 8,
+      opacity: 0.75
+    }
+  }, React.createElement("div", {
+    className: "text-[12px] font-semibold text-white mb-1"
+  }, "Robinhood"), React.createElement("div", {
+    className: "text-[10px] mc-mute mb-2"
+  }, "Agentic MCP \u2014 OAuth scaffold only."), React.createElement("span", {
+    className: "mc-pill mc-pill-warn",
+    style: {
+      fontSize: 9
+    }
+  }, "Coming soon")))), autoMirror?.prefs && React.createElement(McCollapse, {
+    id: "bridge-options-global",
+    title: "Global Options Auto-Mirror (operator)",
+    sub: autoMirror.prefs.enabled ? "ENABLED" : "OFF",
+    defaultOpen: false
+  }, (() => {
     const prefs = autoMirror.prefs;
     const todayCount = Number(autoMirror.today_count) || 0;
     const remaining = Number(autoMirror.today_remaining) || 0;
@@ -2489,13 +2584,14 @@ function BridgeSection({
     }, "Apply small-account defaults \u26A1")), isSmallAccount && oversized && React.createElement("div", {
       className: "text-[11px] text-amber-300 italic"
     }, "Current options caps are oversized for a $", Math.round(equity).toLocaleString(), " account. The equity-cap layer above already enforces $300/order on equities, but options auto-mirror has its own caps that still allow up to $", Number(prefs.max_notional_per_order_usd).toLocaleString(), "notional. Tap ", React.createElement("strong", null, "Apply small-account defaults \u26A1"), " to bring them in line."));
-  })(), users.length > 0 && React.createElement(McCollapse, {
+  })()), users.length > 0 && React.createElement(McCollapse, {
     id: "bridge-users",
-    title: "Per-User Status",
-    sub: `${users.length} user(s)`
+    title: "Order Activity",
+    sub: `${users.length} account(s)`,
+    defaultOpen: false
   }, React.createElement("table", {
     className: "mc-table mb-4"
-  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "User"), React.createElement("th", null, "Status"), React.createElement("th", null, "RH Account"), React.createElement("th", null, "Enabled"), React.createElement("th", {
+  }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "User"), React.createElement("th", null, "Broker"), React.createElement("th", null, "Account"), React.createElement("th", null, "Status"), React.createElement("th", null, "Enabled"), React.createElement("th", {
     style: {
       textAlign: "right"
     }
@@ -2507,11 +2603,13 @@ function BridgeSection({
     key: u.user_id
   }, React.createElement("td", {
     className: "font-mono text-[11px]"
-  }, u.user_id), React.createElement("td", null, React.createElement("span", {
+  }, u.user_id), React.createElement("td", {
+    className: "text-[11px]"
+  }, brokerLabel(u)), React.createElement("td", {
+    className: "font-mono text-[10px] mc-mute"
+  }, u.webull_account_id || u.ibkr_account_id || u.rh_account_number || "—"), React.createElement("td", null, React.createElement("span", {
     className: `mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`
-  }, u.status, u.mock_mode ? " (mock)" : "")), React.createElement("td", {
-    className: "font-mono text-[11px] mc-mute"
-  }, u.rh_account_number || "—"), React.createElement("td", null, React.createElement("span", {
+  }, u.status, u.mock_mode ? " (mock)" : "")), React.createElement("td", null, React.createElement("span", {
     className: `mc-pill ${u.broker_integration_enabled ? "mc-pill-ok" : "mc-pill-warn"}`
   }, u.broker_integration_enabled ? "LIVE" : "OFF")), React.createElement("td", {
     style: {
@@ -2798,7 +2896,7 @@ function BridgeSection({
     }
   }, row.reject_reason || row.rh_order_id || "—"))))))), React.createElement("div", {
     className: "text-[10px] mc-mute mt-4"
-  }, "Plan: ", React.createElement("code", null, "tasks/2026-05-29-broker-bridge-phase1-plan.md"), " \xB7 Research: ", React.createElement("code", null, "tasks/2026-05-28-robinhood-agentic-trading-research.md"), " (PR #340).", React.createElement("br", null), "Phase 1 safety: kill switch \xB7 mock-mode default \xB7 HMAC-signed webhooks \xB7 per-user OAuth tokens AES-256-GCM encrypted \xB7 hard caps ($5k/order, 3/day) \xB7 mandatory ", React.createElement("code", null, "review_equity_order"), " before ", React.createElement("code", null, "place_equity_order"), "."));
+  }, "Runbook: ", React.createElement("code", null, "skills/broker-bridge.md"), " \xB7 Webull personal: ", React.createElement("code", null, "WEBULL_AUTH_MODE=personal"), " on tt-broker-bridge."));
 }
 function MissionControl({
   user
@@ -4065,6 +4163,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1783448745282:94730293
+// cache-bust:1783451130953:629596100
 
-// cache-bust:1783448745282:94730293
+// cache-bust:1783451130953:629596100

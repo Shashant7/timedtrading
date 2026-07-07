@@ -14,7 +14,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
-    <script src="broker-connect-shared.js?v=20260615a"></script>
+    <script src="broker-connect-shared.js?v=20260707a"></script>
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
     <script src="investor-nav-badge.js?v=20260622a"></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
@@ -1558,9 +1558,15 @@
         const mockMode = status?.mock_mode !== false;
         const killOn = status?.kill_switch === "on";
         const users = status?.users || [];
-        const webullConfigured = status?.webull_connect_configured === true;
-        const webullUser = (window.TimedBrokerConnect?.findUserByBroker || ((us, id) => (us || []).find((u) => String(u?.broker || "").toLowerCase() === id)))(users, "webull");
         const BC = window.TimedBrokerConnect;
+        const webullMode = BC?.webullAuthMode?.(status) || (status?.webull_auth_mode === "personal" ? "personal" : "connect");
+        const webullCredsOk = BC?.webullCredentialsReady?.(status) ?? (status?.webull_credentials_configured === true);
+        const connectedAccounts = BC?.mergeAccountRows
+          ? BC.mergeAccountRows(users, portfolio?.users)
+          : users;
+        const webullUsers = BC?.findUsersByBroker?.(users, "webull") || users.filter((u) => String(u?.broker || "").toLowerCase() === "webull");
+        const ibkrUsers = BC?.findUsersByBroker?.(users, "ibkr") || users.filter((u) => String(u?.broker || "").toLowerCase() === "ibkr");
+        const brokerLabel = (u) => BC?.brokerDisplayName?.(u?.broker, u, status) || String(u?.broker || "—").toUpperCase();
         // 2026-05-30 — error_kind distinguishes "url_missing" vs "key_missing"
         // vs "unreachable". Each has a different remediation path; the old
         // generic "NOT DEPLOYED" pill conflated them all (and was wrong:
@@ -1578,11 +1584,16 @@
           <div className="mc-card mb-5">
             <div className="mc-section-title">
               <span className="mc-dot"></span>
-              8. Broker Bridge — Multi-Broker (IBKR · Robinhood · Webull)
+              8. Broker Bridge
               {!bridgeConfigured && <span className="mc-pill mc-pill-warn ml-2">{pillText}</span>}
               {bridgeConfigured && mockMode && <span className="mc-pill mc-pill-warn ml-2">MOCK MODE</span>}
               {bridgeConfigured && !mockMode && killOn && <span className="mc-pill mc-pill-warn ml-2">KILL SWITCH ON</span>}
               {bridgeConfigured && !mockMode && !killOn && <span className="mc-pill mc-pill-ok ml-2">LIVE</span>}
+              {bridgeConfigured && webullCredsOk && (
+                <span className="mc-pill mc-pill-ok ml-2" style={{ fontSize: 9 }}>
+                  Webull {webullMode === "personal" ? "Personal API" : "Connect"}
+                </span>
+              )}
               {loading && <span className="text-[10px] mc-mute ml-2 mc-loading">refreshing…</span>}
             </div>
 
@@ -1623,18 +1634,18 @@
 
             {bridgeConfigured && (
               <>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
                   <div className="mc-kpi">
                     <div className="mc-kpi-label">Mode</div>
                     <div className={`mc-kpi-value text-[15px] ${mockMode ? "mc-warn" : "mc-pos"}`}>
                       {mockMode ? "MOCK" : "LIVE"}
                     </div>
-                    <div className="mc-kpi-sub">{mockMode ? "Orders logged, not sent to broker" : "Live broker adapter calls"}</div>
+                    <div className="mc-kpi-sub">{mockMode ? "Orders logged, not sent" : "Live adapter calls"}</div>
                   </div>
                   <div className="mc-kpi">
                     <div className="mc-kpi-label">Kill Switch</div>
                     <div className={`mc-kpi-value text-[15px] ${killOn ? "mc-warn" : "mc-pos"}`}>
-                      {killOn ? "ON · all orders blocked" : "OFF"}
+                      {killOn ? "ON" : "OFF"}
                     </div>
                     <div className="mc-kpi-sub" style={{ display: "flex", gap: 6, marginTop: 4 }}>
                       <button
@@ -1665,143 +1676,48 @@
                     </div>
                   </div>
                   <div className="mc-kpi">
-                    <div className="mc-kpi-label">Connected Users</div>
-                    <div className="mc-kpi-value">{users.length}</div>
+                    <div className="mc-kpi-label">Connected Accounts</div>
+                    <div className="mc-kpi-value">{connectedAccounts.length}</div>
                     <div className="mc-kpi-sub">
-                      {users.filter(u => u.broker_integration_enabled).length} with live trading enabled
+                      {connectedAccounts.filter((u) => u.broker_integration_enabled).length} live trading on
                     </div>
                   </div>
                   <div className="mc-kpi">
-                    <div className="mc-kpi-label">Recent Dispatches</div>
+                    <div className="mc-kpi-label">Webull API</div>
+                    <div className={`mc-kpi-value text-[13px] ${webullCredsOk ? "mc-pos" : "mc-warn"}`}>
+                      {webullCredsOk ? (webullMode === "personal" ? "Personal" : "Connect") : "Not set"}
+                    </div>
+                    <div className="mc-kpi-sub">{status?.webull_environment || "—"} env</div>
+                  </div>
+                  <div className="mc-kpi">
+                    <div className="mc-kpi-label">Dispatches</div>
                     <div className="mc-kpi-value">{recent.length}</div>
-                    <div className="mc-kpi-sub">From main worker → bridge</div>
+                    <div className="mc-kpi-sub">main → bridge</div>
                   </div>
                 </div>
 
-                {/* 2026-06-15 — Connect Brokers (Webull scaffold; creds pending) */}
-                <div className="mb-4" style={{ padding: 12, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
-                  <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
-                    <div className="text-[11px] mc-mute uppercase tracking-wider font-semibold">Connect Brokers</div>
-                    <div className="flex gap-2 flex-wrap">
-                      <span className={`mc-pill ${webullConfigured ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>
-                        Webull Connect {webullConfigured ? "configured" : "awaiting creds"}
-                      </span>
-                      {status?.webull_environment && (
-                        <span className="mc-pill" style={{ fontSize: 9 }}>env: {status.webull_environment}</span>
-                      )}
-                    </div>
+                <div className="flex items-baseline justify-between gap-2 flex-wrap mb-3">
+                  <div>
+                    <div className="text-[11px] mc-mute uppercase tracking-wider font-semibold">Connected Broker Accounts</div>
+                    <div className="text-[10px] mc-mute mt-0.5">One card per linked login — equity caps, vehicle prefs, and live toggle are per account.</div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8 }}>
-                      <div className="text-[12px] font-semibold text-white mb-1">Webull</div>
-                      <div className="text-[10px] mc-mute mb-2">OAuth Connect API · equity mirror · mock-ready today</div>
-                      {webullUser ? (
-                        <div className="text-[10px] mb-2 font-mono">
-                          {webullUser.user_id} · {webullUser.webull_account_id || webullUser.status}
-                          {webullUser.mock_mode && <span className="mc-pill mc-pill-warn ml-1" style={{ fontSize: 8 }}>MOCK</span>}
-                        </div>
-                      ) : (
-                        <div className="text-[10px] mc-mute mb-2">No Webull user connected</div>
-                      )}
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          disabled={busy}
-                          className="mc-btn mc-btn-ok"
-                          style={{ fontSize: 10, padding: "4px 10px" }}
-                          onClick={async () => {
-                            if (busy || !BC) return;
-                            const uid = prompt("Connect Webull for user_id (email):", webullUser?.user_id || users[0]?.user_id || "");
-                            if (!uid) return;
-                            setBusy(true);
-                            try {
-                              const { ok, json } = await BC.connectWebull(apiBase, String(uid).trim().toLowerCase());
-                              if (!ok) { alert(`Connect failed: ${json?.error || json?.note || "unknown"}`); return; }
-                              if (json?.authorize_url) {
-                                window.open(json.authorize_url, "_blank", "noopener,noreferrer");
-                                alert("Complete authorization in the Webull window, then refresh this panel.");
-                              } else if (json?.mock) {
-                                alert(`Mock Webull connected for ${json.user_id || uid}`);
-                              }
-                              refresh();
-                            } catch (e) { alert(String(e?.message || e)); }
-                            finally { setBusy(false); }
-                          }}
-                        >Connect Webull</button>
-                        {webullUser && (
-                          <>
-                            <button
-                              disabled={busy}
-                              className="mc-btn"
-                              style={{ fontSize: 10, padding: "4px 10px" }}
-                              onClick={async () => {
-                                if (busy || !BC) return;
-                                if (!confirm(`Disconnect Webull for ${webullUser.user_id}?`)) return;
-                                setBusy(true);
-                                try {
-                                  const { ok, json } = await BC.disconnectWebull(apiBase, webullUser.user_id);
-                                  if (!ok) alert(`Disconnect failed: ${json?.error || "unknown"}`);
-                                  refresh();
-                                } finally { setBusy(false); }
-                              }}
-                            >Disconnect</button>
-                            <button
-                              disabled={busy}
-                              className="mc-btn"
-                              style={{ fontSize: 10, padding: "4px 10px" }}
-                              onClick={async () => {
-                                if (busy || !BC) return;
-                                setBusy(true);
-                                try {
-                                  const { ok, json } = await BC.testWebull(apiBase, webullUser.user_id, "get_portfolio");
-                                  alert(ok ? `Portfolio probe OK${json?.mock ? " (mock)" : ""}` : `Probe failed: ${json?.error || "unknown"}`);
-                                } finally { setBusy(false); }
-                              }}
-                            >Test portfolio</button>
-                          </>
-                        )}
-                      </div>
-                      {!webullConfigured && (
-                        <div className="text-[10px] text-amber-300/90 mt-2">
-                          Email <code>connect.api@webull-us.com</code> — see <code>tasks/2026-06-15-webull-connect-integration-plan.md</code>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, opacity: 0.7 }}>
-                      <div className="text-[12px] font-semibold text-white mb-1">Robinhood</div>
-                      <div className="text-[10px] mc-mute mb-2">Agentic MCP — OAuth URLs still placeholder</div>
-                      <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>Coming soon</span>
-                    </div>
-                    <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, opacity: 0.7 }}>
-                      <div className="text-[12px] font-semibold text-white mb-1">IBKR</div>
-                      <div className="text-[10px] mc-mute mb-2">Use IBKR connect triplet via bridge / MC operator flow</div>
-                      <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>Production path</span>
-                    </div>
-                  </div>
+                  <button disabled={busy || loading} className="mc-btn" style={{ fontSize: 10, padding: "4px 10px" }} onClick={() => refresh()}>
+                    {loading ? "Refreshing…" : "Refresh accounts"}
+                  </button>
                 </div>
 
-                {/* 2026-06-01 — IBKR balance + open positions per
-                    connected user. Surfaces real account state inline
-                    instead of just the "LIVE" pill. Errors per-user
-                    are captured so the operator sees them inline
-                    rather than the section silently failing.
-                    Now also includes inline management controls:
-                    enable/disable per-user, edit risk caps. The caps
-                    editor suggests small-account-appropriate defaults
-                    when the user's equity is below the platform
-                    default (e.g. $1,553 account → suggest $300/order
-                    instead of $5,000). */}
-                {portfolio?.users?.length > 0 && (
-                  <>
-                    <div className="text-[11px] mc-mute mb-2 uppercase tracking-wider font-semibold">Account Balance, Positions &amp; Controls</div>
-                    {portfolio.users.map((u) => {
+                {connectedAccounts.length === 0 && (
+                  <div className="mb-4 text-[12px] mc-mute italic" style={{ padding: 12, border: "1px dashed rgba(255,255,255,0.08)", borderRadius: 8 }}>
+                    No broker accounts connected yet. Use <strong>Add connection</strong> below to link Webull (personal API) or IBKR.
+                  </div>
+                )}
+
+                {connectedAccounts.map((u) => {
                       const ok = u?.portfolio?.ok;
                       const positions = Array.isArray(u?.positions?.positions) ? u.positions.positions
                                       : Array.isArray(u?.positions) ? u.positions
                                       : [];
-                      // Find this user's row in the /status users list
-                      // to read user-side flags (enabled + caps). The
-                      // portfolio endpoint doesn't include them.
-                      const userRow = (status?.users || []).find((x) => x.user_id === u.user_id) || {};
+                      const userRow = u;
                       const enabled = !!userRow.broker_integration_enabled;
                       const caps = userRow.user_caps || {};
                       const equity = Number(u.equity_usd) || 0;
@@ -1815,8 +1731,10 @@
                           <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
                             <div className="flex items-baseline gap-2 flex-wrap">
                               <strong className="text-white text-[13px]">{u.user_id}</strong>
-                              <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>{(u.broker || "ibkr").toUpperCase()}</span>
-                              {u.account_id && <span className="text-[10px] mc-mute font-mono">{u.account_id}</span>}
+                              <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>{brokerLabel(u)}</span>
+                              {u.account_id && <span className="text-[10px] mc-mute font-mono" title="Broker account id">{u.account_id}</span>}
+                              {u.mock_mode && <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>MOCK</span>}
+                              <span className={`mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>{u.status || "—"}</span>
                               <span className={`mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`} style={{ fontSize: 9 }}>
                                 {enabled ? "LIVE TRADING" : "TRADING OFF"}
                               </span>
@@ -1913,6 +1831,44 @@
                                 border: "1px solid rgba(103,232,249,0.28)",
                               }}
                             >Edit caps</button>
+                            <button
+                              disabled={busy}
+                              onClick={async () => {
+                                if (busy) return;
+                                const dayV = prompt(`Max orders per day\n\nCurrent: ${caps.max_orders_per_day || 3}`, String(caps.max_orders_per_day || 3));
+                                if (dayV == null) return;
+                                const pctV = prompt(`Max account % per trade (0-1)\n\nCurrent: ${caps.max_account_pct ?? 0.25}`, String(caps.max_account_pct ?? 0.25));
+                                if (pctV == null) return;
+                                const dayN = Number(dayV);
+                                const pctN = Number(pctV);
+                                if (!Number.isFinite(dayN) || dayN < 0) { alert("Orders/day must be >= 0"); return; }
+                                if (!Number.isFinite(pctN) || pctN <= 0 || pctN > 1) { alert("Account % must be between 0 and 1"); return; }
+                                setBusy(true);
+                                try {
+                                  const r = await fetch(`${apiBase}/timed/admin/broker-bridge/user-caps`, {
+                                    method: "POST", credentials: "include",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ user_id: u.user_id, max_orders_per_day: Math.round(dayN), max_account_pct: pctN }),
+                                  });
+                                  const j = await r.json().catch(() => null);
+                                  if (!j?.ok) alert(`Update failed: ${j?.error || `HTTP ${r.status}`}`);
+                                  else if (j?.user_caps) {
+                                    setStatus((prev) => prev?.users ? {
+                                      ...prev,
+                                      users: prev.users.map((x) => x.user_id === u.user_id
+                                        ? { ...x, user_caps: j.user_caps, user_caps_updated_at: j.updated_at }
+                                        : x),
+                                    } : prev);
+                                  }
+                                  refresh();
+                                } finally { setBusy(false); }
+                              }}
+                              style={{
+                                padding: "3px 10px", fontSize: 10, borderRadius: 6, cursor: busy ? "wait" : "pointer",
+                                background: "rgba(103,232,249,0.10)", color: "#67e8f9",
+                                border: "1px solid rgba(103,232,249,0.28)",
+                              }}
+                            >Edit limits</button>
                             {equity > 0 && equity < 5000 && (caps.max_per_order_usd || 5000) >= 1000 && (
                               <button
                                 disabled={busy}
@@ -1969,6 +1925,41 @@
                               <span className="text-[10px] mc-mute italic" title={new Date(userRow.user_caps_updated_at).toLocaleString()}>
                                 · saved {fmtAgo(userRow.user_caps_updated_at)} ago
                               </span>
+                            )}
+                            {String(u.broker || "").toLowerCase() === "webull" && BC && (
+                              <>
+                                <span className="text-[10px] mc-mute">·</span>
+                                <button
+                                  disabled={busy}
+                                  className="mc-btn"
+                                  style={{ fontSize: 10, padding: "3px 8px" }}
+                                  onClick={async () => {
+                                    if (busy) return;
+                                    setBusy(true);
+                                    try {
+                                      const { ok: probeOk, json } = await BC.testWebull(apiBase, u.user_id, "get_portfolio");
+                                      alert(probeOk
+                                        ? `Webull portfolio OK${json?.mock ? " (mock)" : ""}${json?.response ? `\n${JSON.stringify(json.response).slice(0, 200)}` : ""}`
+                                        : `Probe failed: ${json?.error || json?.note || "unknown"}`);
+                                    } finally { setBusy(false); }
+                                  }}
+                                >Test Webull</button>
+                                <button
+                                  disabled={busy}
+                                  className="mc-btn mc-btn-warn"
+                                  style={{ fontSize: 10, padding: "3px 8px" }}
+                                  onClick={async () => {
+                                    if (busy) return;
+                                    if (!confirm(`Disconnect Webull for ${u.user_id}?`)) return;
+                                    setBusy(true);
+                                    try {
+                                      const { ok: discOk, json } = await BC.disconnectWebull(apiBase, u.user_id);
+                                      if (!discOk) alert(`Disconnect failed: ${json?.error || "unknown"}`);
+                                      refresh();
+                                    } finally { setBusy(false); }
+                                  }}
+                                >Disconnect</button>
+                              </>
                             )}
                           </div>
                           {ok && positions.length > 0 && (
@@ -2027,18 +2018,71 @@
                         </div>
                       );
                     })}
-                  </>
-                )}
 
-                {/* 2026-06-01 — Options auto-mirror controls. Visible
-                    only to the operator (the GET endpoint returns 403
-                    for non-operator, so autoMirror stays null and the
-                    block doesn't render). Sister-control to the
-                    per-user equity caps above — auto-mirror has its
-                    own daily_cap / max_notional / max_loss with
-                    separate (more conservative) defaults because
-                    options trades have larger tail risk. */}
-                {autoMirror?.prefs && (() => {
+                <div className="mb-4" style={{ padding: 12, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 8 }}>
+                  <div className="text-[11px] mc-mute uppercase tracking-wider font-semibold mb-2">Add Connection</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div style={{ padding: 10, border: "1px solid rgba(37,99,235,0.25)", borderRadius: 8, background: "rgba(37,99,235,0.04)" }}>
+                      <div className="text-[12px] font-semibold text-white mb-1">Webull · Personal API</div>
+                      <div className="text-[10px] mc-mute mb-2">
+                        {webullCredsOk
+                          ? `App Key configured on bridge (${webullMode}, ${status?.webull_environment || "prod"}). Connect binds the operator Webull account to a user email.`
+                          : "Set WEBULL_APP_KEY and WEBULL_APP_SECRET on tt-broker-bridge."}
+                      </div>
+                      {webullUsers.length > 0 && (
+                        <div className="text-[10px] font-mono mb-2 text-emerald-300/90">
+                          {webullUsers.length} linked · {webullUsers.map((w) => w.webull_account_id || w.user_id).join(", ")}
+                        </div>
+                      )}
+                      <button
+                        disabled={busy || !webullCredsOk || !BC}
+                        className="mc-btn mc-btn-ok"
+                        style={{ fontSize: 10, padding: "4px 10px" }}
+                        onClick={async () => {
+                          if (busy || !BC) return;
+                          const uid = prompt("Link Webull personal API to user_id (email):", webullUsers[0]?.user_id || users[0]?.user_id || "shashant@gmail.com");
+                          if (!uid) return;
+                          setBusy(true);
+                          try {
+                            const { ok: connOk, json } = await BC.connectWebull(apiBase, String(uid).trim().toLowerCase());
+                            if (!connOk) { alert(`Connect failed: ${json?.error || json?.note || "unknown"}`); return; }
+                            if (json?.personal) {
+                              alert(`Webull personal API connected.\nUser: ${json.user_id || uid}\nAccount: ${json.webull_account_id || "—"}`);
+                            } else if (json?.authorize_url) {
+                              window.open(json.authorize_url, "_blank", "noopener,noreferrer");
+                              alert("Complete Webull OAuth in the new window, then refresh.");
+                            } else if (json?.mock) {
+                              alert(`Mock Webull connected for ${json.user_id || uid}`);
+                            }
+                            refresh();
+                          } catch (e) { alert(String(e?.message || e)); }
+                          finally { setBusy(false); }
+                        }}
+                      >{webullUsers.length > 0 ? "Reconnect Webull" : "Connect Webull"}</button>
+                      {webullMode === "connect" && !status?.webull_connect_configured && (
+                        <div className="text-[10px] text-amber-300/90 mt-2">Partner OAuth also needs WEBULL_CONNECT_CLIENT_ID/SECRET from connect.api@webull-us.com</div>
+                      )}
+                    </div>
+                    <div style={{ padding: 10, border: "1px solid rgba(245,158,11,0.2)", borderRadius: 8 }}>
+                      <div className="text-[12px] font-semibold text-white mb-1">Interactive Brokers</div>
+                      <div className="text-[10px] mc-mute mb-2">Production path — LST triplet via bridge env secrets.</div>
+                      {ibkrUsers.length > 0 ? (
+                        <span className="mc-pill mc-pill-ok" style={{ fontSize: 9 }}>{ibkrUsers.length} connected</span>
+                      ) : (
+                        <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>Use bridge IBKR connect flow</span>
+                      )}
+                    </div>
+                    <div style={{ padding: 10, border: "1px solid rgba(255,255,255,0.05)", borderRadius: 8, opacity: 0.75 }}>
+                      <div className="text-[12px] font-semibold text-white mb-1">Robinhood</div>
+                      <div className="text-[10px] mc-mute mb-2">Agentic MCP — OAuth scaffold only.</div>
+                      <span className="mc-pill mc-pill-warn" style={{ fontSize: 9 }}>Coming soon</span>
+                    </div>
+                  </div>
+                </div>
+
+                {autoMirror?.prefs && (
+                  <McCollapse id="bridge-options-global" title="Global Options Auto-Mirror (operator)" sub={autoMirror.prefs.enabled ? "ENABLED" : "OFF"} defaultOpen={false}>
+                {(() => {
                   const prefs = autoMirror.prefs;
                   const todayCount = Number(autoMirror.today_count) || 0;
                   const remaining = Number(autoMirror.today_remaining) || 0;
@@ -2262,21 +2306,24 @@
                     </div>
                   );
                 })()}
+                  </McCollapse>
+                )}
 
                 {users.length > 0 && (
-                  <McCollapse id="bridge-users" title="Per-User Status" sub={`${users.length} user(s)`}>
+                  <McCollapse id="bridge-users" title="Order Activity" sub={`${users.length} account(s)`} defaultOpen={false}>
                     <table className="mc-table mb-4">
-                      <thead><tr><th>User</th><th>Status</th><th>RH Account</th><th>Enabled</th><th style={{textAlign:"right"}}>Today</th><th style={{textAlign:"right"}}>Total</th><th>Last Order</th></tr></thead>
+                      <thead><tr><th>User</th><th>Broker</th><th>Account</th><th>Status</th><th>Enabled</th><th style={{textAlign:"right"}}>Today</th><th style={{textAlign:"right"}}>Total</th><th>Last Order</th></tr></thead>
                       <tbody>
                         {users.map((u) => (
                           <tr key={u.user_id}>
                             <td className="font-mono text-[11px]">{u.user_id}</td>
+                            <td className="text-[11px]">{brokerLabel(u)}</td>
+                            <td className="font-mono text-[10px] mc-mute">{u.webull_account_id || u.ibkr_account_id || u.rh_account_number || "—"}</td>
                             <td>
                               <span className={`mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`}>
                                 {u.status}{u.mock_mode ? " (mock)" : ""}
                               </span>
                             </td>
-                            <td className="font-mono text-[11px] mc-mute">{u.rh_account_number || "—"}</td>
                             <td>
                               <span className={`mc-pill ${u.broker_integration_enabled ? "mc-pill-ok" : "mc-pill-warn"}`}>
                                 {u.broker_integration_enabled ? "LIVE" : "OFF"}
@@ -2515,10 +2562,7 @@
             )}
 
             <div className="text-[10px] mc-mute mt-4">
-              Plan: <code>tasks/2026-05-29-broker-bridge-phase1-plan.md</code> ·
-              Research: <code>tasks/2026-05-28-robinhood-agentic-trading-research.md</code> (PR #340).<br />
-              Phase 1 safety: kill switch · mock-mode default · HMAC-signed webhooks · per-user OAuth tokens AES-256-GCM encrypted ·
-              hard caps ($5k/order, 3/day) · mandatory <code>review_equity_order</code> before <code>place_equity_order</code>.
+              Runbook: <code>skills/broker-bridge.md</code> · Webull personal: <code>WEBULL_AUTH_MODE=personal</code> on tt-broker-bridge.
             </div>
           </div>
         );

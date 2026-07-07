@@ -1,6 +1,6 @@
 // broker-connect-shared.js
 //
-// 2026-06-15 — Shared broker connect helpers for Mission Control + account pages.
+// Shared broker connect helpers for Mission Control + account pages.
 // Proxies through main worker admin routes (never calls bridge directly from browser).
 
 (function (root) {
@@ -8,23 +8,72 @@
     webull: {
       id: "webull",
       label: "Webull",
-      blurb: "Connect via Webull Connect API. OAuth + signed REST for equity mirror.",
+      blurbPersonal: "Operator personal Trading API (App Key + App Secret on tt-broker-bridge).",
+      blurbConnect: "Platform OAuth via Webull Connect API (partner credentials).",
       registrationEmail: "connect.api@webull-us.com",
-      statusKey: "webull_connect_configured",
+      credentialsKey: "webull_credentials_configured",
     },
     ibkr: {
       id: "ibkr",
       label: "Interactive Brokers",
-      blurb: "Operator posts OAuth triplet via Mission Control or /bridge/ibkr/connect.",
-      statusKey: null,
+      blurb: "LST / OAuth triplet via bridge /bridge/ibkr/connect.",
+      credentialsKey: null,
     },
     robinhood: {
       id: "robinhood",
       label: "Robinhood",
       blurb: "Agentic MCP — awaiting published OAuth endpoints.",
-      statusKey: null,
+      credentialsKey: null,
+      comingSoon: true,
     },
   };
+
+  function webullAuthMode(status) {
+    return String(status?.webull_auth_mode || "connect").toLowerCase() === "personal"
+      ? "personal"
+      : "connect";
+  }
+
+  function webullCredentialsReady(status) {
+    return status?.webull_credentials_configured === true;
+  }
+
+  function brokerDisplayName(broker, user, status) {
+    const id = String(broker || "").toLowerCase();
+    if (id === "webull") {
+      const mode = user?.webull_auth_mode || webullAuthMode(status);
+      return mode === "personal" ? "Webull · Personal API" : "Webull · Connect OAuth";
+    }
+    return BROKERS[id]?.label || (id ? id.toUpperCase() : "Unknown");
+  }
+
+  function brokerAccountId(user) {
+    if (!user) return null;
+    return user.webull_account_id
+      || user.ibkr_account_id
+      || user.rh_account_number
+      || user.account_id
+      || null;
+  }
+
+  function mergeAccountRows(statusUsers, portfolioUsers) {
+    const byId = {};
+    (portfolioUsers || []).forEach((p) => {
+      if (p?.user_id) byId[p.user_id] = p;
+    });
+    return (statusUsers || []).map((u) => {
+      const p = byId[u.user_id] || null;
+      return {
+        ...u,
+        portfolio: p?.portfolio || null,
+        positions: p?.positions || null,
+        equity_usd: p?.equity_usd ?? null,
+        cash_usd: p?.cash_usd ?? null,
+        buying_power_usd: p?.buying_power_usd ?? null,
+        account_id: p?.account_id || brokerAccountId(u),
+      };
+    });
+  }
 
   async function postJson(apiBase, path, body) {
     const r = await fetch(`${apiBase}${path}`, {
@@ -52,17 +101,28 @@
     });
   }
 
+  function findUsersByBroker(users, brokerId) {
+    const id = String(brokerId || "").toLowerCase();
+    return (users || []).filter((u) => String(u?.broker || "").toLowerCase() === id);
+  }
+
   function findUserByBroker(users, brokerId) {
-    return (users || []).find((u) => String(u?.broker || "").toLowerCase() === brokerId) || null;
+    return findUsersByBroker(users, brokerId)[0] || null;
   }
 
   root.TimedBrokerConnect = {
     BROKERS,
+    webullAuthMode,
+    webullCredentialsReady,
+    brokerDisplayName,
+    brokerAccountId,
+    mergeAccountRows,
     connectWebull,
     disconnectWebull,
     testWebull,
     findUserByBroker,
+    findUsersByBroker,
   };
 })(typeof window !== "undefined" ? window : globalThis);
 
-// cache-bust:1783448745282:94730293
+// cache-bust:1783451130953:629596100

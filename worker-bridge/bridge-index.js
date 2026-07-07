@@ -1235,6 +1235,7 @@ function _redactUserForList(user) {
     broker_integration_enabled: !!user.broker_integration_enabled,
     rh_account_number: user.rh_account_number || null,
     webull_account_id: user.webull_account_id || null,
+    webull_auth_mode: user.webull_auth_mode || null,
     ibkr_account_id: user.ibkr_account_id || null,
     connected_at: user.connected_at || null,
     last_order_at: user.last_order_at || null,
