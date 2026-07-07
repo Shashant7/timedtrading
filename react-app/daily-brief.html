@@ -19,7 +19,7 @@
     <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
     <script src="auth-gate.js?v=20260601-nav-inject"></script>
     <script src="shared-price-utils.js?v=20260304a"></script>
-    <script src="daily-brief-markdown.js?v=20260706-chips"></script>
+    <script src="daily-brief-markdown.js?v=20260707-pos"></script>
     <script src="ds-components.js?v=20260501a"></script>
     <!-- 2026-06-16 — Bubble map (market pulse + open positions) at the end of
          the brief. Reuses the shared SVG plot from the Today page. -->
@@ -252,6 +252,19 @@
         color: var(--tt-text-3); margin: 0 0 6px;
       }
       .tt-brief-chip-block { margin: 0 0 14px; }
+      .tt-brief-pos-stack {
+        display: flex; flex-direction: column; gap: 12px; margin: 0 0 18px;
+      }
+      .tt-brief-pos-card {
+        display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+      }
+      .tt-brief-pos-card .tt-strip-chip { white-space: normal; flex-wrap: wrap; max-width: 100%; }
+      .tt-brief-pos-guidance {
+        margin: 0 0 0 4px; padding: 0 0 0 10px;
+        border-left: 2px solid rgba(255,255,255,0.08);
+        font-size: 13px; line-height: 1.55; color: var(--tt-text-muted, #8AA39A);
+        font-family: var(--tt-font);
+      }
     </style>
   </head>
   <body class="vf-page ds-v2">
@@ -298,6 +311,94 @@
         const v = Number(pct);
         if (!Number.isFinite(v)) return null;
         return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
+      }
+
+      function useBriefLivePriceMap() {
+        const [livePx, setLivePx] = useState(null);
+        useEffect(() => {
+          let alive = true;
+          fetch("/timed/prices", { credentials: "include", cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (alive && j?.prices) setLivePx(j.prices); })
+            .catch(() => {});
+          return () => { alive = false; };
+        }, []);
+        return livePx;
+      }
+
+      function briefPriceFeedToTicker(sym, row) {
+        if (!row) return { ticker: sym };
+        return {
+          ticker: sym,
+          price: row.p,
+          close: row.p,
+          prev_close: row.pc,
+          previous_close: row.pc,
+          pc: row.pc,
+          day_change_pct: row.dp,
+          daily_change_pct: row.dp,
+          day_change: row.dc,
+          _live_price: row.p,
+          _live_prev_close: row.pc,
+          _ah_price: row.ahp,
+          _ah_change_pct: row.ahdp,
+          extended_price: row.ahp,
+          extended_percent_change: row.ahdp,
+        };
+      }
+
+      function briefSpotFromFeed(row) {
+        if (!row) return null;
+        const mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+        const ext = Number(row.ahp);
+        const p = Number(row.p);
+        if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
+        return Number.isFinite(p) && p > 0 ? p : null;
+      }
+
+      function briefDayPctFromFeed(sym, row) {
+        if (!row) return null;
+        const t = briefPriceFeedToTicker(sym, row);
+        const mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+        if (!mktOpen) {
+          const ext = window.TimedPriceUtils?.getExtChange?.(t);
+          if (ext && Number.isFinite(ext.pct)) return ext.pct;
+        }
+        const dc = window.TimedPriceUtils?.getDailyChange?.(t);
+        if (Number.isFinite(dc?.dayPct) && dc.dayPct !== 0) return dc.dayPct;
+        const spot = briefSpotFromFeed(row);
+        const pc = Number(row.pc);
+        if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0 && Math.abs(spot - pc) > 0.0001) {
+          return Math.round(((spot - pc) / pc) * 10000) / 100;
+        }
+        return Number.isFinite(dc?.dayPct) ? dc.dayPct : (Number.isFinite(Number(row.dp)) ? Number(row.dp) : null);
+      }
+
+      function enrichBriefTraderRow(row, livePx) {
+        const sym = String(row?.ticker || "").toUpperCase();
+        const pf = livePx?.[sym];
+        const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.dayPct;
+        return {
+          ...row,
+          dayPct: Number.isFinite(dayPct) ? dayPct : row?.dayPct,
+        };
+      }
+
+      function enrichBriefInvestorRow(row, livePx) {
+        const sym = String(row?.ticker || "").toUpperCase();
+        const pf = livePx?.[sym];
+        const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.dayPct;
+        const spot = pf ? briefSpotFromFeed(pf) : Number(row?.price);
+        const avgEntry = Number(row?.avgEntry);
+        let unrealPct = row?.unrealPct;
+        if (Number.isFinite(spot) && spot > 0 && Number.isFinite(avgEntry) && avgEntry > 0) {
+          unrealPct = ((spot - avgEntry) / avgEntry) * 100;
+        }
+        return {
+          ...row,
+          dayPct: Number.isFinite(dayPct) ? dayPct : row?.dayPct,
+          unrealPct: Number.isFinite(unrealPct) ? unrealPct : row?.unrealPct,
+        };
       }
 
       function BriefTickerLogo({ sym, size = 18 }) {
@@ -470,56 +571,65 @@
             </div>
           );
         }
-        if (sectionKey === "activeTrader") {
-          const rows = Array.isArray(info.traderPositions) ? info.traderPositions : [];
-          if (!rows.length) return null;
-          return (
-            <div className="tt-brief-chip-block">
-              <div className="tt-strip-scroll">
-                {rows.map((p) => {
-                  const sym = String(p.ticker || "").toUpperCase();
-                  return (
-                    <BriefTickerChip
-                      key={p.tradeId || sym}
-                      sym={sym}
-                      pct={p.pnlPct}
-                      pct2={p.dayPct}
-                      sub={String(p.direction || "").toUpperCase()}
-                      href={`/active-trader.html?ticker=${encodeURIComponent(sym)}`}
-                      title={`${sym} ${String(p.direction || "").toUpperCase()} open P&L ${fmtBriefPct(p.pnlPct) || "n/a"}`}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          );
-        }
-        if (sectionKey === "investorPortfolio") {
-          const rows = Array.isArray(info.investorHoldings) ? info.investorHoldings : [];
-          if (!rows.length) return null;
-          return (
-            <div className="tt-brief-chip-block">
-              <div className="tt-strip-scroll">
-                {rows.map((p) => {
-                  const sym = String(p.ticker || "").toUpperCase();
-                  return (
-                    <BriefTickerChip
-                      key={sym}
-                      sym={sym}
-                      pct={p.unrealPct}
-                      pct2={p.dayPct}
-                      sub={p.stage ? String(p.stage).replace(/_/g, " ") : null}
-                      href={`/investor.html?ticker=${encodeURIComponent(sym)}`}
-                      title={`${sym} total return ${fmtBriefPct(p.unrealPct) || "n/a"}`}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          );
+        if (sectionKey === "activeTrader" || sectionKey === "investorPortfolio") {
+          return null;
         }
         return null;
       }
+
+      function BriefPositionStack({ sectionKey, infographic, sectionBody }) {
+        const livePx = useBriefLivePriceMap();
+        const guidanceMap = useMemo(() => {
+          if (window.TimedBriefMarkdown?.parseBriefPositionGuidanceByTicker) {
+            return window.TimedBriefMarkdown.parseBriefPositionGuidanceByTicker(sectionBody || "");
+          }
+          return {};
+        }, [sectionBody]);
+        const info = infographic || {};
+        const isTrader = sectionKey === "activeTrader";
+        const rawRows = isTrader
+          ? (Array.isArray(info.traderPositions) ? info.traderPositions : [])
+          : (Array.isArray(info.investorHoldings) ? info.investorHoldings : []);
+        const rows = useMemo(() => {
+          if (!rawRows.length) return [];
+          return rawRows.map((r) => (isTrader ? enrichBriefTraderRow(r, livePx) : enrichBriefInvestorRow(r, livePx)));
+        }, [rawRows, livePx, isTrader]);
+        if (!rows.length) return null;
+        return (
+          <div className="tt-brief-pos-stack">
+            {rows.map((p) => {
+              const sym = String(p.ticker || "").toUpperCase();
+              const guidance = guidanceMap[sym] || null;
+              const href = isTrader
+                ? `/active-trader.html?ticker=${encodeURIComponent(sym)}`
+                : `/investor.html?ticker=${encodeURIComponent(sym)}`;
+              const pct = isTrader ? p.pnlPct : p.unrealPct;
+              const sub = isTrader
+                ? String(p.direction || "").toUpperCase()
+                : (p.stage ? String(p.stage).replace(/_/g, " ") : null);
+              return (
+                <div key={isTrader ? (p.tradeId || sym) : sym} className="tt-brief-pos-card">
+                  <BriefTickerChip
+                    sym={sym}
+                    pct={pct}
+                    pct2={p.dayPct}
+                    sub={sub}
+                    href={href}
+                    title={isTrader
+                      ? `${sym} ${String(p.direction || "").toUpperCase()} open P&L ${fmtBriefPct(p.pnlPct) || "n/a"}`
+                      : `${sym} total return ${fmtBriefPct(p.unrealPct) || "n/a"}`}
+                  />
+                  {guidance ? (
+                    <p className="tt-brief-pos-guidance">{guidance}</p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      const BRIEF_POSITION_SECTION_KEYS = new Set(["activeTrader", "investorPortfolio"]);
 
       function BriefContent({ content, infographic }) {
         const sections = useMemo(() => {
@@ -534,10 +644,16 @@
             {sections.map((sec, idx) => (
               <div key={`${sec.title || "sec"}-${idx}`}>
                 {sec.title && <h2>{sec.title}</h2>}
-                {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />}
-                {sec.body ? (
-                  <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(sec.body) }} />
-                ) : null}
+                {sec.key && BRIEF_POSITION_SECTION_KEYS.has(sec.key) ? (
+                  <BriefPositionStack sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />
+                ) : (
+                  <>
+                    {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />}
+                    {sec.body ? (
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(sec.body) }} />
+                    ) : null}
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -738,14 +854,15 @@
                     <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Active Trader</div>
                     <div className="flex flex-wrap gap-1.5">
                       {data.traderPositions.map((p) => {
-                        const sym = String(p.ticker || "").toUpperCase();
+                        const row = enrichBriefTraderRow(p, livePx);
+                        const sym = String(row.ticker || "").toUpperCase();
                         return (
                           <BriefTickerChip
-                            key={p.tradeId || sym + (p.entryPrice || "")}
+                            key={row.tradeId || sym + (row.entryPrice || "")}
                             sym={sym}
-                            pct={p.pnlPct}
-                            pct2={p.dayPct}
-                            sub={String(p.direction || "").toUpperCase()}
+                            pct={row.pnlPct}
+                            pct2={row.dayPct}
+                            sub={String(row.direction || "").toUpperCase()}
                             href={`/active-trader.html?ticker=${encodeURIComponent(sym)}`}
                           />
                         );
@@ -758,14 +875,15 @@
                     <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Investor</div>
                     <div className="flex flex-wrap gap-1.5">
                       {data.investorHoldings.map((p) => {
-                        const sym = String(p.ticker || "").toUpperCase();
+                        const row = enrichBriefInvestorRow(p, livePx);
+                        const sym = String(row.ticker || "").toUpperCase();
                         return (
                           <BriefTickerChip
                             key={sym}
                             sym={sym}
-                            pct={p.unrealPct}
-                            pct2={p.dayPct}
-                            sub={p.stage ? String(p.stage).replace(/_/g, " ") : null}
+                            pct={row.unrealPct}
+                            pct2={row.dayPct}
+                            sub={row.stage ? String(row.stage).replace(/_/g, " ") : null}
                             href={`/investor.html?ticker=${encodeURIComponent(sym)}`}
                           />
                         );
