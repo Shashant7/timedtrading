@@ -59,9 +59,15 @@
 
   function formatCycleChip(cycle, alignment) {
     const c = cycleLabel(cycle);
+    const cycleCtx = c !== "—" ? `Cycle: ${c}` : c;
     const a = String(alignment || "").toLowerCase();
-    if (!a || a === "none" || a === "computed_only") return c;
-    return `${c} · ${a.replace(/_/g, " ")}`;
+    if (!a || a === "none" || a === "computed_only") return cycleCtx;
+    const alignLabel = a === "aligned"
+      ? "aligned w/ desk"
+      : a === "divergent"
+        ? "diverges from desk"
+        : a.replace(/_/g, " ");
+    return `${cycleCtx} · ${alignLabel}`;
   }
 
   window.TTCycleIntel = {
@@ -73,4 +79,4 @@
   };
 })();
 
-// cache-bust:1783446425840:517345257
+// cache-bust:1783448042015:286974805
