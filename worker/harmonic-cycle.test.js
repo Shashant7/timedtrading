@@ -1,11 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   analyzeHarmonicCycle,
+  buildHarmonicWaveSeries,
   detrendLogSeries,
   fitSinusoidAtPeriod,
   harmonicPhasePct,
   labelHarmonicInflection,
   rankHarmonicPeriods,
+  scaleWaveToPriceRange,
+  addCalendarDays,
   PRIMARY_CYCLE_PERIODS,
 } from "./harmonic-cycle.js";
 
@@ -67,5 +70,53 @@ describe("harmonicPhasePct", () => {
 describe("PRIMARY_CYCLE_PERIODS", () => {
   it("includes desk windows", () => {
     expect(PRIMARY_CYCLE_PERIODS).toEqual([180, 315]);
+  });
+});
+
+describe("buildHarmonicWaveSeries", () => {
+  it("returns aligned price + scaled wave history and projection", () => {
+    const closes = synthSine(60, 240, 8, 0);
+    const detrended = detrendLogSeries(closes);
+    const ranked = rankHarmonicPeriods(detrended, [60, 92, 180], 3);
+    const dates = closes.map((_, i) => `2024-01-${String((i % 28) + 1).padStart(2, "0")}`);
+    const series = buildHarmonicWaveSeries(closes, dates, ranked, {
+      historyBars: 120,
+      projectBars: 10,
+    });
+    expect(series).toBeTruthy();
+    expect(series.history.length).toBe(120);
+    expect(series.projection.length).toBe(10);
+    expect(series.history[0]).toHaveProperty("p");
+    expect(series.history[0]).toHaveProperty("w");
+    const histPrices = series.history.map((pt) => pt.p);
+    const histWaves = series.history.map((pt) => pt.w);
+    const pMin = Math.min(...histPrices);
+    const pMax = Math.max(...histPrices);
+    expect(Math.min(...histWaves)).toBeGreaterThanOrEqual(pMin - 0.01);
+    expect(Math.max(...histWaves)).toBeLessThanOrEqual(pMax + 0.01);
+  });
+});
+
+describe("scaleWaveToPriceRange", () => {
+  it("maps wave extrema onto price extrema", () => {
+    const scaled = scaleWaveToPriceRange([-1, 0, 1], [10, 15, 20]);
+    expect(scaled[0]).toBeCloseTo(10, 5);
+    expect(scaled[2]).toBeCloseTo(20, 5);
+  });
+});
+
+describe("addCalendarDays", () => {
+  it("advances ISO dates", () => {
+    expect(addCalendarDays("2026-07-07", 3)).toBe("2026-07-10");
+  });
+});
+
+describe("analyzeHarmonicCycle series", () => {
+  it("includes wave_series when requested", () => {
+    const closes = synthSine(180, 360, 0.05);
+    const out = analyzeHarmonicCycle(closes, { minBars: 240, topN: 4, includeSeries: true });
+    expect(out.ok).toBe(true);
+    expect(out.wave_series?.history?.length).toBeGreaterThan(0);
+    expect(out.source).toBe("harmonic-cycle.v2");
   });
 });

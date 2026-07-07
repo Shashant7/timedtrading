@@ -129,6 +129,14 @@
     return `${cycleCtx} · ${alignLabel}`;
   }
 
+  function formatHarmonicLabel(h) {
+    if (!h || !h.ok) return null;
+    const period = h.primary_period ? `${h.primary_period}d` : null;
+    const phase = h.label || null;
+    const dir = h.direction ? String(h.direction) : null;
+    return [period, phase, dir].filter(Boolean).join(" · ");
+  }
+
   window.TTCycleIntel = {
     cycleLabel,
     cycleColor,
@@ -141,5 +149,6 @@
     formatSpotlightLabel,
     formatRotationState,
     formatSectorWatchReason,
+    formatHarmonicLabel,
   };
 })();

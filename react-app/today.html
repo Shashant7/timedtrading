@@ -28,7 +28,8 @@
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
     <script src="shared-price-utils.js?v=20260623a"></script>
-    <script src="tt-cycle-intel.js?v=20260707a"></script>
+    <script src="tt-cycle-intel.js?v=20260707b"></script>
+    <script src="tt-harmonic-chart.js?v=20260707a"></script>
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-lane-card.js?v=20260706-strip-v3"></script>
@@ -138,6 +139,48 @@
         display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
         margin-bottom: 10px;
       }
+      .tt-dcc-wave-btn {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; height: 22px; margin-left: 2px; padding: 0;
+        border-radius: 999px; cursor: pointer;
+        border: 1px solid rgba(255, 0, 255, 0.35);
+        background: rgba(255, 0, 255, 0.08);
+        color: #ff66ff; font-size: 11px; font-weight: 800; line-height: 1;
+      }
+      .tt-dcc-wave-btn:hover { background: rgba(255, 0, 255, 0.16); border-color: rgba(255, 0, 255, 0.55); }
+      .tt-dcc-wave-btn.is-active {
+        background: rgba(255, 0, 255, 0.22); border-color: rgba(255, 0, 255, 0.75);
+        box-shadow: 0 0 0 1px rgba(255, 0, 255, 0.25);
+      }
+      .tt-dcc-pill.is-wave-selected {
+        border-color: rgba(255, 0, 255, 0.45);
+        box-shadow: 0 0 0 1px rgba(255, 0, 255, 0.15);
+      }
+      .tt-harmonic-panel {
+        margin: 4px 0 14px; padding: 12px 14px; border-radius: 12px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255, 0, 255, 0.18);
+      }
+      .tt-harmonic-panel-head {
+        display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between;
+        gap: 8px; margin-bottom: 8px;
+      }
+      .tt-harmonic-panel-title {
+        font-family: var(--tt-font-mono); font-size: 12px; font-weight: 700; color: var(--tt-text);
+      }
+      .tt-harmonic-panel-meta {
+        font-size: 10.5px; color: var(--tt-text-muted); line-height: 1.35;
+      }
+      .tt-harmonic-panel-legend {
+        display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px;
+        font-size: 10px; color: var(--tt-text-faint);
+      }
+      .tt-harmonic-panel-legend span { display: inline-flex; align-items: center; gap: 6px; }
+      .tt-harmonic-panel-legend i {
+        display: inline-block; width: 16px; height: 0; border-top: 2px solid currentColor;
+      }
+      .tt-harmonic-panel-legend i.proj { border-top-style: dashed; opacity: 0.75; }
+      .tt-harmonic-panel svg { width: 100%; height: auto; display: block; border-radius: 8px; }
+      .tt-harmonic-panel-loading { font-size: 11px; color: var(--tt-text-muted); padding: 24px 0; text-align: center; }
       .tt-macro-chip--released { box-shadow: 0 0 0 1px rgba(56,242,161,0.35); animation: tt-macro-pulse 2.5s ease-in-out infinite; }
       @keyframes tt-macro-pulse { 0%,100% { box-shadow: 0 0 0 1px rgba(56,242,161,0.25); } 50% { box-shadow: 0 0 0 2px rgba(56,242,161,0.55); } }
       .tt-macro-overlay-backdrop {
@@ -4156,7 +4199,12 @@
 
       function DailyCycleCompositePanel({ embedded, onSelectTicker, data }) {
         const [composite, setComposite] = useState(null);
+        const [waveTicker, setWaveTicker] = useState(null);
+        const [wavePayload, setWavePayload] = useState(null);
+        const [waveLoading, setWaveLoading] = useState(false);
+        const [waveError, setWaveError] = useState(null);
         const CI = window.TTCycleIntel || {};
+        const HC = window.TTHarmonicChart || {};
 
         useEffect(function () {
           let alive = true;
@@ -4169,6 +4217,40 @@
           }).catch(function () {});
           return function () { alive = false; };
         }, []);
+
+        useEffect(function () {
+          if (!waveTicker) {
+            setWavePayload(null);
+            setWaveError(null);
+            setWaveLoading(false);
+            return;
+          }
+          let alive = true;
+          setWaveLoading(true);
+          setWaveError(null);
+          const url = HC.buildUrl ? HC.buildUrl(API_BASE, waveTicker) : `${API_BASE}/timed/harmonic-cycle?ticker=${encodeURIComponent(waveTicker)}`;
+          const load = window.TTFetchCache
+            ? window.TTFetchCache.get(url, { ttlMs: 10 * 60 * 1000, maxAgeMs: 60 * 60 * 1000, fetchOpts: { credentials: "include" } })
+            : fetchJsonRetry(url);
+          Promise.resolve(load).then(function (j) {
+            if (!alive) return;
+            if (j && j.ok && j.wave_series) {
+              setWavePayload(j);
+              setWaveError(null);
+            } else {
+              setWavePayload(null);
+              setWaveError((j && (j.reason || j.error)) || "wave_unavailable");
+            }
+          }).catch(function () {
+            if (alive) {
+              setWavePayload(null);
+              setWaveError("fetch_failed");
+            }
+          }).finally(function () {
+            if (alive) setWaveLoading(false);
+          });
+          return function () { alive = false; };
+        }, [waveTicker]);
 
         if (!composite || !composite.sectors || composite.sectors.length === 0) return null;
 
@@ -4190,6 +4272,8 @@
         function renderWatchTicker(sp) {
           const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
           const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
+          const sym = String(sp.symbol || "").toUpperCase();
+          const isWave = waveTicker === sym;
           let dayPct = null;
           try {
             const utils = window.TimedPriceUtils;
@@ -4198,26 +4282,65 @@
               if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
             }
           } catch (_) {}
-          return h("button", {
-            key: sp.symbol,
-            type: "button",
-            className: "tt-dcc-pill",
-            style: { color: col, cursor: "pointer" },
-            title: CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol,
-            onClick: function () { if (onSelectTicker) onSelectTicker(sp.symbol); },
-          },
-            sp.symbol,
-            Number.isFinite(dayPct) && h("span", {
-              style: {
-                color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
-                marginLeft: 4,
+          const harmTip = sp.harmonic && CI.formatHarmonicLabel
+            ? CI.formatHarmonicLabel(sp.harmonic)
+            : null;
+          return h("span", { key: sp.symbol, style: { display: "inline-flex", alignItems: "center", gap: 4 } },
+            h("button", {
+              type: "button",
+              className: "tt-dcc-pill" + (isWave ? " is-wave-selected" : ""),
+              style: { color: col, cursor: "pointer" },
+              title: (CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol) + (harmTip ? " · " + harmTip : ""),
+              onClick: function () { if (onSelectTicker) onSelectTicker(sp.symbol); },
+            },
+              sp.symbol,
+              Number.isFinite(dayPct) && h("span", {
+                style: {
+                  color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+                  marginLeft: 4,
+                },
+              }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"),
+              h("span", { style: { color: "var(--tt-text-muted)", fontWeight: 600, marginLeft: 4 } },
+                CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle,
+              ),
+            ),
+            h("button", {
+              type: "button",
+              className: "tt-dcc-wave-btn" + (isWave ? " is-active" : ""),
+              title: isWave ? "Hide composite wave chart" : "Show composite wave chart",
+              "aria-label": isWave ? "Hide composite wave chart for " + sym : "Show composite wave chart for " + sym,
+              onClick: function (e) {
+                e.stopPropagation();
+                setWaveTicker(isWave ? null : sym);
               },
-            }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"),
-                  h("span", { style: { color: "var(--tt-text-muted)", fontWeight: 600, marginLeft: 4 } },
-                    CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle,
-                  ),
+            }, "~"),
           );
         }
+
+        const waveMeta = wavePayload && HC.formatMeta ? HC.formatMeta(wavePayload) : null;
+        const waveSvg = wavePayload && HC.renderSvg
+          ? HC.renderSvg(wavePayload, { width: 640, height: 168 })
+          : null;
+        const harmonicPanel = waveTicker && h("div", { className: "tt-harmonic-panel" },
+          h("div", { className: "tt-harmonic-panel-head" },
+            h("div", { className: "tt-harmonic-panel-title" }, waveTicker, " · composite wave"),
+            h("button", {
+              type: "button",
+              className: "tt-dcc-wave-btn is-active",
+              title: "Close chart",
+              onClick: function () { setWaveTicker(null); },
+            }, "×"),
+          ),
+          waveMeta && h("div", { className: "tt-harmonic-panel-meta" }, waveMeta),
+          waveLoading && h("div", { className: "tt-harmonic-panel-loading" }, "Loading harmonic cycle…"),
+          !waveLoading && waveError && h("div", { className: "tt-harmonic-panel-loading" }, "Composite wave unavailable (" + waveError + ")"),
+          !waveLoading && waveSvg && h("div", { dangerouslySetInnerHTML: { __html: waveSvg } }),
+          !waveLoading && waveSvg && h("div", { className: "tt-harmonic-panel-legend" },
+            h("span", null, h("i", { style: { color: "rgba(226,232,240,0.85)" } }), "Price"),
+            h("span", null, h("i", { style: { color: "#ff00ff" } }), "Composite wave"),
+            h("span", null, h("i", { className: "proj", style: { color: "#ff00ff" } }), "Projection"),
+          ),
+        );
 
         // 2026-07-07 — Read the HMM latent regime + market session so the
         // Market Read card can present regime / HTF cycle / session as three
@@ -4382,6 +4505,7 @@
               ),
             );
           }),
+          harmonicPanel,
           spotlights.length > 0 && sectorWatch.length === 0 && h("div", { className: "tt-dcc-spotlight-row" },
             h("span", { className: "tt-dcc-row-title" },
               "Sector leaders",

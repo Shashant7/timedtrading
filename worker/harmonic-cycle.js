@@ -89,6 +89,101 @@ export function phaseAtBar(harmonic, barIdx) {
   return harmonic.phase + (2 * Math.PI * barIdx) / harmonic.period;
 }
 
+/** Map composite wave values onto the price range for overlay charting. */
+export function scaleWaveToPriceRange(waveVals, priceVals) {
+  const prices = (priceVals || []).filter(Number.isFinite);
+  const waves = (waveVals || []).filter(Number.isFinite);
+  if (!prices.length || !waves.length) return (waveVals || []).map(() => null);
+  const pMin = Math.min(...prices);
+  const pMax = Math.max(...prices);
+  const wMin = Math.min(...waves);
+  const wMax = Math.max(...waves);
+  const pSpan = pMax - pMin;
+  const wSpan = wMax - wMin;
+  if (!Number.isFinite(pSpan) || pSpan <= 0 || !Number.isFinite(wSpan) || wSpan <= 0) {
+    const mid = (pMin + pMax) / 2;
+    return waves.map(() => mid);
+  }
+  return waves.map((w) => pMin + ((w - wMin) / wSpan) * pSpan);
+}
+
+/** Advance a YYYY-MM-DD string by N calendar days (chart projection labels). */
+export function addCalendarDays(dateStr, days) {
+  const m = String(dateStr || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dateStr;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCDate(dt.getUTCDate() + Number(days || 0));
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Build chart-ready price + scaled composite wave series.
+ * @param {number[]} closes oldest-first
+ * @param {string[]} dates optional YYYY-MM-DD aligned to closes
+ * @param {object[]} ranked fitted harmonics (must include phase)
+ */
+export function buildHarmonicWaveSeries(closes, dates, ranked, opts = {}) {
+  const arr = (closes || []).map(Number).filter((c) => Number.isFinite(c) && c > 0);
+  if (!arr.length || !ranked?.length) return null;
+
+  const historyBars = Math.max(60, Math.min(arr.length, opts.historyBars || 180));
+  const projectBars = Math.max(0, Math.min(120, opts.projectBars || 75));
+  const start = Math.max(0, arr.length - historyBars);
+  const slice = arr.slice(start);
+  const dateSlice = Array.isArray(dates) && dates.length === arr.length
+    ? dates.slice(start)
+    : slice.map((_, i) => `bar-${start + i}`);
+
+  const waveRaw = slice.map((_, i) => compositeAtBar(ranked, start + i));
+  const waveScaled = scaleWaveToPriceRange(waveRaw, slice);
+
+  const history = slice.map((price, i) => ({
+    d: dateSlice[i],
+    p: Math.round(price * 100) / 100,
+    w: Math.round(waveScaled[i] * 100) / 100,
+  }));
+
+  const lastDate = dateSlice[dateSlice.length - 1];
+  const lastIdx = arr.length - 1;
+  const lastWaveScaled = waveScaled[waveScaled.length - 1];
+  const lastPrice = slice[slice.length - 1];
+  const pMin = Math.min(...slice);
+  const pMax = Math.max(...slice);
+  const wMin = Math.min(...waveRaw);
+  const wMax = Math.max(...waveRaw);
+  const pSpan = pMax - pMin;
+  const wSpan = wMax - wMin;
+  const scaleOne = (w) => {
+    if (!Number.isFinite(wSpan) || wSpan <= 0 || !Number.isFinite(pSpan) || pSpan <= 0) {
+      return (pMin + pMax) / 2;
+    }
+    return pMin + ((w - wMin) / wSpan) * pSpan;
+  };
+
+  const projection = [];
+  for (let j = 1; j <= projectBars; j++) {
+    const barIdx = lastIdx + j;
+    const wRaw = compositeAtBar(ranked, barIdx);
+    projection.push({
+      d: typeof lastDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(lastDate)
+        ? addCalendarDays(lastDate, j)
+        : `bar-${barIdx}`,
+      w: Math.round(scaleOne(wRaw) * 100) / 100,
+    });
+  }
+
+  return {
+    history_bars: history.length,
+    project_bars: projection.length,
+    pivot_index: history.length - 1,
+    pivot_date: lastDate,
+    pivot_price: Math.round(lastPrice * 100) / 100,
+    pivot_wave: Math.round(lastWaveScaled * 100) / 100,
+    history,
+    projection,
+  };
+}
+
 /** Human label for cyclical inflection (quarter/year style). */
 export function labelHarmonicInflection(phasePct, direction) {
   const p = phasePct;
@@ -131,7 +226,7 @@ export function analyzeHarmonicCycle(closes, opts = {}) {
   const primary = ranked.find((h) => PRIMARY_CYCLE_PERIODS.includes(h.period)) || ranked[0];
   const phasePct = harmonicPhasePct(phaseAtBar(primary, last));
 
-  return {
+  const out = {
     ok: true,
     bars: arr.length,
     dominant_periods: ranked.map((h) => h.period),
@@ -145,8 +240,18 @@ export function analyzeHarmonicCycle(closes, opts = {}) {
     composite_value: Math.round(cur * 1000) / 1000,
     direction: direction > 0 ? "rising" : "falling",
     label: labelHarmonicInflection(phasePct, direction),
-    source: "harmonic-cycle.v1",
+    source: "harmonic-cycle.v2",
   };
+
+  if (opts.includeSeries) {
+    const waveSeries = buildHarmonicWaveSeries(arr, opts.dates, ranked, {
+      historyBars: opts.historyBars || 180,
+      projectBars: opts.projectBars || 75,
+    });
+    if (waveSeries) out.wave_series = waveSeries;
+  }
+
+  return out;
 }
 
 /** Load D candles via injected getter and run harmonic decomposition. */
@@ -159,9 +264,40 @@ export async function analyzeHarmonicCycleForTicker(env, ticker, getCandles, opt
   try {
     const res = await get(env, sym, "D", limit);
     const candles = Array.isArray(res?.candles) ? res.candles : [];
-    const closes = candles.map((c) => Number(c?.c)).filter(Number.isFinite);
-    return analyzeHarmonicCycle(closes, opts);
+    const closes = [];
+    const dates = [];
+    for (const c of candles) {
+      const close = Number(c?.c);
+      if (!Number.isFinite(close) || close <= 0) continue;
+      closes.push(close);
+      const t = c?.t ?? c?.time ?? c?.date;
+      if (typeof t === "string" && /^\d{4}-\d{2}-\d{2}/.test(t)) dates.push(t.slice(0, 10));
+      else if (Number.isFinite(Number(t))) {
+        const ms = Number(t) < 1e12 ? Number(t) * 1000 : Number(t);
+        dates.push(new Date(ms).toISOString().slice(0, 10));
+      } else dates.push(null);
+    }
+    return analyzeHarmonicCycle(closes, {
+      ...opts,
+      dates: dates.length === closes.length ? dates : null,
+      includeSeries: opts.includeSeries === true,
+    });
   } catch (_) {
     return { ok: false, reason: "candle_read_failed", ticker: sym };
   }
+}
+
+/** On-demand harmonic cycle payload for chart overlay (price + composite wave). */
+export async function getHarmonicCycleChart(env, ticker, getCandles, opts = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  const result = await analyzeHarmonicCycleForTicker(env, sym, getCandles, {
+    minBars: opts.minBars || HARMONIC_MIN_BARS,
+    topN: opts.topN || 5,
+    limit: opts.limit || 420,
+    historyBars: opts.historyBars || 180,
+    projectBars: opts.projectBars || 75,
+    includeSeries: true,
+  });
+  if (!result?.ok) return { ok: false, ticker: sym, ...result };
+  return { ok: true, ticker: sym, ...result };
 }
