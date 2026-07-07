@@ -2618,69 +2618,12 @@ function MarketState({
   const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
   const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
   if (order.length === 0) return null;
-  const _latent = (() => {
-    for (const sym of order) {
-      const lr = data?.[sym]?.latent_regime;
-      if (lr && lr.state) return lr;
-    }
-    return null;
-  })();
-  const _LATENT_META = {
-    BULL_TREND: {
-      color: "var(--tt-up, #34d399)",
-      label: "BULL TREND"
-    },
-    CHOP: {
-      color: "var(--tt-accent, #f5c25c)",
-      label: "CHOP"
-    },
-    BEAR_TREND: {
-      color: "var(--tt-dn, #f87171)",
-      label: "BEAR TREND"
-    }
-  };
-  const _latentMeta = _latent ? _LATENT_META[_latent.state] || {
-    color: "var(--tt-text-muted)",
-    label: _latent.state
-  } : null;
-  const _postSummary = _latent?.posterior ? Object.entries(_latent.posterior).map(([k, v]) => `${k} ${(v * 100).toFixed(0)}%`).join(" · ") : "";
-  const body = h(React.Fragment, null, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      gap: 12,
-      flexWrap: "wrap"
-    }
-  }, h("h2", {
+  const body = h(React.Fragment, null, h("h2", {
     className: "tt-sec-h",
     style: {
       margin: 0
     }
-  }, "Where the indices stand"), _latentMeta && h("span", {
-    title: _postSummary ? `HMM latent regime — posterior: ${_postSummary}` : "HMM latent regime",
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6,
-      padding: "3px 9px",
-      borderRadius: 999,
-      background: `${_latentMeta.color}22`,
-      color: _latentMeta.color,
-      fontSize: 10,
-      fontWeight: 700,
-      letterSpacing: "0.08em",
-      fontFamily: "var(--tt-font-mono, ui-monospace, monospace)",
-      whiteSpace: "nowrap"
-    }
-  }, h("span", {
-    style: {
-      width: 6,
-      height: 6,
-      borderRadius: "50%",
-      background: _latentMeta.color,
-      boxShadow: `0 0 0 2px ${_latentMeta.color}33`
-    }
-  }), `MARKET REGIME · ${_latentMeta.label}`)), h("div", {
+  }, "Where the indices stand"), h("div", {
     className: "tt-mp-tiles-row"
   }, order.map(sym => h(MarketPulseTile, {
     key: sym,
@@ -2744,40 +2687,11 @@ function DailyCycleCompositePanel({
   });
   const indexMixLabel = CI.formatIndexMix ? CI.formatIndexMix(composite.index_mix) : null;
   const transitions = Array.isArray(composite.transitions) ? composite.transitions.slice(0, 4) : [];
-  const spotlights = Array.isArray(composite.spotlights) ? composite.spotlights : [];
+  const sectorWatch = Array.isArray(composite.sector_watch) ? composite.sector_watch : [];
+  const spotlights = sectorWatch.length === 0 && Array.isArray(composite.spotlights) ? composite.spotlights : [];
+  const sectorRotation = composite.sector_rotation || null;
   const breadthCol = CI.cycleColor ? CI.cycleColor(composite.breadth_cycle) : "var(--tt-accent)";
-  const body = h(React.Fragment, null, !embedded && h("div", {
-    className: "tt-sec-title"
-  }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
-    className: "tt-sec-h"
-  }, "HTF EMA regime cycle vs research-desk phase reads"), h("div", {
-    className: "tt-dcc-banner"
-  }, h("div", {
-    className: "tt-dcc-banner-row"
-  }, h("span", {
-    className: "tt-dcc-breadth",
-    style: {
-      color: breadthCol
-    },
-    title: "Breadth-weighted cycle across SPY, QQQ, IWM, DIA, RSP"
-  }, "Market HTF cycle: ", CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), indexMixLabel && h("span", {
-    className: "tt-dcc-pill",
-    title: "Per-index cycle mix (SPY/QQQ/IWM/DIA/RSP)"
-  }, "Indices ", indexMixLabel), composite.indices && composite.indices.SPY && h("span", {
-    className: "tt-dcc-pill",
-    style: {
-      color: CI.cycleColor ? CI.cycleColor(composite.indices.SPY.cycle) : undefined
-    }
-  }, "SPY ", CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)), spotlights.length > 0 && h("div", {
-    className: "tt-dcc-banner-row"
-  }, h("span", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      color: "var(--tt-text-muted)"
-    }
-  }, "SEMIS WATCH"), spotlights.map(function (sp) {
+  function renderWatchTicker(sp) {
     const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
     const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
     let dayPct = null;
@@ -2811,23 +2725,229 @@ function DailyCycleCompositePanel({
         fontWeight: 600,
         marginLeft: 4
       }
-    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle));
-  })), transitions.length > 0 && h("div", {
-    className: "tt-dcc-banner-row"
-  }, h("span", {
-    style: {
-      fontSize: 10,
-      fontWeight: 700,
-      letterSpacing: "0.06em",
-      color: "var(--tt-warn)"
+    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle), sp.cyclical_phase && h("span", {
+      style: {
+        color: "var(--tt-text-faint)",
+        fontWeight: 500,
+        marginLeft: 4,
+        fontSize: 10
+      }
+    }, sp.cyclical_phase));
+  }
+  const _latent = function () {
+    if (!data) return null;
+    for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+      const lr = data[sym]?.latent_regime;
+      if (lr && lr.state) return lr;
     }
-  }, "RECENT SHIFTS"), transitions.map(function (tr, i) {
+    return null;
+  }();
+  const _LATENT_META = {
+    BULL_TREND: {
+      color: "var(--tt-up, #34d399)",
+      label: "Bull Trend"
+    },
+    CHOP: {
+      color: "var(--tt-accent, #f5c25c)",
+      label: "Chop"
+    },
+    BEAR_TREND: {
+      color: "var(--tt-dn, #f87171)",
+      label: "Bear Trend"
+    }
+  };
+  const _latentMeta = _latent ? _LATENT_META[_latent.state] || {
+    color: "var(--tt-text-muted)",
+    label: _latent.state
+  } : null;
+  const _postSummary = _latent?.posterior ? Object.entries(_latent.posterior).sort(function (a, b) {
+    return (b[1] || 0) - (a[1] || 0);
+  }).map(function (kv) {
+    return kv[0].replace("_TREND", "").toLowerCase() + " " + Math.round((kv[1] || 0) * 100) + "%";
+  }).join(" · ") : "";
+  let _sessionPhase = null,
+    _sessionOpen = null,
+    _sessionETDate = null;
+  if (data) {
+    for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+      const ms = data[sym]?.market_session;
+      if (ms && ms.session_phase) {
+        _sessionPhase = ms.session_phase;
+        _sessionOpen = ms.market_open;
+        _sessionETDate = ms.et_date || null;
+        break;
+      }
+    }
+  }
+  const _sessionLabel = _sessionOpen === true || _sessionPhase === "rth" ? "RTH open" : _sessionPhase === "premarket" ? "Pre-market" : _sessionPhase === "afterhours" ? "After-hours" : _sessionPhase === "closed" ? "Closed" : _sessionOpen === false ? "Closed" : "—";
+  const _sessionCol = _sessionOpen === true || _sessionPhase === "rth" ? "var(--tt-up-soft, #34d399)" : _sessionPhase === "premarket" || _sessionPhase === "afterhours" ? "var(--tt-accent, #f5c25c)" : "var(--tt-text-muted)";
+  const marketReadCard = h("div", {
+    className: "tt-market-read"
+  }, h("div", {
+    className: "tt-market-read-cell"
+  }, h("div", {
+    className: "tt-market-read-label",
+    title: "Hidden Markov model over index returns — a probabilistic read that shifts with returns, volatility, and covariance"
+  }, "Regime (HMM)"), _latentMeta ? h(React.Fragment, null, h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: _latentMeta.color
+    }
+  }, _latentMeta.label), h("div", {
+    className: "tt-market-read-detail"
+  }, _postSummary ? h("code", null, _postSummary) : "posterior unavailable")) : h(React.Fragment, null, h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: "var(--tt-text-muted)"
+    }
+  }, "—"), h("div", {
+    className: "tt-market-read-detail"
+  }, "HMM not yet trained"))), h("div", {
+    className: "tt-market-read-cell"
+  }, h("div", {
+    className: "tt-market-read-label",
+    title: "Deterministic daily EMA stack + HTF momentum score, breadth-weighted across SPY, QQQ, IWM, DIA, RSP — a technical trend lens, not harmonic cyclical analysis"
+  }, "HTF Trend (Breadth)"), h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: breadthCol
+    }
+  }, CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), h("div", {
+    className: "tt-market-read-detail"
+  }, indexMixLabel ? h("code", null, indexMixLabel) : "index mix unavailable", composite.indices && composite.indices.SPY && h("span", null, " · SPY ", h("code", null, CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)))), h("div", {
+    className: "tt-market-read-cell"
+  }, h("div", {
+    className: "tt-market-read-label"
+  }, "Session"), h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: _sessionCol
+    }
+  }, _sessionLabel), h("div", {
+    className: "tt-market-read-detail"
+  }, _sessionETDate ? h("code", null, _sessionETDate + " ET") : "—")));
+  const readHelp = h("p", {
+    className: "tt-market-read-help"
+  }, "These lenses can disagree — that's a signal, not a bug. ", h("strong", null, "Regime"), " (HMM) is probabilistic; ", h("strong", null, "HTF Trend"), " is the EMA-stack rule on benchmark indices; ", h("strong", null, "Cyclical phase"), " on leader rows comes from Saty phase % (quarter/year style — like the NVDA harmonic peak/trough read). ", h("strong", null, "Session"), " is the trading clock.");
+  const body = h(React.Fragment, null, !embedded && h("div", {
+    className: "tt-sec-title"
+  }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
+    className: "tt-sec-h"
+  }, "Three lenses on where the tape is: regime, HTF cycle, per-name reads"), marketReadCard, readHelp, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
+    className: "tt-dcc-rotation-row"
+  }, h("span", {
+    className: "tt-dcc-row-title"
+  }, "Sector rotation", h("span", {
+    className: "tt-dcc-row-title-sub"
+  }, CI.formatRotationState ? CI.formatRotationState(sectorRotation.state) : sectorRotation.state, Number.isFinite(sectorRotation.offense_avg_pct) && Number.isFinite(sectorRotation.defense_avg_pct) ? " · offense " + (sectorRotation.offense_avg_pct >= 0 ? "+" : "") + sectorRotation.offense_avg_pct.toFixed(2) + "% vs defense " + (sectorRotation.defense_avg_pct >= 0 ? "+" : "") + sectorRotation.defense_avg_pct.toFixed(2) + "%" : "")), h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8,
+      width: "100%"
+    }
+  }, sectorRotation.gainers.map(function (g) {
+    const col = g.day_pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)";
+    return h("button", {
+      key: "gain-" + g.etf,
+      type: "button",
+      className: "tt-dcc-pill",
+      style: {
+        cursor: "pointer"
+      },
+      title: (CI.sectorShort ? CI.sectorShort(g.sector) : g.sector) + " leading today",
+      onClick: function () {
+        if (onSelectTicker) onSelectTicker(g.etf);
+      }
+    }, g.etf, h("span", {
+      style: {
+        color: col,
+        marginLeft: 4
+      }
+    }, "+" + g.day_pct.toFixed(2) + "%"), h("span", {
+      style: {
+        color: "var(--tt-text-muted)",
+        marginLeft: 4
+      }
+    }, "leading"));
+  }), sectorRotation.losers.map(function (l) {
+    const col = l.day_pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)";
+    return h("button", {
+      key: "lose-" + l.etf,
+      type: "button",
+      className: "tt-dcc-pill",
+      style: {
+        cursor: "pointer"
+      },
+      title: (CI.sectorShort ? CI.sectorShort(l.sector) : l.sector) + " lagging today",
+      onClick: function () {
+        if (onSelectTicker) onSelectTicker(l.etf);
+      }
+    }, l.etf, h("span", {
+      style: {
+        color: col,
+        marginLeft: 4
+      }
+    }, l.day_pct.toFixed(2) + "%"), h("span", {
+      style: {
+        color: "var(--tt-text-muted)",
+        marginLeft: 4
+      }
+    }, "lagging"));
+  }))), sectorWatch.map(function (grp) {
+    const reasonLabel = CI.formatSectorWatchReason ? CI.formatSectorWatchReason(grp.reason) : grp.reason;
+    return h("div", {
+      key: grp.etf || grp.sector,
+      className: "tt-dcc-spotlight-row"
+    }, h("span", {
+      className: "tt-dcc-row-title"
+    }, grp.label || (CI.sectorShort ? CI.sectorShort(grp.sector) + " leaders" : "Sector leaders"), h("span", {
+      className: "tt-dcc-row-title-sub"
+    }, reasonLabel, grp.sector_cycle ? " · sector HTF " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "", grp.cyclical_phase ? " · " + grp.cyclical_phase : "")), h("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        width: "100%"
+      }
+    }, (grp.tickers || []).map(renderWatchTicker)));
+  }), spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
+    className: "tt-dcc-spotlight-row"
+  }, h("span", {
+    className: "tt-dcc-row-title"
+  }, "Sector leaders", h("span", {
+    className: "tt-dcc-row-title-sub"
+  }, "each name's own HTF trend")), h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8,
+      width: "100%"
+    }
+  }, spotlights.map(renderWatchTicker))), transitions.length > 0 && h("div", {
+    className: "tt-dcc-shifts-row"
+  }, h("span", {
+    className: "tt-dcc-row-title"
+  }, "Recent cycle shifts", h("span", {
+    className: "tt-dcc-row-title-sub"
+  }, "since the last scoring refresh — potential trend-change alert")), h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8,
+      width: "100%"
+    }
+  }, transitions.map(function (tr, i) {
     return h("span", {
       key: tr.symbol + "-" + i,
       className: "tt-dcc-trans",
       title: "Cycle transition since last scoring refresh"
     }, CI.formatTransition ? CI.formatTransition(tr) : tr.symbol + " " + tr.from + " → " + tr.to);
   }))), h("div", {
+    className: "tt-dcc-row-title"
+  }, "Sector HTF trends", h("span", {
+    className: "tt-dcc-row-title-sub"
+  }, "each ETF's EMA-stack trend plus intraday % — sorted by strongest divergence first")), h("div", {
     className: "tt-strip-scroll",
     role: "list",
     "aria-label": "Sector cycle alignment"
@@ -6851,6 +6971,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783448745282:94730293
+// cache-bust:1783458503135:526671800
 
-// cache-bust:1783448745282:94730293
+// cache-bust:1783458503135:526671800
