@@ -5571,45 +5571,80 @@ export function computeTDSequentialMultiTF(candlesByTf, htfBull = true) {
  * @param {string} tf - Timeframe key ("D", "W", "M", "240", "60", "30", "10", "3")
  * @returns {Array} deduplicated candles, sorted ascending by ts
  */
+export function nyTradingDayKey(tsMs) {
+  const ms = Number(tsMs);
+  if (!Number.isFinite(ms)) return "";
+  return new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+export function nyWeekMondayKey(tsMs) {
+  const ms = Number(tsMs);
+  if (!Number.isFinite(ms)) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+  }).formatToParts(new Date(ms));
+  const wd = String(parts.find((p) => p.type === "weekday")?.value || "").slice(0, 3).toLowerCase();
+  const dayMap = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  const dow = dayMap[wd] ?? 0;
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  const mondayMs = ms + mondayOffset * 86400000;
+  return new Date(mondayMs).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+function _mergeOhlcCandle(prev, c) {
+  if (!prev) return { ...c };
+  const earliest = Number(prev.ts) <= Number(c.ts) ? prev : c;
+  const latest = Number(prev.ts) >= Number(c.ts) ? prev : c;
+  return {
+    ...latest,
+    o: Number(earliest.o),
+    h: Math.max(Number(prev.h), Number(c.h)),
+    l: Math.min(Number(prev.l), Number(c.l)),
+    c: Number(latest.c),
+    ts: Number(latest.ts),
+    v: latest.v ?? prev.v ?? null,
+  };
+}
+
 export function deduplicateCandles(candles, tf) {
   if (!candles || candles.length <= 1) return candles;
 
   const upperTf = String(tf).toUpperCase();
 
   if (upperTf === "D" || upperTf === "1D" || upperTf === "DAY") {
-    // Group by calendar date (UTC)
     const byDate = new Map();
     for (const c of candles) {
-      const d = new Date(c.ts);
-      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-      byDate.set(key, c); // last write wins (latest ts for that date)
+      const key = nyTradingDayKey(c.ts);
+      if (!key) continue;
+      byDate.set(key, _mergeOhlcCandle(byDate.get(key), c));
     }
     return [...byDate.values()].sort((a, b) => a.ts - b.ts);
   }
 
   if (upperTf === "W" || upperTf === "1W" || upperTf === "WEEK") {
-    // Group by ISO week (year + week number)
     const byWeek = new Map();
     for (const c of candles) {
-      const d = new Date(c.ts);
-      // ISO week: Thursday-based
-      const thu = new Date(d);
-      thu.setUTCDate(thu.getUTCDate() + 4 - (thu.getUTCDay() || 7));
-      const yearStart = new Date(Date.UTC(thu.getUTCFullYear(), 0, 1));
-      const weekNum = Math.ceil((((thu - yearStart) / 86400000) + 1) / 7);
-      const key = `${thu.getUTCFullYear()}-W${String(weekNum).padStart(2, "0")}`;
-      byWeek.set(key, c);
+      const key = nyWeekMondayKey(c.ts);
+      if (!key) continue;
+      byWeek.set(key, _mergeOhlcCandle(byWeek.get(key), c));
     }
     return [...byWeek.values()].sort((a, b) => a.ts - b.ts);
   }
 
   if (upperTf === "M" || upperTf === "1M" || upperTf === "MONTH") {
-    // Group by year-month
     const byMonth = new Map();
     for (const c of candles) {
-      const d = new Date(c.ts);
-      const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-      byMonth.set(key, c);
+      const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+      }).formatToParts(new Date(c.ts));
+      const y = parts.find((p) => p.type === "year")?.value;
+      const m = parts.find((p) => p.type === "month")?.value;
+      const key = y && m ? `${y}-${m}` : "";
+      if (!key) continue;
+      byMonth.set(key, _mergeOhlcCandle(byMonth.get(key), c));
     }
     return [...byMonth.values()].sort((a, b) => a.ts - b.ts);
   }

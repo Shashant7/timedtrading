@@ -393,6 +393,105 @@
       }
       return out;
     };
+    const nyEtDayKey = tsSec => new Date(tsSec * 1000).toLocaleDateString("en-CA", {
+      timeZone: "America/New_York"
+    });
+    const nyEtWeekMondayKey = tsSec => {
+      const ms = tsSec * 1000;
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/New_York",
+        weekday: "short"
+      }).formatToParts(new Date(ms));
+      const wd = String(parts.find(p => p.type === "weekday")?.value || "").slice(0, 3).toLowerCase();
+      const dayMap = {
+        sun: 0,
+        mon: 1,
+        tue: 2,
+        wed: 3,
+        thu: 4,
+        fri: 5,
+        sat: 6
+      };
+      const dow = dayMap[wd] ?? 0;
+      const mondayOffset = dow === 0 ? -6 : 1 - dow;
+      return new Date(ms + mondayOffset * 86400000).toLocaleDateString("en-CA", {
+        timeZone: "America/New_York"
+      });
+    };
+    const collapseLwHtfCandles = (bars, tf) => {
+      const tfStr = String(tf);
+      if (tfStr === "D") {
+        const byDay = new Map();
+        for (const b of bars) {
+          const key = nyEtDayKey(b.time);
+          const prev = byDay.get(key);
+          if (!prev) {
+            byDay.set(key, {
+              ...b,
+              time: key,
+              _tsSec: b.time
+            });
+          } else {
+            const earliest = prev._tsSec <= b.time ? prev : {
+              ...b,
+              _tsSec: b.time
+            };
+            const latest = prev._tsSec >= b.time ? prev : {
+              ...b,
+              _tsSec: b.time
+            };
+            byDay.set(key, {
+              time: key,
+              open: earliest.open,
+              high: Math.max(prev.high, b.high),
+              low: Math.min(prev.low, b.low),
+              close: latest.close,
+              _tsSec: latest._tsSec
+            });
+          }
+        }
+        return Array.from(byDay.values()).sort((a, b) => String(a.time).localeCompare(String(b.time))).map(({
+          _tsSec,
+          ...rest
+        }) => rest);
+      }
+      if (tfStr === "W") {
+        const byWeek = new Map();
+        for (const b of bars) {
+          const key = nyEtWeekMondayKey(b.time);
+          const prev = byWeek.get(key);
+          if (!prev) {
+            byWeek.set(key, {
+              ...b,
+              time: key,
+              _tsSec: b.time
+            });
+          } else {
+            const earliest = prev._tsSec <= b.time ? prev : {
+              ...b,
+              _tsSec: b.time
+            };
+            const latest = prev._tsSec >= b.time ? prev : {
+              ...b,
+              _tsSec: b.time
+            };
+            byWeek.set(key, {
+              time: key,
+              open: earliest.open,
+              high: Math.max(prev.high, b.high),
+              low: Math.min(prev.low, b.low),
+              close: latest.close,
+              _tsSec: latest._tsSec
+            });
+          }
+        }
+        return Array.from(byWeek.values()).sort((a, b) => String(a.time).localeCompare(String(b.time))).map(({
+          _tsSec,
+          ...rest
+        }) => rest);
+      }
+      return bars;
+    };
     const SIGNAL_LABELS = {
       ema_cross: "EMA cross",
       supertrend: "SuperTrend",
@@ -3660,6 +3759,9 @@
             close: cl
           };
         }).filter(Boolean).sort((a, b) => a.time - b.time).filter((c, i, arr) => i === arr.length - 1 || c.time !== arr[i + 1].time);
+        if (String(chartTf) === "D" || String(chartTf) === "W") {
+          raw = collapseLwHtfCandles(raw, chartTf);
+        }
         const livePx = Number(livePrice);
         if (isIntradayTf && Number.isFinite(livePx) && livePx > 0 && raw.length > 0) {
           const nowSec = Math.floor(Date.now() / 1000);
@@ -22054,4 +22156,4 @@
   };
 })();
 
-// cache-bust:1783370222459:533053837
+// cache-bust:1783391092315:579927140
