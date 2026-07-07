@@ -2679,6 +2679,98 @@ function MarketState({
     className: "tt-sec-title"
   }, "MARKET PULSE"), body);
 }
+function DailyCycleCompositePanel({
+  embedded,
+  onSelectTicker
+}) {
+  const [composite, setComposite] = useState(null);
+  const CI = window.TTCycleIntel || {};
+  useEffect(function () {
+    let alive = true;
+    const url = `${API_BASE}/timed/daily-cycle-composite`;
+    const load = window.TTFetchCache ? window.TTFetchCache.get(url, {
+      ttlMs: 5 * 60 * 1000,
+      maxAgeMs: 30 * 60 * 1000,
+      fetchOpts: {
+        credentials: "include"
+      }
+    }) : fetchJsonRetry(url);
+    Promise.resolve(load).then(function (j) {
+      if (alive && j && j.ok) setComposite(j);
+    }).catch(function () {});
+    return function () {
+      alive = false;
+    };
+  }, []);
+  if (!composite || !composite.sectors || composite.sectors.length === 0) return null;
+  const sectors = composite.sectors.slice().sort(function (a, b) {
+    const rank = {
+      divergent: 0,
+      mixed: 1,
+      aligned: 2,
+      fsd_only: 3,
+      computed_only: 4,
+      none: 5
+    };
+    return (rank[a.alignment] ?? 9) - (rank[b.alignment] ?? 9);
+  });
+  const body = h(React.Fragment, null, !embedded && h("div", {
+    className: "tt-sec-title"
+  }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
+    className: "tt-sec-h"
+  }, "Computed market cycle vs research-desk cycle reads"), h("div", {
+    className: "tt-dcc-banner"
+  }, h("span", {
+    className: "tt-dcc-breadth",
+    style: {
+      color: "var(--tt-accent)"
+    }
+  }, "Market: ", CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), composite.indices && composite.indices.SPY && h("span", {
+    style: {
+      fontSize: 11,
+      color: "var(--tt-text-muted)",
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, "SPY ", CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)), h("div", {
+    className: "tt-strip-scroll",
+    role: "list",
+    "aria-label": "Sector cycle alignment"
+  }, sectors.map(function (s) {
+    const etf = s.etf || "";
+    const alignCol = CI.alignmentColor ? CI.alignmentColor(s.alignment) : "var(--tt-text-muted)";
+    const label = CI.formatCycleChip ? CI.formatCycleChip(s.computed_cycle, s.alignment) : s.computed_cycle || "—";
+    const title = [s.sector, "ETF " + etf, "Cycle: " + (s.computed_cycle || "n/a"), s.fsd_phase ? "Desk phase: " + s.fsd_phase : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
+    return h("button", {
+      key: etf || s.sector,
+      type: "button",
+      className: "tt-strip-chip",
+      title: title,
+      onClick: function () {
+        if (etf && onSelectTicker) onSelectTicker(etf);
+      }
+    }, h("span", {
+      className: "tt-dcc-chip-dot",
+      style: {
+        background: alignCol
+      }
+    }), h("span", {
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        fontWeight: 700,
+        fontSize: 11
+      }
+    }, etf), h("span", {
+      style: {
+        fontSize: 11,
+        color: "var(--tt-text-muted)"
+      }
+    }, label));
+  })));
+  if (embedded) return body;
+  return h("section", {
+    className: "tt-row"
+  }, body);
+}
 function MarketPulseWithMovers({
   data,
   onSelectTicker
@@ -2693,6 +2785,11 @@ function MarketPulseWithMovers({
     data,
     onSelectTicker,
     embedded: true
+  }), h("div", {
+    className: "tt-mp-divider"
+  }), h(DailyCycleCompositePanel, {
+    embedded: true,
+    onSelectTicker
   }), h("div", {
     className: "tt-mp-divider"
   }), h(TopMovers, {
@@ -6674,6 +6771,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783431419318:844354980
+// cache-bust:1783446425840:517345257
 
-// cache-bust:1783431419318:844354980
+// cache-bust:1783446425840:517345257

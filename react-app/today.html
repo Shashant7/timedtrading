@@ -28,6 +28,7 @@
     <script src="tt-rail-bridge.js?v=20260528a" defer></script>
     <script src="tt-activity-strip.js?v=20260610-verda3" defer></script>
     <script src="shared-price-utils.js?v=20260623a"></script>
+    <script src="tt-cycle-intel.js?v=20260707a"></script>
     <script src="tt-sparkline-config.js?v=20260624a"></script>
     <script src="tt-pattern-detect.js?v=20260624a"></script>
     <script src="shared-lane-card.js?v=20260706-strip-v3"></script>
@@ -56,6 +57,18 @@
         color: var(--tt-text); white-space: nowrap; transition: background .12s, border-color .12s;
       }
       .tt-strip-chip:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.2); }
+      /* Daily Cycle Composite — market-wide sector cycle row */
+      .tt-dcc-banner {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+        padding: 10px 12px; margin-bottom: 10px; border-radius: 10px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+      }
+      .tt-dcc-breadth {
+        font-family: var(--tt-font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+      }
+      .tt-dcc-chip-dot {
+        width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+      }
       .tt-macro-chip--released { box-shadow: 0 0 0 1px rgba(56,242,161,0.35); animation: tt-macro-pulse 2.5s ease-in-out infinite; }
       @keyframes tt-macro-pulse { 0%,100% { box-shadow: 0 0 0 1px rgba(56,242,161,0.25); } 50% { box-shadow: 0 0 0 2px rgba(56,242,161,0.55); } }
       .tt-macro-overlay-backdrop {
@@ -4081,12 +4094,81 @@
         );
       }
 
+      function DailyCycleCompositePanel({ embedded, onSelectTicker }) {
+        const [composite, setComposite] = useState(null);
+        const CI = window.TTCycleIntel || {};
+
+        useEffect(function () {
+          let alive = true;
+          const url = `${API_BASE}/timed/daily-cycle-composite`;
+          const load = window.TTFetchCache
+            ? window.TTFetchCache.get(url, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000, fetchOpts: { credentials: "include" } })
+            : fetchJsonRetry(url);
+          Promise.resolve(load).then(function (j) {
+            if (alive && j && j.ok) setComposite(j);
+          }).catch(function () {});
+          return function () { alive = false; };
+        }, []);
+
+        if (!composite || !composite.sectors || composite.sectors.length === 0) return null;
+
+        const sectors = composite.sectors.slice().sort(function (a, b) {
+          const rank = { divergent: 0, mixed: 1, aligned: 2, fsd_only: 3, computed_only: 4, none: 5 };
+          return (rank[a.alignment] ?? 9) - (rank[b.alignment] ?? 9);
+        });
+
+        const body = h(React.Fragment, null,
+          !embedded && h("div", { className: "tt-sec-title" }, "DAILY CYCLE COMPOSITE"),
+          !embedded && h("div", { className: "tt-sec-h" }, "Computed market cycle vs research-desk cycle reads"),
+          h("div", { className: "tt-dcc-banner" },
+            h("span", { className: "tt-dcc-breadth", style: { color: "var(--tt-accent)" } },
+              "Market: ", CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle,
+            ),
+            composite.indices && composite.indices.SPY && h("span", { style: { fontSize: 11, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)" } },
+              "SPY ", CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle,
+            ),
+          ),
+          h("div", { className: "tt-strip-scroll", role: "list", "aria-label": "Sector cycle alignment" },
+            sectors.map(function (s) {
+              const etf = s.etf || "";
+              const alignCol = CI.alignmentColor ? CI.alignmentColor(s.alignment) : "var(--tt-text-muted)";
+              const label = CI.formatCycleChip
+                ? CI.formatCycleChip(s.computed_cycle, s.alignment)
+                : (s.computed_cycle || "—");
+              const title = [
+                s.sector,
+                "ETF " + etf,
+                "Cycle: " + (s.computed_cycle || "n/a"),
+                s.fsd_phase ? "Desk phase: " + s.fsd_phase : null,
+                "Alignment: " + (s.alignment || "n/a"),
+              ].filter(Boolean).join(" · ");
+              return h("button", {
+                key: etf || s.sector,
+                type: "button",
+                className: "tt-strip-chip",
+                title: title,
+                onClick: function () { if (etf && onSelectTicker) onSelectTicker(etf); },
+              },
+                h("span", { className: "tt-dcc-chip-dot", style: { background: alignCol } }),
+                h("span", { style: { fontFamily: "var(--tt-font-mono)", fontWeight: 700, fontSize: 11 } }, etf),
+                h("span", { style: { fontSize: 11, color: "var(--tt-text-muted)" } }, label),
+              );
+            }),
+          ),
+        );
+
+        if (embedded) return body;
+        return h("section", { className: "tt-row" }, body);
+      }
+
       function MarketPulseWithMovers({ data, onSelectTicker }) {
         if (!data) return h(MarketStateSkeleton);
         const universe = new Set(Object.keys(data).map((s) => String(s).toUpperCase()));
         return h("section", { className: "tt-row" },
           h("div", { className: "tt-card tt-card-pad tt-mp-panel" },
             h(MarketState, { data, onSelectTicker, embedded: true }),
+            h("div", { className: "tt-mp-divider" }),
+            h(DailyCycleCompositePanel, { embedded: true, onSelectTicker }),
             h("div", { className: "tt-mp-divider" }),
             h(TopMovers, { data, onSelectTicker, universe, embedded: true }),
           ),

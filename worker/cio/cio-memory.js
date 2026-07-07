@@ -815,6 +815,24 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     // FSD intel enrichment is best-effort — never break CIO memory.
   }
 
+  // TT Intel — level-conditioned mode + home-index cycle (stamped on ticker during scoring).
+  try {
+    const modes = tickerData?._fsd_level_modes;
+    const cycle = tickerData?._monthly_cycle;
+    if (modes || cycle) {
+      mem.tt_intel = {
+        cycle: cycle || null,
+        cycle_index: tickerData?._cycle_index || null,
+        level_mode: modes?.active_mode || null,
+        guard_bundle: modes?.active_rule?.recommend?.guard_bundle || null,
+        levels: Array.isArray(modes?.fsd_levels)
+          ? modes.fsd_levels.slice(0, 4).map((l) => ({ kind: l.kind, price: l.price }))
+          : [],
+        note: "TT Intel — research-desk levels and active level mode. Reference in reasoning when price is near a desk level or mode is defensive/aggressive.",
+      };
+    }
+  } catch (_) {}
+
   // ── Layer 15b-overlay: live desk tactical overlay headline (2026-06-04) ──
   // Even when no per-ticker tactical signal matches, surface the one-line
   // FSD-derived overlay that is currently live so the CIO always knows the

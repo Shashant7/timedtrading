@@ -4077,6 +4077,36 @@
           return () => { cancelled = true; };
         }, [tickerSymbol, API_BASE]);
 
+        // TT Intel — canonical scenario (FSD levels + level modes) + per-ticker cycle composite.
+        const [ttIntelScenario, setTtIntelScenario] = useState(null);
+        const [cycleComposite, setCycleComposite] = useState(null);
+        useEffect(() => {
+          const sym = String(tickerSymbol || "").trim().toUpperCase();
+          if (!sym) {
+            setTtIntelScenario(null);
+            setCycleComposite(null);
+            return;
+          }
+          let cancelled = false;
+          (async () => {
+            try {
+              const [scJson, ccJson] = await Promise.all([
+                _cachedJson(`${API_BASE}/timed/ticker-scenario?ticker=${encodeURIComponent(sym)}`, { ttlMs: 60000, maxAgeMs: 5 * 60 * 1000 }),
+                _cachedJson(`${API_BASE}/timed/daily-cycle-composite?ticker=${encodeURIComponent(sym)}`, { ttlMs: 5 * 60 * 1000, maxAgeMs: 30 * 60 * 1000 }),
+              ]);
+              if (cancelled) return;
+              setTtIntelScenario(scJson?.ok ? scJson : null);
+              setCycleComposite(ccJson?.ok ? ccJson : null);
+            } catch (_) {
+              if (!cancelled) {
+                setTtIntelScenario(null);
+                setCycleComposite(null);
+              }
+            }
+          })();
+          return () => { cancelled = true; };
+        }, [tickerSymbol, API_BASE]);
+
         // Phase D — cross-lane verdict guide (trader + investor reconcile).
         useEffect(() => {
           const sym = String(tickerSymbol || "").trim().toUpperCase();
@@ -4187,6 +4217,20 @@
                   whiteSpace: "pre-wrap",
                 }}>
                   {cioVerdict.reasoning}
+                </div>
+              )}
+              {(ttIntelScenario?.level_modes?.active_mode || cycleComposite?.ticker_view?.alignment) && (
+                <div style={{ marginTop: "var(--ds-space-2)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
+                  <span style={{ fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--ds-accent)", fontWeight: 700 }}>TT Intel context · </span>
+                  {cycleComposite?.ticker_view?.computed?.cycle && (
+                    <span>Cycle {String(cycleComposite.ticker_view.computed.cycle)}</span>
+                  )}
+                  {cycleComposite?.ticker_view?.alignment && (
+                    <span>{cycleComposite?.ticker_view?.computed?.cycle ? " · " : ""}{String(cycleComposite.ticker_view.alignment).replace(/_/g, " ")}</span>
+                  )}
+                  {ttIntelScenario?.level_modes?.active_mode && (
+                    <span>{(cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle) ? " · " : ""}Level mode {String(ttIntelScenario.level_modes.active_mode)}</span>
+                  )}
                 </div>
               )}
               {Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && (
@@ -10114,6 +10158,49 @@
                                 lineHeight: 1.5,
                               }}>{biasLine}</p>
                             )}
+                            {(cycleComposite?.ticker_view || ttIntelScenario?.level_modes) && (() => {
+                              const tv = cycleComposite?.ticker_view || null;
+                              const modes = ttIntelScenario?.level_modes || null;
+                              const CI = window.TTCycleIntel || {};
+                              const cycleTxt = tv?.computed?.cycle
+                                ? (CI.cycleLabel ? CI.cycleLabel(tv.computed.cycle) : tv.computed.cycle)
+                                : null;
+                              const alignTxt = tv?.alignment ? String(tv.alignment).replace(/_/g, " ") : null;
+                              const modeTxt = modes?.active_mode
+                                ? (CI.modeLabel ? CI.modeLabel(modes.active_mode) : modes.active_mode)
+                                : null;
+                              const guard = modes?.active_rule?.recommend?.guard_bundle || ttIntelScenario?.runtime_policy_overlay?.recommend?.guard_bundle;
+                              if (!cycleTxt && !modeTxt) return null;
+                              return (
+                                <div style={{
+                                  marginBottom: "var(--ds-space-3)",
+                                  padding: "8px 10px",
+                                  borderRadius: "var(--ds-radius-xs)",
+                                  background: "rgba(96,165,250,0.08)",
+                                  border: "1px solid rgba(96,165,250,0.22)",
+                                }}>
+                                  <div style={{ fontSize: 9, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--ds-accent)", fontWeight: 700, marginBottom: 4 }}>
+                                    TT Intel
+                                  </div>
+                                  <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-body)", lineHeight: 1.55 }}>
+                                    {cycleTxt && (
+                                      <span>
+                                        Cycle: <strong>{cycleTxt}</strong>
+                                        {tv?.computed?.index ? ` (${tv.computed.index})` : ""}
+                                        {alignTxt ? ` · ${alignTxt}` : ""}
+                                        {tv?.fsd_phase ? ` · desk ${tv.fsd_phase}` : ""}
+                                      </span>
+                                    )}
+                                    {modeTxt && (
+                                      <div style={{ marginTop: 4, color: "var(--ds-text-muted)" }}>
+                                        Level mode: <strong style={{ color: "var(--ds-text-body)" }}>{modeTxt}</strong>
+                                        {guard ? ` · ${String(guard).replace(/_/g, " ")}` : ""}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                             {predictionContract?.thesis && (
                               <p style={{ fontSize: "var(--ds-fs-body)", color: "var(--ds-text-body)", lineHeight: "var(--tt-lh-relaxed)", margin: 0 }}>{predictionContract.thesis}</p>
                             )}
@@ -11601,6 +11688,41 @@
                               <div style={{ padding: "0 4px 6px", fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", lineHeight: 1.5, fontStyle: "italic" }}>
                                 Structural S/R from candles + recent tape — supplements the Trade Plan above.
                               </div>
+                              {Array.isArray(ttIntelScenario?.fsd_levels) && ttIntelScenario.fsd_levels.length > 0 && (
+                                <div style={{ padding: "6px 8px 8px", marginBottom: 4, borderRadius: "var(--ds-radius-xs)", background: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)" }}>
+                                  <div style={{ fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--ds-accent)", fontWeight: 700, marginBottom: 6 }}>
+                                    TT Intel levels
+                                  </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    {ttIntelScenario.fsd_levels.slice(0, 4).map((lv, i) => {
+                                      const dist = px > 0 ? ((Number(lv.price) - px) / px) * 100 : 0;
+                                      return (
+                                        <div key={`tt-intel-${i}-${lv.price}`} style={{
+                                          display: "grid",
+                                          gridTemplateColumns: "32px 1fr 64px 44px",
+                                          gap: "var(--ds-space-2)",
+                                          alignItems: "center",
+                                          padding: "4px 6px",
+                                          borderRadius: "var(--ds-radius-xs)",
+                                          background: "rgba(255,255,255,0.02)",
+                                          borderLeft: "3px solid var(--ds-accent)",
+                                        }}>
+                                          <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, color: "var(--ds-accent)", textAlign: "center" }}>TI</span>
+                                          <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>
+                                            {String(lv.kind || "level").toUpperCase()}{lv.note ? ` · ${String(lv.note).slice(0, 40)}` : ""}
+                                          </span>
+                                          <span style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-display)", fontFamily: "var(--tt-font-mono)", fontWeight: 700, textAlign: "right" }}>
+                                            ${Number(lv.price).toFixed(2)}
+                                          </span>
+                                          <span style={{ fontSize: 9, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", textAlign: "right" }}>
+                                            {dist >= 0 ? "+" : ""}{dist.toFixed(2)}%
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                               {resistance.length > 0 && (
                                 <div style={{ padding: "4px 8px 2px", display: "flex", alignItems: "baseline", gap: "var(--ds-space-2)" }}>
                                   <span style={{ fontSize: 9, fontFamily: "var(--tt-font-mono)", fontWeight: 700, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--ds-dn)" }}>{aboveLabel}</span>
@@ -13405,7 +13527,7 @@
                           const _fsdPendingRewrite = C.fsd_intel.publications.some((p) => !p.tt_summary_body);
                           return (
                             <Panel
-                              title="📡 Intel"
+                              title="TT Intel"
                               action={
                                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                                   <button
@@ -13462,6 +13584,19 @@
                                   </span>
                                 )}
                               </div>
+                              {(cycleComposite?.ticker_view || ttIntelScenario?.level_modes) && (
+                                <div style={{ fontSize: 11, color: "var(--ds-text-muted)", marginBottom: 8, lineHeight: 1.5 }}>
+                                  {cycleComposite?.ticker_view?.computed?.cycle && (
+                                    <span>Cycle {String(cycleComposite.ticker_view.computed.cycle)}</span>
+                                  )}
+                                  {cycleComposite?.ticker_view?.alignment && (
+                                    <span>{cycleComposite?.ticker_view?.computed?.cycle ? " · " : ""}{String(cycleComposite.ticker_view.alignment).replace(/_/g, " ")}</span>
+                                  )}
+                                  {ttIntelScenario?.level_modes?.active_mode && (
+                                    <span>{(cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle) ? " · " : ""}Level mode {String(ttIntelScenario.level_modes.active_mode)}</span>
+                                  )}
+                                </div>
+                              )}
                               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                                 {C.fsd_intel.publications.slice(0, 4).map((p, i) => {
                                   const isFlash = String(p.pub_id || "").includes("fsi-alert") ||

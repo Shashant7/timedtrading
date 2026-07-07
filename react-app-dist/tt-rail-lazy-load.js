@@ -15,6 +15,7 @@
     "/vendor/lightweight-charts.standalone.production.js?v=vendor",
     "shared-rail-helpers.js" + _bust,
     "shared-verdict-ui.js" + _bust,
+    "tt-cycle-intel.js" + _bust,
     "shared-right-rail.compiled.js" + _bust,
     "ticker-spider-chart.js" + _bust,
     "shared-rail-bootstrap.js" + _bust,
@@ -52,4 +53,4 @@
   };
 })();
 
-// cache-bust:1783431419318:844354980
+// cache-bust:1783446425840:517345257

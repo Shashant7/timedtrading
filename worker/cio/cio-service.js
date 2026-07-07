@@ -373,6 +373,29 @@ function condenseMovePhase(tickerData) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** TT Intel — FSD level overlay + per-ticker cycle context stamped during scoring. */
+function condenseTtIntel(tickerData) {
+  const modes = tickerData?._fsd_level_modes;
+  const cycle = tickerData?._monthly_cycle;
+  const cycleIndex = tickerData?._cycle_index;
+  if (!modes && !cycle) return null;
+  const levels = Array.isArray(modes?.fsd_levels)
+    ? modes.fsd_levels.slice(0, 4).map((l) => ({
+        kind: l.kind,
+        price: l.price,
+        note: l.note ? String(l.note).slice(0, 80) : null,
+      }))
+    : [];
+  return {
+    cycle: cycle || null,
+    cycle_index: cycleIndex || null,
+    level_mode: modes?.active_mode || null,
+    guard_bundle: modes?.active_rule?.recommend?.guard_bundle || null,
+    levels,
+    note: "TT Intel — research-desk levels and level-conditioned mode. Mention when it supports or conflicts with the proposal.",
+  };
+}
+
 // ── Proposal Builders ──────────────────────────────────────────────────────
 
 /**
@@ -407,6 +430,7 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
   const movePhase = condenseMovePhase(tickerData);
   const sizingOverrides = condenseSizingOverrides(tickerData, sizingMeta);
   const openBook = condenseOpenBook(sym, direction, allTrades);
+  const ttIntel = condenseTtIntel(tickerData);
   return {
     ticker: sym,
     direction,
@@ -428,6 +452,7 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
     ...(movePhase && { move_phase: movePhase }),
     ...(sizingOverrides && { sizing_overrides: sizingOverrides }),
     ...(openBook && { open_book: openBook }),
+    ...(ttIntel && { tt_intel: ttIntel }),
     state: tickerData?.state,
     ticker_profile: {
       type: _tp.profileKey,
@@ -541,6 +566,7 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
   const divergence = condenseDivergence(tickerData, dir);
   const orbFull = condenseOrb(tickerData, dir);
   const movePhase = condenseMovePhase(tickerData);
+  const ttIntel = condenseTtIntel(tickerData);
 
   // 2026-06-10 — Reversal/timing context (closes gap #5 of
   // tasks/2026-06-10-reversal-trim-plan.md). The lifecycle CIO previously
@@ -633,6 +659,7 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
     ...(movePhase && { move_phase: movePhase }),
     ...(timingOverlay && { timing_overlay: timingOverlay }),
     ...(reversalAdvisory && { reversal_trim_advisory: reversalAdvisory }),
+    ...(ttIntel && { tt_intel: ttIntel }),
   };
 }
 
