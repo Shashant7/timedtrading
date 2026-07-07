@@ -7,7 +7,8 @@ import {
   getIndexTickerProfile,
   INDEX_TICKER_PROFILES,
 } from "./index-etf-model.js";
-import { checkSetupDemotion } from "./setup-demotion.js";
+import { checkSetupDemotion, demotionProposalConfigKey } from "./setup-demotion.js";
+import { shouldRejectAthBreakoutOpeningNoise } from "./tt-core-entry.js";
 import { checkEarningsClusterEntryBlock } from "./earnings-cluster-gate.js";
 import { getEtfProfile, isEtfRideRunnerMode } from "../etf-profile.js";
 
@@ -73,6 +74,39 @@ describe("setup-demotion index-only", () => {
     };
     expect(checkSetupDemotion("tt_n_test_support", "LONG", daCfg, "NVDA").blocked).toBe(false);
     expect(checkSetupDemotion("tt_n_test_support", "LONG", daCfg, "IWM").blocked).toBe(true);
+  });
+
+  it("demotionProposalConfigKey canonicalizes display, path, and mangled names", () => {
+    const canonical = "deep_audit_setup_demotion_TT ATH Breakout_long";
+    expect(demotionProposalConfigKey("TT ATH Breakout", "LONG")).toBe(canonical);
+    expect(demotionProposalConfigKey("tt_ath_breakout", "LONG")).toBe(canonical);
+    // Edge-scorecard mangled form observed in production model_config.
+    expect(demotionProposalConfigKey("TT Tt Ath Breakout", "LONG")).toBe(canonical);
+  });
+});
+
+describe("ath-breakout opening-noise gate (XLI churn fix)", () => {
+  it("rejects during the opening-noise window (XLI entered 9:31/9:33 ET)", () => {
+    expect(shouldRejectAthBreakoutOpeningNoise({}, { hour: 9, minute: 31 })).toBe(true);
+    expect(shouldRejectAthBreakoutOpeningNoise({}, { hour: 9, minute: 33 })).toBe(true);
+    expect(shouldRejectAthBreakoutOpeningNoise({}, { hour: 9, minute: 44 })).toBe(true);
+  });
+
+  it("allows once the tape settles", () => {
+    expect(shouldRejectAthBreakoutOpeningNoise({}, { hour: 9, minute: 45 })).toBe(false);
+    expect(shouldRejectAthBreakoutOpeningNoise({}, { hour: 10, minute: 5 })).toBe(false);
+    expect(shouldRejectAthBreakoutOpeningNoise({}, { hour: 14, minute: 0 })).toBe(false);
+  });
+
+  it("respects the config kill switch and custom end minute", () => {
+    expect(shouldRejectAthBreakoutOpeningNoise(
+      { deep_audit_ath_breakout_opening_noise_enabled: "false" },
+      { hour: 9, minute: 31 },
+    )).toBe(false);
+    expect(shouldRejectAthBreakoutOpeningNoise(
+      { deep_audit_ripster_opening_noise_end_minute: 35 },
+      { hour: 9, minute: 36 },
+    )).toBe(false);
   });
 });
 

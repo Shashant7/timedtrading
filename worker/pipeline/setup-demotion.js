@@ -29,6 +29,28 @@ export function setupDemotionConfigKey(path, direction) {
   return `deep_audit_setup_demotion_${display}_${dir}`;
 }
 
+/**
+ * Canonical demotion key from a scorecard candidate whose `setup` may be a
+ * display name ("TT ATH Breakout"), a path key ("tt_ath_breakout"), or a
+ * mangled display ("TT Tt Ath Breakout"). Edge-scorecard proposals used the
+ * raw string, so applied proposals landed under keys checkSetupDemotion()
+ * never reads — the ATH-breakout demotion marker sat inert in model_config.
+ */
+export function demotionProposalConfigKey(setup, direction) {
+  const raw = String(setup || "").trim();
+  const dir = String(direction || "").toLowerCase().trim();
+  if (!raw || !dir) return null;
+  // Path key form.
+  if (/^tt_[a-z0-9_]+$/.test(raw)) return setupDemotionConfigKey(raw, dir);
+  // Display-name form (case/spacing tolerant, tolerates duplicated TT prefix).
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/^(tt )+/, "tt ").trim();
+  const target = norm(raw);
+  for (const [path, display] of Object.entries(SETUP_DEMOTION_NAME_MAP)) {
+    if (norm(display) === target) return setupDemotionConfigKey(path, dir);
+  }
+  return `deep_audit_setup_demotion_${raw}_${dir}`;
+}
+
 export function parseEnforceDemotionPaths(raw) {
   return new Set(
     String(raw || "")
