@@ -86,9 +86,32 @@
   function formatSpotlightLabel(sp) {
     if (!sp) return "—";
     const c = cycleLabel(sp.computed_cycle);
+    const cyclical = sp.cyclical_phase ? ` · ${sp.cyclical_phase}` : "";
     const desk = sp.fsd_phase ? ` · desk ${sp.fsd_phase}` : "";
     const src = sp.cycle_source === "own_regime" ? "" : (sp.home_index ? ` · via ${sp.home_index}` : "");
-    return `${c}${desk}${src}`;
+    return `${c}${cyclical}${desk}${src}`;
+  }
+
+  function formatRotationState(state) {
+    const map = {
+      risk_on: "Risk-on rotation",
+      risk_off: "Risk-off rotation",
+      balanced: "Balanced rotation",
+      unknown: "Rotation n/a",
+    };
+    return map[String(state || "").toLowerCase()] || state || "—";
+  }
+
+  function formatSectorWatchReason(reason) {
+    const map = {
+      cycle_shift: "cycle just shifted",
+      vs_market: "vs market breadth",
+      desk_divergence: "desk diverges",
+      pinned: "desk focus",
+      rotation: "rotation watch",
+      own_regime: "own regime",
+    };
+    return map[String(reason || "").toLowerCase()] || reason || "";
   }
 
   function formatCycleChip(cycle, alignment, opts) {
@@ -115,7 +138,9 @@
     formatIndexMix,
     formatTransition,
     formatSpotlightLabel,
+    formatRotationState,
+    formatSectorWatchReason,
   };
 })();
 
-// cache-bust:1783452858340:950645210
+// cache-bust:1783458503135:526671800

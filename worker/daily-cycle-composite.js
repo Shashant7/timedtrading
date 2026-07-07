@@ -19,8 +19,155 @@ import { SECTOR_ETF_MAP, getSector } from "./sector-mapping.js";
 export const DAILY_CYCLE_KV_KEY = "timed:daily_cycle_composite";
 export const DAILY_CYCLE_PREV_KV_KEY = "timed:daily_cycle_composite:prev";
 export const DAILY_CYCLE_KV_TTL_SEC = 300;
-/** Semis / AI names the desk tracks for Daily Cycle Composite inflection. */
+/** Legacy pinned names — still surfaced when IT/semi cycle is stressed. */
 export const CYCLE_SPOTLIGHT_TICKERS = ["SMH", "NVDA"];
+
+const CARTER_OFFENSE_ETFS = ["XLK", "XLY", "XLI"];
+const CARTER_DEFENSE_ETFS = ["XLU", "XLP", "XLV"];
+
+/** Representative industry leaders per GICS sector for dynamic watch rows. */
+export const SECTOR_WATCH_CONFIG = {
+  "Information Technology": { industryEtf: "SMH", leaders: ["NVDA", "AMD", "AVGO"] },
+  "Financials": { leaders: ["JPM", "GS", "BAC"] },
+  "Energy": { leaders: ["XOM", "CVX", "SLB"] },
+  "Industrials": { leaders: ["CAT", "GE", "RTX"] },
+  "Health Care": { leaders: ["LLY", "UNH", "ABBV"] },
+  Healthcare: { leaders: ["LLY", "UNH", "ABBV"] },
+  "Consumer Discretionary": { leaders: ["AMZN", "TSLA", "HD"] },
+  "Communication Services": { leaders: ["META", "GOOGL", "NFLX"] },
+  "Consumer Staples": { leaders: ["WMT", "COST", "PG"] },
+  "Utilities": { leaders: ["NEE", "DUK"] },
+  "Real Estate": { leaders: ["PLD", "AMT"] },
+  "Basic Materials": { leaders: ["LIN", "FCX", "NEM"] },
+};
+
+function pctFromSnapshot(d = {}) {
+  for (const key of ["day_change_pct", "change_pct", "dp", "percent_change"]) {
+    const n = Number(d[key]);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/** Human label for a sector watch row — IT keeps the Semis / AI desk name. */
+export function sectorWatchLabel(sector, config = {}) {
+  if (sector === "Information Technology" && config.industryEtf) return "Semis / AI leaders";
+  const name = String(sector || "")
+    .replace(/^Basic /, "")
+    .replace(/ Sector$/i, "");
+  return `${name} leaders`;
+}
+
+/** Coarse cyclical phase from Saty phase % + phase zone (quarter/year style). */
+export function inferCyclicalPhaseLabel(satyPhasePct, phaseZone) {
+  const zone = String(phaseZone || "").toLowerCase();
+  if (zone === "accumulation") return "early cycle";
+  if (zone === "markup") return "mid cycle";
+  if (zone === "distribution") return "late cycle / peak";
+  if (zone === "markdown") return "down cycle";
+  if (zone === "recovery") return "recovery";
+  const raw = Number(satyPhasePct);
+  if (!Number.isFinite(raw)) return null;
+  const pct = raw <= 1 ? raw * 100 : raw;
+  if (pct < 25) return "early cycle";
+  if (pct < 50) return "mid cycle";
+  if (pct < 75) return "late cycle";
+  return "peak zone";
+}
+
+/** Score how much a sector deserves a dedicated leaders row. */
+export function scoreSectorForWatch(sectorRow, breadthCycle) {
+  let score = 0;
+  const reasons = [];
+  const c = sectorRow?.computed_cycle;
+  const b = breadthCycle;
+  if (c && b && c !== b) {
+    score += 3;
+    reasons.push("vs_market");
+  }
+  if (sectorRow?.alignment === "divergent") {
+    score += 2;
+    reasons.push("desk_divergence");
+  }
+  if ((c === "downtrend" && b === "uptrend") || (c === "uptrend" && b === "downtrend")) {
+    score += 2;
+    if (!reasons.includes("vs_market")) reasons.push("vs_market");
+  }
+  if (sectorRow?.own_cycle && sectorRow?.home_index_cycle && sectorRow.own_cycle !== sectorRow.home_index_cycle) {
+    score += 1;
+    reasons.push("own_regime");
+  }
+  return { score, reason: reasons[0] || "rotation" };
+}
+
+/** Pick up to N sector watch groups — shifts, vs-market divergence, desk mismatch. */
+export function selectSectorWatchGroups(sectors, breadthCycle, transitionEtfs = new Set(), opts = {}) {
+  const maxGroups = opts.maxGroups || 3;
+  const minScore = opts.minScore || 2;
+  const scored = (sectors || []).map((s) => {
+    const { score, reason } = scoreSectorForWatch(s, breadthCycle);
+    let finalScore = score;
+    let finalReason = reason;
+    if (transitionEtfs.has(s.etf)) {
+      finalScore += 4;
+      finalReason = "cycle_shift";
+    }
+    if (s.sector === "Information Technology" && s.computed_cycle === "downtrend") {
+      finalScore += 2;
+      if (finalReason === "rotation") finalReason = "pinned";
+    }
+    return { sectorRow: s, score: finalScore, reason: finalReason };
+  }).filter((x) => x.score >= minScore || x.reason === "cycle_shift");
+
+  scored.sort((a, b) => b.score - a.score);
+  const picked = scored.slice(0, maxGroups);
+
+  if (picked.length === 0) {
+    const it = (sectors || []).find((s) => s.sector === "Information Technology" || s.etf === "XLK");
+    if (it) picked.push({ sectorRow: it, score: 1, reason: "pinned" });
+  }
+  return picked;
+}
+
+/** Intraday sector rotation snapshot from the 11 GICS sector ETFs. */
+export function buildSectorRotationSnapshot(sectors = []) {
+  const rows = (sectors || [])
+    .map((s) => ({
+      etf: s.etf,
+      sector: s.sector,
+      day_pct: s.day_change_pct,
+      computed_cycle: s.computed_cycle,
+    }))
+    .filter((s) => s.etf && Number.isFinite(s.day_pct));
+  rows.sort((a, b) => b.day_pct - a.day_pct);
+  const gainers = rows.slice(0, 2);
+  const losers = rows.slice(-2).reverse();
+
+  const byEtf = Object.fromEntries(rows.map((r) => [r.etf, r]));
+  const offenseVals = CARTER_OFFENSE_ETFS.map((e) => byEtf[e]?.day_pct).filter((n) => Number.isFinite(n));
+  const defenseVals = CARTER_DEFENSE_ETFS.map((e) => byEtf[e]?.day_pct).filter((n) => Number.isFinite(n));
+  const avg = (arr) => (arr.length ? arr.reduce((s, n) => s + n, 0) / arr.length : null);
+  const offenseAvg = avg(offenseVals);
+  const defenseAvg = avg(defenseVals);
+
+  let state = "unknown";
+  if (Number.isFinite(offenseAvg) && Number.isFinite(defenseAvg)) {
+    const spread = offenseAvg - defenseAvg;
+    if (spread >= 0.25) state = "risk_on";
+    else if (spread <= -0.25) state = "risk_off";
+    else state = "balanced";
+  }
+
+  return {
+    state,
+    offense_avg_pct: offenseAvg,
+    defense_avg_pct: defenseAvg,
+    offense_etfs: CARTER_OFFENSE_ETFS,
+    defense_etfs: CARTER_DEFENSE_ETFS,
+    gainers,
+    losers,
+  };
+}
 
 const CYCLE_TEXT_PATTERNS = [
   { re: /daily\s+cycle\s+composite/gi, kind: "daily_cycle_composite" },
@@ -133,6 +280,8 @@ async function loadIndexRegimes(env, extraSymbols = []) {
           htf_score: d.htf_score ?? null,
           regime_class: d.regime_class || null,
           saty_phase_pct: d.saty_phase_pct ?? d.phase_pct ?? null,
+          phase_zone: d.phase_zone ?? null,
+          day_change_pct: pctFromSnapshot(d),
         };
       }
     } catch (_) {}
@@ -257,6 +406,12 @@ export function detectCycleTransitions(prev, built) {
     const p = prevSpot[s.symbol];
     if (p) push("spotlight", s.symbol, p.computed_cycle, s.computed_cycle);
   });
+  for (const grp of built.sector_watch || []) {
+    for (const t of grp.tickers || []) {
+      const p = prevSpot[t.symbol];
+      if (p) push("leader", t.symbol, p.computed_cycle, t.computed_cycle);
+    }
+  }
   return out;
 }
 
@@ -317,6 +472,7 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     const resolved = resolveComputedCycle(etf, regimesByIndex, tickerIndexMap, cyclesByIndex, breadthCycle);
     const sectorFsd = fsdRefs.bySector[sector] || [];
     const fsdPhase = sectorFsd.length ? inferFsdCyclePhase(sectorFsd.flatMap((e) => e.refs)) : null;
+    const etfReg = regimesByIndex[etf] || {};
     sectors.push({
       sector,
       etf,
@@ -326,6 +482,8 @@ export async function buildDailyCycleComposite(env, opts = {}) {
       home_index: resolved.home_index,
       home_index_cycle: resolved.home_index_cycle,
       saty_phase_pct: resolved.saty_phase_pct,
+      cyclical_phase: inferCyclicalPhaseLabel(resolved.saty_phase_pct, etfReg.phase_zone),
+      day_change_pct: etfReg.day_change_pct ?? null,
       ema_regime_daily: resolved.ema_regime_daily,
       htf_score: resolved.htf_score,
       fsd_refs: sectorFsd,
@@ -334,8 +492,25 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     });
   }
 
+  const sectorRotation = buildSectorRotationSnapshot(sectors);
+  const transitionEtfs = new Set(
+    (opts.transitionEtfs || []).map((e) => String(e).toUpperCase()),
+  );
+  if (Array.isArray(opts.prevSectors)) {
+    const prevMap = Object.fromEntries(
+      opts.prevSectors.filter((s) => s?.etf).map((s) => [String(s.etf).toUpperCase(), s.computed_cycle]),
+    );
+    for (const s of sectors) {
+      const etf = String(s.etf || "").toUpperCase();
+      const prevCycle = prevMap[etf];
+      if (prevCycle && prevCycle !== s.computed_cycle) transitionEtfs.add(etf);
+    }
+  }
+  const watchPicks = selectSectorWatchGroups(sectors, breadthCycle, transitionEtfs, opts);
+  const sectorWatch = [];
   const spotlights = [];
-  for (const sym of CYCLE_SPOTLIGHT_TICKERS) {
+
+  async function pushWatchTicker(sym, role, groupTickers) {
     const resolved = resolveComputedCycle(sym, regimesByIndex, tickerIndexMap, cyclesByIndex, breadthCycle);
     const fsdEntries = fsdRefs.byTicker[sym] || [];
     const fsdPhase = fsdEntries.length ? inferFsdCyclePhase(fsdEntries.flatMap((e) => e.refs)) : null;
@@ -343,17 +518,50 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     try {
       snap = await kvGetJSON(env?.KV_TIMED, `timed:latest:${sym}`);
     } catch (_) {}
-    spotlights.push({
+    const saty = resolved.saty_phase_pct ?? snap?.saty_phase_pct ?? snap?.phase_pct ?? null;
+    const entry = {
       symbol: sym,
-      label: sym === "SMH" ? "Semis ETF" : "NVDA",
+      role,
       computed_cycle: resolved.computed_cycle,
       own_cycle: resolved.own_cycle,
       cycle_source: resolved.cycle_source,
       home_index: resolved.home_index,
-      saty_phase_pct: resolved.saty_phase_pct ?? snap?.saty_phase_pct ?? snap?.phase_pct ?? null,
+      saty_phase_pct: saty,
+      phase_zone: snap?.phase_zone ?? null,
+      cyclical_phase: inferCyclicalPhaseLabel(saty, snap?.phase_zone),
       fsd_phase: fsdPhase,
       fsd_refs: fsdEntries.slice(0, 2),
       alignment: cycleAlignment(resolved.computed_cycle, fsdPhase),
+    };
+    groupTickers.push(entry);
+    spotlights.push({ ...entry, label: sym });
+  }
+
+  for (const pick of watchPicks) {
+    const row = pick.sectorRow;
+    const cfg = SECTOR_WATCH_CONFIG[row.sector] || SECTOR_WATCH_CONFIG[row.sector?.replace(/healthcare/i, "Health Care")] || {};
+    const tickers = [];
+    const symbols = [];
+    if (cfg.industryEtf) symbols.push(cfg.industryEtf);
+    symbols.push(row.etf);
+    for (const leader of (cfg.leaders || []).slice(0, 2)) symbols.push(leader);
+    const seen = new Set();
+    for (const sym of symbols) {
+      const s = String(sym || "").toUpperCase();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      const role = s === cfg.industryEtf ? "industry_etf" : (s === row.etf ? "sector_etf" : "leader");
+      await pushWatchTicker(s, role, tickers);
+    }
+    sectorWatch.push({
+      sector: row.sector,
+      etf: row.etf,
+      label: sectorWatchLabel(row.sector, cfg),
+      reason: pick.reason,
+      sector_cycle: row.computed_cycle,
+      cyclical_phase: row.cyclical_phase,
+      alignment: row.alignment,
+      tickers,
     });
   }
 
@@ -394,9 +602,11 @@ export async function buildDailyCycleComposite(env, opts = {}) {
     index_mix: indexMix,
     indices,
     sectors,
+    sector_watch: sectorWatch,
+    sector_rotation: sectorRotation,
     spotlights,
     tickers,
-    source: "daily-cycle-composite.v2",
+    source: "daily-cycle-composite.v3",
   };
 }
 
@@ -424,9 +634,15 @@ export async function getDailyCycleComposite(env, opts = {}) {
     } catch (_) {}
   }
 
+  let prevForTransitions = null;
+  if (KV) {
+    try { prevForTransitions = await kvGetJSON(KV, DAILY_CYCLE_PREV_KV_KEY); } catch (_) {}
+  }
+
   const built = await buildDailyCycleComposite(env, {
     ...opts,
     getSectorForTicker: opts.getSectorForTicker || getSector,
+    prevSectors: prevForTransitions?.sectors || null,
   });
 
   if (opts.ticker) {
@@ -444,7 +660,7 @@ export async function getDailyCycleComposite(env, opts = {}) {
 
   if (KV) {
     try {
-      const prev = await kvGetJSON(KV, DAILY_CYCLE_PREV_KV_KEY);
+      const prev = prevForTransitions || await kvGetJSON(KV, DAILY_CYCLE_PREV_KV_KEY);
       built.transitions = detectCycleTransitions(prev, built);
       if (built.transitions.length > 0 && !opts.skipAlerts) {
         await maybeAlertCycleTransitions(env, built.transitions);
@@ -454,6 +670,7 @@ export async function getDailyCycleComposite(env, opts = {}) {
         breadth_cycle: built.breadth_cycle,
         sectors: (built.sectors || []).map((s) => ({ etf: s.etf, computed_cycle: s.computed_cycle })),
         spotlights: (built.spotlights || []).map((s) => ({ symbol: s.symbol, computed_cycle: s.computed_cycle })),
+        sector_watch: (built.sector_watch || []).map((g) => ({ etf: g.etf, sector_cycle: g.sector_cycle })),
       }), { expirationTtl: 86400 * 7 });
       await KV.put(DAILY_CYCLE_KV_KEY, JSON.stringify(built), { expirationTtl: DAILY_CYCLE_KV_TTL_SEC * 2 });
     } catch (_) {}

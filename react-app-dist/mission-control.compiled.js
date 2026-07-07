@@ -1483,16 +1483,22 @@ function VehicleTogglesCard({
       setBusy(false);
     }
   };
-  return React.createElement("div", {
-    className: "mt-3 pt-3",
+  const enabledCount = ROW_META.filter(m => rows[m.key]?.enabled).length;
+  const collapseSub = enabledCount > 0 ? `${enabledCount} vehicle${enabledCount === 1 ? "" : "s"} on` : "all off";
+  return React.createElement(McCollapse, {
+    id: `bridge-vehicle-prefs-${user?.user_id || "unknown"}`,
+    title: "Options auto-mirror (per vehicle)",
+    sub: collapseSub,
+    defaultOpen: false
+  }, React.createElement("div", {
+    className: "flex items-baseline justify-between flex-wrap gap-2 mb-2 mt-1"
+  }, React.createElement("div", {
+    className: "text-[10px] mc-mute italic",
     style: {
-      borderTop: "1px solid rgba(255,255,255,0.06)"
+      lineHeight: 1.45,
+      maxWidth: 520
     }
-  }, React.createElement("div", {
-    className: "flex items-baseline justify-between flex-wrap gap-2 mb-2"
-  }, React.createElement("div", {
-    className: "text-[11px] font-semibold text-white"
-  }, "\u2699\uFE0F Options Auto-Mirror \u2014 per-vehicle toggles"), React.createElement("div", {
+  }, "Naked-short vehicles are deferred. Option vehicles default to OFF \u2014 opt in one at a time."), React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
   }, msg && React.createElement("span", {
     className: "text-[10px] " + (msg.kind === "err" ? "text-rose-300" : msg.kind === "ok" ? "mc-pos" : "mc-mute")
@@ -1509,7 +1515,7 @@ function VehicleTogglesCard({
     onClick: () => submit({
       apply_small_account_defaults: true
     }, "Applying small-account defaults")
-  }, "Apply small-account defaults \u26A1"), React.createElement("button", {
+  }, "Small-account defaults"), React.createElement("button", {
     className: "mc-btn mc-btn-ok",
     style: {
       fontSize: 10,
@@ -1520,8 +1526,6 @@ function VehicleTogglesCard({
       vehicles: rows
     }, "Saving")
   }, "Save"))), React.createElement("div", {
-    className: "text-[10px] mc-mute italic mb-2"
-  }, "Naked-short vehicles (short_call \xB7 short_put \xB7 short_straddle \xB7 iron_condor_naked) are deferred and cannot be enabled here. All option vehicles default to OFF \u2014 opt in one at a time."), React.createElement("div", {
     className: "mc-table-scroll",
     style: {
       background: "rgba(0,0,0,0.20)",
@@ -1813,7 +1817,7 @@ function BridgeSection({
     className: "text-[11px] mc-mute uppercase tracking-wider font-semibold"
   }, "Connected Broker Accounts"), React.createElement("div", {
     className: "text-[10px] mc-mute mt-0.5"
-  }, "One card per linked login \u2014 equity caps, vehicle prefs, and live toggle are per account.")), React.createElement("button", {
+  }, "Account summary and positions shown first \u2014 expand a card for trading limits and options prefs.")), React.createElement("button", {
     disabled: busy || loading,
     className: "mc-btn",
     style: {
@@ -1837,73 +1841,160 @@ function BridgeSection({
     const equity = Number(u.equity_usd) || 0;
     const suggestedPerOrder = equity > 0 ? Math.max(50, Math.round(equity * 0.25 / 50) * 50) : 300;
     const suggestedPerDay = 3;
+    const acctTitle = u.webull_account_label || u.webull_account_type || brokerLabel(u);
+    const acctIdShort = u.account_id ? String(u.account_id).slice(-8) : null;
+    const settingsSub = `${enabled ? "LIVE" : "OFF"} · $${Number(caps.max_per_order_usd || 5000).toLocaleString()}/order · ${Number(caps.max_orders_per_day || 3)}/day`;
+    const positionsMktTotal = positions.reduce((sum, p) => {
+      const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
+      return sum + (Number.isFinite(mkt) ? mkt : 0);
+    }, 0);
     return React.createElement("div", {
       key: u.user_id,
-      className: "mb-4",
+      className: "mc-bridge-acct"
+    }, React.createElement("div", {
+      className: "flex items-start justify-between gap-3 flex-wrap mb-1"
+    }, React.createElement("div", {
       style: {
-        padding: 10,
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.06)",
-        borderRadius: 8
+        minWidth: 0
       }
     }, React.createElement("div", {
-      className: "flex items-baseline justify-between mb-2 flex-wrap gap-2"
-    }, React.createElement("div", {
-      className: "flex items-baseline gap-2 flex-wrap"
-    }, React.createElement("strong", {
-      className: "text-white text-[13px]"
-    }, ownerEmail(u)), React.createElement("span", {
+      className: "mc-bridge-acct-title"
+    }, acctTitle), React.createElement("div", {
+      className: "mc-bridge-acct-sub"
+    }, ownerEmail(u), acctIdShort ? ` · acct …${acctIdShort}` : "")), React.createElement("div", {
+      className: "flex items-center gap-1.5 flex-wrap"
+    }, React.createElement("span", {
       className: "mc-pill mc-pill-ok",
       style: {
         fontSize: 9
       }
-    }, brokerLabel(u)), u.account_id && React.createElement("span", {
-      className: "text-[10px] mc-mute font-mono",
-      title: "Broker account id"
-    }, u.account_id), u.mock_mode && React.createElement("span", {
+    }, brokerLabel(u)), u.mock_mode && React.createElement("span", {
       className: "mc-pill mc-pill-warn",
       style: {
         fontSize: 9
       }
     }, "MOCK"), React.createElement("span", {
-      className: `mc-pill ${u.status === "connected" ? "mc-pill-ok" : "mc-pill-warn"}`,
-      style: {
-        fontSize: 9
-      }
-    }, u.status || "—"), React.createElement("span", {
       className: `mc-pill ${enabled ? "mc-pill-ok" : "mc-pill-warn"}`,
       style: {
         fontSize: 9
       }
-    }, enabled ? "LIVE TRADING" : "TRADING OFF"), !ok && React.createElement("span", {
+    }, enabled ? "LIVE" : "OFF"), !ok && React.createElement("span", {
       className: "mc-pill mc-pill-warn",
       style: {
         fontSize: 9
       }
-    }, "portfolio unavailable")), ok && React.createElement("div", {
-      className: "flex items-baseline gap-4"
+    }, "no balance"))), ok ? React.createElement("div", {
+      className: "mc-bridge-summary"
     }, Number.isFinite(Number(u.equity_usd)) && React.createElement("div", {
-      className: "text-[11px]"
-    }, React.createElement("span", {
-      className: "mc-mute"
-    }, "Equity "), React.createElement("span", {
-      className: "font-mono font-semibold text-white"
+      className: "mc-bridge-stat"
+    }, React.createElement("div", {
+      className: "mc-bridge-stat-label"
+    }, "Equity"), React.createElement("div", {
+      className: "mc-bridge-stat-value"
     }, "$", Number(u.equity_usd).toLocaleString("en-US", {
       maximumFractionDigits: 0
     }))), Number.isFinite(Number(u.cash_usd)) && React.createElement("div", {
-      className: "text-[11px]"
-    }, React.createElement("span", {
-      className: "mc-mute"
-    }, "Cash "), React.createElement("span", {
-      className: "font-mono text-white"
+      className: "mc-bridge-stat"
+    }, React.createElement("div", {
+      className: "mc-bridge-stat-label"
+    }, "Cash"), React.createElement("div", {
+      className: "mc-bridge-stat-value"
     }, "$", Number(u.cash_usd).toLocaleString("en-US", {
       maximumFractionDigits: 0
-    }))))), React.createElement("div", {
-      className: "flex items-center gap-2 mb-3 flex-wrap",
+    }))), Number.isFinite(Number(u.buying_power_usd)) && React.createElement("div", {
+      className: "mc-bridge-stat"
+    }, React.createElement("div", {
+      className: "mc-bridge-stat-label"
+    }, "Buying power"), React.createElement("div", {
+      className: "mc-bridge-stat-value"
+    }, "$", Number(u.buying_power_usd).toLocaleString("en-US", {
+      maximumFractionDigits: 0
+    }))), React.createElement("div", {
+      className: "mc-bridge-stat"
+    }, React.createElement("div", {
+      className: "mc-bridge-stat-label"
+    }, "Positions"), React.createElement("div", {
+      className: "mc-bridge-stat-value"
+    }, positions.length)), positionsMktTotal > 0 && React.createElement("div", {
+      className: "mc-bridge-stat"
+    }, React.createElement("div", {
+      className: "mc-bridge-stat-label"
+    }, "Holdings value"), React.createElement("div", {
+      className: "mc-bridge-stat-value"
+    }, "$", positionsMktTotal.toLocaleString("en-US", {
+      maximumFractionDigits: 0
+    })))) : u?.portfolio?.error ? React.createElement("div", {
+      className: "text-[11px] text-amber-300 mb-2"
+    }, String(u.portfolio.error).slice(0, 240)) : React.createElement("div", {
+      className: "text-[11px] mc-mute italic mb-2"
+    }, "Portfolio data not loaded \u2014 click Refresh accounts."), React.createElement("div", {
+      className: "mc-bridge-section-label"
+    }, "Open positions", positions.length > 0 ? ` (${positions.length})` : ""), ok && positions.length > 0 ? React.createElement("div", {
+      className: "mc-table-scroll mb-2"
+    }, React.createElement("table", {
+      className: "mc-table"
+    }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", {
       style: {
-        paddingBottom: 8,
-        borderBottom: "1px solid rgba(255,255,255,0.04)"
+        textAlign: "right"
       }
+    }, "Qty"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Avg Cost"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Mkt Value"), React.createElement("th", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Unrlz P&L"))), React.createElement("tbody", null, positions.map((p, i) => {
+      const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
+      const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
+      const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
+      const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
+      const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
+      return React.createElement("tr", {
+        key: `${u.user_id}-${sym}-${i}`
+      }, React.createElement("td", {
+        className: "font-mono"
+      }, sym), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: "font-mono"
+      }, Number.isFinite(qty) ? qty.toLocaleString("en-US", {
+        maximumFractionDigits: 2
+      }) : "—"), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: "font-mono"
+      }, Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: "font-mono"
+      }, Number.isFinite(mkt) ? `$${mkt.toLocaleString("en-US", {
+        maximumFractionDigits: 0
+      })}` : "—"), React.createElement("td", {
+        style: {
+          textAlign: "right"
+        },
+        className: `font-mono ${pnl > 0 ? "mc-pos" : pnl < 0 ? "mc-neg" : "mc-mute"}`
+      }, Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString("en-US", {
+        maximumFractionDigits: 0
+      })}` : "—"));
+    })))) : ok ? React.createElement("div", {
+      className: "text-[11px] mc-mute italic mb-2"
+    }, "No open positions.") : null, React.createElement(McCollapse, {
+      id: `bridge-acct-settings-${u.user_id}`,
+      title: "Trading limits & controls",
+      sub: settingsSub,
+      defaultOpen: false
+    }, React.createElement("div", {
+      className: "flex items-center gap-2 mb-1 flex-wrap"
     }, React.createElement("button", {
       disabled: busy || userRow.status !== "connected",
       onClick: async () => {
@@ -1941,11 +2032,7 @@ function BridgeSection({
         color: enabled ? "#f87171" : "#22c55e",
         border: `1px solid ${enabled ? "rgba(248,113,113,0.34)" : "rgba(34,197,94,0.34)"}`
       }
-    }, enabled ? "Disable live trading" : "Enable live trading"), React.createElement("span", {
-      className: "text-[10px] mc-mute"
-    }, "\xB7"), React.createElement("span", {
-      className: "text-[10px] mc-mute font-mono"
-    }, "caps: max $", Number(caps.max_per_order_usd || 5000).toLocaleString(), "/order \xB7 ", Number(caps.max_orders_per_day || 3), "/day \xB7 ", Math.round((caps.max_account_pct || 0.25) * 100), "% per trade"), React.createElement("button", {
+    }, enabled ? "Disable live trading" : "Enable live trading"), React.createElement("button", {
       disabled: busy,
       onClick: async () => {
         if (busy) return;
@@ -2109,12 +2196,10 @@ function BridgeSection({
         color: "#fbbf24",
         border: "1px solid rgba(251,191,36,0.28)"
       }
-    }, "Apply small-account defaults \u26A1"), caps.max_per_order_usd && Number(userRow.user_caps_updated_at) > 0 && React.createElement("span", {
+    }, "Apply small-account defaults"), caps.max_per_order_usd && Number(userRow.user_caps_updated_at) > 0 && React.createElement("span", {
       className: "text-[10px] mc-mute italic",
       title: new Date(userRow.user_caps_updated_at).toLocaleString()
-    }, "\xB7 saved ", fmtAgo(userRow.user_caps_updated_at), " ago"), String(u.broker || "").toLowerCase() === "webull" && BC && React.createElement(React.Fragment, null, React.createElement("span", {
-      className: "text-[10px] mc-mute"
-    }, "\xB7"), React.createElement("button", {
+    }, "saved ", fmtAgo(userRow.user_caps_updated_at), " ago"), String(u.broker || "").toLowerCase() === "webull" && BC && React.createElement(React.Fragment, null, React.createElement("button", {
       disabled: busy,
       className: "mc-btn",
       style: {
@@ -2156,66 +2241,7 @@ function BridgeSection({
           setBusy(false);
         }
       }
-    }, "Disconnect"))), ok && positions.length > 0 && React.createElement("table", {
-      className: "mc-table"
-    }, React.createElement("thead", null, React.createElement("tr", null, React.createElement("th", null, "Ticker"), React.createElement("th", {
-      style: {
-        textAlign: "right"
-      }
-    }, "Qty"), React.createElement("th", {
-      style: {
-        textAlign: "right"
-      }
-    }, "Avg Cost"), React.createElement("th", {
-      style: {
-        textAlign: "right"
-      }
-    }, "Mkt Value"), React.createElement("th", {
-      style: {
-        textAlign: "right"
-      }
-    }, "Unrlz P&L"))), React.createElement("tbody", null, positions.map((p, i) => {
-      const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
-      const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
-      const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
-      const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
-      const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
-      return React.createElement("tr", {
-        key: `${u.user_id}-${sym}-${i}`
-      }, React.createElement("td", {
-        className: "font-mono"
-      }, sym), React.createElement("td", {
-        style: {
-          textAlign: "right"
-        },
-        className: "font-mono"
-      }, Number.isFinite(qty) ? qty.toLocaleString("en-US", {
-        maximumFractionDigits: 2
-      }) : "—"), React.createElement("td", {
-        style: {
-          textAlign: "right"
-        },
-        className: "font-mono"
-      }, Number.isFinite(avg) ? `$${avg.toFixed(2)}` : "—"), React.createElement("td", {
-        style: {
-          textAlign: "right"
-        },
-        className: "font-mono"
-      }, Number.isFinite(mkt) ? `$${mkt.toLocaleString("en-US", {
-        maximumFractionDigits: 0
-      })}` : "—"), React.createElement("td", {
-        style: {
-          textAlign: "right"
-        },
-        className: `font-mono ${pnl > 0 ? "mc-pos" : pnl < 0 ? "mc-neg" : "mc-mute"}`
-      }, Number.isFinite(pnl) ? `${pnl >= 0 ? "+" : ""}$${pnl.toLocaleString("en-US", {
-        maximumFractionDigits: 0
-      })}` : "—"));
-    }))), ok && positions.length === 0 && React.createElement("div", {
-      className: "text-[11px] mc-mute italic"
-    }, "No open positions."), !ok && u?.portfolio?.error && React.createElement("div", {
-      className: "text-[11px] text-amber-300"
-    }, String(u.portfolio.error).slice(0, 240)), React.createElement(VehicleTogglesCard, {
+    }, "Disconnect")))), React.createElement(VehicleTogglesCard, {
       apiBase: apiBase,
       user: userRow,
       onSaved: (nextPrefs, updatedAt) => {
@@ -4166,6 +4192,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1783452858340:950645210
+// cache-bust:1783453159597:775552217
 
-// cache-bust:1783452858340:950645210
+// cache-bust:1783453159597:775552217

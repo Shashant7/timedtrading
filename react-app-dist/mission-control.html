@@ -15,20 +15,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1783452858340" />
-    <script defer src="/vendor/react.production.min.js?v=1783452858340"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1783452858340"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1783452858340" />
-<script defer src="auth-gate.js?v=1783452858340"></script>
-    <script defer src="broker-connect-shared.js?v=1783452858340"></script>
-    <script src="tt-bottom-nav.js?v=1783452858340" defer></script>
-    <script defer src="investor-nav-badge.js?v=1783452858340"></script>
-    <script src="tt-nav-extras.js?v=1783452858340" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1783453159597" />
+    <script defer src="/vendor/react.production.min.js?v=1783453159597"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1783453159597"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1783453159597" />
+<script defer src="auth-gate.js?v=1783453159597"></script>
+    <script defer src="broker-connect-shared.js?v=1783453159597"></script>
+    <script src="tt-bottom-nav.js?v=1783453159597" defer></script>
+    <script defer src="investor-nav-badge.js?v=1783453159597"></script>
+    <script src="tt-nav-extras.js?v=1783453159597" defer></script>
     <!-- 2026-05-30 — Activity strip + live-data + rail-bridge so Mission Control
          shares the same top-of-page UX as today/active-trader/investor. -->
-    <script defer src="tt-live-data.js?v=1783452858340"></script>
-    <script src="tt-rail-bridge.js?v=1783452858340" defer></script>
-    <script src="tt-activity-strip.js?v=1783452858340" defer></script>
+    <script defer src="tt-live-data.js?v=1783453159597"></script>
+    <script src="tt-rail-bridge.js?v=1783453159597" defer></script>
+    <script src="tt-activity-strip.js?v=1783453159597" defer></script>
     <style>
       body { margin: 0; background: #0a0a0f; color: #e5e7eb; font-family: 'Inter', sans-serif; min-height: 100vh; }
       ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -176,6 +176,58 @@
         color: #34d399; cursor: pointer; transition: all 0.15s; }
       .mc-btn:hover { background: rgba(52, 211, 153, 0.2); }
       .mc-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .mc-bridge-acct {
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        background: rgba(255,255,255,0.02);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+      }
+      .mc-bridge-acct-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #f0f6fc;
+        letter-spacing: -0.01em;
+      }
+      .mc-bridge-acct-sub {
+        font-size: 10px;
+        color: #6b7280;
+        margin-top: 2px;
+      }
+      .mc-bridge-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 8px;
+        margin: 10px 0 12px;
+      }
+      .mc-bridge-stat {
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(0,0,0,0.22);
+        border: 1px solid rgba(255,255,255,0.05);
+      }
+      .mc-bridge-stat-label {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin-bottom: 3px;
+      }
+      .mc-bridge-stat-value {
+        font-size: 15px;
+        font-weight: 800;
+        color: #f0f6fc;
+        font-variant-numeric: tabular-nums;
+      }
+      .mc-bridge-section-label {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6b7280;
+        margin-bottom: 6px;
+      }
       @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
       .mc-loading { animation: pulse 1.4s ease-in-out infinite; }
     </style>
@@ -208,8 +260,8 @@
     <div data-tt-activity-strip></div>
 
     <div id="root"></div>
-    <script defer src="mission-control.compiled.js?v=1783452858340"></script>
+    <script defer src="mission-control.compiled.js?v=1783453159597"></script>
   </body>
 </html>
 
-<!-- cache-bust:1783452858340:950645210 -->
+<!-- cache-bust:1783453159597:775552217 -->

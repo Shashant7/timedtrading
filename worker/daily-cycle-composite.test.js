@@ -8,6 +8,10 @@ import {
   resolveComputedCycle,
   detectCycleTransitions,
   summarizeIndexMix,
+  selectSectorWatchGroups,
+  buildSectorRotationSnapshot,
+  sectorWatchLabel,
+  inferCyclicalPhaseLabel,
 } from "./daily-cycle-composite.js";
 import { indexCyclesFromRegimes } from "./market-regime-index.js";
 
@@ -89,6 +93,47 @@ describe("summarizeIndexMix", () => {
   });
 });
 
+describe("selectSectorWatchGroups", () => {
+  it("surfaces Financials when its cycle diverges from market breadth", () => {
+    const sectors = [
+      { sector: "Information Technology", etf: "XLK", computed_cycle: "uptrend", alignment: "aligned" },
+      { sector: "Financials", etf: "XLF", computed_cycle: "downtrend", alignment: "divergent" },
+    ];
+    const picks = selectSectorWatchGroups(sectors, "uptrend", new Set());
+    expect(picks.some((p) => p.sectorRow.etf === "XLF")).toBe(true);
+    expect(sectorWatchLabel("Financials", {})).toBe("Financials leaders");
+  });
+
+  it("prioritizes sectors with a fresh cycle shift", () => {
+    const sectors = [
+      { sector: "Energy", etf: "XLE", computed_cycle: "downtrend", alignment: "mixed" },
+      { sector: "Financials", etf: "XLF", computed_cycle: "transitional", alignment: "mixed" },
+    ];
+    const picks = selectSectorWatchGroups(sectors, "uptrend", new Set(["XLE"]));
+    expect(picks[0].sectorRow.etf).toBe("XLE");
+    expect(picks[0].reason).toBe("cycle_shift");
+  });
+});
+
+describe("buildSectorRotationSnapshot", () => {
+  it("ranks gainers and losers by day pct", () => {
+    const snap = buildSectorRotationSnapshot([
+      { sector: "Tech", etf: "XLK", day_change_pct: 1.2, computed_cycle: "uptrend" },
+      { sector: "Utilities", etf: "XLU", day_change_pct: -0.8, computed_cycle: "downtrend" },
+      { sector: "Financials", etf: "XLF", day_change_pct: 0.4, computed_cycle: "transitional" },
+    ]);
+    expect(snap.gainers[0].etf).toBe("XLK");
+    expect(snap.losers[0].etf).toBe("XLU");
+  });
+});
+
+describe("inferCyclicalPhaseLabel", () => {
+  it("maps phase zone to cyclical language", () => {
+    expect(inferCyclicalPhaseLabel(0.82, "distribution")).toBe("late cycle / peak");
+    expect(inferCyclicalPhaseLabel(0.15, null)).toBe("early cycle");
+  });
+});
+
 describe("buildDailyCycleComposite", () => {
   it("builds index + sector rows from KV regimes", async () => {
     const env = {
@@ -115,7 +160,9 @@ describe("buildDailyCycleComposite", () => {
     expect(out.indices.SPY.cycle).toBe("uptrend");
     expect(out.tickers.NVDA.computed.cycle).toBe("uptrend");
     expect(out.sectors.length).toBeGreaterThan(5);
-    expect(out.spotlights.map((s) => s.symbol)).toEqual(["SMH", "NVDA"]);
+    expect(out.sector_watch.length).toBeGreaterThan(0);
+    expect(out.sector_rotation.gainers).toBeDefined();
+    expect(out.spotlights.length).toBeGreaterThan(0);
     const xlv = out.sectors.filter((s) => s.etf === "XLV");
     expect(xlv.length).toBe(1);
   });

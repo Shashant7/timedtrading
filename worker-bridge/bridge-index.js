@@ -291,7 +291,8 @@ export default {
       // operator can still see partial results.
       if (method === "GET" && path === "/bridge/portfolio") {
         if (operatorFail) return operatorFail;
-        const users = await listConnectedUsers(env);
+        const users = (await listConnectedUsers(env))
+          .filter((u) => String(u?.status || "").toLowerCase() === "connected");
         const out = [];
         for (const u of users) {
           const userId = u.user_id || u.email;
@@ -318,18 +319,19 @@ export default {
                 ?? acct?.netliquidation?.amount ?? acct?.NetLiquidation?.amount
                 ?? acct?.equitywithloanvalue?.amount
                 ?? acct?.equity?.current ?? acct?.equity ?? acct?.net_liquidation
-                ?? acct?.total_asset ?? acct?.totalAsset
+                ?? acct?.total_net_liquidation_value ?? acct?.total_asset ?? acct?.totalAsset
               );
               const cash = Number(
                 portfolio.cash
                 ?? acct?.totalcashvalue?.amount ?? acct?.TotalCashValue?.amount
                 ?? acct?.availablefunds?.amount
                 ?? acct?.cash?.current ?? acct?.cash ?? acct?.total_cash
-                ?? acct?.total_cash ?? acct?.totalCash
+                ?? acct?.total_cash_balance ?? acct?.totalCash
               );
               const buyingPower = Number(
                 portfolio.buying_power
                 ?? acct?.buyingpower?.amount ?? acct?.BuyingPower?.amount ?? acct?.buying_power
+                ?? acct?.account_currency_assets?.[0]?.buying_power
               );
               const acctId = String(
                 u.webull_account_id

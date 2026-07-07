@@ -2687,8 +2687,53 @@ function DailyCycleCompositePanel({
   });
   const indexMixLabel = CI.formatIndexMix ? CI.formatIndexMix(composite.index_mix) : null;
   const transitions = Array.isArray(composite.transitions) ? composite.transitions.slice(0, 4) : [];
-  const spotlights = Array.isArray(composite.spotlights) ? composite.spotlights : [];
+  const sectorWatch = Array.isArray(composite.sector_watch) ? composite.sector_watch : [];
+  const spotlights = sectorWatch.length === 0 && Array.isArray(composite.spotlights) ? composite.spotlights : [];
+  const sectorRotation = composite.sector_rotation || null;
   const breadthCol = CI.cycleColor ? CI.cycleColor(composite.breadth_cycle) : "var(--tt-accent)";
+  function renderWatchTicker(sp) {
+    const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
+    const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
+    let dayPct = null;
+    try {
+      const utils = window.TimedPriceUtils;
+      if (dayRow && utils && typeof utils.getDailyChange === "function") {
+        const dc = utils.getDailyChange(dayRow);
+        if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
+      }
+    } catch (_) {}
+    return h("button", {
+      key: sp.symbol,
+      type: "button",
+      className: "tt-dcc-pill",
+      style: {
+        color: col,
+        cursor: "pointer"
+      },
+      title: CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol,
+      onClick: function () {
+        if (onSelectTicker) onSelectTicker(sp.symbol);
+      }
+    }, sp.symbol, Number.isFinite(dayPct) && h("span", {
+      style: {
+        color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+        marginLeft: 4
+      }
+    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"), h("span", {
+      style: {
+        color: "var(--tt-text-muted)",
+        fontWeight: 600,
+        marginLeft: 4
+      }
+    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle), sp.cyclical_phase && h("span", {
+      style: {
+        color: "var(--tt-text-faint)",
+        fontWeight: 500,
+        marginLeft: 4,
+        fontSize: 10
+      }
+    }, sp.cyclical_phase));
+  }
   const _latent = function () {
     if (!data) return null;
     for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
@@ -2761,8 +2806,8 @@ function DailyCycleCompositePanel({
     className: "tt-market-read-cell"
   }, h("div", {
     className: "tt-market-read-label",
-    title: "Deterministic daily EMA stack + HTF momentum score, breadth-weighted across SPY, QQQ, IWM, DIA, RSP"
-  }, "HTF Cycle (Breadth)"), h("div", {
+    title: "Deterministic daily EMA stack + HTF momentum score, breadth-weighted across SPY, QQQ, IWM, DIA, RSP — a technical trend lens, not harmonic cyclical analysis"
+  }, "HTF Trend (Breadth)"), h("div", {
     className: "tt-market-read-value",
     style: {
       color: breadthCol
@@ -2783,60 +2828,103 @@ function DailyCycleCompositePanel({
   }, _sessionETDate ? h("code", null, _sessionETDate + " ET") : "—")));
   const readHelp = h("p", {
     className: "tt-market-read-help"
-  }, "These three lenses can disagree — that's a signal, not a bug. ", h("strong", null, "Regime"), " (HMM) is a probabilistic read; ", h("strong", null, "HTF Cycle"), " is a deterministic EMA-stack rule averaged across benchmark indices; ", h("strong", null, "Session"), " is the trading clock. A bearish HMM under an uptrend breadth cycle typically means rising vol / narrowing leadership.");
+  }, "These lenses can disagree — that's a signal, not a bug. ", h("strong", null, "Regime"), " (HMM) is probabilistic; ", h("strong", null, "HTF Trend"), " is the EMA-stack rule on benchmark indices; ", h("strong", null, "Cyclical phase"), " on leader rows comes from Saty phase % (quarter/year style — like the NVDA harmonic peak/trough read). ", h("strong", null, "Session"), " is the trading clock.");
   const body = h(React.Fragment, null, !embedded && h("div", {
     className: "tt-sec-title"
   }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
     className: "tt-sec-h"
-  }, "Three lenses on where the tape is: regime, HTF cycle, per-name reads"), marketReadCard, readHelp, spotlights.length > 0 && h("div", {
-    className: "tt-dcc-spotlight-row"
+  }, "Three lenses on where the tape is: regime, HTF cycle, per-name reads"), marketReadCard, readHelp, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
+    className: "tt-dcc-rotation-row"
   }, h("span", {
     className: "tt-dcc-row-title"
-  }, "Semis / AI leaders", h("span", {
+  }, "Sector rotation", h("span", {
     className: "tt-dcc-row-title-sub"
-  }, "each name's own HTF cycle — independent of the market breadth read above")), h("div", {
+  }, CI.formatRotationState ? CI.formatRotationState(sectorRotation.state) : sectorRotation.state, Number.isFinite(sectorRotation.offense_avg_pct) && Number.isFinite(sectorRotation.defense_avg_pct) ? " · offense " + (sectorRotation.offense_avg_pct >= 0 ? "+" : "") + sectorRotation.offense_avg_pct.toFixed(2) + "% vs defense " + (sectorRotation.defense_avg_pct >= 0 ? "+" : "") + sectorRotation.defense_avg_pct.toFixed(2) + "%" : "")), h("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
       gap: 8,
       width: "100%"
     }
-  }, spotlights.map(function (sp) {
-    const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
-    const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
-    let dayPct = null;
-    try {
-      const utils = window.TimedPriceUtils;
-      if (dayRow && utils && typeof utils.getDailyChange === "function") {
-        const dc = utils.getDailyChange(dayRow);
-        if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
-      }
-    } catch (_) {}
+  }, sectorRotation.gainers.map(function (g) {
+    const col = g.day_pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)";
     return h("button", {
-      key: sp.symbol,
+      key: "gain-" + g.etf,
       type: "button",
       className: "tt-dcc-pill",
       style: {
-        color: col,
         cursor: "pointer"
       },
-      title: CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol,
+      title: (CI.sectorShort ? CI.sectorShort(g.sector) : g.sector) + " leading today",
       onClick: function () {
-        if (onSelectTicker) onSelectTicker(sp.symbol);
+        if (onSelectTicker) onSelectTicker(g.etf);
       }
-    }, sp.symbol, Number.isFinite(dayPct) && h("span", {
+    }, g.etf, h("span", {
       style: {
-        color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
+        color: col,
         marginLeft: 4
       }
-    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"), h("span", {
+    }, "+" + g.day_pct.toFixed(2) + "%"), h("span", {
       style: {
         color: "var(--tt-text-muted)",
-        fontWeight: 600,
         marginLeft: 4
       }
-    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle));
-  }))), transitions.length > 0 && h("div", {
+    }, "leading"));
+  }), sectorRotation.losers.map(function (l) {
+    const col = l.day_pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)";
+    return h("button", {
+      key: "lose-" + l.etf,
+      type: "button",
+      className: "tt-dcc-pill",
+      style: {
+        cursor: "pointer"
+      },
+      title: (CI.sectorShort ? CI.sectorShort(l.sector) : l.sector) + " lagging today",
+      onClick: function () {
+        if (onSelectTicker) onSelectTicker(l.etf);
+      }
+    }, l.etf, h("span", {
+      style: {
+        color: col,
+        marginLeft: 4
+      }
+    }, l.day_pct.toFixed(2) + "%"), h("span", {
+      style: {
+        color: "var(--tt-text-muted)",
+        marginLeft: 4
+      }
+    }, "lagging"));
+  }))), sectorWatch.map(function (grp) {
+    const reasonLabel = CI.formatSectorWatchReason ? CI.formatSectorWatchReason(grp.reason) : grp.reason;
+    return h("div", {
+      key: grp.etf || grp.sector,
+      className: "tt-dcc-spotlight-row"
+    }, h("span", {
+      className: "tt-dcc-row-title"
+    }, grp.label || (CI.sectorShort ? CI.sectorShort(grp.sector) + " leaders" : "Sector leaders"), h("span", {
+      className: "tt-dcc-row-title-sub"
+    }, reasonLabel, grp.sector_cycle ? " · sector HTF " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "", grp.cyclical_phase ? " · " + grp.cyclical_phase : "")), h("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        width: "100%"
+      }
+    }, (grp.tickers || []).map(renderWatchTicker)));
+  }), spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
+    className: "tt-dcc-spotlight-row"
+  }, h("span", {
+    className: "tt-dcc-row-title"
+  }, "Sector leaders", h("span", {
+    className: "tt-dcc-row-title-sub"
+  }, "each name's own HTF trend")), h("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8,
+      width: "100%"
+    }
+  }, spotlights.map(renderWatchTicker))), transitions.length > 0 && h("div", {
     className: "tt-dcc-shifts-row"
   }, h("span", {
     className: "tt-dcc-row-title"
@@ -2857,9 +2945,9 @@ function DailyCycleCompositePanel({
     }, CI.formatTransition ? CI.formatTransition(tr) : tr.symbol + " " + tr.from + " → " + tr.to);
   }))), h("div", {
     className: "tt-dcc-row-title"
-  }, "Sector cycles", h("span", {
+  }, "Sector HTF trends", h("span", {
     className: "tt-dcc-row-title-sub"
-  }, "each ETF's own HTF cycle plus its intraday % — sorted by strongest divergence first")), h("div", {
+  }, "each ETF's EMA-stack trend plus intraday % — sorted by strongest divergence first")), h("div", {
     className: "tt-strip-scroll",
     role: "list",
     "aria-label": "Sector cycle alignment"
@@ -6883,6 +6971,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783452858340:950645210
+// cache-bust:1783458503135:526671800
 
-// cache-bust:1783452858340:950645210
+// cache-bust:1783458503135:526671800

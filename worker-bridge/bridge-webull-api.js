@@ -20,6 +20,21 @@ import {
 } from "./bridge-webull-config.js";
 
 const REQUEST_TIMEOUT_MS = 12_000;
+// Webull OpenAPI: 2 requests / 2 seconds per app key.
+const WEBULL_MIN_REQUEST_GAP_MS = 1100;
+let _lastWebullSignedFetchAt = 0;
+
+function parseWebullNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function throttleWebullSignedFetch() {
+  const now = Date.now();
+  const wait = Math.max(0, _lastWebullSignedFetchAt + WEBULL_MIN_REQUEST_GAP_MS - now);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  _lastWebullSignedFetchAt = Date.now();
+}
 
 function sideToWebull(side) {
   const s = String(side || "").toLowerCase();
@@ -95,6 +110,8 @@ async function signedFetch(env, {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
+  await throttleWebullSignedFetch();
+
   const controller = new AbortController();
   const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -108,10 +125,13 @@ async function signedFetch(env, {
     const text = await r.text().catch(() => "");
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
+    const errCode = parsed?.error_code ?? parsed?.errorCode;
+    const ok = r.ok && !errCode;
     return {
-      ok: r.ok && !parsed?.error_code,
+      ok,
       http_status: r.status,
       response: parsed ?? text,
+      error: ok ? undefined : (parsed?.message || parsed?.error || errCode || `http_${r.status}`),
       latency_ms: null,
     };
   } catch (e) {
@@ -323,33 +343,78 @@ export function pickWebullAccountId(listResponse) {
 
 /** Normalize balance response for /bridge/portfolio MC UI. */
 export function normalizeWebullBalance(balanceResp) {
-  const data = balanceResp?.response?.data ?? balanceResp?.response ?? balanceResp;
-  const row = Array.isArray(data) ? data[0] : data;
+  const envelope = balanceResp?.response?.data ?? balanceResp?.response ?? balanceResp;
+  const row = Array.isArray(envelope) ? envelope[0] : envelope;
   if (!row || typeof row !== "object") return null;
-  const equity = Number(row.total_asset ?? row.net_liquidation ?? row.totalAsset ?? row.equity);
-  const cash = Number(row.total_cash ?? row.cash_balance ?? row.totalCash ?? row.cash);
-  const buyingPower = Number(row.buying_power ?? row.buyingPower ?? row.day_buying_power);
+
+  const ccyAssets = Array.isArray(row.account_currency_assets) ? row.account_currency_assets : [];
+  const usd = ccyAssets.find((a) => String(a?.currency || "").toUpperCase() === "USD") || ccyAssets[0] || {};
+
+  const equity = parseWebullNumber(
+    row.total_net_liquidation_value
+    ?? row.total_asset
+    ?? usd.net_liquidation_value
+    ?? row.net_liquidation
+    ?? row.totalAsset
+    ?? row.equity,
+  );
+  const cash = parseWebullNumber(
+    row.total_cash_balance
+    ?? row.total_cash
+    ?? usd.cash_balance
+    ?? row.cash_balance
+    ?? row.totalCash
+    ?? row.cash,
+  );
+  const buyingPower = parseWebullNumber(
+    usd.buying_power
+    ?? usd.day_buying_power
+    ?? usd.overnight_buying_power
+    ?? row.buying_power
+    ?? row.buyingPower
+    ?? row.day_buying_power,
+  );
+
   return {
-    equity: Number.isFinite(equity) ? equity : null,
-    cash: Number.isFinite(cash) ? cash : null,
-    buying_power: Number.isFinite(buyingPower) ? buyingPower : null,
+    equity,
+    cash,
+    buying_power: buyingPower,
     raw: row,
   };
 }
 
 /** Normalize positions array for reconciler. */
 export function normalizeWebullPositions(posResp) {
-  const data = posResp?.response?.data ?? posResp?.response ?? posResp;
-  const rows = Array.isArray(data) ? data : [];
+  const envelope = posResp?.response?.data ?? posResp?.response ?? posResp;
+  let rows = [];
+  if (Array.isArray(envelope)) {
+    rows = envelope;
+  } else if (Array.isArray(envelope?.positions)) {
+    rows = envelope.positions;
+  } else if (Array.isArray(envelope?.position_list)) {
+    rows = envelope.position_list;
+  }
+
   return rows
-    .filter((p) => String(p?.instrument_type || "EQUITY").toUpperCase() === "EQUITY")
-    .map((p) => ({
-      symbol: String(p.symbol || "").toUpperCase(),
-      qty: Number(p.quantity),
-      side: Number(p.quantity) < 0 ? "short" : "long",
-      market_value: Number(p.last_price) * Math.abs(Number(p.quantity) || 0),
-      raw: p,
-    }))
+    .filter((p) => {
+      const t = String(p?.instrument_type || p?.instrumentType || "EQUITY").toUpperCase();
+      return t === "EQUITY" || t === "ETF";
+    })
+    .map((p) => {
+      const qty = Number(p.qty ?? p.quantity);
+      const mv = parseWebullNumber(p.market_value ?? p.marketValue);
+      const last = parseWebullNumber(p.last_price ?? p.lastPrice);
+      const computedMv = Number.isFinite(mv)
+        ? mv
+        : (Number.isFinite(last) ? last * Math.abs(qty || 0) : null);
+      return {
+        symbol: String(p.symbol || "").toUpperCase(),
+        qty,
+        side: qty < 0 ? "short" : "long",
+        market_value: computedMv,
+        raw: p,
+      };
+    })
     .filter((p) => p.symbol && Number.isFinite(p.qty));
 }
 
