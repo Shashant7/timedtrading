@@ -69,6 +69,29 @@ export function stripBriefMarkdownForDisplay(md) {
   return cleaned.trim();
 }
 
+/** Map ticker → guidance line from Active Trader / Investor Portfolio sections. */
+export function parseBriefPositionGuidanceByTicker(body) {
+  const map = {};
+  if (!body || typeof body !== "string") return map;
+  for (const raw of body.split(/\n/)) {
+    let line = String(raw || "").trim().replace(/^[-*•]\s+/, "");
+    if (!line) continue;
+    let m = line.match(/^\*\*([A-Z][A-Z0-9.-]{0,9})\*\*:?\s*(.+)$/i);
+    if (m) {
+      map[m[1].toUpperCase()] = m[2].trim();
+      continue;
+    }
+    m = line.match(/^\*\*([A-Z][A-Z0-9.-]{0,9})\*\*\s+(.+)$/i);
+    if (m) {
+      map[m[1].toUpperCase()] = m[2].trim();
+      continue;
+    }
+    m = line.match(/^([A-Z][A-Z0-9.-]{0,9})\s*[·—–-]\s*(.+)$/);
+    if (m) map[m[1].toUpperCase()] = m[2].trim();
+  }
+  return map;
+}
+
 /** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
 export function parseBriefDisplaySections(md) {
   const cleaned = stripBriefMarkdownForDisplay(md);

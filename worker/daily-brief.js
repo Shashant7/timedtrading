@@ -104,6 +104,12 @@ export function liveDayPctFromPriceFeedRow(row, marketOpen = true) {
     }
   }
   const dp = Number(row.dp);
+  if (Number.isFinite(dp) && dp !== 0) return dp;
+  const p = Number(row.p);
+  const pc = priorRthCloseFromPriceFeedRow(row, true);
+  if (Number.isFinite(p) && Number.isFinite(pc) && pc > 0 && Math.abs(p - pc) > 0.0001) {
+    return Math.round(((p - pc) / pc) * 10000) / 100;
+  }
   return Number.isFinite(dp) ? dp : null;
 }
 
@@ -1274,8 +1280,7 @@ export async function fetchBriefInvestorPositionsFromD1(db) {
     const res = await db.prepare(
       `SELECT * FROM investor_positions
        WHERE status = 'OPEN' AND COALESCE(total_shares, 0) > 0
-       ORDER BY total_shares * COALESCE(avg_entry, 0) DESC
-       LIMIT 20`,
+       ORDER BY total_shares * COALESCE(avg_entry, 0) DESC`,
     ).all();
     return res?.results || [];
   } catch (e) {
@@ -1568,6 +1573,39 @@ export function buildInfographicPositionRows(openTrades = [], investorPositions 
   return { traderPositions, investorHoldings };
 }
 
+/** Count owned investor book rows — matches Investor nav badge owned positions. */
+export function countInvestorOpenBook(investorRows = [], liveScores = {}) {
+  const syms = new Set();
+  for (const p of investorRows || []) {
+    if (String(p?.status || "OPEN").toUpperCase() !== "OPEN") continue;
+    if (!(Number(p.total_shares) > 0)) continue;
+    syms.add(String(p.ticker || "").toUpperCase());
+  }
+  for (const [sym, sc] of Object.entries(liveScores || {})) {
+    if (sc?.position?.owned) syms.add(String(sym).toUpperCase());
+  }
+  return syms.size;
+}
+
+function mergeInvestorRowsWithLiveScores(investorRows, liveScores) {
+  const out = Array.isArray(investorRows) ? [...investorRows] : [];
+  const seen = new Set(out.map((p) => String(p.ticker || "").toUpperCase()));
+  for (const [sym, sc] of Object.entries(liveScores || {})) {
+    if (!sc?.position?.owned) continue;
+    const U = String(sym).toUpperCase();
+    if (seen.has(U)) continue;
+    seen.add(U);
+    out.push({
+      ticker: U,
+      total_shares: Number(sc.position?.shares) || 0,
+      avg_entry: Number(sc.position?.avg_entry) || null,
+      status: "OPEN",
+      investor_stage: sc.stage || sc.investor_stage || null,
+    });
+  }
+  return out;
+}
+
 /** Overlay live open books onto a stored brief infographic at read time. */
 export async function refreshInfographicLivePositions(infographic, env, priceMap = null) {
   if (!infographic || !env?.DB) return infographic;
@@ -1586,7 +1624,10 @@ export async function refreshInfographicLivePositions(infographic, env, priceMap
     fetchBriefInvestorPositionsFromD1(db),
     fetchBriefLiveInvestorScores(env),
   ]);
-  const investorPositions = investorRaw.map((p) => mapBriefInvestorPositionRow(p, {}, liveScores));
+  const investorPositions = mergeInvestorRowsWithLiveScores(
+    investorRaw.map((p) => mapBriefInvestorPositionRow(p, {}, liveScores)),
+    liveScores,
+  );
   let _refreshMktOpen = true;
   try { _refreshMktOpen = isNyRegularMarketOpen(null); } catch (_) { _refreshMktOpen = true; }
   const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf, _refreshMktOpen);
@@ -1596,7 +1637,10 @@ export async function refreshInfographicLivePositions(infographic, env, priceMap
     infographic.headline = {};
   }
   infographic.headline.openTrades = traderPositions.length;
-  infographic.headline.investorPositions = investorHoldings.length;
+  infographic.headline.investorPositions = Math.max(
+    investorHoldings.length,
+    countInvestorOpenBook(investorRaw, liveScores),
+  );
   return infographic;
 }
 
