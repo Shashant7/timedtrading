@@ -267,15 +267,30 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
     expect(db.batches.length).toBe(0);
   });
 
-  it("covers the whole map when under the cap (4 TF rows per ticker)", async () => {
+  it("covers the whole map when under the cap (D + 6 intraday TFs per ticker)", async () => {
     const db = mockDb();
     const syms = ["AAA", "BBB", "CCC"];
     await syncLivePricesToChartCandles({ DB: db }, pricesFor(syms), { log: false }, openHook);
     expect(tickersWritten(db)).toEqual(new Set(syms));
-    expect(db.batches.length).toBe(syms.length * 4);
+    // 1 D row per ticker + 6 intraday TFs (5/10/15/30/60/240) = 7 rows
+    expect(db.batches.length).toBe(syms.length * 7);
   });
 
-  it("priority tickers are always included when over the cap", async () => {
+  it("D bar is written for EVERY priced ticker even when intraday rotation caps", async () => {
+    const syms = Array.from({ length: 20 }, (_, i) => `T${String(i).padStart(2, "0")}`);
+    const db = mockDb();
+    await syncLivePricesToChartCandles(
+      { DB: db }, pricesFor(syms),
+      { log: false, maxTickers: 5, rotationOffset: 0 },
+      openHook,
+    );
+    // Every ticker must have a D row even though intraday is capped at 5.
+    const dRows = db.batches.filter((s) => s.args[1] === "D");
+    const dTickers = new Set(dRows.map((s) => s.args[0]));
+    expect(dTickers.size).toBe(20);
+  });
+
+  it("priority tickers are always included when over the cap (intraday coverage)", async () => {
     const syms = Array.from({ length: 20 }, (_, i) => `T${String(i).padStart(2, "0")}`);
     for (let rot = 0; rot < 5; rot++) {
       const db = mockDb();
@@ -284,10 +299,11 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
         { log: false, maxTickers: 10, priorityTickers: ["T19", "T18"], rotationOffset: rot },
         openHook,
       );
-      const written = tickersWritten(db);
-      expect(written.has("T19")).toBe(true);
-      expect(written.has("T18")).toBe(true);
-      expect(written.size).toBe(10);
+      const intradayRows = db.batches.filter((s) => s.args[1] !== "D");
+      const intradayTickers = new Set(intradayRows.map((s) => s.args[0]));
+      expect(intradayTickers.has("T19")).toBe(true);
+      expect(intradayTickers.has("T18")).toBe(true);
+      expect(intradayTickers.size).toBe(10);
     }
   });
 
@@ -301,7 +317,8 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
         { log: false, maxTickers: 10, rotationOffset: rot * 10 },
         openHook,
       );
-      for (const t of tickersWritten(db)) covered.add(t);
+      const intradayRows = db.batches.filter((s) => s.args[1] !== "D");
+      for (const s of intradayRows) covered.add(s.args[0]);
     }
     expect(covered.size).toBe(25);
   });
@@ -312,8 +329,8 @@ describe("syncLivePricesToChartCandles coverage rotation", () => {
     await syncLivePricesToChartCandles({ DB: db1 }, pricesFor(syms), { log: false, maxTickers: 10, rotationOffset: 0 }, openHook);
     const db2 = mockDb();
     await syncLivePricesToChartCandles({ DB: db2 }, pricesFor(syms), { log: false, maxTickers: 10, rotationOffset: 10 }, openHook);
-    const w1 = tickersWritten(db1);
-    const w2 = tickersWritten(db2);
+    const w1 = new Set(db1.batches.filter((s) => s.args[1] !== "D").map((s) => s.args[0]));
+    const w2 = new Set(db2.batches.filter((s) => s.args[1] !== "D").map((s) => s.args[0]));
     const overlap = [...w1].filter((t) => w2.has(t));
     expect(overlap.length).toBe(0);
   });
