@@ -112,8 +112,13 @@ describe("classifyActivityEvent", () => {
 });
 
 describe("isActionableFeedEvent", () => {
-  it("includes trader exit signal and lot fills", () => {
-    expect(isActionableFeedEvent({ type: "TRADE_EXIT_SIGNAL", ticker: "MU" })).toBe(true);
+  it("excludes trader exit signal advisories", () => {
+    expect(isActionableFeedEvent({ type: "TRADE_EXIT_SIGNAL", ticker: "PKG" })).toBe(false);
+    expect(isActionableFeedEvent({ type: "KANBAN_EXIT", ticker: "PKG" })).toBe(false);
+  });
+
+  it("includes trader lot fills and investor executions", () => {
+    expect(isActionableFeedEvent({ type: "TRADE_EXIT", ticker: "MU" })).toBe(true);
     expect(isActionableFeedEvent({
       type: "INVESTOR_SIGNAL",
       ticker: "CRDO",
@@ -174,7 +179,7 @@ describe("isActionableFeedEvent", () => {
 });
 
 describe("isActionableNotification", () => {
-  it("excludes passive investor and setup kanban", () => {
+  it("excludes passive investor, setup kanban, and lane advisories", () => {
     expect(isActionableNotification({
       type: "investor_signal",
       title: "INVESTOR · ON RADAR: FSLR",
@@ -184,15 +189,22 @@ describe("isActionableNotification", () => {
       title: "Setup: AAPL",
       body: "AAPL moved to setup (from new)",
     })).toBe(false);
-  });
-
-  it("includes trade alerts and under-review kanban", () => {
-    expect(isActionableNotification({ type: "trade_entry", title: "Enter MU" })).toBe(true);
+    expect(isActionableNotification({
+      type: "kanban",
+      title: "Exit signal: PKG",
+      body: "PKG moved to exit (from defend)",
+    })).toBe(false);
     expect(isActionableNotification({
       type: "kanban",
       title: "Under Review: MU",
       body: "MU moved to in_review (from enter)",
-    })).toBe(true);
+    })).toBe(false);
+  });
+
+  it("includes executed trade alerts only", () => {
+    expect(isActionableNotification({ type: "trade_entry", title: "Enter MU" })).toBe(true);
+    expect(isActionableNotification({ type: "trade_exit", title: "Exit PKG LONG" })).toBe(true);
+    expect(isActionableNotification({ type: "trade_trim", title: "Trim MU" })).toBe(true);
   });
 
   it("excludes investor reduce warnings from bell", () => {

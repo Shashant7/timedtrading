@@ -489,7 +489,7 @@
     if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
     const t = String(ev?.type || ev?.event || "").toUpperCase();
     if (t === "SIGNAL_GRADED") return false;
-    if (t === "TRADE_EXIT_SIGNAL") return true;
+    if (t === "TRADE_EXIT_SIGNAL" || t === "KANBAN_EXIT") return false;
     const traderTypes = new Set([
       "ENTRY", "ENTER", "ADD", "ADD_ENTRY", "TRIM", "TP_HIT_TRIM",
       "EXIT", "TP_HIT_EXIT", "SL_HIT",
@@ -794,4 +794,4 @@
   else mount();
 })();
 
-// cache-bust:1783377400388:834814849
+// cache-bust:1783393942317:2458537

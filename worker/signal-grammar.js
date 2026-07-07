@@ -431,9 +431,8 @@ export function notificationMetaFromSignal(signal) {
 }
 
 /**
- * Activity strip / merged feed — exclude passive watch; include trader
- * fills + exit signals, and investor rebalance executions only (no
- * reduce/queue/review warnings).
+ * Activity strip / merged feed — executed trader/investor fills only (no
+ * advisory exit signals, kanban lane moves, or passive watches).
  */
 export function isActionableFeedEvent(ev, meta) {
   if (!ev) return false;
@@ -442,7 +441,7 @@ export function isActionableFeedEvent(ev, meta) {
 
   const t = String(ev.type || ev.event || "").toUpperCase();
   if (t === "SIGNAL_GRADED") return false;
-  if (t === "TRADE_EXIT_SIGNAL") return true;
+  if (t === "TRADE_EXIT_SIGNAL" || t === "KANBAN_EXIT") return false;
   if (TRADER_EXEC_FEED_TYPES.has(t)) return true;
 
   const invType = String(ev.investor_alert_type || "").toLowerCase();
@@ -456,7 +455,7 @@ export function isActionableFeedEvent(ev, meta) {
   return false;
 }
 
-/** Notification bell — same policy as activity strip for trade/investor/kanban. */
+/** Notification bell — same policy as activity strip (executed fills only). */
 export function isActionableNotification(n) {
   if (!n) return false;
   const t = String(n.type || "").toLowerCase();
@@ -466,14 +465,6 @@ export function isActionableNotification(n) {
     const verb = investorVerbFromNotification(n);
     if (_INVESTOR_PASSIVE_SET.has(verb)) return false;
     return _INVESTOR_EXECUTED_SET.has(verb);
-  }
-
-  if (t === "kanban") {
-    const stage = kanbanStageFromNotification(n);
-    if (stage && !_ACTIONABLE_KANBAN_SET.has(stage)) return false;
-    const title = String(n.title || "").toUpperCase();
-    if (title.startsWith("SETUP:")) return false;
-    return true;
   }
 
   return false;

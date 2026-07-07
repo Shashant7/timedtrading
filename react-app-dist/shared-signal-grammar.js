@@ -217,7 +217,7 @@
     if (!sym || sym === "UNDEFINED" || sym === "NULL") return false;
     var t = String(ev.type || ev.event || "").toUpperCase();
     if (t === "SIGNAL_GRADED") return false;
-    if (t === "TRADE_EXIT_SIGNAL") return true;
+    if (t === "TRADE_EXIT_SIGNAL" || t === "KANBAN_EXIT") return false;
     if (TRADER_EXEC_FEED_TYPES.indexOf(t) >= 0) return true;
     var invType = String(ev.investor_alert_type || "").toLowerCase();
     if (INVESTOR_EXEC_ALERT_TYPES.indexOf(invType) >= 0) return true;
@@ -236,13 +236,6 @@
       var verb = investorVerbFromNotification(n);
       if (verbInSet(verb, INVESTOR_PASSIVE_ALERT_VERBS)) return false;
       return verbInSet(verb, INVESTOR_EXECUTED_ALERT_VERBS);
-    }
-    if (t === "kanban") {
-      var stage = kanbanStageFromNotification(n);
-      if (stage && !stageActionable(stage)) return false;
-      var title = String(n.title || "").toUpperCase();
-      if (title.indexOf("SETUP:") === 0) return false;
-      return true;
     }
     return false;
   }
@@ -286,4 +279,4 @@
   };
 })();
 
-// cache-bust:1783377400388:834814849
+// cache-bust:1783393942317:2458537
