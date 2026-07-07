@@ -65,6 +65,11 @@ import {
   buildOvernightDayTradeGamePlan,
 } from "./day-trade-game-plan.js";
 import { STRATEGY_PHASE } from "./strategy-context.js";
+import {
+  loadFsdLevelsForTicker,
+  buildLevelConditionedModes,
+  mergeFsdLevelsIntoScenarioLevels,
+} from "./fsd-level-policy.js";
 
 /**
  * Research-desk directional posture as a bounded ±1 tilt for the day lean.
@@ -402,7 +407,7 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
     }
     : null;
 
-  return {
+  let scenario = {
     ok: true,
     ticker: sym,
     price: rnd2(price),
@@ -421,4 +426,26 @@ export async function buildTickerScenario(env, ticker, opts = {}) {
     generated_at: new Date().toISOString(),
     source: SCENARIO_VERSION,
   };
+
+  // FSD level overlay: when research desk published levels for this ticker,
+  // prefer them for S/R lists and expose level-conditioned runtime modes.
+  if (opts.includeFsdLevels !== false) {
+    try {
+      const fsdLevels = await loadFsdLevelsForTicker(env, sym);
+      if (fsdLevels.length) {
+        scenario = mergeFsdLevelsIntoScenarioLevels(scenario, fsdLevels);
+        const levelModes = buildLevelConditionedModes(fsdLevels, price, scenario.levels);
+        scenario.level_modes = levelModes;
+        scenario.runtime_policy_overlay = {
+          source: "fsd_level_policy",
+          active_mode: levelModes.active_mode,
+          recommend: levelModes.active_rule?.recommend || null,
+          rules: levelModes.rules,
+        };
+        scenario.fsd_levels = fsdLevels;
+      }
+    } catch (_) { /* FSD overlay is best-effort */ }
+  }
+
+  return scenario;
 }
