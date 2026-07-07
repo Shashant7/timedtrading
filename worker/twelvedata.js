@@ -526,6 +526,21 @@ export async function tdFetchRevenueEstimate(env, symbol) {
   return tdFetch(url, 15000);
 }
 
+/**
+ * Normalize TwelveData /statistics percent-like fields.
+ * Docs show `fifty_two_week_change` as a decimal fraction (0.3756 = 37.56%),
+ * but some tickers return values already scaled (53.35 = 53.35%).
+ */
+export function normalizeTdStatisticsPercent(raw) {
+  if (raw == null || raw === "") return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return null;
+  // TwelveData docs use decimal fractions (0.37 = 37%). Some tickers return
+  // values already in percent (53.35). Values with |n| > 15 are treated as percent.
+  if (Math.abs(n) > 15) return Number(n.toFixed(2));
+  return Number((n * 100).toFixed(2));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Exports for data-provider layer
 // ═══════════════════════════════════════════════════════════════════════════════
