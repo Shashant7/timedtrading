@@ -1689,10 +1689,11 @@ function BridgeSection({
   const BC = window.TimedBrokerConnect;
   const webullMode = BC?.webullAuthMode?.(status) || (status?.webull_auth_mode === "personal" ? "personal" : "connect");
   const webullCredsOk = BC?.webullCredentialsReady?.(status) ?? status?.webull_credentials_configured === true;
-  const connectedAccounts = BC?.mergeAccountRows ? BC.mergeAccountRows(users, portfolio?.users) : users;
-  const webullUsers = BC?.findUsersByBroker?.(users, "webull") || users.filter(u => String(u?.broker || "").toLowerCase() === "webull");
-  const ibkrUsers = BC?.findUsersByBroker?.(users, "ibkr") || users.filter(u => String(u?.broker || "").toLowerCase() === "ibkr");
+  const connectedAccounts = (BC?.mergeAccountRows ? BC.mergeAccountRows(users, portfolio?.users) : users).filter(u => u.status === "connected");
+  const webullUsers = BC?.findUsersByBroker?.(users, "webull") || users.filter(u => String(u?.broker || "").toLowerCase() === "webull" && u.status === "connected");
+  const ibkrUsers = BC?.findUsersByBroker?.(users, "ibkr") || users.filter(u => String(u?.broker || "").toLowerCase() === "ibkr" && u.status === "connected");
   const brokerLabel = u => BC?.brokerDisplayName?.(u?.broker, u, status) || String(u?.broker || "—").toUpperCase();
+  const ownerEmail = u => BC?.ownerDisplayEmail?.(u) || u?.user_id || "—";
   const errorKind = status?.error_kind || (status?.error?.includes("URL") ? "url_missing" : status?.error?.includes("OPERATOR_KEY") ? "key_missing" : status?.error ? "unreachable" : null);
   const pillText = errorKind === "url_missing" ? "URL NOT SET" : errorKind === "key_missing" ? "OPERATOR KEY NOT SET" : errorKind === "unreachable" ? "BRIDGE UNREACHABLE" : "NOT LINKED";
   return React.createElement("div", {
@@ -1851,7 +1852,7 @@ function BridgeSection({
       className: "flex items-baseline gap-2 flex-wrap"
     }, React.createElement("strong", {
       className: "text-white text-[13px]"
-    }, u.user_id), React.createElement("span", {
+    }, ownerEmail(u)), React.createElement("span", {
       className: "mc-pill mc-pill-ok",
       style: {
         fontSize: 9
@@ -2251,7 +2252,7 @@ function BridgeSection({
     className: "text-[12px] font-semibold text-white mb-1"
   }, "Webull \xB7 Personal API"), React.createElement("div", {
     className: "text-[10px] mc-mute mb-2"
-  }, webullCredsOk ? `App Key configured on bridge (${webullMode}, ${status?.webull_environment || "prod"}). Connect binds the operator Webull account to a user email.` : "Set WEBULL_APP_KEY and WEBULL_APP_SECRET on tt-broker-bridge."), webullUsers.length > 0 && React.createElement("div", {
+  }, webullCredsOk ? `Syncs every Webull account under this login (Cash, Margin, IRAs) — ${webullUsers.length || 0} currently linked.` : "Set WEBULL_APP_KEY and WEBULL_APP_SECRET on tt-broker-bridge."), webullUsers.length > 0 && React.createElement("div", {
     className: "text-[10px] font-mono mb-2 text-emerald-300/90"
   }, webullUsers.length, " linked \xB7 ", webullUsers.map(w => w.webull_account_id || w.user_id).join(", ")), React.createElement("button", {
     disabled: busy || !webullCredsOk || !BC,
@@ -2274,8 +2275,10 @@ function BridgeSection({
           alert(`Connect failed: ${json?.error || json?.note || "unknown"}`);
           return;
         }
-        if (json?.personal) {
-          alert(`Webull personal API connected.\nUser: ${json.user_id || uid}\nAccount: ${json.webull_account_id || "—"}`);
+        if (json?.personal || json?.accounts_connected) {
+          const n = Number(json.accounts_connected) || (Array.isArray(json.accounts) ? json.accounts.length : 1);
+          const lines = (json.accounts || []).map(a => `  • ${a.webull_account_label || a.webull_account_type || "Account"} (${a.webull_account_id || "—"})`).join("\n");
+          alert(`Webull synced ${n} account(s).\n${lines || ""}\n\nSet caps and enable live trading per account below.`);
         } else if (json?.authorize_url) {
           window.open(json.authorize_url, "_blank", "noopener,noreferrer");
           alert("Complete Webull OAuth in the new window, then refresh.");
@@ -2289,7 +2292,7 @@ function BridgeSection({
         setBusy(false);
       }
     }
-  }, webullUsers.length > 0 ? "Reconnect Webull" : "Connect Webull"), webullMode === "connect" && !status?.webull_connect_configured && React.createElement("div", {
+  }, webullUsers.length > 0 ? "Re-sync all Webull accounts" : "Connect Webull"), webullMode === "connect" && !status?.webull_connect_configured && React.createElement("div", {
     className: "text-[10px] text-amber-300/90 mt-2"
   }, "Partner OAuth also needs WEBULL_CONNECT_CLIENT_ID/SECRET from connect.api@webull-us.com")), React.createElement("div", {
     style: {
@@ -4163,6 +4166,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1783451130953:629596100
+// cache-bust:1783451581057:699779409
 
-// cache-bust:1783451130953:629596100
+// cache-bust:1783451581057:699779409

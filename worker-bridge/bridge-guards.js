@@ -5,7 +5,7 @@
 // the actual Robinhood MCP. Fail-closed: any check failing returns
 // { ok: false, reject_reason } and the caller logs + refuses.
 
-import { getKillSwitch, readUser, writeUser } from "./bridge-storage.js";
+import { getKillSwitch, readUser, writeUser, resolveBridgeUser } from "./bridge-storage.js";
 import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
@@ -352,7 +352,7 @@ export async function preflightOrder(env, payload) {
   }
 
   const userId = String(payload.user_id).toLowerCase();
-  const user = await readUser(env, userId);
+  const user = await resolveBridgeUser(env, userId);
   if (!user) {
     return { ok: false, reject_reason: "user_not_connected" };
   }

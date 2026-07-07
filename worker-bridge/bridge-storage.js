@@ -96,6 +96,34 @@ export async function listConnectedUsers(env, limit = 100) {
   }
 }
 
+/**
+ * Resolve a bridge user row for order preflight.
+ * Supports owner email → enabled Webull sub-account fallback.
+ */
+export async function resolveBridgeUser(env, userId, opts = {}) {
+  const id = String(userId || "").toLowerCase().trim();
+  if (!id) return null;
+
+  const direct = await readUser(env, id);
+  if (direct?.status === "connected") return direct;
+
+  const all = await listConnectedUsers(env, 200);
+  const subs = all.filter((u) => {
+    if (String(u?.broker || "").toLowerCase() !== "webull") return false;
+    if (u.status !== "connected") return false;
+    if (u.owner_email === id) return true;
+    return String(u.user_id || "").startsWith(`${id}#webull#`);
+  });
+  if (!subs.length) return direct || null;
+
+  const enabled = subs.filter((u) => u.broker_integration_enabled);
+  const pool = enabled.length ? enabled : subs;
+  const preferClass = opts.preferClass || env?.WEBULL_DEFAULT_ACCOUNT_CLASS || "INDIVIDUAL_MARGIN";
+  return pool.find((u) => u.webull_account_class === preferClass)
+    || pool.find((u) => u.webull_account_class === "INDIVIDUAL_CASH")
+    || pool[0];
+}
+
 export async function getKillSwitch(env) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return "off";

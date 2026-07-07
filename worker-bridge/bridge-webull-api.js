@@ -3,7 +3,7 @@
 // 2026-06-15 — Webull Connect signed REST + OAuth token lifecycle.
 
 import { unwrapSecret, wrapSecret } from "./bridge-crypto.js";
-import { writeUser } from "./bridge-storage.js";
+import { readUser, writeUser } from "./bridge-storage.js";
 import { buildWebullSignedHeaders } from "./bridge-webull-sign.js";
 import {
   WEBULL_API_PATHS,
@@ -292,12 +292,33 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
   });
 }
 
-/** Pick the first account id from Webull account list response. */
-export function pickWebullAccountId(listResponse) {
+/** Normalize every account from Webull /openapi/account/list. */
+export function parseWebullAccountList(listResponse) {
   const data = listResponse?.response?.data ?? listResponse?.response ?? listResponse;
   const rows = Array.isArray(data) ? data : (Array.isArray(data?.account_list) ? data.account_list : []);
-  const first = rows[0];
-  return String(first?.account_id || first?.accountId || first?.id || "").trim() || null;
+  return rows.map((row) => ({
+    account_id: String(row?.account_id || row?.accountId || row?.id || "").trim(),
+    account_type: row?.account_type || row?.accountType || null,
+    account_label: row?.account_label || row?.accountLabel || row?.account_type || "Account",
+    account_class: row?.account_class || row?.accountClass || null,
+    account_number: row?.account_number || row?.accountNumber || null,
+  })).filter((a) => a.account_id);
+}
+
+/** Stable bridge user_id per Webull sub-account under one owner email. */
+export function webullSubUserId(ownerEmail, account) {
+  const slug = String(account?.account_class || account?.account_type || account?.account_id || "acct")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return `${String(ownerEmail).toLowerCase()}#webull#${slug}`;
+}
+
+/** Pick the first account id from Webull account list response. */
+export function pickWebullAccountId(listResponse) {
+  const rows = parseWebullAccountList(listResponse);
+  return rows[0]?.account_id || null;
 }
 
 /** Normalize balance response for /bridge/portfolio MC UI. */
@@ -332,6 +353,60 @@ export function normalizeWebullPositions(posResp) {
     .filter((p) => p.symbol && Number.isFinite(p.qty));
 }
 
+/** Upsert one KV row per Webull account under an owner email. */
+export async function syncWebullPersonalAccounts(env, ownerEmail, accounts) {
+  const owner = String(ownerEmail).toLowerCase();
+  const synced = [];
+  for (const acct of accounts) {
+    const subId = webullSubUserId(owner, acct);
+    const existing = (await readUser(env, subId)) || { user_id: subId };
+    const row = {
+      ...existing,
+      user_id: subId,
+      owner_email: owner,
+      broker: "webull",
+      status: "connected",
+      connected_at: existing.connected_at || Date.now(),
+      webull_account_id: acct.account_id,
+      webull_account_label: acct.account_label,
+      webull_account_type: acct.account_type,
+      webull_account_class: acct.account_class,
+      webull_account_number: acct.account_number || null,
+      webull_auth_mode: webullAuthMode(env),
+      broker_integration_enabled: existing.broker_integration_enabled ?? false,
+      daily_order_count: existing.daily_order_count || 0,
+      daily_order_count_date: existing.daily_order_count_date || new Date().toISOString().slice(0, 10),
+      total_orders_lifetime: existing.total_orders_lifetime || 0,
+      user_caps: existing.user_caps || {
+        max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
+        max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
+      },
+    };
+    await writeUser(env, subId, row);
+    synced.push({
+      user_id: subId,
+      owner_email: owner,
+      webull_account_id: acct.account_id,
+      webull_account_label: acct.account_label,
+      webull_account_type: acct.account_type,
+      webull_account_class: acct.account_class,
+      broker_integration_enabled: row.broker_integration_enabled,
+    });
+  }
+
+  const legacy = await readUser(env, owner);
+  if (legacy?.broker === "webull" && legacy?.status === "connected" && !String(legacy.user_id || "").includes("#webull#")) {
+    await writeUser(env, owner, {
+      ...legacy,
+      status: "disconnected",
+      disconnected_at: Date.now(),
+      broker_integration_enabled: false,
+      superseded_by: "webull_subaccounts",
+    });
+  }
+  return synced;
+}
+
 export function buildWebullAuthorizeUrl(env, req, state) {
   const base = webullApiBaseUrl(env);
   const url = new URL(`${base}${WEBULL_API_PATHS.authorizeLogin}`);
@@ -351,32 +426,19 @@ export async function finalizeWebullTokens(env, userId, user, tokenResp) {
   if (!tok.ok) return tok;
 
   const accounts = await webullGetAccountList(env, tok.access_token);
-  const accountId = pickWebullAccountId(accounts);
-  if (!accountId) {
+  const parsed = parseWebullAccountList(accounts);
+  if (!parsed.length) {
     return { ok: false, error: "webull_no_account_id_in_list", response: accounts.response };
   }
 
-  const connected = {
-    ...tok.user,
-    broker: "webull",
-    status: "connected",
-    connected_at: Date.now(),
-    webull_account_id: accountId,
-    broker_integration_enabled: user?.broker_integration_enabled ?? false,
-    daily_order_count: user?.daily_order_count || 0,
-    daily_order_count_date: user?.daily_order_count_date || new Date().toISOString().slice(0, 10),
-    total_orders_lifetime: user?.total_orders_lifetime || 0,
-    user_caps: user?.user_caps || {
-      max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
-      max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
-    },
-  };
-  await writeUser(env, userId, connected);
+  const synced = await syncWebullPersonalAccounts(env, userId, parsed);
   return {
     ok: true,
     user_id: userId,
-    webull_account_id: accountId,
-    broker_integration_enabled: connected.broker_integration_enabled,
+    accounts_connected: synced.length,
+    accounts: synced,
+    webull_account_id: synced[0]?.webull_account_id || null,
+    broker_integration_enabled: synced.some((a) => a.broker_integration_enabled),
   };
 }
 
