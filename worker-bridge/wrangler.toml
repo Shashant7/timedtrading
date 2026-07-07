@@ -79,11 +79,14 @@ DAILY_DIGEST_DRY_RUN = "false"
 # Operator email for audit-log notifications when limits trip.
 OPERATOR_EMAIL = "shashant@gmail.com"
 
-# 2026-06-15 — Webull Connect API (UAT until partner credentials + sign-off).
-# Set WEBULL_ENVIRONMENT=prod after UAT approval.
-WEBULL_ENVIRONMENT = "uat"
+# 2026-06-15 — Webull OpenAPI (personal operator account until Connect partner creds).
+# personal = operator App Key/Secret from open-api portal (no OAuth).
+# connect  = partner OAuth flow (needs client_id + client_secret from connect.api@webull-us.com).
+WEBULL_AUTH_MODE = "personal"
+# prod for live personal keys; uat for sandbox keys from Webull test env.
+WEBULL_ENVIRONMENT = "prod"
 WEBULL_CONNECT_SCOPE = "user:trade:wr"
-# Refresh access tokens this many ms before expiry (default 5 min).
+# Refresh access tokens this many ms before expiry (Connect mode only; default 5 min).
 WEBULL_TOKEN_REFRESH_SKEW_MS = "300000"
 
 [[d1_databases]]
@@ -100,13 +103,16 @@ id = "951f03a0c0464ecfa0d8dad25ebb3361"
 binding = "KV_TIMED"
 id = "e48593af3ef74bf986b2592909ed40cb"
 
-# Secrets (must be set via `wrangler secret put` — not in wrangler.toml):
+# Secrets (must be set via Dashboard or `wrangler secret put` — not in wrangler.toml):
 #   BRIDGE_ENCRYPTION_KEY      AES-256 key (32 bytes b64) for token wrap
 #   BRIDGE_INTERNAL_HMAC_KEY   HMAC for verifying inbound webhooks from TT
 #   ROBINHOOD_OAUTH_CLIENT_ID  RH OAuth client id (once issued by RH)
 #   ROBINHOOD_OAUTH_CLIENT_SECRET
-#   WEBULL_CONNECT_CLIENT_ID   Webull Connect partner client id
+#   WEBULL_APP_KEY             Personal Trading API app key (WEBULL_AUTH_MODE=personal)
+#   WEBULL_APP_SECRET            Personal Trading API app secret
+#   WEBULL_CONNECT_CLIENT_ID   Connect partner client id (WEBULL_AUTH_MODE=connect)
 #   WEBULL_CONNECT_CLIENT_SECRET
-#   WEBULL_APP_KEY               Webull OpenAPI app key (request signing)
-#   WEBULL_APP_SECRET
 #   WEBULL_OAUTH_REDIRECT_URI    Optional override (default: .../bridge/webull/oauth/callback)
+#
+# Dashboard: Workers & Pages → tt-broker-bridge → Settings → Variables → Secrets → Edit
+# Replace placeholder values for WEBULL_APP_KEY / WEBULL_APP_SECRET after first deploy.

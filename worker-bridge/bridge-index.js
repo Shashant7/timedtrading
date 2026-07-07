@@ -43,7 +43,7 @@ import {
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
 import * as WebullAdapter from "./bridge-webull.js";
-import { webullConnectConfigured } from "./bridge-webull-config.js";
+import { webullAuthMode, webullConnectConfigured, webullCredentialsConfigured, webullPersonalConfigured } from "./bridge-webull-config.js";
 import {
   handleWebullOauthStart,
   handleWebullOauthCallback,
@@ -131,6 +131,9 @@ export default {
           env: env?.BRIDGE_ENV || "unknown",
           mock_mode: String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false",
           kill_switch: ks,
+          webull_auth_mode: webullAuthMode(env),
+          webull_credentials_configured: webullCredentialsConfigured(env),
+          webull_personal_configured: webullPersonalConfigured(env),
           webull_connect_configured: webullConnectConfigured(env),
           webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
           supported_brokers: listBrokers().map((b) => ({ id: b.id, label: b.label, status: b.status })),
@@ -252,6 +255,9 @@ export default {
           ok: true,
           mock_mode: String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false",
           kill_switch: ks,
+          webull_auth_mode: webullAuthMode(env),
+          webull_credentials_configured: webullCredentialsConfigured(env),
+          webull_personal_configured: webullPersonalConfigured(env),
           webull_connect_configured: webullConnectConfigured(env),
           users: users.map(_redactUserForList),
           users_count: users.length,

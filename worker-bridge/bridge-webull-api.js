@@ -7,10 +7,13 @@ import { writeUser } from "./bridge-storage.js";
 import { buildWebullSignedHeaders } from "./bridge-webull-sign.js";
 import {
   WEBULL_API_PATHS,
+  webullAccountListPath,
   webullApiBaseUrl,
   webullApiHost,
+  webullAuthMode,
   webullConnectConfigured,
   webullConnectScope,
+  webullCredentialsConfigured,
   webullLiveEnabled,
   webullRedirectUri,
   webullTokenRefreshSkewMs,
@@ -87,7 +90,8 @@ async function signedFetch(env, {
     ...signHeaders,
   };
   if (contentType) headers["Content-Type"] = contentType;
-  if (accessToken) {
+  // Connect OAuth uses Bearer; personal Trading API uses signed headers only (2FA off).
+  if (accessToken && webullAuthMode(env) !== "personal") {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
@@ -181,6 +185,13 @@ async function persistTokenResponse(env, userId, user, tokenResp) {
 
 /** Ensure a valid access token; refresh proactively when near expiry. */
 export async function ensureWebullAccessToken(env, user) {
+  if (webullAuthMode(env) === "personal") {
+    if (!webullLiveEnabled(env)) {
+      return { ok: true, access_token: "", mock: true, user };
+    }
+    return { ok: true, access_token: "", user, personal: true };
+  }
+
   if (!user?.webull_token_wrap) {
     return { ok: false, error: "no_webull_token" };
   }
@@ -225,7 +236,7 @@ export async function ensureWebullAccessToken(env, user) {
 
 export async function webullGetAccountList(env, accessToken) {
   return signedFetch(env, {
-    path: WEBULL_API_PATHS.accountList,
+    path: webullAccountListPath(env),
     method: "GET",
     accessToken,
   });
@@ -369,4 +380,4 @@ export async function finalizeWebullTokens(env, userId, user, tokenResp) {
   };
 }
 
-export { webullConnectScope, webullConnectConfigured, webullLiveEnabled };
+export { webullConnectScope, webullConnectConfigured, webullCredentialsConfigured, webullLiveEnabled };
