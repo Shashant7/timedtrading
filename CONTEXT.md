@@ -189,6 +189,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 - **`tasks/todo.md`** — current live work (read every session).
 - **`AGENTS.md`** + **`skills/README.md`** — onboarding and copy-paste playbooks.
+- **`plans/tt-trust-spine.plan.md`** — north star autonomy ladder (Sense→Adapt);
+  living status + todo YAML. Foundation = `decision_records` + feed health + execution trust.
 - **`docs/self-calibrating-loop.md`** — the version-pinned `decision_records`
   provenance keystone + conviction fusion + bleeder guard (PR #851, 2026-06-26).
   Both behavior levers (`deep_audit_conviction_fusion_enabled`,

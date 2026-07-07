@@ -22,6 +22,12 @@
 
 ### Active
 
+- [ ] **TT Trust Spine — north star plan** ([`plans/tt-trust-spine.plan.md`](../plans/tt-trust-spine.plan.md)).
+      Foundation in progress (PR `cursor/tt-trust-spine-foundation-dbdd`): investor TRIM
+      provenance, `/timed/health` `feeds` block, CI `SCORING_VERSION` guard,
+      `validate-decision-records-live.mjs`. Next: forward conviction validation,
+      broker manifest `log`→`on`, Edge calibrated EV slice.
+
 - [x] **Daily Cycle Composite + FSD level-conditioned modes (2026-07-07).**
       Backend: `GET /timed/daily-cycle-composite`, FSD levels on
       `/timed/ticker-scenario`, scoring policy merge. UI (2026-07-07):

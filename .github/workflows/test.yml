@@ -12,6 +12,7 @@ on:
       - "worker/**"
       - "worker-bridge/**"
       - "scripts/**"
+      - "plans/**"
       - "tests/**"
       - "react-app/**"
       - "package.json"
@@ -53,6 +54,9 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Scoring version bump guard (Trust Spine)
+        run: node scripts/check-scoring-version-bump.mjs --base origin/main
 
       - name: Syntax-check worker entry points
         run: |
