@@ -12521,6 +12521,12 @@
                     const grw = F.growth || {};
                     const earn = F.earnings || {};
                     const pxs = F.price_summary || {};
+                    const week52ReturnPct = (() => {
+                      const v = Number(pxs.fifty_two_week_change_pct);
+                      if (!Number.isFinite(v)) return null;
+                      if (Math.abs(v) > 500) return Number((v / 100).toFixed(2));
+                      return v;
+                    })();
 
                     // ETF / non-equity guard: SPY, QQQ, IWM and similar have no
                     // EPS, no earnings history, no PE ratio. Show a focused
@@ -12559,7 +12565,7 @@
                                 </div>
                                 <div>
                                   <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>52w Change</div>
-                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)", color: pxs.fifty_two_week_change_pct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>{fmtPctSigned(pxs.fifty_two_week_change_pct)}</div>
+                                  <div style={{ fontSize: "var(--ds-fs-md)", fontWeight: 600, fontFamily: "var(--tt-font-mono)", color: week52ReturnPct != null && week52ReturnPct >= 0 ? "var(--ds-up)" : "var(--ds-dn)" }}>{week52ReturnPct != null ? fmtPctSigned(week52ReturnPct) : "—"}</div>
                                 </div>
                                 <div>
                                   <div style={{ fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", marginBottom: 2 }}>50-day MA</div>
@@ -12596,6 +12602,11 @@
                     const fairColor = fvClass === "discount" ? "var(--ds-up)"
                                     : fvClass === "premium" ? "var(--ds-dn)"
                                     : fvClass === "fair" ? "var(--ds-accent)" : "var(--ds-text-muted)";
+                    const fvUnavailableReason = fvPrice == null
+                      ? (Number(earn.eps_ttm) <= 0 || Number(val.pe_ttm) < 0
+                        ? "Not estimated — negative or missing TTM EPS"
+                        : "Not estimated — insufficient forward EPS inputs")
+                      : null;
 
                     // Sortable history rows.
                     const sortedHistory = (() => {
@@ -12640,19 +12651,9 @@
 
                     return (
                       <div className="ds-fundamentals-tab" style={{
-                        // 2026-05-30 (P4) — Lock the default font on this
-                        // wrapper to Inter. Without it, the dense grid of
-                        // small mono numerals + occasional sans labels looked
-                        // visually mixed compared to the rest of the rail
-                        // (which uses Inter for labels and JetBrains Mono
-                        // only for the comparable numbers). Per design rule
-                        // in DESIGN.md: "Never mix Instrument Serif and
-                        // Inter on the same element" + "All numbers a user
-                        // compares use num-* tokens (JetBrains Mono, tabular)".
-                        // Sub-elements still set fontFamily: var(--tt-font-mono)
-                        // where appropriate; this just sets the baseline so
-                        // panel titles, chips, descriptions read as Inter.
                         fontFamily: "var(--ds-font-sans, 'Inter', 'Inter Variable', system-ui, -apple-system, sans-serif)",
+                        paddingBottom: "max(88px, calc(64px + env(safe-area-inset-bottom)))",
+                        WebkitOverflowScrolling: "touch",
                         // Compact-density wrapper. Shrinks all metric values
                         // and chips inside this tab specifically without
                         // affecting Snapshot / Setup / Technicals where the
@@ -12685,12 +12686,12 @@
                                 ? <span className="ds-chip ds-chip--sm">Loading…</span>
                                 : <span className="ds-chip ds-chip--sm" style={{ color: toneColor }}>{N.quality_chip || "Analyst view"}</span>
                             }>
-                              <div style={{ fontSize: "var(--ds-fs-emph)", fontWeight: 700, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: 8 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ds-text-body)", lineHeight: 1.45, marginBottom: 8 }}>
                                 {N.headline}
                               </div>
                               <ul style={{ margin: 0, paddingLeft: 16, display: "flex", flexDirection: "column", gap: 4 }}>
                                 {(N.bullets || []).slice(0, 3).map((b, i) => (
-                                  <li key={`fb-${i}`} style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>{b}</li>
+                                  <li key={`fb-${i}`} style={{ fontSize: 12, color: "var(--ds-text-muted)", lineHeight: 1.45 }}>{b}</li>
                                 ))}
                               </ul>
                             </Panel>
@@ -12739,8 +12740,17 @@
                             <Metric label="P/B" value={fmtNum(val.pb_ratio, 2)} />
                             <Metric label="PEG" value={fmtNum(val.peg_ratio, 2)} />
                             <Metric label="EV" value={fmtBigUsd(val.enterprise_value)} />
+                            <Metric
+                              label="Fair Value"
+                              value={fvPrice != null ? `$${fmtNum(fvPrice, 2)}` : "—"}
+                              delta={fvClass ? String(fvClass).toUpperCase() : undefined}
+                              deltaClass={fvClass === "discount" ? "up" : fvClass === "premium" ? "dn" : undefined}
+                            />
+                            {val.current_price != null && (
+                              <Metric label="Current" value={`$${fmtNum(val.current_price, 2)}`} />
+                            )}
                           </div>
-                          {fvPrice != null && (
+                          {fvPrice != null ? (
                             <div style={{ marginTop: "var(--ds-space-3)", padding: "var(--ds-space-3)", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", border: `1px solid ${fairColor}` }}>
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                                 <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>FAIR VALUE</span>
@@ -12787,6 +12797,15 @@
                                   </div>
                                 </div>
                               )}
+                            </div>
+                          ) : (
+                            <div style={{ marginTop: "var(--ds-space-3)", padding: "var(--ds-space-3)", background: "var(--ds-bg-glass)", borderRadius: "var(--ds-radius-xs)", border: "1px solid var(--ds-border-faint)" }}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                                <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>FAIR VALUE</span>
+                              </div>
+                              <div style={{ fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.45 }}>
+                                {fvUnavailableReason || "Not estimated for this ticker."}
+                              </div>
                             </div>
                           )}
                         </Panel>
@@ -13007,11 +13026,11 @@
                               <Metric label="50-day MA" value={pxs.day_50_ma != null ? `$${fmtNum(pxs.day_50_ma, 2)}` : "—"} />
                               <Metric label="200-day MA" value={pxs.day_200_ma != null ? `$${fmtNum(pxs.day_200_ma, 2)}` : "—"} />
                             </div>
-                            {pxs.fifty_two_week_change_pct != null && (
+                            {week52ReturnPct != null && (
                               <div style={{ marginTop: "var(--ds-space-2)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <span className="ds-caption" style={{ color: "var(--ds-text-muted)" }}>52W RETURN</span>
-                                <span className={`ds-chip ds-chip--sm ${pxs.fifty_two_week_change_pct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
-                                  {fmtPctSigned(pxs.fifty_two_week_change_pct)}
+                                <span className={`ds-chip ds-chip--sm ${week52ReturnPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
+                                  {fmtPctSigned(week52ReturnPct)}
                                 </span>
                               </div>
                             )}
