@@ -21,6 +21,7 @@
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
 import { isNyRegularMarketOpenStatic } from "../market-calendar.js";
+import { etDateStr, tradingDateUtcMs, isTradingDay } from "../foundation/trading-calendar.js";
 import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
 
 /** RTH: quote older than 10m is stale (operator rule). Not poll `t` — GS refreshed `t` every minute while `p` stuck at 1090. */
@@ -309,6 +310,23 @@ function candleBucketTsMs(tsMs, tfMinutes) {
   return Math.floor(Number(tsMs) / bucketMs) * bucketMs;
 }
 
+/**
+ * Bucket anchor for a TF label. Intraday numeric TFs use candleBucketTsMs;
+ * "D" anchors to tradingDateUtcMs(etDateStr(ts)) — the canonical daily bar
+ * anchor used by every ingest path (matches worker/foundation/trading-calendar.js).
+ * Returns 0 when the TF has no meaningful live-tick bucket (W/M — rolled from D).
+ */
+export function bucketTsForTfLabel(tsMs, tfLabel) {
+  const tf = String(tfLabel);
+  if (tf === "D") {
+    const day = etDateStr(Number(tsMs) || Date.now());
+    if (!day || !isTradingDay(day)) return 0;
+    return tradingDateUtcMs(day);
+  }
+  if (tf === "W" || tf === "M") return 0; // rolled from D
+  return candleBucketTsMs(tsMs, Number(tf));
+}
+
 // Patch `timed:latest:${sym}` blobs with fresh price + ingest_ts. Preserves
 // non-zero day-change values (a closed-market dc=0 must never erase the last
 // known good value) and recomputes from price+prev_close when both sides are
@@ -470,18 +488,53 @@ export async function syncLivePricesToChartCandles(env, pricesMap, opts = {}, ho
     entries = [...priorityEntries, ...rotated.slice(0, restBudget)];
   }
 
-  const chartTfs = [10, 15, 30, 60];
+  // 2026-07-07 (candle continuity doctrine — MU/WDC/SOXL corollary for candles).
+  // Live sync now covers EVERY freshness-critical TF a real trading platform
+  // draws continuously as ticks arrive: 5/10/15/30/60/240 intraday + D. Before
+  // this, only 10/15/30/60 got the live patch, so a ticker with an empty D or
+  // 240 bar (new universe add, gap in nightly backfill) would show missing_tfs
+  // until a REST backfill happened to run — days in the worst case. W and M
+  // roll deterministically from D, so they don't need per-tick writes.
+  //
+  // Intraday TFs still rotate through the cap; D writes 1 row per ticker per
+  // tick (bucket collapses to today's anchor) so cap doesn't shrink it — every
+  // priced ticker gets a fresh close every minute during RTH.
+  const intradayTfs = [5, 10, 15, 30, 60, 240];
   const updatedAt = nowMs;
   const stmts = [];
+  const dailyTf = normalizeTfKey("D");
 
   try {
     if (typeof hooks.ensureCandleSchema === "function") {
       await hooks.ensureCandleSchema(env);
     }
+    // 1) D bar — write every priced ticker (no rotation): the D close should
+    //    track the live tape for every symbol, otherwise `_freshness` marks
+    //    the ticker STALE and scoring quarantines it.
+    const nowBucketD = bucketTsForTfLabel(nowMs, "D");
+    if (nowBucketD > 0 && dailyTf) {
+      for (const [sym, snap] of all) {
+        const px = Math.round(Number(snap.p) * 100) / 100;
+        stmts.push(
+          db.prepare(
+            `INSERT INTO ticker_candles (ticker, tf, ts, o, h, l, c, v, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)
+             ON CONFLICT(ticker, tf, ts) DO UPDATE SET
+               h = MAX(ticker_candles.h, excluded.h),
+               l = MIN(ticker_candles.l, excluded.l),
+               c = excluded.c,
+               updated_at = excluded.updated_at`
+          ).bind(sym, dailyTf, nowBucketD, px, px, px, px, updatedAt),
+        );
+      }
+    }
+
+    // 2) Intraday TFs — priority first, rotate the tail so overflow tickers
+    //    get covered within a few ticks (cap * TF-count keeps D1 CPU bounded).
     for (const [sym, snap] of entries.slice(0, maxTickers)) {
       const px = Math.round(Number(snap.p) * 100) / 100;
       const ts = Number(snap.t) || nowMs;
-      for (const tfMin of chartTfs) {
+      for (const tfMin of intradayTfs) {
         const tfKey = normalizeTfKey(String(tfMin));
         const bucketTs = candleBucketTsMs(ts, tfMin);
         if (!tfKey || !bucketTs) continue;

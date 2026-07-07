@@ -38,6 +38,11 @@ import {
 } from "./extended-hours.js";
 import { applyMacroPriceAliases, syncMacroLatestStubs } from "../futures-proxy.js";
 import { ensureVixLevel } from "../vix-source.js";
+import {
+  extractChainGapCandidates,
+  healChainGaps,
+  onboardNewUniverseTickers,
+} from "./candle-chain-heal.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
 function feedPollTimestamp(nowMs = Date.now()) {
@@ -372,11 +377,20 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         const needsRestFetch = !doFresh || _marketClosed;
 
         // ── REST snapshot fallback when DO isn't providing fresh data ──
+        // 2026-07-07 (candle continuity): the fallback universe MUST match the
+        // stale-sweep universe (SECTOR_MAP ∪ timed:tickers ∪ user-added). The
+        // old build skipped screener/theme-added tickers here, so dynamic names
+        // (SMCI-class adds) only got REST heals via the stale sweep tail —
+        // which is capped and rotates. Widening it means every priced ticker
+        // has a chance to refresh from REST every minute, not every N minutes.
         let restFallbackCount = 0;
         if (needsRestFetch) {
           try {
-            const userAddedForPF = await deps.d1GetActiveUserTickersCached(env);
-            const allTickersForSnap = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForPF])];
+            const allTickersForSnap = [...new Set([
+              ...Object.keys(SECTOR_MAP),
+              ...universeTickers,
+              ...userAddedForPriceFeed,
+            ])];
             const snapResult = await deps.dataFetchSnapshots(env, allTickersForSnap);
             const snapshots = snapResult.snapshots || {};
             const CRYPTO_24H_FULL = new Set(["BTCUSD", "ETHUSD"]);
@@ -787,6 +801,46 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               await deps.refreshPriorityChartCandles(env, tickers, { tfs: ["240", "D"], sinceDays: 7 });
             } catch (e) {
               console.warn("[CHART_REFRESH] price-feed hook failed:", String(e?.message || e).slice(0, 200));
+            }
+          })());
+        }
+
+        // ── 2026-07-07 (candle continuity doctrine) ─────────────────────────
+        // Proactively heal broken chains — tickers that entered the universe
+        // but never got their D/W/M seeded, or intraday TFs that fell out of
+        // SLO. This runs from the feed cron so healing doesn't depend on
+        // tt-engine (which owns the scoring-cron heal); if tt-engine's *lane*
+        // is quiet the chain still repairs itself. Bounded (6/tick) and
+        // priority-first (open positions) — free CPU, uses whatever REST
+        // budget TwelveData/Alpaca have available.
+        if (_marketOpen && env?.DB
+            && (typeof deps.backfillCandles === "function"
+                || typeof deps.ensureTickerOnboard === "function")) {
+          ctx.waitUntil((async () => {
+            try {
+              // Detect brand-new universe adds first — full onboard fixes them
+              // in ONE shot, otherwise the heal lane below would chew through
+              // TFs one at a time.
+              if (typeof deps.ensureTickerOnboard === "function") {
+                await onboardNewUniverseTickers(env, ctx, [...universeTickers, ...Object.keys(prices)], {
+                  onboard: deps.ensureTickerOnboard,
+                }, { maxOnboard: 4 });
+              }
+              const summary = await kvGetJSON(KV, "timed:freshness:summary");
+              const candidates = extractChainGapCandidates(summary);
+              if (candidates.length === 0) return;
+              const priorityTickers = typeof deps.collectPriorityChartTickers === "function"
+                ? await deps.collectPriorityChartTickers(env).catch(() => [])
+                : [];
+              await healChainGaps(env, ctx, candidates, {
+                backfill: deps.backfillCandles,
+                onboard: deps.ensureTickerOnboard,
+              }, {
+                maxTickers: 6,
+                priorityTickers,
+              });
+            } catch (e) {
+              console.warn("[CANDLE_CHAIN_HEAL] price-feed hook failed:", String(e?.message || e).slice(0, 200));
             }
           })());
         }

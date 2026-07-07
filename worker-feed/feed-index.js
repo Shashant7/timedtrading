@@ -34,7 +34,7 @@ import {
   getEasternParts,
 } from "../worker/market-calendar.js";
 import * as DataProvider from "../worker/data-provider.js";
-import { alpacaFetchSnapshots } from "../worker/indicators.js";
+import { alpacaFetchSnapshots, alpacaBackfill } from "../worker/indicators.js";
 import { kvGetJSON } from "../worker/storage.js";
 
 // ─── Provider routing (mirrors worker/index.js) ─────────────────────────────
@@ -184,6 +184,46 @@ async function triggerFeedSlHardCloseRemote(env, KV, sym, trade, feedSnap) {
 
 // ─── Deps assembly ───────────────────────────────────────────────────────────
 
+// 2026-07-07 (candle continuity doctrine) — tt-feed backfills candles the
+// same way the monolith does. TwelveData is primary via DataProvider; Alpaca
+// is the fallback so a TD outage doesn't strand chain healing. Full-onboard
+// (schema + D/W/M/240/60/… seeding) is a monolith-only lane, so tt-feed
+// relays that request through the monolith's admin HTTP surface — the price
+// feed itself must never depend on the monolith being up, but a slow-drip
+// heal for brand-new universe adds can and should relay.
+async function candleBackfillLocal(env, tickers, tf, opts) {
+  const res = await DataProvider.backfill(env, tickers, tf, opts).catch((e) => {
+    console.warn("[tt-feed CANDLE_HEAL] TD backfill failed:", String(e?.message || e).slice(0, 150));
+    return null;
+  });
+  const upserted = Number(res?.upserted) || 0;
+  if (upserted === 0 && env?.ALPACA_API_KEY_ID && env?.ALPACA_API_SECRET_KEY) {
+    try {
+      return await alpacaBackfill(env, tickers, null, tf, opts);
+    } catch (e) {
+      console.warn("[tt-feed CANDLE_HEAL] Alpaca fallback failed:", String(e?.message || e).slice(0, 150));
+    }
+  }
+  return res;
+}
+
+async function ensureTickerOnboardRemote(env, ticker, opts) {
+  const base = String(env.WORKER_URL || "https://timed-trading-ingest.shashant.workers.dev").replace(/\/$/, "");
+  const key = env.TIMED_API_KEY;
+  if (!key) return { skipped: "no_api_key" };
+  try {
+    const res = await fetch(`${base}/timed/admin/onboard-ticker`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      body: JSON.stringify({ ticker, ...(opts || {}) }),
+    });
+    return await res.json().catch(() => ({ ok: res.ok }));
+  } catch (e) {
+    console.warn("[tt-feed ONBOARD_TICKER] relay failed:", String(e?.message || e).slice(0, 150));
+    return { skipped: "relay_error" };
+  }
+}
+
 function buildDeps(cal) {
   const isNyRegularMarketOpen = makeIsNyRegularMarketOpen(cal);
   return {
@@ -196,6 +236,9 @@ function buildDeps(cal) {
     syncLivePricesToChartCandles: (env, pricesMap, opts) =>
       syncLivePricesToChartCandles(env, pricesMap, opts, { isNyRegularMarketOpen }),
     triggerFeedSlHardClose: triggerFeedSlHardCloseRemote,
+    // 2026-07-07 (candle continuity doctrine)
+    backfillCandles: candleBackfillLocal,
+    ensureTickerOnboard: ensureTickerOnboardRemote,
     // keep-alive deps
     usesTwelveData,
     isWithinOperatingHours: makeIsWithinOperatingHours(cal),
