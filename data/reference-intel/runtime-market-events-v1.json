@@ -35106,7 +35106,7 @@
         "event_type": "macro",
         "event_name": "May Trade Balance",
         "impact": "medium",
-        "surprise_pct": null,
+        "surprise_pct": 28.72,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35151,7 +35151,7 @@
         "event_type": "earnings",
         "event_name": "EPAC Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 19.24,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35169,7 +35169,7 @@
         "event_type": "earnings",
         "event_name": "KRUS Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 352.1,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35196,7 +35196,7 @@
         "event_type": "earnings",
         "event_name": "PENG Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 52.59,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35205,7 +35205,7 @@
         "event_type": "earnings",
         "event_name": "SAR Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -15.54,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35232,6 +35232,15 @@
         "event_type": "earnings",
         "event_name": "PSMT Earnings",
         "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "macro",
+        "event_name": "Jun 17 FOMC Minutes",
+        "impact": "medium",
         "surprise_pct": null,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
@@ -35298,14 +35307,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 41.3273
+        "sql_duration_ms": 32.0823
       },
-      "duration": 41.3273,
+      "duration": 32.0823,
       "changes": 0,
-      "last_row_id": 69954696,
+      "last_row_id": 60991,
       "changed_db": false,
-      "size_after": 4600639488,
-      "rows_read": 3921,
+      "size_after": 4572504064,
+      "rows_read": 3922,
       "rows_written": 0,
       "total_attempts": 1
     }
