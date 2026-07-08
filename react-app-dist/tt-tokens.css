@@ -793,6 +793,14 @@ input, button, select, textarea {
   --tt-lane-card-h: 148px;
   --tt-lane-mid-h: 38px;
 }
+/* Closed exit-lane cards — mid holds realized P&L + exit reason (2 lines). */
+.ds-tickercard.tt-lane-card.tt-lane-card--closed {
+  --tt-lane-card-h: 164px;
+  --tt-lane-mid-h: 54px;
+}
+.tt-lane-card--closed .tt-lane-card__mid {
+  overflow: visible;
+}
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
   --tt-lane-card-h: 154px;
   --tt-lane-mid-h: 42px;

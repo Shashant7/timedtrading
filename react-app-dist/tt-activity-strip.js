@@ -292,6 +292,7 @@
     PRE_CPI_RISK_REDUCTION: "Pre-CPI risk reduction",
     PRE_PPI_RISK_REDUCTION: "Pre-PPI risk reduction",
     PRE_FOMC_RISK_REDUCTION: "Pre-FOMC risk reduction",
+    PRE_FOMC_RISK_REDUCTION_MATERIAL: "Pre-FOMC risk reduction",
     PRE_PCE_RISK_REDUCTION: "Pre-PCE risk reduction",
     PRE_NFP_RISK_REDUCTION: "Pre-NFP risk reduction",
     PRE_EARNINGS_RISK_REDUCTION: "Pre-earnings risk reduction",
@@ -790,8 +791,10 @@
     return host;
   }
 
+  window.TTActivityReason = { shortReason, ACTIVITY_REASON_MAP };
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })();
 
-// cache-bust:1783513828017:365018512
+// cache-bust:1783528201349:751653239
