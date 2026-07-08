@@ -26,7 +26,14 @@ export { loadStrategyOverrideCache };
 //  reads through `getStrategyDigest()` so callers stay decoupled from the
 //  schema details.
 //  ── Vintage history ──────────────────────────────────────────────────────
-//   2026-06-11 (current)
+//   2026-07-07 (current)
+//     July 2026 Sector Allocation model refresh. Cyclical broadening:
+//     Industrials +2.7% to 10.0% (Mark upgraded to Overweight), Financials
+//     +2.4% to 12.3%, Discretionary +1.9% to 8.5% (Mark upgraded to Neutral).
+//     Defensive sleeves trimmed: Utilities 3.8%→1.8%, Real Estate 4.1%→2.0%
+//     (both strategists step back to Neutral/Underweight). Comm Services cut
+//     to 6.7%. Theme sleeve adds JETS/IBB/SPHB; drops IHF/DRIV/IYT.
+//   2026-06-11
 //     June 2026 Sector Allocation model refresh. Structural stance updates
 //     from the monthly allocation deck: Healthcare +4.4% to 9.5% (Mark
 //     upgraded to Overweight), Utilities enters at 3.8%, Real Estate
@@ -83,9 +90,9 @@ export { loadStrategyOverrideCache };
 // describe the playbook generically — no external firm or author names. The
 // internal commit history and CONTEXT.md record the underlying research feed
 // for engineering provenance.
-export const STRATEGY_VINTAGE = "2026-06-11";
+export const STRATEGY_VINTAGE = "2026-07-07";
 export const STRATEGY_SOURCE = "TT Editorial Playbook · 2026 Year Ahead";
-export const STRATEGY_TITLE = "Resilience & US Exceptionalism — June Sector Allocation Refresh";
+export const STRATEGY_TITLE = "Resilience & US Exceptionalism — July Sector Allocation Refresh";
 
 // Tactical-overlay vintage — refreshed per-publication. The structural
 // playbook (sector/theme tilts) only rolls forward on a Year-Ahead deck;
@@ -93,9 +100,9 @@ export const STRATEGY_TITLE = "Resilience & US Exceptionalism — June Sector Al
 // Strategy publishes new rotation signals. Surfaced separately so the LLM
 // can see which signals are "fresh" (today's note) vs. "structural"
 // (whole-year thesis).
-export const STRATEGY_TACTICAL_VINTAGE = "2026-06-11";
-export const STRATEGY_TACTICAL_SOURCE  = "Sector Allocation Update · 6/11/2026";
-export const STRATEGY_TACTICAL_TITLE   = "Defensive Rotation — Healthcare/Utilities Up, Tech/Industrials Neutralized";
+export const STRATEGY_TACTICAL_VINTAGE = "2026-07-07";
+export const STRATEGY_TACTICAL_SOURCE  = "Sector Allocation Update · 7/7/2026";
+export const STRATEGY_TACTICAL_TITLE   = "Cyclical Broadening — Industrials/Financials Up, Defensive Sleeves Trim";
 
 // ── 1. Headline thesis ─────────────────────────────────────────────────────
 // One paragraph. Used verbatim in Daily Brief, Right Rail "Active Strategy",
@@ -135,7 +142,7 @@ export const STRATEGY_PHASE = {
   },
   // Short tactical overlay surfaced to the LLM alongside the structural
   // phase label. Updated per Daily Technical Strategy publication.
-  tactical_overlay: "June allocation model: Healthcare +4.4% to 9.5%, Utilities enters at 3.8%, Staples cut to 0.7%. Mark Newton downgraded Tech + Industrials to Neutral while Healthcare upgraded to Overweight — defensive rotation broadening even as the index grinds.",
+  tactical_overlay: "July allocation model: Industrials +2.7% to 10.0%, Financials +2.4% to 12.3%, Discretionary +1.9% to 8.5%. Utilities cut to 1.8% and Real Estate to 2.0%; Comm Services trimmed to 6.7%. Mark upgraded Industrials + Discretionary while downgrading defensives — cyclical broadening.",
 };
 
 // ── 2b. Tactical signals (short-term rotation overlay) ─────────────────────
@@ -159,64 +166,74 @@ export const STRATEGY_PHASE = {
 //   - buildCIOMemory()    → per-ticker Layer 15b matching
 export const TACTICAL_SIGNALS = [
   {
-    signal: "xlv_healthcare_model_upgrade",
-    pair: "XLV/SPY",
-    direction: "favor_healthcare_rotation",
+    signal: "xli_industrials_model_upgrade",
+    pair: "XLI/SPY",
+    direction: "favor_industrials_broadening",
     horizon: "intermediate",
-    evidence: "June allocation model lifts Healthcare to 9.5% (+4.4% vs prior). Mark Newton upgraded from Neutral to Overweight; sector +6.2% vs SPX since last update.",
-    playbook_action: "Lean into Healthcare on pullbacks. IHF healthcare-providers sleeve added at 3%. Favor services + providers over broad defensive beta.",
-    affected_tier1_themes: ["weight_loss"],
-    affected_sectors_overweight: ["Healthcare"],
+    evidence: "July allocation lifts Industrials to 10.0% (+2.7% vs prior). Mark Newton upgraded from Neutral to Overweight; sector +5.8% vs SPX since last update.",
+    playbook_action: "Favor Industrials vs SPY on pullbacks. Express via defense, airlines (JETS sleeve), and AI-power capex names.",
+    affected_tier1_themes: ["defense", "ai_infra_energy", "travel_leisure"],
+    affected_sectors_overweight: ["Industrials"],
   },
   {
-    signal: "xlu_utilities_sleeve_entry",
-    pair: "XLU/SPY",
-    direction: "favor_utilities_defensive",
+    signal: "xlf_financials_model_lift",
+    pair: "XLF/SPY",
+    direction: "favor_financials_rotation",
     horizon: "intermediate",
-    evidence: "Utilities enters the model at 3.8% (+2.0% vs index). New defensive sleeve as Staples weight collapses to 0.7%.",
-    playbook_action: "Treat broad Utilities as a defensive rotation beneficiary. AI-power carve-out names (CEG, VST, NEE) still preferred over bond-proxy utilities.",
-    affected_tier1_themes: ["ai_infra_energy"],
-    affected_sectors_overweight: ["Utilities"],
+    evidence: "Financials model weight +2.4% to 12.3%. Both strategists Overweight; sector ranks #1 on tactical DQM scorecard.",
+    playbook_action: "Lean into money-center + regional banks on dips. Financials are the cyclical broadening beneficiary alongside Industrials.",
+    affected_tier1_themes: ["banks_money_center", "banks_regional", "fintech"],
+    affected_sectors_overweight: ["Financials"],
   },
   {
-    signal: "xlk_xli_neutralization",
-    pair: "RSPT/RSP",
-    direction: "caution_tech_industrials",
+    signal: "xly_discretionary_neutral_upgrade",
+    pair: "XLY/SPY",
+    direction: "favor_discretionary_broadening",
+    horizon: "intermediate",
+    evidence: "Consumer Discretionary weight +1.9% to 8.5%. Mark upgraded from Underweight to Neutral; sector +0.4% vs SPX since last update.",
+    playbook_action: "Treat Discretionary as a broadening candidate — no longer underweight. Favor travel/leisure (JETS sleeve) over pure high-beta retail.",
+    affected_tier1_themes: ["travel_leisure", "ecom_logistics"],
+    affected_sectors_overweight: ["Consumer Discretionary"],
+  },
+  {
+    signal: "xlk_neutral_trim",
+    pair: "XLK/SPY",
+    direction: "caution_tech",
     horizon: "tactical",
-    evidence: "Mark Newton downgraded Tech + Industrials to Neutral. Equal-weight Tech shows DeMark exhaustion; Industrials face pressure as Tech pulls back.",
-    playbook_action: "Do not chase new Tech or Industrials entries on strength. Trim extended semis/software; wait for base-building before re-adding.",
+    evidence: "Tech model weight trimmed to 31.0% (-0.4%). Mark Neutral while Lee macro Overweight — playbook neutralizes at stance level.",
+    playbook_action: "Do not chase extended semis/software on strength. Prefer Software over Semis on any Tech dip; wait for base-building before re-adding.",
     affected_tier1_themes: ["ai_software", "ai_infra_semicap", "ai_infra_compute"],
-    affected_sectors_overweight: ["Information Technology", "Industrials"],
+    affected_sectors_overweight: ["Information Technology"],
   },
   {
-    signal: "xlre_dual_overweight",
-    pair: "XLRE/SPY",
-    direction: "favor_real_estate",
+    signal: "defensive_sleeve_trim",
+    pair: "XLU/XLRE",
+    direction: "trim_defensive_sleeves",
     horizon: "intermediate",
-    evidence: "Real Estate model weight 4.1% (+2.5% vs index). Both Thomas Lee and Mark Newton Overweight.",
-    playbook_action: "Favor REITs vs SPY. Data-center REIT carve-out (DLR, EQIX) remains the AI-cycle expression inside the sector.",
-    affected_tier1_themes: ["ai_infra_dc_reit"],
-    affected_sectors_overweight: ["Real Estate"],
+    evidence: "Utilities cut to 1.8% (-1.9%) and Real Estate to 2.0% (-2.0%). Both strategists step back from prior defensive overweight.",
+    playbook_action: "De-emphasize broad Utilities + REIT beta. Keep AI-power utility carve-out (CEG, VST) and data-center REIT expression (DLR, EQIX) as theme plays only.",
+    affected_tier1_themes: ["ai_infra_energy", "ai_infra_dc_reit"],
+    affected_sectors_overweight: ["Utilities", "Real Estate"],
   },
   {
-    signal: "xlp_min_weight",
-    pair: "XLP/SPY",
-    direction: "underweight_staples",
+    signal: "xlc_comm_services_cut",
+    pair: "XLC/SPY",
+    direction: "underweight_comm_services",
     horizon: "intermediate",
-    evidence: "Consumer Staples model weight cut to 0.7% (-2.1%). Both strategists Underweight.",
-    playbook_action: "Avoid new Staples exposure. Trim into strength; redeploy toward Healthcare + Utilities sleeves.",
-    affected_tier1_themes: [],
-    affected_sectors_overweight: ["Consumer Staples"],
+    evidence: "Comm Services model weight -2.3% to 6.7%. Lee Underweight; Mark downgraded to Neutral after -6.4% YTD.",
+    playbook_action: "Trim MAG7-adjacent Comm Services on strength. Redeploy toward Financials + Industrials broadening.",
+    affected_tier1_themes: ["ai_consumer"],
+    affected_sectors_overweight: ["Communication Services"],
   },
   {
-    signal: "theme_sleeve_refresh",
-    pair: "CIBR/IHF/ARKG/IYT",
+    signal: "theme_sleeve_july_refresh",
+    pair: "JETS/IBB/SPHB",
     direction: "favor_new_theme_etfs",
     horizon: "intermediate",
-    evidence: "15% theme sleeve adds CIBR (cyber), IHF (providers), ARKG (genomics), IYT (transport). Drops PBW/LIT/RPG/SNSR.",
-    playbook_action: "Express rotation via new sleeves: cybersecurity, healthcare providers, genomics, transports. De-emphasize clean-energy / lithium / pure-growth / IoT vehicles.",
-    affected_tier1_themes: ["cybersecurity", "weight_loss", "defense"],
-    affected_sectors_overweight: ["Healthcare", "Industrials"],
+    evidence: "15% theme sleeve adds JETS (airlines), IBB (biotech), SPHB (high beta). Drops IHF, DRIV, IYT. Keeps CIBR + ARKG.",
+    playbook_action: "Express rotation via airlines, biotech, and high-beta sleeves. De-emphasize healthcare-providers, EV, and transport vehicles from the prior month.",
+    affected_tier1_themes: ["cybersecurity", "weight_loss", "travel_leisure"],
+    affected_sectors_overweight: ["Industrials", "Healthcare", "Consumer Discretionary"],
   },
 ];
 
@@ -228,7 +245,7 @@ export const SECTOR_TILTS = {
   "Information Technology": {
     stance: "neutral",
     multiplier: 1.00,
-    rationale_short: "31.4% model weight (trim). Mark downgraded to Neutral; DeMark exhaustion on equal-weight Tech.",
+    rationale_short: "31.0% model weight (trim). Mark Neutral while Lee macro OW — neutralized at stance level.",
     rationale_long:
       "Tech delivered +52.6% Y/Y earnings growth in 1Q26. Memory ($DRAM +142%) and " +
       "semiconductors ($SMH +115%) are leading; Software ($IGV -9%) is the laggard with " +
@@ -238,9 +255,9 @@ export const SECTOR_TILTS = {
     boost_themes: ["ai_infra_compute", "ai_infra_memory", "ai_infra_semicap", "ai_software", "ai_consumer", "ai_infra_dc_reit"],
   },
   "Communication Services": {
-    stance: "overweight",
-    multiplier: 1.15,
-    rationale_short: "MAG7 cohort + 49.5% Y/Y earnings surprise; META/GOOGL lead AI consumer.",
+    stance: "underweight",
+    multiplier: 0.85,
+    rationale_short: "Model weight cut to 6.7% (-2.3%). Lee Underweight; Mark downgraded to Neutral.",
     rationale_long:
       "Comm Services posted +49.5% Y/Y earnings growth and is a MAG7-heavy bucket. META, " +
       "GOOGL, NFLX benefit from the AI consumer playbook and reaccelerating digital ad spend.",
@@ -249,7 +266,7 @@ export const SECTOR_TILTS = {
   "Consumer Discretionary": {
     stance: "neutral",
     multiplier: 1.00,
-    rationale_short: "Model weight cut to 6.6% (-2.5%). Lee Neutral / Mark Underweight.",
+    rationale_short: "Model weight +1.9% to 8.5%. Mark upgraded UW→Neutral; Lee Overweight — neutralized.",
     rationale_long:
       "Anchored by AMZN (logistics/AI) and TSLA (compute/EV). Forward sales soft (-11.9%) but " +
       "trailing growth at +40.7% Y/Y. Travel/leisure remains resilient on prime-age cohort " +
@@ -259,7 +276,7 @@ export const SECTOR_TILTS = {
   "Financials": {
     stance: "overweight",
     multiplier: 1.15,
-    rationale_short: "Bottoming since April '25; large-cap + regional banks both bought.",
+    rationale_short: "Model weight +2.4% to 12.3%. Both strategists Overweight; #1 tactical DQM rank.",
     rationale_long:
       "Bottoming pattern since April 2025. Both money-center banks (JPM, GS, MS, C, BAC) and " +
       "regional banks ($KRE) are on the buy list. Fed pivot away from forward guidance reduces " +
@@ -267,9 +284,9 @@ export const SECTOR_TILTS = {
     boost_themes: ["banks_money_center", "banks_regional", "fintech"],
   },
   "Industrials": {
-    stance: "neutral",
-    multiplier: 1.00,
-    rationale_short: "Model weight 7.3% (-2.2%). Mark downgraded to Neutral; IYT sleeve added at 3%.",
+    stance: "overweight",
+    multiplier: 1.15,
+    rationale_short: "Model weight +2.7% to 10.0%. Mark upgraded Neutral→Overweight; JETS sleeve at 3%.",
     rationale_long:
       "Leading sector. +20.9% Y/Y earnings growth. AI-power capex (CEG, VRT, NEE) and " +
       "defense (LMT, RTX, NOC) catch the Iran-war + compute-buildout tailwinds simultaneously. " +
@@ -282,7 +299,7 @@ export const SECTOR_TILTS = {
   "Energy": {
     stance: "neutral",
     multiplier: 1.00,
-    rationale_short: "Model weight 0.8%. Lee Overweight vs Mark Underweight — neutralize until alignment.",
+    rationale_short: "Model weight 0.6% (-0.2%). Lee Overweight vs Mark Underweight — neutralize until alignment.",
     rationale_long:
       "Cumulative -18.6% relative-to-S&P drawdown but showing signs of bottoming since the " +
       "Iran war began. Large-cap energy +22.2% and small-cap energy +27.3% from bottoms. " +
@@ -290,9 +307,9 @@ export const SECTOR_TILTS = {
     boost_themes: ["oil_gas", "oil_services", "refiners", "uranium_nuclear", "uranium_etf"],
   },
   "Materials": {
-    stance: "overweight",
-    multiplier: 1.10,
-    rationale_short: "Basic Materials bottoming with Energy. +40.7% Y/Y earnings growth.",
+    stance: "neutral",
+    multiplier: 1.00,
+    rationale_short: "Model weight 1.6% (-0.4%). Mark Neutral while Lee Overweight — neutralized.",
     rationale_long:
       "Basic Materials surprised +17.3% in 1Q26 and posted +40.7% Y/Y earnings growth despite " +
       "a -13.9% relative drawdown. Bottoming alongside Energy; gold/precious metals catch " +
@@ -302,7 +319,7 @@ export const SECTOR_TILTS = {
   "Healthcare": {
     stance: "overweight",
     multiplier: 1.15,
-    rationale_short: "Model weight +4.4% to 9.5%. Mark upgraded to Overweight; IHF sleeve at 3%.",
+    rationale_short: "Model weight 9.8% (+0.3%). Both strategists Overweight; IBB biotech sleeve added at 3%.",
     rationale_long:
       "Only sector with negative earnings growth (-2.9% Y/Y). Defensive bias hurts in a " +
       "back-ended rally environment. Carve-out exposure to weight-loss leaders (LLY, NVO, " +
@@ -310,9 +327,9 @@ export const SECTOR_TILTS = {
     boost_themes: ["weight_loss"],
   },
   "Real Estate": {
-    stance: "overweight",
-    multiplier: 1.10,
-    rationale_short: "Model weight 4.1% (+2.5% vs index). Both strategists Overweight.",
+    stance: "neutral",
+    multiplier: 1.00,
+    rationale_short: "Model weight cut to 2.0% (-2.0%). Lee UW / Mark Neutral — defensive sleeve trimmed.",
     rationale_long:
       "Broad REITs are rate-sensitive. The structural carve-out is data-center REITs (DLR, EQIX, IRM, COR) " +
       "which are direct AI-buildout beneficiaries.",
@@ -321,7 +338,7 @@ export const SECTOR_TILTS = {
   "Consumer Staples": {
     stance: "underweight",
     multiplier: 0.85,
-    rationale_short: "Model weight cut to 0.7% (-2.1%). Both strategists Underweight.",
+    rationale_short: "Model weight 0.6% (-0.1%). Lee Underweight; Mark Neutral.",
     rationale_long:
       "Defensive bias underperforms in a back-ended rally tape. Multiple compression risk " +
       "(Costco 48x, Walmart 41x trade at premium to NVDA 19x — anomalous). Underweight unless " +
@@ -331,7 +348,7 @@ export const SECTOR_TILTS = {
   "Utilities": {
     stance: "neutral",
     multiplier: 1.00,
-    rationale_short: "New 3.8% model sleeve (+2.0% vs index). Defensive rotation beneficiary.",
+    rationale_short: "Model weight cut to 1.8% (-1.9%). Lee UW / Mark Neutral — prior defensive sleeve trimmed.",
     rationale_long:
       "Broad Utilities are an underweight defensive bond proxy. The carve-out is AI-power " +
       "utilities (CEG, VST, NEE, TLN) which trade more like growth + infrastructure.",
@@ -369,13 +386,13 @@ export const THEME_TILTS = {
   crypto_etf:        { stance: "overweight", multiplier: 1.15, tier: "tier_1", playbook: "IBIT/ETHA — front-line crypto exposure (tactical 6/2: divergence from equities → de-risk new entries until BTC reclaims equity-correlation)" },
   crypto_miners:     { stance: "neutral",    multiplier: 1.00, tier: "tier_2", playbook: "High-beta proxy; trade vehicle only (tactical 6/2: amplified downside while crypto-equity correlation is negative)" },
 
-  defense:           { stance: "overweight", multiplier: 1.10, tier: "tier_2", playbook: "Iran-war tailwind + global rearmament" },
+  defense:           { stance: "overweight", multiplier: 1.10, tier: "tier_2", playbook: "Iran-war tailwind + global rearmament (structural 7/7: IYT transport sleeve dropped)" },
   space_tech:        { stance: "overweight", multiplier: 1.05, tier: "tier_2", playbook: "SpaceX-adjacent narrative" },
-  cybersecurity:     { stance: "overweight", multiplier: 1.15, tier: "tier_2", playbook: "AI-driven attack surface expansion (structural 6/11: CIBR sleeve added at 3%)" },
+  cybersecurity:     { stance: "overweight", multiplier: 1.15, tier: "tier_2", playbook: "AI-driven attack surface expansion (structural 7/7: CIBR sleeve retained at 3%)" },
 
-  weight_loss:       { stance: "overweight", multiplier: 1.15, tier: "tier_2", playbook: "Healthcare carve-out — IHF providers sleeve + ARKG genomics (structural 6/11)" },
-  travel_leisure:    { stance: "neutral",    multiplier: 1.00, tier: "tier_2", playbook: "Prime-age demographic tailwind" },
-  ev_battery:        { stance: "neutral",    multiplier: 1.00, tier: "tier_2", playbook: "TSLA-heavy; high beta" },
+  weight_loss:       { stance: "overweight", multiplier: 1.15, tier: "tier_2", playbook: "Healthcare carve-out — IBB biotech sleeve + ARKG genomics (structural 7/7; IHF dropped)" },
+  travel_leisure:    { stance: "overweight", multiplier: 1.10, tier: "tier_2", playbook: "JETS airlines sleeve added at 3% — cyclical broadening + Iran-ceasefire WTI tailwind (structural 7/7)" },
+  ev_battery:        { stance: "neutral",    multiplier: 1.00, tier: "tier_2", playbook: "TSLA-heavy; high beta (structural 7/7: DRIV EV sleeve dropped)" },
   ecom_logistics:    { stance: "neutral",    multiplier: 1.00, tier: "tier_2", playbook: "AMZN/SHOP anchor — MAG7 adjacency" },
 
   // Country tilts (referenced when ticker is a country ETF).
@@ -474,9 +491,9 @@ export const ACTIVE_RISKS = [
     note: "Most cryptocurrencies have diverged from equities and plummeted (6/2/2026). USD, Treasury yields, precious metals all churning sideways. Watch BTCUSD / ETHUSD reclaim of equity correlation as the all-clear for the structural crypto thesis to resume contributing alpha.",
   },
   {
-    name: "defensive_rotation_broadening",
+    name: "cyclical_broadening_rotation",
     severity: "medium",
-    note: "June sector allocation shifts weight from Tech/Industrials/Staples toward Healthcare (+4.4%), Utilities (new 3.8%), and Real Estate (+2.5% vs index). Mark Newton downgraded Tech + Industrials to Neutral while upgrading Healthcare — treat as a broadening defensive rotation even if SPX grinds higher.",
+    note: "July sector allocation shifts weight toward Industrials (+2.7% to 10.0%), Financials (+2.4% to 12.3%), and Discretionary (+1.9% to 8.5%) while trimming Utilities (1.8%), Real Estate (2.0%), and Comm Services (6.7%). Mark upgraded cyclicals while stepping back defensives — treat as cyclical broadening even if SPX grinds higher.",
   },
 ];
 
