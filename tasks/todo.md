@@ -27,6 +27,10 @@
       Now invalidation to posture; HTF template as alternate note.
       Branch: `cursor/trader-plan-posture-align-ca70`. Merged PR #1065.
 
+- [x] **Market Pulse closed-market price hardening (2026-07-08).** Headline =
+      RTH close; EXT on _ah_*; WS tick_batch must not wipe EXT or promote
+      extended print to headline. Branch: `cursor/market-pulse-closed-price-ca70`.
+
 - [ ] **Options shadow mode (2026-07-08).** Long call/put shadow plays on
       trader + investor entry Discord/email (`OPTIONS_SHADOW_MODE=1`).
       Plan: [`2026-07-08-options-shadow-mode-plan.md`](2026-07-08-options-shadow-mode-plan.md).

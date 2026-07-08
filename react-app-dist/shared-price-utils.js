@@ -151,6 +151,14 @@
     var live = Number(t._live_price);
     var close = Number(t.close);
     var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
+    var ahPx = Number(t._ah_price);
+    // Extended-print guard: WS ticks can park the AH last on _live_price while
+    // close still holds today's RTH session print — headline must stay on close.
+    if (close > 0 && ahPx > 0 && live > 0
+        && Math.abs(live - ahPx) / ahPx < 0.001
+        && Math.abs(close - ahPx) / ahPx > 0.001) {
+      return close;
+    }
     // Stale snapshot guard: /timed/all can leave price == prev_close while
     // usePriceFeed has already locked today's RTH close on _live_price (GS).
     if (live > 0 && px > 0 && Math.abs(live - px) > 0.001 && prev > 0
@@ -532,6 +540,17 @@
       out._price_updated_at = bPts;
     }
     if (!out.ticker) out.ticker = a.ticker || b.ticker;
+    if (!isNyRegularMarketOpen()) {
+      var ah = Number(out._ah_price);
+      var livePx = Number(out._live_price);
+      var closePx = Number(out.close);
+      if (closePx > 0 && ah > 0 && livePx > 0
+          && Math.abs(livePx - ah) / ah < 0.001
+          && Math.abs(closePx - ah) / ah > 0.001) {
+        out._live_price = closePx;
+        out.price = closePx;
+      }
+    }
     return out;
   }
 
@@ -1006,6 +1025,67 @@
     return inferModelDirection(t);
   }
 
+  /**
+   * Merge a price-feed tick onto an existing row.
+   * RTH: headline = live tick (p).
+   * Outside RTH: headline = RTH close; extended print rides _ah_* only.
+   */
+  function applyPriceFeedOverlay(existing, p, marketOpen) {
+    var feedP = Number(p && p.p);
+    if (!(feedP > 0)) return null;
+
+    if (marketOpen) {
+      var openOverlay = { price: feedP, _live_price: feedP };
+      var openAhp = Number(p.ahp);
+      if (Number.isFinite(openAhp) && openAhp > 0) {
+        openOverlay._ah_price = openAhp;
+        var openAhdc = Number(p.ahdc);
+        var openAhdp = Number(p.ahdp);
+        if (Number.isFinite(openAhdc)) openOverlay._ah_change = openAhdc;
+        if (Number.isFinite(openAhdp)) openOverlay._ah_change_pct = openAhdp;
+      }
+      return openOverlay;
+    }
+
+    var ahp = Number(p.ahp);
+    var hasKvExt = Number.isFinite(ahp) && ahp > 0;
+    var existingClose = Number(
+      (existing && existing.close) ?? (existing && existing._live_price) ?? (existing && existing.price)
+    );
+    var session = String(p.session || "").toUpperCase();
+    var inExtSession = session === "AH" || session === "PRE";
+
+    if (hasKvExt) {
+      var kvOverlay = { price: feedP, close: feedP, _live_price: feedP, _ah_price: ahp };
+      var ahdc = Number(p.ahdc);
+      var ahdp = Number(p.ahdp);
+      if (Number.isFinite(ahdc)) kvOverlay._ah_change = ahdc;
+      if (Number.isFinite(ahdp)) kvOverlay._ah_change_pct = ahdp;
+      return kvOverlay;
+    }
+
+    var printLooksExt = existingClose > 0 && Math.abs(feedP - existingClose) > 0.001;
+    if (printLooksExt || inExtSession) {
+      var rthClose = existingClose > 0 ? existingClose : feedP;
+      var extOverlay = { price: rthClose, close: rthClose, _live_price: rthClose, _ah_price: feedP };
+      var extChg = Number(p.ahdc != null ? p.ahdc : p.ahChg);
+      var extPct = Number(p.ahdp != null ? p.ahdp : p.ahChgPct);
+      if (Number.isFinite(extChg)) {
+        extOverlay._ah_change = extChg;
+      } else if (rthClose > 0) {
+        extOverlay._ah_change = Math.round((feedP - rthClose) * 100) / 100;
+      }
+      if (Number.isFinite(extPct)) {
+        extOverlay._ah_change_pct = extPct;
+      } else if (rthClose > 0) {
+        extOverlay._ah_change_pct = Math.round(((feedP - rthClose) / rthClose) * 10000) / 100;
+      }
+      return extOverlay;
+    }
+
+    return { price: feedP, close: feedP, _live_price: feedP };
+  }
+
   // Expose on window for consumption by all pages
   window.TimedPriceUtils = {
     getIngestMs: getIngestMs,
@@ -1018,6 +1098,7 @@
     isPriceFeedFresh: isPriceFeedFresh,
     getPriceValueAgeMs: getPriceValueAgeMs,
     mergePriceSrc: mergePriceSrc,
+    applyPriceFeedOverlay: applyPriceFeedOverlay,
     getDailyChange: getDailyChange,
     getExtChange: getExtChange,
     getBubbleFillChange: getBubbleFillChange,
@@ -1044,4 +1125,4 @@
   };
 })();
 
-// cache-bust:1783491643141:607817562
+// cache-bust:1783512193078:550021893
