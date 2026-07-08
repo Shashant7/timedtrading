@@ -329,9 +329,8 @@ function BriefChipStrip({
     }, g.map(row => React.createElement(BriefTickerChip, {
       key: `g-${row.ticker}`,
       sym: row.ticker,
-      pct: row.pct,
       href: `/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`,
-      title: `${row.ticker} ${fmtBriefPct(row.pct) || ""}`
+      title: String(row.ticker || "").toUpperCase()
     })))), l.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
       className: "tt-brief-chip-label"
     }, "Losers"), React.createElement("div", {
@@ -339,9 +338,8 @@ function BriefChipStrip({
     }, l.map(row => React.createElement(BriefTickerChip, {
       key: `l-${row.ticker}`,
       sym: row.ticker,
-      pct: row.pct,
       href: `/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`,
-      title: `${row.ticker} ${fmtBriefPct(row.pct) || ""}`
+      title: String(row.ticker || "").toUpperCase()
     })))));
   }
   if (sectionKey === "activeTrader" || sectionKey === "investorPortfolio") {
@@ -389,10 +387,20 @@ function BriefPositionStack({
       title: isTrader ? `${sym} ${String(p.direction || "").toUpperCase()} open P&L ${fmtBriefPct(p.pnlPct) || "n/a"}` : `${sym} total return ${fmtBriefPct(p.unrealPct) || "n/a"}`
     }), guidance ? React.createElement("p", {
       className: "tt-brief-pos-guidance"
-    }, guidance) : null);
+    }, React.createElement("span", {
+      className: "tt-brief-pos-sep",
+      "aria-hidden": "true"
+    }, "\u2014"), guidance) : null);
   }));
 }
 const BRIEF_POSITION_SECTION_KEYS = new Set(["activeTrader", "investorPortfolio"]);
+function briefSectionBodyForDisplay(sectionKey, body) {
+  const raw = body || "";
+  if (sectionKey === "topMovers" && window.TimedBriefMarkdown?.stripBriefTopMoversBody) {
+    return window.TimedBriefMarkdown.stripBriefTopMoversBody(raw);
+  }
+  return raw;
+}
 function BriefContent({
   content,
   infographic
@@ -422,7 +430,7 @@ function BriefContent({
     sectionBody: sec.body
   }), sec.body ? React.createElement("div", {
     dangerouslySetInnerHTML: {
-      __html: renderMarkdownBody(sec.body)
+      __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body))
     }
   }) : null))));
 }
@@ -3117,6 +3125,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783472116848:547140246
+// cache-bust:1783473112077:436146888
 
-// cache-bust:1783472116848:547140246
+// cache-bust:1783473112077:436146888

@@ -12,7 +12,9 @@ import {
   buildBriefModelActionChips,
   parseBriefTopMoversText,
   formatBriefUniverseMoversText,
+  resolveIndexRthSessionMoveFromCandles,
 } from "./daily-brief.js";
+import { stripBriefTopMoversBody } from "./daily-brief-markdown.js";
 
 describe("buildPremarketGapContext session window", () => {
   const pf = {
@@ -65,10 +67,42 @@ describe("patchBriefIndexDayPctProse", () => {
     expect(out).toContain("IWM +0.50%");
   });
 
+  it("rewrites parenthesized At a Glance percentages", () => {
+    const moves = { SPY: { dayPct: -0.48 }, QQQ: { dayPct: -1.85 } };
+    const raw = "SPY finished green at $747.70 (+0.14%), while QQQ sank to $709.38 (-3.59%).";
+    const out = patchBriefIndexDayPctProse(raw, moves);
+    expect(out).toContain("SPY finished green at $747.70 (-0.48%)");
+    expect(out).toContain("QQQ sank to $709.38 (-1.85%)");
+  });
+
   it("leaves percentages already matching ground truth", () => {
     const moves = { SPY: { dayPct: 0.78 } };
     const raw = "SPY +0.78% closed firm.";
     expect(patchBriefIndexDayPctProse(raw, moves)).toBe(raw);
+  });
+});
+
+describe("resolveIndexRthSessionMoveFromCandles", () => {
+  it("computes today close vs prior session close", () => {
+    const candles = [
+      { ts: Date.parse("2026-07-05T20:00:00Z"), c: 750.0 },
+      { ts: Date.parse("2026-07-07T20:00:00Z"), c: 747.7 },
+    ];
+    const mv = resolveIndexRthSessionMoveFromCandles(candles, "2026-07-07");
+    expect(mv).not.toBeNull();
+    expect(mv.price).toBe(747.7);
+    expect(mv.priorClose).toBe(750);
+    expect(mv.dayPct).toBe(-0.31);
+  });
+});
+
+describe("stripBriefTopMoversBody", () => {
+  it("removes redundant Gainers/Losers ticker lists", () => {
+    const body = "Gainers: IOT +15.6%, RBRK +10.0%\nLosers: STRL -14.3%\n\nSoftware names led the tape lower on multiple compression.";
+    const out = stripBriefTopMoversBody(body);
+    expect(out).not.toMatch(/Gainers:/i);
+    expect(out).not.toMatch(/Losers:/i);
+    expect(out).toContain("Software names led");
   });
 });
 

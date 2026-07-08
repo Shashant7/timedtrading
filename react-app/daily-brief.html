@@ -256,14 +256,16 @@
         display: flex; flex-direction: column; gap: 12px; margin: 0 0 18px;
       }
       .tt-brief-pos-card {
-        display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+        display: flex; flex-direction: row; align-items: flex-start; gap: 10px; flex-wrap: wrap;
       }
-      .tt-brief-pos-card .tt-strip-chip { white-space: normal; flex-wrap: wrap; max-width: 100%; }
+      .tt-brief-pos-card .tt-strip-chip { white-space: nowrap; flex: 0 0 auto; }
       .tt-brief-pos-guidance {
-        margin: 0 0 0 4px; padding: 0 0 0 10px;
-        border-left: 2px solid rgba(255,255,255,0.08);
+        margin: 0; padding: 0; flex: 1 1 180px; align-self: center;
         font-size: 13px; line-height: 1.55; color: var(--tt-text-muted, #8AA39A);
         font-family: var(--tt-font);
+      }
+      .tt-brief-pos-sep {
+        margin-right: 6px; color: var(--tt-text-3, #6E867D);
       }
     </style>
   </head>
@@ -544,9 +546,8 @@
                       <BriefTickerChip
                         key={`g-${row.ticker}`}
                         sym={row.ticker}
-                        pct={row.pct}
                         href={`/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`}
-                        title={`${row.ticker} ${fmtBriefPct(row.pct) || ""}`}
+                        title={String(row.ticker || "").toUpperCase()}
                       />
                     ))}
                   </div>
@@ -560,9 +561,8 @@
                       <BriefTickerChip
                         key={`l-${row.ticker}`}
                         sym={row.ticker}
-                        pct={row.pct}
                         href={`/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`}
-                        title={`${row.ticker} ${fmtBriefPct(row.pct) || ""}`}
+                        title={String(row.ticker || "").toUpperCase()}
                       />
                     ))}
                   </div>
@@ -620,7 +620,10 @@
                       : `${sym} total return ${fmtBriefPct(p.unrealPct) || "n/a"}`}
                   />
                   {guidance ? (
-                    <p className="tt-brief-pos-guidance">{guidance}</p>
+                    <p className="tt-brief-pos-guidance">
+                      <span className="tt-brief-pos-sep" aria-hidden="true">—</span>
+                      {guidance}
+                    </p>
                   ) : null}
                 </div>
               );
@@ -630,6 +633,14 @@
       }
 
       const BRIEF_POSITION_SECTION_KEYS = new Set(["activeTrader", "investorPortfolio"]);
+
+      function briefSectionBodyForDisplay(sectionKey, body) {
+        const raw = body || "";
+        if (sectionKey === "topMovers" && window.TimedBriefMarkdown?.stripBriefTopMoversBody) {
+          return window.TimedBriefMarkdown.stripBriefTopMoversBody(raw);
+        }
+        return raw;
+      }
 
       function BriefContent({ content, infographic }) {
         const sections = useMemo(() => {
@@ -650,7 +661,7 @@
                   <>
                     {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />}
                     {sec.body ? (
-                      <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(sec.body) }} />
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body)) }} />
                     ) : null}
                   </>
                 )}

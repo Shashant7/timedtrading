@@ -240,12 +240,19 @@ export function patchBriefIndexDayPctProse(content, moves = {}) {
     const pct = Number(moves[sym]?.dayPct ?? moves[sym]);
     if (!Number.isFinite(pct)) continue;
     const formatted = `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
-    const re = new RegExp(`\\b${sym}\\b([^%\\n]{0,56}?)([+-]\\d{1,2}\\.\\d{1,2})%`, "gi");
-    out = out.replace(re, (match, mid, numStr) => {
+    const formattedParen = `(${formatted})`;
+    // Match SYMBOL ... (+/-X.XX%) or SYMBOL ... +/-X.XX% (At a Glance parenthetical style).
+    const re = new RegExp(
+      `\\b${sym}\\b([^%\\n]{0,96}?)(?:\\(([+-]?\\d{1,2}\\.\\d{1,2})\\)|([+-]\\d{1,2}\\.\\d{1,2}))%`,
+      "gi",
+    );
+    out = out.replace(re, (match, mid, parenNum, bareNum) => {
+      const numStr = parenNum ?? bareNum;
       const found = parseFloat(numStr);
-      if (!Number.isFinite(found) || Math.abs(found - pct) <= 0.12) return match;
+      if (!Number.isFinite(found) || Math.abs(found - pct) <= 0.05) return match;
       patched += 1;
-      return `${sym}${mid}${formatted}`;
+      const hadParen = parenNum != null && String(match).includes(`(${numStr})`);
+      return `${sym}${mid}${hadParen ? formattedParen : formatted}`;
     });
   }
   if (patched > 0) {
@@ -1926,6 +1933,18 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   // ETFs get pre-market refresh consistently.
   iwmData = validateMarketData(iwmData, "IWM",  "IWM", _pf, true, _briefSessionMktOpen);
 
+  if (String(type || "").toLowerCase() === "evening") {
+    applyEveningIndexCandleOverrides(
+      { SPY: spyData, QQQ: qqqData, IWM: iwmData },
+      {
+        SPY: spyCandles?.candles || [],
+        QQQ: qqqCandles?.candles || [],
+        IWM: iwmCandles?.candles || [],
+      },
+      today,
+    );
+  }
+
   // Process sector performance — prefer timed:prices over stale timed:latest
   // day_change_pct. SPY/QQQ/IWM already get validateMarketData(); sector
   // ETFs were still reading yesterday's scoring snapshot (XLK showed green
@@ -2557,6 +2576,107 @@ function nyDateKeyFromMs(ms) {
   return year && month && day ? `${year}-${month}-${day}` : null;
 }
 
+/** Authoritative RTH session move from daily candles: today close vs prior session close. */
+export function resolveIndexRthSessionMoveFromCandles(dailyCandles, targetDate) {
+  const daily = Array.isArray(dailyCandles) ? dailyCandles : [];
+  const rows = daily
+    .map((candle) => {
+      const tsMs = dailyBriefTsMs(candle?.ts ?? candle?.t ?? candle?.time ?? candle?.date);
+      const close = Number(candle?.c ?? candle?.close);
+      return { tsMs, dateKey: nyDateKeyFromMs(tsMs), close };
+    })
+    .filter((row) => row.dateKey && Number.isFinite(row.close) && row.close > 0)
+    .sort((a, b) => (a.tsMs || 0) - (b.tsMs || 0));
+  const todayIdx = rows.findIndex((row) => row.dateKey === targetDate);
+  if (todayIdx < 0) return null;
+  const todayClose = rows[todayIdx].close;
+  const priorClose = todayIdx > 0 ? rows[todayIdx - 1].close : null;
+  if (!Number.isFinite(todayClose) || !Number.isFinite(priorClose) || priorClose <= 0) return null;
+  const dayPct = Math.round(((todayClose - priorClose) / priorClose) * 10000) / 100;
+  return {
+    price: Math.round(todayClose * 100) / 100,
+    priorClose: Math.round(priorClose * 100) / 100,
+    dayPct,
+    dayChg: Math.round((todayClose - priorClose) * 100) / 100,
+    source: "daily_candles",
+  };
+}
+
+function applyEveningIndexCandleOverrides(dataBySym, candlesBySym, targetDate) {
+  for (const sym of ["SPY", "QQQ", "IWM"]) {
+    const data = dataBySym?.[sym];
+    const move = resolveIndexRthSessionMoveFromCandles(candlesBySym?.[sym], targetDate);
+    if (!data || !move) continue;
+    const prev = Number(data.day_change_pct);
+    if (!Number.isFinite(prev) || Math.abs(prev - move.dayPct) > 0.05) {
+      console.log(
+        `[BRIEF] ${sym} candle RTH ${move.dayPct}% overrides feed/scoring `
+        + `${Number.isFinite(prev) ? prev + "%" : "n/a"}`,
+      );
+    }
+    data.day_change_pct = move.dayPct;
+    data.day_change = move.dayChg;
+    data.price = move.price;
+    data.prev_close = move.priorClose;
+    data._rth_source = move.source;
+  }
+}
+
+async function fetchBriefIndexDailyCandles(env, sym, limit = 10) {
+  const db = env?.DB;
+  if (!db) return [];
+  try {
+    const rows = await db.prepare(
+      `SELECT ts, o, h, l, c
+         FROM ticker_candles
+        WHERE ticker = ?1 AND tf = 'D'
+        ORDER BY ts DESC
+        LIMIT ?2`,
+    ).bind(String(sym || "").toUpperCase(), limit).all();
+    return (rows?.results || [])
+      .map((r) => ({
+        ts: Number(r?.ts),
+        o: Number(r?.o),
+        h: Number(r?.h),
+        l: Number(r?.l),
+        c: Number(r?.c),
+      }))
+      .filter((x) => Number.isFinite(x.ts) && Number.isFinite(x.c) && x.c > 0)
+      .sort((a, b) => a.ts - b.ts);
+  } catch {
+    return [];
+  }
+}
+
+/** Evening GET path: overlay candle-authoritative index moves onto infographic + prose patch map. */
+export async function refreshEveningIndexMovesFromCandles(env, infographic, dateEt) {
+  if (!infographic || String(infographic?.type || "").toLowerCase() !== "evening") return {};
+  const today = dateEt || getETDate();
+  const moves = {};
+  for (const sym of ["SPY", "QQQ", "IWM"]) {
+    const candles = await fetchBriefIndexDailyCandles(env, sym, 10);
+    const mv = resolveIndexRthSessionMoveFromCandles(candles, today);
+    if (!mv) continue;
+    moves[sym] = { dayPct: mv.dayPct, price: mv.price };
+    if (Array.isArray(infographic.indices)) {
+      infographic.indices = infographic.indices.map((idx) => {
+        if (String(idx?.sym || "").toUpperCase() !== sym) return idx;
+        return {
+          ...idx,
+          price: mv.price,
+          chgPct: mv.dayPct,
+          dayChangePct: mv.dayPct,
+          dayChange: mv.dayChg,
+          rthClose: mv.price,
+          rthChgPct: mv.dayPct,
+          _price_source: mv.source,
+        };
+      });
+    }
+  }
+  return moves;
+}
+
 function nyMinutesFromMs(ms) {
   if (!Number.isFinite(ms)) return null;
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -3048,7 +3168,15 @@ export async function refreshInfographicLivePrices(infographic, env, priceMap = 
     const weeklyLevels = idx.weeklyLevels
       ? _recomputeGateBlock(idx.weeklyLevels, live, { atrKey: "weekAtr", isWeek: true })
       : idx.weeklyLevels;
-    const pct = row ? liveDayPctFromPriceFeedRow(row, sessionOpen) : null;
+    let pct = row ? liveDayPctFromPriceFeedRow(row, sessionOpen) : null;
+    if (useRthSession && row) {
+      const p = Number(row.p);
+      const pc = priorRthCloseFromPriceFeedRow(row, true);
+      if (p > 0 && pc > 0 && Math.abs(p - pc) > 0.0001) {
+        const computed = Math.round(((p - pc) / pc) * 10000) / 100;
+        if (!Number.isFinite(pct) || Math.abs(pct - computed) > 0.08) pct = computed;
+      }
+    }
     const dc = row ? liveDayChgFromPriceFeedRow(row, sessionOpen) : null;
     const rthP = Number(row?.p);
     const rthDp = Number(row?.dp);
@@ -6251,7 +6379,11 @@ export async function handleGetBrief(env) {
         if (slot.spyPrediction) slot.spyPrediction = patchIndexPredictionProse(slot.spyPrediction, "SPY", idxMap.SPY, { useRthClose: type === "evening" });
         if (slot.qqqPrediction) slot.qqqPrediction = patchIndexPredictionProse(slot.qqqPrediction, "QQQ", idxMap.QQQ, { useRthClose: type === "evening" });
         if (slot.iwmPrediction) slot.iwmPrediction = patchIndexPredictionProse(slot.iwmPrediction, "IWM", idxMap.IWM, { useRthClose: type === "evening" });
-        const liveMoves = collectIndexMovesFromInfographic(slot.infographic.indices);
+        let liveMoves = collectIndexMovesFromInfographic(slot.infographic.indices);
+        if (type === "evening") {
+          const candleMoves = await refreshEveningIndexMovesFromCandles(env, slot.infographic, etToday);
+          liveMoves = { ...liveMoves, ...candleMoves };
+        }
         if (slot.content && Object.keys(liveMoves).length > 0) {
           slot.content = patchBriefIndexLiveProse(slot.content, liveMoves);
         }

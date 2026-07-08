@@ -134,13 +134,34 @@
     };
   }
 
+  function stripBriefTopMoversBody(body) {
+    if (!body || typeof body !== "string") return "";
+    return body
+      .split(/\n/)
+      .filter((line) => {
+        const t = line.trim();
+        if (!t) return true;
+        if (/^gainers?\s*:/i.test(t)) return false;
+        if (/^losers?\s*:/i.test(t)) return false;
+        if (/^[-*•]\s*gainers?\s*:/i.test(t)) return false;
+        if (/^[-*•]\s*losers?\s*:/i.test(t)) return false;
+        if (/^[A-Z][A-Z0-9.-]{0,9}\s*[+-]\d+(?:\.\d+)?%(\s*,\s*[A-Z][A-Z0-9.-]{0,9}\s*[+-]\d+(?:\.\d+)?%)+$/i.test(t)) {
+          return false;
+        }
+        return true;
+      })
+      .join("\n")
+      .trim();
+  }
+
   window.TimedBriefMarkdown = {
     stripBriefMarkdownForDisplay,
     parseBriefDisplaySections,
     parseBriefPositionGuidanceByTicker,
     briefSectionChipKey,
     parseBriefTopMoversText,
+    stripBriefTopMoversBody,
   };
 })();
 
-// cache-bust:1783472116848:547140246
+// cache-bust:1783473112077:436146888
