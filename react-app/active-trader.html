@@ -1393,7 +1393,18 @@
           return Number.isFinite(n) ? n : null;
         })();
         const exitStatus = String(t?._exitLabel || closedTrade?.status || "").toUpperCase();
+        const exitReasonRaw = String(closedTrade?.exit_reason || closedTrade?.exitReason || "").trim();
+        const exitReasonLabel = (() => {
+          if (!exitReasonRaw) return "Model closed position";
+          const fmt = window.TTActivityReason?.shortReason;
+          if (typeof fmt === "function") {
+            const human = fmt(exitReasonRaw);
+            if (human) return human;
+          }
+          return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        })();
         const closedMid = (stage === "exit" && closedTrade) ? h("div", {
+          className: "tt-lane-card__closed-exit",
           style: {
             marginTop: 4,
             padding: "6px 8px",
@@ -1420,8 +1431,17 @@
             }, `${exitPnlPct >= 0 ? "+" : ""}${exitPnlPct.toFixed(2)}%`),
           ),
           h("div", {
-            style: { marginTop: 4, fontSize: 9, color: "var(--ds-text-faint)", lineHeight: 1.4 },
-          }, "Timed Trading model exited this runner."),
+            style: {
+              marginTop: 4,
+              fontSize: 9,
+              color: "var(--ds-text-faint)",
+              lineHeight: 1.35,
+              overflowWrap: "anywhere",
+            },
+          },
+            h("span", { style: { color: "var(--ds-text-muted)", fontWeight: 600 } }, "Exit: "),
+            exitReasonLabel,
+          ),
         ) : null;
 
         const progressMid = progressBarData && (() => {
@@ -1510,6 +1530,7 @@
           button: {
             onClick: () => onOpen(sym),
             style: cardStyle,
+            className: closedMid ? "tt-lane-card--closed" : "",
             title: `Open ${sym} in Active Trader detail`,
           },
           isTTSel,

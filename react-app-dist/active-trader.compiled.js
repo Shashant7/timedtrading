@@ -718,7 +718,18 @@ function ATCard({
     return Number.isFinite(n) ? n : null;
   })();
   const exitStatus = String(t?._exitLabel || closedTrade?.status || "").toUpperCase();
+  const exitReasonRaw = String(closedTrade?.exit_reason || closedTrade?.exitReason || "").trim();
+  const exitReasonLabel = (() => {
+    if (!exitReasonRaw) return "Model closed position";
+    const fmt = window.TTActivityReason?.shortReason;
+    if (typeof fmt === "function") {
+      const human = fmt(exitReasonRaw);
+      if (human) return human;
+    }
+    return exitReasonRaw.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  })();
   const closedMid = stage === "exit" && closedTrade ? h("div", {
+    className: "tt-lane-card__closed-exit",
     style: {
       marginTop: 4,
       padding: "6px 8px",
@@ -752,9 +763,15 @@ function ATCard({
       marginTop: 4,
       fontSize: 9,
       color: "var(--ds-text-faint)",
-      lineHeight: 1.4
+      lineHeight: 1.35,
+      overflowWrap: "anywhere"
     }
-  }, "Timed Trading model exited this runner.")) : null;
+  }, h("span", {
+    style: {
+      color: "var(--ds-text-muted)",
+      fontWeight: 600
+    }
+  }, "Exit: "), exitReasonLabel)) : null;
   const progressMid = progressBarData && (() => {
     const {
       xPct,
@@ -862,6 +879,7 @@ function ATCard({
     button: {
       onClick: () => onOpen(sym),
       style: cardStyle,
+      className: closedMid ? "tt-lane-card--closed" : "",
       title: `Open ${sym} in Active Trader detail`
     },
     isTTSel,
@@ -2037,6 +2055,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783513828017:365018512
+// cache-bust:1783528201349:751653239
 
-// cache-bust:1783513828017:365018512
+// cache-bust:1783528201349:751653239
