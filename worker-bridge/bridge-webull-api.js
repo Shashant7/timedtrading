@@ -280,6 +280,15 @@ export async function webullGetPositions(env, user, accessToken) {
   });
 }
 
+export async function webullPostOptionsOrder(env, { path, body, accessToken }) {
+  return signedFetch(env, {
+    path,
+    method: "POST",
+    body,
+    accessToken,
+  });
+}
+
 export async function webullPreviewOrder(env, user, order, accessToken) {
   const body = buildOrderBody(user, order, { preview: true });
   return signedFetch(env, {
@@ -404,6 +413,12 @@ export function normalizeWebullPositions(posResp) {
       const qty = Number(p.qty ?? p.quantity);
       const mv = parseWebullNumber(p.market_value ?? p.marketValue);
       const last = parseWebullNumber(p.last_price ?? p.lastPrice);
+      const avg = parseWebullNumber(
+        p.cost_price ?? p.avg_cost ?? p.avgCost ?? p.avg_price ?? p.avgPrice,
+      );
+      const upl = parseWebullNumber(
+        p.unrealized_profit_loss ?? p.unrealized_pnl ?? p.unrealizedPnl ?? p.upl,
+      );
       const computedMv = Number.isFinite(mv)
         ? mv
         : (Number.isFinite(last) ? last * Math.abs(qty || 0) : null);
@@ -411,6 +426,10 @@ export function normalizeWebullPositions(posResp) {
         symbol: String(p.symbol || "").toUpperCase(),
         qty,
         side: qty < 0 ? "short" : "long",
+        avg_cost: avg,
+        avgCost: avg,
+        unrealized_pnl: upl,
+        unrealizedPnl: upl,
         market_value: computedMv,
         raw: p,
       };

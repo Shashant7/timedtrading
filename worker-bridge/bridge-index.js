@@ -1147,9 +1147,21 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
     return json({ ok: false, rejected: true, reason: "options_not_enabled" }, 200);
   }
 
-  // Translate play → broker order shape.
-  const { playToIbkrOrder, placeOptionsOrder } = await import("./bridge-ibkr.js");
-  const brokerOrder = playToIbkrOrder(sanitized.play, sanitized.ticker);
+  // Translate play → broker order shape (IBKR or Webull).
+  const broker = String(user.broker || "ibkr").toLowerCase();
+  let brokerOrder = null;
+  let placeFn = null;
+
+  if (broker === "webull") {
+    const { playToWebullOptionOrder, placeOptionsOrder: wbPlace } = await import("./bridge-webull-options.js");
+    brokerOrder = playToWebullOptionOrder(sanitized.play, sanitized.ticker);
+    placeFn = wbPlace;
+  } else {
+    const { playToIbkrOrder, placeOptionsOrder: ibPlace } = await import("./bridge-ibkr.js");
+    brokerOrder = playToIbkrOrder(sanitized.play, sanitized.ticker);
+    placeFn = ibPlace;
+  }
+
   if (!brokerOrder) return json({ ok: false, rejected: true, reason: "play_translation_failed" }, 200);
 
   // Dry-run path — return what WOULD be sent without hitting the broker.
@@ -1168,7 +1180,7 @@ async function handleOptionsOrderWebhook(env, ctx, payload) {
   }
 
   // Live execution.
-  const placed = await placeOptionsOrder(env, user, brokerOrder);
+  const placed = await placeFn(env, user, brokerOrder);
 
   // Audit log (uses writeAudit which is the canonical helper).
   try {

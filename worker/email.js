@@ -2,6 +2,7 @@
 // Handles: welcome, daily brief digest, trade alerts, re-engagement, unsubscribe tokens.
 
 import { optionsPlayEmailHtml } from "./options-plays.js";
+import { shadowOptionsPlayEmailHtml } from "./options-shadow.js";
 import { buildSignal, renderEmailSubject } from "./signal-grammar.js";
 import {
   buildTrimEconomicsSummary,
@@ -1444,10 +1445,15 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   // exits/trims (where the options play has long since been chosen).
   let optionsPlaySection = "";
   if (isEntry && options_play) {
-    const _html = optionsPlayEmailHtml(options_play);
+    const _html = options_play.shadow
+      ? shadowOptionsPlayEmailHtml(options_play)
+      : optionsPlayEmailHtml(options_play);
     if (_html) {
-      const _isLeap = options_play.archetype === "leap_call" || options_play.archetype === "leap_put";
-      const _label = _isLeap ? "Options Play — LEAP (Investor)" : "Options Play (Trader)";
+      const _label = options_play.shadow
+        ? `Options Play (SHADOW · ${options_play.shadow_desk === "investor" ? "Investor" : "Trader"})`
+        : (options_play.archetype === "leap_call" || options_play.archetype === "leap_put")
+          ? "Options Play — LEAP (Investor)"
+          : "Options Play (Trader)";
       optionsPlaySection = _section(_label, _html);
     }
   }
