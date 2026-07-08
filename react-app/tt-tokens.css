@@ -2362,7 +2362,7 @@ body.tt-rail-scroll-lock .rail-panel {
   width: 100%;
 }
 .tt-rail-chart-tab .tt-rail-chart-canvas {
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
   -webkit-overflow-scrolling: touch;
 }
 .tt-rail-chart-tab-canvas {
@@ -2378,26 +2378,27 @@ body.tt-rail-scroll-lock .rail-panel {
   touch-action: pan-y;
 }
 
-/* Mobile rail header morph: parallax collapse driven by
-   --rail-header-progress (0 = expanded, 1 = compact). Updated via rAF
-   on .tt-rail-scroll-body scroll — no React re-render per frame. */
+/* Mobile rail header morph: snap compact at scroll threshold (0/1 only).
+   Continuous padding/max-height morph caused layout feedback-loop jitter
+   while scrolling — especially on the Chart tab. */
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-area-header.tt-rail-header-morph {
   --rail-header-progress: 0;
   flex: 0 0 auto;
-  padding-top: calc(var(--ds-space-3) - (var(--ds-space-1) * var(--rail-header-progress)));
-  padding-bottom: calc(var(--ds-space-3) - (var(--ds-space-1) * var(--rail-header-progress)));
-  box-shadow: 0 calc(8px * var(--rail-header-progress)) calc(24px * var(--rail-header-progress)) rgba(0, 0, 0, calc(0.4 * var(--rail-header-progress)));
-  will-change: padding, box-shadow;
+  padding-top: var(--ds-space-3);
+  padding-bottom: var(--ds-space-3);
+  contain: layout style;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-chips,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-context,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-price,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-outside-banner {
-  max-height: calc(280px * (1 - var(--rail-header-progress)));
-  opacity: calc(1 - var(--rail-header-progress));
-  transform: translateY(calc(-10px * var(--rail-header-progress)));
   overflow: hidden;
-  transition: opacity 0.05s linear, transform 0.05s linear;
+}
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-chips,
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-context,
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-price,
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-outside-banner {
+  display: none;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-price-compact {
   display: inline-flex !important;
@@ -2405,17 +2406,16 @@ body.tt-rail-scroll-lock .rail-panel {
   gap: 6px;
   margin-left: auto;
   flex-shrink: 0;
-  opacity: var(--rail-header-progress);
-  transform: translateY(calc(4px * (1 - var(--rail-header-progress))));
-  max-height: calc(32px * var(--rail-header-progress));
   overflow: hidden;
-  transition: opacity 0.05s linear, transform 0.05s linear;
+}
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph:not(.tt-rail-header-compact) .tt-rail-header-price-compact {
+  display: none !important;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-identity {
-  margin-bottom: calc(var(--ds-space-2) * (1 - var(--rail-header-progress)));
+  margin-bottom: var(--ds-space-2);
 }
-.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-area-tabnav {
-  opacity: calc(0.92 + (0.08 * (1 - var(--rail-header-progress))));
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-identity {
+  margin-bottom: 0;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
 .tt-rail-area-left-pane,

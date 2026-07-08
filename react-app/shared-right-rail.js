@@ -2500,7 +2500,7 @@
       );
     }
 
-    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null }) {
+    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null, touchScrollPassThrough = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -2872,7 +2872,12 @@
               } catch (_) { return ""; }
             },
           },
-          handleScroll: { vertTouchDrag: false },
+          handleScroll: {
+            vertTouchDrag: false,
+            horzTouchDrag: !touchScrollPassThrough,
+            mouseWheel: !touchScrollPassThrough,
+            pressedMouseMove: !touchScrollPassThrough,
+          },
         });
         chartInstanceRef.current = chart;
 
@@ -3590,6 +3595,7 @@
       if (prev.overlays !== next.overlays) return false;
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
+      if ((prev.touchScrollPassThrough || false) !== (next.touchScrollPassThrough || false)) return false;
       const prevLive = Number(prev.livePrice);
       const nextLive = Number(next.livePrice);
       if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && prevLive > 0) {
@@ -4697,15 +4703,31 @@
           const el = railScrollRef.current;
           const hdr = railHeaderRef.current;
           if (!el || !hdr || layoutMode === "workspace") return undefined;
+          // Binary snap (not continuous parallax): continuous padding/max-height
+          // morph changed header layout during scroll and caused feedback-loop
+          // jitter — especially on the Chart tab when scrolling to harmonic wave.
           let raf = 0;
+          let compact = false;
+          const applyMorph = (nextCompact) => {
+            compact = nextCompact;
+            const p = nextCompact ? 1 : 0;
+            hdr.style.setProperty("--rail-header-progress", String(p));
+            hdr.classList.toggle("tt-rail-header-compact", nextCompact);
+          };
           const onScroll = () => {
             if (raf) return;
             raf = requestAnimationFrame(() => {
               raf = 0;
-              const p = Math.max(0, Math.min(1, el.scrollTop / 72));
-              hdr.style.setProperty("--rail-header-progress", p.toFixed(3));
+              if (String(railTab || "").toUpperCase() === "CHART") {
+                applyMorph(false);
+                return;
+              }
+              const st = el.scrollTop;
+              if (!compact && st >= 56) applyMorph(true);
+              else if (compact && st <= 16) applyMorph(false);
             });
           };
+          applyMorph(false);
           el.addEventListener("scroll", onScroll, { passive: true });
           return () => {
             el.removeEventListener("scroll", onScroll);
@@ -4932,6 +4954,7 @@
             ticker,
             hideOverlayToggles: true,
             livePrice: chartLivePrice,
+            touchScrollPassThrough: layoutMode !== "workspace",
           }),
           [
             _chartCandlesSig,
@@ -4940,6 +4963,7 @@
             _priceLinesSig,
             ticker?.ticker,
             chartLivePrice,
+            layoutMode,
           ],
         );
 
