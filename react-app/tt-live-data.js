@@ -114,6 +114,7 @@
         const overlayKeys = [
           "_live_price", "_live_prev_close", "_price_updated_at",
           "_price_value_ts", "_quote_receipt_ts",
+          "_rth_session_close",
           "_ah_price", "_ah_change", "_ah_change_pct",
           "extended_price", "extended_percent_change", "extended_change",
         ];

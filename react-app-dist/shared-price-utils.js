@@ -179,19 +179,15 @@
     var close = Number(t.close);
     var prev = Number(t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close);
     var ahPx = Number(t._ah_price);
+    // Last completed session RTH close (timed:prices `p`) — never stale `pc`.
+    var sessionClose = Number(t._rth_session_close);
+    if (sessionClose > 0) return sessionClose;
     // Extended-print guard: WS ticks can park the AH last on _live_price while
     // close still holds today's RTH session print — headline must stay on close.
     if (close > 0 && ahPx > 0 && live > 0
         && Math.abs(live - ahPx) / ahPx < 0.001
         && Math.abs(close - ahPx) / ahPx > 0.001) {
       return close;
-    }
-    // Pre-market poison: WS can duplicate the pre-market print on close and
-    // _ah_price while prev_close still holds the last session RTH close (QQQ).
-    if (isNyPreMarket() && close > 0 && ahPx > 0 && prev > 0
-        && Math.abs(close - ahPx) / Math.max(close, ahPx) < 0.005
-        && Math.abs(close - prev) / prev > 0.01) {
-      return prev;
     }
     // Stale snapshot guard: /timed/all can leave price == prev_close while
     // usePriceFeed has already locked today's RTH close on _live_price (GS).
@@ -550,6 +546,7 @@
     var fresher = bPts > aPts ? b : a;
     var liveKeys = [
       "_live_price", "_live_prev_close", "_price_updated_at",
+      "_rth_session_close",
       "_ah_price", "_ah_change", "_ah_change_pct",
       "day_change", "day_change_pct", "price", "close",
     ];
@@ -593,6 +590,9 @@
   function getRthSessionClose(t) {
     if (!t || typeof t !== "object") return 0;
     if (!isPriceFeedFresh(t)) return 0;
+
+    var anchor = Number(t._rth_session_close);
+    if (anchor > 0) return anchor;
 
     var live = Number(t._live_price);
     var close = Number(t.close);
@@ -1090,7 +1090,10 @@
     var inExtSession = session === "AH" || session === "PRE";
 
     if (hasKvExt) {
-      var kvOverlay = { price: feedP, close: feedP, _live_price: feedP, _ah_price: ahp };
+      var kvOverlay = {
+        price: feedP, close: feedP, _live_price: feedP, _ah_price: ahp,
+        _rth_session_close: feedP,
+      };
       var ahdc = Number(p.ahdc);
       var ahdp = Number(p.ahdp);
       if (Number.isFinite(ahdc)) kvOverlay._ah_change = ahdc;
@@ -1099,13 +1102,17 @@
     }
 
     if (isAuthoritativeRthPoll(p)) {
-      return { price: feedP, close: feedP, _live_price: feedP };
+      return { price: feedP, close: feedP, _live_price: feedP, _rth_session_close: feedP };
     }
 
+    var anchor = Number(existing && existing._rth_session_close);
     var printLooksExt = existingClose > 0 && Math.abs(feedP - existingClose) > 0.001;
     if (printLooksExt || inExtSession) {
-      var rthClose = existingClose > 0 ? existingClose : feedP;
-      var extOverlay = { price: rthClose, close: rthClose, _live_price: rthClose, _ah_price: feedP };
+      var rthClose = anchor > 0 ? anchor : (existingClose > 0 ? existingClose : feedP);
+      var extOverlay = {
+        price: rthClose, close: rthClose, _live_price: rthClose, _ah_price: feedP,
+      };
+      if (anchor > 0) extOverlay._rth_session_close = anchor;
       var extChg = Number(p.ahdc != null ? p.ahdc : p.ahChg);
       var extPct = Number(p.ahdp != null ? p.ahdp : p.ahChgPct);
       if (Number.isFinite(extChg)) {
@@ -1121,7 +1128,7 @@
       return extOverlay;
     }
 
-    return { price: feedP, close: feedP, _live_price: feedP };
+    return { price: feedP, close: feedP, _live_price: feedP, _rth_session_close: feedP };
   }
 
   // Expose on window for consumption by all pages
@@ -1166,4 +1173,4 @@
   };
 })();
 
-// cache-bust:1783513326454:525910910
+// cache-bust:1783513828017:365018512
