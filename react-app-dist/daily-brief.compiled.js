@@ -125,6 +125,15 @@ function enrichBriefInvestorRow(row, livePx) {
     unrealPct: Number.isFinite(unrealPct) ? unrealPct : row?.unrealPct
   };
 }
+function enrichBriefMoverRow(row, livePx) {
+  const sym = String(row?.ticker || "").toUpperCase();
+  const pf = livePx?.[sym];
+  const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.pct;
+  return {
+    ...row,
+    pct: Number.isFinite(dayPct) ? dayPct : row?.pct
+  };
+}
 function BriefTickerLogo({
   sym,
   size = 18
@@ -284,6 +293,7 @@ function BriefChipStrip({
   sectionBody
 }) {
   const info = infographic || {};
+  const livePx = useBriefLivePriceMap();
   if (sectionKey === "modelActions") {
     const rows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
     if (!rows.length) return null;
@@ -326,21 +336,31 @@ function BriefChipStrip({
       style: {
         marginBottom: l.length ? 10 : 0
       }
-    }, g.map(row => React.createElement(BriefTickerChip, {
-      key: `g-${row.ticker}`,
-      sym: row.ticker,
-      href: `/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`,
-      title: String(row.ticker || "").toUpperCase()
-    })))), l.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+    }, g.map(row => {
+      const enriched = enrichBriefMoverRow(row, livePx);
+      const sym = String(enriched.ticker || "").toUpperCase();
+      return React.createElement(BriefTickerChip, {
+        key: `g-${sym}`,
+        sym: sym,
+        pct: enriched.pct,
+        href: `/today.html?ticker=${encodeURIComponent(sym)}`,
+        title: `${sym} ${fmtBriefPct(enriched.pct) || ""}`
+      });
+    }))), l.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
       className: "tt-brief-chip-label"
     }, "Losers"), React.createElement("div", {
       className: "tt-strip-scroll"
-    }, l.map(row => React.createElement(BriefTickerChip, {
-      key: `l-${row.ticker}`,
-      sym: row.ticker,
-      href: `/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`,
-      title: String(row.ticker || "").toUpperCase()
-    })))));
+    }, l.map(row => {
+      const enriched = enrichBriefMoverRow(row, livePx);
+      const sym = String(enriched.ticker || "").toUpperCase();
+      return React.createElement(BriefTickerChip, {
+        key: `l-${sym}`,
+        sym: sym,
+        pct: enriched.pct,
+        href: `/today.html?ticker=${encodeURIComponent(sym)}`,
+        title: `${sym} ${fmtBriefPct(enriched.pct) || ""}`
+      });
+    }))));
   }
   if (sectionKey === "activeTrader" || sectionKey === "investorPortfolio") {
     return null;
@@ -3129,6 +3149,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783528486225:458024479
+// cache-bust:1783546702290:418277699
 
-// cache-bust:1783528486225:458024479
+// cache-bust:1783546702290:418277699
