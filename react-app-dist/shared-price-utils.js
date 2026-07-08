@@ -67,6 +67,33 @@
     return m >= 570 && m < closeMin;
   }
 
+  /** Weekday pre-market window (04:00–09:30 ET), excluding holidays. */
+  function isNyPreMarket() {
+    if (isNyRegularMarketOpen()) return false;
+    var c = getNyClock();
+    if (c.dow === 0 || c.dow === 6) return false;
+    if (US_MARKET_HOLIDAYS[c.dateStr]) return false;
+    return c.totalMin >= 240 && c.totalMin < 570;
+  }
+
+  /** KV /timed/prices poll rows carry vendor session fields; bare WS ticks do not. */
+  function isAuthoritativeRthPoll(p) {
+    if (!p || typeof p !== "object") return false;
+    if (Number(p.ahp) > 0) return true;
+    if (Number(p.pc) > 0) return true;
+    if (Number.isFinite(Number(p.dc))) return true;
+    if (Number.isFinite(Number(p.dp))) return true;
+    return false;
+  }
+
+  /** Alpaca tick_batch dayChg* during PRE is vs prev close (pre-market gap), not RTH session. */
+  function shouldApplyDayChangeFromTick(p, marketOpen) {
+    if (marketOpen) return true;
+    if (isAuthoritativeRthPoll(p)) return true;
+    var session = String(p && p.session || "").toUpperCase();
+    return session !== "PRE" && session !== "AH";
+  }
+
   // Price feed freshness — uses q_ts (vendor quote) / p_ts, NOT poll t.
   // GS: cron refreshed t every minute while p stuck at Jun-16 1090.
   function getPriceReceiptAgeMs(t) {
@@ -158,6 +185,13 @@
         && Math.abs(live - ahPx) / ahPx < 0.001
         && Math.abs(close - ahPx) / ahPx > 0.001) {
       return close;
+    }
+    // Pre-market poison: WS can duplicate the pre-market print on close and
+    // _ah_price while prev_close still holds the last session RTH close (QQQ).
+    if (isNyPreMarket() && close > 0 && ahPx > 0 && prev > 0
+        && Math.abs(close - ahPx) / Math.max(close, ahPx) < 0.005
+        && Math.abs(close - prev) / prev > 0.01) {
+      return prev;
     }
     // Stale snapshot guard: /timed/all can leave price == prev_close while
     // usePriceFeed has already locked today's RTH close on _live_price (GS).
@@ -1064,6 +1098,10 @@
       return kvOverlay;
     }
 
+    if (isAuthoritativeRthPoll(p)) {
+      return { price: feedP, close: feedP, _live_price: feedP };
+    }
+
     var printLooksExt = existingClose > 0 && Math.abs(feedP - existingClose) > 0.001;
     if (printLooksExt || inExtSession) {
       var rthClose = existingClose > 0 ? existingClose : feedP;
@@ -1091,6 +1129,9 @@
     getIngestMs: getIngestMs,
     getNyClock: getNyClock,
     isNyRegularMarketOpen: isNyRegularMarketOpen,
+    isNyPreMarket: isNyPreMarket,
+    isAuthoritativeRthPoll: isAuthoritativeRthPoll,
+    shouldApplyDayChangeFromTick: shouldApplyDayChangeFromTick,
     ageLabelFromMinutes: ageLabelFromMinutes,
     getStaleInfo: getStaleInfo,
     getHeadlinePrice: getHeadlinePrice,
@@ -1125,4 +1166,4 @@
   };
 })();
 
-// cache-bust:1783512193078:550021893
+// cache-bust:1783513326454:525910910
