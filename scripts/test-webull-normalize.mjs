@@ -38,8 +38,8 @@ if (balance?.buying_power !== 484551) {
 const positions = normalizeWebullPositions({
   response: {
     positions: [
-      { symbol: "AAPL", qty: "10", market_value: "1800.5", instrument_type: "EQUITY" },
-      { symbol: "SPY", quantity: "5", last_price: "500", instrument_type: "ETF" },
+      { symbol: "AAPL", qty: "10", market_value: "1800.5", cost_price: "175.2", unrealized_profit_loss: "52.0", instrument_type: "EQUITY" },
+      { symbol: "SPY", quantity: "5", last_price: "500", cost_price: "498.5", unrealized_profit_loss: "7.5", instrument_type: "ETF" },
     ],
   },
 });
@@ -48,8 +48,8 @@ if (positions.length !== 2) {
   console.error("FAIL positions count", positions);
   process.exit(1);
 }
-if (positions[0].symbol !== "AAPL" || positions[0].qty !== 10) {
-  console.error("FAIL position[0]", positions[0]);
+if (positions[0].avg_cost !== 175.2 || positions[0].unrealized_pnl !== 52) {
+  console.error("FAIL position[0] cost/upl", positions[0]);
   process.exit(1);
 }
 

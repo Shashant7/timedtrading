@@ -1951,9 +1951,9 @@ function BridgeSection({
       }
     }, "Unrlz P&L"))), React.createElement("tbody", null, positions.map((p, i) => {
       const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
-      const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
+      const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price ?? p?.cost_price);
       const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
-      const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
+      const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.unrealized_profit_loss ?? p?.upl);
       const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
       return React.createElement("tr", {
         key: `${u.user_id}-${sym}-${i}`
@@ -4192,6 +4192,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(MissionControl, {
   user: user
 })));
-// cache-bust:1783453159597:775552217
+// cache-bust:1783469926632:713283125
 
-// cache-bust:1783453159597:775552217
+// cache-bust:1783469926632:713283125
