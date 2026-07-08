@@ -75,6 +75,14 @@
     }
   }
 
+  function shouldApplyDayChangeFromTick(p, marketOpen) {
+    try {
+      return window.TimedPriceUtils?.shouldApplyDayChangeFromTick?.(p, marketOpen) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   function priceReceiptMaxAgeMs(marketOpen) {
     return marketOpen ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
   }
@@ -106,6 +114,7 @@
         const overlayKeys = [
           "_live_price", "_live_prev_close", "_price_updated_at",
           "_price_value_ts", "_quote_receipt_ts",
+          "_rth_session_close",
           "_ah_price", "_ah_change", "_ah_change_pct",
           "extended_price", "extended_percent_change", "extended_change",
         ];
@@ -201,6 +210,7 @@
             const feedDp = Number(p.dp);
             const priceOverlay = applyPriceFeedOverlay(existing, p, marketOpen);
             if (!priceOverlay) continue;
+            const applyDay = shouldApplyDayChangeFromTick(p, marketOpen);
 
             const updated = {
               ...existing,
@@ -212,8 +222,8 @@
               ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
               // dc/dp are session-close values; backend preserves them
               // across the close (see rule). Safe to apply in both states.
-              ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
-              ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+              ...(applyDay && Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+              ...(applyDay && Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
             };
             next[key] = updated;
             changed = true;
@@ -329,6 +339,7 @@
           const feedDp = Number(p.dp);
           const priceOverlay = applyPriceFeedOverlay(existing, p, marketOpen);
           if (!priceOverlay) continue;
+          const applyDay = shouldApplyDayChangeFromTick(p, marketOpen);
           const updated = {
             ...existing,
             ...priceOverlay,
@@ -337,8 +348,8 @@
             ...(Number(p?.q_ts) > 0 ? { _quote_receipt_ts: Number(p.q_ts) } : {}),
             _market_open_at_feed: marketOpen,
             ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
-            ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
-            ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
+            ...(applyDay && Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
+            ...(applyDay && Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
           };
           next[key] = updated;
         }
@@ -415,4 +426,4 @@
   window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
 })();
 
-// cache-bust:1783512193078:550021893
+// cache-bust:1783513828017:365018512
