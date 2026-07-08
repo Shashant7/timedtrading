@@ -55,6 +55,7 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
   // (no haircut) so this is a no-op until the gate is enabled in
   // model_config.gates. See worker/index.js for the stamp site.
   const chop = Number(d.__chop_size_mult) || 1.0;
+  const harmonic = Number(d.__harmonic_size_mult) || 1.0;
 
   // 2026-05-22 Phase B / Tier 2.4 — Markov probability-vector sizing.
   // computeRegimeFavorMultiplier() in worker/lib/regime-markov-policy.js
@@ -78,12 +79,12 @@ export function gatherSizingMultipliers(tickerData, entryResult) {
     : miOverall === "balanced" ? 0.8 : 1.0;
 
   const rawCombined = regime * daRegime * rvol * danger * meanRevert
-    * pdz * spy * orb * chop * markovFavor * internals * portfolioCombined;
+    * pdz * spy * orb * chop * markovFavor * harmonic * internals * portfolioCombined;
   const combined = Math.max(SIZING_MULT_FLOOR, rawCombined);
 
   return {
     breakdown: {
-      regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, markovFavor, internals,
+      regime, daRegime, rvol, danger, meanRevert, pdz, spy, orb, chop, markovFavor, harmonic, internals,
       portfolioDd, portfolioSector, portfolioCombined,
     },
     rawCombined,

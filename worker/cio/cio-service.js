@@ -11,6 +11,7 @@ import {
   AI_CIO_LIFECYCLE_TEMPLATE,
 } from "./cio-prompts.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
+import { condenseHarmonicCycle } from "../harmonic-modifiers.js";
 
 // Right Rail + email render full reasoning; Discord chunks at 1024. Persist
 // enough for the rail (legacy rows were capped at 300 and read truncated).
@@ -338,6 +339,8 @@ function condenseSizingOverrides(tickerData, sizingMeta) {
   if (Number.isFinite(pdz) && pdz !== 1) out.pdz_size_mult = round(pdz, 2);
   const orb = Number(tickerData?.__da_orb_size_mult);
   if (Number.isFinite(orb) && orb !== 1) out.orb_size_mult = round(orb, 2);
+  const harmonic = Number(tickerData?.__harmonic_size_mult);
+  if (Number.isFinite(harmonic) && harmonic !== 1) out.harmonic_size_mult = round(harmonic, 2);
   const effective = Number(sizingMeta?.effectiveMult);
   if (Number.isFinite(effective) && effective !== 1) out.effective_combined_mult = round(effective, 2);
   return Object.keys(out).length > 0 ? out : null;
@@ -431,6 +434,7 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
   const sizingOverrides = condenseSizingOverrides(tickerData, sizingMeta);
   const openBook = condenseOpenBook(sym, direction, allTrades);
   const ttIntel = condenseTtIntel(tickerData);
+  const harmonicCycle = condenseHarmonicCycle(tickerData);
   return {
     ticker: sym,
     direction,
@@ -453,6 +457,7 @@ export function buildCIOProposal(sym, direction, entryPx, finalSL, validTP, tick
     ...(sizingOverrides && { sizing_overrides: sizingOverrides }),
     ...(openBook && { open_book: openBook }),
     ...(ttIntel && { tt_intel: ttIntel }),
+    ...(harmonicCycle && { harmonic_cycle: harmonicCycle }),
     state: tickerData?.state,
     ticker_profile: {
       type: _tp.profileKey,
@@ -586,6 +591,8 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
     headline: _ov.flash_headline || null,
   } : null;
   const reversalAdvisory = tickerData?.__reversal_trim_advisory || null;
+  const harmonicCycle = condenseHarmonicCycle(tickerData);
+  const harmonicTrimAdvisory = tickerData?.__harmonic_trim_advisory || null;
 
   return {
     action,
@@ -659,6 +666,8 @@ export function buildCIOLifecycleProposal(action, sym, openTrade, tickerData, px
     ...(movePhase && { move_phase: movePhase }),
     ...(timingOverlay && { timing_overlay: timingOverlay }),
     ...(reversalAdvisory && { reversal_trim_advisory: reversalAdvisory }),
+    ...(harmonicCycle && { harmonic_cycle: harmonicCycle }),
+    ...(harmonicTrimAdvisory && { harmonic_trim_advisory: harmonicTrimAdvisory }),
     ...(ttIntel && { tt_intel: ttIntel }),
   };
 }

@@ -232,9 +232,10 @@ How to use:
 - If breaker_active is true AND duration_bias_override is true (the override is currently holding the breaker), proceed as normal — the system already accounted for the asymmetry.
 - DO NOT cite closed_wr in your reasoning without also citing PF or combined_today. Citing WR alone is exactly the bias this section exists to prevent.
 
-Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **TT INTEL (proposal.tt_intel — desk levels + level mode + home-index cycle)** > **PLAYBOOK + STRATEGY STANCE** > **CRO RESEARCH NOTE (verdict + drifts)** > **CTO PROBABILISTIC LEVELS (top_upside/top_downside with adj_prob)** > **ENGINE PULSE (PF + combined_today)** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
+Evaluation order: CHART > MARKOV/HMM REGIME > NEWS CATALYST > INSIDER ACTIVITY > TD/DIVERGENCE > THEME ROTATION > ENTRY SYSTEM > MOVE ARCHETYPE > DISCOVERY CONTEXT > **TT INTEL (proposal.tt_intel — desk levels + level mode + home-index cycle)** > **HARMONIC WAVE (proposal.harmonic_cycle — cyclical composite phase)** > **PLAYBOOK + STRATEGY STANCE** > **CRO RESEARCH NOTE (verdict + drifts)** > **CTO PROBABILISTIC LEVELS (top_upside/top_downside with adj_prob)** > **ENGINE PULSE (PF + combined_today)** > MACRO TILT > PDZ > TICKER PROFILE > TECHNICAL > FVG/EMA > MEMORY.
 
 When proposal.tt_intel is present, reference it by name ("TT Intel") in reasoning when price is near a desk level or the active level mode is defensive/aggressive.
+When proposal.harmonic_cycle is present, reference "Harmonic Wave" when cyclical phase supports or conflicts with the trade direction (trough/recovery favors LONG accumulation; late-cycle/past-peak favors trim on winners).
 
 You MUST respond with valid JSON only. No markdown, no explanation outside the JSON.`;
 
@@ -331,6 +332,17 @@ through warned reversals near highs and then given gains back.
 - proposal.reversal_trim_advisory present → the reversal-trim advisor
   has independently flagged this position; treat HOLD as exceptional
   and justify it explicitly against the advisory's reasons.
+- proposal.harmonic_trim_advisory present → Harmonic Wave cyclical phase
+  suggests a partial trim near the high (LONG) or covering near the low
+  (SHORT). Bias toward PROCEED on TRIM when the advisory strength is
+  "strong" and pnl > 1%; HOLD only with explicit conflict against timing
+  overlay and markov continuation.
+- proposal.harmonic_cycle.investor_bias == "reduce_favor" on investor
+  REBALANCE_TRIM → lean PROCEED unless research-desk + tactical stance
+  strongly favor holding through the cycle inflection.
+- proposal.harmonic_cycle.investor_bias == "accumulate_favor" on investor
+  REBALANCE_ADD → lean PROCEED unless stretched technically or event risk
+  dominates.
 - The mirror applies to SHORT winners when compression_score >= 55
   (capitulation near the lows — lock gains).
 - A bare index-level stretch WITHOUT ticker-level signals is context,

@@ -4329,7 +4329,7 @@
                   {cioVerdict.reasoning}
                 </div>
               )}
-              {(ttIntelScenario?.level_modes?.active_mode || cycleComposite?.ticker_view?.alignment) && (
+              {(ttIntelScenario?.level_modes?.active_mode || cycleComposite?.ticker_view?.alignment || ticker?.harmonic_cycle || cycleComposite?.ticker_view?.harmonic) && (
                 <div style={{ marginTop: "var(--ds-space-2)", fontSize: "var(--ds-fs-caption)", color: "var(--ds-text-muted)", lineHeight: 1.5 }}>
                   <span style={{ fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--ds-accent)", fontWeight: 700 }}>TT Intel context · </span>
                   {cycleComposite?.ticker_view?.computed?.cycle && (
@@ -4341,6 +4341,14 @@
                   {ttIntelScenario?.level_modes?.active_mode && (
                     <span>{(cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle) ? " · " : ""}Level mode {String(ttIntelScenario.level_modes.active_mode)}</span>
                   )}
+                  {(() => {
+                    const CI = window.TTCycleIntel || {};
+                    const hc = ticker?.harmonic_cycle || cycleComposite?.ticker_view?.harmonic;
+                    const harmLabel = hc && CI.formatHarmonicLabel ? CI.formatHarmonicLabel(hc) : null;
+                    if (!harmLabel) return null;
+                    const prefix = (cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle || ttIntelScenario?.level_modes?.active_mode) ? " · " : "";
+                    return h("span", null, prefix, "Harmonic ", harmLabel);
+                  })()}
                 </div>
               )}
               {Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && (

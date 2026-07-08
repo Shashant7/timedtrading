@@ -5882,7 +5882,7 @@
             lineHeight: 1.55,
             whiteSpace: "pre-wrap"
           }
-        }, cioVerdict.reasoning), (ttIntelScenario?.level_modes?.active_mode || cycleComposite?.ticker_view?.alignment) && React.createElement("div", {
+        }, cioVerdict.reasoning), (ttIntelScenario?.level_modes?.active_mode || cycleComposite?.ticker_view?.alignment || ticker?.harmonic_cycle || cycleComposite?.ticker_view?.harmonic) && React.createElement("div", {
           style: {
             marginTop: "var(--ds-space-2)",
             fontSize: "var(--ds-fs-caption)",
@@ -5897,7 +5897,14 @@
             color: "var(--ds-accent)",
             fontWeight: 700
           }
-        }, "TT Intel context \xB7 "), cycleComposite?.ticker_view?.computed?.cycle && React.createElement("span", null, "Cycle ", String(cycleComposite.ticker_view.computed.cycle)), cycleComposite?.ticker_view?.alignment && React.createElement("span", null, cycleComposite?.ticker_view?.computed?.cycle ? " · " : "", String(cycleComposite.ticker_view.alignment).replace(/_/g, " ")), ttIntelScenario?.level_modes?.active_mode && React.createElement("span", null, cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle ? " · " : "", "Level mode ", String(ttIntelScenario.level_modes.active_mode))), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
+        }, "TT Intel context \xB7 "), cycleComposite?.ticker_view?.computed?.cycle && React.createElement("span", null, "Cycle ", String(cycleComposite.ticker_view.computed.cycle)), cycleComposite?.ticker_view?.alignment && React.createElement("span", null, cycleComposite?.ticker_view?.computed?.cycle ? " · " : "", String(cycleComposite.ticker_view.alignment).replace(/_/g, " ")), ttIntelScenario?.level_modes?.active_mode && React.createElement("span", null, cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle ? " · " : "", "Level mode ", String(ttIntelScenario.level_modes.active_mode)), (() => {
+          const CI = window.TTCycleIntel || {};
+          const hc = ticker?.harmonic_cycle || cycleComposite?.ticker_view?.harmonic;
+          const harmLabel = hc && CI.formatHarmonicLabel ? CI.formatHarmonicLabel(hc) : null;
+          if (!harmLabel) return null;
+          const prefix = cycleComposite?.ticker_view?.alignment || cycleComposite?.ticker_view?.computed?.cycle || ttIntelScenario?.level_modes?.active_mode ? " · " : "";
+          return h("span", null, prefix, "Harmonic ", harmLabel);
+        })()), Array.isArray(cioVerdict.risk_flags) && cioVerdict.risk_flags.length > 0 && React.createElement("div", {
           style: {
             display: "flex",
             flexWrap: "wrap",
@@ -22628,4 +22635,4 @@
   };
 })();
 
-// cache-bust:1783473289252:410608215
+// cache-bust:1783475335709:529574115

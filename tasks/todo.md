@@ -30,11 +30,9 @@
       Next: forward conviction validation, broker manifest `log`→`on`, notification
       taxonomy, SI autonomy UI.
 
-- [x] **Daily Cycle Composite + FSD level-conditioned modes (2026-07-07).**
-      Backend: `GET /timed/daily-cycle-composite`, FSD levels on
-      `/timed/ticker-scenario`, scoring policy merge. UI (2026-07-07):
-      Today Market Pulse sector cycle row; Right Rail TT Intel in Model
-      Guidance, Reference Levels, Catalysts, and AI CIO context.
+- [x] **Harmonic Wave integration (2026-07-08).** Phase A + soft modifiers
+      (rank tilt, size mult, trim advisory, investor bias) with CIO vetting on
+      all paths. Branch: `cursor/harmonic-wave-integration-ca70`.
 
 - [ ] **Bugbot fixes (#997/#998/#1001) — PR #1002 (ready for review; Bugbot pending).**
       Fixes: ReadySetupsBoard `embedded` prop, VerdictGuideBlock key levels,

@@ -833,6 +833,30 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     }
   } catch (_) {}
 
+  // Harmonic Wave — cyclical composite stamped during scoring (soft overlay).
+  try {
+    const hc = tickerData?.harmonic_cycle;
+    if (hc?.label || Number.isFinite(Number(hc?.phase_pct))) {
+      mem.harmonic_cycle = {
+        label: hc.label || null,
+        phase_pct: hc.phase_pct ?? null,
+        direction: hc.direction || null,
+        primary_period: hc.primary_period ?? null,
+        rank_tilt: hc.rank_tilt ?? null,
+        investor_bias: hc.investor_bias || null,
+        note: "Harmonic Wave — desk cyclical composite. CONTEXT for entry/trim/investor timing; CIO weighs against technicals and timing overlay.",
+      };
+      const trim = tickerData?.__harmonic_trim_advisory;
+      if (trim) {
+        mem.harmonic_cycle.trim_advisory = {
+          suggested_trim_pct: trim.suggested_trim_pct,
+          strength: trim.strength,
+          reasons: trim.reasons,
+        };
+      }
+    }
+  } catch (_) {}
+
   // ── Layer 15b-overlay: live desk tactical overlay headline (2026-06-04) ──
   // Even when no per-ticker tactical signal matches, surface the one-line
   // FSD-derived overlay that is currently live so the CIO always knows the
