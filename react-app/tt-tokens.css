@@ -2302,10 +2302,23 @@ body.tt-rail-scroll-lock .rail-panel {
 @media (min-width: 1024px) {
   .tt-rail-chart-canvas { height: 380px; }
 }
+.tt-rail-shell--workspace .tt-rail-chart-block {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
 .tt-rail-shell--workspace .tt-rail-chart-canvas {
-  height: calc(100vh - 340px) !important;
-  max-height: 980px;
-  min-height: 380px;
+  /* Leave room below the candle chart for the harmonic composite wave
+     without forcing a scroll hunt in the left pane. */
+  height: min(46vh, 480px) !important;
+  max-height: 480px;
+  min-height: 280px;
+  flex: 0 0 auto;
+}
+.tt-rail-shell--workspace .tt-rail-harmonic-wave {
+  flex: 0 0 auto;
+  max-height: 220px;
+  overflow: hidden;
 }
 
 /* Modal mode (no workspace class): single-column flex. Tab content

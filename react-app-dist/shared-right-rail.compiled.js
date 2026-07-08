@@ -188,12 +188,15 @@
         height: 140
       }) : null;
       return React.createElement("div", {
+        className: "tt-rail-harmonic-wave",
         style: {
           marginBottom: "var(--ds-space-3)",
+          marginTop: "var(--ds-space-2)",
           padding: "8px 10px",
           borderRadius: "var(--ds-radius-xs)",
           background: "rgba(255,0,255,0.06)",
-          border: "1px solid rgba(255,0,255,0.22)"
+          border: "1px solid rgba(255,0,255,0.22)",
+          flexShrink: 0
         }
       }, React.createElement("div", {
         style: {
@@ -7198,7 +7201,8 @@
             });
             if (apiKey) qs.set("key", apiKey);
             const res = await fetch(`${API_BASE}/timed/admin/fundamentals?${qs.toString()}`, {
-              cache: "no-store"
+              cache: "no-store",
+              credentials: "include"
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const json = await res.json();
@@ -15429,12 +15433,16 @@
             const sym = String(tickerSymbol || "").toUpperCase();
             const industry = String(prof.industry || "").trim().toLowerCase();
             const name = String(prof.name || "").toLowerCase();
-            const knownEtf = /^(SPY|QQQ|IWM|DIA|XL[A-Z]|XHB|SOXL|SMH|KWEB|GLD|SLV|USO|GDX|VIXY|TNA|SPYU|SPCX|GRN[AIJY]|IBIT|BITO|ARKK|HYG|LQD|TLT|IEF|SHY|EFA|EEM|VTI|VOO|IVV)$/.test(sym);
+            const knownEtf = /^(SPY|QQQ|IWM|DIA|RSP|XL[A-Z]|XHB|SOXL|SMH|KWEB|GLD|SLV|USO|GDX|VIXY|TNA|SPYU|SPCX|GRN[AIJY]|IBIT|BITO|ARKK|HYG|LQD|TLT|IEF|SHY|EFA|EEM|VTI|VOO|IVV|JETS|IBB|SPHB|CIBR|ARKG|IHF|DRIV|IYT|IGV|SOXX|URA|URNM)$/.test(sym);
             const explicitEtfProfile = industry.includes("etf") || industry.includes("exchange-traded") || industry.includes("index fund") || industry.includes("mutual fund") || /\betf\b/.test(name) || name.includes("index fund");
             if (knownEtf || explicitEtfProfile) return true;
+            const liveSector = String(prof.sector || ticker?.sector || ticker?._ticker_profile?.sector || "").trim();
+            if (liveSector && !/etf/i.test(liveSector)) return false;
+            const mcap = Number(val.market_cap);
+            if (Number.isFinite(mcap) && mcap > 0) return false;
             const hasNoEarnings = !Array.isArray(earn.history) || earn.history.length === 0;
             const hasNoEps = val.pe_ttm == null && val.pe_forward == null;
-            const emptyProfile = !industry && !String(prof.sector || "").trim() && !String(prof.name || "").trim();
+            const emptyProfile = !industry && !liveSector && !String(prof.name || ticker?.name || "").trim();
             return hasNoEarnings && hasNoEps && emptyProfile;
           })();
           if (_isEtf) {
@@ -22528,4 +22536,4 @@
   };
 })();
 
-// cache-bust:1783468934746:4470519
+// cache-bust:1783470103572:750047661

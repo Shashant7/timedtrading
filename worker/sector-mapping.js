@@ -288,6 +288,13 @@ const SECTOR_MAP = {
   'KWEB': 'Thematic ETF',
   'INFL': 'Thematic ETF',
   'LIT':  'Thematic ETF',
+  // July 2026 sector-allocation theme sleeve (15% bucket)
+  'JETS': 'Thematic ETF',  // U.S. Global Jets — airlines / travel beta
+  'CIBR': 'Thematic ETF',  // First Trust Cybersecurity
+  'ARKG': 'Thematic ETF',  // ARK Genomic Revolution
+  'IHF':  'Thematic ETF',  // iShares U.S. Healthcare Providers (dropped Jul-26)
+  'DRIV': 'Thematic ETF',  // Global X Autonomous & Electric Vehicles (dropped Jul-26)
+  'IYT':  'Thematic ETF',  // iShares U.S. Transportation (dropped Jul-26)
 
   // Commodity & Volatility ETFs (futures equivalents)
   'GLD': 'Commodity ETF',
@@ -302,20 +309,20 @@ const SECTOR_MAP = {
 
 };
 
-// Sector Ratings — as of Apr 20, 2026 (Fundstrat OW/N/UW relative to S&P 500).
-// Mirrors the definitive copy in worker/index.js. Delta = active weight vs benchmark (%).
+// Sector Ratings — synced to July 2026 sector allocation (7/7/2026 deck).
+// Delta = model weight vs scaled benchmark index weight (%).
 const SECTOR_RATINGS = {
-  'Industrials':              { rating: 'overweight',  boost: 5,  delta: 2.5  },
-  'Information Technology':   { rating: 'overweight',  boost: 5,  delta: 2.5  },
-  'Financials':               { rating: 'overweight',  boost: 4,  delta: 2.2  },
-  'Basic Materials':          { rating: 'overweight',  boost: 2,  delta: 0.4  },
-  'Communication Services':   { rating: 'overweight',  boost: 1,  delta: 0.2  },
+  'Industrials':              { rating: 'overweight',  boost: 5,  delta: 2.6  },
+  'Financials':               { rating: 'overweight',  boost: 5,  delta: 2.1  },
+  'Health Care':              { rating: 'overweight',  boost: 4,  delta: 2.0  },
+  'Information Technology':   { rating: 'neutral',     boost: 0,  delta: 0.4  },
   'Consumer Discretionary':   { rating: 'neutral',     boost: 0,  delta: 0.0  },
-  'Real Estate':              { rating: 'neutral',     boost: 0,  delta: 0.0  },
+  'Basic Materials':          { rating: 'neutral',     boost: 0,  delta: 0.0  },
+  'Real Estate':              { rating: 'neutral',     boost: 0,  delta: 0.5  },
   'Utilities':                { rating: 'neutral',     boost: 0,  delta: 0.0  },
-  'Energy':                   { rating: 'underweight', boost: -3, delta: -1.6 },
-  'Health Care':              { rating: 'underweight', boost: -4, delta: -2.0 },
-  'Consumer Staples':         { rating: 'underweight', boost: -5, delta: -4.0 },
+  'Communication Services':   { rating: 'underweight', boost: -3, delta: -1.9 },
+  'Energy':                   { rating: 'neutral',     boost: 0,  delta: -2.0 },
+  'Consumer Staples':         { rating: 'underweight', boost: -5, delta: -3.8 },
   'Index ETF':                { rating: 'neutral',     boost: 0  },
   'Sector ETF':               { rating: 'neutral',     boost: 0  },
   'Thematic ETF':             { rating: 'neutral',     boost: 0  },
@@ -385,7 +392,7 @@ const THEMES = {
   defense:           ["LMT","RTX","NOC","GD","HII","LDOS","BWXT","BA"],
 
   // Healthcare narratives.
-  weight_loss:       ["LLY","NVO","VKTX","ALT","TERN","SLRX"],
+  weight_loss:       ["LLY","NVO","VKTX","ALT","TERN","SLRX","IBB","ARKG"],
   obesity_adjacent:  ["ABBV","AMGN","PFE","REGN"],
 
   // Crypto + crypto-adjacent.
@@ -408,14 +415,15 @@ const THEMES = {
 
   // Consumer / cyclical.
   ev_battery:        ["TSLA","RIVN","LCID","CHPT","ALB","LITE","ALU","LAC","SQM"],
-  travel_leisure:    ["BKNG","ABNB","MAR","HLT","UAL","DAL","CCL","RCL","NCLH","LVS","WYNN"],
+  travel_leisure:    ["BKNG","ABNB","MAR","HLT","UAL","DAL","CCL","RCL","NCLH","LVS","WYNN","JETS"],
   ecom_logistics:    ["AMZN","SHOP","FDX","UPS","JBHT","ODFL","XPO","CHRW"],
 
   // Cyber.
-  cybersecurity:     ["CRWD","ZS","PANW","NET","S","FTNT","OKTA","CYBR","RBRK","TENB"],
+  cybersecurity:     ["CRWD","ZS","PANW","NET","S","FTNT","OKTA","CYBR","RBRK","TENB","CIBR"],
 
   // Country / cross-region ETFs (Phase 5 — referenced by macro tracker).
   country_us_broad:  ["SPY","RSP","QQQ","IWM","DIA","VTI"],
+  high_beta_equity:  ["SPHB"],
   country_korea:     ["EWY"],
   country_germany:   ["EWG"],
   country_japan:     ["EWJ","DXJ"],
@@ -550,6 +558,9 @@ const TICKER_TYPE_MAP = {
   'IBB':  'thematic_etf', 'INFL': 'thematic_etf',
   'LIT':  'thematic_etf', 'GRNJ': 'thematic_etf',
   'GRNI': 'thematic_etf',
+  'JETS': 'thematic_etf', 'CIBR': 'thematic_etf', 'ARKG': 'thematic_etf',
+  'IHF':  'thematic_etf', 'DRIV': 'thematic_etf', 'IYT': 'thematic_etf',
+  'IGV':  'thematic_etf', 'KWEB': 'thematic_etf', 'SPCX': 'thematic_etf',
 
   // Commodity ETFs
   'GLD': 'commodity_etf', 'SLV': 'commodity_etf',
