@@ -280,6 +280,15 @@ export async function webullGetPositions(env, user, accessToken) {
   });
 }
 
+export async function webullPostOptionsOrder(env, { path, body, accessToken }) {
+  return signedFetch(env, {
+    path,
+    method: "POST",
+    body,
+    accessToken,
+  });
+}
+
 export async function webullPreviewOrder(env, user, order, accessToken) {
   const body = buildOrderBody(user, order, { preview: true });
   return signedFetch(env, {

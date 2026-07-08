@@ -10,11 +10,21 @@ Outcome Ledger (`desk: "shadow"`) before routing to IBKR bridge.
 
 ```toml
 OPTIONS_SHADOW_MODE = "1"
-OPTIONS_SHADOW_PROFILE = "aggressive"   # conservative | moderate | aggressive | speculator
-OPTIONS_SHADOW_FETCH_CHAIN = "1"      # Alpaca chain when cache missing (default on)
-OPTIONS_SHADOW_DELTA_FLEX = "0.10"    # reserved for chain leg matching
-OPTIONS_ACCOUNT_VALUE = "100000"      # sizing (existing)
+OPTIONS_SHADOW_FETCH_CHAIN = "1"
+OPTIONS_DEFAULT_PROFILE = "speculator"
+OPTIONS_ACCOUNT_VALUE = "100000"
 ```
+
+Each entry alert shows **3 ranked shadow plays**:
+1. **Model default** — `OPTIONS_DEFAULT_PROFILE` + confluence delta
+2. **Looser** — same profile, delta −0.15 (min 0.25)
+3. **Loosest valid** — lowest delta where TP clears breakeven
+
+## Webull options (bridge)
+
+`worker-bridge/bridge-webull-options.js` — preview/place single-leg LMT via
+Webull `new_orders` payload. Routed in `handleOptionsOrderWebhook` when
+`user.broker === "webull"`.
 
 ## Pricing sources (today)
 
