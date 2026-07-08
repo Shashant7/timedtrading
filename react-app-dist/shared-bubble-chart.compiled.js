@@ -654,8 +654,8 @@
     const bubbleSize = isHovered ? finalSize * 1.15 : finalSize;
     const ltfScore = Number(ticker.ltf_score) || 0;
     const htfScore = Number(ticker.htf_score) || 0;
-    const x = Number.isFinite(Number(layoutX)) ? Number(layoutX) : ltfScore * scaleX + offsetX;
-    const y = Number.isFinite(Number(layoutY)) ? Number(layoutY) : htfScore * scaleY + offsetY;
+    const x = Number.isFinite(Number(layoutX)) ? Number(layoutX) : htfScore * scaleX + offsetX;
+    const y = Number.isFinite(Number(layoutY)) ? Number(layoutY) : ltfScore * scaleY + offsetY;
     const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
     const stageIconData = (() => {
       if (investorAction) {
@@ -1075,8 +1075,8 @@
         }
         return Array.isArray(tickers) ? tickers : [];
       })();
-      const domainXMax = axisDomain(domainBase, "ltf_score", 50);
-      const domainYMax = axisDomain(domainBase, "htf_score", 50);
+      const domainXMax = axisDomain(domainBase, "htf_score", 50);
+      const domainYMax = axisDomain(domainBase, "ltf_score", 50);
       const scaleX = plotWidth / (2 * domainXMax);
       const scaleY = plotHeight / (2 * domainYMax);
       const offsetX = margin;
@@ -1094,15 +1094,15 @@
         const clampedProjected = clamp(projected, -1, 1);
         return Math.sign(clampedProjected) * Math.pow(Math.abs(clampedProjected), 1 / exponent) * safeMax;
       };
-      const xForLtf = value => offsetX + (projectAxisValue(value, domainXMax, axisExponentX) + 1) / 2 * plotWidth;
-      const yForHtf = value => offsetY + (1 - (projectAxisValue(value, domainYMax, axisExponentY) + 1) / 2) * plotHeight;
-      const chartXForLtf = value => xForLtf(value) - offsetX;
-      const chartYForHtf = value => yForHtf(value) - offsetY;
-      const ltfFromChartX = chartX => {
+      const xForHtf = value => offsetX + (projectAxisValue(value, domainXMax, axisExponentX) + 1) / 2 * plotWidth;
+      const yForLtf = value => offsetY + (1 - (projectAxisValue(value, domainYMax, axisExponentY) + 1) / 2) * plotHeight;
+      const chartXForHtf = value => xForHtf(value) - offsetX;
+      const chartYForLtf = value => yForLtf(value) - offsetY;
+      const htfFromChartX = chartX => {
         const normalized = clamp(chartX, 0, plotWidth) / Math.max(plotWidth, 1) * 2 - 1;
         return invertAxisProjection(normalized, domainXMax, axisExponentX);
       };
-      const htfFromChartY = chartY => {
+      const ltfFromChartY = chartY => {
         const normalized = (1 - clamp(chartY, 0, plotHeight) / Math.max(plotHeight, 1)) * 2 - 1;
         return invertAxisProjection(normalized, domainYMax, axisExponentY);
       };
@@ -1138,8 +1138,8 @@
         const chartX = svgX - offsetX;
         const chartY = svgY - offsetY;
         if (chartX >= 0 && chartX <= plotWidth && chartY >= 0 && chartY <= plotHeight) {
-          const ltfValue = ltfFromChartX(chartX);
-          const htfValue = htfFromChartY(chartY);
+          const htfValue = htfFromChartX(chartX);
+          const ltfValue = ltfFromChartY(chartY);
           setCrosshairPos({
             x: svgX,
             y: svgY,
@@ -1171,8 +1171,8 @@
         const nodes = list.map(t => {
           const ltf = Number(t?.ltf_score) || 0;
           const htf = Number(t?.htf_score) || 0;
-          const x0 = xForLtf(ltf);
-          const y0 = yForHtf(htf);
+          const x0 = xForHtf(htf);
+          const y0 = yForLtf(ltf);
           const r = bubbleRadius(t);
           const j = hash(t?.ticker) % 7 - 3;
           return {
@@ -1300,18 +1300,18 @@
         height: "100%",
         fill: "url(#grid)"
       }), React.createElement("line", {
-        x1: xForLtf(0),
+        x1: xForHtf(0),
         y1: offsetY,
-        x2: xForLtf(0),
+        x2: xForHtf(0),
         y2: offsetY + plotHeight,
         stroke: "#ffffff",
         strokeWidth: "2",
         opacity: "1"
       }), React.createElement("line", {
         x1: offsetX,
-        y1: offsetY + plotHeight / 2,
+        y1: yForLtf(0),
         x2: offsetX + plotWidth,
-        y2: offsetY + plotHeight / 2,
+        y2: yForLtf(0),
         stroke: "#ffffff",
         strokeWidth: "2",
         opacity: "1"
@@ -1324,6 +1324,13 @@
         strokeWidth: "2",
         opacity: "0.6"
       }), React.createElement("text", {
+        x: offsetX + plotWidth / 2,
+        y: offsetY + plotHeight + 40,
+        fill: "#8b92a0",
+        textAnchor: "middle",
+        fontSize: "13",
+        fontWeight: "600"
+      }, "HTF Score"), React.createElement("text", {
         x: offsetX - 50,
         y: offsetY + plotHeight / 2,
         fill: "#8b92a0",
@@ -1331,16 +1338,9 @@
         fontSize: "13",
         fontWeight: "600",
         transform: `rotate(-90 ${offsetX - 50} ${offsetY + plotHeight / 2})`
-      }, "HTF Score"), React.createElement("text", {
-        x: offsetX + plotWidth / 2,
-        y: offsetY + plotHeight + 40,
-        fill: "#8b92a0",
-        textAnchor: "middle",
-        fontSize: "13",
-        fontWeight: "600"
       }, "LTF Score"), [-domainXMax, -domainXMax / 2, 0, domainXMax / 2, domainXMax].map(val => {
-        const x = xForLtf(val);
-        const y = offsetY + plotHeight / 2;
+        const x = xForHtf(val);
+        const y = yForLtf(0);
         return React.createElement("g", {
           key: `x-${val}`
         }, React.createElement("line", {
@@ -1359,7 +1359,7 @@
         }, Math.round(val)));
       }), [-domainYMax, -domainYMax / 2, 0, domainYMax / 2, domainYMax].map(val => {
         const x = offsetX;
-        const y = yForHtf(val);
+        const y = yForLtf(val);
         return React.createElement("g", {
           key: `y-${val}`
         }, React.createElement("line", {
@@ -1384,14 +1384,14 @@
         fontWeight: "700",
         textAnchor: "middle",
         opacity: "0.38"
-      }, "PULLBACK"), React.createElement("text", {
+      }, "BOUNCE / REVERSAL"), React.createElement("text", {
         x: offsetX + plotWidth * 0.12,
         y: offsetY + 30,
         fill: "#f59e0b",
         fontSize: "7",
         textAnchor: "middle",
         opacity: "0.30"
-      }, "HTF Bullish, LTF Weak"), React.createElement("text", {
+      }, "HTF Bearish, LTF Strong"), React.createElement("text", {
         x: offsetX + plotWidth * 0.88,
         y: offsetY + 18,
         fill: "#22c55e",
@@ -1429,30 +1429,36 @@
         fontWeight: "700",
         textAnchor: "middle",
         opacity: "0.38"
-      }, "BOUNCE / REVERSAL"), React.createElement("text", {
+      }, "PULLBACK"), React.createElement("text", {
         x: offsetX + plotWidth * 0.88,
         y: offsetY + plotHeight - 3,
         fill: "#f59e0b",
         fontSize: "7",
         textAnchor: "middle",
         opacity: "0.30"
-      }, "HTF Bearish, LTF Strong"), (() => {
-        const longX = xForLtf(LONG_CORRIDOR.ltfMin);
-        const longW = xForLtf(LONG_CORRIDOR.ltfMax) - longX;
-        const shortX = xForLtf(SHORT_CORRIDOR.ltfMin);
-        const shortW = xForLtf(SHORT_CORRIDOR.ltfMax) - shortX;
+      }, "HTF Bullish, LTF Weak"), (() => {
+        const longYTop = Math.min(yForLtf(LONG_CORRIDOR.ltfMin), yForLtf(LONG_CORRIDOR.ltfMax));
+        const longYBottom = Math.max(yForLtf(LONG_CORRIDOR.ltfMin), yForLtf(LONG_CORRIDOR.ltfMax));
+        const longH = longYBottom - longYTop;
+        const shortYTop = Math.min(yForLtf(SHORT_CORRIDOR.ltfMin), yForLtf(SHORT_CORRIDOR.ltfMax));
+        const shortYBottom = Math.max(yForLtf(SHORT_CORRIDOR.ltfMin), yForLtf(SHORT_CORRIDOR.ltfMax));
+        const shortH = shortYBottom - shortYTop;
+        const bullX = xForHtf(0);
+        const bullW = xForHtf(domainXMax) - bullX;
+        const bearW = xForHtf(0) - xForHtf(-domainXMax);
+        const bearX = xForHtf(-domainXMax);
         return React.createElement(React.Fragment, null, React.createElement("rect", {
-          x: longX,
-          y: offsetY,
-          width: longW,
-          height: plotHeight / 2,
+          x: bullX,
+          y: longYTop,
+          width: bullW,
+          height: longH,
           fill: "rgba(34,197,94,0.08)",
           stroke: "rgba(34,197,94,0.35)",
           strokeWidth: "1",
           strokeDasharray: "6 4"
         }), React.createElement("text", {
-          x: longX + longW / 2,
-          y: offsetY + plotHeight * 0.25,
+          x: bullX + bullW / 2,
+          y: longYTop + longH / 2,
           fill: "rgba(34,197,94,0.42)",
           fontSize: "10",
           fontWeight: "600",
@@ -1462,17 +1468,17 @@
             pointerEvents: "none"
           }
         }, "BULL SETUP ZONE"), React.createElement("rect", {
-          x: shortX,
-          y: offsetY + plotHeight / 2,
-          width: shortW,
-          height: plotHeight / 2,
+          x: bearX,
+          y: shortYTop,
+          width: bearW,
+          height: shortH,
           fill: "rgba(239,68,68,0.08)",
           stroke: "rgba(239,68,68,0.35)",
           strokeWidth: "1",
           strokeDasharray: "6 4"
         }), React.createElement("text", {
-          x: shortX + shortW / 2,
-          y: offsetY + plotHeight * 0.75,
+          x: bearX + bearW / 2,
+          y: shortYTop + shortH / 2,
           fill: "rgba(239,68,68,0.42)",
           fontSize: "10",
           fontWeight: "600",
@@ -1519,7 +1525,7 @@
         textAnchor: "middle",
         fontSize: "12",
         fontWeight: "700"
-      }, "LTF: ", crosshairPos.ltfValue.toFixed(1))), crosshairPos.chartY >= 0 && crosshairPos.chartY <= plotHeight && React.createElement("g", null, React.createElement("rect", {
+      }, "HTF: ", crosshairPos.htfValue.toFixed(1))), crosshairPos.chartY >= 0 && crosshairPos.chartY <= plotHeight && React.createElement("g", null, React.createElement("rect", {
         x: offsetX - 55,
         y: offsetY + crosshairPos.chartY - 10,
         width: "50",
@@ -1536,13 +1542,13 @@
         textAnchor: "middle",
         fontSize: "12",
         fontWeight: "700"
-      }, "HTF: ", crosshairPos.htfValue.toFixed(1)))), selectedTicker && displayTrail && displayTrail.length > 1 && React.createElement(React.Fragment, null, (() => {
+      }, "LTF: ", crosshairPos.ltfValue.toFixed(1)))), selectedTicker && displayTrail && displayTrail.length > 1 && React.createElement(React.Fragment, null, (() => {
         const GAP_MS = 4 * 24 * 60 * 60 * 1000;
         const segments = splitTrailByGaps(displayTrail, GAP_MS);
         return segments.filter(seg => Array.isArray(seg) && seg.length > 1).map((seg, segIdx) => {
           const pts = seg.map(p => ({
-            x: xForLtf(Number(p?.ltf_score) || 0),
-            y: yForHtf(Number(p?.htf_score) || 0)
+            x: xForHtf(Number(p?.htf_score) || 0),
+            y: yForLtf(Number(p?.ltf_score) || 0)
           }));
           const d = catmullRomPath(pts);
           if (!d) return null;
@@ -1562,8 +1568,8 @@
           });
         });
       })(), displayTrail.slice(0, -1).map((point, idx) => {
-        const x = xForLtf(Number(point?.ltf_score) || 0);
-        const y = yForHtf(Number(point?.htf_score) || 0);
+        const x = xForHtf(Number(point?.htf_score) || 0);
+        const y = yForLtf(Number(point?.ltf_score) || 0);
         const visual = bubbleVisualForTrailPoint(point, selectedTicker);
         const size = Math.max(4.5, visual.radius);
         const opacity = 0.45 + idx / displayTrail.length * 0.45;
@@ -1598,8 +1604,8 @@
           }
         }, dateLabel));
       }), highlightTrailPoint && Number.isFinite(Number(highlightTrailPoint?.ltf_score)) && Number.isFinite(Number(highlightTrailPoint?.htf_score)) && (() => {
-        const hx = xForLtf(Number(highlightTrailPoint.ltf_score) || 0);
-        const hy = yForHtf(Number(highlightTrailPoint.htf_score) || 0);
+        const hx = xForHtf(Number(highlightTrailPoint.htf_score) || 0);
+        const hy = yForLtf(Number(highlightTrailPoint.ltf_score) || 0);
         const visual = bubbleVisualForTrailPoint(highlightTrailPoint, selectedTicker);
         const r = Math.max(3, Number(visual?.radius) || 6);
         return React.createElement("g", {
@@ -1643,8 +1649,8 @@
         isHovered: hoveredTicker === ticker.ticker || selectedTicker && String(selectedTicker).toUpperCase() === String(ticker.ticker || "").toUpperCase(),
         scaleX: scaleX,
         scaleY: -scaleY,
-        offsetX: xForLtf(0),
-        offsetY: yForHtf(0),
+        offsetX: xForHtf(0),
+        offsetY: yForLtf(0),
         layoutX: layoutPositions?.[ticker.ticker]?.x,
         layoutY: layoutPositions?.[ticker.ticker]?.y,
         showLabels: showLabels,
@@ -1660,8 +1666,8 @@
         const htf = Number(selectedObj?.htf_score) || 0;
         const lx = layoutPositions?.[selectedObj.ticker]?.x;
         const ly = layoutPositions?.[selectedObj.ticker]?.y;
-        const x = Number.isFinite(Number(lx)) ? Number(lx) : xForLtf(ltf);
-        const y = Number.isFinite(Number(ly)) ? Number(ly) : yForHtf(htf);
+        const x = Number.isFinite(Number(lx)) ? Number(lx) : xForHtf(htf);
+        const y = Number.isFinite(Number(ly)) ? Number(ly) : yForLtf(ltf);
         const toMs = v => {
           if (v == null) return NaN;
           if (typeof v === "number") {
@@ -1721,8 +1727,8 @@
         const htf = Number(ticker?.htf_score) || 0;
         const lx = layoutPositions?.[sym]?.x;
         const ly = layoutPositions?.[sym]?.y;
-        const bx = Number.isFinite(Number(lx)) ? Number(lx) : xForLtf(ltf);
-        const by = Number.isFinite(Number(ly)) ? Number(ly) : yForHtf(htf);
+        const bx = Number.isFinite(Number(lx)) ? Number(lx) : xForHtf(htf);
+        const by = Number.isFinite(Number(ly)) ? Number(ly) : yForLtf(ltf);
         const r1d = fr.return_1d_pct;
         const r1w = fr.return_1w_pct;
         const fmt = v => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
@@ -1973,8 +1979,8 @@
       }) : tickers;
       debugLog(`[RECHARTS DATA] selectedTicker=${selectedTicker}, insightMode=${insightMode}, using ${tickersToUse.length} of ${tickers.length} tickers`);
       return tickersToUse.map(t => ({
-        x: Number(t.ltf_score) || 0,
-        y: Number(t.htf_score) || 0,
+        x: Number(t.htf_score) || 0,
+        y: Number(t.ltf_score) || 0,
         ticker: t
       }));
     }, [tickers, selectedTicker, activeInsightTickers]);
@@ -2237,8 +2243,8 @@
           };
           const plotWidth = rect.width - margin.left - margin.right;
           const plotHeight = rect.height - margin.top - margin.bottom;
-          const ltfValue = (e.chartX - margin.left) / plotWidth * 100 - 50;
-          const htfValue = 50 - (e.chartY - margin.top) / plotHeight * 100;
+          const htfValue = (e.chartX - margin.left) / plotWidth * 100 - 50;
+          const ltfValue = 50 - (e.chartY - margin.top) / plotHeight * 100;
           setRechartsCrosshair({
             x: e.chartX,
             y: e.chartY,
@@ -2250,8 +2256,8 @@
           setRechartsCrosshair({
             x: e.activeCoordinate.x,
             y: e.activeCoordinate.y,
-            ltfValue: payload.x,
-            htfValue: payload.y
+            ltfValue: payload.y,
+            htfValue: payload.x
           });
         }
       }
@@ -2286,29 +2292,29 @@
     }), React.createElement(XAxis, {
       type: "number",
       dataKey: "x",
-      name: "LTF Score",
+      name: "HTF Score",
       domain: [-50, 50],
       stroke: "#8b92a0"
     }), React.createElement(YAxis, {
       type: "number",
       dataKey: "y",
-      name: "HTF Score",
+      name: "LTF Score",
       domain: [-50, 50],
       stroke: "#8b92a0"
     }), React.createElement(ReferenceArea, {
-      x1: LONG_CORRIDOR.ltfMin,
-      x2: LONG_CORRIDOR.ltfMax,
-      y1: 0,
-      y2: 50,
+      x1: 0,
+      x2: 50,
+      y1: LONG_CORRIDOR.ltfMin,
+      y2: LONG_CORRIDOR.ltfMax,
       fill: "rgba(46,204,113,0.25)",
       stroke: "rgba(46,204,113,0.6)",
       strokeWidth: 2,
       strokeDasharray: "4 4"
     }), React.createElement(ReferenceArea, {
-      x1: SHORT_CORRIDOR.ltfMin,
-      x2: SHORT_CORRIDOR.ltfMax,
-      y1: -50,
-      y2: 0,
+      x1: -50,
+      x2: 0,
+      y1: SHORT_CORRIDOR.ltfMin,
+      y2: SHORT_CORRIDOR.ltfMax,
       fill: "rgba(231,76,60,0.25)",
       stroke: "rgba(231,76,60,0.6)",
       strokeWidth: 2,
@@ -2323,14 +2329,14 @@
       stroke: "#ffffff",
       strokeWidth: 2,
       opacity: 1
-    }), rechartsCrosshair && rechartsCrosshair.ltfValue !== null && React.createElement(ReferenceLine, {
-      x: rechartsCrosshair.ltfValue,
+    }), rechartsCrosshair && rechartsCrosshair.htfValue !== null && React.createElement(ReferenceLine, {
+      x: rechartsCrosshair.htfValue,
       stroke: "#00ffff",
       strokeWidth: 1,
       strokeDasharray: "4 4",
       opacity: 0.7
-    }), rechartsCrosshair && rechartsCrosshair.htfValue !== null && React.createElement(ReferenceLine, {
-      y: rechartsCrosshair.htfValue,
+    }), rechartsCrosshair && rechartsCrosshair.ltfValue !== null && React.createElement(ReferenceLine, {
+      y: rechartsCrosshair.ltfValue,
       stroke: "#00ffff",
       strokeWidth: 1,
       strokeDasharray: "4 4",
@@ -2549,8 +2555,8 @@
       const segments = splitTrailByGaps(displayTrail, GAP_MS);
       return segments.filter(seg => Array.isArray(seg) && seg.length > 1).map((seg, segIdx) => {
         const pts = seg.map(p => ({
-          x: ((Number(p?.ltf_score) || 0) + 50) / 100 * plotWidth + margin,
-          y: (50 - (Number(p?.htf_score) || 0)) / 100 * plotHeight + margin
+          x: ((Number(p?.htf_score) || 0) + 50) / 100 * plotWidth + margin,
+          y: (50 - (Number(p?.ltf_score) || 0)) / 100 * plotHeight + margin
         }));
         const d = catmullRomPath(pts);
         if (!d) return null;
@@ -2573,8 +2579,8 @@
       const margin = 20;
       const plotWidth = chartWidth - 2 * margin;
       const plotHeight = chartHeight - 2 * margin;
-      const cx = ((Number(point.ltf_score) || 0) + 50) / 100 * plotWidth + margin;
-      const cy = (50 - (Number(point.htf_score) || 0)) / 100 * plotHeight + margin;
+      const cx = ((Number(point.htf_score) || 0) + 50) / 100 * plotWidth + margin;
+      const cy = (50 - (Number(point.ltf_score) || 0)) / 100 * plotHeight + margin;
       const visual = bubbleVisualForTrailPoint(point, selectedTicker);
       const size = Math.max(4.5, visual.radius);
       const opacity = 0.3 + idx / displayTrail.length * 0.4;
@@ -2614,8 +2620,8 @@
       const margin = 20;
       const plotWidth = chartWidth - 2 * margin;
       const plotHeight = chartHeight - 2 * margin;
-      const hx = ((Number(highlightTrailPoint.ltf_score) || 0) + 50) / 100 * plotWidth + margin;
-      const hy = (50 - (Number(highlightTrailPoint.htf_score) || 0)) / 100 * plotHeight + margin;
+      const hx = ((Number(highlightTrailPoint.htf_score) || 0) + 50) / 100 * plotWidth + margin;
+      const hy = (50 - (Number(highlightTrailPoint.ltf_score) || 0)) / 100 * plotHeight + margin;
       const visual = bubbleVisualForTrailPoint(highlightTrailPoint, selectedTicker);
       const r = Math.max(3, Number(visual?.radius) || 6);
       return React.createElement("g", {
@@ -2648,21 +2654,21 @@
         strokeWidth: "1.5",
         opacity: "0.8"
       }));
-    })())), rechartsCrosshair && React.createElement(React.Fragment, null, rechartsCrosshair.ltfValue !== null && React.createElement("div", {
+    })())), rechartsCrosshair && React.createElement(React.Fragment, null, rechartsCrosshair.htfValue !== null && React.createElement("div", {
       className: "absolute bg-[#0f1117] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20",
       style: {
         left: `${rechartsCrosshair.x + 20}px`,
         bottom: "20px",
         transform: "translateX(-50%)"
       }
-    }, "LTF: ", rechartsCrosshair.ltfValue.toFixed(1)), rechartsCrosshair.htfValue !== null && React.createElement("div", {
+    }, "HTF: ", rechartsCrosshair.htfValue.toFixed(1)), rechartsCrosshair.ltfValue !== null && React.createElement("div", {
       className: "absolute bg-[#0f1117] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20",
       style: {
         left: "20px",
         top: `${rechartsCrosshair.y + 20}px`,
         transform: "translateY(-50%)"
       }
-    }, "HTF: ", rechartsCrosshair.htfValue.toFixed(1))));
+    }, "LTF: ", rechartsCrosshair.ltfValue.toFixed(1))));
   }
   window.TimedBubbleChart = {
     BubbleChart: BubbleChart,
@@ -2704,4 +2710,4 @@
   };
 })();
 
-// cache-bust:1783489875799:768522958
+// cache-bust:1783490933575:858725344
