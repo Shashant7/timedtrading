@@ -19,7 +19,7 @@
       maximumFractionDigits: 2
     }).format(Number(v)) : "—";
     const fmtUsdAbs = deps.fmtUsdAbs != null && typeof deps.fmtUsdAbs === "function" ? deps.fmtUsdAbs : n => Number.isFinite(Number(n)) ? `$${Math.abs(Number(n)).toFixed(2)}` : "—";
-    const RAIL_TAB_SCROLL_PAD = "max(88px, calc(64px + env(safe-area-inset-bottom, 0px)))";
+    const RAIL_TAB_SCROLL_PAD = "max(120px, calc(80px + env(safe-area-inset-bottom, 0px)))";
     const railTabBodyWrapStyle = {
       display: "flex",
       flexDirection: "column",
@@ -6219,29 +6219,32 @@
       });
       const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
       const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
-      const [railHeaderCompact, setRailHeaderCompact] = useState(false);
       const railScrollRef = useRef(null);
-      const railCompactRef = useRef(false);
+      const railHeaderRef = useRef(null);
       useEffect(() => {
-        setRailHeaderCompact(false);
-        railCompactRef.current = false;
         if (railScrollRef.current) railScrollRef.current.scrollTop = 0;
+        if (railHeaderRef.current) railHeaderRef.current.style.setProperty("--rail-header-progress", "0");
       }, [tickerSymbol]);
       useEffect(() => {
         const el = railScrollRef.current;
-        if (!el || layoutMode === "workspace") return undefined;
+        const hdr = railHeaderRef.current;
+        if (!el || !hdr || layoutMode === "workspace") return undefined;
+        let raf = 0;
         const onScroll = () => {
-          const y = el.scrollTop;
-          const next = y > 28 ? true : y < 6 ? false : railCompactRef.current;
-          if (next !== railCompactRef.current) {
-            railCompactRef.current = next;
-            setRailHeaderCompact(next);
-          }
+          if (raf) return;
+          raf = requestAnimationFrame(() => {
+            raf = 0;
+            const p = Math.max(0, Math.min(1, el.scrollTop / 72));
+            hdr.style.setProperty("--rail-header-progress", p.toFixed(3));
+          });
         };
         el.addEventListener("scroll", onScroll, {
           passive: true
         });
-        return () => el.removeEventListener("scroll", onScroll);
+        return () => {
+          el.removeEventListener("scroll", onScroll);
+          if (raf) cancelAnimationFrame(raf);
+        };
       }, [layoutMode, railTab, tickerSymbol]);
       const [catalysts, setCatalysts] = useState(null);
       const [catalystsLoading, setCatalystsLoading] = useState(false);
@@ -9227,11 +9230,13 @@
             return null;
           })();
           return React.createElement("div", {
-            className: `sticky top-0 z-30 tt-rail-area-header ${_isWorkspace ? "" : railHeaderCompact ? "tt-rail-header-compact" : "tt-rail-header-expanded"}`,
+            ref: railHeaderRef,
+            className: `sticky top-0 z-30 tt-rail-area-header tt-rail-header-morph${_isWorkspace ? "" : ""}`,
             style: {
               background: "var(--ds-bg-canvas)",
               padding: "var(--ds-space-3) var(--ds-space-4)",
-              borderBottom: "1px solid var(--ds-stroke)"
+              borderBottom: "1px solid var(--ds-stroke)",
+              "--rail-header-progress": 0
             }
           }, React.createElement("div", {
             className: "flex items-center justify-between mb-2 tt-rail-header-identity",
@@ -9270,14 +9275,7 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, tickerSymbol), !_isWorkspace && v2Price > 0 && React.createElement("div", {
-            className: "tt-rail-header-price-compact",
-            style: {
-              display: "none",
-              alignItems: "baseline",
-              gap: 6,
-              marginLeft: "auto",
-              flexShrink: 0
-            }
+            className: "tt-rail-header-price-compact"
           }, React.createElement("span", {
             style: {
               fontFamily: "var(--tt-font-mono)",
@@ -10150,16 +10148,9 @@
           }, pcDir, " bias \xB7 ", aboveSubtitle.replace(/^Levels above .*? — /, "Above: "), " \xB7 ", belowSubtitle.replace(/^Levels below .*? — /, "Below: "))));
         })()), React.createElement("div", {
           ref: railScrollRef,
-          className: `tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`,
+          className: "tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body tt-rail-scroll-body",
           style: {
-            padding: "var(--ds-space-4)",
-            ...(v2RailTab === "CHART" ? {
-              display: "flex",
-              flexDirection: "column",
-              overflowY: "auto",
-              overflowX: "hidden",
-              padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)"
-            } : {})
+            padding: "var(--ds-space-4)"
           }
         }, window._ttIsPro && VerdictGuideBlock && (v2RailTab === "SNAPSHOT" || v2RailTab === "INVESTOR") && React.createElement(VerdictGuideBlock, {
           ticker: tickerSymbol,
@@ -10173,11 +10164,10 @@
           key: `chart-tab-${tickerSymbol}`,
           className: "tt-rail-chart-tab",
           style: {
-            display: "flex",
-            flexDirection: "column",
-            flex: "0 0 auto",
-            minHeight: 0,
-            gap: "var(--ds-space-2)"
+            ...railTabBodyWrapStyle,
+            paddingTop: "var(--ds-space-2)",
+            paddingLeft: "var(--ds-space-1)",
+            paddingRight: "var(--ds-space-1)"
           }
         }, React.createElement("div", {
           style: {
@@ -10247,8 +10237,8 @@
           className: "tt-rail-chart-canvas tt-rail-chart-tab-canvas",
           style: {
             flex: "0 0 auto",
-            minHeight: 260,
-            height: "min(44vh, 360px)"
+            minHeight: 220,
+            height: "min(40vh, 320px)"
           }
         }, chartCandles && chartCandles.length >= 2 ? _railChartElement : chartLoading ? React.createElement("div", {
           style: {
@@ -12352,7 +12342,9 @@
             size: 240,
             showLegend: true
           }));
-        })()))), v2RailTab === "SETUP" && React.createElement(React.Fragment, null, (() => {
+        })()))), v2RailTab === "SETUP" && React.createElement("div", {
+          style: railTabBodyWrapStyle
+        }, (() => {
           const candidates = (() => {
             const arr = Array.isArray(ledgerTrades) ? ledgerTrades : [];
             const traderOpen = arr.filter(x => String(x?.ticker || "").toUpperCase() === String(tickerSymbol || "").toUpperCase() && (x?._source_mode === "trader" || !x?._source_mode) && isTradeOpenSafe(x));
@@ -22618,4 +22610,4 @@
   };
 })();
 
-// cache-bust:1783471129819:313628963
+// cache-bust:1783472116848:547140246

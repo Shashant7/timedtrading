@@ -32,7 +32,7 @@
     // Bottom padding for long tab bodies (Investor, Technicals, etc.) so
     // the last panel clears the fixed bottom nav on mobile and the rail
     // chrome on desktop workspace mode.
-    const RAIL_TAB_SCROLL_PAD = "max(88px, calc(64px + env(safe-area-inset-bottom, 0px)))";
+    const RAIL_TAB_SCROLL_PAD = "max(120px, calc(80px + env(safe-area-inset-bottom, 0px)))";
     const railTabBodyWrapStyle = {
       display: "flex",
       flexDirection: "column",
@@ -4686,28 +4686,31 @@
         const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
         const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
 
-        // Mobile rail: collapse header to ticker + price + tabs when scrolling content.
-        const [railHeaderCompact, setRailHeaderCompact] = useState(false);
+        // Mobile rail: parallax-collapse header (logo + price + tabs pinned).
         const railScrollRef = useRef(null);
-        const railCompactRef = useRef(false);
+        const railHeaderRef = useRef(null);
         useEffect(() => {
-          setRailHeaderCompact(false);
-          railCompactRef.current = false;
           if (railScrollRef.current) railScrollRef.current.scrollTop = 0;
+          if (railHeaderRef.current) railHeaderRef.current.style.setProperty("--rail-header-progress", "0");
         }, [tickerSymbol]);
         useEffect(() => {
           const el = railScrollRef.current;
-          if (!el || layoutMode === "workspace") return undefined;
+          const hdr = railHeaderRef.current;
+          if (!el || !hdr || layoutMode === "workspace") return undefined;
+          let raf = 0;
           const onScroll = () => {
-            const y = el.scrollTop;
-            const next = y > 28 ? true : y < 6 ? false : railCompactRef.current;
-            if (next !== railCompactRef.current) {
-              railCompactRef.current = next;
-              setRailHeaderCompact(next);
-            }
+            if (raf) return;
+            raf = requestAnimationFrame(() => {
+              raf = 0;
+              const p = Math.max(0, Math.min(1, el.scrollTop / 72));
+              hdr.style.setProperty("--rail-header-progress", p.toFixed(3));
+            });
           };
           el.addEventListener("scroll", onScroll, { passive: true });
-          return () => el.removeEventListener("scroll", onScroll);
+          return () => {
+            el.removeEventListener("scroll", onScroll);
+            if (raf) cancelAnimationFrame(raf);
+          };
         }, [layoutMode, railTab, tickerSymbol]);
 
         // 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
@@ -7948,7 +7951,11 @@
                     return null;
                   })();
                   return (
-                <div className={`sticky top-0 z-30 tt-rail-area-header ${_isWorkspace ? "" : (railHeaderCompact ? "tt-rail-header-compact" : "tt-rail-header-expanded")}`} style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
+                <div
+                  ref={railHeaderRef}
+                  className={`sticky top-0 z-30 tt-rail-area-header tt-rail-header-morph${_isWorkspace ? "" : ""}`}
+                  style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)", "--rail-header-progress": 0 }}
+                >
                   <div className="flex items-center justify-between mb-2 tt-rail-header-identity" style={{ gap: "var(--ds-space-2)" }}>
                     <div className="flex items-center gap-2 min-w-0" style={{ flexWrap: "wrap", flex: "1 1 auto" }}>
                       <div className="ds-tickercard__logo" style={{ width: 28, height: 28 }} ref={(el) => {
@@ -7959,7 +7966,7 @@
                       }}>{tickerSymbol.slice(0,2)}</div>
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
                       {!_isWorkspace && v2Price > 0 && (
-                        <div className="tt-rail-header-price-compact" style={{ display: "none", alignItems: "baseline", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
+                        <div className="tt-rail-header-price-compact">
                           <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", fontWeight: 700, color: "var(--ds-text-display)" }}>${v2Price.toFixed(2)}</span>
                           {Number.isFinite(v2DayPct) && (
                             <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)", fontSize: 10 }}>
@@ -8872,22 +8879,8 @@
                     flow as before. */}
                 <div
                   ref={railScrollRef}
-                  className={`tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`}
-                  style={{
-                    padding: "var(--ds-space-4)",
-                    /* P0.7.162 (2026-05-14) — when the CHART tab is active,
-                       the right pane becomes a vertical flex container so the
-                       inner chart canvas can flex:1 and fill the available
-                       height (rail body minus header + tab nav). Other tabs
-                       keep the default scroll behaviour. */
-                    ...(v2RailTab === "CHART" ? {
-                      display: "flex",
-                      flexDirection: "column",
-                      overflowY: "auto",
-                      overflowX: "hidden",
-                      padding: "var(--ds-space-2) var(--ds-space-3) var(--ds-space-3)",
-                    } : {}),
-                  }}
+                  className="tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body tt-rail-scroll-body"
+                  style={{ padding: "var(--ds-space-4)" }}
                 >
                   {/* Verdict playbook — Now + Invest tabs. It scans both lanes +
                       fresh levels into one short-term/long-term read; the
@@ -8936,16 +8929,10 @@
                       key={`chart-tab-${tickerSymbol}`}
                       className="tt-rail-chart-tab"
                       style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        /* 2026-07-06 — natural height (not flex:1) so the
-                           right pane's own overflow-y:auto scrolls on mobile
-                           when the capped chart canvas + header exceed the
-                           viewport. flex:1 previously forced the wrapper to
-                           the pane height and swallowed the scroll. */
-                        flex: "0 0 auto",
-                        minHeight: 0,
-                        gap: "var(--ds-space-2)",
+                        ...railTabBodyWrapStyle,
+                        paddingTop: "var(--ds-space-2)",
+                        paddingLeft: "var(--ds-space-1)",
+                        paddingRight: "var(--ds-space-1)",
                       }}
                     >
                       {/* Timeframe selector — keep it compact so the chart
@@ -8998,7 +8985,7 @@
                           index-react.html). */}
                       <div
                         className="tt-rail-chart-canvas tt-rail-chart-tab-canvas"
-                        style={{ flex: "0 0 auto", minHeight: 260, height: "min(44vh, 360px)" }}
+                        style={{ flex: "0 0 auto", minHeight: 220, height: "min(40vh, 320px)" }}
                       >
                         {chartCandles && chartCandles.length >= 2
                           ? _railChartElement
@@ -10560,7 +10547,7 @@
                   {/* SETUP TAB (renamed to "Trader" in the tab strip
                       label; key stays SETUP for backward compat). */}
                   {v2RailTab === "SETUP" && (
-                    <>
+                    <div style={railTabBodyWrapStyle}>
                       {/* 2026-05-29 — B8: surface "Entry Decision · Open Position"
                           card at the TOP of the Trader tab when an
                           active trade is open on this ticker. Mirrors
@@ -11994,7 +11981,7 @@
                       )}
 
                       {renderSequenceShadowPanel({ compact: true })}
-                    </>
+                    </div>
                   )}
 
                   {/* TECHNICALS TAB */}
