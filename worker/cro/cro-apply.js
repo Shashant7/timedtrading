@@ -123,9 +123,67 @@ function proposalToOverrideBlob(proposal, { proposalId, pubId }) {
       ? {
           headline_revision: proposal.strategy_headline_revision || null,
           phase_revision: proposal.strategy_phase_revision || null,
+          sector_stance_changes: Array.isArray(proposal?.sector_stance_changes)
+            ? proposal.sector_stance_changes
+            : [],
+          theme_stance_changes: Array.isArray(proposal?.theme_stance_changes)
+            ? proposal.theme_stance_changes
+            : [],
         }
       : null,
   };
+}
+
+function mergeStanceChanges(existing = [], incoming = []) {
+  const map = new Map();
+  for (const row of existing) {
+    if (row?.sector) map.set(String(row.sector), row);
+  }
+  for (const row of incoming) {
+    if (row?.sector) map.set(String(row.sector), row);
+  }
+  return [...map.values()];
+}
+
+function mergeThemeChanges(existing = [], incoming = []) {
+  const map = new Map();
+  for (const row of existing) {
+    if (row?.theme) map.set(String(row.theme), row);
+  }
+  for (const row of incoming) {
+    if (row?.theme) map.set(String(row.theme), row);
+  }
+  return [...map.values()];
+}
+
+/** Tactical overlays must not wipe a prior structural sector-allocation apply. */
+async function mergeWithPreviousOverride(env, blob, proposal) {
+  const prev = await loadTacticalOverrideBlob(env);
+  if (!prev || proposal?.classification === "structural") return blob;
+
+  const prevStructural = prev.structural_pending;
+  if (prevStructural && !blob.structural_pending) {
+    blob.structural_pending = prevStructural;
+  }
+
+  const prevSectors = [
+    ...(Array.isArray(prev.sector_stance_changes) ? prev.sector_stance_changes : []),
+    ...(Array.isArray(prevStructural?.sector_stance_changes) ? prevStructural.sector_stance_changes : []),
+  ];
+  blob.sector_stance_changes = mergeStanceChanges(
+    prevSectors,
+    blob.sector_stance_changes || [],
+  );
+
+  const prevThemes = [
+    ...(Array.isArray(prev.theme_stance_changes) ? prev.theme_stance_changes : []),
+    ...(Array.isArray(prevStructural?.theme_stance_changes) ? prevStructural.theme_stance_changes : []),
+  ];
+  blob.theme_stance_changes = mergeThemeChanges(
+    prevThemes,
+    blob.theme_stance_changes || [],
+  );
+  return blob;
 }
 
 // ── Apply a proposal ──────────────────────────────────────────────────────────
@@ -142,7 +200,8 @@ export async function applyProposal(env, proposalId, { autoApproved = false, dec
   if (!row) return { ok: false, error_kind: "proposal_not_found", hint: proposalId };
   if (row.status === "applied") return { ok: false, error_kind: "already_applied" };
 
-  const blob = proposalToOverrideBlob(row.proposal, { proposalId, pubId: row.pub_id });
+  let blob = proposalToOverrideBlob(row.proposal, { proposalId, pubId: row.pub_id });
+  blob = await mergeWithPreviousOverride(env, blob, row.proposal);
   const w = await writeTacticalOverrideBlob(env, blob);
   if (!w.ok) {
     await markProposalApplied(env, proposalId, { apply_kind: "kv_override", apply_error: w.error_kind });
