@@ -2500,7 +2500,7 @@
       );
     }
 
-    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null, touchScrollPassThrough = false, hideOhlcHeader = false, compactPriceScale = false }) {
+    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null, touchScrollPassThrough = false, mobileChartGestures = false, hideOhlcHeader = false, compactPriceScale = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -2872,12 +2872,27 @@
               } catch (_) { return ""; }
             },
           },
-          handleScroll: {
-            vertTouchDrag: false,
-            horzTouchDrag: !touchScrollPassThrough,
-            mouseWheel: !touchScrollPassThrough,
-            pressedMouseMove: !touchScrollPassThrough,
-          },
+          handleScroll: touchScrollPassThrough
+            ? {
+              vertTouchDrag: false,
+              horzTouchDrag: false,
+              mouseWheel: false,
+              pressedMouseMove: false,
+            }
+            : mobileChartGestures
+              ? {
+                // Horz pan + pinch on chart; vertical swipes scroll the rail body.
+                vertTouchDrag: false,
+                horzTouchDrag: true,
+                mouseWheel: true,
+                pressedMouseMove: false,
+              }
+              : {
+                vertTouchDrag: false,
+                horzTouchDrag: true,
+                mouseWheel: true,
+                pressedMouseMove: true,
+              },
         });
         chartInstanceRef.current = chart;
 
@@ -3073,7 +3088,7 @@
          object reference change) no longer trigger chart.remove() +
          createChart() — they at most cause a setData() call that
          preserves the user's zoom/scroll state. */
-      }, [chartTf, LWC, propHeight, propTicker?.ticker, touchScrollPassThrough, compactPriceScale]);
+      }, [chartTf, LWC, propHeight, propTicker?.ticker, touchScrollPassThrough, mobileChartGestures, compactPriceScale]);
 
       // V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
       // overlays + markers without recreating the chart instance. Runs on
@@ -3596,6 +3611,7 @@
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       if ((prev.touchScrollPassThrough || false) !== (next.touchScrollPassThrough || false)) return false;
+      if ((prev.mobileChartGestures || false) !== (next.mobileChartGestures || false)) return false;
       if ((prev.hideOhlcHeader || false) !== (next.hideOhlcHeader || false)) return false;
       if ((prev.compactPriceScale || false) !== (next.compactPriceScale || false)) return false;
       const prevLive = Number(prev.livePrice);
@@ -4729,11 +4745,12 @@
             raf = requestAnimationFrame(() => {
               raf = 0;
               const st = el.scrollTop;
-              if (!compact && st >= 56) applyMorph(true);
-              else if (compact && st <= 16) applyMorph(false);
+              const onChartTab = String(railTab || "").toUpperCase() === "CHART";
+              if (!compact && (st >= 20 || onChartTab)) applyMorph(true);
+              else if (compact && st <= 8 && !onChartTab) applyMorph(false);
             });
           };
-          applyMorph(false);
+          applyMorph(String(railTab || "").toUpperCase() === "CHART");
           el.addEventListener("scroll", onScroll, { passive: true });
           return () => {
             el.removeEventListener("scroll", onScroll);
@@ -4965,6 +4982,7 @@
             // Chart tab: capture pan/zoom gestures. Other mobile tabs: pass
             // vertical scroll through to the rail body.
             touchScrollPassThrough: layoutMode !== "workspace" && !_isMobileChartTab,
+            mobileChartGestures: _isMobileChartTab,
             hideOhlcHeader: _isMobileChartTab,
             compactPriceScale: _isMobileChartTab,
           }),
@@ -8009,7 +8027,7 @@
                           )}
                         </div>
                       )}
-                      <div className="tt-rail-header-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                      <div className="tt-rail-header-chips">
                       {(v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && (
                         <span
                           className={`ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`}
@@ -8116,7 +8134,8 @@
                       )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 tt-rail-header-actions">
+                      <div className="flex items-center gap-1 tt-rail-header-actions-secondary">
                       {/* V2.1 round 4 (2026-05-01) — Save / star toggle on RR. */}
                       {toggleSavedTicker && (() => {
                         const isSavedRR = !!(savedTickers && savedTickers.has && savedTickers.has(tickerSymbol));
@@ -8180,7 +8199,8 @@
                           <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
                         </svg>
                       </button>
-                      <button className="ds-chip ds-chip--sm" onClick={onClose} title="Close">✕</button>
+                      </div>
+                      <button className="ds-chip ds-chip--sm tt-rail-header-close" onClick={onClose} title="Close">✕</button>
                     </div>
                   </div>
                   {/* Live price strip */}
@@ -8331,10 +8351,6 @@
                     if (!fullName && !mcapStr && !sector && !industry && themes.length === 0 && !personality) return null;
                     return (
                       <div className="tt-rail-header-context" style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        alignItems: "center",
-                        gap: 6,
                         marginBottom: "var(--ds-space-3)",
                         fontSize: "var(--ds-fs-meta)",
                         color: "var(--ds-text-muted)",

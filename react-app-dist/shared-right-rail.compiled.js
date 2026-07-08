@@ -3878,6 +3878,7 @@
       hideOverlayToggles = false,
       livePrice = null,
       touchScrollPassThrough = false,
+      mobileChartGestures = false,
       hideOhlcHeader = false,
       compactPriceScale = false
     }) {
@@ -4208,11 +4209,21 @@
               }
             }
           },
-          handleScroll: {
+          handleScroll: touchScrollPassThrough ? {
             vertTouchDrag: false,
-            horzTouchDrag: !touchScrollPassThrough,
-            mouseWheel: !touchScrollPassThrough,
-            pressedMouseMove: !touchScrollPassThrough
+            horzTouchDrag: false,
+            mouseWheel: false,
+            pressedMouseMove: false
+          } : mobileChartGestures ? {
+            vertTouchDrag: false,
+            horzTouchDrag: true,
+            mouseWheel: true,
+            pressedMouseMove: false
+          } : {
+            vertTouchDrag: false,
+            horzTouchDrag: true,
+            mouseWheel: true,
+            pressedMouseMove: true
           }
         });
         chartInstanceRef.current = chart;
@@ -4362,7 +4373,7 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      }, [chartTf, LWC, propHeight, propTicker?.ticker, touchScrollPassThrough, compactPriceScale]);
+      }, [chartTf, LWC, propHeight, propTicker?.ticker, touchScrollPassThrough, mobileChartGestures, compactPriceScale]);
       useEffect(() => {
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
@@ -4838,6 +4849,7 @@
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       if ((prev.touchScrollPassThrough || false) !== (next.touchScrollPassThrough || false)) return false;
+      if ((prev.mobileChartGestures || false) !== (next.mobileChartGestures || false)) return false;
       if ((prev.hideOhlcHeader || false) !== (next.hideOhlcHeader || false)) return false;
       if ((prev.compactPriceScale || false) !== (next.compactPriceScale || false)) return false;
       const prevLive = Number(prev.livePrice);
@@ -6262,10 +6274,11 @@
           raf = requestAnimationFrame(() => {
             raf = 0;
             const st = el.scrollTop;
-            if (!compact && st >= 56) applyMorph(true);else if (compact && st <= 16) applyMorph(false);
+            const onChartTab = String(railTab || "").toUpperCase() === "CHART";
+            if (!compact && (st >= 20 || onChartTab)) applyMorph(true);else if (compact && st <= 8 && !onChartTab) applyMorph(false);
           });
         };
-        applyMorph(false);
+        applyMorph(String(railTab || "").toUpperCase() === "CHART");
         el.addEventListener("scroll", onScroll, {
           passive: true
         });
@@ -6445,6 +6458,7 @@
         hideOverlayToggles: true,
         livePrice: chartLivePrice,
         touchScrollPassThrough: layoutMode !== "workspace" && !_isMobileChartTab,
+        mobileChartGestures: _isMobileChartTab,
         hideOhlcHeader: _isMobileChartTab,
         compactPriceScale: _isMobileChartTab
       }), [_chartCandlesSig, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice, layoutMode, _isMobileChartTab]);
@@ -9323,13 +9337,7 @@
               fontSize: 10
             }
           }, v2DayPct >= 0 ? "+" : "", v2DayPct.toFixed(2), "%")), React.createElement("div", {
-            className: "tt-rail-header-chips",
-            style: {
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 6,
-              alignItems: "center"
-            }
+            className: "tt-rail-header-chips"
           }, (v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`,
             title: _hdrTradeIsOpen ? `Active ${_hdrPosDir || "trader"} position — ledger truth (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
@@ -9381,7 +9389,9 @@
               fontFamily: "var(--tt-font-mono)"
             }
           }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"))), React.createElement("div", {
-            className: "flex items-center gap-1"
+            className: "flex items-center gap-1 tt-rail-header-actions"
+          }, React.createElement("div", {
+            className: "flex items-center gap-1 tt-rail-header-actions-secondary"
           }, toggleSavedTicker && (() => {
             const isSavedRR = !!(savedTickers && savedTickers.has && savedTickers.has(tickerSymbol));
             return React.createElement("button", {
@@ -9451,8 +9461,8 @@
             d: "M8 7l4-4 4 4"
           }), React.createElement("path", {
             d: "M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"
-          }))), React.createElement("button", {
-            className: "ds-chip ds-chip--sm",
+          })))), React.createElement("button", {
+            className: "ds-chip ds-chip--sm tt-rail-header-close",
             onClick: onClose,
             title: "Close"
           }, "\u2715"))), v2Price > 0 && (() => {
@@ -9572,10 +9582,6 @@
             return React.createElement("div", {
               className: "tt-rail-header-context",
               style: {
-                display: "flex",
-                flexWrap: "wrap",
-                alignItems: "center",
-                gap: 6,
                 marginBottom: "var(--ds-space-3)",
                 fontSize: "var(--ds-fs-meta)",
                 color: "var(--ds-text-muted)"
@@ -22626,4 +22632,4 @@
   };
 })();
 
-// cache-bust:1783489291778:441704467
+// cache-bust:1783489875799:768522958
