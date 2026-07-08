@@ -906,15 +906,15 @@
       const ltfScore = Number(ticker.ltf_score) || 0;
       const htfScore = Number(ticker.htf_score) || 0;
 
-      // X: LTF score * scaleX + offsetX (offsetX already centered)
+      // X: HTF score * scaleX + offsetX (offsetX already centered)
       const x = Number.isFinite(Number(layoutX))
         ? Number(layoutX)
-        : ltfScore * scaleX + offsetX;
+        : htfScore * scaleX + offsetX;
 
-      // Y: HTF score * scaleY + offsetY (scaleY is negative, offsetY already centered)
+      // Y: LTF score * scaleY + offsetY (scaleY is negative, offsetY already centered)
       const y = Number.isFinite(Number(layoutY))
         ? Number(layoutY)
-        : htfScore * scaleY + offsetY;
+        : ltfScore * scaleY + offsetY;
 
       const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
 
@@ -1246,8 +1246,8 @@
         }
         return Array.isArray(tickers) ? tickers : [];
       })();
-      const domainXMax = axisDomain(domainBase, "ltf_score", 50);
-      const domainYMax = axisDomain(domainBase, "htf_score", 50);
+      const domainXMax = axisDomain(domainBase, "htf_score", 50);
+      const domainYMax = axisDomain(domainBase, "ltf_score", 50);
 
       // Scaling based on dynamic domains
       const scaleX = plotWidth / (2 * domainXMax);
@@ -1271,23 +1271,23 @@
           safeMax
         );
       };
-      const xForLtf = (value) =>
+      const xForHtf = (value) =>
         offsetX +
         ((projectAxisValue(value, domainXMax, axisExponentX) + 1) / 2) *
           plotWidth;
-      const yForHtf = (value) =>
+      const yForLtf = (value) =>
         offsetY +
         (1 -
           (projectAxisValue(value, domainYMax, axisExponentY) + 1) / 2) *
           plotHeight;
-      const chartXForLtf = (value) => xForLtf(value) - offsetX;
-      const chartYForHtf = (value) => yForHtf(value) - offsetY;
-      const ltfFromChartX = (chartX) => {
+      const chartXForHtf = (value) => xForHtf(value) - offsetX;
+      const chartYForLtf = (value) => yForLtf(value) - offsetY;
+      const htfFromChartX = (chartX) => {
         const normalized =
           ((clamp(chartX, 0, plotWidth) / Math.max(plotWidth, 1)) * 2) - 1;
         return invertAxisProjection(normalized, domainXMax, axisExponentX);
       };
-      const htfFromChartY = (chartY) => {
+      const ltfFromChartY = (chartY) => {
         const normalized =
           (1 - clamp(chartY, 0, plotHeight) / Math.max(plotHeight, 1)) * 2 -
           1;
@@ -1340,8 +1340,8 @@
           chartY <= plotHeight
         ) {
           // Convert to LTF/HTF scores
-          const ltfValue = ltfFromChartX(chartX);
-          const htfValue = htfFromChartY(chartY);
+          const htfValue = htfFromChartX(chartX);
+          const ltfValue = ltfFromChartY(chartY);
 
           setCrosshairPos({
             x: svgX,
@@ -1382,8 +1382,8 @@
         const nodes = list.map((t) => {
           const ltf = Number(t?.ltf_score) || 0;
           const htf = Number(t?.htf_score) || 0;
-          const x0 = xForLtf(ltf);
-          const y0 = yForHtf(htf);
+          const x0 = xForHtf(htf);
+          const y0 = yForLtf(ltf);
           const r = bubbleRadius(t);
           const j = (hash(t?.ticker) % 7) - 3; // deterministic tiny offset
           return {
@@ -1530,28 +1530,26 @@
             </defs>
             <rect width="100%" height="100%" fill="url(#grid)" />
 
-            {/* Axes - Zero lines (X=0 and Y=0) - Make them very visible */}
-            {/* Vertical center line (X=0) */}
+            {/* Axes - Zero lines (HTF=0 vertical, LTF=0 horizontal) */}
             <line
-              x1={xForLtf(0)}
+              x1={xForHtf(0)}
               y1={offsetY}
-              x2={xForLtf(0)}
+              x2={xForHtf(0)}
               y2={offsetY + plotHeight}
               stroke="#ffffff"
               strokeWidth="2"
               opacity="1"
             />
-            {/* Horizontal center line (Y=0) */}
             <line
               x1={offsetX}
-              y1={offsetY + plotHeight / 2}
+              y1={yForLtf(0)}
               x2={offsetX + plotWidth}
-              y2={offsetY + plotHeight / 2}
+              y2={yForLtf(0)}
               stroke="#ffffff"
               strokeWidth="2"
               opacity="1"
             />
-            {/* Vertical axis line (y-axis) */}
+            {/* Vertical axis line (LTF y-axis) */}
             <line
               x1={offsetX}
               y1={offsetY}
@@ -1562,7 +1560,17 @@
               opacity="0.6"
             />
 
-            {/* Axis labels */}
+            {/* Axis labels — HTF horizontal, LTF vertical */}
+            <text
+              x={offsetX + plotWidth / 2}
+              y={offsetY + plotHeight + 40}
+              fill="#8b92a0"
+              textAnchor="middle"
+              fontSize="13"
+              fontWeight="600"
+            >
+              HTF Score
+            </text>
             <text
               x={offsetX - 50}
               y={offsetY + plotHeight / 2}
@@ -1574,20 +1582,10 @@
                 offsetY + plotHeight / 2
               })`}
             >
-              HTF Score
-            </text>
-            <text
-              x={offsetX + plotWidth / 2}
-              y={offsetY + plotHeight + 40}
-              fill="#8b92a0"
-              textAnchor="middle"
-              fontSize="13"
-              fontWeight="600"
-            >
               LTF Score
             </text>
 
-            {/* Axis scale markers */}
+            {/* Axis scale markers — X = HTF, Y = LTF */}
             {[
               -domainXMax,
               -domainXMax / 2,
@@ -1595,8 +1593,8 @@
               domainXMax / 2,
               domainXMax,
             ].map((val) => {
-              const x = xForLtf(val);
-              const y = offsetY + plotHeight / 2;
+              const x = xForHtf(val);
+              const y = yForLtf(0);
               return (
                 <g key={`x-${val}`}>
                   <line
@@ -1627,7 +1625,7 @@
               domainYMax,
             ].map((val) => {
               const x = offsetX;
-              const y = yForHtf(val);
+              const y = yForLtf(val);
               return (
                 <g key={`y-${val}`}>
                   <line
@@ -1651,35 +1649,38 @@
               );
             })}
 
-            {/* Quadrant labels — descriptive with subtitles (raised opacity for new-user readability) */}
-            {/* Top-Left: PULLBACK (HTF>0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">PULLBACK</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bullish, LTF Weak</text>
+            {/* Quadrant labels — HTF horizontal (L/R), LTF vertical (T/B) */}
+            {/* Top-Left: BOUNCE / REVERSAL (HTF<0, LTF>0) */}
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BOUNCE / REVERSAL</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bearish, LTF Strong</text>
             {/* Top-Right: BULLISH MOMENTUM (HTF>0, LTF>0) */}
             <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BULLISH MOMENTUM</text>
             <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
             {/* Bottom-Left: BEARISH MOMENTUM (HTF<0, LTF<0) */}
             <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BEARISH MOMENTUM</text>
             <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
-            {/* Bottom-Right: BOUNCE / REVERSAL (HTF<0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BOUNCE / REVERSAL</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bearish, LTF Strong</text>
+            {/* Bottom-Right: PULLBACK (HTF>0, LTF<0) */}
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">PULLBACK</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bullish, LTF Weak</text>
 
-            {/* Corridors — subtle fill with dashed borders and labels */}
+            {/* Corridors — HTF half-plane × LTF entry band */}
             {(() => {
-              const longX = xForLtf(LONG_CORRIDOR.ltfMin);
-              const longW = xForLtf(LONG_CORRIDOR.ltfMax) - longX;
-              const shortX = xForLtf(SHORT_CORRIDOR.ltfMin);
-              const shortW = xForLtf(SHORT_CORRIDOR.ltfMax) - shortX;
+              const longYTop = Math.min(yForLtf(LONG_CORRIDOR.ltfMin), yForLtf(LONG_CORRIDOR.ltfMax));
+              const longYBottom = Math.max(yForLtf(LONG_CORRIDOR.ltfMin), yForLtf(LONG_CORRIDOR.ltfMax));
+              const longH = longYBottom - longYTop;
+              const shortYTop = Math.min(yForLtf(SHORT_CORRIDOR.ltfMin), yForLtf(SHORT_CORRIDOR.ltfMax));
+              const shortYBottom = Math.max(yForLtf(SHORT_CORRIDOR.ltfMin), yForLtf(SHORT_CORRIDOR.ltfMax));
+              const shortH = shortYBottom - shortYTop;
+              const bullX = xForHtf(0);
+              const bullW = xForHtf(domainXMax) - bullX;
+              const bearW = xForHtf(0) - xForHtf(-domainXMax);
+              const bearX = xForHtf(-domainXMax);
               return (
                 <>
-                  <rect x={longX} y={offsetY} width={longW} height={plotHeight / 2} fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.35)" strokeWidth="1" strokeDasharray="6 4" />
-                  {/* V15 P0.7.84: BULL/BEAR vocabulary for setup zones
-                      (no active trade); LONG/SHORT reserved for the
-                      actual position direction. */}
-                  <text x={longX + longW / 2} y={offsetY + plotHeight * 0.25} fill="rgba(34,197,94,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
-                  <rect x={shortX} y={offsetY + plotHeight / 2} width={shortW} height={plotHeight / 2} fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.35)" strokeWidth="1" strokeDasharray="6 4" />
-                  <text x={shortX + shortW / 2} y={offsetY + plotHeight * 0.75} fill="rgba(239,68,68,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
+                  <rect x={bullX} y={longYTop} width={bullW} height={longH} fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.35)" strokeWidth="1" strokeDasharray="6 4" />
+                  <text x={bullX + bullW / 2} y={longYTop + longH / 2} fill="rgba(34,197,94,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
+                  <rect x={bearX} y={shortYTop} width={bearW} height={shortH} fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.35)" strokeWidth="1" strokeDasharray="6 4" />
+                  <text x={bearX + bearW / 2} y={shortYTop + shortH / 2} fill="rgba(239,68,68,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
                 </>
               );
             })()}
@@ -1721,7 +1722,7 @@
             {/* Crosshair value labels - Always show when crosshair is active */}
             {crosshairPos && (
               <>
-                {/* LTF value at bottom - show if crosshair is in plot area */}
+                {/* HTF value at bottom */}
                 {crosshairPos.chartX >= 0 &&
                   crosshairPos.chartX <= plotWidth && (
                     <g>
@@ -1744,12 +1745,12 @@
                         fontSize="12"
                         fontWeight="700"
                       >
-                        LTF: {crosshairPos.ltfValue.toFixed(1)}
+                        HTF: {crosshairPos.htfValue.toFixed(1)}
                       </text>
                     </g>
                   )}
 
-                {/* HTF value on left - show if crosshair is in plot area */}
+                {/* LTF value on left */}
                 {crosshairPos.chartY >= 0 &&
                   crosshairPos.chartY <= plotHeight && (
                     <g>
@@ -1772,7 +1773,7 @@
                         fontSize="12"
                         fontWeight="700"
                       >
-                        HTF: {crosshairPos.htfValue.toFixed(1)}
+                        LTF: {crosshairPos.ltfValue.toFixed(1)}
                       </text>
                     </g>
                   )}
@@ -1795,8 +1796,8 @@
                       .filter((seg) => Array.isArray(seg) && seg.length > 1)
                       .map((seg, segIdx) => {
                         const pts = seg.map((p) => ({
-                          x: xForLtf(Number(p?.ltf_score) || 0),
-                          y: yForHtf(Number(p?.htf_score) || 0),
+                          x: xForHtf(Number(p?.htf_score) || 0),
+                          y: yForLtf(Number(p?.ltf_score) || 0),
                         }));
                         const d = catmullRomPath(pts);
                         if (!d) return null;
@@ -1826,8 +1827,8 @@
 
                   {/* Trail points with date labels */}
                   {displayTrail.slice(0, -1).map((point, idx) => {
-                    const x = xForLtf(Number(point?.ltf_score) || 0);
-                    const y = yForHtf(Number(point?.htf_score) || 0);
+                    const x = xForHtf(Number(point?.htf_score) || 0);
+                    const y = yForLtf(Number(point?.ltf_score) || 0);
                     const visual = bubbleVisualForTrailPoint(
                       point,
                       selectedTicker,
@@ -1880,11 +1881,11 @@
                       Number(highlightTrailPoint?.htf_score),
                     ) &&
                     (() => {
-                      const hx = xForLtf(
-                        Number(highlightTrailPoint.ltf_score) || 0,
-                      );
-                      const hy = yForHtf(
+                      const hx = xForHtf(
                         Number(highlightTrailPoint.htf_score) || 0,
+                      );
+                      const hy = yForLtf(
+                        Number(highlightTrailPoint.ltf_score) || 0,
                       );
                       const visual = bubbleVisualForTrailPoint(
                         highlightTrailPoint,
@@ -1953,8 +1954,8 @@
                 }
                 scaleX={scaleX}
                 scaleY={-scaleY}
-                offsetX={xForLtf(0)}
-                offsetY={yForHtf(0)}
+                offsetX={xForHtf(0)}
+                offsetY={yForLtf(0)}
                 layoutX={layoutPositions?.[ticker.ticker]?.x}
                 layoutY={layoutPositions?.[ticker.ticker]?.y}
                 showLabels={showLabels}
@@ -1990,10 +1991,10 @@
 
                 const x = Number.isFinite(Number(lx))
                   ? Number(lx)
-                  : xForLtf(ltf);
+                  : xForHtf(htf);
                 const y = Number.isFinite(Number(ly))
                   ? Number(ly)
-                  : yForHtf(htf);
+                  : yForLtf(ltf);
 
                 const toMs = (v) => {
                   if (v == null) return NaN;
@@ -2079,8 +2080,8 @@
               const htf = Number(ticker?.htf_score) || 0;
               const lx = layoutPositions?.[sym]?.x;
               const ly = layoutPositions?.[sym]?.y;
-              const bx = Number.isFinite(Number(lx)) ? Number(lx) : xForLtf(ltf);
-              const by = Number.isFinite(Number(ly)) ? Number(ly) : yForHtf(htf);
+              const bx = Number.isFinite(Number(lx)) ? Number(lx) : xForHtf(htf);
+              const by = Number.isFinite(Number(ly)) ? Number(ly) : yForLtf(ltf);
               const r1d = fr.return_1d_pct;
               const r1w = fr.return_1w_pct;
               const fmt = (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
@@ -2421,8 +2422,8 @@
       );
 
       return tickersToUse.map((t) => ({
-        x: Number(t.ltf_score) || 0,
-        y: Number(t.htf_score) || 0,
+        x: Number(t.htf_score) || 0,
+        y: Number(t.ltf_score) || 0,
         ticker: t,
       }));
     }, [tickers, selectedTicker, activeInsightTickers]);
@@ -2769,9 +2770,9 @@
           const plotHeight = rect.height - margin.top - margin.bottom;
 
           // Convert pixel coordinates to data values
-          const ltfValue =
-            ((e.chartX - margin.left) / plotWidth) * 100 - 50;
           const htfValue =
+            ((e.chartX - margin.left) / plotWidth) * 100 - 50;
+          const ltfValue =
             50 - ((e.chartY - margin.top) / plotHeight) * 100;
 
           setRechartsCrosshair({
@@ -2786,8 +2787,8 @@
           setRechartsCrosshair({
             x: e.activeCoordinate.x,
             y: e.activeCoordinate.y,
-            ltfValue: payload.x,
-            htfValue: payload.y,
+            ltfValue: payload.y,
+            htfValue: payload.x,
           });
         }
       }
@@ -2819,34 +2820,33 @@
             <XAxis
               type="number"
               dataKey="x"
-              name="LTF Score"
+              name="HTF Score"
               domain={[-50, 50]}
               stroke="#8b92a0"
             />
             <YAxis
               type="number"
               dataKey="y"
-              name="HTF Score"
+              name="LTF Score"
               domain={[-50, 50]}
               stroke="#8b92a0"
             />
-            {/* Corridors - Long corridor (top half, LTF: -8 to +12) - More pronounced */}
+            {/* Corridors — bull HTF>0 × long LTF band; bear HTF<0 × short LTF band */}
             <ReferenceArea
-              x1={LONG_CORRIDOR.ltfMin}
-              x2={LONG_CORRIDOR.ltfMax}
-              y1={0}
-              y2={50}
+              x1={0}
+              x2={50}
+              y1={LONG_CORRIDOR.ltfMin}
+              y2={LONG_CORRIDOR.ltfMax}
               fill="rgba(46,204,113,0.25)"
               stroke="rgba(46,204,113,0.6)"
               strokeWidth={2}
               strokeDasharray="4 4"
             />
-            {/* Corridors - Short corridor (bottom half, LTF: -12 to +8) - More pronounced */}
             <ReferenceArea
-              x1={SHORT_CORRIDOR.ltfMin}
-              x2={SHORT_CORRIDOR.ltfMax}
-              y1={-50}
-              y2={0}
+              x1={-50}
+              x2={0}
+              y1={SHORT_CORRIDOR.ltfMin}
+              y2={SHORT_CORRIDOR.ltfMax}
               fill="rgba(231,76,60,0.25)"
               stroke="rgba(231,76,60,0.6)"
               strokeWidth={2}
@@ -2866,9 +2866,9 @@
               opacity={1}
             />
             {/* Crosshair - Vertical line */}
-            {rechartsCrosshair && rechartsCrosshair.ltfValue !== null && (
+            {rechartsCrosshair && rechartsCrosshair.htfValue !== null && (
               <ReferenceLine
-                x={rechartsCrosshair.ltfValue}
+                x={rechartsCrosshair.htfValue}
                 stroke="#00ffff"
                 strokeWidth={1}
                 strokeDasharray="4 4"
@@ -2876,9 +2876,9 @@
               />
             )}
             {/* Crosshair - Horizontal line */}
-            {rechartsCrosshair && rechartsCrosshair.htfValue !== null && (
+            {rechartsCrosshair && rechartsCrosshair.ltfValue !== null && (
               <ReferenceLine
-                y={rechartsCrosshair.htfValue}
+                y={rechartsCrosshair.ltfValue}
                 stroke="#00ffff"
                 strokeWidth={1}
                 strokeDasharray="4 4"
@@ -3182,11 +3182,11 @@
                     .map((seg, segIdx) => {
                       const pts = seg.map((p) => ({
                         x:
-                          (((Number(p?.ltf_score) || 0) + 50) / 100) *
+                          (((Number(p?.htf_score) || 0) + 50) / 100) *
                             plotWidth +
                           margin,
                         y:
-                          ((50 - (Number(p?.htf_score) || 0)) / 100) *
+                          ((50 - (Number(p?.ltf_score) || 0)) / 100) *
                             plotHeight +
                           margin,
                       }));
@@ -3223,11 +3223,11 @@
                   const plotHeight = chartHeight - 2 * margin;
 
                   const cx =
-                    (((Number(point.ltf_score) || 0) + 50) / 100) *
+                    (((Number(point.htf_score) || 0) + 50) / 100) *
                       plotWidth +
                     margin;
                   const cy =
-                    ((50 - (Number(point.htf_score) || 0)) / 100) *
+                    ((50 - (Number(point.ltf_score) || 0)) / 100) *
                       plotHeight +
                     margin;
                   const visual = bubbleVisualForTrailPoint(
@@ -3287,12 +3287,12 @@
                     const plotHeight = chartHeight - 2 * margin;
 
                     const hx =
-                      (((Number(highlightTrailPoint.ltf_score) || 0) + 50) /
+                      (((Number(highlightTrailPoint.htf_score) || 0) + 50) /
                         100) *
                         plotWidth +
                       margin;
                     const hy =
-                      ((50 - (Number(highlightTrailPoint.htf_score) || 0)) /
+                      ((50 - (Number(highlightTrailPoint.ltf_score) || 0)) /
                         100) *
                         plotHeight +
                       margin;
@@ -3351,7 +3351,7 @@
         {/* Crosshair value labels for Recharts */}
         {rechartsCrosshair && (
           <>
-            {rechartsCrosshair.ltfValue !== null && (
+            {rechartsCrosshair.htfValue !== null && (
               <div
                 className="absolute bg-[#0f1117] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20"
                 style={{
@@ -3360,10 +3360,10 @@
                   transform: "translateX(-50%)",
                 }}
               >
-                LTF: {rechartsCrosshair.ltfValue.toFixed(1)}
+                HTF: {rechartsCrosshair.htfValue.toFixed(1)}
               </div>
             )}
-            {rechartsCrosshair.htfValue !== null && (
+            {rechartsCrosshair.ltfValue !== null && (
               <div
                 className="absolute bg-[#0f1117] border border-[#00ffff] rounded px-2 py-1 text-[#00ffff] text-xs font-semibold pointer-events-none z-20"
                 style={{
@@ -3372,7 +3372,7 @@
                   transform: "translateY(-50%)",
                 }}
               >
-                HTF: {rechartsCrosshair.htfValue.toFixed(1)}
+                LTF: {rechartsCrosshair.ltfValue.toFixed(1)}
               </div>
             )}
           </>
