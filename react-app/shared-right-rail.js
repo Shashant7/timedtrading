@@ -7178,32 +7178,29 @@
           // posture is explicitly Neutral, do not fall back to contract
           // direction (NFLX: Neutral chip + compression rally + long call
           // was showing bearish Key Levels from a stale SHORT contract).
-          // Concrete proposed-plan direction from the prediction contract
-          // (levels + contract) — mirrors the Trade Plan's resolveProposedPlanDir
-          // so Reference Levels never contradict the Trade Plan (BE: LONG plan
-          // must not sit under a SHORT reference header driven by a bearish lean).
-          const v2ProposedPlanDir = (() => {
-            const pc = predictionContract;
-            if (!pc || railTab === "INVESTOR") return "";
-            const cd = String(pc.direction || "").toUpperCase();
-            const contractDir = (cd === "LONG" || cd === "SHORT") ? cd : "";
-            const slp = Number(pc?.risk?.stop_loss);
-            const tgts = Array.isArray(pc.targets) ? pc.targets : [];
+          // Concrete proposed-plan direction — posture-aligned on watch/setup when
+          // LTF lean conflicts with HTF contract (INTU: lean long + SHORT template).
+          const v2TraderPlanContext = (() => {
+            const H = window.TimedRailHelpers;
+            if (!H?.resolveTraderPlanDisplayContext || !predictionContract || railTab === "INVESTOR") return null;
             const pxNow = Number(
               window.TimedPriceUtils?.getHeadlinePrice?.(priceSrc)
               ?? ticker?._live_price ?? ticker?.price
             ) || 0;
-            let levelDir = "";
-            if (pxNow > 0 && Number.isFinite(slp) && slp > 0) {
-              const tpBelow = tgts.some((t) => Number(t?.price) > 0 && Number(t.price) < pxNow);
-              const tpAbove = tgts.some((t) => Number(t?.price) > 0 && Number(t.price) > pxNow);
-              if (slp > pxNow && tpBelow) levelDir = "SHORT";
-              else if (slp < pxNow && tpAbove) levelDir = "LONG";
-              else levelDir = slp > pxNow ? "SHORT" : "LONG";
-            }
-            if (levelDir && contractDir && levelDir !== contractDir) return levelDir;
-            return contractDir || levelDir || "";
+            if (!(pxNow > 0)) return null;
+            return H.resolveTraderPlanDisplayContext({
+              px: pxNow,
+              predictionContract,
+              stage: ticker?.kanban_stage || ticker?.stage,
+              tradeIsOpen: isTradeOpenSafe(effectiveTraderTrade),
+              postureDir: v2TraderPosture?.direction || predictionContract?.posture_direction,
+              postureStrength: v2TraderPosture?.strength || predictionContract?.posture_strength,
+              structuralDir: window.TimedPriceUtils?.inferStructuralBiasFromTicker?.(ticker),
+              timing: v2TimingOverlay,
+              ticker,
+            });
           })();
+          const v2ProposedPlanDir = String(v2TraderPlanContext?.displayDir || "").toUpperCase();
           const v2StructureDir = resolveRailLevelsDirection({
             posture: v2TraderPosture,
             timing: v2TimingOverlay,
@@ -9097,7 +9094,8 @@
                         const postureDir = String(predictionContract?.posture_direction || v2TraderPosture?.direction || pcDir || "").toUpperCase();
                         const postureRaw = String(predictionContract?.trader_posture || v2TraderPosture?.posture || "").toUpperCase();
                         const pcAction = String(predictionContract?.action_label || "").toUpperCase();
-                        const displayDir = postureDir || pcDir;
+                        const planCtx = v2TraderPlanContext;
+                        const displayDir = planCtx?.displayDir || postureDir || pcDir;
                         const isLong = displayDir === "LONG";
                         const isShort = displayDir === "SHORT";
                         // 2026-06-03 — Use TRADER trade only. Investor holdings
@@ -9147,9 +9145,11 @@
                           return { word: "NO TRADE", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", line: "No directional edge from the model right now.", urgency: "none" };
                         })();
 
-                        // ── Pull specific levels from predictionContract ────
-                        const stopPx = Number(predictionContract?.risk?.stop_loss);
-                        const targets = Array.isArray(predictionContract?.targets) ? predictionContract.targets : [];
+                        // ── Pull specific levels from posture-aligned plan context ────
+                        const stopPx = Number(planCtx?.sl ?? predictionContract?.risk?.stop_loss);
+                        const targets = Array.isArray(planCtx?.targets)
+                          ? planCtx.targets
+                          : (Array.isArray(predictionContract?.targets) ? predictionContract.targets : []);
                         // 2026-06-03 — Use the RTH-aware v2Price (same source the
                         // header chip uses) instead of `_live_price` directly. The
                         // raw `_live_price` field carries the LAST tick — including
@@ -9190,7 +9190,11 @@
                           }
                           if (stopPx && livePx) {
                             const side = isLong ? "Hold above" : "Hold below";
-                            triggers.push({ tone: "go", text: `${side} ${formatPx(stopPx)} on this pullback → confirms the ${String(displayDir || pcDir).toLowerCase()} setup is intact (stop / invalidation level)` });
+                            const levelRole = isLong ? "support" : "resistance";
+                            triggers.push({
+                              tone: "go",
+                              text: `${side} ${formatPx(stopPx)} on this pullback → ${levelRole} holds the ${String(displayDir || pcDir).toLowerCase()} lean (bias invalidates on a close ${isLong ? "below" : "above"} this level)`,
+                            });
                           }
                           // Also surface the trade plan as a separate row so
                           // the user knows what they'd be aiming for IF the
@@ -9218,14 +9222,20 @@
                           }
                         } else if (verdict.urgency === "context" && (tp1 || stopPx)) {
                           if (tp1) triggers.push({ tone: "neutral", text: `If it ${isLong ? "reclaims" : "breaks"} ${formatPx(tp1)} the directional bias gets fresh life.` });
-                          if (stopPx) triggers.push({ tone: "neutral", text: `Bias breaks if it ${isLong ? "loses" : "reclaims"} ${formatPx(stopPx)}.` });
+                          if (stopPx) {
+                            triggers.push({
+                              tone: "neutral",
+                              text: isLong
+                                ? `Bullish lean invalidates on a close below ${formatPx(stopPx)}.`
+                                : `Bearish lean invalidates on a close above ${formatPx(stopPx)}.`,
+                            });
+                          }
                         }
 
-                        // ── Invalidators ── derived inline (the Model
-                        // Guidance panel below uses the same logic). We
-                        // can't reference its arrays directly because
-                        // it's a sibling IIFE rendered AFTER this one.
-                        const heroInvalidationArr = Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : [];
+                        // ── Invalidators — posture-aligned when plan context overrides HTF template
+                        const heroInvalidationArr = planCtx?.alignToPosture && Array.isArray(planCtx.invalidationLines)
+                          ? planCtx.invalidationLines
+                          : (Array.isArray(predictionContract?.invalidation) ? predictionContract.invalidation : []);
                         const heroSupporting = Array.isArray(predictionContract?.supporting) ? predictionContract.supporting : [];
                         const HERO_DEFLATOR_RE = /(choppy|capital protection|low conviction|low confidence|tier c|transitional|balanced|wait|watch only|breaks down|deteriorates|consensus)/i;
                         const heroWatchFor = [];
@@ -11477,10 +11487,6 @@
                           (!(trade?.exit_ts ?? trade?.exitTs) && tradeStatus !== "WIN" && tradeStatus !== "LOSS")
                         ));
                         const hasPositionConflict = !!v2PositionConflict && tradeIsOpen;
-                        // When open position direction conflicts with model,
-                        // this panel surfaces the MODEL call (bearish levels
-                        // while holding long, etc.) — not the held position plan
-                        // (that lives in Entry Decision · Open Position above).
                         const showModelPlanPanel = hasPositionConflict;
                         const panelTitle = showModelPlanPanel
                           ? "Model Plan"
@@ -11489,49 +11495,17 @@
                           const d = String(raw || "").toUpperCase();
                           return d === "LONG" || d === "SHORT" ? d : "";
                         };
-                        const resolveTimingAwareTraderDir = () => {
-                          const postureDir = resolveTraderCallDir(v2ModelPosture?.direction)
-                            || resolveTraderCallDir(v2TraderPosture?.direction);
-                          if (postureDir) return postureDir;
-                          const structural = typeof window !== "undefined" && window.TimedPriceUtils?.inferStructuralBiasFromTicker
-                            ? window.TimedPriceUtils.inferStructuralBiasFromTicker(ticker)
-                            : "";
-                          if (structural === "LONG" || structural === "SHORT") return structural;
-                          const timing = ticker?.timing_overlay || optionsTabData?.confluence_verdict?.timing || null;
-                          if (timing?.call_opportunity || timing?.add_on_dips || timing?.long_opportunity) return "LONG";
-                          if (timing?.put_opportunity || timing?.short_opportunity || timing?.trim_winners) return "SHORT";
-                          return resolveTraderCallDir(optionsTabData?.effective_direction);
-                        };
-                        const inferDirFromLevels = () => {
-                          if (!(px > 0) || !(pcSL > 0)) return "";
-                          const tpBelow = pcTargets.some((t) => Number(t?.price) > 0 && Number(t.price) < px);
-                          const tpAbove = pcTargets.some((t) => Number(t?.price) > 0 && Number(t.price) > px);
-                          if (pcSL > px && tpBelow) return "SHORT";
-                          if (pcSL < px && tpAbove) return "LONG";
-                          return pcSL > px ? "SHORT" : "LONG";
-                        };
-                        const levelInferredDir = inferDirFromLevels();
-                        const contractDir = resolveTraderCallDir(pcDirRaw);
-                        const resolveProposedPlanDir = () => {
-                          // Levels + contract direction define the plan; posture
-                          // (e.g. Leaning bearish) is context only — SPY showed
-                          // SHORT chip with long-shaped SL/TP when posture won.
-                          if (levelInferredDir && contractDir && levelInferredDir !== contractDir) {
-                            return levelInferredDir;
-                          }
-                          return contractDir
-                            || levelInferredDir
-                            || resolveTimingAwareTraderDir()
-                            || resolveTraderCallDir(optionsTraderDir);
-                        };
+                        const planCtx = (!showModelPlanPanel && !tradeIsOpen) ? v2TraderPlanContext : null;
                         const traderCallDir = (() => {
                           if (showModelPlanPanel) {
-                            return resolveProposedPlanDir();
+                            const H = window.TimedRailHelpers;
+                            const levelDir = H?.inferDirFromPlanLevels?.(px, pcSL, pcTargets) || "";
+                            return resolveTraderCallDir(pcDirRaw) || resolveTraderCallDir(levelDir) || resolveTraderCallDir(optionsTraderDir);
                           }
                           if (tradeIsOpen) {
-                            return resolveTraderCallDir(trade?.direction) || resolveProposedPlanDir();
+                            return resolveTraderCallDir(trade?.direction) || String(v2TraderPlanContext?.displayDir || "").toUpperCase();
                           }
-                          return resolveProposedPlanDir();
+                          return String(planCtx?.displayDir || v2TraderPlanContext?.displayDir || "").toUpperCase();
                         })();
                         if (!traderCallDir) {
                           if (predictionContractLoading) {
@@ -11567,6 +11541,7 @@
                             const tSl = Number(trade?.sl);
                             if (Number.isFinite(tSl) && tSl > 0) return tSl;
                           }
+                          if (planCtx?.sl > 0) return Number(planCtx.sl);
                           if (Number.isFinite(pcSL) && pcSL > 0) return pcSL;
                           return Number(ticker?.sl ?? ticker?.sl_dynamic ?? ticker?.stop_loss) || 0;
                         })();
@@ -11596,11 +11571,16 @@
                             if (tp1 > 0) list.push({ label: "TP1", desc: "Trim", px: tp1 });
                             if (tp2 > 0 && tp2 !== tp1) list.push({ label: "TP2", desc: "Exit", px: tp2 });
                             if (tpMax > 0 && tpMax !== tp1 && tpMax !== tp2) list.push({ label: "TP3", desc: "Runner", px: tpMax });
-                          } else if (pcTargets.length > 0) {
-                            pcTargets.forEach((tp, i) => {
+                          } else if (pcTargets.length > 0 || (planCtx?.targets?.length > 0)) {
+                            const srcTargets = planCtx?.targets?.length ? planCtx.targets : pcTargets;
+                            srcTargets.forEach((tp, i) => {
                               const tpPx = Number(tp?.price);
                               if (!Number.isFinite(tpPx) || tpPx <= 0) return;
-                              list.push({ label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`, desc: tp?.label || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"), px: tpPx });
+                              list.push({
+                                label: i === 0 ? "TP1" : i === 1 ? "TP2" : `TP${i + 1}`,
+                                desc: tp?.label || tp?.desc || (i === 0 ? "Trim" : i === 1 ? "Exit" : "Runner"),
+                                px: tpPx,
+                              });
                             });
                           }
                           return list;
@@ -11739,7 +11719,9 @@
                                 {showModelPlanPanel
                                   ? `Model ${dir} plan while holding an open ${String(v2PositionConflict?.positionDir || "").toUpperCase()} position — rare conflict. Position SL/TP are in Entry Decision · Open Position above. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE." : "Targets sit ABOVE price; stop sits BELOW."}`
                                   : tradeIsProposed
-                                  ? `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}`
+                                  ? (planCtx?.alignToPosture
+                                    ? `Posture-aligned ${dir} plan — entry not triggered. LTF lean drives levels; HTF contract differs.${planCtx?.htfNote ? ` ${planCtx.htfNote}.` : ""} ${dir === "SHORT" ? "Targets BELOW; invalidation ABOVE." : "Targets ABOVE; invalidation BELOW."}`
+                                    : `Model-derived ${dir} plan — entry not triggered. ${dir === "SHORT" ? "Targets sit BELOW price; stop sits ABOVE (invalidates the short)." : "Targets sit ABOVE price; stop sits BELOW (invalidates the long)."}`)
                                   : `Active ${dir} position plan — ${dir === "SHORT" ? "stop above price, targets below." : "stop below price, targets above."}`}
                                 {" "}Reference Levels below add S/R context (52W high, prior session, pivots).
                               </div>

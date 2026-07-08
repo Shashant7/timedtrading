@@ -1291,9 +1291,259 @@
     },
   };
 
+  /** Pre-entry kanban stages where posture lean may override HTF contract direction. */
+  function isPreEntryTraderStage(stage) {
+    const s = String(stage || "").toLowerCase();
+    return ["watch", "setup", "setup_watch", "flip_watch", "monitor"].includes(s)
+      || s.includes("setup");
+  }
+
+  function resolveTraderPlanDir(raw) {
+    const d = String(raw || "").toUpperCase();
+    return d === "LONG" || d === "SHORT" ? d : "";
+  }
+
+  function inferDirFromPlanLevels(px, pcSL, pcTargets) {
+    const price = Number(px);
+    const sl = Number(pcSL);
+    if (!(price > 0) || !(sl > 0)) return "";
+    const targets = Array.isArray(pcTargets) ? pcTargets : [];
+    const tpBelow = targets.some((t) => Number(t?.price) > 0 && Number(t.price) < price);
+    const tpAbove = targets.some((t) => Number(t?.price) > 0 && Number(t.price) > price);
+    if (sl > price && tpBelow) return "SHORT";
+    if (sl < price && tpAbove) return "LONG";
+    return sl > price ? "SHORT" : "LONG";
+  }
+
+  function timingFavorsPostureOverContract(timing, postureDir, contractDir) {
+    if (!timing || !postureDir || !contractDir || postureDir === contractDir) return false;
+    const bias = String(timing.bias || "").toUpperCase();
+    const posture = String(timing.posture || "").toUpperCase();
+    const flash = String(timing.flash_headline || "").toLowerCase();
+    if (postureDir === "LONG" && contractDir === "SHORT") {
+      if (timing.add_on_dips || timing.long_opportunity || timing.call_opportunity) return true;
+      if (bias === "COMPRESSION") return true;
+      if (posture.includes("ACCUMULATE") || posture.includes("RALLY")) return true;
+      if (flash.includes("avoid new shorts")) return true;
+    }
+    if (postureDir === "SHORT" && contractDir === "LONG") {
+      if (timing.trim_winners || timing.short_opportunity || timing.put_opportunity) return true;
+      if (bias === "EXTENSION") return true;
+      if (flash.includes("avoid new longs")) return true;
+    }
+    return false;
+  }
+
+  /**
+   * When posture lean conflicts with HTF contract on watch/setup, align the
+   * displayed plan + Now tab to posture (LTF lean), keeping HTF as alternate.
+   */
+  function resolvePosturePlanConflict(opts) {
+    opts = opts || {};
+    const postureDir = resolveTraderPlanDir(opts.postureDir);
+    const contractDir = resolveTraderPlanDir(opts.contractDir);
+    const levelDir = resolveTraderPlanDir(opts.levelDir);
+    const structuralDir = resolveTraderPlanDir(opts.structuralDir);
+    const htfAltDir = contractDir || levelDir || structuralDir || "";
+    const postureStrength = String(opts.postureStrength || "").toLowerCase();
+    const isLean = postureStrength === "lean" || postureStrength === "";
+
+    if (opts.tradeIsOpen) {
+      return {
+        alignToPosture: false,
+        displayDir: htfAltDir || postureDir,
+        htfAltDir: "",
+        conflict: false,
+      };
+    }
+
+    if (!isPreEntryTraderStage(opts.stage) || !postureDir || !htfAltDir || postureDir === htfAltDir) {
+      return {
+        alignToPosture: false,
+        displayDir: htfAltDir || postureDir,
+        htfAltDir: "",
+        conflict: false,
+      };
+    }
+
+    const timingOk = timingFavorsPostureOverContract(opts.timing, postureDir, htfAltDir);
+    const alignToPosture = isLean && (timingOk || postureDir !== htfAltDir);
+    return {
+      alignToPosture,
+      displayDir: alignToPosture ? postureDir : htfAltDir,
+      htfAltDir: alignToPosture ? htfAltDir : "",
+      conflict: alignToPosture,
+    };
+  }
+
+  function roundPlanPx(n) {
+    const x = Number(n);
+    return Number.isFinite(x) ? Math.round(x * 100) / 100 : 0;
+  }
+
+  /** Build LONG/SHORT-shaped SL + targets from structural levels when posture wins. */
+  function buildPostureAlignedPlanLevels(opts) {
+    opts = opts || {};
+    const px = Number(opts.px);
+    const displayDir = resolveTraderPlanDir(opts.displayDir);
+    const pcSL = Number(opts.pcSL);
+    const pcTargets = Array.isArray(opts.pcTargets) ? opts.pcTargets : [];
+    const levels = Array.isArray(opts.levels) ? opts.levels : [];
+    const ticker = opts.ticker || {};
+    const atrRaw = Number(ticker.atr_d)
+      || Number(ticker.atr_levels?.day?.atr)
+      || Number(ticker.atr_levels?.D?.atr)
+      || 0;
+    const atr = Number.isFinite(atrRaw) && atrRaw > 0 ? atrRaw : 0;
+    const htfAltDir = resolveTraderPlanDir(opts.htfAltDir);
+
+    const supports = levels
+      .filter((l) => l?.role === "support" && Number(l.price) > 0 && Number(l.price) < px)
+      .sort((a, b) => Number(b.price) - Number(a.price));
+    const resistances = levels
+      .filter((l) => l?.role === "resistance" && Number(l.price) > px)
+      .sort((a, b) => Number(a.price) - Number(b.price));
+
+    if (displayDir === "LONG") {
+      let sl = supports[0] ? Number(supports[0].price) : 0;
+      if (!(sl > 0 && sl < px)) sl = atr > 0 ? roundPlanPx(px - atr) : roundPlanPx(px * 0.97);
+      if (!(sl > 0 && sl < px)) sl = roundPlanPx(px * 0.97);
+
+      const targets = [];
+      const resistAbove = resistances.filter((r) => Number(r.price) > px);
+      if (resistAbove.length >= 1) {
+        targets.push({ label: "Trim", desc: resistAbove[0].label || "Resistance", price: roundPlanPx(resistAbove[0].price) });
+      } else if (atr > 0) {
+        targets.push({ label: "Trim", desc: "ATR +0.618", price: roundPlanPx(px + 0.618 * atr) });
+      }
+      if (resistAbove.length >= 2) {
+        targets.push({ label: "Exit", desc: resistAbove[1].label || "Resistance", price: roundPlanPx(resistAbove[1].price) });
+      } else if (atr > 0) {
+        targets.push({ label: "Exit", desc: "ATR +1.0", price: roundPlanPx(px + 1.0 * atr) });
+      }
+      if (resistAbove.length >= 3) {
+        targets.push({ label: "Runner", desc: resistAbove[2].label || "Resistance", price: roundPlanPx(resistAbove[2].price) });
+      } else if (atr > 0 && targets.length < 3) {
+        targets.push({ label: "Runner", desc: "ATR +1.618", price: roundPlanPx(px + 1.618 * atr) });
+      }
+
+      const invalidationLines = [
+        `Close below $${sl.toFixed(2)} — bullish lean invalidates (support lost)`,
+      ];
+      let htfNote = null;
+      if (pcSL > px && htfAltDir === "SHORT") {
+        invalidationLines.push(
+          `Sustained reclaim above $${roundPlanPx(pcSL).toFixed(2)} would shift bias toward the HTF short template`,
+        );
+        htfNote = `HTF alternate (not active): SHORT stop $${roundPlanPx(pcSL).toFixed(2)} above — fade zone if lean fails`;
+      }
+      return { sl, targets, invalidationLines, htfNote };
+    }
+
+    if (displayDir === "SHORT") {
+      let sl = resistances[0] ? Number(resistances[0].price) : 0;
+      if (!(sl > px)) sl = atr > 0 ? roundPlanPx(px + atr) : roundPlanPx(px * 1.03);
+      if (!(sl > px)) sl = roundPlanPx(px * 1.03);
+
+      const targets = [];
+      const supportBelow = supports.filter((s) => Number(s.price) < px);
+      if (supportBelow.length >= 1) {
+        targets.push({ label: "Trim", desc: supportBelow[0].label || "Support", price: roundPlanPx(supportBelow[0].price) });
+      } else if (atr > 0) {
+        targets.push({ label: "Trim", desc: "ATR -0.618", price: roundPlanPx(px - 0.618 * atr) });
+      }
+      if (supportBelow.length >= 2) {
+        targets.push({ label: "Exit", desc: supportBelow[1].label || "Support", price: roundPlanPx(supportBelow[1].price) });
+      } else if (atr > 0) {
+        targets.push({ label: "Exit", desc: "ATR -1.0", price: roundPlanPx(px - 1.0 * atr) });
+      }
+      if (supportBelow.length >= 3) {
+        targets.push({ label: "Runner", desc: supportBelow[2].label || "Support", price: roundPlanPx(supportBelow[2].price) });
+      } else if (atr > 0 && targets.length < 3) {
+        targets.push({ label: "Runner", desc: "ATR -1.618", price: roundPlanPx(px - 1.618 * atr) });
+      }
+
+      const invalidationLines = [
+        `Close above $${sl.toFixed(2)} — bearish lean invalidates (resistance reclaimed)`,
+      ];
+      let htfNote = null;
+      if (pcSL > 0 && pcSL < px && htfAltDir === "LONG") {
+        invalidationLines.push(
+          `Close below $${roundPlanPx(pcSL).toFixed(2)} would shift bias toward the HTF long template`,
+        );
+        htfNote = `HTF alternate (not active): LONG stop $${roundPlanPx(pcSL).toFixed(2)} below`;
+      }
+      return { sl, targets, invalidationLines, htfNote };
+    }
+
+    return {
+      sl: pcSL > 0 ? pcSL : 0,
+      targets: pcTargets,
+      invalidationLines: [],
+      htfNote: null,
+    };
+  }
+
+  function resolveTraderPlanDisplayContext(opts) {
+    opts = opts || {};
+    const px = Number(opts.px);
+    if (!(px > 0)) return null;
+    const pc = opts.predictionContract || {};
+    const contractDir = resolveTraderPlanDir(pc.direction);
+    const levelDir = inferDirFromPlanLevels(px, pc?.risk?.stop_loss, pc.targets);
+    const postureDir = resolveTraderPlanDir(opts.postureDir || pc.posture_direction);
+    const conflict = resolvePosturePlanConflict({
+      stage: opts.stage,
+      tradeIsOpen: !!opts.tradeIsOpen,
+      postureDir,
+      postureStrength: opts.postureStrength || pc.posture_strength,
+      contractDir,
+      levelDir,
+      structuralDir: opts.structuralDir,
+      timing: opts.timing,
+    });
+
+    let sl = Number(pc?.risk?.stop_loss) || 0;
+    let targets = Array.isArray(pc.targets) ? pc.targets : [];
+    let invalidationLines = Array.isArray(pc.invalidation) ? pc.invalidation.slice() : [];
+    let htfNote = null;
+
+    if (conflict.alignToPosture) {
+      const aligned = buildPostureAlignedPlanLevels({
+        px,
+        displayDir: conflict.displayDir,
+        pcSL: sl,
+        pcTargets: targets,
+        levels: pc.levels,
+        ticker: opts.ticker,
+        htfAltDir: conflict.htfAltDir,
+      });
+      sl = aligned.sl;
+      targets = aligned.targets;
+      invalidationLines = aligned.invalidationLines;
+      htfNote = aligned.htfNote;
+    }
+
+    return {
+      ...conflict,
+      px,
+      sl,
+      targets,
+      invalidationLines,
+      htfNote,
+      contractDir: contractDir || levelDir,
+    };
+  }
+
   // Investor + rail display helpers were appended inside TimedCTORead by mistake —
   // callers expect them on TimedRailHelpers (Today Ready Setups, Investor Brief).
   Object.assign(window.TimedRailHelpers, {
+    isPreEntryTraderStage,
+    resolveTraderPlanDir,
+    inferDirFromPlanLevels,
+    resolvePosturePlanConflict,
+    buildPostureAlignedPlanLevels,
+    resolveTraderPlanDisplayContext,
     stageDisplayLabel: window.TimedCTORead.stageDisplayLabel,
     deriveInvestorActionTier: window.TimedCTORead.deriveInvestorActionTier,
     isInvestorExecuteReady: window.TimedCTORead.isInvestorExecuteReady,
@@ -1308,4 +1558,4 @@
   });
 })();
 
-// cache-bust:1783475493435:146695163
+// cache-bust:1783488750566:536963406

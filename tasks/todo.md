@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **Trader plan / Now tab posture alignment (2026-07-08).** When LTF lean
+      conflicts with HTF contract on watch/setup (INTU), align Trade Plan +
+      Now invalidation to posture; HTF template as alternate note.
+      Branch: `cursor/trader-plan-posture-align-ca70`.
+
 - [ ] **TT Trust Spine — north star plan** ([`plans/tt-trust-spine.plan.md`](../plans/tt-trust-spine.plan.md)).
       Foundation merged (PR #1037). Complete wiring in progress (PR
       `cursor/tt-trust-spine-complete-dbdd`): trust-spine routes, autonomy
