@@ -6219,6 +6219,30 @@
       });
       const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
       const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
+      const [railHeaderCompact, setRailHeaderCompact] = useState(false);
+      const railScrollRef = useRef(null);
+      const railCompactRef = useRef(false);
+      useEffect(() => {
+        setRailHeaderCompact(false);
+        railCompactRef.current = false;
+        if (railScrollRef.current) railScrollRef.current.scrollTop = 0;
+      }, [tickerSymbol]);
+      useEffect(() => {
+        const el = railScrollRef.current;
+        if (!el || layoutMode === "workspace") return undefined;
+        const onScroll = () => {
+          const y = el.scrollTop;
+          const next = y > 28 ? true : y < 6 ? false : railCompactRef.current;
+          if (next !== railCompactRef.current) {
+            railCompactRef.current = next;
+            setRailHeaderCompact(next);
+          }
+        };
+        el.addEventListener("scroll", onScroll, {
+          passive: true
+        });
+        return () => el.removeEventListener("scroll", onScroll);
+      }, [layoutMode, railTab, tickerSymbol]);
       const [catalysts, setCatalysts] = useState(null);
       const [catalystsLoading, setCatalystsLoading] = useState(false);
       const [catalystsRefreshing, setCatalystsRefreshing] = useState(false);
@@ -7185,10 +7209,15 @@
         if (railTab !== "FUNDAMENTALS") return;
         const cached = fundamentalsCacheRef.current.get(sym);
         if (cached && Date.now() - cached.ts < 5 * 60 * 1000) {
-          setFundamentals(cached.data);
-          setFundamentalsError(null);
-          setFundamentalsLoading(false);
-          return;
+          const v = cached.data?.valuation || {};
+          const deg = Number(v.market_cap) === 0 && Number(v.pe_ttm) === 0 && Number(v.ev_to_ebitda) === 0;
+          if (!deg) {
+            setFundamentals(cached.data);
+            setFundamentalsError(null);
+            setFundamentalsLoading(false);
+            return;
+          }
+          fundamentalsCacheRef.current.delete(sym);
         }
         let cancelled = false;
         (async () => {
@@ -9198,21 +9227,22 @@
             return null;
           })();
           return React.createElement("div", {
-            className: "sticky top-0 z-30 tt-rail-area-header",
+            className: `sticky top-0 z-30 tt-rail-area-header ${_isWorkspace ? "" : railHeaderCompact ? "tt-rail-header-compact" : "tt-rail-header-expanded"}`,
             style: {
               background: "var(--ds-bg-canvas)",
               padding: "var(--ds-space-3) var(--ds-space-4)",
               borderBottom: "1px solid var(--ds-stroke)"
             }
           }, React.createElement("div", {
-            className: "flex items-center justify-between mb-2",
+            className: "flex items-center justify-between mb-2 tt-rail-header-identity",
             style: {
               gap: "var(--ds-space-2)"
             }
           }, React.createElement("div", {
             className: "flex items-center gap-2 min-w-0",
             style: {
-              flexWrap: "wrap"
+              flexWrap: "wrap",
+              flex: "1 1 auto"
             }
           }, React.createElement("div", {
             className: "ds-tickercard__logo",
@@ -9239,7 +9269,37 @@
               margin: 0,
               fontFamily: "var(--tt-font-mono)"
             }
-          }, tickerSymbol), (v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && React.createElement("span", {
+          }, tickerSymbol), !_isWorkspace && v2Price > 0 && React.createElement("div", {
+            className: "tt-rail-header-price-compact",
+            style: {
+              display: "none",
+              alignItems: "baseline",
+              gap: 6,
+              marginLeft: "auto",
+              flexShrink: 0
+            }
+          }, React.createElement("span", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: "var(--ds-fs-body)",
+              fontWeight: 700,
+              color: "var(--ds-text-display)"
+            }
+          }, "$", v2Price.toFixed(2)), Number.isFinite(v2DayPct) && React.createElement("span", {
+            className: `ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`,
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 10
+            }
+          }, v2DayPct >= 0 ? "+" : "", v2DayPct.toFixed(2), "%")), React.createElement("div", {
+            className: "tt-rail-header-chips",
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              alignItems: "center"
+            }
+          }, (v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && React.createElement("span", {
             className: `ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`,
             title: _hdrTradeIsOpen ? `Active ${_hdrPosDir || "trader"} position — ledger truth (Active Trader mode)` : v2TraderPosture?.strength === "lean" ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.` : v2TraderPosture?.posture === "NEUTRAL" ? "Active Trader posture: Neutral. No clean long/short edge yet." : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`
           }, "TRADER \xB7 ", _hdrTradeIsOpen ? _hdrPosLabel : v2TraderPosture?.label || v2Dir), v2PositionConflict && React.createElement("span", {
@@ -9289,7 +9349,7 @@
             style: {
               fontFamily: "var(--tt-font-mono)"
             }
-          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS")), React.createElement("div", {
+          }, strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"))), React.createElement("div", {
             className: "flex items-center gap-1"
           }, toggleSavedTicker && (() => {
             const isSavedRR = !!(savedTickers && savedTickers.has && savedTickers.has(tickerSymbol));
@@ -9373,7 +9433,7 @@
               day: "numeric"
             }) : null;
             return React.createElement("div", {
-              className: "flex items-baseline gap-3",
+              className: "flex items-baseline gap-3 tt-rail-header-price",
               style: {
                 marginBottom: "var(--ds-space-2)",
                 flexWrap: "wrap"
@@ -9479,6 +9539,7 @@
             const mcapStr = fmtMcap(mktCap);
             if (!fullName && !mcapStr && !sector && !industry && themes.length === 0 && !personality) return null;
             return React.createElement("div", {
+              className: "tt-rail-header-context",
               style: {
                 display: "flex",
                 flexWrap: "wrap",
@@ -9552,6 +9613,7 @@
               title: "Behavior personality (engine classification)"
             }, String(personality).replace(/_/g, " "))));
           })(), isOutsideScoredUniverse && React.createElement("div", {
+            className: "tt-rail-header-outside-banner",
             style: {
               margin: "0 var(--ds-space-3) var(--ds-space-2)",
               padding: "10px 12px",
@@ -10087,6 +10149,7 @@
             }
           }, pcDir, " bias \xB7 ", aboveSubtitle.replace(/^Levels above .*? — /, "Above: "), " \xB7 ", belowSubtitle.replace(/^Levels below .*? — /, "Below: "))));
         })()), React.createElement("div", {
+          ref: railScrollRef,
           className: `tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`,
           style: {
             padding: "var(--ds-space-4)",
@@ -10184,8 +10247,8 @@
           className: "tt-rail-chart-canvas tt-rail-chart-tab-canvas",
           style: {
             flex: "0 0 auto",
-            minHeight: 280,
-            height: "min(52vh, 420px)"
+            minHeight: 260,
+            height: "min(44vh, 360px)"
           }
         }, chartCandles && chartCandles.length >= 2 ? _railChartElement : chartLoading ? React.createElement("div", {
           style: {
@@ -15261,8 +15324,15 @@
           deltaClass: Number(ticker.fundamentals.eps_growth) > 0 ? "up" : "dn"
         })))), v2RailTab === "FUNDAMENTALS" && (() => {
           const F = fundamentals;
+          const pickPositive = (...vals) => {
+            for (const v of vals) {
+              const n = Number(v);
+              if (Number.isFinite(n) && n > 0) return n;
+            }
+            return null;
+          };
           const fmtBigUsd = n => {
-            if (!Number.isFinite(Number(n))) return "—";
+            if (!Number.isFinite(Number(n)) || Number(n) === 0) return "—";
             const v = Math.abs(Number(n));
             const sign = Number(n) < 0 ? "-" : "";
             if (v >= 1e12) return `${sign}$${(v / 1e12).toFixed(2)}T`;
@@ -15286,7 +15356,10 @@
             const v = Number(n);
             return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
           };
-          const fmtNum = (n, digits = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(digits) : "—";
+          const fmtNum = (n, digits = 2) => {
+            if (!Number.isFinite(Number(n)) || Number(n) === 0) return "—";
+            return Number(n).toFixed(digits);
+          };
           const fmtDate = s => {
             if (!s) return "—";
             const d = new Date(s);
@@ -15418,7 +15491,16 @@
             }, "Fundamentals will load when you select this tab."));
           }
           const prof = F.profile || {};
-          const val = F.valuation || {};
+          const valRaw = F.valuation || {};
+          const val = {
+            ...valRaw,
+            market_cap: pickPositive(valRaw.market_cap, ticker?.market_cap, ticker?.marketCap),
+            current_price: pickPositive(valRaw.current_price, v2Price, ticker?.price, ticker?.close),
+            pe_ttm: pickPositive(valRaw.pe_ttm, ticker?.fundamentals?.pe),
+            pe_forward: pickPositive(valRaw.pe_forward, ticker?.fundamentals?.forward_pe),
+            ps_ratio: pickPositive(valRaw.ps_ratio),
+            ev_to_ebitda: pickPositive(valRaw.ev_to_ebitda)
+          };
           const cap = F.capital_structure || {};
           const grw = F.growth || {};
           const earn = F.earnings || {};
@@ -22536,4 +22618,4 @@
   };
 })();
 
-// cache-bust:1783470103572:750047661
+// cache-bust:1783471129819:313628963

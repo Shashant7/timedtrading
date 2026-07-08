@@ -4686,6 +4686,30 @@
         const [fundamentalsSortKey, setFundamentalsSortKey] = useState("date");
         const [fundamentalsSortDir, setFundamentalsSortDir] = useState("desc");
 
+        // Mobile rail: collapse header to ticker + price + tabs when scrolling content.
+        const [railHeaderCompact, setRailHeaderCompact] = useState(false);
+        const railScrollRef = useRef(null);
+        const railCompactRef = useRef(false);
+        useEffect(() => {
+          setRailHeaderCompact(false);
+          railCompactRef.current = false;
+          if (railScrollRef.current) railScrollRef.current.scrollTop = 0;
+        }, [tickerSymbol]);
+        useEffect(() => {
+          const el = railScrollRef.current;
+          if (!el || layoutMode === "workspace") return undefined;
+          const onScroll = () => {
+            const y = el.scrollTop;
+            const next = y > 28 ? true : y < 6 ? false : railCompactRef.current;
+            if (next !== railCompactRef.current) {
+              railCompactRef.current = next;
+              setRailHeaderCompact(next);
+            }
+          };
+          el.addEventListener("scroll", onScroll, { passive: true });
+          return () => el.removeEventListener("scroll", onScroll);
+        }, [layoutMode, railTab, tickerSymbol]);
+
         // 2026-05-28 — Catalysts tab: bundled per-ticker payload combining
         // news + insider + theme rotation + macro tilt + coverage-gap history.
         // Mirrors the Fundamentals fetch pattern (5min client cache, lazy on
@@ -5822,10 +5846,17 @@
           // Hit client cache first (5min freshness)
           const cached = fundamentalsCacheRef.current.get(sym);
           if (cached && (Date.now() - cached.ts) < 5 * 60 * 1000) {
-            setFundamentals(cached.data);
-            setFundamentalsError(null);
-            setFundamentalsLoading(false);
-            return;
+            const v = cached.data?.valuation || {};
+            const deg = Number(v.market_cap) === 0
+              && Number(v.pe_ttm) === 0
+              && Number(v.ev_to_ebitda) === 0;
+            if (!deg) {
+              setFundamentals(cached.data);
+              setFundamentalsError(null);
+              setFundamentalsLoading(false);
+              return;
+            }
+            fundamentalsCacheRef.current.delete(sym);
           }
           let cancelled = false;
           (async () => {
@@ -7917,9 +7948,9 @@
                     return null;
                   })();
                   return (
-                <div className="sticky top-0 z-30 tt-rail-area-header" style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
-                  <div className="flex items-center justify-between mb-2" style={{ gap: "var(--ds-space-2)" }}>
-                    <div className="flex items-center gap-2 min-w-0" style={{ flexWrap: "wrap" }}>
+                <div className={`sticky top-0 z-30 tt-rail-area-header ${_isWorkspace ? "" : (railHeaderCompact ? "tt-rail-header-compact" : "tt-rail-header-expanded")}`} style={{ background: "var(--ds-bg-canvas)", padding: "var(--ds-space-3) var(--ds-space-4)", borderBottom: "1px solid var(--ds-stroke)" }}>
+                  <div className="flex items-center justify-between mb-2 tt-rail-header-identity" style={{ gap: "var(--ds-space-2)" }}>
+                    <div className="flex items-center gap-2 min-w-0" style={{ flexWrap: "wrap", flex: "1 1 auto" }}>
                       <div className="ds-tickercard__logo" style={{ width: 28, height: 28 }} ref={(el) => {
                         if (el && !el.dataset.dsInit && window.DS) {
                           el.dataset.dsInit = "1";
@@ -7927,6 +7958,17 @@
                         }
                       }}>{tickerSymbol.slice(0,2)}</div>
                       <h3 style={{ fontSize: "var(--ds-fs-h2)", fontWeight: 700, color: "var(--ds-text-display)", letterSpacing: "-0.01em", margin: 0, fontFamily: "var(--tt-font-mono)" }}>{tickerSymbol}</h3>
+                      {!_isWorkspace && v2Price > 0 && (
+                        <div className="tt-rail-header-price-compact" style={{ display: "none", alignItems: "baseline", gap: 6, marginLeft: "auto", flexShrink: 0 }}>
+                          <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-body)", fontWeight: 700, color: "var(--ds-text-display)" }}>${v2Price.toFixed(2)}</span>
+                          {Number.isFinite(v2DayPct) && (
+                            <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)", fontSize: 10 }}>
+                              {v2DayPct >= 0 ? "+" : ""}{v2DayPct.toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      <div className="tt-rail-header-chips" style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                       {(v2Dir || v2TraderPosture?.label) && !_hdrPosturePending && (
                         <span
                           className={`ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`}
@@ -8031,6 +8073,7 @@
                           {strategyAlignment.stance === "overweight" ? "🎯 ON-THESIS" : "⚠ OFF-THESIS"}
                         </span>
                       )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1">
                       {/* V2.1 round 4 (2026-05-01) — Save / star toggle on RR. */}
@@ -8128,7 +8171,7 @@
                       ? new Date(_priceTsMs).toLocaleDateString("en-US", { month: "short", day: "numeric" })
                       : null;
                     return (
-                    <div className="flex items-baseline gap-3" style={{ marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
+                    <div className="flex items-baseline gap-3 tt-rail-header-price" style={{ marginBottom: "var(--ds-space-2)", flexWrap: "wrap" }}>
                       <span style={{ fontFamily: "var(--tt-font-mono)", fontSize: "var(--ds-fs-hero)", fontWeight: 600, color: "var(--ds-text-display)", letterSpacing: "-0.01em" }}>${v2Price.toFixed(2)}</span>
                       {Number.isFinite(v2DayPct) && (
                         <span className={`ds-chip ds-chip--sm ds-chip--${v2SparkDir === "flat" ? "solid" : v2SparkDir}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
@@ -8246,7 +8289,7 @@
                     const mcapStr = fmtMcap(mktCap);
                     if (!fullName && !mcapStr && !sector && !industry && themes.length === 0 && !personality) return null;
                     return (
-                      <div style={{
+                      <div className="tt-rail-header-context" style={{
                         display: "flex",
                         flexWrap: "wrap",
                         alignItems: "center",
@@ -8320,6 +8363,7 @@
                   })()}
                   {isOutsideScoredUniverse && (
                     <div
+                      className="tt-rail-header-outside-banner"
                       style={{
                         margin: "0 var(--ds-space-3) var(--ds-space-2)",
                         padding: "10px 12px",
@@ -8827,6 +8871,7 @@
                     own scroll. In modal mode it just continues the body
                     flow as before. */}
                 <div
+                  ref={railScrollRef}
                   className={`tt-rail-area-right-pane flex-1 min-h-0 overflow-y-auto tt-rail-body ${v2RailTab === "CHART" ? "tt-rail-body--chart" : ""}`}
                   style={{
                     padding: "var(--ds-space-4)",
@@ -8953,7 +8998,7 @@
                           index-react.html). */}
                       <div
                         className="tt-rail-chart-canvas tt-rail-chart-tab-canvas"
-                        style={{ flex: "0 0 auto", minHeight: 280, height: "min(52vh, 420px)" }}
+                        style={{ flex: "0 0 auto", minHeight: 260, height: "min(44vh, 360px)" }}
                       >
                         {chartCandles && chartCandles.length >= 2
                           ? _railChartElement
@@ -12659,8 +12704,15 @@
                         6. Earnings History (sortable table, last 8 quarters) */}
                   {v2RailTab === "FUNDAMENTALS" && (() => {
                     const F = fundamentals;
+                    const pickPositive = (...vals) => {
+                      for (const v of vals) {
+                        const n = Number(v);
+                        if (Number.isFinite(n) && n > 0) return n;
+                      }
+                      return null;
+                    };
                     const fmtBigUsd = (n) => {
-                      if (!Number.isFinite(Number(n))) return "—";
+                      if (!Number.isFinite(Number(n)) || Number(n) === 0) return "—";
                       const v = Math.abs(Number(n));
                       const sign = Number(n) < 0 ? "-" : "";
                       if (v >= 1e12) return `${sign}$${(v / 1e12).toFixed(2)}T`;
@@ -12684,7 +12736,10 @@
                       const v = Number(n);
                       return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
                     };
-                    const fmtNum = (n, digits = 2) => Number.isFinite(Number(n)) ? Number(n).toFixed(digits) : "—";
+                    const fmtNum = (n, digits = 2) => {
+                      if (!Number.isFinite(Number(n)) || Number(n) === 0) return "—";
+                      return Number(n).toFixed(digits);
+                    };
                     const fmtDate = (s) => {
                       if (!s) return "—";
                       const d = new Date(s);
@@ -12747,7 +12802,16 @@
                     }
 
                     const prof = F.profile || {};
-                    const val = F.valuation || {};
+                    const valRaw = F.valuation || {};
+                    const val = {
+                      ...valRaw,
+                      market_cap: pickPositive(valRaw.market_cap, ticker?.market_cap, ticker?.marketCap),
+                      current_price: pickPositive(valRaw.current_price, v2Price, ticker?.price, ticker?.close),
+                      pe_ttm: pickPositive(valRaw.pe_ttm, ticker?.fundamentals?.pe),
+                      pe_forward: pickPositive(valRaw.pe_forward, ticker?.fundamentals?.forward_pe),
+                      ps_ratio: pickPositive(valRaw.ps_ratio),
+                      ev_to_ebitda: pickPositive(valRaw.ev_to_ebitda),
+                    };
                     const cap = F.capital_structure || {};
                     const grw = F.growth || {};
                     const earn = F.earnings || {};
