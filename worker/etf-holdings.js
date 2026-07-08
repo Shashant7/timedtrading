@@ -219,6 +219,38 @@ function diffHoldings(oldHoldings, newHoldings) {
 }
 
 /**
+ * Detect truncated/incomplete grannyshots.com parses — e.g. GRNI HTML that
+ * only ships ~7 stock rows while KV still holds the full fund. Without this
+ * gate a partial fetch looks like a mass removal rebalance.
+ */
+export function isSuspiciousHoldingsDrop(prevHoldings, newHoldings, diff) {
+  const prevCount = Array.isArray(prevHoldings) ? prevHoldings.length : 0;
+  const newCount = Array.isArray(newHoldings) ? newHoldings.length : 0;
+  if (prevCount < 10) return false;
+  if (newCount === 0) return true;
+
+  const removed = diff?.removed?.length || 0;
+  const added = diff?.added?.length || 0;
+  const massRemoval = removed >= Math.max(10, Math.floor(prevCount * 0.4));
+  const countCollapsed = newCount < prevCount * 0.6;
+
+  if (massRemoval && countCollapsed && added <= 2) return true;
+  if (removed >= Math.floor(prevCount * 0.45) && newCount < prevCount * 0.5) return true;
+  return false;
+}
+
+const REBALANCE_EMBED_MAX_LINES = 12;
+
+function formatRebalanceLines(items, formatter) {
+  if (!items?.length) return [];
+  const lines = items.slice(0, REBALANCE_EMBED_MAX_LINES).map(formatter);
+  if (items.length > REBALANCE_EMBED_MAX_LINES) {
+    lines.push(`  … and ${items.length - REBALANCE_EMBED_MAX_LINES} more`);
+  }
+  return lines;
+}
+
+/**
  * Build a Discord embed for rebalance changes.
  */
 function buildRebalanceEmbed(etfSymbol, diff) {
@@ -226,31 +258,40 @@ function buildRebalanceEmbed(etfSymbol, diff) {
 
   if (diff.added.length > 0) {
     lines.push("**Added:**");
-    for (const a of diff.added) {
-      lines.push(`  + ${a.ticker} (${a.weight.toFixed(2)}%) — ${a.name}`);
-    }
+    lines.push(...formatRebalanceLines(diff.added, (a) =>
+      `  + ${a.ticker} (${a.weight.toFixed(2)}%) — ${a.name}`));
   }
   if (diff.removed.length > 0) {
     lines.push("**Removed:**");
-    for (const r of diff.removed) {
-      lines.push(`  - ${r.ticker} (was ${r.weight.toFixed(2)}%) — ${r.name}`);
-    }
+    lines.push(...formatRebalanceLines(diff.removed, (r) =>
+      `  - ${r.ticker} (was ${r.weight.toFixed(2)}%) — ${r.name}`));
   }
   if (diff.reweighted.length > 0) {
     lines.push("**Reweighted (>0.5% change):**");
-    for (const w of diff.reweighted) {
+    lines.push(...formatRebalanceLines(diff.reweighted, (w) => {
       const arrow = w.delta > 0 ? "+" : "";
-      lines.push(`  ${w.ticker}: ${w.oldWeight.toFixed(2)}% -> ${w.newWeight.toFixed(2)}% (${arrow}${w.delta}%)`);
-    }
+      return `  ${w.ticker}: ${w.oldWeight.toFixed(2)}% -> ${w.newWeight.toFixed(2)}% (${arrow}${w.delta}%)`;
+    }));
   }
 
   return {
     title: `ETF Rebalance Detected: ${etfSymbol}`,
     description: lines.join("\n"),
     color: 0x00c853, // green from brand kit
-    footer: { text: `Granny Shots ETF Sync` },
+    footer: { text: "Granny Shots ETF Sync · #system-alerts" },
     timestamp: new Date().toISOString(),
   };
+}
+
+function applyHoldingsToMaps(holdings, symbol, weightMap) {
+  const tickers = [];
+  for (const h of holdings || []) {
+    if (!h?.ticker) continue;
+    tickers.push(h.ticker);
+    if (!weightMap[h.ticker]) weightMap[h.ticker] = {};
+    weightMap[h.ticker][symbol] = h.weight;
+  }
+  return tickers;
 }
 
 /**
@@ -272,24 +313,60 @@ export async function syncAllETFHoldings(env, opts = {}) {
 
   for (const symbol of Object.keys(ETF_SOURCES)) {
     console.log(`[ETF SYNC] Fetching ${symbol}...`);
-    const result = await fetchETFHoldings(symbol);
-
-    if (!result.ok) {
-      console.error(`[ETF SYNC] ${symbol} failed:`, result.error);
-      results[symbol] = { ok: false, error: result.error };
-      continue;
-    }
-
-    // Load previous holdings for diff
     const prevHoldings = await kvGetJSON(KV, `${KV_PREFIX_HOLDINGS}${symbol}`);
-    const prevTickers = (prevHoldings?.holdings || []);
+    const prevTickers = prevHoldings?.holdings || [];
     for (const h of prevTickers) {
       const tk = String(h?.ticker || "").toUpperCase();
       if (tk) prevUnion.add(tk);
     }
 
+    const result = await fetchETFHoldings(symbol);
+
+    if (!result.ok) {
+      console.error(`[ETF SYNC] ${symbol} failed:`, result.error);
+      results[symbol] = { ok: false, error: result.error };
+      if (prevTickers.length > 0) {
+        allGroups[symbol] = applyHoldingsToMaps(prevTickers, symbol, weightMap);
+      }
+      continue;
+    }
+
     // Diff for rebalance detection
     const diff = diffHoldings(prevTickers, result.holdings);
+    const suspicious = isSuspiciousHoldingsDrop(prevTickers, result.holdings, diff);
+    if (suspicious) {
+      console.warn(
+        `[ETF SYNC] ${symbol} suspicious holdings drop (${prevTickers.length} -> ${result.count}, `
+        + `-${diff.removed.length}/+${diff.added.length}) — keeping prior cache, skipping alert`,
+      );
+      if (opts.notifyDiscord) {
+        await opts.notifyDiscord(env, {
+          title: `ETF Sync: incomplete ${symbol} holdings parse`,
+          description: [
+            `grannyshots.com returned **${result.count}** stock holdings vs **${prevTickers.length}** cached.`,
+            `Diff looked like -${diff.removed.length}/+${diff.added.length} — likely truncated HTML, not a real rebalance.`,
+            "Prior KV cache kept. Investigate the holdings page parser/source.",
+          ].join("\n"),
+          color: 0xff9800,
+          footer: { text: "Granny Shots ETF Sync · #system-alerts" },
+          timestamp: new Date().toISOString(),
+        }, "system").catch((e) =>
+          console.warn("[ETF SYNC] Discord skip-alert failed:", String(e).slice(0, 100)),
+        );
+      }
+      results[symbol] = {
+        ok: false,
+        error: "suspicious_rebalance_skipped",
+        prevCount: prevTickers.length,
+        newCount: result.count,
+        removed: diff.removed.length,
+      };
+      if (prevTickers.length > 0) {
+        allGroups[symbol] = applyHoldingsToMaps(prevTickers, symbol, weightMap);
+      }
+      continue;
+    }
+
     if (diff.hasChanges) {
       console.log(`[ETF SYNC] ${symbol} rebalance detected: +${diff.added.length} -${diff.removed.length} ~${diff.reweighted.length}`);
       rebalanceEmbeds.push(buildRebalanceEmbed(symbol, diff));
@@ -324,11 +401,7 @@ export async function syncAllETFHoldings(env, opts = {}) {
     }
 
     // Build groups and weight map
-    allGroups[symbol] = result.holdings.map(h => h.ticker);
-    for (const h of result.holdings) {
-      if (!weightMap[h.ticker]) weightMap[h.ticker] = {};
-      weightMap[h.ticker][symbol] = h.weight;
-    }
+    allGroups[symbol] = applyHoldingsToMaps(result.holdings, symbol, weightMap);
 
     results[symbol] = {
       ok: true,
@@ -395,10 +468,10 @@ export async function syncAllETFHoldings(env, opts = {}) {
     fsdRemoved,
   });
 
-  // Send Discord notifications for rebalances
+  // Send Discord notifications for rebalances (#system-alerts — ops, not trade)
   if (rebalanceEmbeds.length > 0 && opts.notifyDiscord) {
     for (const embed of rebalanceEmbeds) {
-      await opts.notifyDiscord(env, embed).catch(e =>
+      await opts.notifyDiscord(env, embed, "system").catch(e =>
         console.warn("[ETF SYNC] Discord notification failed:", String(e).slice(0, 100))
       );
     }
