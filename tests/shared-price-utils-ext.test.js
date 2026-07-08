@@ -241,6 +241,28 @@ describe("getHeadlinePrice RTH flap guard", () => {
     });
     expect(px).toBeCloseTo(183.58, 2);
   });
+
+  function mockMarketClosed() {
+    vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function (loc, opts) {
+      if (opts && opts.timeZone === "America/New_York") {
+        return "6/14/2026, 20:30:00";
+      }
+      return "6/14/2026, 20:30:00";
+    });
+  }
+
+  it("outside RTH: prefers close when _live_price matches extended print", () => {
+    mockMarketClosed();
+    const px = utils.getHeadlinePrice(withFreshPrice({
+      ticker: "NVDA",
+      close: 140.0,
+      price: 140.0,
+      _live_price: 141.5,
+      _ah_price: 141.5,
+      _ah_change_pct: 1.07,
+    }));
+    expect(px).toBeCloseTo(140.0, 2);
+  });
 });
 
 describe("getBubbleFillChange", () => {

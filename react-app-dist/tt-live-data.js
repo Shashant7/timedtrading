@@ -59,12 +59,20 @@
     catch (_) { return true; }
   }
 
-  /** Vendor quote receipt — max(q_ts, p_ts). Never poll `t` (GS zombie). */
+  /** Vendor quote receipt — max(q_ts, p_ts, lastTs). Never poll `t` (GS zombie). */
   function quoteReceiptTs(p) {
     const q = Number(p?.q_ts) || 0;
-    const pt = Number(p?.p_ts) || 0;
+    const pt = Number(p?.p_ts) || Number(p?.lastTs) || 0;
     if (q > 0 && pt > 0) return Math.max(q, pt);
     return q > 0 ? q : pt;
+  }
+
+  function applyPriceFeedOverlay(existing, p, marketOpen) {
+    try {
+      return window.TimedPriceUtils?.applyPriceFeedOverlay?.(existing, p, marketOpen) ?? null;
+    } catch (_) {
+      return null;
+    }
   }
 
   function priceReceiptMaxAgeMs(marketOpen) {
@@ -191,15 +199,12 @@
 
             const feedDc = Number(p.dc);
             const feedDp = Number(p.dp);
-            const ahp = Number(p.ahp);
-            const ahdc = Number(p.ahdc);
-            const ahdp = Number(p.ahdp);
+            const priceOverlay = applyPriceFeedOverlay(existing, p, marketOpen);
+            if (!priceOverlay) continue;
 
             const updated = {
               ...existing,
-              ...(marketOpen
-                ? { price: feedP, _live_price: feedP }
-                : { price: feedP, close: feedP, _live_price: feedP }),
+              ...priceOverlay,
               _price_updated_at: symTs,
               _price_value_ts: Number(p?.p_ts) || symTs,
               ...(Number(p?.q_ts) > 0 ? { _quote_receipt_ts: Number(p.q_ts) } : {}),
@@ -210,15 +215,6 @@
               ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
               ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
             };
-            if (Number.isFinite(ahp) && ahp > 0) {
-              updated._ah_price = ahp;
-              if (Number.isFinite(ahdc)) updated._ah_change = ahdc;
-              if (Number.isFinite(ahdp)) updated._ah_change_pct = ahdp;
-            } else if (!marketOpen) {
-              delete updated._ah_price;
-              delete updated._ah_change;
-              delete updated._ah_change_pct;
-            }
             next[key] = updated;
             changed = true;
           }
@@ -331,14 +327,11 @@
           const bestPc = feedPcUsable ? feedPc : (existing._live_prev_close || existing.prev_close || undefined);
           const feedDc = Number(p.dc);
           const feedDp = Number(p.dp);
-          const ahp = Number(p.ahp);
-          const ahdc = Number(p.ahdc);
-          const ahdp = Number(p.ahdp);
+          const priceOverlay = applyPriceFeedOverlay(existing, p, marketOpen);
+          if (!priceOverlay) continue;
           const updated = {
             ...existing,
-            ...(marketOpen
-              ? { price: feedP, _live_price: feedP }
-              : { price: feedP, close: feedP, _live_price: feedP }),
+            ...priceOverlay,
             _price_updated_at: symTs,
             _price_value_ts: Number(p?.p_ts) || symTs,
             ...(Number(p?.q_ts) > 0 ? { _quote_receipt_ts: Number(p.q_ts) } : {}),
@@ -347,15 +340,6 @@
             ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
             ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
           };
-          if (Number.isFinite(ahp) && ahp > 0) {
-            updated._ah_price = ahp;
-            if (Number.isFinite(ahdc)) updated._ah_change = ahdc;
-            if (Number.isFinite(ahdp)) updated._ah_change_pct = ahdp;
-          } else if (!marketOpen) {
-            delete updated._ah_price;
-            delete updated._ah_change;
-            delete updated._ah_change_pct;
-          }
           next[key] = updated;
         }
         return changed ? next : prev;
@@ -397,7 +381,18 @@
             if (msg.type === "prices" && msg.data) {
               applyTicks(Object.entries(msg.data).map(([sym, p]) => ({ sym, p })), readMs(msg.updated_at) || Date.now());
             } else if (msg.type === "tick_batch" && Array.isArray(msg.updates)) {
-              applyTicks(msg.updates.map((u) => ({ sym: u.s, p: { p: u.last } })), readMs(msg.ts) || Date.now());
+              applyTicks(msg.updates.map((u) => ({
+                sym: u.s,
+                p: {
+                  p: u.last,
+                  lastTs: u.lastTs,
+                  dc: u.dayChg,
+                  dp: u.dayChgPct,
+                  ahChg: u.ahChg,
+                  ahChgPct: u.ahChgPct,
+                  session: u.session,
+                },
+              })), readMs(msg.ts) || Date.now());
             }
           } catch (_) { /* ignore malformed frame */ }
         };
@@ -420,4 +415,4 @@
   window.TimedLiveData = { usePriceFeed, useTickerRefresh, usePriceWebSocket, mergeTimedAllRefresh };
 })();
 
-// cache-bust:1783491643141:607817562
+// cache-bust:1783512193078:550021893

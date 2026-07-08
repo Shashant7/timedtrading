@@ -1943,18 +1943,21 @@
                   : (existing._live_prev_close || existing.prev_close || undefined);
                 const feedDc = Number(priceInfo.dc);
                 const feedDp = Number(priceInfo.dp);
-                const ahp = Number(priceInfo.ahp);
-                const ahdc = Number(priceInfo.ahdc);
-                const ahdp = Number(priceInfo.ahdp);
                 const marketOpen = (() => {
                   try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
                   catch (_) { return true; }
                 })();
+                const priceOverlay = window.TimedPriceUtils?.applyPriceFeedOverlay?.(existing, {
+                  p: feedP,
+                  ahp: priceInfo.ahp,
+                  ahdc: priceInfo.ahdc,
+                  ahdp: priceInfo.ahdp,
+                }, marketOpen) || (marketOpen
+                  ? { price: feedP, _live_price: feedP }
+                  : { price: feedP, close: feedP, _live_price: feedP });
                 updatedData[normalizedSym] = {
                   ...existing,
-                  ...(marketOpen
-                    ? { price: feedP, _live_price: feedP }
-                    : { price: feedP, close: feedP, _live_price: feedP }),
+                  ...priceOverlay,
                   ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                   _live_daily_high: priceInfo.dh,
                   _live_daily_low: priceInfo.dl,
@@ -1963,9 +1966,6 @@
                   _market_open_at_feed: marketOpen,
                   ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                   ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-                  ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
-                  ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
-                  ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
                 };
                 changed = true;
               }
@@ -2120,9 +2120,6 @@
                       : (existing._live_prev_close || existing.prev_close || undefined);
                     const feedDc = Number(priceInfo.dc);
                     const feedDp = Number(priceInfo.dp);
-                    const ahp = Number(priceInfo.ahp);
-                    const ahdc = Number(priceInfo.ahdc);
-                    const ahdp = Number(priceInfo.ahdp);
                     const marketOpen = (() => {
                       try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
                       catch (_) { return true; }
@@ -2133,10 +2130,16 @@
                       const clampV = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
                       return { _price_impulse_y: clampV(-pts * 3, 15), _price_impulse_x: clampV(pts * 1.5, 8), _price_impulse_pts: pts };
                     })();
+                    const priceOverlay = window.TimedPriceUtils?.applyPriceFeedOverlay?.(existing, {
+                      p: feedP,
+                      ahp: priceInfo.ahp,
+                      ahdc: priceInfo.ahdc,
+                      ahdp: priceInfo.ahdp,
+                    }, marketOpen) || (marketOpen
+                      ? { price: feedP, _live_price: feedP }
+                      : { price: feedP, close: feedP, _live_price: feedP });
                     queueWsUpdate(normalizedSym, {
-                      ...(marketOpen
-                        ? { price: feedP, _live_price: feedP }
-                        : { price: feedP, close: feedP, _live_price: feedP }),
+                      ...priceOverlay,
                       ...(bestPc > 0 ? { _live_prev_close: bestPc } : {}),
                       _live_daily_high: priceInfo.dh,
                       _live_daily_low: priceInfo.dl,
@@ -2145,9 +2148,6 @@
                       _market_open_at_feed: marketOpen,
                       ...(Number.isFinite(feedDp) ? { day_change_pct: feedDp, change_pct: feedDp } : {}),
                       ...(Number.isFinite(feedDc) ? { day_change: feedDc, change: feedDc } : {}),
-                      ...(Number.isFinite(ahp) && ahp > 0 ? { _ah_price: ahp } : {}),
-                      ...(Number.isFinite(ahdc) ? { _ah_change: ahdc } : {}),
-                      ...(Number.isFinite(ahdp) ? { _ah_change_pct: ahdp } : {}),
                       ..._impulse,
                     });
                   }
@@ -2176,18 +2176,21 @@
                       try { return window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true; }
                       catch (_) { return true; }
                     })();
+                    const priceOverlay = window.TimedPriceUtils?.applyPriceFeedOverlay?.(existing, {
+                      p: u.last,
+                      ahChg: u.ahChg,
+                      ahChgPct: u.ahChgPct,
+                      session: u.session,
+                    }, marketOpen) || (marketOpen
+                      ? { price: u.last, _live_price: u.last }
+                      : { price: u.last, close: u.last, _live_price: u.last });
                     queueWsUpdate(normalizedSym, {
-                      ...(marketOpen
-                        ? { price: u.last, _live_price: u.last }
-                        : { price: u.last, close: u.last, _live_price: u.last }),
+                      ...priceOverlay,
                       _price_updated_at: u.lastTs || batchTs,
                       _session: u.session,
                       _market_open_at_feed: marketOpen,
                       ...(Number.isFinite(u.dayChgPct) ? { day_change_pct: u.dayChgPct, change_pct: u.dayChgPct } : {}),
                       ...(Number.isFinite(u.dayChg) ? { day_change: u.dayChg, change: u.dayChg } : {}),
-                      ...(Number.isFinite(u.ahPrice) && u.ahPrice > 0 ? { _ah_price: u.ahPrice } : {}),
-                      ...(Number.isFinite(u.ahChg) ? { _ah_change: u.ahChg } : {}),
-                      ...(Number.isFinite(u.ahChgPct) ? { _ah_change_pct: u.ahChgPct } : {}),
                       ..._impulse2,
                     });
                   }
