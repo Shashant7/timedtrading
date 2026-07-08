@@ -403,6 +403,16 @@
         };
       }
 
+      function enrichBriefMoverRow(row, livePx) {
+        const sym = String(row?.ticker || "").toUpperCase();
+        const pf = livePx?.[sym];
+        const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.pct;
+        return {
+          ...row,
+          pct: Number.isFinite(dayPct) ? dayPct : row?.pct,
+        };
+      }
+
       function BriefTickerLogo({ sym, size = 18 }) {
         const SYM = String(sym || "").toUpperCase();
         const mono = SYM.slice(0, 2) || "?";
@@ -496,6 +506,7 @@
 
       function BriefChipStrip({ sectionKey, infographic, sectionBody }) {
         const info = infographic || {};
+        const livePx = useBriefLivePriceMap();
         if (sectionKey === "modelActions") {
           const rows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
           if (!rows.length) return null;
@@ -542,14 +553,19 @@
                 <>
                   <div className="tt-brief-chip-label">Gainers</div>
                   <div className="tt-strip-scroll" style={{ marginBottom: l.length ? 10 : 0 }}>
-                    {g.map((row) => (
+                    {g.map((row) => {
+                      const enriched = enrichBriefMoverRow(row, livePx);
+                      const sym = String(enriched.ticker || "").toUpperCase();
+                      return (
                       <BriefTickerChip
-                        key={`g-${row.ticker}`}
-                        sym={row.ticker}
-                        href={`/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`}
-                        title={String(row.ticker || "").toUpperCase()}
+                        key={`g-${sym}`}
+                        sym={sym}
+                        pct={enriched.pct}
+                        href={`/today.html?ticker=${encodeURIComponent(sym)}`}
+                        title={`${sym} ${fmtBriefPct(enriched.pct) || ""}`}
                       />
-                    ))}
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -557,14 +573,19 @@
                 <>
                   <div className="tt-brief-chip-label">Losers</div>
                   <div className="tt-strip-scroll">
-                    {l.map((row) => (
+                    {l.map((row) => {
+                      const enriched = enrichBriefMoverRow(row, livePx);
+                      const sym = String(enriched.ticker || "").toUpperCase();
+                      return (
                       <BriefTickerChip
-                        key={`l-${row.ticker}`}
-                        sym={row.ticker}
-                        href={`/today.html?ticker=${encodeURIComponent(String(row.ticker || "").toUpperCase())}`}
-                        title={String(row.ticker || "").toUpperCase()}
+                        key={`l-${sym}`}
+                        sym={sym}
+                        pct={enriched.pct}
+                        href={`/today.html?ticker=${encodeURIComponent(sym)}`}
+                        title={`${sym} ${fmtBriefPct(enriched.pct) || ""}`}
                       />
-                    ))}
+                      );
+                    })}
                   </div>
                 </>
               )}
