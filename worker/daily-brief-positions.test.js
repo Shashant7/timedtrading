@@ -5,8 +5,9 @@ import {
   buildInfographicPositionRows,
   liveDayPctFromPriceFeedRow,
   countInvestorOpenBook,
+  buildBriefInvestorBook,
 } from "./daily-brief.js";
-import { parseBriefPositionGuidanceByTicker } from "./daily-brief-markdown.js";
+import { parseBriefPositionGuidanceByTicker, stripBriefInvestorPortfolioBody } from "./daily-brief-markdown.js";
 import { resolveOwnedInvestorKanbanStage } from "./investor.js";
 
 describe("daily-brief open positions", () => {
@@ -59,6 +60,26 @@ describe("daily-brief open positions", () => {
       now,
     );
     expect(pct).toBeCloseTo(1, 2);
+  });
+
+  it("buildBriefInvestorBook merges score-owned tickers missing from D1", () => {
+    const book = buildBriefInvestorBook(
+      [],
+      {
+        NVDA: { position: { owned: true, shares: 12, avg_entry: 100 }, stage: "core_hold" },
+        TWLO: { position: { owned: true, shares: 5, avg_entry: 80 }, stage: "accumulate", actionTier: "monitor" },
+      },
+    );
+    expect(book).toHaveLength(2);
+    expect(book.map((p) => p.ticker).sort()).toEqual(["NVDA", "TWLO"]);
+    expect(book.find((p) => p.ticker === "TWLO")?.stage).toBe("watch");
+  });
+
+  it("stripBriefInvestorPortfolioBody hides empty state when holdings exist", () => {
+    const out = stripBriefInvestorPortfolioBody("• No investor positions.", true);
+    expect(out).toBe("");
+    const kept = stripBriefInvestorPortfolioBody("- **NVDA**: thesis intact · hold", true);
+    expect(kept).toContain("thesis intact");
   });
 
   it("countInvestorOpenBook merges D1 rows with score-owned tickers", () => {

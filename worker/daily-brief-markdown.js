@@ -121,6 +121,25 @@ export function briefSectionChipKey(title) {
   return null;
 }
 
+/** Remove redundant investor portfolio bullets — position cards carry tickers; body keeps guidance only. */
+export function stripBriefInvestorPortfolioBody(body, hasHoldings = false) {
+  if (!body || typeof body !== "string") return "";
+  return body
+    .split(/\n/)
+    .filter((line) => {
+      const t = line.trim().replace(/^[-*•]\s+/, "");
+      if (!t) return true;
+      if (hasHoldings && /^no investor positions?\.?$/i.test(t)) return false;
+      if (hasHoldings && /^no (open )?holdings\.?$/i.test(t)) return false;
+      // Stat-only rows the LLM emits when holdings exist — duplicated by position chips.
+      if (/^\*\*[A-Z][A-Z0-9.-]{0,9}\*\*\s*·\s*(?:today|return|\d+\s*sh)/i.test(t)) return false;
+      if (/^[A-Z][A-Z0-9.-]{0,9}\s+\d+\s*sh\s*@/i.test(t)) return false;
+      return true;
+    })
+    .join("\n")
+    .trim();
+}
+
 /** Remove redundant Gainers/Losers ticker lists — chips carry tickers; body keeps narrative only. */
 export function stripBriefTopMoversBody(body) {
   if (!body || typeof body !== "string") return "";
