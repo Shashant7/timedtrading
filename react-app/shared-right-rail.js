@@ -531,6 +531,62 @@
       const mondayOffset = dow === 0 ? -6 : 1 - dow;
       return new Date(ms + mondayOffset * 86400000).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     };
+    // Daily/weekly bars use YYYY-MM-DD business-day strings after collapseLwHtfCandles.
+    // LightweightCharts passes those strings back to tick/time formatters — never multiply by 1000.
+    const lwChartTimeToDate = (time) => {
+      if (time == null || time === "") return null;
+      if (typeof time === "string") {
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(time).trim());
+        if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        const n = Number(time);
+        if (Number.isFinite(n) && n > 0) return new Date(n * 1000);
+        return null;
+      }
+      const n = Number(time);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return new Date(n * 1000);
+    };
+    const formatLwChartAxisTick = (time, chartTf, isHtfChart) => {
+      const d = lwChartTimeToDate(time);
+      if (!d || !Number.isFinite(d.getTime())) return "";
+      if (isHtfChart || typeof time === "string") {
+        return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
+      if (String(chartTf) === "60") {
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }).formatToParts(d);
+        const map = {};
+        for (const p of parts) map[p.type] = p.value;
+        const mins = Number(map.minute || 0);
+        if (mins !== 30) return "";
+      }
+      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+    };
+    const formatLwChartTimeLabel = (time, chartTf, opts = {}) => {
+      const { withYear = false, withSeconds = false } = opts;
+      const d = lwChartTimeToDate(time);
+      if (!d || !Number.isFinite(d.getTime())) return "";
+      const isDWM = ["D", "W", "M"].includes(String(chartTf)) || typeof time === "string";
+      if (isDWM) {
+        return d.toLocaleString("en-US", {
+          month: "short",
+          day: "numeric",
+          ...(withYear ? { year: "numeric" } : {}),
+        });
+      }
+      return d.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        ...(withSeconds ? { second: "2-digit" } : {}),
+        timeZone: "America/New_York",
+      }) + (withSeconds ? "" : " ET");
+    };
     const collapseLwHtfCandles = (bars, tf) => {
       const tfStr = String(tf);
       if (tfStr === "D") {
@@ -2838,23 +2894,7 @@
             barSpacing: String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6,
             tickMarkFormatter: (time) => {
               try {
-                const d = new Date(time * 1000);
-                if (_isHtfChart) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
-                if (String(chartTf) === "60") {
-                  const parts = new Intl.DateTimeFormat("en-US", {
-                    timeZone: "America/New_York",
-                    hour: "numeric",
-                    minute: "2-digit",
-                    hour12: true,
-                  }).formatToParts(d);
-                  const map = {};
-                  for (const p of parts) map[p.type] = p.value;
-                  const mins = Number(map.minute || 0);
-                  // Session-aligned 1H bars land on :30; hide auto ticks on :00
-                  // that come from UTC orphan bars we filtered out.
-                  if (mins !== 30) return "";
-                }
-                return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+                return formatLwChartAxisTick(time, chartTf, _isHtfChart);
               } catch (_) { return ""; }
             },
           },
@@ -2866,9 +2906,7 @@
             },
             timeFormatter: (time) => {
               try {
-                const d = new Date(time * 1000);
-                if (_isHtfChart) return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
-                return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+                return formatLwChartTimeLabel(time, chartTf, { withYear: _isHtfChart });
               } catch (_) { return ""; }
             },
           },
@@ -3490,11 +3528,7 @@
       let hdrTimeStr = "";
       if (hdr) {
         try {
-          const d = new Date(hdr.time * 1000);
-          const isDWM = ["D", "W", "M"].includes(String(chartTf));
-          hdrTimeStr = isDWM
-            ? d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" })
-            : d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+          hdrTimeStr = formatLwChartTimeLabel(hdr.time, chartTf, { withYear: true });
         } catch (_) {}
       }
 
