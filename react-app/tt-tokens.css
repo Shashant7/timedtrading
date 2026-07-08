@@ -2367,8 +2367,8 @@ body.tt-rail-scroll-lock .rail-panel {
   width: 100%;
 }
 .tt-rail-chart-tab .tt-rail-chart-canvas {
-  /* Let LightweightCharts own touch gestures (pan/zoom/pinch). */
-  touch-action: none;
+  /* Vertical scroll passes to rail body; LWC handles horz pan + pinch. */
+  touch-action: pan-y pinch-zoom;
   -webkit-overflow-scrolling: touch;
 }
 .tt-rail-chart-tab-canvas {
@@ -2400,11 +2400,28 @@ body.tt-rail-scroll-lock .rail-panel {
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph .tt-rail-header-outside-banner {
   overflow: hidden;
 }
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-chips,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-context,
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-price,
-.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-outside-banner {
-  display: none;
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-outside-banner,
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-actions-secondary {
+  display: none !important;
+}
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact {
+  padding-top: var(--ds-space-2);
+  padding-bottom: var(--ds-space-2);
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-price-compact {
   display: inline-flex !important;
@@ -2422,6 +2439,12 @@ body.tt-rail-scroll-lock .rail-panel {
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-identity {
   margin-bottom: 0;
+}
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-identity > div:first-child {
+  flex-wrap: nowrap;
+}
+.tt-rail-shell:not(.tt-rail-shell--workspace) .tt-rail-header-morph.tt-rail-header-compact .tt-rail-header-price-compact {
+  margin-left: auto;
 }
 .tt-rail-shell:not(.tt-rail-shell--workspace) > .tt-rail-area-left-pane { order: 2; flex: 0 0 auto; }
 .tt-rail-area-left-pane,
