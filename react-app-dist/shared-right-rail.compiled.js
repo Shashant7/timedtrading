@@ -230,6 +230,7 @@
           padding: "8px 0"
         }
       }, "Composite wave unavailable (", err, ")"), !loading && svg && React.createElement(React.Fragment, null, React.createElement("div", {
+        className: "tt-rail-harmonic-wave__chart",
         dangerouslySetInnerHTML: {
           __html: svg
         },
@@ -22635,4 +22636,4 @@
   };
 })();
 
-// cache-bust:1783475335709:529574115
+// cache-bust:1783475493435:146695163

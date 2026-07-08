@@ -245,7 +245,7 @@
           )}
           {!loading && svg && (
             <>
-              <div dangerouslySetInnerHTML={{ __html: svg }} style={{ width: "100%", lineHeight: 0 }} />
+              <div className="tt-rail-harmonic-wave__chart" dangerouslySetInnerHTML={{ __html: svg }} style={{ width: "100%", lineHeight: 0 }} />
               <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 6, fontSize: 9, color: "var(--ds-text-faint)" }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                   <i style={{ display: "inline-block", width: 14, height: 0, borderTop: "2px solid rgba(226,232,240,0.85)" }} /> Price
