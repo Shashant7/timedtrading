@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripBriefMarkdownForDisplay } from "../worker/daily-brief-markdown.js";
+import { stripBriefMarkdownForDisplay, stripBriefTopMoversBody } from "../worker/daily-brief-markdown.js";
 import { extractPredictionLine, extractBriefLead } from "../worker/daily-brief.js";
 
 describe("extractPredictionLine", () => {
@@ -109,5 +109,14 @@ Verdict duplicate.
     expect(out).toContain("The Market Read");
     expect(out).not.toMatch(/CRO Research Desk/i);
     expect(out).toContain("Risk Factors");
+  });
+});
+
+describe("stripBriefTopMoversBody", () => {
+  it("keeps narrative but drops Gainers/Losers lines", () => {
+    const body = "Gainers: IOT +15.6%\nLosers: STRL -14.3%\n\nLeadership stayed narrow.";
+    const out = stripBriefTopMoversBody(body);
+    expect(out).not.toMatch(/Gainers:/i);
+    expect(out).toContain("Leadership stayed narrow");
   });
 });

@@ -16,30 +16,30 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1783472116848" />
-    <script defer src="/vendor/react.production.min.js?v=1783472116848"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1783472116848"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1783472116848" />
-<script defer src="/vendor/marked.min.js?v=1783472116848"></script>
-    <script defer src="/vendor/purify.min.js?v=1783472116848"></script>
-    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1783472116848"></script>
-    <script defer src="auth-gate.js?v=1783472116848"></script>
-    <script defer src="shared-price-utils.js?v=1783472116848"></script>
-    <script defer src="daily-brief-markdown.js?v=1783472116848"></script>
-    <script defer src="ds-components.js?v=1783472116848"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1783473112077" />
+    <script defer src="/vendor/react.production.min.js?v=1783473112077"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1783473112077"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1783473112077" />
+<script defer src="/vendor/marked.min.js?v=1783473112077"></script>
+    <script defer src="/vendor/purify.min.js?v=1783473112077"></script>
+    <script defer src="/vendor/lightweight-charts.standalone.production.js?v=1783473112077"></script>
+    <script defer src="auth-gate.js?v=1783473112077"></script>
+    <script defer src="shared-price-utils.js?v=1783473112077"></script>
+    <script defer src="daily-brief-markdown.js?v=1783473112077"></script>
+    <script defer src="ds-components.js?v=1783473112077"></script>
     <!-- 2026-06-16 — Bubble map (market pulse + open positions) at the end of
          the brief. Reuses the shared SVG plot from the Today page. -->
-    <script defer src="shared-bubble-chart.compiled.js?v=1783472116848"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1783473112077"></script>
     <!-- 2026-05-26 — Nav parity with today/AT/investor pages: badges on
          Active Trader + Investor links (open trade count / actionable
          count), bottom nav on mobile, global search overlay, activity
          strip pinned to the top. -->
-    <script src="tt-bottom-nav.js?v=1783472116848" defer></script>
-    <script defer src="investor-nav-badge.js?v=1783472116848"></script>
-    <script src="tt-nav-extras.js?v=1783472116848" defer></script>
-    <script src="tt-global-search.js?v=1783472116848" defer></script>
-    <script src="tt-rail-bridge.js?v=1783472116848" defer></script>
-    <script src="tt-activity-strip.js?v=1783472116848" defer></script>
+    <script src="tt-bottom-nav.js?v=1783473112077" defer></script>
+    <script defer src="investor-nav-badge.js?v=1783473112077"></script>
+    <script src="tt-nav-extras.js?v=1783473112077" defer></script>
+    <script src="tt-global-search.js?v=1783473112077" defer></script>
+    <script src="tt-rail-bridge.js?v=1783473112077" defer></script>
+    <script src="tt-activity-strip.js?v=1783473112077" defer></script>
     <style>
       /* 2026-06-16 — Bubble map embed (parity with active-trader.html). */
       .db-bubble-row { margin-top: 40px; }
@@ -262,27 +262,29 @@
         display: flex; flex-direction: column; gap: 12px; margin: 0 0 18px;
       }
       .tt-brief-pos-card {
-        display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+        display: flex; flex-direction: row; align-items: flex-start; gap: 10px; flex-wrap: wrap;
       }
-      .tt-brief-pos-card .tt-strip-chip { white-space: normal; flex-wrap: wrap; max-width: 100%; }
+      .tt-brief-pos-card .tt-strip-chip { white-space: nowrap; flex: 0 0 auto; }
       .tt-brief-pos-guidance {
-        margin: 0 0 0 4px; padding: 0 0 0 10px;
-        border-left: 2px solid rgba(255,255,255,0.08);
+        margin: 0; padding: 0; flex: 1 1 180px; align-self: center;
         font-size: 13px; line-height: 1.55; color: var(--tt-text-muted, #8AA39A);
         font-family: var(--tt-font);
+      }
+      .tt-brief-pos-sep {
+        margin-right: 6px; color: var(--tt-text-3, #6E867D);
       }
     </style>
   </head>
   <body class="vf-page ds-v2">
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1783472116848"></script>
+    <script defer src="shared-nav.js?v=1783473112077"></script>
     <div data-tt-activity-strip></div>
     <div id="root"></div>
-    <script defer src="daily-brief.compiled.js?v=1783472116848"></script>
+    <script defer src="daily-brief.compiled.js?v=1783473112077"></script>
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6E867D;text-decoration:underline;">Full Terms</a> · Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6E867D;text-decoration:underline;">Twelve Data</a>
     </footer>
   </body>
 </html>
 
-<!-- cache-bust:1783472116848:547140246 -->
+<!-- cache-bust:1783473112077:436146888 -->
