@@ -1168,10 +1168,12 @@
             const isPivot = r.source === "pivot";
             const isAtr = r.source === "atr_fib";
             const color = isPivot ? "rgba(245,158,11,0.55)" : isAtr ? "rgba(245,158,11,0.40)" : "rgba(239,83,80,0.55)";
+            const rawLabel = r.label || `R ${rnd(r.price)}`;
+            const label = String(rawLabel).replace(/^FSD\s+/i, "TT Intel ");
             levels.push({
               price: rnd(r.price),
               color,
-              label: r.label || `R ${rnd(r.price)}`,
+              label,
               lineWidth: 1,
               style: "dashed"
             });
@@ -1182,10 +1184,12 @@
             const isAnchor = s.source === "anchor";
             const color = isAnchor ? "rgba(255,255,255,0.45)" : isPivot ? "rgba(56,189,248,0.55)" : isAtr ? "rgba(245,158,11,0.40)" : "rgba(38,166,154,0.55)";
             const style = isAnchor ? "dotted" : "dashed";
+            const rawLabel = s.label || `S ${rnd(s.price)}`;
+            const label = String(rawLabel).replace(/^FSD\s+/i, "TT Intel ");
             levels.push({
               price: rnd(s.price),
               color,
-              label: s.label || `S ${rnd(s.price)}`,
+              label,
               lineWidth: 1,
               style
             });
@@ -9814,7 +9818,9 @@
               }, "\u2922"), React.createElement("span", null, "CHART")))
             }, React.createElement("div", {
               className: "tt-rail-chart-canvas"
-            }, _railChartElement)))
+            }, _railChartElement), React.createElement(HarmonicWaveRailBlock, {
+              sym: tickerSymbol
+            })))
           );
         })(), false && Array.isArray(predictionContract?.levels) && predictionContract.levels.length > 0 && (() => {
           const px = Number(v2Price) || Number(ticker?.price) || 0;
@@ -10186,7 +10192,9 @@
             color: "var(--ds-text-muted)",
             fontSize: "var(--ds-fs-body)"
           }
-        }, "Loading price candles\u2026") : null)), v2RailTab === "SNAPSHOT" && React.createElement("div", {
+        }, "Loading price candles\u2026") : null), React.createElement(HarmonicWaveRailBlock, {
+          sym: tickerSymbol
+        })), v2RailTab === "SNAPSHOT" && React.createElement("div", {
           style: railTabBodyWrapStyle
         }, React.createElement("div", {
           style: {
@@ -11971,9 +11979,7 @@
                 color: "var(--ds-text-body)"
               }
             }, modeTxt), guard ? ` · ${String(guard).replace(/_/g, " ")}` : "")));
-          })(), React.createElement(HarmonicWaveRailBlock, {
-            sym: tickerSymbol
-          }), predictionContract?.thesis && React.createElement("p", {
+          })(), predictionContract?.thesis && React.createElement("p", {
             style: {
               fontSize: "var(--ds-fs-body)",
               color: "var(--ds-text-body)",
@@ -15420,11 +15426,16 @@
             return v;
           })();
           const _isEtf = (() => {
+            const sym = String(tickerSymbol || "").toUpperCase();
+            const industry = String(prof.industry || "").trim().toLowerCase();
+            const name = String(prof.name || "").toLowerCase();
+            const knownEtf = /^(SPY|QQQ|IWM|DIA|XL[A-Z]|XHB|SOXL|SMH|KWEB|GLD|SLV|USO|GDX|VIXY|TNA|SPYU|SPCX|GRN[AIJY]|IBIT|BITO|ARKK|HYG|LQD|TLT|IEF|SHY|EFA|EEM|VTI|VOO|IVV)$/.test(sym);
+            const explicitEtfProfile = industry.includes("etf") || industry.includes("exchange-traded") || industry.includes("index fund") || industry.includes("mutual fund") || /\betf\b/.test(name) || name.includes("index fund");
+            if (knownEtf || explicitEtfProfile) return true;
             const hasNoEarnings = !Array.isArray(earn.history) || earn.history.length === 0;
             const hasNoEps = val.pe_ttm == null && val.pe_forward == null;
-            const indHint = String(prof.industry || "").toLowerCase();
-            const etfishIndustry = !indHint || indHint.includes("etf") || indHint.includes("fund") || indHint.includes("trust");
-            return hasNoEarnings && hasNoEps && etfishIndustry;
+            const emptyProfile = !industry && !String(prof.sector || "").trim() && !String(prof.name || "").trim();
+            return hasNoEarnings && hasNoEps && emptyProfile;
           })();
           if (_isEtf) {
             return React.createElement(Panel, {
@@ -22517,4 +22528,4 @@
   };
 })();
 
-// cache-bust:1783467970652:586668066
+// cache-bust:1783468934746:4470519

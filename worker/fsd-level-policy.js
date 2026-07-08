@@ -52,6 +52,21 @@ export function parseLevelString(levelStr) {
   return null;
 }
 
+function ttIntelLevelLabel(kind, price) {
+  const k = String(kind || "").toLowerCase();
+  if (k === "support") return `TT Intel support ${price}`;
+  if (k === "resistance") return `TT Intel resistance ${price}`;
+  if (k === "stop") return `TT Intel stop ${price}`;
+  if (k === "target") return `TT Intel target ${price}`;
+  if (k === "trigger") return `TT Intel trigger ${price}`;
+  return `TT Intel ${k} ${price}`;
+}
+
+/** User-facing chart/API label for FSD-sourced key levels (never "FSD" in UI). */
+export function formatFsdLevelLabel(kind, price) {
+  return ttIntelLevelLabel(kind, price);
+}
+
 function normalizeKeyPoint(kp) {
   if (!kp || typeof kp !== "object") return null;
   const kind = String(kp.kind || "").toLowerCase();
@@ -131,7 +146,7 @@ export function buildLevelConditionedModes(fsdLevels = [], price, ttLevels = nul
       threshold: s.price,
       compare: "below",
       mode: "defensive",
-      label: `FSD ${s.kind} ${s.price}`,
+      label: ttIntelLevelLabel(s.kind, s.price),
       recommend: { ...MODE_PRESETS.defensive },
       level: s,
     });
@@ -141,7 +156,7 @@ export function buildLevelConditionedModes(fsdLevels = [], price, ttLevels = nul
       threshold: r.price,
       compare: "above",
       mode: "aggressive",
-      label: `FSD ${r.kind} ${r.price}`,
+      label: ttIntelLevelLabel(r.kind, r.price),
       recommend: { ...MODE_PRESETS.aggressive },
       level: r,
     });
@@ -156,7 +171,7 @@ export function buildLevelConditionedModes(fsdLevels = [], price, ttLevels = nul
       threshold_high: resistAbove.price,
       compare: "between",
       mode: "neutral",
-      label: `FSD range ${supportBelow.price}-${resistAbove.price}`,
+      label: `TT Intel range ${supportBelow.price}-${resistAbove.price}`,
       recommend: { ...MODE_PRESETS.neutral },
     });
   }
@@ -205,7 +220,7 @@ export function mergeFsdLevelsIntoScenarioLevels(scenario, fsdLevels = []) {
   for (const lv of fsdLevels) {
     const entry = {
       price: Math.round(lv.price * 100) / 100,
-      label: `FSD ${lv.kind} ${lv.price}`,
+      label: ttIntelLevelLabel(lv.kind, lv.price),
       source: "fsd",
       direction: lv.direction || null,
       horizon: lv.horizon || null,
