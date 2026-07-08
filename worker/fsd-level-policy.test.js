@@ -4,6 +4,7 @@ import {
   buildLevelConditionedModes,
   mergeFsdLevelsIntoScenarioLevels,
   mergeFsdLevelPolicyOverlay,
+  formatFsdLevelLabel,
 } from "./fsd-level-policy.js";
 
 describe("parseLevelString", () => {
@@ -55,6 +56,13 @@ describe("mergeFsdLevelsIntoScenarioLevels", () => {
     ]);
     expect(merged.levels.support.some((l) => l.source === "fsd")).toBe(true);
     expect(merged.levels.resistance.some((l) => l.source === "fsd")).toBe(true);
+    expect(merged.levels.support.find((l) => l.source === "fsd")?.label).toBe("TT Intel support 900");
+  });
+});
+
+describe("formatFsdLevelLabel", () => {
+  it("uses TT Intel branding instead of FSD", () => {
+    expect(formatFsdLevelLabel("support", 195.75)).toBe("TT Intel support 195.75");
   });
 });
 
