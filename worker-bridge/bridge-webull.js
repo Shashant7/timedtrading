@@ -124,6 +124,13 @@ export async function cancelOrder(env, user, orderId) {
   return withLatency(res, t0);
 }
 
+export {
+  playToWebullOptionOrder,
+  reviewOptionsOrder,
+  placeOptionsOrder,
+  getOptionsPositions,
+} from "./bridge-webull-options.js";
+
 /** Manual probe helper — maps action names to adapter calls. */
 export async function callWebullAction(env, user, action, args = {}) {
   const act = String(action || "get_portfolio").toLowerCase();

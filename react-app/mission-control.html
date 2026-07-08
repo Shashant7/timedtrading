@@ -1860,9 +1860,9 @@
                                 <tbody>
                                   {positions.map((p, i) => {
                                     const qty = Number(p?.position ?? p?.qty ?? p?.quantity);
-                                    const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price);
-                                    const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
-                                    const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.upl);
+                                  const avg = Number(p?.avgCost ?? p?.avg_cost ?? p?.avgPrice ?? p?.avg_price ?? p?.cost_price);
+                                  const mkt = Number(p?.mktValue ?? p?.market_value ?? p?.marketValue);
+                                  const pnl = Number(p?.unrealizedPnl ?? p?.unrealized_pnl ?? p?.unrealized_profit_loss ?? p?.upl);
                                     const sym = String(p?.contractDesc ?? p?.symbol ?? p?.ticker ?? p?.conid ?? "—").toUpperCase();
                                     return (
                                       <tr key={`${u.user_id}-${sym}-${i}`}>

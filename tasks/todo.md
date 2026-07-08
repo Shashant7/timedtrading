@@ -25,7 +25,13 @@
 - [x] **Trader plan / Now tab posture alignment (2026-07-08).** When LTF lean
       conflicts with HTF contract on watch/setup (INTU), align Trade Plan +
       Now invalidation to posture; HTF template as alternate note.
-      Branch: `cursor/trader-plan-posture-align-ca70`.
+      Branch: `cursor/trader-plan-posture-align-ca70`. Merged PR #1065.
+
+- [ ] **Options shadow mode (2026-07-08).** Long call/put shadow plays on
+      trader + investor entry Discord/email (`OPTIONS_SHADOW_MODE=1`).
+      Plan: [`2026-07-08-options-shadow-mode-plan.md`](2026-07-08-options-shadow-mode-plan.md).
+      PR: `cursor/options-shadow-mode-df0c`. Next: enable on tt-engine preprod,
+      forward-grade `desk:shadow` ledger rows, then MC vehicle enable + IBKR mirror.
 
 - [ ] **TT Trust Spine — north star plan** ([`plans/tt-trust-spine.plan.md`](../plans/tt-trust-spine.plan.md)).
       Foundation merged (PR #1037). Complete wiring in progress (PR
