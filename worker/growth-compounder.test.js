@@ -142,7 +142,7 @@ describe("buildInvestorHoldbookCache", () => {
       }],
       {
         kvGetJSON: () => Promise.resolve(null),
-        kvKeyFn: (t) => `timed:fundamentals_v6:${t}`,
+        kvKeyFn: (t) => `timed:fundamentals_v7:${t}`,
       },
     );
     expect(book.count).toBe(1);
@@ -157,7 +157,7 @@ describe("enrichHoldbookScoreRows", () => {
     const rows = await enrichHoldbookScoreRows(
       [{ ticker: "MU", stage: "watch", score: 72 }],
       () => Promise.resolve(null),
-      () => "timed:fundamentals_v6:MU",
+      () => "timed:fundamentals_v7:MU",
       {
         fetchSnapshot: async (ticker) => {
           fetched.push(ticker);
@@ -179,7 +179,7 @@ describe("enrichHoldbookScoreRows", () => {
         { ticker: "MU", stage: "watch", score: 60 },
       ],
       () => Promise.resolve(null),
-      (t) => `timed:fundamentals_v6:${t}`,
+      (t) => `timed:fundamentals_v7:${t}`,
       {
         fetchSnapshot: async (ticker) => {
           fetched.push(ticker);

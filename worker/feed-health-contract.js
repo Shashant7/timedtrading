@@ -90,7 +90,7 @@ export async function loadFeedHealthSnapshots(kv, kvGetJSON) {
   await Promise.all(
     SAMPLE_TICKERS.map(async (t) => {
       try {
-        fundamentals[t] = await kvGetJSON(kv, `timed:fundamentals_v6:${t}`);
+        fundamentals[t] = await kvGetJSON(kv, `timed:fundamentals_v7:${t}`);
       } catch {
         fundamentals[t] = null;
       }
