@@ -22,6 +22,12 @@
 
 ### Active
 
+- [ ] **Options shadow mode (2026-07-08).** Long call/put shadow plays on
+      trader + investor entry Discord/email (`OPTIONS_SHADOW_MODE=1`).
+      Plan: [`2026-07-08-options-shadow-mode-plan.md`](2026-07-08-options-shadow-mode-plan.md).
+      PR: `cursor/options-shadow-mode-df0c`. Next: enable on tt-engine preprod,
+      forward-grade `desk:shadow` ledger rows, then MC vehicle enable + IBKR mirror.
+
 - [ ] **TT Trust Spine — north star plan** ([`plans/tt-trust-spine.plan.md`](../plans/tt-trust-spine.plan.md)).
       Foundation merged (PR #1037). Complete wiring in progress (PR
       `cursor/tt-trust-spine-complete-dbdd`): trust-spine routes, autonomy
