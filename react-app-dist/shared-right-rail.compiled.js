@@ -3875,7 +3875,8 @@
       markers: propMarkers,
       ticker: propTicker,
       hideOverlayToggles = false,
-      livePrice = null
+      livePrice = null,
+      touchScrollPassThrough = false
     }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
@@ -4202,7 +4203,10 @@
             }
           },
           handleScroll: {
-            vertTouchDrag: false
+            vertTouchDrag: false,
+            horzTouchDrag: !touchScrollPassThrough,
+            mouseWheel: !touchScrollPassThrough,
+            pressedMouseMove: !touchScrollPassThrough
           }
         });
         chartInstanceRef.current = chart;
@@ -4827,6 +4831,7 @@
       if (prev.overlays !== next.overlays) return false;
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
+      if ((prev.touchScrollPassThrough || false) !== (next.touchScrollPassThrough || false)) return false;
       const prevLive = Number(prev.livePrice);
       const nextLive = Number(next.livePrice);
       if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && prevLive > 0) {
@@ -6230,14 +6235,26 @@
         const hdr = railHeaderRef.current;
         if (!el || !hdr || layoutMode === "workspace") return undefined;
         let raf = 0;
+        let compact = false;
+        const applyMorph = nextCompact => {
+          compact = nextCompact;
+          const p = nextCompact ? 1 : 0;
+          hdr.style.setProperty("--rail-header-progress", String(p));
+          hdr.classList.toggle("tt-rail-header-compact", nextCompact);
+        };
         const onScroll = () => {
           if (raf) return;
           raf = requestAnimationFrame(() => {
             raf = 0;
-            const p = Math.max(0, Math.min(1, el.scrollTop / 72));
-            hdr.style.setProperty("--rail-header-progress", p.toFixed(3));
+            if (String(railTab || "").toUpperCase() === "CHART") {
+              applyMorph(false);
+              return;
+            }
+            const st = el.scrollTop;
+            if (!compact && st >= 56) applyMorph(true);else if (compact && st <= 16) applyMorph(false);
           });
         };
+        applyMorph(false);
         el.addEventListener("scroll", onScroll, {
           passive: true
         });
@@ -6414,8 +6431,9 @@
         priceLines: subtleKeyLevelLines,
         ticker,
         hideOverlayToggles: true,
-        livePrice: chartLivePrice
-      }), [_chartCandlesSig, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice]);
+        livePrice: chartLivePrice,
+        touchScrollPassThrough: layoutMode !== "workspace"
+      }), [_chartCandlesSig, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice, layoutMode]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
         if (chartCandles.length >= 2) {
@@ -22610,4 +22628,4 @@
   };
 })();
 
-// cache-bust:1783472116848:547140246
+// cache-bust:1783473289252:410608215
