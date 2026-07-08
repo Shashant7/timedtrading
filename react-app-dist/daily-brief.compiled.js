@@ -394,10 +394,14 @@ function BriefPositionStack({
   }));
 }
 const BRIEF_POSITION_SECTION_KEYS = new Set(["activeTrader", "investorPortfolio"]);
-function briefSectionBodyForDisplay(sectionKey, body) {
+function briefSectionBodyForDisplay(sectionKey, body, infographic) {
   const raw = body || "";
   if (sectionKey === "topMovers" && window.TimedBriefMarkdown?.stripBriefTopMoversBody) {
     return window.TimedBriefMarkdown.stripBriefTopMoversBody(raw);
+  }
+  if (sectionKey === "investorPortfolio" && window.TimedBriefMarkdown?.stripBriefInvestorPortfolioBody) {
+    const hasHoldings = Array.isArray(infographic?.investorHoldings) && infographic.investorHoldings.length > 0;
+    return window.TimedBriefMarkdown.stripBriefInvestorPortfolioBody(raw, hasHoldings);
   }
   return raw;
 }
@@ -430,7 +434,7 @@ function BriefContent({
     sectionBody: sec.body
   }), sec.body ? React.createElement("div", {
     dangerouslySetInnerHTML: {
-      __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body))
+      __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body, infographic))
     }
   }) : null))));
 }
@@ -3125,6 +3129,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783513828017:365018512
+// cache-bust:1783528486225:458024479
 
-// cache-bust:1783513828017:365018512
+// cache-bust:1783528486225:458024479

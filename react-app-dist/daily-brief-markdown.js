@@ -81,6 +81,23 @@
     return map;
   }
 
+  function stripBriefInvestorPortfolioBody(body, hasHoldings) {
+    if (!body || typeof body !== "string") return "";
+    return body
+      .split(/\n/)
+      .filter((line) => {
+        const t = line.trim().replace(/^[-*•]\s+/, "");
+        if (!t) return true;
+        if (hasHoldings && /^no investor positions?\.?$/i.test(t)) return false;
+        if (hasHoldings && /^no (open )?holdings\.?$/i.test(t)) return false;
+        if (/^\*\*[A-Z][A-Z0-9.-]{0,9}\*\*\s*·\s*(?:today|return|\d+\s*sh)/i.test(t)) return false;
+        if (/^[A-Z][A-Z0-9.-]{0,9}\s+\d+\s*sh\s*@/i.test(t)) return false;
+        return true;
+      })
+      .join("\n")
+      .trim();
+  }
+
   /** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
   function parseBriefDisplaySections(md) {
     const cleaned = stripBriefMarkdownForDisplay(md);
@@ -161,7 +178,8 @@
     briefSectionChipKey,
     parseBriefTopMoversText,
     stripBriefTopMoversBody,
+    stripBriefInvestorPortfolioBody,
   };
 })();
 
-// cache-bust:1783513828017:365018512
+// cache-bust:1783528486225:458024479

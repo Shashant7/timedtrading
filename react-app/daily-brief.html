@@ -634,10 +634,14 @@
 
       const BRIEF_POSITION_SECTION_KEYS = new Set(["activeTrader", "investorPortfolio"]);
 
-      function briefSectionBodyForDisplay(sectionKey, body) {
+      function briefSectionBodyForDisplay(sectionKey, body, infographic) {
         const raw = body || "";
         if (sectionKey === "topMovers" && window.TimedBriefMarkdown?.stripBriefTopMoversBody) {
           return window.TimedBriefMarkdown.stripBriefTopMoversBody(raw);
+        }
+        if (sectionKey === "investorPortfolio" && window.TimedBriefMarkdown?.stripBriefInvestorPortfolioBody) {
+          const hasHoldings = Array.isArray(infographic?.investorHoldings) && infographic.investorHoldings.length > 0;
+          return window.TimedBriefMarkdown.stripBriefInvestorPortfolioBody(raw, hasHoldings);
         }
         return raw;
       }
@@ -661,7 +665,7 @@
                   <>
                     {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />}
                     {sec.body ? (
-                      <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body)) }} />
+                      <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body, infographic)) }} />
                     ) : null}
                   </>
                 )}

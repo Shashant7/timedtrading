@@ -1599,18 +1599,28 @@ function mergeInvestorRowsWithLiveScores(investorRows, liveScores) {
   const seen = new Set(out.map((p) => String(p.ticker || "").toUpperCase()));
   for (const [sym, sc] of Object.entries(liveScores || {})) {
     if (!sc?.position?.owned) continue;
+    const shares = Number(sc.position?.shares) || 0;
+    if (shares <= 0) continue;
     const U = String(sym).toUpperCase();
     if (seen.has(U)) continue;
     seen.add(U);
     out.push({
       ticker: U,
-      total_shares: Number(sc.position?.shares) || 0,
+      total_shares: shares,
       avg_entry: Number(sc.position?.avg_entry) || null,
       status: "OPEN",
       investor_stage: sc.stage || sc.investor_stage || null,
     });
   }
   return out;
+}
+
+/** Canonical open investor book for brief prompt + infographic (D1 + live scores). */
+export function buildBriefInvestorBook(investorRaw = [], liveScores = {}, profileMap = {}) {
+  const merged = mergeInvestorRowsWithLiveScores(investorRaw, liveScores)
+    .filter((p) => String(p?.status || "OPEN").toUpperCase() === "OPEN")
+    .filter((p) => Number(p.total_shares) > 0);
+  return merged.map((p) => mapBriefInvestorPositionRow(p, profileMap, liveScores));
 }
 
 /** Overlay live open books onto a stored brief infographic at read time. */
@@ -1631,10 +1641,7 @@ export async function refreshInfographicLivePositions(infographic, env, priceMap
     fetchBriefInvestorPositionsFromD1(db),
     fetchBriefLiveInvestorScores(env),
   ]);
-  const investorPositions = mergeInvestorRowsWithLiveScores(
-    investorRaw.map((p) => mapBriefInvestorPositionRow(p, {}, liveScores)),
-    liveScores,
-  );
+  const investorPositions = buildBriefInvestorBook(investorRaw, liveScores);
   let _refreshMktOpen = true;
   try { _refreshMktOpen = isNyRegularMarketOpen(null); } catch (_) { _refreshMktOpen = true; }
   const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf, _refreshMktOpen);
@@ -2202,8 +2209,15 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       todayTradeExits = (exitRes?.results || []).slice(0, 10);
       todayTradeTrimsDefends = (trimRes?.results || []).slice(0, 10);
       todayInvestorLots = (investorLotsRes || []).slice(0, 20);
-      investorPositions = Array.isArray(investorRes) ? investorRes : (investorRes?.results || []);
-      const investorTickers = [...new Set(investorPositions.map(p => String(p.ticker || '').toUpperCase()).filter(Boolean))];
+      const investorRaw = Array.isArray(investorRes) ? investorRes : (investorRes?.results || []);
+      const investorTickerCandidates = new Set(
+        investorRaw.map((p) => String(p.ticker || "").toUpperCase()).filter(Boolean),
+      );
+      for (const [sym, sc] of Object.entries(liveInvestorScores || {})) {
+        if (!sc?.position?.owned) continue;
+        if (Number(sc.position?.shares) > 0) investorTickerCandidates.add(String(sym).toUpperCase());
+      }
+      const investorTickers = [...investorTickerCandidates];
       if (investorTickers.length > 0) {
         const inClause = investorTickers.map(t => `'${t.replace(/'/g, "''")}'`).join(',');
         const profileRes = await db.prepare(`SELECT ticker, learning_json FROM ticker_profiles WHERE ticker IN (${inClause})`).all().catch(() => ({ results: [] }));
@@ -2219,6 +2233,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
           };
         }
       }
+      investorPositions = buildBriefInvestorBook(investorRaw, liveInvestorScores, investorProfileMap);
     } catch (e) {
       console.error("[BRIEF] Error fetching trade events/investor positions:", e);
     }
@@ -2404,8 +2419,8 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       reason: l.reason,
       ts: l.ts,
     })),
-    // Investor portfolio positions
-    investorPositions: investorPositions.map((p) => mapBriefInvestorPositionRow(p, investorProfileMap, liveInvestorScores)),
+    // Investor portfolio positions (D1 + live score-owned book)
+    investorPositions,
     econNews: (finnhubEconNews || []).slice(0, 10),
     // 2026-05-22 — Broad market headlines for the brief infographic.
     topHeadlines: (finnhubTopHeadlines || []).slice(0, 6),
@@ -4227,7 +4242,7 @@ function buildRetailFriendlyOutputSpec(type) {
 7. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
 8. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) today's market mood in one sentence, (b) playbook tie-in — one sentence linking the setup to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model is entering or staying patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
-2. **Model Actions Today** (~60 words — two labeled lines: **Trader model:** what it is stalking or holding (no entry yet is OK — say why). **Investor model:** what it is monitoring or holding. Separate lanes — do not merge.)
+2. **Model Actions Today** (~60 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** cite EVERY name from the "Investor Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no investor actions" ONLY when that block is empty; then note open holdings status. Separate lanes — do not merge.)
 3. **The Market Read** (~220 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
 4. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after prints land, lead with actual vs estimate)
 5. **Index Outlook & Game Plan** (~320 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
