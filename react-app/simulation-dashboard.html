@@ -211,17 +211,14 @@
       /* V15 P0.7.162 (2026-05-14) → P0.7.171 (2026-05-15) — CHART tab
          full-height + static. */
       .tt-rail-chart-tab-canvas {
-        height: 100% !important;
-        min-height: 320px;
-        flex: 1 1 0 !important;
+        flex: 0 0 auto !important;
+        height: min(40vh, 320px) !important;
+        max-height: 320px;
+        min-height: 220px;
         width: 100%;
       }
       @media (min-width: 1024px) {
-        .tt-rail-chart-tab-canvas { min-height: 480px; }
-      }
-      .tt-rail-body--chart {
-        overflow: hidden !important;
-        height: 100%;
+        .tt-rail-chart-tab-canvas { min-height: 480px; max-height: none; height: min(46vh, 480px) !important; }
       }
     </style>
   </head>
