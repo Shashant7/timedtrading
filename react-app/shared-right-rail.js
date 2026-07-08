@@ -2500,7 +2500,7 @@
       );
     }
 
-    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null, touchScrollPassThrough = false }) {
+    function _LWChartImpl({ candles: rawCandles, chartTf, overlays, onCrosshair, height: propHeight, priceLines: propPriceLines, markers: propMarkers, ticker: propTicker, hideOverlayToggles = false, livePrice = null, touchScrollPassThrough = false, hideOhlcHeader = false, compactPriceScale = false }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
       const candleSeriesRef = useRef(null);
@@ -2813,9 +2813,9 @@
           },
           rightPriceScale: {
             borderColor: "rgba(38,50,95,0.3)",
-            scaleMargins: { top: 0.08, bottom: 0.08 },
+            scaleMargins: compactPriceScale ? { top: 0.06, bottom: 0.06 } : { top: 0.08, bottom: 0.08 },
             autoScale: true,
-            minimumWidth: 70,
+            minimumWidth: compactPriceScale ? 52 : 70,
             entireTextOnly: true,
           },
           // P0.7.102 — explicit handleScale config so dragging the
@@ -2834,7 +2834,7 @@
             borderColor: "rgba(38,50,95,0.3)",
             timeVisible: !_isHtfChart,
             secondsVisible: false,
-            rightOffset: 5,
+            rightOffset: compactPriceScale ? 2 : 5,
             barSpacing: String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6,
             tickMarkFormatter: (time) => {
               try {
@@ -2959,7 +2959,7 @@
         // populated (and only on the FIRST data load — subsequent updates
         // preserve whatever range the user has scrolled/zoomed to).
         const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
-        chart.applyOptions({ timeScale: { rightOffset: 5, barSpacing: _tfBarSpacing } });
+        chart.applyOptions({ timeScale: { rightOffset: compactPriceScale ? 2 : 5, barSpacing: _tfBarSpacing } });
 
         // Resize — use ResizeObserver for portal/modal mount detection + window fallback.
         // V15 P0.7.77: debounce + only fire when width actually changes by ≥1px.
@@ -3073,7 +3073,7 @@
          object reference change) no longer trigger chart.remove() +
          createChart() — they at most cause a setData() call that
          preserves the user's zoom/scroll state. */
-      }, [chartTf, LWC, propHeight, propTicker?.ticker]);
+      }, [chartTf, LWC, propHeight, propTicker?.ticker, touchScrollPassThrough, compactPriceScale]);
 
       // V15 P0.7.99 — UPDATE effect: hydrates the candle series + indicator
       // overlays + markers without recreating the chart instance. Runs on
@@ -3489,7 +3489,7 @@
       // height: 100% falls back to 0 and the chart renders at LWC's
       // tiny default. Header + status bar are flex-shrink: 0; the
       // container flex-grows.
-      return React.createElement("div", { className: "w-full h-full relative -mx-3 px-3 flex flex-col", style: { minHeight: 0 } },
+      return React.createElement("div", { className: `w-full h-full relative flex flex-col ${compactPriceScale ? "-mx-1 px-0" : "-mx-3 px-3"}`, style: { minHeight: 0 } },
         // V2.1 round 6 (2026-05-01) — Legacy in-canvas overlay-toggle row
         // suppressed when the parent passes hideOverlayToggles=true (the v2
         // Setup panel renders its own gold-styled toggles outside the chart,
@@ -3514,8 +3514,8 @@
             }, ov.label)
           )
         ),
-        // OHLC header
-        hdr && React.createElement("div", { className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none" },
+        // OHLC header (hidden on mobile Chart tab — price is in the rail header)
+        !hideOhlcHeader && hdr && React.createElement("div", { className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none" },
           React.createElement("span", { className: "text-[#6E867D]" }, hdrTimeStr),
           React.createElement("span", { className: "text-[#6E867D]" }, "O"), React.createElement("span", { className: "text-white" }, hdr.o?.toFixed(2)),
           React.createElement("span", { className: "text-[#6E867D]" }, "H"), React.createElement("span", { className: "text-sky-300" }, hdr.h?.toFixed(2)),
@@ -3596,6 +3596,8 @@
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       if ((prev.touchScrollPassThrough || false) !== (next.touchScrollPassThrough || false)) return false;
+      if ((prev.hideOhlcHeader || false) !== (next.hideOhlcHeader || false)) return false;
+      if ((prev.compactPriceScale || false) !== (next.compactPriceScale || false)) return false;
       const prevLive = Number(prev.livePrice);
       const nextLive = Number(next.livePrice);
       if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && prevLive > 0) {
@@ -4726,10 +4728,6 @@
             if (raf) return;
             raf = requestAnimationFrame(() => {
               raf = 0;
-              if (String(railTab || "").toUpperCase() === "CHART") {
-                applyMorph(false);
-                return;
-              }
               const st = el.scrollTop;
               if (!compact && st >= 56) applyMorph(true);
               else if (compact && st <= 16) applyMorph(false);
@@ -4953,6 +4951,8 @@
           latestTicker?.close,
         ]);
 
+        const _isMobileChartTab = layoutMode !== "workspace"
+          && String(railTab || "").toUpperCase() === "CHART";
         const _railChartElement = useMemo(
           () => React.createElement(LWChart, {
             candles: chartCandles,
@@ -4962,7 +4962,11 @@
             ticker,
             hideOverlayToggles: true,
             livePrice: chartLivePrice,
-            touchScrollPassThrough: layoutMode !== "workspace",
+            // Chart tab: capture pan/zoom gestures. Other mobile tabs: pass
+            // vertical scroll through to the rail body.
+            touchScrollPassThrough: layoutMode !== "workspace" && !_isMobileChartTab,
+            hideOhlcHeader: _isMobileChartTab,
+            compactPriceScale: _isMobileChartTab,
           }),
           [
             _chartCandlesSig,
@@ -4972,6 +4976,7 @@
             ticker?.ticker,
             chartLivePrice,
             layoutMode,
+            _isMobileChartTab,
           ],
         );
 

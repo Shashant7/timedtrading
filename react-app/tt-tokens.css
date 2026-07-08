@@ -2367,7 +2367,8 @@ body.tt-rail-scroll-lock .rail-panel {
   width: 100%;
 }
 .tt-rail-chart-tab .tt-rail-chart-canvas {
-  touch-action: pan-y pinch-zoom;
+  /* Let LightweightCharts own touch gestures (pan/zoom/pinch). */
+  touch-action: none;
   -webkit-overflow-scrolling: touch;
 }
 .tt-rail-chart-tab-canvas {

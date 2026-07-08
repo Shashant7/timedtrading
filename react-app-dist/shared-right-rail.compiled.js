@@ -3877,7 +3877,9 @@
       ticker: propTicker,
       hideOverlayToggles = false,
       livePrice = null,
-      touchScrollPassThrough = false
+      touchScrollPassThrough = false,
+      hideOhlcHeader = false,
+      compactPriceScale = false
     }) {
       const containerRef = useRef(null);
       const chartInstanceRef = useRef(null);
@@ -4120,12 +4122,15 @@
           },
           rightPriceScale: {
             borderColor: "rgba(38,50,95,0.3)",
-            scaleMargins: {
+            scaleMargins: compactPriceScale ? {
+              top: 0.06,
+              bottom: 0.06
+            } : {
               top: 0.08,
               bottom: 0.08
             },
             autoScale: true,
-            minimumWidth: 70,
+            minimumWidth: compactPriceScale ? 52 : 70,
             entireTextOnly: true
           },
           handleScale: {
@@ -4144,7 +4149,7 @@
             borderColor: "rgba(38,50,95,0.3)",
             timeVisible: !_isHtfChart,
             secondsVisible: false,
-            rightOffset: 5,
+            rightOffset: compactPriceScale ? 2 : 5,
             barSpacing: String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6,
             tickMarkFormatter: time => {
               try {
@@ -4271,7 +4276,7 @@
         const _tfBarSpacing = String(chartTf) === "D" ? 12 : String(chartTf) === "60" ? 8 : 6;
         chart.applyOptions({
           timeScale: {
-            rightOffset: 5,
+            rightOffset: compactPriceScale ? 2 : 5,
             barSpacing: _tfBarSpacing
           }
         });
@@ -4357,7 +4362,7 @@
           candleSeriesRef.current = null;
           overlaySeriesRef.current = {};
         };
-      }, [chartTf, LWC, propHeight, propTicker?.ticker]);
+      }, [chartTf, LWC, propHeight, propTicker?.ticker, touchScrollPassThrough, compactPriceScale]);
       useEffect(() => {
         const chart = chartInstanceRef.current;
         const candleSeries = candleSeriesRef.current;
@@ -4723,7 +4728,7 @@
         } catch (_) {}
       }
       return React.createElement("div", {
-        className: "w-full h-full relative -mx-3 px-3 flex flex-col",
+        className: `w-full h-full relative flex flex-col ${compactPriceScale ? "-mx-1 px-0" : "-mx-3 px-3"}`,
         style: {
           minHeight: 0
         }
@@ -4758,7 +4763,7 @@
           color: ov.color,
           background: ov.color + "15"
         } : {}
-      }, ov.label))), hdr && React.createElement("div", {
+      }, ov.label))), !hideOhlcHeader && hdr && React.createElement("div", {
         className: "flex items-center gap-2 mb-0.5 text-[10px] font-mono h-5 select-none"
       }, React.createElement("span", {
         className: "text-[#6E867D]"
@@ -4833,6 +4838,8 @@
       if (prev.height !== next.height) return false;
       if ((prev.hideOverlayToggles || false) !== (next.hideOverlayToggles || false)) return false;
       if ((prev.touchScrollPassThrough || false) !== (next.touchScrollPassThrough || false)) return false;
+      if ((prev.hideOhlcHeader || false) !== (next.hideOhlcHeader || false)) return false;
+      if ((prev.compactPriceScale || false) !== (next.compactPriceScale || false)) return false;
       const prevLive = Number(prev.livePrice);
       const nextLive = Number(next.livePrice);
       if (Number.isFinite(prevLive) && Number.isFinite(nextLive) && prevLive > 0) {
@@ -6254,10 +6261,6 @@
           if (raf) return;
           raf = requestAnimationFrame(() => {
             raf = 0;
-            if (String(railTab || "").toUpperCase() === "CHART") {
-              applyMorph(false);
-              return;
-            }
             const st = el.scrollTop;
             if (!compact && st >= 56) applyMorph(true);else if (compact && st <= 16) applyMorph(false);
           });
@@ -6432,6 +6435,7 @@
         })());
         return Number.isFinite(px) && px > 0 ? px : null;
       }, [ticker?._live_price, ticker?.price, ticker?.close, latestTicker?._live_price, latestTicker?.price, latestTicker?.close]);
+      const _isMobileChartTab = layoutMode !== "workspace" && String(railTab || "").toUpperCase() === "CHART";
       const _railChartElement = useMemo(() => React.createElement(LWChart, {
         candles: chartCandles,
         chartTf,
@@ -6440,8 +6444,10 @@
         ticker,
         hideOverlayToggles: true,
         livePrice: chartLivePrice,
-        touchScrollPassThrough: layoutMode !== "workspace"
-      }), [_chartCandlesSig, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice, layoutMode]);
+        touchScrollPassThrough: layoutMode !== "workspace" && !_isMobileChartTab,
+        hideOhlcHeader: _isMobileChartTab,
+        compactPriceScale: _isMobileChartTab
+      }), [_chartCandlesSig, chartTf, chartOverlays, _priceLinesSig, ticker?.ticker, chartLivePrice, layoutMode, _isMobileChartTab]);
       useEffect(() => {
         if (!chartExpanded || !tickerSymbol) return;
         if (chartCandles.length >= 2) {
@@ -22620,4 +22626,4 @@
   };
 })();
 
-// cache-bust:1783488750566:536963406
+// cache-bust:1783489291778:441704467
