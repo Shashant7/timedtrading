@@ -5462,7 +5462,7 @@ function BubbleMapGuide() {
         window.localStorage.setItem(storageKey, "1");
       } catch (_) {}
     }
-  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (LTF Score): short-term momentum — left is weak, right is strong."), h("li", null, "Vertical axis (HTF Score): higher-timeframe trend — bottom is bearish, top is bullish."), h("li", null, "Top-right green zone: bullish alignment. Bottom-left red zone: bearish alignment."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
+  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."), h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."), h("li", null, "Top-right green zone: bullish alignment. Bottom-left red zone: bearish alignment."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
 }
 function BubbleMapViewportSplit({
   allTickers,
@@ -5741,8 +5741,8 @@ function BubbleMap({
       if (l > maxLtf) maxLtf = l;
       if (v > maxHtf) maxHtf = v;
     }
-    const xMax = Math.max(10, Math.min(50, maxLtf * 1.12));
-    const yMax = Math.max(10, Math.min(50, maxHtf * 1.12));
+    const xMax = Math.max(10, Math.min(50, maxHtf * 1.12));
+    const yMax = Math.max(10, Math.min(50, maxLtf * 1.12));
     return {
       xMax,
       yMax
@@ -5860,22 +5860,22 @@ function BubbleMap({
     fill: "rgba(34,197,94,0.025)"
   }), h("rect", {
     x: VB.mx,
-    y: cy0,
+    y: VB.my,
     width: plotW / 2,
     height: plotH / 2,
     fill: "rgba(244,63,94,0.025)"
-  }), h("line", {
-    x1: VB.mx,
-    y1: cy0,
-    x2: VB.mx + plotW,
-    y2: cy0,
-    stroke: "rgba(255,255,255,0.12)",
-    strokeWidth: 1
   }), h("line", {
     x1: cx0,
     y1: VB.my,
     x2: cx0,
     y2: VB.my + plotH,
+    stroke: "rgba(255,255,255,0.12)",
+    strokeWidth: 1
+  }), h("line", {
+    x1: VB.mx,
+    y1: cy0,
+    x2: VB.mx + plotW,
+    y2: cy0,
     stroke: "rgba(255,255,255,0.12)",
     strokeWidth: 1
   }), h("text", {
@@ -5894,7 +5894,7 @@ function BubbleMap({
     fontSize: 14,
     fontWeight: 700,
     letterSpacing: "0.08em"
-  }, "STRONG TREND · PULLING BACK"), h("text", {
+  }, "DOWNTREND · BUILDING"), h("text", {
     x: VB.mx + 12,
     y: VB.my + plotH - 8,
     textAnchor: "start",
@@ -5910,14 +5910,14 @@ function BubbleMap({
     fontSize: 14,
     fontWeight: 700,
     letterSpacing: "0.08em"
-  }, "BUILDING / RECOVERY"), h("text", {
+  }, "STRONG TREND · PULLING BACK"), h("text", {
     x: VB.mx + plotW / 2,
     y: VB.h - 10,
     textAnchor: "middle",
     fill: "rgba(255,255,255,0.50)",
     fontSize: 13,
     fontWeight: 600
-  }, "SHORT-TERM MOMENTUM (LTF) →"), h("text", {
+  }, "HIGHER-TIMEFRAME TREND (HTF) →"), h("text", {
     x: 20,
     y: VB.my + plotH / 2,
     textAnchor: "middle",
@@ -5925,12 +5925,12 @@ function BubbleMap({
     fontSize: 13,
     fontWeight: 600,
     transform: `rotate(-90 20 ${VB.my + plotH / 2})`
-  }, "TREND STRENGTH (HTF) →"), visible.map(t => {
+  }, "SHORT-TERM MOMENTUM (LTF) →"), visible.map(t => {
     const sym = String(t.ticker || "").toUpperCase();
     const bucket = classifyStateBucket(t.state);
     const color = STATE_BUCKET_COLOR[bucket];
-    const cx = xScale(t.ltf_score);
-    const cy = yScale(t.htf_score);
+    const cx = xScale(t.htf_score);
+    const cy = yScale(t.ltf_score);
     const r = radiusFor(t);
     const isMatch = matchesQuery(sym);
     const isDim = q.length > 0 && !isMatch;
@@ -7070,6 +7070,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783489875799:768522958
+// cache-bust:1783491643141:607817562
 
-// cache-bust:1783489875799:768522958
+// cache-bust:1783491643141:607817562
