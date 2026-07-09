@@ -3,6 +3,7 @@ import {
   extractTickersFromText,
   parseMacroFromText,
   extractLevelsFromText,
+  buildWireDiscordEmbed,
   DEFAULT_X_WATCHLIST,
 } from "./x-wire-tracker.js";
 
@@ -32,5 +33,22 @@ describe("x-wire-tracker parsing", () => {
     expect(DEFAULT_X_WATCHLIST.length).toBeLessThan(10);
     expect(DEFAULT_X_WATCHLIST.map((a) => a.handle)).toContain("DeItaone");
     expect(DEFAULT_X_WATCHLIST.map((a) => a.handle)).toContain("fundstrat");
+  });
+
+  it("builds Discord embed with macro and tickers", () => {
+    const embed = buildWireDiscordEmbed({
+      handle: "DeItaone",
+      kind: "macro_wire",
+      text: "US MAY JOB OPENINGS 7.594M; EST. 7.296M",
+      post_id: "123",
+      url: "https://x.com/DeItaone/status/123",
+      tickers_json: "[]",
+      levels_json: null,
+      macro_json: JSON.stringify({ event_name: "MAY JOB OPENINGS", actual: "7.594M", estimate: "7.296M" }),
+      created_at: new Date().toISOString(),
+    }, { reason: "objective real-time news" });
+    expect(embed.title).toContain("DeItaone");
+    expect(embed.fields.some((f) => f.name === "Macro print")).toBe(true);
+    expect(embed.fields.some((f) => f.name === "Why we follow")).toBe(true);
   });
 });
