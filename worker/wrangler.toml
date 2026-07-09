@@ -47,6 +47,11 @@ class_name = "BacktestRunner"
 name = "CANDLE_CHAIN_SHARD"
 class_name = "CandleChainShard"
 
+# Delta One (@DeItaone) X Filtered Stream — push delivery replaces aggressive polling.
+[[durable_objects.bindings]]
+name = "DELTA_ONE_STREAM"
+class_name = "DeltaOneStream"
+
 [[migrations]]
 tag = "v1"
 new_classes = ["PriceHub"]
@@ -70,6 +75,10 @@ new_classes = ["TradovateStream"]
 [[migrations]]
 tag = "v6"
 new_sqlite_classes = ["CandleChainShard"]
+
+[[migrations]]
+tag = "v7"
+new_classes = ["DeltaOneStream"]
 
 [vars]
 # ── P2 decomposition Step 3 — tt-engine owns the */5 scoring tail ──
@@ -263,6 +272,10 @@ class_name = "BacktestRunner"
 name = "CANDLE_CHAIN_SHARD"
 class_name = "CandleChainShard"
 
+[[env.production.durable_objects.bindings]]
+name = "DELTA_ONE_STREAM"
+class_name = "DeltaOneStream"
+
 # Environment variables (non-sensitive config - stored here for persistence)
 # IMPORTANT: Secrets (API keys, webhooks) are NOT stored here for security
 # Secrets must be set via Cloudflare Dashboard or `wrangler secret put`
@@ -291,6 +304,7 @@ class_name = "CandleChainShard"
 #                       defaults to "timed-trading-cf-worker" if unset)
 # - FINNHUB_API_KEY: Finnhub API key for earnings, economic calendar, and news (Daily Brief)
 # - X_API_BEARER_TOKEN: X API v2 app-only Bearer for curated wire-account ingest (x-wire-tracker)
+# - X_DELTA_ONE_STREAM_ENABLED: "true" (default) — Filtered Stream DO for @DeItaone; set "false" to poll-only
 # - SENDGRID_API_KEY: SendGrid API key for outbound emails
 # - EMAIL_HMAC_SECRET: HMAC secret for unsubscribe token signing
 # - STRIPE_SECRET_KEY: Stripe API secret key
@@ -452,6 +466,10 @@ class_name = "BacktestRunner"
 [[env.preprod.durable_objects.bindings]]
 name = "CANDLE_CHAIN_SHARD"
 class_name = "CandleChainShard"
+
+[[env.preprod.durable_objects.bindings]]
+name = "DELTA_ONE_STREAM"
+class_name = "DeltaOneStream"
 
 # Vars — mirror production EXCEPT:
 #   - EXECUTION_MODE forced to "simulation" (no real broker calls ever)

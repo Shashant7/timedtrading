@@ -319,7 +319,7 @@ export async function notifyWirePostsToDiscord(env, rows, opts = {}) {
   return { ok: true, sent, errors, capped: list.length > max };
 }
 
-async function getSinceId(env, handle) {
+export async function getSinceId(env, handle) {
   const kv = env?.KV_TIMED || env?.KV;
   try {
     return await kv?.get(`${SINCE_ID_PREFIX}${normHandle(handle)}`) || null;
@@ -328,7 +328,7 @@ async function getSinceId(env, handle) {
   }
 }
 
-async function setSinceId(env, handle, postId) {
+export async function setSinceId(env, handle, postId) {
   const kv = env?.KV_TIMED || env?.KV;
   if (!kv || !postId) return;
   try {
@@ -425,6 +425,168 @@ async function persistMacroActual(env, macro, meta = {}) {
   }
 }
 
+/** Build a D1 row from an X API tweet object. */
+export function buildWireRowFromTweet(handle, kind, tweet) {
+  const h = normHandle(handle);
+  const postId = String(tweet?.id || "");
+  const text = String(tweet?.text || "").trim();
+  if (!postId || !text) return null;
+  const tickers = extractTickersFromText(text);
+  const levels = extractLevelsFromText(text);
+  const macro = parseMacroFromText(text);
+  return {
+    post_id: postId,
+    handle: h,
+    kind: kind || "wire",
+    text: text.slice(0, 2000),
+    created_at: tweet.created_at || null,
+    url: `https://x.com/${h}/status/${postId}`,
+    tickers_json: JSON.stringify(tickers),
+    levels_json: levels.length ? JSON.stringify(levels) : null,
+    macro_json: macro ? JSON.stringify(macro) : null,
+    ingested_at: Date.now(),
+    _tickers: tickers,
+    _macro: macro,
+  };
+}
+
+/**
+ * Ingest one wire tweet — persist, fan out, macro actuals, Discord queue slot.
+ * Used by timeline poll and filtered stream push.
+ */
+export async function ingestWireTweet(env, opts = {}) {
+  const handle = normHandle(opts.handle);
+  const kind = opts.kind || "wire";
+  const tweet = opts.tweet;
+  const row = buildWireRowFromTweet(handle, kind, tweet);
+  if (!row) return { ok: false, error: "invalid_tweet" };
+
+  const tickers = row._tickers;
+  const macro = row._macro;
+  delete row._tickers;
+  delete row._macro;
+
+  const hadSinceId = opts.hadSinceId ?? Boolean(await getSinceId(env, handle));
+  const didPersist = await persistPost(env, row);
+  const result = {
+    ok: true,
+    persisted: didPersist,
+    row,
+    tickers,
+    macroHit: false,
+    fanout: 0,
+    forDiscord: false,
+    forClassify: false,
+    post_id: row.post_id,
+  };
+
+  if (!didPersist) {
+    await setSinceId(env, handle, row.post_id);
+    return result;
+  }
+
+  result.fanout = await fanOutToTickerNews(env, row, tickers);
+  if (macro && await persistMacroActual(env, macro, { handle, post_id: row.post_id })) {
+    result.macroHit = true;
+  }
+  if (isDeltaOneHandle(handle)) {
+    result.forClassify = true;
+  }
+  const skipDiscord = opts.skipDiscord || (opts.source === "poll" && !isFreshForDiscord(row, hadSinceId));
+  if (!skipDiscord) {
+    result.forDiscord = true;
+  }
+  await setSinceId(env, handle, row.post_id);
+  return result;
+}
+
+/** Classify Delta One batch + refresh macro pulse / news summary. */
+export async function finalizeMacroWireBatch(env, macroWirePersisted, opts = {}) {
+  if (!Array.isArray(macroWirePersisted) || macroWirePersisted.length === 0) {
+    return { ok: true, classified: 0, intel_fanout: 0 };
+  }
+  if (opts.classifyMacroWire === false) {
+    return { ok: true, classified: 0, intel_fanout: 0, skipped: true };
+  }
+  let classified = 0;
+  let intelFanout = 0;
+  try {
+    const MacroIntel = await import("./macro-wire-intel.js");
+    const results = await Promise.all(
+      macroWirePersisted.map(({ row, tickers: cashtags }) =>
+        MacroIntel.classifyAndEnrichPost(env, row, cashtags),
+      ),
+    );
+    for (const cr of results) {
+      if (cr.ok && cr.intel) {
+        classified += 1;
+        intelFanout += cr.fanout || 0;
+      }
+    }
+    await MacroIntel.refreshMacroWirePulse(env, { lookbackHours: opts.pulseLookbackHours || 4 });
+    await MacroIntel.refreshNewsSummary(env, { lookbackHours: 12 });
+  } catch (e) {
+    console.warn("[X_WIRE] macro intel refresh failed:", String(e?.message || e).slice(0, 150));
+    return { ok: false, error: String(e?.message || e).slice(0, 150), classified, intel_fanout: intelFanout };
+  }
+  return { ok: true, classified, intel_fanout: intelFanout };
+}
+
+/** Process stream-delivered tweets (filtered stream push). */
+export async function ingestDeltaOneStreamPosts(env, tweets, opts = {}) {
+  const token = bearerToken(env);
+  if (!token) return { ok: false, error: "no_x_api_bearer_token" };
+  await ensureXWireSchema(env);
+  await ensureTickerNewsSchema(env);
+
+  const { handle, kind } = DELTA_ONE_ACCOUNT;
+  const discordQueue = [];
+  const macroWirePersisted = [];
+  let persisted = 0;
+  let fanout = 0;
+  let macroHits = 0;
+
+  for (const tweet of tweets || []) {
+    const r = await ingestWireTweet(env, {
+      handle,
+      kind,
+      tweet,
+      source: "stream",
+      skipDiscord: opts.skipDiscord,
+    });
+    if (r.persisted) {
+      persisted += 1;
+      fanout += r.fanout || 0;
+      if (r.macroHit) macroHits += 1;
+      if (r.forClassify) macroWirePersisted.push({ row: r.row, tickers: r.tickers });
+      if (r.forDiscord) discordQueue.push(r.row);
+    }
+  }
+
+  let discordSent = 0;
+  if (discordQueue.length > 0) {
+    const discordRes = await notifyWirePostsToDiscord(env, discordQueue, {
+      watchlist: [DELTA_ONE_ACCOUNT],
+      skipDiscord: opts.skipDiscord,
+      maxDiscord: opts.maxDiscord,
+    });
+    discordSent = discordRes.sent || 0;
+  }
+
+  const batch = await finalizeMacroWireBatch(env, macroWirePersisted, opts);
+  return {
+    ok: true,
+    source: "stream",
+    persisted,
+    fanout,
+    macro_hits: macroHits,
+    discord_sent: discordSent,
+    classified: batch.classified || 0,
+    intel_fanout: batch.intel_fanout || 0,
+    fetched_at: Date.now(),
+  };
+}
+
 /**
  * Poll all watchlist accounts, persist new posts, fan out to ticker_news.
  */
@@ -476,40 +638,24 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
     let handleFanout = 0;
     for (const tw of ordered) {
       const postId = String(tw.id || "");
-      const text = String(tw.text || "").trim();
-      if (!postId || !text) continue;
+      if (!postId) continue;
       newestId = postId;
-      const tickers = extractTickersFromText(text);
-      const levels = extractLevelsFromText(text);
-      const macro = parseMacroFromText(text);
-      const row = {
-        post_id: postId,
+      const ing = await ingestWireTweet(env, {
         handle: h,
-        kind: kind || "wire",
-        text: text.slice(0, 2000),
-        created_at: tw.created_at || null,
-        url: `https://x.com/${h}/status/${postId}`,
-        tickers_json: JSON.stringify(tickers),
-        levels_json: levels.length ? JSON.stringify(levels) : null,
-        macro_json: macro ? JSON.stringify(macro) : null,
-        ingested_at: Date.now(),
-      };
-      const didPersist = await persistPost(env, row);
-      if (didPersist) {
+        kind,
+        tweet: tw,
+        hadSinceId,
+        source: "poll",
+        skipDiscord: opts.skipDiscord,
+      });
+      if (ing.persisted) {
         persisted += 1;
         handlePersisted += 1;
-        const fc = await fanOutToTickerNews(env, row, tickers);
-        fanout += fc;
-        handleFanout += fc;
-        if (macro && await persistMacroActual(env, macro, { handle: h, post_id: postId })) {
-          macroHits += 1;
-        }
-        if (isDeltaOneHandle(h)) {
-          macroWirePersisted.push({ row, tickers });
-        }
-        if (isFreshForDiscord(row, hadSinceId)) {
-          discordQueue.push(row);
-        }
+        fanout += ing.fanout || 0;
+        handleFanout += ing.fanout || 0;
+        if (ing.macroHit) macroHits += 1;
+        if (ing.forClassify) macroWirePersisted.push({ row: ing.row, tickers: ing.tickers });
+        if (ing.forDiscord) discordQueue.push(ing.row);
       }
     }
     if (newestId && newestId !== sinceId) {
@@ -536,25 +682,10 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
     discordSent = discordRes.sent || 0;
   }
 
-  if (macroWirePersisted.length > 0 && opts.classifyMacroWire !== false) {
-    try {
-      const MacroIntel = await import("./macro-wire-intel.js");
-      const results = await Promise.all(
-        macroWirePersisted.map(({ row, tickers: cashtags }) =>
-          MacroIntel.classifyAndEnrichPost(env, row, cashtags),
-        ),
-      );
-      for (const cr of results) {
-        if (cr.ok && cr.intel) {
-          classified += 1;
-          intelFanout += cr.fanout || 0;
-        }
-      }
-      await MacroIntel.refreshMacroWirePulse(env, { lookbackHours: opts.pulseLookbackHours || 4 });
-      await MacroIntel.refreshNewsSummary(env, { lookbackHours: 12 });
-    } catch (e) {
-      console.warn("[X_WIRE] macro intel refresh failed:", String(e?.message || e).slice(0, 150));
-    }
+  if (macroWirePersisted.length > 0) {
+    const batch = await finalizeMacroWireBatch(env, macroWirePersisted, opts);
+    classified = batch.classified || 0;
+    intelFanout = batch.intel_fanout || 0;
   }
 
   return {
