@@ -35223,7 +35223,7 @@
         "event_type": "earnings",
         "event_name": "LEVI Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 12.72,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35232,7 +35232,7 @@
         "event_type": "earnings",
         "event_name": "PSMT Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 5.45,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35241,6 +35241,96 @@
         "event_type": "macro",
         "event_name": "Jun 17 FOMC Minutes",
         "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "macro",
+        "event_name": "Jun FOMC Meeting Minutes",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "ACZT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "ARTW Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "AZZ Earnings",
+        "impact": "high",
+        "surprise_pct": 8.13,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "BKSC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "DVTC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "ETWO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "HELE Earnings",
+        "impact": "high",
+        "surprise_pct": 1766.67,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "PCYO Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-08",
+        "event_type": "earnings",
+        "event_name": "RBTK Earnings",
+        "impact": "high",
         "surprise_pct": null,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
@@ -35291,6 +35381,33 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-14",
+        "event_type": "macro",
+        "event_name": "Jun Small Biz Optimism",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "macro",
+        "event_name": "Jun CPI m/m",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "macro",
+        "event_name": "Jun Core CPI m/m",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-07-15",
         "event_type": "macro",
         "event_name": "Jun Core CPI (MoM)",
@@ -35325,14 +35442,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 68.3474
+        "sql_duration_ms": 37.7466
       },
-      "duration": 68.3474,
+      "duration": 37.7466,
       "changes": 0,
-      "last_row_id": 70566264,
+      "last_row_id": 12762,
       "changed_db": false,
-      "size_after": 4702023680,
-      "rows_read": 3924,
+      "size_after": 4593950720,
+      "rows_read": 3937,
       "rows_written": 0,
       "total_attempts": 1
     }

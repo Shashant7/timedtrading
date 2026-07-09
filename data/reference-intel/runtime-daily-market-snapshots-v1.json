@@ -3858,7 +3858,7 @@
       },
       {
         "date": "2026-07-08",
-        "vix_close": 17.45,
+        "vix_close": 18.11,
         "vix_state": "normal",
         "spy_pct": 0,
         "qqq_pct": 0,
@@ -3868,8 +3868,8 @@
         "sector_rotation": "balanced",
         "regime_overall": "balanced",
         "regime_score": 0,
-        "btc_pct": -2.15,
-        "eth_pct": -1.8
+        "btc_pct": -2,
+        "eth_pct": -2.01
       }
     ],
     "success": true,
@@ -3879,13 +3879,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 6.0349
+        "sql_duration_ms": 2.9539
       },
-      "duration": 6.0349,
+      "duration": 2.9539,
       "changes": 0,
-      "last_row_id": 70566264,
+      "last_row_id": 12762,
       "changed_db": false,
-      "size_after": 4702023680,
+      "size_after": 4593950720,
       "rows_read": 258,
       "rows_written": 0,
       "total_attempts": 1
