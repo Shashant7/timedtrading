@@ -56,6 +56,7 @@ Profile measured on the live worker:
 | `data_audit_log`            | **180 days**     | DELETE (added 2026-05-22)                        |
 | `sessions`                  | **180 days**     | DELETE (added 2026-05-22)                        |
 | `ticker_candles` `10m`/`30m`| 90 days          | Tiered DELETE                                    |
+| `ticker_candles` `5m`/`15m` | 90 days          | Tiered DELETE (added 2026-07-09 — was unbounded) |
 | `ticker_candles` `1h` (60m) | 180 days         | Tiered DELETE                                    |
 | `ticker_candles` `4h` (240m)| 365 days         | Tiered DELETE                                    |
 | `ticker_candles` `D`/`W`/`M`| **forever**      | Tax-archive — never purged                       |

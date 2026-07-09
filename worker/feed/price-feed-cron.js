@@ -758,10 +758,12 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         ctx.waitUntil(deps.mergeFreshnessIntoLatest(KV, prices, { marketOpen: _marketOpen }).catch(e => console.warn("[FRESHNESS]", e?.message)));
         ctx.waitUntil(syncMacroLatestStubs(KV).catch(e => console.warn("[MACRO STUB SYNC]", e?.message)));
 
-        // Merge live quotes into chart TFs (10/15/30/60) so right-rail
-        // charts and freshness grades track the same price the header shows
-        // between */5 REST bar fetches.
-        if (_marketOpen && env?.DB) {
+        // Merge live quotes into chart TFs so right-rail charts and freshness
+        // grades track between */5 REST bar fetches. P0.7 D1-COST (2026-07-09):
+        // run on */5 boundaries only — aligns with the bar cron cadence and cuts
+        // ~80% of ON CONFLICT reads/writes. UI headline prices are unaffected
+        // (they come from timed:prices KV, not D1 candles).
+        if (_marketOpen && env?.DB && Number(utcMinute) % 5 === 0) {
           ctx.waitUntil((async () => {
             try {
               let priorityTickers = [];
