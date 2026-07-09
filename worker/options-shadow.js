@@ -1,8 +1,10 @@
 // worker/options-shadow.js
 //
-// Shadow-mode options plays: long call / long put only, ranked in three tiers
-// (model default, looser, loosest valid) on equity entry signals. Labeled
-// SHADOW in Discord/email — advisory only, no broker orders.
+// Shadow-mode trade expression ladder on equity entry signals:
+//   1. Shares (conservative)
+//   2. Leveraged ETF when mapped (risk on)
+//   3. Long call / long put — three calibration tiers (extra risk on)
+// Labeled SHADOW in Discord/email — advisory only, no broker orders.
 //
 // Env:
 //   OPTIONS_SHADOW_MODE=1            — enable on entry alerts
@@ -12,7 +14,9 @@
 
 import {
   buildOptionsLadder,
+  buildLeveragedETFPlay,
   compactOptionsPlay,
+  lookupLETF,
   pickExpirationForProfile,
   PROFILE_META,
 } from "./options-plays.js";
@@ -31,6 +35,92 @@ export const SHADOW_TIER_DEFS = Object.freeze([
 ]);
 
 const LOOSEST_DELTA_CANDIDATES = [0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70];
+
+function computeDollarsAtRisk(env) {
+  const accountValue = Number(env?.OPTIONS_ACCOUNT_VALUE) || 100_000;
+  const riskBudgetPct = 0.005;
+  return Math.max(50, accountValue * riskBudgetPct);
+}
+
+function normalizeThemes(tickerData) {
+  return (tickerData?.themes || [])
+    .map((x) => (typeof x === "string" ? x : x?.theme))
+    .filter(Boolean);
+}
+
+function buildSharesExpression({
+  ticker, direction, price, sl, tp, shares, notional, env, mode,
+}) {
+  const p = Number(price);
+  if (!(p > 0)) return null;
+  const dir = String(direction || "").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const sl1 = Number.isFinite(Number(sl)) ? Number(sl) : (dir === "LONG" ? p * 0.97 : p * 1.03);
+  const tp1 = Number.isFinite(Number(tp)) ? Number(tp) : (dir === "LONG" ? p * 1.05 : p * 0.95);
+  let qty = Number(shares);
+  if (!(qty > 0) && Number(notional) > 0) qty = Math.floor(Number(notional) / p);
+  if (!(qty > 0)) {
+    const dar = computeDollarsAtRisk(env);
+    const riskPerShare = Math.abs(p - sl1) || 1;
+    qty = Math.max(1, Math.floor(dar / riskPerShare));
+  }
+  const desk = String(mode || "").toLowerCase() === "investor" ? "investor" : "trader";
+  const raw = {
+    archetype: dir === "LONG" ? "stock_long" : "stock_short",
+    label: dir === "LONG" ? "Stock (Long)" : "Stock (Short)",
+    rationale: `Plain stock ${dir === "LONG" ? "long" : "short"} at $${p.toFixed(2)}. No leverage, no time decay.`,
+    legs: [{ action: dir === "LONG" ? "BUY" : "SELL_SHORT", instrument: "STOCK", qty }],
+    max_loss_usd: Math.round(Math.abs(p - sl1) * qty),
+    max_gain_usd: dir === "LONG" ? Math.round(Math.abs(tp1 - p) * qty) : null,
+    notes: ["No expiration", "Conservative baseline expression"],
+  };
+  const compact = compactOptionsPlay(raw, { ticker, mode: desk });
+  if (!compact) return null;
+  return {
+    ...compact,
+    shadow: true,
+    expression_key: "shares",
+    expression_label: "Conservative",
+    shadow_desk: desk,
+  };
+}
+
+function buildLetfExpression({
+  ticker, direction, price, sl, tp, tickerData, env, mode,
+}) {
+  const p = Number(price);
+  if (!(p > 0)) return null;
+  const dir = String(direction || "").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
+  const sl1 = Number.isFinite(Number(sl)) ? Number(sl) : (dir === "LONG" ? p * 0.97 : p * 1.03);
+  const tp1 = Number.isFinite(Number(tp)) ? Number(tp) : (dir === "LONG" ? p * 1.05 : p * 0.95);
+  const themes = normalizeThemes(tickerData);
+  const letfMeta = lookupLETF(ticker, themes);
+  if (!letfMeta) return null;
+  const letfTicker = dir === "SHORT" ? letfMeta.short : letfMeta.long;
+  if (!letfTicker) return null;
+  const desk = String(mode || "").toLowerCase() === "investor" ? "investor" : "trader";
+  const raw = buildLeveragedETFPlay({
+    ticker,
+    price: p,
+    sl: sl1,
+    tp1,
+    direction: dir,
+    dollars_at_risk: computeDollarsAtRisk(env),
+    themes,
+  });
+  if (!raw) return null;
+  const compact = compactOptionsPlay(raw, { ticker: letfTicker, mode: desk });
+  if (!compact) return null;
+  return {
+    ...compact,
+    shadow: true,
+    expression_key: "letf",
+    expression_label: "Risk on",
+    letf_ticker: letfTicker,
+    letf_factor: letfMeta.factor,
+    underlying: ticker,
+    shadow_desk: desk,
+  };
+}
 
 export function optionsShadowModeEnabled(env) {
   const v = env?.OPTIONS_SHADOW_MODE;
@@ -135,6 +225,8 @@ function enrichTierCompact(compact, rawPlay, meta = {}) {
   return {
     ...compact,
     shadow: true,
+    expression_key: "options",
+    expression_label: "Extra risk on",
     shadow_tier: meta.tier_key || null,
     shadow_tier_label: meta.tier_label || null,
     shadow_desk: meta.desk || compact.mode || "trader",
@@ -234,8 +326,8 @@ function ladderForTier(contract, tierDef, {
 }
 
 /**
- * Build ranked shadow options tiers for an entry signal.
- * Returns { shadow, tiers[], ticker, mode, shadow_desk } or null.
+ * Build ranked shadow expression ladder for an entry signal.
+ * Returns { shadow, expressions[], tiers[], ticker, mode, shadow_desk } or null.
  */
 export async function buildShadowOptionsPlayAsync({
   ticker,
@@ -246,6 +338,8 @@ export async function buildShadowOptionsPlayAsync({
   mode,
   tickerData,
   env,
+  shares,
+  notional,
 }) {
   if (!optionsShadowModeEnabled(env)) return null;
   try {
@@ -275,6 +369,21 @@ export async function buildShadowOptionsPlayAsync({
       isInvestor,
     });
 
+    const desk = isInvestor ? "investor" : "trader";
+    const expressions = [];
+
+    const sharesExpr = buildSharesExpression({
+      ticker, direction: contract.dir, price: p, sl: contract.sl, tp: contract.tp1,
+      shares, notional, env, mode,
+    });
+    if (sharesExpr) expressions.push(sharesExpr);
+
+    const letfExpr = buildLetfExpression({
+      ticker, direction: contract.dir, price: p, sl: contract.sl, tp: contract.tp1,
+      tickerData, env, mode,
+    });
+    if (letfExpr) expressions.push(letfExpr);
+
     const tiers = [];
     for (const tierDef of SHADOW_TIER_DEFS) {
       const built = ladderForTier(contract, tierDef, {
@@ -288,23 +397,28 @@ export async function buildShadowOptionsPlayAsync({
         mode,
       });
       if (built?.compact) {
-        tiers.push({
+        const optExpr = {
+          expression_key: "options",
+          expression_label: "Extra risk on",
           tier_key: tierDef.key,
           tier_label: tierDef.label,
           target_delta: built.target_delta,
           profile,
           ...built.compact,
-        });
+        };
+        tiers.push(optExpr);
+        expressions.push(optExpr);
       }
     }
 
-    if (!tiers.length) return null;
+    if (!expressions.length) return null;
 
-    const desk = isInvestor ? "investor" : "trader";
-    const primary = tiers[0];
+    const primary = expressions[0];
     return {
       shadow: true,
       shadow_ranked: true,
+      shadow_ladder: true,
+      expressions,
       tiers,
       ticker,
       mode: desk,
@@ -323,7 +437,10 @@ export async function buildShadowOptionsPlayAsync({
 function formatTierBlock(tier, idx) {
   const lines = [];
   const rank = idx + 1;
-  lines.push(`**${rank}. ${tier.tier_label || tier.shadow_tier_label}** (${tier.headline || tier.label || "play"})`);
+  const label = tier.expression_label
+    ? `${tier.expression_label}${tier.tier_label ? ` · ${tier.tier_label}` : ""}`
+    : (tier.tier_label || tier.shadow_tier_label || "Play");
+  lines.push(`**${rank}. ${label}** (${tier.headline || tier.label || "play"})`);
   if (Array.isArray(tier.lines) && tier.lines.length) {
     lines.push(tier.lines.map((l) => `  • ${l}`).join("\n"));
   }
@@ -335,10 +452,19 @@ function formatTierBlock(tier, idx) {
   if (tier.actual_delta != null) {
     lines.push(`  Δ ${(Math.abs(tier.actual_delta) * 100).toFixed(0)}% · profile ${tier.profile || "—"}`);
   }
+  if (tier.letf_factor != null && tier.letf_ticker) {
+    lines.push(`  ${tier.letf_factor}× via ${tier.letf_ticker} on ${tier.underlying || tier.ticker || "underlying"}`);
+  }
   if (tier.target_clears_breakeven === false) {
     lines.push("  ⚠️ TP below breakeven");
   }
   return lines.join("\n");
+}
+
+function shadowBundleItems(bundle) {
+  if (Array.isArray(bundle?.expressions) && bundle.expressions.length) return bundle.expressions;
+  if (Array.isArray(bundle?.tiers) && bundle.tiers.length) return bundle.tiers;
+  return bundle?.lines ? [bundle] : [];
 }
 
 /**
@@ -346,22 +472,20 @@ function formatTierBlock(tier, idx) {
  */
 export function shadowOptionsPlayDiscordField(bundle) {
   if (!bundle?.shadow) return null;
-  const tiers = Array.isArray(bundle.tiers) && bundle.tiers.length
-    ? bundle.tiers
-    : (bundle.lines ? [bundle] : []);
-  if (!tiers.length) return null;
+  const items = shadowBundleItems(bundle);
+  if (!items.length) return null;
 
   const deskLabel = String(bundle.shadow_desk || bundle.mode || "trader").toLowerCase() === "investor"
     ? "Investor"
     : "Trader";
 
-  let value = tiers.map((t, i) => formatTierBlock(t, i)).join("\n\n");
-  value += `\n\n_Mode: SHADOW — advisory only; no orders placed. Ranked plays for options-mirror calibration._`;
+  let value = items.map((t, i) => formatTierBlock(t, i)).join("\n\n");
+  value += `\n\n_Mode: SHADOW — advisory only; no orders placed. Shares → LETF (when mapped) → ranked long call/put calibration._`;
 
   if (value.length > 1024) value = value.slice(0, 1020).trimEnd() + "…";
 
   return {
-    name: `🔬 Options Shadow (${deskLabel}) · ${tiers.length} ranked plays`,
+    name: `🔬 Trade Expression Ladder (SHADOW · ${deskLabel}) · ${items.length} plays`,
     value,
     inline: false,
   };
@@ -369,13 +493,14 @@ export function shadowOptionsPlayDiscordField(bundle) {
 
 export function shadowOptionsPlayEmailHtml(bundle) {
   if (!bundle?.shadow) return null;
-  const tiers = Array.isArray(bundle.tiers) && bundle.tiers.length
-    ? bundle.tiers
-    : (bundle.lines ? [bundle] : []);
-  if (!tiers.length) return null;
+  const items = shadowBundleItems(bundle);
+  if (!items.length) return null;
 
   const _esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const blocks = tiers.map((t, i) => {
+  const blocks = items.map((t, i) => {
+    const label = t.expression_label
+      ? `${t.expression_label}${t.tier_label ? ` · ${t.tier_label}` : ""}`
+      : (t.tier_label || t.shadow_tier_label || "Play");
     const legs = (t.lines || []).map((l) =>
       `<li style="margin:0 0 4px;color:rgba(255,255,255,0.85);font-size:12px;font-family:Menlo,Monaco,monospace">${_esc(l)}</li>`,
     ).join("");
@@ -383,7 +508,7 @@ export function shadowOptionsPlayEmailHtml(bundle) {
     const lmt = lg?.suggested_limit != null
       ? `<div style="font-size:12px;color:rgba(255,255,255,0.8)">LMT $${lg.suggested_limit.toFixed(2)}${lg.spread_pct != null ? ` · spread ${lg.spread_pct}%` : ""}</div>`
       : "";
-    return `<div style="margin:0 0 12px"><div style="color:white;font-size:13px;font-weight:600">${i + 1}. ${_esc(t.tier_label || t.shadow_tier_label || "Play")}</div><ul style="margin:4px 0;padding:0 0 0 18px;list-style:none">${legs}</ul>${lmt}</div>`;
+    return `<div style="margin:0 0 12px"><div style="color:white;font-size:13px;font-weight:600">${i + 1}. ${_esc(label)}</div><ul style="margin:4px 0;padding:0 0 0 18px;list-style:none">${legs}</ul>${lmt}</div>`;
   }).join("");
 
   return `
@@ -393,15 +518,18 @@ export function shadowOptionsPlayEmailHtml(bundle) {
 }
 
 export function shadowPlayToSignalMeta(compact, meta = {}) {
+  const expr = compact?.expression_key || "options";
   const tier = compact?.tier_key || compact?.shadow_tier || "default";
+  const prefix = expr === "options" ? `shadow:opt:${tier}` : `shadow:${expr}`;
   return {
     ...meta,
     desk: "shadow",
-    signal_id: meta.signal_id || `shadow:opt:${tier}:${meta.ref_id || compact?.ticker || "x"}:${meta.published_at || Date.now()}`,
+    signal_id: meta.signal_id || `${prefix}:${meta.ref_id || compact?.ticker || "x"}:${meta.published_at || Date.now()}`,
   };
 }
 
 export function shadowTiersForLedger(bundle) {
-  if (!bundle?.tiers?.length) return bundle ? [bundle] : [];
-  return bundle.tiers;
+  if (Array.isArray(bundle?.expressions) && bundle.expressions.length) return bundle.expressions;
+  if (bundle?.tiers?.length) return bundle.tiers;
+  return bundle ? [bundle] : [];
 }

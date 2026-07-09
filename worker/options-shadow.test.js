@@ -9,7 +9,7 @@ import {
   SHADOW_TIER_DEFS,
   buildShadowOptionsPlayAsync,
 } from "./options-shadow.js";
-import { buildOptionsLadder } from "./options-plays.js";
+import { buildOptionsLadder, lookupLETF } from "./options-plays.js";
 
 describe("optionsShadowModeEnabled", () => {
   it("requires explicit opt-in", () => {
@@ -52,46 +52,99 @@ describe("suggestOptionLimitPrice", () => {
   });
 });
 
-describe("shadowOptionsPlayDiscordField — ranked tiers", () => {
-  it("renders three tier blocks", () => {
+describe("shadowOptionsPlayDiscordField — expression ladder", () => {
+  it("renders shares, LETF, and option tier blocks", () => {
     const field = shadowOptionsPlayDiscordField({
       shadow: true,
       shadow_desk: "trader",
-      tiers: SHADOW_TIER_DEFS.map((d, i) => ({
-        tier_key: d.key,
-        tier_label: d.label,
-        headline: `Long Call · tier ${i}`,
-        lines: [`BUY 1× CALL $100 exp 2026-08-15 @ $2.50 mid`],
-        limit_guidance: { suggested_limit: 2.5, spread_pct: 8, wide_spread: false },
-        actual_delta: 0.5,
-        profile: "speculator",
-      })),
+      expressions: [
+        {
+          expression_key: "shares",
+          expression_label: "Conservative",
+          headline: "Stock (Long)",
+          lines: ["BUY 50 AMD"],
+        },
+        {
+          expression_key: "letf",
+          expression_label: "Risk on",
+          headline: "AMDL (2× long)",
+          lines: ["BUY 120 AMDL"],
+          letf_ticker: "AMDL",
+          letf_factor: 2,
+          underlying: "AMD",
+        },
+        ...SHADOW_TIER_DEFS.map((d, i) => ({
+          expression_key: "options",
+          expression_label: "Extra risk on",
+          tier_key: d.key,
+          tier_label: d.label,
+          headline: `Long Call · tier ${i}`,
+          lines: [`BUY 1× CALL $100 exp 2026-08-15 @ $2.50 mid`],
+          limit_guidance: { suggested_limit: 2.5, spread_pct: 8, wide_spread: false },
+          actual_delta: 0.5,
+          profile: "speculator",
+        })),
+      ],
     });
     expect(field).not.toBeNull();
-    expect(field.name).toContain("3 ranked");
+    expect(field.name).toContain("Trade Expression Ladder");
+    expect(field.value).toContain("Conservative");
+    expect(field.value).toContain("Risk on");
+    expect(field.value).toContain("Extra risk on");
     expect(field.value).toContain("Model default");
-    expect(field.value).toContain("Looser");
-    expect(field.value).toContain("Loosest valid");
     expect(field.value).toContain("advisory only");
   });
 });
 
-describe("buildShadowOptionsPlayAsync — tier bundle", () => {
-  it("returns ranked tiers when shadow mode on", async () => {
+describe("buildShadowOptionsPlayAsync — expression ladder", () => {
+  it("returns shares + LETF + ranked option tiers for AMD", async () => {
     const bundle = await buildShadowOptionsPlayAsync({
-      ticker: "AAPL",
+      ticker: "AMD",
       direction: "LONG",
-      price: 200,
-      sl: 190,
-      tp: 220,
+      price: 150,
+      sl: 140,
+      tp: 170,
       mode: "trader",
+      shares: 40,
       tickerData: { atr_pct: 0.025, confluence: { mode: "RIDE" } },
       env: { OPTIONS_SHADOW_MODE: "1", OPTIONS_SHADOW_FETCH_CHAIN: "0" },
     });
     expect(bundle).not.toBeNull();
-    expect(bundle.shadow_ranked).toBe(true);
-    expect(bundle.tiers.length).toBeGreaterThanOrEqual(1);
-    expect(bundle.tiers[0].tier_key).toBe("default");
+    expect(bundle.shadow_ladder).toBe(true);
+    expect(bundle.expressions.length).toBeGreaterThanOrEqual(3);
+    expect(bundle.expressions[0].expression_key).toBe("shares");
+    expect(bundle.expressions[0].lines[0]).toContain("40");
+    const letf = bundle.expressions.find((e) => e.expression_key === "letf");
+    expect(letf).toBeTruthy();
+    expect(letf.letf_ticker).toBe("AMDL");
+    const opts = bundle.expressions.filter((e) => e.expression_key === "options");
+    expect(opts.length).toBeGreaterThanOrEqual(1);
+    expect(opts[0].tier_key).toBe("default");
+  });
+
+  it("maps LLY to LLYX leveraged ETF", async () => {
+    const bundle = await buildShadowOptionsPlayAsync({
+      ticker: "LLY",
+      direction: "LONG",
+      price: 800,
+      sl: 760,
+      tp: 880,
+      mode: "trader",
+      shares: 10,
+      tickerData: { atr_pct: 0.02, confluence: { mode: "READY" } },
+      env: { OPTIONS_SHADOW_MODE: "1", OPTIONS_SHADOW_FETCH_CHAIN: "0" },
+    });
+    const letf = bundle?.expressions?.find((e) => e.expression_key === "letf");
+    expect(letf?.letf_ticker).toBe("LLYX");
+  });
+});
+
+describe("lookupLETF — single-name mappings", () => {
+  it("maps AMD to AMDL and LLY to LLYX", () => {
+    expect(lookupLETF("AMD")?.long).toBe("AMDL");
+    expect(lookupLETF("LLY")?.long).toBe("LLYX");
+    expect(lookupLETF("NVDA")?.long).toBe("NVDU");
+    expect(lookupLETF("NVDA")?.short).toBe("NVDD");
   });
 });
 
