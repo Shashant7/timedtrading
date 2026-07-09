@@ -5,7 +5,7 @@ import {
   evaluateBroadIndexExtensionWatch,
   evaluateBroadIndexCompressionWatch,
 } from "./timing-signals.js";
-import { computeInvestorActionTier } from "./investor.js";
+import { computeInvestorActionTier, resolveInvestorKanbanStageForAlert } from "./investor.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // notifyDiscord LANE ROUTING — 2026-05-28
@@ -873,14 +873,17 @@ export function deriveInvestorAlertAction(type, data = {}) {
   if (type === "accumulation_zone") {
     const z = String(data?.zoneType || "").toLowerCase();
     const score = Number(data?.score) || 0;
-    const tier = data?.actionTier || computeInvestorActionTier({
-      stage: "accumulate",
+    const stage = String(data?.stage || "accumulate");
+    const row = {
+      stage,
       score: data?.score,
       simEligible: data?.simEligible,
       accumZone: { inZone: data?.inZone !== false },
       position: data?.position || {},
-    });
-    const rebalanceReady = tier === "act_now" || tier === "ready";
+      actionTier: data?.actionTier,
+    };
+    const tier = row.actionTier || computeInvestorActionTier(row);
+    const kanbanLane = data?.kanbanLane || resolveInvestorKanbanStageForAlert({ ...row, actionTier: tier });
     if (z === "momentum_runner" || z.includes("exhaustion") || z.includes("momentum_runner")) {
       return {
         verb: "MODEL · ON RADAR",
@@ -889,7 +892,7 @@ export function deriveInvestorAlertAction(type, data = {}) {
         one_liner: `**${sym}** logged a ${z.replace(/_/g, " ")} zone (score ${score}/100). On Radar — the model monitors for a cleaner setup; rebalance adds only when execution-ready.`,
       };
     }
-    if (rebalanceReady) {
+    if (kanbanLane === "accumulate_queued") {
       return {
         verb: "MODEL · QUEUE",
         color: "#10b981",
@@ -897,11 +900,19 @@ export function deriveInvestorAlertAction(type, data = {}) {
         one_liner: `**${sym}** entered the Queue lane (score ${score}/100). The model portfolio may buy on the next hourly rebalance pass if still qualified — queue order is tranched (max 3 new names per session), so a name may wait several sessions. Not a manual buy order.`,
       };
     }
+    if (stage === "accumulate" || kanbanLane === "research_on_watch") {
+      return {
+        verb: "MODEL · ON RADAR",
+        color: "#f5c25c",
+        tone: "watch",
+        one_liner: `**${sym}** entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
+      };
+    }
     return {
       verb: "MODEL · ON RADAR",
       color: "#f5c25c",
       tone: "watch",
-      one_liner: `**${sym}** entered a buy zone (score ${score}/100) but is not rebalance-ready yet — shown on Radar until trend alignment confirms.`,
+      one_liner: `**${sym}** logged an accumulation signal (score ${score}/100) but the model lane is not Queue — monitoring only until execution-ready.`,
     };
   }
   if (type === "rs_breakout") {
@@ -1135,15 +1146,7 @@ export function createInvestorAlertEmbed(type, data) {
   const sym = String(data?.ticker || "").toUpperCase();
   const _baseTitle = config.title(data);
   const _shortHeadline = _baseTitle.replace(new RegExp(`^${sym}:\\s*`, "i"), "").trim();
-  const _modeLabel = String(_action.verb || "").includes("QUEUE")
-    || String(_action.verb || "").includes("BOUGHT")
-    || String(_action.verb || "").includes("ADD")
-    || String(_action.verb || "").includes("TRIMMED")
-    || String(_action.verb || "").includes("EXITED")
-    || String(_action.verb || "").includes("REDUCE")
-    ? "DOING"
-    : "WATCHING";
-  const _actionTitle = `${config.emoji} **${sym}** · INVESTOR · ${_modeLabel} · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
+  const _actionTitle = `${config.emoji} **${sym}** · INVESTOR · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
 
   // Insert an Action field at the very top so the reader sees it before
   // scrolling. Skip it when its one-liner just restates the description

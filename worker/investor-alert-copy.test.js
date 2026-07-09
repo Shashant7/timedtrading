@@ -25,6 +25,8 @@ describe("deriveInvestorAlertAction accumulation_zone", () => {
       zoneType: "oversold_bounce",
       simEligible: true,
       inZone: true,
+      stage: "accumulate",
+      kanbanLane: "accumulate_queued",
       actionTier: "act_now",
     });
     expect(action.verb).toBe("MODEL · QUEUE");
@@ -48,7 +50,7 @@ describe("deriveInvestorAccumulationAlertCopy", () => {
 });
 
 describe("createInvestorAlertEmbed buy actions", () => {
-  it("uses prominent DOING title for rebalance open", () => {
+  it("uses INVESTOR · BOUGHT title without DOING prefix", () => {
     const embed = createInvestorAlertEmbed("position_open", {
       ticker: "FIX",
       shares: 3.58,
@@ -58,11 +60,11 @@ describe("createInvestorAlertEmbed buy actions", () => {
       score: 72,
     });
     expect(embed.title).toContain("**FIX**");
-    expect(embed.title).toContain("DOING");
+    expect(embed.title).not.toContain("DOING");
     expect(embed.title).toContain("BOUGHT");
   });
 
-  it("uses prominent DOING title for rebalance add", () => {
+  it("uses INVESTOR · ADD title without DOING prefix", () => {
     const embed = createInvestorAlertEmbed("position_add", {
       ticker: "CAT",
       shares: 7.09,
@@ -72,7 +74,40 @@ describe("createInvestorAlertEmbed buy actions", () => {
       score: 68,
     });
     expect(embed.title).toContain("**CAT**");
-    expect(embed.title).toContain("DOING");
+    expect(embed.title).not.toContain("DOING");
     expect(embed.title).toContain("ADD");
+  });
+
+  it("uses INVESTOR · QUEUE title without DOING prefix", () => {
+    const embed = createInvestorAlertEmbed("accumulation_zone", {
+      ticker: "COST",
+      score: 68,
+      zoneType: "weekly_oversold_monthly_intact",
+      simEligible: true,
+      inZone: true,
+      stage: "accumulate",
+      kanbanLane: "accumulate_queued",
+      actionTier: "act_now",
+    });
+    expect(embed.title).toContain("**COST**");
+    expect(embed.title).not.toContain("DOING");
+    expect(embed.title).toContain("QUEUE");
+  });
+});
+
+describe("deriveInvestorAlertAction queue gating", () => {
+  it("does not emit QUEUE when kanban lane is not accumulate_queued", () => {
+    const action = deriveInvestorAlertAction("accumulation_zone", {
+      ticker: "COST",
+      score: 68,
+      zoneType: "weekly_oversold_monthly_intact",
+      simEligible: true,
+      inZone: true,
+      stage: "research_avoid",
+      kanbanLane: "research_avoid",
+      actionTier: "ready",
+    });
+    expect(action.verb).not.toBe("MODEL · QUEUE");
+    expect(action.verb).toBe("MODEL · ON RADAR");
   });
 });
