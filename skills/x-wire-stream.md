@@ -64,14 +64,17 @@ Set the API key once per shell:
 
 ```bash
 export TIMED_API_KEY="${TIMED_TRADING_API_KEY}"
-BASE="https://timed-trading.com"
+# Custom domain may return CF bot challenge to bare curl — use workers.dev for admin smoke tests:
+BASE="https://timed-trading-ingest.shashant.workers.dev"
 ```
+
+Admin routes accept `X-TT-Admin-Key` header **or** `?key=` query param.
 
 ### 1. Stream status
 
 ```bash
-curl -sS "$BASE/timed/admin/discovery/x-wire/stream/status" \
-  -H "X-TT-Admin-Key: $TIMED_API_KEY" | python3 -m json.tool
+curl -sS "$BASE/timed/admin/discovery/x-wire/stream/status?key=$TIMED_API_KEY" \
+  | python3 -m json.tool
 ```
 
 **Healthy production:**
@@ -87,8 +90,8 @@ curl -sS "$BASE/timed/admin/discovery/x-wire/stream/status" \
 ### 2. Start stream (idempotent)
 
 ```bash
-curl -sS -X POST "$BASE/timed/admin/discovery/x-wire/stream/start" \
-  -H "X-TT-Admin-Key: $TIMED_API_KEY" | python3 -m json.tool
+curl -sS -X POST "$BASE/timed/admin/discovery/x-wire/stream/start?key=$TIMED_API_KEY" \
+  | python3 -m json.tool
 ```
 
 Re-check status after ~10s.
@@ -96,8 +99,8 @@ Re-check status after ~10s.
 ### 3. Recent posts (ingest path)
 
 ```bash
-curl -sS "$BASE/timed/admin/discovery/x-wire/posts?handle=DeItaone&lookback_hours=24" \
-  -H "X-TT-Admin-Key: $TIMED_API_KEY" | python3 -m json.tool | head -60
+curl -sS "$BASE/timed/admin/discovery/x-wire/posts?handle=DeItaone&lookback_hours=24&key=$TIMED_API_KEY" \
+  | python3 -m json.tool | head -60
 ```
 
 Expect `ok: true` and recent rows when DeItaone has posted in the window.
@@ -115,8 +118,7 @@ Expect `risk_tone`, `posts[]` with `intel` when classify has run recently.
 ### 5. Manual poll fallback (outage drill)
 
 ```bash
-curl -sS -X POST "$BASE/timed/admin/discovery/x-wire/refresh" \
-  -H "X-TT-Admin-Key: $TIMED_API_KEY" \
+curl -sS -X POST "$BASE/timed/admin/discovery/x-wire/refresh?key=$TIMED_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{}' | python3 -m json.tool
 ```
@@ -165,8 +167,8 @@ cd /workspace/worker
 ### Stop stream (maintenance)
 
 ```bash
-curl -sS -X POST "$BASE/timed/admin/discovery/x-wire/stream/stop" \
-  -H "X-TT-Admin-Key: $TIMED_API_KEY" | python3 -m json.tool
+curl -sS -X POST "$BASE/timed/admin/discovery/x-wire/stream/stop?key=$TIMED_API_KEY" \
+  | python3 -m json.tool
 ```
 
 Poll fallback takes over automatically.
