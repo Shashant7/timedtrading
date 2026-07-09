@@ -974,19 +974,26 @@ function _emailBriefPct(pct, digits = 1) {
   return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
 }
 
+/** Skip "(+0.00% today)" when day change is unknown — only render a real RTH print. */
+function _emailBriefDayPctLabel(pct) {
+  const v = Number(pct);
+  if (!Number.isFinite(v)) return "";
+  return `(${_emailBriefPct(v, 2)} today)`;
+}
+
 function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
   const SYM = String(sym || "").toUpperCase();
   if (!SYM) return "";
   const logo = `${baseUrl}/timed/logo/${encodeURIComponent(SYM)}.png`;
   const pctStr = _emailBriefPct(pct);
-  const pct2Str = _emailBriefPct(pct2, 2);
+  const dayLabel = _emailBriefDayPctLabel(pct2);
   const color = Number(pct) >= 0 ? BRAND.green : "#fb7185";
   return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;margin:0 6px 6px 0;border-radius:999px;border:1px solid ${BRAND.border};background:rgba(255,255,255,0.04);vertical-align:middle">
     <img src="${logo}" alt="" width="18" height="18" style="border-radius:50%;background:#fff;object-fit:cover" />
     <span style="font-family:ui-monospace,monospace;font-weight:700;color:${BRAND.textPrimary};font-size:12px">${_esc(SYM)}</span>
     ${sub ? `<span style="font-size:10px;color:${BRAND.textMuted}">${_esc(sub)}</span>` : ""}
     ${pctStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${color};font-size:11px">${pctStr}</span>` : ""}
-    ${pct2Str ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">(${pct2Str} today)</span>` : ""}
+    ${(() => { const d = dayLabel; return d ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">${d}</span>` : ""; })()}
   </span>`;
 }
 
@@ -1003,7 +1010,7 @@ export function injectEmailBriefTickerChips(html, infographic, baseUrl) {
   const modelRows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
   if (modelRows.length) {
     inject("Model Actions Today", modelRows.map((r) => buildEmailBriefTickerChip(
-      r.ticker, r.pct, String(r.action || "").replace(/_/g, " "), baseUrl,
+      r.ticker, r.pct ?? r.pnlPct, String(r.action || "").replace(/_/g, " "), baseUrl, r.dayPct,
     )).join(""));
   }
   const g = info.topMovers?.gainers || [];
@@ -1055,6 +1062,7 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     baseUrl,
   );
   const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
+  const croDeskHtml = type === "evening" ? buildEmailCRODeskBlock(croNote, accentColor) : "";
 
   const longDate = (() => {
     try {
@@ -1062,19 +1070,12 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     } catch { return date; }
   })();
 
-  // 2026-06-22 — SINGLE-READ layout. The brief email now renders ONE
-  // coherent narrative (the AI body, top-to-bottom in the spec'd order:
-  // Market Read → Index Outlook → Top Movers → Active Trader Today →
-  // Investor Today → Looking Ahead → On Watch). The old layout stacked the
-  // narrative AGAINST re-rendered structured cards (infographic strip, CRO
-  // desk card, index-outlook card, investor-portfolio block), which both
-  // fragmented the read and duplicated sectors/events/risks/holdings the
-  // narrative already covered (operator: "repeating content/sections").
-  // Those cards are intentionally no longer composed here — the narrative is
-  // the source of truth. (Web keeps the card layout via the shared strip.)
+  // 2026-07-09 — Evening email parity with web brief: CRO Research Desk wrap
+  // leads the body (Today-page hero parity). Narrative markdown follows.
   const html = emailLayout(`
     <div style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:${accentColor};font-family:${EMAIL_FONT_UI};margin:0 0 6px">${label}</div>
     <h1 style="margin:0 0 18px;font-size:32px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.015em;line-height:1.1">${longDate}</h1>
+    ${croDeskHtml}
     ${briefHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">

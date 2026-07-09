@@ -1467,6 +1467,14 @@ export function normalizeBriefTopMovers(data) {
 /** Structured chip rows for Model Actions Today (trader + investor fills). */
 export function buildBriefModelActionChips(data) {
   const chips = [];
+  const pf = data?.priceFeedRaw && typeof data.priceFeedRaw === "object" ? data.priceFeedRaw : {};
+  const isEvening = String(data?.briefType || data?.type || "").toLowerCase() === "evening";
+  const sessionOpen = isEvening ? true : (data?.calendar?.marketOpen !== false);
+  const dayPctFor = (sym) => {
+    const row = pf[String(sym || "").toUpperCase()];
+    const v = liveDayPctFromPriceFeedRow(row, sessionOpen);
+    return Number.isFinite(v) ? v : null;
+  };
   const push = (row) => {
     const sym = String(row?.ticker || "").toUpperCase();
     if (!sym) return;
@@ -1480,6 +1488,7 @@ export function buildBriefModelActionChips(data) {
       direction: e.direction,
       price: e.price,
       pct: null,
+      dayPct: dayPctFor(e.ticker),
       sub: e.reason || null,
     });
   }
@@ -1624,7 +1633,7 @@ export function buildBriefInvestorBook(investorRaw = [], liveScores = {}, profil
 }
 
 /** Overlay live open books onto a stored brief infographic at read time. */
-export async function refreshInfographicLivePositions(infographic, env, priceMap = null) {
+export async function refreshInfographicLivePositions(infographic, env, priceMap = null, opts = {}) {
   if (!infographic || !env?.DB) return infographic;
   const db = env.DB;
   let pf = priceMap;
@@ -1642,8 +1651,14 @@ export async function refreshInfographicLivePositions(infographic, env, priceMap
     fetchBriefLiveInvestorScores(env),
   ]);
   const investorPositions = buildBriefInvestorBook(investorRaw, liveScores);
-  let _refreshMktOpen = true;
-  try { _refreshMktOpen = isNyRegularMarketOpen(null); } catch (_) { _refreshMktOpen = true; }
+  const briefType = String(opts?.briefType || infographic?.type || "").toLowerCase();
+  // Evening brief chips label "today" as the completed RTH session — not the
+  // extended-hours drift that liveDayPct uses when NY is closed.
+  let _refreshMktOpen = briefType === "evening";
+  if (!_refreshMktOpen && opts?.useRthSession === true) _refreshMktOpen = true;
+  if (!_refreshMktOpen && opts?.useRthSession !== true) {
+    try { _refreshMktOpen = isNyRegularMarketOpen(null); } catch (_) { _refreshMktOpen = true; }
+  }
   const { traderPositions, investorHoldings } = buildInfographicPositionRows(openTrades, investorPositions, pf, _refreshMktOpen);
   infographic.traderPositions = traderPositions;
   infographic.investorHoldings = investorHoldings;
@@ -5459,7 +5474,7 @@ function buildBriefInfographic(data, type) {
     traderPositions,
     investorHoldings,
     topMovers: normalizeBriefTopMovers(data),
-    modelActionChips: buildBriefModelActionChips(data),
+    modelActionChips: buildBriefModelActionChips({ ...data, briefType: type, type }),
     indices,
     sectors: sectorMini,
     macro,
@@ -5864,8 +5879,10 @@ async function dispatchDailyBriefNotifications(env, {
       try {
         if (outbound.infographic && env) {
           emailInfographic = await refreshInfographicLivePositions(
-            { ...outbound.infographic },
+            { ...outbound.infographic, type },
             env,
+            null,
+            { briefType: type, useRthSession: type === "evening" },
           );
         }
       } catch (_) { /* use live-refreshed snapshot */ }
@@ -6393,7 +6410,10 @@ export async function handleGetBrief(env) {
         await refreshInfographicLivePrices(slot.infographic, env);
         await refreshInfographicLiveSectors(slot.infographic, env);
         await refreshInfographicLiveGamePlans(slot.infographic, env);
-        await refreshInfographicLivePositions(slot.infographic, env);
+        await refreshInfographicLivePositions(slot.infographic, env, null, {
+          briefType: type,
+          useRthSession: type === "evening",
+        });
         const idxMap = Object.fromEntries(
           (slot.infographic.indices || []).map((i) => [String(i?.sym || "").toUpperCase(), i]),
         );
