@@ -320,6 +320,7 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
   const token = bearerToken(env);
   if (!token) return { ok: false, error: "no_x_api_bearer_token" };
   await ensureXWireSchema(env);
+  await ensureTickerNewsSchema(env);
   const watchlist = opts.accounts || await loadWatchlist(env);
   if (!Array.isArray(watchlist) || watchlist.length === 0) {
     return { ok: false, error: "empty_watchlist" };
