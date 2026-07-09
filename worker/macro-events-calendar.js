@@ -128,6 +128,12 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
     stripPreReleaseActuals(items);
   } catch (_) { /* FRED layer optional */ }
 
+  // X wire macro prints (DeItaone-style) — best-effort; no-op without ingest.
+  try {
+    const { applyXWireMacroActuals } = await import("./discovery/x-wire-tracker.js");
+    items = await applyXWireMacroActuals(env, items, today);
+  } catch (_) { /* X wire layer optional */ }
+
   try {
     const { mergeMacroReleasesIntoEvents, computeMacroPollSchedule } = await import("./macro-release-alerts.js");
     items = await mergeMacroReleasesIntoEvents(env, items);

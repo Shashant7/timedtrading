@@ -195,6 +195,26 @@ export function runNightlyResearchBatch(env, ctx) {
           recordCronFailure(env, { op: "social_reddit_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
 
+        // 4.7. X wire accounts (Phase 3) — curated macro/flow handles.
+        try {
+          const XWire = await import("../discovery/x-wire-tracker.js");
+          const wireResult = await XWire.fetchAndStoreWirePosts(env, { delayMs: 400 });
+          if (wireResult.ok) {
+            console.log(`[DISCOVERY BATCH 4.7/5] X wire: ${wireResult.persisted} new posts, ${wireResult.fanout} ticker_news rows, ${wireResult.macro_hits} macro hits`);
+            if (wireResult.persisted > 0) {
+              const NewsTracker = await import("../discovery/news-tracker.js");
+              const scoreResult = await NewsTracker.scoreUnscoredNews(env, { limit: 50 });
+              console.log(`[DISCOVERY BATCH 4.7/5] X wire news scored: ${scoreResult.scored}`);
+            }
+            recordCronSuccess(env, "x_wire_refresh").catch(() => {});
+          } else if (wireResult.error !== "no_x_api_bearer_token") {
+            recordCronFailure(env, { op: "x_wire_refresh", error: wireResult.error || "failed", caller: "scheduled_event" }).catch(() => {});
+          }
+        } catch (e) {
+          console.error("[DISCOVERY BATCH 4.7/5] X wire failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, { op: "x_wire_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+
         // 5. Promotion queue rebuild — DEFERRED to 23:00 COO screener lane.
         // At 22:00 the GitHub screener POST (22:30) hasn't landed yet, so
         // rebuilding here scored stale/empty KV and COO auto-promote found

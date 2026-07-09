@@ -290,6 +290,7 @@ class_name = "CandleChainShard"
 # - TRADOVATE_DEVICE_ID: Stable identifier for this worker instance (any unique string,
 #                       defaults to "timed-trading-cf-worker" if unset)
 # - FINNHUB_API_KEY: Finnhub API key for earnings, economic calendar, and news (Daily Brief)
+# - X_API_BEARER_TOKEN: X API v2 app-only Bearer for curated wire-account ingest (x-wire-tracker)
 # - SENDGRID_API_KEY: SendGrid API key for outbound emails
 # - EMAIL_HMAC_SECRET: HMAC secret for unsubscribe token signing
 # - STRIPE_SECRET_KEY: Stripe API secret key
