@@ -48,39 +48,48 @@
 // the LETF tier.
 const LETF_MAP = {
   // Broad indices
-  SPY:  { long: "SPXL", short: "SPXS",  factor: 3, note: "Direxion 3× S&P 500" },
+  SPY:  { long: "SPXL", short: "SPXS",  long_alts: ["SPYU"], short_alts: ["SPXU"], factor: 3, note: "Direxion 3× S&P 500" },
   QQQ:  { long: "TQQQ", short: "SQQQ",  factor: 3, note: "ProShares 3× Nasdaq-100" },
   IWM:  { long: "TNA",  short: "TZA",   factor: 3, note: "Direxion 3× Russell 2000" },
   DIA:  { long: "UDOW", short: "SDOW",  factor: 3, note: "ProShares 3× Dow" },
-  // Sectors
+  // Sectors & themes
   XLK:  { long: "TECL", short: "TECS",  factor: 3, note: "Direxion 3× Tech" },
   XLF:  { long: "FAS",  short: "FAZ",   factor: 3, note: "Direxion 3× Financials" },
   XLE:  { long: "ERX",  short: "ERY",   factor: 2, note: "Direxion 2× Energy" },
   XLV:  { long: "CURE", short: null,    factor: 3, note: "Direxion 3× Healthcare (long only)" },
   XLI:  { long: "DUSL", short: null,    factor: 3, note: "Direxion 3× Industrials" },
   XLP:  { long: null,   short: null,    factor: 0, note: "No LETF (defensive sector)" },
+  XBI:  { long: "LABU", short: "LABD",  factor: 3, note: "Direxion 3× Biotech" },
+  KRE:  { long: "DPST", short: null,    factor: 3, note: "Direxion 3× Regional Banks" },
+  FXI:  { long: "YINN", short: "YANG",  factor: 3, note: "Direxion 3× China" },
+  KWEB: { long: "YINN", short: "YANG",  factor: 3, note: "Direxion 3× China" },
   // Semis (separately tracked theme)
   SMH:  { long: "SOXL", short: "SOXS",  factor: 3, note: "Direxion 3× Semis" },
   // Crypto-adjacent (high beta proxies for direct BTC/ETH exposure)
   IBIT: { long: "BITX", short: "BITI",  factor: 2, note: "2× Bitcoin (Volatility Shares)" },
+  BITO: { long: "BITX", short: "BITI",  factor: 2, note: "2× Bitcoin proxy" },
+  BTCUSD: { long: "BTCL", short: "BTCZ", factor: 2, note: "2× Bitcoin" },
   // Volatility
-  VIX:  { long: "UVXY", short: "SVXY",  factor: 1.5, note: "ProShares Ultra VIX" },
+  VIX:  { long: "UVXY", short: "SVXY",  long_alts: ["VIXY"], factor: 1.5, note: "ProShares Ultra VIX" },
   // Bonds (rare but useful)
   TLT:  { long: "TMF",  short: "TMV",   factor: 3, note: "Direxion 3× 20+yr Treasury" },
 };
 
 // Per-ticker direct LETF mapping. When a single name is the leveraged play
-// (e.g. NVDA → NVDL/NVDU 2x), surface it as the LETF slot.
+// (e.g. NVDA → NVDU/NVDL 2x), surface it as the LETF slot.
 const SINGLE_NAME_LETF = {
-  NVDA: { long: "NVDL", short: "NVDD", factor: 2, note: "GraniteShares 2× NVDA" },
-  TSLA: { long: "TSLL", short: "TSLZ", factor: 2, note: "GraniteShares 2× TSLA" },
+  AMD:  { long: "AMDL", short: null,    factor: 2, note: "GraniteShares 2× AMD" },
+  NVDA: { long: "NVDU", short: "NVDD", long_alts: ["NVDL"], factor: 2, note: "2× NVDA" },
+  TSLA: { long: "TSLL", short: "TSLZ", long_alts: ["TSLT"], short_alts: ["TSLQ", "TSLS"], factor: 2, note: "2× TSLA" },
   AAPL: { long: "AAPU", short: "AAPD", factor: 2, note: "Direxion 2× AAPL" },
   AMZN: { long: "AMZU", short: "AMZD", factor: 2, note: "Direxion 2× AMZN" },
   MSFT: { long: "MSFU", short: "MSFD", factor: 2, note: "Direxion 2× MSFT" },
   GOOGL:{ long: "GGLL", short: "GGLS", factor: 2, note: "Direxion 2× GOOGL" },
   META: { long: "METU", short: "METD", factor: 2, note: "Direxion 2× META" },
+  NFLX: { long: "NFXL", short: "NFXS", factor: 2, note: "Direxion 2× NFLX" },
+  LLY:  { long: "LLYX", short: null,    factor: 2, note: "Leverage Shares 2× LLY" },
   COIN: { long: "CONL", short: null,    factor: 2, note: "GraniteShares 2× COIN" },
-  MSTR: { long: "MSTU", short: "MSTZ",  factor: 2, note: "T-Rex 2× MSTR" },
+  MSTR: { long: "MSTU", short: "MSTZ", long_alts: ["MSTX"], short_alts: ["SMST"], factor: 2, note: "2× MSTR" },
   TSM:  { long: "TSMU", short: null,    factor: 2, note: "Direxion 2× TSM" },
 };
 
@@ -97,6 +106,8 @@ const THEME_LETF = {
   oil_gas:           { long: "ERX",  short: "ERY",  factor: 2, note: "2× Energy" },
   crypto_proxies:    { long: "BITX", short: "BITI", factor: 2, note: "2× Bitcoin" },
   crypto_etf:        { long: "BITX", short: "BITI", factor: 2, note: "2× Bitcoin" },
+  china_names:       { long: "YINN", short: "YANG", factor: 3, note: "3× China" },
+  biotech:           { long: "LABU", short: "LABD", factor: 3, note: "3× Biotech" },
 };
 
 export function lookupLETF(ticker, themes = []) {
@@ -2018,7 +2029,7 @@ function buildMoonshot(ctx, direction) {
 // 2026-05-30 — Leveraged ETF tier. Sits between Stock and Long Call in the
 // risk ladder for users who want amplified beta without options' time
 // decay / strike / expiration complexity.
-function buildLeveragedETF(ctx) {
+export function buildLeveragedETFPlay(ctx) {
   const { ticker, price, sl, tp1, direction, dollars_at_risk, themes } = ctx;
   const letf = lookupLETF(ticker, themes);
   if (!letf) return null;
@@ -2665,7 +2676,7 @@ export function buildOptionsLadder(contract, opts = {}) {
       }
     }
     if (!indexWantsSingleLeg) {
-      const letfLong = buildLeveragedETF({ ...ctxEff, direction: "LONG" });
+      const letfLong = buildLeveragedETFPlay({ ...ctxEff, direction: "LONG" });
       if (letfLong) ladder.push(letfLong);
     }
     if (!indexWantsSingleLeg) {
@@ -2702,7 +2713,7 @@ export function buildOptionsLadder(contract, opts = {}) {
       }
     }
     if (!indexWantsSingleLeg) {
-      const letfShort = buildLeveragedETF({ ...ctxEff, direction: "SHORT" });
+      const letfShort = buildLeveragedETFPlay({ ...ctxEff, direction: "SHORT" });
       if (letfShort) ladder.push(letfShort);
     }
     const shortNorm = normalizeDirectionalLevels(price, ctxEff.sl, ctxEff.tp1, "SHORT", atrPct);
