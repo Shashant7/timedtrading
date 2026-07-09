@@ -1143,6 +1143,13 @@
       }
       if (stage === "accumulate" && !window.TimedRailHelpers.isInvestorExecuteReady(row)) {
         stage = owned ? "watch" : "research_on_watch";
+      } else if (stage === "accumulate" && window.TimedRailHelpers.isInvestorExecuteReady(row)) {
+        const lastType = String(row?.position?.last_action_type || "").toUpperCase();
+        const entered = owned && (
+          ["BUY", "DCA_BUY", "ADD"].includes(lastType)
+          || (Number(row?.position?.first_entry_ts) || 0) > 0
+        );
+        stage = entered ? "accumulate_entered" : "accumulate_queued";
       }
       return stage;
     },
