@@ -28,8 +28,9 @@ describe("x-wire-tracker parsing", () => {
     expect(levels.some((l) => l.price === 595)).toBe(true);
   });
 
-  it("ships a default watchlist under 10 accounts", () => {
+  it("ships operator watchlist under 10 accounts", () => {
     expect(DEFAULT_X_WATCHLIST.length).toBeLessThan(10);
     expect(DEFAULT_X_WATCHLIST.map((a) => a.handle)).toContain("DeItaone");
+    expect(DEFAULT_X_WATCHLIST.map((a) => a.handle)).toContain("fundstrat");
   });
 });

@@ -18,11 +18,13 @@ const FETCH_TIMEOUT_MS = 12_000;
 
 /** Default wire accounts — override via KV `timed:x:watchlist`. */
 export const DEFAULT_X_WATCHLIST = [
-  { handle: "DeItaone", kind: "macro_wire" },
-  { handle: "Fxhedgers", kind: "macro_wire" },
-  { handle: "LiveSquawk", kind: "headlines" },
-  { handle: "zerohedge", kind: "macro_wire" },
-  { handle: "unusual_whales", kind: "flow" },
+  { handle: "DeItaone", kind: "macro_wire", reason: "objective real-time news (Walter Bloomberg)" },
+  { handle: "ripster47", kind: "inspiration", reason: "Ripster — trade style inspiration" },
+  { handle: "TrendSpider", kind: "general", reason: "general market / platform context" },
+  { handle: "satymahajan", kind: "inspiration", reason: "Saty — swing and day trade inspiration" },
+  { handle: "Desi_Trade", kind: "speculative", reason: "Vincent Desiano — minimal speculative ideas" },
+  { handle: "fundstrat", kind: "fsd_leader", reason: "Tom Lee / Fundstrat — FSD research leader" },
+  { handle: "MarkNewtonCMT", kind: "technical", reason: "Mark Newton CMT — technical expert" },
 ];
 
 const MACRO_RELEASE_RE = /\b(US\s+)?([A-Z][A-Z\s\-]{2,40}?)\s+([\d.,]+[KMB%]?)\s*(?:;|,|\s)\s*(?:EST\.?|ESTIMATE|EXP\.?|VS\.?)\s*([\d.,]+[KMB%]?)/i;
@@ -90,6 +92,7 @@ export async function saveWatchlist(env, accounts) {
   const cleaned = accounts.map((row) => ({
     handle: normHandle(row.handle),
     kind: String(row.kind || "wire").slice(0, 32),
+    reason: row.reason ? String(row.reason).slice(0, 200) : null,
   })).filter((r) => r.handle).slice(0, 12);
   if (cleaned.length === 0) return { ok: false, error: "empty_watchlist" };
   await kv.put(WATCHLIST_KV, JSON.stringify(cleaned));
