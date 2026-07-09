@@ -1,13 +1,10 @@
 {
   "mcpServers": {
     "xapi": {
-      "command": "npx",
-      "args": ["-y", "@xdevplatform/xurl", "mcp", "https://api.x.com/mcp"],
-      "env": {
-        "CLIENT_ID": "PASTE_OAUTH2_CLIENT_ID_HERE",
-        "CLIENT_SECRET": "PASTE_OAUTH2_CLIENT_SECRET_HERE"
-      },
-      "startup_timeout_sec": 300
+      "url": "https://api.x.com/mcp",
+      "headers": {
+        "Authorization": "Bearer PASTE_APP_ONLY_BEARER_TOKEN_HERE"
+      }
     },
     "x-docs": {
       "url": "https://docs.x.com/mcp"

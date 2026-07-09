@@ -3,75 +3,62 @@
 Use this for **interactive** X queries in Cursor (read posts, search, debug ingest).
 Production ingest uses the worker `x-wire-tracker` + `X_API_BEARER_TOKEN` in Cloudflare — not MCP.
 
-## Credentials — which keys?
+## Recommended: Bearer token (no OAuth, no portal OAuth setup)
 
-| X Developer Portal item | Use for Cursor MCP? |
-|-------------------------|---------------------|
-| **OAuth 2.0 Client ID + Client Secret** | **Yes** (User authentication settings) |
-| Bearer token | No (worker only) |
-| Consumer Key + Secret | No (legacy OAuth 1.0a; not used by `xurl mcp`) |
-
-## One-time X app setup
-
-1. [developer.x.com](https://developer.x.com) → your app → **User authentication settings**
-2. Enable **OAuth 2.0**
-3. Type: **Web App** (or Native per portal UI)
-4. Redirect URI (required):
-
-   ```
-   http://localhost:8080/callback
-   ```
-
-5. Scopes: at minimum **Read** (posts, users, timelines)
-6. Copy **Client ID** and **Client Secret** (OAuth 2.0 section — not Consumer Key)
-
-App should be **Pay-per-use + Production** if API calls fail with `client-not-enrolled`.
-
-## Cursor config
-
-### Option A — project only (this repo)
+If you already have an **app-only Bearer token** (same one in Cloudflare), skip OAuth entirely:
 
 ```bash
 cp .cursor/mcp.json.example .cursor/mcp.json
 ```
 
-Edit `.cursor/mcp.json` and replace the two placeholders. `.cursor/mcp.json` is gitignored.
+Paste the Bearer token into `.cursor/mcp.json` → reload Cursor → **Tools & MCP** → green dot on `xapi`.
 
-### Option B — all projects (global)
+Read-only, no browser login, no `xurl` bridge. This is enough to read posts and timelines.
 
-Copy the same JSON block into `~/.cursor/mcp.json` on your machine.
+OAuth variant (only if you need user-context writes): see `.cursor/mcp.json.oauth.example`.
+
+## Credentials — which keys?
+
+| X Developer Portal item | Cursor MCP (Bearer path) | Cursor MCP (OAuth path) | Cloudflare worker |
+|-------------------------|--------------------------|-------------------------|-------------------|
+| **Bearer token** | **Yes (recommended)** | No | **Yes** |
+| OAuth 2.0 Client ID + Secret | No | Yes | No |
+| Consumer Key + Secret | No | No | No |
+
+## OAuth path (optional — only if Bearer MCP fails)
+
+1. Use **https://console.x.com/** (not legacy developer.twitter.com URLs)
+2. Log into **x.com** in a normal tab first, then open the developer console
+3. Your app → **User authentication settings** → enable **OAuth 2.0**
+4. App type: **Web App, Automated App or Bot**
+5. Redirect URI: `http://localhost:8080/callback`
+6. Copy **OAuth 2.0** Client ID + Client Secret (not Consumer Key)
+7. Use `.cursor/mcp.json.oauth.example` as the template
+
+### Developer portal stuck on Register / Sign in?
+
+Common fixes when the portal loops even though you already have an app + Bearer token:
+
+1. **Use the right URL:** https://console.x.com/ (or https://developer.x.com/en/portal/dashboard)
+2. **Sign into x.com first** in a separate tab with the same account that owns the developer app
+3. **Disable ad blockers / strict tracking protection** for `x.com` and `twitter.com`
+4. **Try a private window** after signing into x.com first, then open console.x.com
+5. **Different browser** (Chrome vs Safari) — X session cookies are picky
+6. If OAuth browser popup loops: copy the auth URL, replace `twitter.com` with `x.com`, open manually (known X redirect bug)
+
+**You do not need OAuth for production ingest** — only for optional Cursor MCP user-context features.
 
 ## Enable in Cursor
 
 1. **Cursor Settings** (`Cmd+,` / `Ctrl+,`)
 2. **Tools & MCP** → confirm `xapi` shows a **green dot**
-3. On first tool use, browser opens for X OAuth — approve once
-4. Tokens cache in `~/.xurl` on your machine
+3. Bearer path: no browser step. OAuth path: browser opens once on first tool use.
 
 ## Verify
 
-Ask the agent:
-
 > Use X MCP to fetch the 5 most recent posts from @DeItaone
-
-Or test the bridge manually:
-
-```bash
-export CLIENT_ID="your-oauth2-client-id"
-export CLIENT_SECRET="your-oauth2-client-secret"
-npx -y @xdevplatform/xurl mcp https://api.x.com/mcp
-```
-
-## Troubleshooting
-
-| Symptom | Fix |
-|---------|-----|
-| Timeout on startup | `startup_timeout_sec: 300` in config |
-| Browser auth fails | Register `http://localhost:8080/callback` on the app |
-| Wrong credentials error | Use OAuth 2.0 Client ID/Secret, not Consumer Key/Secret |
-| `client-not-enrolled` | Move app to Pay-per-use + Production |
 
 ## Security
 
 - Never commit `.cursor/mcp.json` with real secrets
-- Do not paste Client Secret in PRs or chat
+- `.cursor/mcp.json` is gitignored
