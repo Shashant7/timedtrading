@@ -243,12 +243,34 @@ async function collectDiscoveryPulse(env) {
     const rows = await PQ.loadPromotionQueueRows(env, { status: "", limit: 6 });
     out.promotion_queue_top = (rows?.rows || rows?.results || rows || []).slice(0, 6);
   } catch (_) {}
-  // 4. News — top cross-universe catalysts (we don't aggregate this today; pass through latest scored)
+  // 4. News — top cross-universe catalysts (macro wire summary KV + scored news)
   try {
     const news = await env?.KV?.get("timed:discovery:news-summary");
     if (news) {
       const parsed = JSON.parse(news);
       out.news_top = (parsed.top_catalysts || []).slice(0, 6);
+    }
+  } catch (_) {}
+  // 5. Macro wire pulse — real-time DeItaone + macro_wire LLM-classified feed
+  try {
+    const { loadMacroWirePulse } = await import("../discovery/macro-wire-intel.js");
+    const pulse = await loadMacroWirePulse(env);
+    if (pulse) {
+      out.macro_wire_pulse = {
+        generated: pulse.generated,
+        risk_tone: pulse.risk_tone,
+        post_count: pulse.post_count,
+        classified_count: pulse.classified_count,
+        dominant_themes: pulse.dominant_themes,
+        recent_headlines: (pulse.posts || []).slice(0, 8).map((p) => ({
+          handle: p.handle,
+          text: p.text,
+          urgency: p.intel?.urgency,
+          sentiment: p.intel?.sentiment,
+          themes: p.intel?.themes,
+          created_at: p.created_at,
+        })),
+      };
     }
   } catch (_) {}
   return out;
@@ -324,7 +346,8 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "### 4. CTO Probabilistic Levels (Markov-bias-adjusted Fib / ATR / pivot levels + empirical hit rates — the data-science backing)",
       JSON.stringify(sources.cto, null, 2),
       "",
-      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage, GAMEPLAN)",
+      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage, GAMEPLAN, MACRO WIRE)",
+      "The `macro_wire_pulse` object (when present) is real-time LLM-classified output from DeItaone and other macro_wire X accounts. Use `risk_tone` and `recent_headlines` for intraday macro context. Weight high-urgency catalyst headlines in your verdict.",
       "The `gameplan` object (when present) is the nightly synthesis of what the engine MISSED and why: `binding_constraint` says whether misses come from missing plays (NO_PLAY_FOR_MOVE), generic gates vetoing valid setups (GENERIC_GATE_VETO), low conviction, wrong-side bias, data gaps, or universe gaps. `playbook_usage` shows which entry plays actually ran vs sat idle. `miss_archetypes` are REPEATED miss patterns — candidate new plays or trigger gaps. Your 'Discovery layer' observation should name the binding constraint and any one-play-offense / idle-play finding when the data supports it; flag persistent archetypes in `early_indicators`.",
       JSON.stringify(sources.discovery, null, 2),
       "",

@@ -6,6 +6,7 @@ import { getReferencePriors } from "./cio-reference.js";
 import { resolveRegimeVocabulary } from "../regime-vocabulary.js";
 import { getStrategyForTicker, getTacticalSignals, STRATEGY_VINTAGE, STRATEGY_TITLE } from "../strategy-context.js";
 import { scoreRootConfluence } from "../root-strategy.js";
+import { macroWireContextForTicker } from "../discovery/macro-wire-intel.js";
 
 function computeCryptoTrend(snapshots, idx) {
   if (idx < 10) return 0;
@@ -813,6 +814,20 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     }
   } catch (_) {
     // FSD intel enrichment is best-effort — never break CIO memory.
+  }
+
+  // ── Layer 15f: Macro wire context (2026-07-09 — DeItaone + macro_wire) ───
+  // Universe-level risk tone + per-ticker relevant headlines from the real-time
+  // macro wire pulse (worker/discovery/macro-wire-intel.js). Preloaded into
+  // memoryCache.macroWirePulse by the scoring cron.
+  try {
+    const pulse = memoryCache?.macroWirePulse;
+    if (pulse) {
+      const ctx = macroWireContextForTicker(pulse, sym);
+      if (ctx) mem.macro_wire_context = ctx;
+    }
+  } catch (_) {
+    // Macro wire enrichment is best-effort — never break CIO memory.
   }
 
   // TT Intel — level-conditioned mode + home-index cycle (stamped on ticker during scoring).

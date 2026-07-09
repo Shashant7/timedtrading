@@ -77,6 +77,9 @@ export async function ensureXWireSchema(env) {
     await db.prepare(
       `CREATE INDEX IF NOT EXISTS idx_x_wire_ingested ON x_wire_posts (ingested_at DESC)`,
     ).run();
+    try {
+      await db.prepare(`ALTER TABLE x_wire_posts ADD COLUMN intel_json TEXT`).run();
+    } catch (_) { /* column exists */ }
   } catch (e) {
     console.warn("[X_WIRE] schema ensure failed:", String(e?.message || e).slice(0, 200));
   }
@@ -432,8 +435,11 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
   const interDelayMs = Math.max(0, Number(opts.delayMs) || 350);
   let fetched = 0, persisted = 0, fanout = 0, macroHits = 0, errors = 0;
   let discordSent = 0;
+  let classified = 0;
+  let intelFanout = 0;
   const perHandle = {};
   const discordQueue = [];
+  const macroWirePersisted = [];
 
   for (let i = 0; i < watchlist.length; i++) {
     const { handle, kind } = watchlist[i];
@@ -493,6 +499,9 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
         if (macro && await persistMacroActual(env, macro, { handle: h, post_id: postId })) {
           macroHits += 1;
         }
+        if (kind === "macro_wire") {
+          macroWirePersisted.push({ row, tickers });
+        }
         if (isFreshForDiscord(row, hadSinceId)) {
           discordQueue.push(row);
         }
@@ -522,6 +531,27 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
     discordSent = discordRes.sent || 0;
   }
 
+  if (macroWirePersisted.length > 0 && opts.classifyMacroWire !== false) {
+    try {
+      const MacroIntel = await import("./macro-wire-intel.js");
+      const results = await Promise.all(
+        macroWirePersisted.map(({ row, tickers: cashtags }) =>
+          MacroIntel.classifyAndEnrichPost(env, row, cashtags),
+        ),
+      );
+      for (const cr of results) {
+        if (cr.ok && cr.intel) {
+          classified += 1;
+          intelFanout += cr.fanout || 0;
+        }
+      }
+      await MacroIntel.refreshMacroWirePulse(env, { lookbackHours: opts.pulseLookbackHours || 4 });
+      await MacroIntel.refreshNewsSummary(env, { lookbackHours: 12 });
+    } catch (e) {
+      console.warn("[X_WIRE] macro intel refresh failed:", String(e?.message || e).slice(0, 150));
+    }
+  }
+
   return {
     ok: true,
     accounts: watchlist.length,
@@ -529,11 +559,26 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
     persisted,
     fanout,
     macro_hits: macroHits,
+    classified,
+    intel_fanout: intelFanout,
     discord_sent: discordSent,
     errors,
     per_handle: perHandle,
     fetched_at: Date.now(),
   };
+}
+
+/** Fast poll — macro_wire accounts only (DeItaone + future handles). */
+export async function fetchMacroWirePosts(env, opts = {}) {
+  const watchlist = opts.accounts || await loadWatchlist(env);
+  const macroOnly = (watchlist || []).filter((a) => a.kind === "macro_wire");
+  if (macroOnly.length === 0) return { ok: true, skipped: true, reason: "no_macro_wire_accounts" };
+  return fetchAndStoreWirePosts(env, {
+    ...opts,
+    accounts: macroOnly,
+    delayMs: opts.delayMs ?? 0,
+    maxResults: opts.maxResults ?? 5,
+  });
 }
 
 /** Recent wire posts for admin preview / brief enrichment. */
