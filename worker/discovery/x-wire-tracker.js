@@ -29,16 +29,21 @@ const KIND_COLORS = {
   wire: 0x5865f2,
 };
 
-/** Default wire accounts — override via KV `timed:x:watchlist`. */
-export const DEFAULT_X_WATCHLIST = [
-  { handle: "DeItaone", kind: "macro_wire", reason: "objective real-time news (Walter Bloomberg)" },
-  { handle: "ripster47", kind: "inspiration", reason: "Ripster — trade style inspiration" },
-  { handle: "TrendSpider", kind: "general", reason: "general market / platform context" },
-  { handle: "satymahajan", kind: "inspiration", reason: "Saty — swing and day trade inspiration" },
-  { handle: "Desi_Trade", kind: "speculative", reason: "Vincent Desiano — minimal speculative ideas" },
-  { handle: "fundstrat", kind: "fsd_leader", reason: "Tom Lee / Fundstrat — FSD research leader" },
-  { handle: "MarkNewtonCMT", kind: "technical", reason: "Mark Newton CMT — technical expert" },
-];
+/** Delta One — Walter Bloomberg wire on X (@DeItaone). Sole production wire target. */
+export const DELTA_ONE_HANDLE = "DeItaone";
+
+export const DELTA_ONE_ACCOUNT = {
+  handle: DELTA_ONE_HANDLE,
+  kind: "macro_wire",
+  reason: "Delta One — Walter Bloomberg real-time macro wire",
+};
+
+/** Default watchlist is Delta One only. Override via KV `timed:x:watchlist` (admin). */
+export const DEFAULT_X_WATCHLIST = [DELTA_ONE_ACCOUNT];
+
+export function isDeltaOneHandle(handle) {
+  return normHandle(handle) === DELTA_ONE_HANDLE;
+}
 
 const MACRO_RELEASE_RE = /\b(US\s+)?([A-Z][A-Z\s\-]{2,40}?)\s+([\d.,]+[KMB%]?)\s*(?:;|,|\s)\s*(?:EST\.?|ESTIMATE|EXP\.?|VS\.?)\s*([\d.,]+[KMB%]?)/i;
 const LEVEL_RE = /\b(support|resistance|breaks?|holds?|rejects?|above|below|at)\s+(?:the\s+)?\$?([\d]{2,5}(?:\.\d{1,2})?)\b/gi;
@@ -499,7 +504,7 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
         if (macro && await persistMacroActual(env, macro, { handle: h, post_id: postId })) {
           macroHits += 1;
         }
-        if (kind === "macro_wire") {
+        if (isDeltaOneHandle(h)) {
           macroWirePersisted.push({ row, tickers });
         }
         if (isFreshForDiscord(row, hadSinceId)) {
@@ -568,18 +573,18 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
   };
 }
 
-/** Fast poll — macro_wire accounts only (DeItaone + future handles). */
-export async function fetchMacroWirePosts(env, opts = {}) {
-  const watchlist = opts.accounts || await loadWatchlist(env);
-  const macroOnly = (watchlist || []).filter((a) => a.kind === "macro_wire");
-  if (macroOnly.length === 0) return { ok: true, skipped: true, reason: "no_macro_wire_accounts" };
+/** Fast poll — Delta One (@DeItaone) only. Used by the every-minute cron. */
+export async function fetchDeltaOnePosts(env, opts = {}) {
   return fetchAndStoreWirePosts(env, {
     ...opts,
-    accounts: macroOnly,
+    accounts: [DELTA_ONE_ACCOUNT],
     delayMs: opts.delayMs ?? 0,
     maxResults: opts.maxResults ?? 5,
   });
 }
+
+/** @deprecated Use fetchDeltaOnePosts — kept for call-site compatibility. */
+export const fetchMacroWirePosts = fetchDeltaOnePosts;
 
 /** Recent wire posts for admin preview / brief enrichment. */
 export async function loadRecentWirePosts(env, opts = {}) {
@@ -613,7 +618,11 @@ export async function loadRecentWirePosts(env, opts = {}) {
 
 /** Headlines shaped like Finnhub econ news for Daily Brief prompt injection. */
 export async function loadWireHeadlinesForBrief(env, opts = {}) {
-  const rows = await loadRecentWirePosts(env, { lookbackHours: opts.lookbackHours || 36, limit: opts.limit || 20 });
+  const rows = await loadRecentWirePosts(env, {
+    handle: opts.handle || DELTA_ONE_HANDLE,
+    lookbackHours: opts.lookbackHours || 36,
+    limit: opts.limit || 20,
+  });
   return rows.map((r) => ({
     headline: String(r.text || "").slice(0, 280),
     summary: r.macro_json ? "macro print" : (r.levels_json ? "levels" : "wire"),

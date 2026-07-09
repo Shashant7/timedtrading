@@ -29,10 +29,10 @@ describe("x-wire-tracker parsing", () => {
     expect(levels.some((l) => l.price === 595)).toBe(true);
   });
 
-  it("ships operator watchlist under 10 accounts", () => {
-    expect(DEFAULT_X_WATCHLIST.length).toBeLessThan(10);
-    expect(DEFAULT_X_WATCHLIST.map((a) => a.handle)).toContain("DeItaone");
-    expect(DEFAULT_X_WATCHLIST.map((a) => a.handle)).toContain("fundstrat");
+  it("ships Delta One as the sole default watchlist account", () => {
+    expect(DEFAULT_X_WATCHLIST.length).toBe(1);
+    expect(DEFAULT_X_WATCHLIST[0].handle).toBe("DeItaone");
+    expect(DEFAULT_X_WATCHLIST[0].reason).toMatch(/Delta One/i);
   });
 
   it("builds Discord embed with macro and tickers", () => {

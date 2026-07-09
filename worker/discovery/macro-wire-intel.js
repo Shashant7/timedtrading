@@ -1,13 +1,15 @@
 // worker/discovery/macro-wire-intel.js
 //
-// LLM classification + real-time pulse for macro_wire X accounts
-// (DeItaone and future handles). Feeds CRO synthesis, CIO Layer 15f,
+// LLM classification + real-time pulse for Delta One (@DeItaone).
+// Feeds CRO synthesis, CIO Layer 15f,
 // live rank tilt (macro-risk-tilt.js), and timed:discovery:news-summary.
 
 import { headlineMentionsTicker, ensureTickerNewsSchema } from "./news-tracker.js";
 import { THEMES, getThemesForTicker } from "../sector-mapping.js";
+import { DELTA_ONE_HANDLE, isDeltaOneHandle } from "./x-wire-tracker.js";
 
 export const MACRO_WIRE_KIND = "macro_wire";
+export { DELTA_ONE_HANDLE };
 export const MACRO_WIRE_PULSE_KV = "timed:discovery:macro-wire-pulse";
 export const NEWS_SUMMARY_KV = "timed:discovery:news-summary";
 
@@ -36,6 +38,10 @@ const CLASSIFY_SYSTEM = [
 
 export function isMacroWireKind(kind) {
   return String(kind || "").toLowerCase() === MACRO_WIRE_KIND;
+}
+
+export function isDeltaOnePost(row) {
+  return isDeltaOneHandle(row?.handle);
 }
 
 export function parseIntelJson(raw) {
@@ -228,7 +234,7 @@ export async function fanOutIntelToTickerNews(env, post, intel, cashtags = []) {
 }
 
 export async function classifyAndEnrichPost(env, row, cashtags = []) {
-  if (!isMacroWireKind(row?.kind)) return { ok: true, skipped: true };
+  if (!isDeltaOnePost(row)) return { ok: true, skipped: true };
   const cls = await classifyMacroWirePost(env, row);
   if (!cls.ok || !cls.intel) return cls;
   await storePostIntel(env, row.post_id, cls.intel);
@@ -247,10 +253,10 @@ export async function loadRecentMacroWireRows(env, opts = {}) {
     const rows = (await db.prepare(`
       SELECT post_id, handle, kind, text, created_at, url, tickers_json, macro_json, intel_json, ingested_at
         FROM x_wire_posts
-       WHERE kind = ?1 AND (created_at >= ?2 OR ingested_at >= ?3)
+       WHERE handle = ?1 AND (created_at >= ?2 OR ingested_at >= ?3)
        ORDER BY COALESCE(created_at, '') DESC, ingested_at DESC
        LIMIT ?4
-    `).bind(MACRO_WIRE_KIND, cutoffIso, cutoffMs, limit).all().catch(() => ({ results: [] })))?.results || [];
+    `).bind(DELTA_ONE_HANDLE, cutoffIso, cutoffMs, limit).all().catch(() => ({ results: [] })))?.results || [];
     return rows.map((r) => ({
       ...r,
       intel: parseIntelJson(r.intel_json),
@@ -320,7 +326,7 @@ export async function refreshNewsSummary(env, opts = {}) {
   const top = buildTopCatalysts(rows, 8);
   const payload = {
     generated: new Date().toISOString(),
-    source: "macro_wire",
+    source: "delta_one",
     top_catalysts: top,
   };
   try {
@@ -364,6 +370,6 @@ export function macroWireContextForTicker(pulse, sym) {
       sentiment: p.intel?.sentiment,
       created_at: p.created_at,
     })),
-    note: "Real-time macro wire (DeItaone + macro_wire accounts). CONTEXT for timing — not a hard override.",
+    note: "Delta One (@DeItaone) real-time macro wire. CONTEXT for timing — not a hard override.",
   };
 }

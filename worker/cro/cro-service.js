@@ -251,7 +251,7 @@ async function collectDiscoveryPulse(env) {
       out.news_top = (parsed.top_catalysts || []).slice(0, 6);
     }
   } catch (_) {}
-  // 5. Macro wire pulse — real-time DeItaone + macro_wire LLM-classified feed
+  // 5. Delta One pulse — real-time @DeItaone LLM-classified feed
   try {
     const { loadMacroWirePulse } = await import("../discovery/macro-wire-intel.js");
     const pulse = await loadMacroWirePulse(env);
@@ -346,8 +346,8 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "### 4. CTO Probabilistic Levels (Markov-bias-adjusted Fib / ATR / pivot levels + empirical hit rates — the data-science backing)",
       JSON.stringify(sources.cto, null, 2),
       "",
-      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage, GAMEPLAN, MACRO WIRE)",
-      "The `macro_wire_pulse` object (when present) is real-time LLM-classified output from DeItaone and other macro_wire X accounts. Use `risk_tone` and `recent_headlines` for intraday macro context. Weight high-urgency catalyst headlines in your verdict.",
+      "### 5. Discovery Pulse (cross-universe signals: news, screener, moves, coverage, GAMEPLAN, DELTA ONE)",
+      "The `macro_wire_pulse` object (when present) is real-time LLM-classified output from Delta One (@DeItaone / Walter Bloomberg). Use `risk_tone` and `recent_headlines` for intraday macro context. Weight high-urgency catalyst headlines in your verdict.",
       "The `gameplan` object (when present) is the nightly synthesis of what the engine MISSED and why: `binding_constraint` says whether misses come from missing plays (NO_PLAY_FOR_MOVE), generic gates vetoing valid setups (GENERIC_GATE_VETO), low conviction, wrong-side bias, data gaps, or universe gaps. `playbook_usage` shows which entry plays actually ran vs sat idle. `miss_archetypes` are REPEATED miss patterns — candidate new plays or trigger gaps. Your 'Discovery layer' observation should name the binding constraint and any one-play-offense / idle-play finding when the data supports it; flag persistent archetypes in `early_indicators`.",
       JSON.stringify(sources.discovery, null, 2),
       "",

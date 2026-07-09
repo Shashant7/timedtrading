@@ -139,9 +139,9 @@ Last-5-day per-ticker headlines + gpt-scored sentiment + catalyst strength.
     ADJUST tighter SL (catalyst is against the trade)
   - count_5d == 0 = no news to weigh, do not penalize
 
-MACRO WIRE (memory.macro_wire_context, 2026-07-09 — DeItaone + macro_wire):
+MACRO WIRE (memory.macro_wire_context, 2026-07-09 — Delta One @DeItaone):
 
-Real-time LLM-classified macro headlines (NATO, CPI prints, geopolitical).
+Real-time LLM-classified Delta One headlines (NATO, CPI prints, geopolitical).
   - risk_tone "risk-off" + LONG trade = bias tighter or REJECT on marginal setups
   - risk_tone "risk-on" + LONG in affected theme = mild APPROVE tailwind
   - relevant_headlines with urgency "high" = weigh heavily even without cashtags

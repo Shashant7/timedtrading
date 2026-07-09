@@ -816,7 +816,7 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     // FSD intel enrichment is best-effort — never break CIO memory.
   }
 
-  // ── Layer 15f: Macro wire context (2026-07-09 — DeItaone + macro_wire) ───
+  // ── Layer 15f: Delta One context (2026-07-09 — @DeItaone) ─────────────────
   // Universe-level risk tone + per-ticker relevant headlines from the real-time
   // macro wire pulse (worker/discovery/macro-wire-intel.js). Preloaded into
   // memoryCache.macroWirePulse by the scoring cron.

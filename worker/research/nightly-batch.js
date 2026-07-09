@@ -198,7 +198,7 @@ export function runNightlyResearchBatch(env, ctx) {
         // 4.7. X wire accounts (Phase 3) — curated macro/flow handles.
         try {
           const XWire = await import("../discovery/x-wire-tracker.js");
-          const wireResult = await XWire.fetchAndStoreWirePosts(env, { delayMs: 400 });
+          const wireResult = await XWire.fetchDeltaOnePosts(env, { delayMs: 400 });
           if (wireResult.ok) {
             console.log(`[DISCOVERY BATCH 4.7/5] X wire: ${wireResult.persisted} new posts, ${wireResult.fanout} ticker_news rows, ${wireResult.macro_hits} macro hits, ${wireResult.discord_sent || 0} discord`);
             if (wireResult.persisted > 0) {
