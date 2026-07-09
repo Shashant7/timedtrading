@@ -1,8 +1,10 @@
 # D1 billing investigation — 80M rows written threshold (2026-06-22)
 
-**Status:** Documented. **No code change.** Re-assess if the threshold fires again next month.
+**Status:** July 2026 read optimizations landed in PR `cursor/d1-read-optimizations-ca70`. Hygiene (`setup_events` replay purge) deferred — backtest artifacts under review.
 
 Cloudflare notification: configured billing threshold reached for **80,000,000 rows written** on `timed-trading-ledger` (production D1).
+
+**Follow-up (2026-07-09):** **20B rows read** monthly threshold alert. Dashboard showed ~66B reads / ~99M writes over Jun 10–Jul 9. Steady-state scoring (`*/5` × ~307 tickers) dominates; Jul 2026 optimizations: 5m/15m 90d retention, live-candle sync throttled to `*/5`, ingestion-status cache 5min, `/timed/all` D1 fallback ROW_NUMBER → GROUP BY/scoped IN.
 
 ---
 
