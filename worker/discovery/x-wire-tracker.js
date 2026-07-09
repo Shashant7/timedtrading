@@ -15,6 +15,19 @@ const USER_IDS_KV = "timed:x:user_ids";
 const SINCE_ID_PREFIX = "timed:x:since_id:";
 const MACRO_ACTUALS_KV = "cro:macro:actuals:xwire";
 const FETCH_TIMEOUT_MS = 12_000;
+const DISCORD_MAX_PER_FETCH = 8;
+
+const KIND_COLORS = {
+  macro_wire: 0xe67e22,
+  technical: 0x3498db,
+  inspiration: 0x9b59b6,
+  fsd_leader: 0x1abc9c,
+  speculative: 0xf39c12,
+  flow: 0x2ecc71,
+  general: 0x95a5a6,
+  headlines: 0x34495e,
+  wire: 0x5865f2,
+};
 
 /** Default wire accounts — override via KV `timed:x:watchlist`. */
 export const DEFAULT_X_WATCHLIST = [
@@ -211,6 +224,93 @@ export function extractLevelsFromText(text, opts = {}) {
   return levels;
 }
 
+/** Discord embed for one new wire post (general lane / #general). */
+export function buildWireDiscordEmbed(row, watchMeta = {}) {
+  const handle = normHandle(row.handle);
+  const kind = String(row.kind || watchMeta.kind || "wire");
+  const text = String(row.text || "").trim();
+  const tickers = (() => {
+    try { return JSON.parse(row.tickers_json || "[]"); } catch (_) { return []; }
+  })();
+  const levels = (() => {
+    try { return JSON.parse(row.levels_json || "[]"); } catch (_) { return []; }
+  })();
+  const macro = (() => {
+    try { return row.macro_json ? JSON.parse(row.macro_json) : null; } catch (_) { return null; }
+  })();
+  const reason = watchMeta.reason ? String(watchMeta.reason).slice(0, 120) : null;
+
+  const titleParts = [`@${handle}`];
+  if (macro?.event_name) titleParts.push(macro.event_name.slice(0, 80));
+  else if (tickers.length > 0) titleParts.push(tickers.slice(0, 4).join(", "));
+
+  const fields = [];
+  if (macro) {
+    fields.push({
+      name: "Macro print",
+      value: `Actual: **${macro.actual}**${macro.estimate ? ` · Est: ${macro.estimate}` : ""}`,
+      inline: false,
+    });
+  }
+  if (tickers.length > 0) {
+    fields.push({ name: "Tickers", value: tickers.map((t) => `$${t}`).join(" "), inline: true });
+  }
+  if (levels.length > 0) {
+    const lvl = levels.slice(0, 4).map((l) => `${l.kind} ${l.price}`).join(" · ");
+    fields.push({ name: "Levels", value: lvl.slice(0, 200), inline: false });
+  }
+  if (reason) {
+    fields.push({ name: "Why we follow", value: reason, inline: false });
+  }
+
+  const body = text.length > 900 ? `${text.slice(0, 897)}...` : text;
+  return {
+    title: titleParts.join(" — ").slice(0, 240),
+    description: body || "(empty post)",
+    url: row.url || `https://x.com/${handle}/status/${row.post_id}`,
+    color: KIND_COLORS[kind] || KIND_COLORS.wire,
+    fields: fields.slice(0, 6),
+    footer: { text: `X wire · ${kind.replace(/_/g, " ")}` },
+    timestamp: row.created_at || new Date().toISOString(),
+  };
+}
+
+function watchlistMap(watchlist) {
+  const m = {};
+  for (const w of watchlist || []) {
+    const h = normHandle(w.handle);
+    if (h) m[h] = w;
+  }
+  return m;
+}
+
+function isFreshForDiscord(_row, hadSinceId) {
+  // Skip Discord on first-time backfill (no since_id) to avoid flooding #general.
+  return Boolean(hadSinceId);
+}
+
+/** Post new wire rows to Discord #general (lane=general). Best-effort. */
+export async function notifyWirePostsToDiscord(env, rows, opts = {}) {
+  if (opts.skipDiscord) return { ok: true, skipped: true, reason: "skip_discord" };
+  const list = Array.isArray(rows) ? rows : [];
+  if (list.length === 0) return { ok: true, sent: 0 };
+  const max = Math.max(1, Math.min(DISCORD_MAX_PER_FETCH, Number(opts.maxDiscord) || DISCORD_MAX_PER_FETCH));
+  const watchByHandle = watchlistMap(opts.watchlist);
+  const { notifyDiscord } = await import("../alerts.js");
+  let sent = 0;
+  let errors = 0;
+  for (const row of list.slice(0, max)) {
+    const embed = buildWireDiscordEmbed(row, watchByHandle[normHandle(row.handle)] || {});
+    const res = await notifyDiscord(env, embed, "general").catch((e) => ({
+      ok: false,
+      error: String(e?.message || e).slice(0, 120),
+    }));
+    if (res?.ok) sent += 1;
+    else errors += 1;
+  }
+  return { ok: true, sent, errors, capped: list.length > max };
+}
+
 async function getSinceId(env, handle) {
   const kv = env?.KV_TIMED || env?.KV;
   try {
@@ -331,7 +431,9 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
   }
   const interDelayMs = Math.max(0, Number(opts.delayMs) || 350);
   let fetched = 0, persisted = 0, fanout = 0, macroHits = 0, errors = 0;
+  let discordSent = 0;
   const perHandle = {};
+  const discordQueue = [];
 
   for (let i = 0; i < watchlist.length; i++) {
     const { handle, kind } = watchlist[i];
@@ -344,6 +446,7 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
       continue;
     }
     const sinceId = await getSinceId(env, h);
+    const hadSinceId = Boolean(sinceId);
     const tl = await fetchTimeline(env, userId, sinceId, token, opts);
     if (!tl.ok) {
       errors += 1;
@@ -390,6 +493,9 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
         if (macro && await persistMacroActual(env, macro, { handle: h, post_id: postId })) {
           macroHits += 1;
         }
+        if (isFreshForDiscord(row, hadSinceId)) {
+          discordQueue.push(row);
+        }
       }
     }
     if (newestId && newestId !== sinceId) {
@@ -407,6 +513,15 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
     }
   }
 
+  if (discordQueue.length > 0) {
+    const discordRes = await notifyWirePostsToDiscord(env, discordQueue, {
+      watchlist,
+      skipDiscord: opts.skipDiscord,
+      maxDiscord: opts.maxDiscord,
+    });
+    discordSent = discordRes.sent || 0;
+  }
+
   return {
     ok: true,
     accounts: watchlist.length,
@@ -414,6 +529,7 @@ export async function fetchAndStoreWirePosts(env, opts = {}) {
     persisted,
     fanout,
     macro_hits: macroHits,
+    discord_sent: discordSent,
     errors,
     per_handle: perHandle,
     fetched_at: Date.now(),
