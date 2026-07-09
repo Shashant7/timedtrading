@@ -1855,6 +1855,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     kvGetJSON(KV, "timed:prices").catch(() => null),
   ]);
 
+  let xWireHeadlines = [];
+  try {
+    const XWire = await import("./discovery/x-wire-tracker.js");
+    xWireHeadlines = await XWire.loadWireHeadlinesForBrief(env, { lookbackHours: 36, limit: 15 });
+  } catch (_) { /* optional */ }
+
   // Cross-reference: use timed:prices (cron-updated) to validate/supplement index ETF data
   let _pf = (priceFeedRaw?.prices || priceFeedRaw) || {};
   _pf = await enrichBriefIndexQuotesFromTd(env, _pf, _briefSessionMktOpen);
@@ -2421,7 +2427,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     })),
     // Investor portfolio positions (D1 + live score-owned book)
     investorPositions,
-    econNews: (finnhubEconNews || []).slice(0, 10),
+    econNews: [...(xWireHeadlines || []), ...(finnhubEconNews || [])].slice(0, 15),
     // 2026-05-22 — Broad market headlines for the brief infographic.
     topHeadlines: (finnhubTopHeadlines || []).slice(0, 6),
     morningPrediction: type === "evening" ? (morningBrief?.es_prediction || null) : null,
