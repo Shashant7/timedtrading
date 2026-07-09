@@ -1,6 +1,7 @@
 // Email module — SendGrid integration for outbound emails
 // Handles: welcome, daily brief digest, trade alerts, re-engagement, unsubscribe tokens.
 
+import { humanizeExhaustionWarning } from "./timing-signals.js";
 import { optionsPlayEmailHtml } from "./options-plays.js";
 import { shadowOptionsPlayEmailHtml } from "./options-shadow.js";
 import { buildSignal, renderEmailSubject } from "./signal-grammar.js";
@@ -1542,7 +1543,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       ? `<div style="margin:0 0 8px;color:#f59e0b;font-size:13px;font-weight:600">Engine auto-adjusted: ${_adjPieces.join(" · ")}</div>`
       : "";
     const _warningList = exhaustion.warnings.slice(0, 9)
-      .map(w => `<li style="margin:2px 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:${BRAND.textSecondary}">${String(w).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</li>`)
+      .map(w => `<li style="margin:2px 0;font-family:'JetBrains Mono',monospace;font-size:11px;color:${BRAND.textSecondary}">${String(humanizeExhaustionWarning(w)).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</li>`)
       .join("");
     exhaustionSection = _section(`⚠️ Exhausted Momentum · ${exhaustion.warnings.length} warning${exhaustion.warnings.length === 1 ? "" : "s"}`, `
       <div style="border-left:3px solid #f59e0b;padding:4px 0 4px 12px;margin:0 0 4px">

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   detectExhaustionWarnings,
   detectCompressionSignals,
+  humanizeExhaustionWarning,
   computeTimingOverlay,
   applyTimingOverlayToConfluence,
   evaluateBroadIndexExtensionWatch,
@@ -126,6 +127,11 @@ describe("fsd / macro risk-off hint", () => {
       td_sequential: { per_tf: { D: { bearish_prep_count: 6 } } },
     });
     expect(warnings).toContain("fsd_macro_risk_off");
+  });
+
+  it("humanizeExhaustionWarning hides FSD jargon", () => {
+    expect(humanizeExhaustionWarning("fsd_macro_risk_off")).toBe("Macro risk-off context");
+    expect(humanizeExhaustionWarning("markov_dwell_exhausted_33.8sigma")).toContain("33.8");
   });
 });
 
