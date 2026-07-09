@@ -79,6 +79,7 @@ export async function loadWatchlist(env) {
         return parsed.map((row) => ({
           handle: normHandle(row.handle),
           kind: String(row.kind || "wire").slice(0, 32),
+          reason: row.reason ? String(row.reason).slice(0, 200) : null,
         })).filter((r) => r.handle);
       }
     }
