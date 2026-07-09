@@ -349,19 +349,35 @@
         };
       }
 
-      function briefSpotFromFeed(row) {
+      function briefSpotFromFeed(row, preferRth = false) {
         if (!row) return null;
         const mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+        if (preferRth || mktOpen) {
+          const p = Number(row.p);
+          if (Number.isFinite(p) && p > 0) return p;
+        }
         const ext = Number(row.ahp);
         const p = Number(row.p);
         if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
         return Number.isFinite(p) && p > 0 ? p : null;
       }
 
-      function briefDayPctFromFeed(sym, row) {
+      function briefDayPctFromFeed(sym, row, preferRth = false) {
         if (!row) return null;
         const t = briefPriceFeedToTicker(sym, row);
         const mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+        // Evening brief "today" = completed RTH session (dp), not after-hours drift.
+        if (preferRth || mktOpen) {
+          const dc = window.TimedPriceUtils?.getDailyChange?.(t);
+          if (Number.isFinite(dc?.dayPct)) return dc.dayPct;
+          const spot = briefSpotFromFeed(row, true);
+          const pc = Number(row.pc);
+          if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0 && Math.abs(spot - pc) > 0.0001) {
+            return Math.round(((spot - pc) / pc) * 10000) / 100;
+          }
+          const dp = Number(row.dp);
+          if (Number.isFinite(dp)) return dp;
+        }
         if (!mktOpen) {
           const ext = window.TimedPriceUtils?.getExtChange?.(t);
           if (ext && Number.isFinite(ext.pct)) return ext.pct;
@@ -376,21 +392,22 @@
         return Number.isFinite(dc?.dayPct) ? dc.dayPct : (Number.isFinite(Number(row.dp)) ? Number(row.dp) : null);
       }
 
-      function enrichBriefTraderRow(row, livePx) {
+      function enrichBriefTraderRow(row, livePx, preferRth = false) {
         const sym = String(row?.ticker || "").toUpperCase();
         const pf = livePx?.[sym];
-        const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.dayPct;
+        const dayPct = pf ? briefDayPctFromFeed(sym, pf, preferRth) : row?.dayPct;
+        const spot = pf ? briefSpotFromFeed(pf, preferRth) : Number(row?.price);
         return {
           ...row,
           dayPct: Number.isFinite(dayPct) ? dayPct : row?.dayPct,
         };
       }
 
-      function enrichBriefInvestorRow(row, livePx) {
+      function enrichBriefInvestorRow(row, livePx, preferRth = false) {
         const sym = String(row?.ticker || "").toUpperCase();
         const pf = livePx?.[sym];
-        const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.dayPct;
-        const spot = pf ? briefSpotFromFeed(pf) : Number(row?.price);
+        const dayPct = pf ? briefDayPctFromFeed(sym, pf, preferRth) : row?.dayPct;
+        const spot = pf ? briefSpotFromFeed(pf, preferRth) : Number(row?.price);
         const avgEntry = Number(row?.avgEntry);
         let unrealPct = row?.unrealPct;
         if (Number.isFinite(spot) && spot > 0 && Number.isFinite(avgEntry) && avgEntry > 0) {
@@ -403,10 +420,10 @@
         };
       }
 
-      function enrichBriefMoverRow(row, livePx) {
+      function enrichBriefMoverRow(row, livePx, preferRth = false) {
         const sym = String(row?.ticker || "").toUpperCase();
         const pf = livePx?.[sym];
-        const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.pct;
+        const dayPct = pf ? briefDayPctFromFeed(sym, pf, preferRth) : row?.pct;
         return {
           ...row,
           pct: Number.isFinite(dayPct) ? dayPct : row?.pct,
@@ -504,7 +521,7 @@
         return { label: action || "ACT", cls: "ds-chip--solid", title: "Model action" };
       }
 
-      function BriefChipStrip({ sectionKey, infographic, sectionBody }) {
+      function BriefChipStrip({ sectionKey, infographic, sectionBody, preferRth = false }) {
         const info = infographic || {};
         const livePx = useBriefLivePriceMap();
         if (sectionKey === "modelActions") {
@@ -522,11 +539,16 @@
                   const sub = Number.isFinite(Number(row.price)) && Number(row.price) > 0
                     ? `@ $${Number(row.price).toFixed(2)}`
                     : (row.sub ? String(row.sub).replace(/_/g, " ").slice(0, 24) : null);
+                  const pfRow = livePx?.[sym];
+                  const liveDay = pfRow
+                    ? briefDayPctFromFeed(sym, pfRow, preferRth)
+                    : row.dayPct;
                   return (
                     <BriefTickerChip
                       key={`${sym}-${row.action}-${i}`}
                       sym={sym}
                       pct={row.pct}
+                      pct2={Number.isFinite(liveDay) ? liveDay : row.dayPct}
                       sub={sub}
                       href={href}
                       actionChip={meta}
@@ -554,7 +576,7 @@
                   <div className="tt-brief-chip-label">Gainers</div>
                   <div className="tt-strip-scroll" style={{ marginBottom: l.length ? 10 : 0 }}>
                     {g.map((row) => {
-                      const enriched = enrichBriefMoverRow(row, livePx);
+                      const enriched = enrichBriefMoverRow(row, livePx, preferRth);
                       const sym = String(enriched.ticker || "").toUpperCase();
                       return (
                       <BriefTickerChip
@@ -574,7 +596,7 @@
                   <div className="tt-brief-chip-label">Losers</div>
                   <div className="tt-strip-scroll">
                     {l.map((row) => {
-                      const enriched = enrichBriefMoverRow(row, livePx);
+                      const enriched = enrichBriefMoverRow(row, livePx, preferRth);
                       const sym = String(enriched.ticker || "").toUpperCase();
                       return (
                       <BriefTickerChip
@@ -598,7 +620,7 @@
         return null;
       }
 
-      function BriefPositionStack({ sectionKey, infographic, sectionBody }) {
+      function BriefPositionStack({ sectionKey, infographic, sectionBody, preferRth = false }) {
         const livePx = useBriefLivePriceMap();
         const guidanceMap = useMemo(() => {
           if (window.TimedBriefMarkdown?.parseBriefPositionGuidanceByTicker) {
@@ -613,8 +635,8 @@
           : (Array.isArray(info.investorHoldings) ? info.investorHoldings : []);
         const rows = useMemo(() => {
           if (!rawRows.length) return [];
-          return rawRows.map((r) => (isTrader ? enrichBriefTraderRow(r, livePx) : enrichBriefInvestorRow(r, livePx)));
-        }, [rawRows, livePx, isTrader]);
+          return rawRows.map((r) => (isTrader ? enrichBriefTraderRow(r, livePx, preferRth) : enrichBriefInvestorRow(r, livePx, preferRth)));
+        }, [rawRows, livePx, isTrader, preferRth]);
         if (!rows.length) return null;
         return (
           <div className="tt-brief-pos-stack">
@@ -667,7 +689,7 @@
         return raw;
       }
 
-      function BriefContent({ content, infographic }) {
+      function BriefContent({ content, infographic, preferRth = false }) {
         const sections = useMemo(() => {
           if (window.TimedBriefMarkdown?.parseBriefDisplaySections) {
             return window.TimedBriefMarkdown.parseBriefDisplaySections(content || "");
@@ -681,10 +703,10 @@
               <div key={`${sec.title || "sec"}-${idx}`}>
                 {sec.title && <h2>{sec.title}</h2>}
                 {sec.key && BRIEF_POSITION_SECTION_KEYS.has(sec.key) ? (
-                  <BriefPositionStack sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />
+                  <BriefPositionStack sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} preferRth={preferRth} />
                 ) : (
                   <>
-                    {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} />}
+                    {sec.key && <BriefChipStrip sectionKey={sec.key} infographic={infographic} sectionBody={sec.body} preferRth={preferRth} />}
                     {sec.body ? (
                       <div dangerouslySetInnerHTML={{ __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body, infographic)) }} />
                     ) : null}
@@ -1464,10 +1486,10 @@
             {isMorning && brief.sessionContext && (
               <SessionContextBanner sessionContext={brief.sessionContext} />
             )}
-            <BriefContent content={brief.content} infographic={brief.infographic} />
             {!isMorning && brief.croNote && (
               <CRODeskWrapPanel croNote={brief.croNote} accentColor={accentColor} />
             )}
+            <BriefContent content={brief.content} infographic={brief.infographic} preferRth={!isMorning} />
             {isMorning && (
               <IndexOutlookSection brief={brief} accentColor={accentColor} bgDim={bgDim} isMorning={isMorning} />
             )}

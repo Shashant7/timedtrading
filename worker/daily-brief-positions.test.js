@@ -52,6 +52,25 @@ describe("daily-brief open positions", () => {
     expect(resolveOwnedInvestorKanbanStage(null, "accumulate")).toBe("accumulate");
   });
 
+  it("buildInfographicPositionRows uses RTH dp when marketOpen=true (evening email path)", () => {
+    const now = Date.now();
+    const pf = { GRNY: { p: 27.86, pc: 27.64, dp: 0.82, ahp: 27.86, ahdp: 0, p_ts: now, t: now } };
+    const { traderPositions } = buildInfographicPositionRows([{
+      ticker: "GRNY", direction: "LONG", entryPrice: 27.64, pnlPct: 0.4, status: "OPEN",
+    }], [], pf, true);
+    expect(traderPositions[0].dayPct).toBeCloseTo(0.82, 2);
+  });
+
+  it("buildInfographicPositionRows returns zero dayPct when closed session uses EXT path incorrectly", () => {
+    const now = Date.now();
+    const pf = { GRNY: { p: 27.86, pc: 27.64, dp: 0.82, ahp: 27.86, ahdp: 0, p_ts: now, t: now } };
+    const { traderPositions } = buildInfographicPositionRows([{
+      ticker: "GRNY", direction: "LONG", entryPrice: 27.64, pnlPct: 0.4, status: "OPEN",
+    }], [], pf, false);
+    // ahp === p when no extended drift → bogus 0% "today" without RTH flag
+    expect(traderPositions[0].dayPct).toBe(0);
+  });
+
   it("liveDayPctFromPriceFeedRow falls back to p vs pc when dp is zero during RTH", () => {
     const now = Date.now();
     const pct = liveDayPctFromPriceFeedRow(
