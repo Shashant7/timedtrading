@@ -36,6 +36,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **"Various ticker lists" / unscored symbols clustering at (0,0) / add-remove a ticker / registry source of truth** | [ticker-registry.md](ticker-registry.md) |
 | Add/grade a published signal (options plays, desk calls, investor actions) | [signal-outcome-ledger.md](signal-outcome-ledger.md) |
 | Operator hands you a new Fundstrat Direct (or equivalent) publication and says "update the playbook" | [update-strategy-playbook.md](update-strategy-playbook.md) |
+| Connect Cursor to X API for interactive post/search/debug (not worker ingest) | [x-mcp-cursor.md](x-mcp-cursor.md) |
 
 ## When to ADD a new skill
 
