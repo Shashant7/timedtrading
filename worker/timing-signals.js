@@ -274,6 +274,26 @@ export function detectExhaustionWarnings(tickerData) {
   return out;
 }
 
+/** User-facing label for exhaustion warning keys (no internal jargon). */
+export function humanizeExhaustionWarning(raw) {
+  const key = String(raw || "").trim();
+  const LABELS = {
+    fsd_macro_risk_off: "Macro risk-off context",
+    macro_risk_off: "Macro risk-off context",
+    markov_1d_bearish: "Short-term regime bearish",
+    daily_bearish_rsi_divergence: "Daily bearish RSI divergence",
+    weekly_bearish_rsi_divergence: "Weekly bearish RSI divergence",
+    mean_revert_td9_short: "Mean-revert TD9 short setup",
+  };
+  if (LABELS[key]) return LABELS[key];
+  const stripped = key.replace(/^fsd_/i, "");
+  return stripped
+    .replace(/_/g, " ")
+    .replace(/\b(\d+(?:\.\d+)?)sigma\b/g, "$1σ")
+    .replace(/\bpct\b/g, "%")
+    .trim();
+}
+
 function computeExtensionSide(tickerData, confluence, warnings) {
   const signals = [];
   let score = 0;
