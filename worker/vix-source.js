@@ -10,6 +10,7 @@ export const VIX_YAHOO_CACHE_KEY = "macro:vix_cash_quote";
 export const VIX_YAHOO_CACHE_TTL_SEC = 300;
 /** Match futures-proxy TV freshness bar — VIX futures tick ~23h/day. */
 export const VIX_VX1_FRESH_MS = 10 * 60 * 1000;
+const HISTORICAL_VIX_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
@@ -17,6 +18,75 @@ function round2(n) {
 
 function roundPct(n) {
   return Math.round(Number(n) * 10000) / 100;
+}
+
+function nearestHistoricalLevel(rows, targetTs, maxAgeMs = HISTORICAL_VIX_MAX_AGE_MS) {
+  if (!Array.isArray(rows) || !(Number(targetTs) > 0)) return null;
+  let closest = null;
+  let distance = Infinity;
+  for (const row of rows) {
+    const ts = Number(row?.ts) || 0;
+    const level = Number(row?.level);
+    if (!(ts > 0) || !(level > 0)) continue;
+    const d = Math.abs(ts - Number(targetTs));
+    if (d < distance) {
+      closest = { ts, level, source: row.source || null };
+      distance = d;
+    }
+  }
+  return closest && distance <= maxAgeMs ? closest : null;
+}
+
+/**
+ * Load the same VIX history hierarchy Market Pulse relies on:
+ * daily Market Pulse snapshots first, then cash-index/VX1! candles.
+ * VIXY is deliberately excluded: it is a directional ETF, not a VIX level.
+ */
+export async function loadHistoricalVixSeries(db) {
+  if (!db) return { snapshots: [], candles: [] };
+  const [snapshotRes, candleRes] = await Promise.all([
+    db.prepare(
+      `SELECT date, vix_close
+         FROM daily_market_snapshots
+        WHERE vix_close IS NOT NULL AND vix_close > 0
+        ORDER BY date`,
+    ).all().catch(() => ({ results: [] })),
+    db.prepare(
+      `SELECT ticker, ts, c
+         FROM ticker_candles
+        WHERE tf = 'D' AND ticker IN ('VIX', '$VIX', 'VIX.X', 'VX1!')
+        ORDER BY ts`,
+    ).all().catch(() => ({ results: [] })),
+  ]);
+  const snapshots = (snapshotRes?.results || []).map((r) => ({
+    // Snapshot date records the completed US session. Noon UTC avoids a
+    // midnight boundary choosing the prior trading day for US entries.
+    ts: Date.parse(`${String(r.date).slice(0, 10)}T12:00:00Z`),
+    level: Number(r.vix_close),
+    source: "market_pulse_snapshot",
+  }));
+  const candles = (candleRes?.results || []).map((r) => ({
+    ts: Number(r.ts),
+    level: Number(r.c),
+    source: String(r.ticker || "").toUpperCase() === "VX1!" ? "vx1_daily" : "vix_daily",
+  }));
+  return { snapshots, candles };
+}
+
+/**
+ * Resolve VIX at a historical entry timestamp. A recorded entry value wins;
+ * otherwise use the Market Pulse daily snapshot, then cash/VX1! history.
+ */
+export function resolveHistoricalVixAtTs(entryTs, series = {}, entryVix = null) {
+  const recorded = Number(entryVix);
+  if (Number.isFinite(recorded) && recorded > 0) {
+    return { level: round2(recorded), source: "entry_lineage" };
+  }
+  const snapshot = nearestHistoricalLevel(series.snapshots, entryTs);
+  if (snapshot) return { level: round2(snapshot.level), source: snapshot.source };
+  const candle = nearestHistoricalLevel(series.candles, entryTs);
+  if (candle) return { level: round2(candle.level), source: candle.source };
+  return { level: null, source: "missing" };
 }
 
 function kvPriceRow(sym, price, prevClose, ts, source) {
