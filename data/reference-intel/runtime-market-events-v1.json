@@ -35349,7 +35349,7 @@
         "event_type": "macro",
         "event_name": "Jun Existing Home Sales",
         "impact": "medium",
-        "surprise_pct": null,
+        "surprise_pct": -0.71,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35358,7 +35358,7 @@
         "event_type": "macro",
         "event_name": "Jun Existing Home Sales m/m",
         "impact": "medium",
-        "surprise_pct": null,
+        "surprise_pct": 222,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35502,7 +35502,7 @@
         "event_type": "earnings",
         "event_name": "SLP Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 134.56,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35547,7 +35547,7 @@
         "event_type": "earnings",
         "event_name": "WDFC Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 46.52,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35649,13 +35649,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 45.7318
+        "sql_duration_ms": 34.3411
       },
-      "duration": 45.7318,
+      "duration": 34.3411,
       "changes": 0,
-      "last_row_id": 13121,
+      "last_row_id": 307756,
       "changed_db": false,
-      "size_after": 4738023424,
+      "size_after": 4135813120,
       "rows_read": 3960,
       "rows_written": 0,
       "total_attempts": 1
