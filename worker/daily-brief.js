@@ -1735,6 +1735,115 @@ function getWeekRange(dateStr) {
   return { from: fmtDate(monday), to: fmtDate(friday) };
 }
 
+/** Extract continuity signals from a published brief (Today's Three, editorial header, thesis). */
+export function extractBriefThreadSignals(content) {
+  const text = String(content || "").trim();
+  if (!text) return null;
+  const todaysThree = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\s*([1-3])\.\s+(.+)/);
+    if (m) todaysThree.push({ n: Number(m[1]), line: String(m[2] || "").trim().slice(0, 120) });
+  }
+  const headers = [...text.matchAll(/^##\s+(.+)$/gm)].map((m) => String(m[1] || "").trim());
+  const editorialHeader = headers.find((h) => !/today'?s three/i.test(h)) || headers[0] || null;
+  let thesisSnippet = null;
+  if (editorialHeader) {
+    const marker = `## ${editorialHeader}`;
+    const idx = text.indexOf(marker);
+    if (idx >= 0) {
+      const after = text.slice(idx + marker.length).replace(/^\s+/, "");
+      const para = after.split(/\n\n+/)[0]?.replace(/\n/g, " ").trim();
+      if (para) thesisSnippet = para.slice(0, 220);
+    }
+  }
+  return { todaysThree, editorialHeader, thesisSnippet };
+}
+
+/** Load published morning/evening briefs for the current week before this generation slot. */
+export async function fetchWeekBriefThread(db, weekStart, today, generatingType) {
+  if (!db || !weekStart || !today) return [];
+  const genType = String(generatingType || "").toLowerCase();
+  const rows = await db.prepare(`
+    SELECT date, type, content, es_prediction
+    FROM daily_briefs
+    WHERE date >= ?1 AND date <= ?2
+    ORDER BY date ASC, CASE WHEN type = 'morning' THEN 0 ELSE 1 END
+  `).bind(weekStart, today).all().catch(() => ({ results: [] }));
+  const list = Array.isArray(rows?.results) ? rows.results : [];
+  return list
+    .filter((r) => {
+      const d = String(r.date || "");
+      const t = String(r.type || "").toLowerCase();
+      if (d < today) return true;
+      if (d === today && genType === "evening" && t === "morning") return true;
+      return false;
+    })
+    .map((r) => ({
+      date: r.date,
+      type: r.type,
+      signals: extractBriefThreadSignals(r.content),
+      esPrediction: r.es_prediction ? String(r.es_prediction).slice(0, 240) : null,
+    }));
+}
+
+/** Human label for where this brief sits in the trading week. */
+export function buildWeekJourneyLabel(today, weekStart, type, dayOfWeekLabel) {
+  const start = new Date(`${weekStart}T12:00:00Z`);
+  const end = new Date(`${today}T12:00:00Z`);
+  let tradingDayN = 0;
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const dow = d.getUTCDay();
+    if (dow >= 1 && dow <= 5) tradingDayN += 1;
+  }
+  const slot = String(type || "").toLowerCase() === "evening" ? "evening recap" : "morning setup";
+  const dayLabel = dayOfWeekLabel || "This week";
+  return `${dayLabel} ${slot} — trading day ${tradingDayN} of the week (week began ${weekStart})`;
+}
+
+/** Prompt block: week arc + anti-repetition rules for serial narrative. */
+export function formatWeekBriefThreadForPrompt(thread, journeyLabel, generatingType) {
+  const genType = String(generatingType || "").toLowerCase();
+  if (!Array.isArray(thread) || thread.length === 0) {
+    return [
+      `**Week position:** ${journeyLabel}`,
+      "",
+      "(First brief slot of the trading week — open a fresh weekly arc. Do not invent a multi-day thread that did not happen. Still honor the immediate prior brief excerpt below if present.)",
+    ].join("\n");
+  }
+  const lines = [
+    `**Week position:** ${journeyLabel}`,
+    "",
+    "**Prior briefs this week (chronological — continue the thread; do NOT repeat their wording or metaphors):**",
+  ];
+  for (const entry of thread) {
+    const sig = entry.signals;
+    const label = `${entry.date} ${entry.type}`;
+    lines.push(`- **${label}**${sig?.editorialHeader ? ` · headline: "${sig.editorialHeader}"` : ""}`);
+    if (sig?.todaysThree?.length) {
+      for (const t of sig.todaysThree) lines.push(`  ${t.n}. ${t.line}`);
+    }
+    if (sig?.thesisSnippet) lines.push(`  Thesis then: ${sig.thesisSnippet}`);
+    if (entry.type === "morning" && entry.esPrediction && genType === "evening") {
+      lines.push(`  Morning index call: ${entry.esPrediction}`);
+    }
+  }
+  lines.push("");
+  lines.push("> Write the NEXT chapter: what changed since the last brief? Evening briefs MUST score the morning call when one exists. Reuse the same branded metaphor only if the thesis is unchanged; otherwise coin a new one. Never re-open with the same three bullets as yesterday.");
+  return lines.join("\n");
+}
+
+function buildBriefContinuityBlock(data, generatingType) {
+  const weekBlock = formatWeekBriefThreadForPrompt(
+    data.weekBriefThread,
+    data.weekJourneyLabel,
+    generatingType,
+  );
+  const prior = data.priorBriefExcerpt
+    ? `\n\n## Immediate prior brief (last publish only)\n"""${data.priorBriefExcerpt}"""\n> Tie today to the week arc AND this last publish. Do not copy-paste phrases from either block.`
+    : "";
+  return `## WEEK JOURNEY THREAD (mandatory — serial narrative, not a standalone snapshot)\n${weekBlock}${prior}`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Market Data Aggregation
 // ═══════════════════════════════════════════════════════════════════════
@@ -1874,6 +1983,11 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   try {
     const XWire = await import("./discovery/x-wire-tracker.js");
     xWireHeadlines = await XWire.loadWireHeadlinesForBrief(env, { lookbackHours: 36, limit: 15 });
+  } catch (_) { /* optional */ }
+
+  let weekBriefThread = [];
+  try {
+    if (db) weekBriefThread = await fetchWeekBriefThread(db, weekStart, today, type);
   } catch (_) { /* optional */ }
 
   // Cross-reference: use timed:prices (cron-updated) to validate/supplement index ETF data
@@ -2449,7 +2563,9 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     morningContent: type === "evening" ? (morningBrief?.content || "").slice(0, 1500) : null,
     // 2026-06-10 — prior-brief excerpt for BOTH cadences (morning gets
     // yesterday's evening). Continuity + anti-repetition fuel.
-    priorBriefExcerpt: (morningBrief?.content || "").slice(0, 900) || null,
+    priorBriefExcerpt: (morningBrief?.content || "").slice(0, 1200) || null,
+    weekBriefThread,
+    weekJourneyLabel: buildWeekJourneyLabel(today, weekStart, type, dayOfWeekLabel),
     priceFeedCrossRef: buildPriceFeedCrossRef(_pf, _briefSessionMktOpen),
     premarketGapContext: type === "evening" ? null : buildPremarketGapContext(_pf, mktOpen),
     crossAssetContext: buildCrossAssetContext(_pf, _briefSessionMktOpen),
@@ -4564,11 +4680,8 @@ ${(data.onWatch || []).length > 0
     : "No tickers currently in the entry lanes — say the model is patient, not that nothing is happening."}
 > These are NOT recommendations to buy — they are what the MODEL is stalking. The On Watch section must explain, per ticker, WHY it's on the radar (setup forming? theme running? catalyst?) in plain language.
 
-## CONTINUITY & ANTI-REPETITION (prior brief excerpt):
-${data.priorBriefExcerpt
-    ? `"""${data.priorBriefExcerpt}"""
-> Build on this story — reference what we said and what has CHANGED since. NEVER reuse its branded phrase, its metaphors, or re-tell the same narrative in the same words. If the thesis is unchanged, say so in one line and spend the words on what's NEW.`
-    : "(no prior brief available)"}
+## CONTINUITY & ANTI-REPETITION (week journey + immediate prior):
+${buildBriefContinuityBlock(data, "morning")}
 
 ## Active Trader — Open Positions:
 ${data.openTrades.length > 0
@@ -4778,11 +4891,8 @@ ${(data.onWatch || []).length > 0
     : "No tickers currently in the entry lanes — say the model is patient, not that nothing is happening."}
 > These are NOT recommendations to buy — they are what the MODEL is stalking. The On Watch section must explain, per ticker, WHY it's on the radar (setup forming? theme running? catalyst?) in plain language.
 
-## CONTINUITY & ANTI-REPETITION (prior brief excerpt):
-${data.priorBriefExcerpt
-    ? `"""${data.priorBriefExcerpt}"""
-> Build on this story — reference what we said and what has CHANGED since. NEVER reuse its branded phrase, its metaphors, or re-tell the same narrative in the same words. If the thesis is unchanged, say so in one line and spend the words on what's NEW.`
-    : "(no prior brief available)"}
+## CONTINUITY & ANTI-REPETITION (week journey + immediate prior):
+${buildBriefContinuityBlock(data, "evening")}
 
 ## Active Trader — Open Positions (EOD):
 ${data.openTrades.length > 0
