@@ -114,6 +114,9 @@ const SECTOR_MAP = {
   // user_tickers slots.
   'IBM': 'Information Technology',
   'KLAC': 'Information Technology',
+  // 2026-07-10 — AMAT held in Active Trader; was theme-only (ai_infra_semicap)
+  // so promotion queue treated it as out-of-universe despite open book.
+  'AMAT': 'Information Technology',
   'ANET': 'Information Technology',
   'CDNS': 'Information Technology',
   'PANW': 'Information Technology',
