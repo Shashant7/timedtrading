@@ -774,9 +774,121 @@ function scoreCandidate(ticker, latest, allAppearances, themeActivityByName, new
   };
 }
 
+const ACTIONABLE_PROMOTION_STATUSES = new Set(["needs_review", "ready_to_add"]);
+
+/** Open Active Trader + Investor book tickers (KV + D1). */
+export async function loadOpenPositionTickerSet(env, KV) {
+  const out = new Set();
+  try {
+    let trades = null;
+    if (KV) {
+      trades = await KV.get("timed:trades:all", "json").catch(() => null);
+      if (!Array.isArray(trades)) {
+        const raw = await KV.get("timed:trades:all").catch(() => null);
+        trades = raw ? JSON.parse(raw) : [];
+      }
+    }
+    for (const t of trades || []) {
+      const st = String(t?.status || "").toUpperCase();
+      if (st === "OPEN" || st === "TP_HIT_TRIM") {
+        const sym = String(t?.ticker || "").toUpperCase();
+        if (sym) out.add(sym);
+      }
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    if (env?.DB) {
+      const { results } = await env.DB.prepare(
+        `SELECT DISTINCT ticker FROM trades WHERE status IN ('OPEN', 'TP_HIT_TRIM') LIMIT 80`,
+      ).all().catch(() => ({ results: [] }));
+      for (const r of results || []) {
+        const sym = String(r?.ticker || "").toUpperCase();
+        if (sym) out.add(sym);
+      }
+      const inv = await env.DB.prepare(
+        `SELECT DISTINCT ticker FROM investor_positions WHERE status = 'OPEN' LIMIT 80`,
+      ).all().catch(() => ({ results: [] }));
+      for (const r of inv?.results || []) {
+        const sym = String(r?.ticker || "").toUpperCase();
+        if (sym) out.add(sym);
+      }
+    }
+  } catch (_) { /* ignore */ }
+  return out;
+}
+
+/** Union tracked set: SECTOR_MAP + timed:tickers KV + open positions. */
+export async function buildTrackedTickerSet(env, KV) {
+  const SectorMap = await import("../sector-mapping.js");
+  const tracked = new Set(Object.keys(SectorMap.SECTOR_MAP).map((s) => s.toUpperCase()));
+  try {
+    if (KV) {
+      let kvTickers = await KV.get("timed:tickers", "json").catch(() => null);
+      if (!Array.isArray(kvTickers)) {
+        const raw = await KV.get("timed:tickers").catch(() => null);
+        kvTickers = raw ? JSON.parse(raw) : [];
+      }
+      for (const t of kvTickers || []) {
+        const sym = String(t || "").toUpperCase();
+        if (sym) tracked.add(sym);
+      }
+    }
+  } catch (_) { /* ignore */ }
+  const openPositions = await loadOpenPositionTickerSet(env, KV);
+  for (const sym of openPositions) tracked.add(sym);
+  return { tracked, openPositions };
+}
+
+/** Keep the newest row per ticker (fixes stacked AMAT:date duplicates). */
+export function dedupePromotionRowsByTicker(rows) {
+  const best = new Map();
+  for (const row of rows || []) {
+    const ticker = String(row.ticker || "").toUpperCase();
+    if (!ticker) continue;
+    const prev = best.get(ticker);
+    const ts = Number(row.updated_at) || 0;
+    const prevTs = Number(prev?.updated_at) || 0;
+    if (!prev || ts >= prevTs) best.set(ticker, row);
+  }
+  return Array.from(best.values());
+}
+
+/** Hide actionable queue rows for names we already track or hold. */
+export function shouldSuppressTrackedPromotionRow(ticker, status, trackedSet) {
+  const sym = String(ticker || "").toUpperCase();
+  if (!sym || !trackedSet?.has?.(sym)) return false;
+  return ACTIONABLE_PROMOTION_STATUSES.has(String(status || "").toLowerCase());
+}
+
+function annotatePromotionRowSignals(row, trackedSet, openPositionSet) {
+  const sym = String(row.ticker || "").toUpperCase();
+  const inUniverse = trackedSet.has(sym);
+  const hasOpenPosition = openPositionSet.has(sym);
+  const alreadyTracked = inUniverse || hasOpenPosition;
+  row.signals = {
+    ...(row.signals || {}),
+    in_universe: inUniverse,
+    has_open_position: hasOpenPosition,
+    already_tracked: alreadyTracked,
+  };
+  return row;
+}
+
+function sortPromotionRows(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const pri = (s) => (s === "needs_review" ? 2 : s === "ready_to_add" ? 1 : 0);
+    const pd = pri(String(b.status || "")) - pri(String(a.status || ""));
+    if (pd !== 0) return pd;
+    const sd = (Number(b.total_score) || 0) - (Number(a.total_score) || 0);
+    if (sd !== 0) return sd;
+    return (Number(b.updated_at) || 0) - (Number(a.updated_at) || 0);
+  });
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────
-// Pulls the latest screener candidates + auxiliary data, scores every
-// out-of-universe candidate, writes results to the D1 promotion queue.
+// Pulls the latest screener candidates + auxiliary data, scores candidates,
+// writes results to the D1 promotion queue. Already-tracked names are
+// auto-bucketed to `already_tracked` so Needs Review stays net-new only.
 // Returns a summary suitable for the admin response.
 export async function rebuildPromotionQueue(env, opts = {}) {
   const db = env?.DB;
@@ -791,19 +903,8 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   const candidates = Array.isArray(candidatesData?.candidates) ? candidatesData.candidates : [];
   if (candidates.length === 0) return { ok: true, scored: 0, message: "no_candidates" };
 
-  // 2. Build the in-universe ticker set.
-  //
-  // SECTOR_MAP is keyed by TICKER → SECTOR_NAME (e.g. AAPL → "Information
-  // Technology"). So Object.keys() correctly returns the in-universe
-  // ticker symbols.
-  //
-  // 2026-05-29 — we no longer skip in-universe candidates. Tag them with
-  // `in_universe: true` so the UI can either filter them out or surface
-  // them as "strong screener signal on a ticker we already track". The
-  // user explicitly wants to see in-universe names like SNOW/LUNR when
-  // they ARE valid candidates, not have them silently dropped.
-  const SectorMap = await import("../sector-mapping.js");
-  const inUniverseSet = new Set(Object.keys(SectorMap.SECTOR_MAP).map((s) => s.toUpperCase()));
+  // 2. Build tracked ticker set (SECTOR_MAP ∪ timed:tickers ∪ open book).
+  const { tracked: trackedSet, openPositions: openPositionSet } = await buildTrackedTickerSet(env, KV);
 
   // 3. Build "latest" snapshot per unique ticker (most recent appearance).
   //    Score ALL candidates, regardless of universe membership.
@@ -818,7 +919,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   const uniqueTickers = Object.keys(latestBySym);
   const outOfUniverse = candidates.filter((c) => {
     const sym = String(c.ticker || "").toUpperCase();
-    return sym && !inUniverseSet.has(sym);
+    return sym && !trackedSet.has(sym);
   });
 
   // 4. Load auxiliary data for scoring.
@@ -860,10 +961,19 @@ export async function rebuildPromotionQueue(env, opts = {}) {
         newsSummaries[sym], insiderSummaries[sym], macroSnapshot, coverageGapsSummary,
         socialSummaries[sym], tacticalCtx, ctoCtx,
       );
-      result.in_universe = inUniverseSet.has(sym);
-      // Annotate signals payload so the UI can render the badge without
-      // re-checking SECTOR_MAP.
-      if (result.signals) result.signals.in_universe = result.in_universe;
+      const inUniverse = trackedSet.has(sym);
+      const hasOpenPosition = openPositionSet.has(sym);
+      result.in_universe = inUniverse;
+      result.has_open_position = hasOpenPosition;
+      result.already_tracked = inUniverse || hasOpenPosition;
+      if (result.signals) {
+        result.signals.in_universe = inUniverse;
+        result.signals.has_open_position = hasOpenPosition;
+        result.signals.already_tracked = result.already_tracked;
+      }
+      if (result.already_tracked && ACTIONABLE_PROMOTION_STATUSES.has(result.status)) {
+        result.status = "already_tracked";
+      }
       scoredResults.push(result);
     } catch (e) {
       console.warn(`[PROMOTION] score failed for ${sym}:`, String(e?.message || e).slice(0, 150));
@@ -931,6 +1041,10 @@ export async function rebuildPromotionQueue(env, opts = {}) {
         decidedAt = priorDecision.decided_at;
       }
 
+      if (shouldSuppressTrackedPromotionRow(r.ticker, finalStatus, trackedSet)) {
+        finalStatus = "already_tracked";
+      }
+
       await db.prepare(`
         INSERT OR REPLACE INTO discovery_promotion_queue
           (candidate_id, ticker, first_seen_at, last_seen_at, appearances_7d,
@@ -962,7 +1076,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
   return {
     ok: true,
     computed_at: now,
-    universe_size: inUniverseSet.size,
+    universe_size: trackedSet.size,
     screener_candidates: candidates.length,
     out_of_universe: outOfUniverse.length,
     unique_tickers_scored: uniqueTickers.length,
@@ -985,6 +1099,7 @@ export async function rebuildPromotionQueue(env, opts = {}) {
 export async function loadPromotionQueueRows(env, opts = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db" };
+  const KV = env?.KV_TIMED || env?.KV;
   // 2026-05-29 — accept "any" / "all" / "*" / empty as "no filter".
   // Previously a literal WHERE status='any' matched zero rows when the
   // admin UI's "Show all" tab requested the unfiltered view.
@@ -992,11 +1107,13 @@ export async function loadPromotionQueueRows(env, opts = {}) {
   const wildcards = new Set(["", "any", "all", "*"]);
   const status = wildcards.has(rawStatus) ? null : rawStatus;
   const limit = Math.max(1, Math.min(500, Number(opts.limit) || 100));
+  const includeTracked = opts.include_tracked === true || status === "already_tracked";
   const where = [];
   const params = [];
   if (status) { where.push(`status = ?${params.length + 1}`); params.push(status); }
   const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-  params.push(limit);
+  // Fetch extra rows before per-ticker dedup + tracked suppression.
+  params.push(Math.min(500, limit * 4));
   const rows = (await db.prepare(`
     SELECT candidate_id, ticker, first_seen_at, last_seen_at, appearances_7d,
            total_score, status, thesis_text, red_flags_json, components_json,
@@ -1006,15 +1123,38 @@ export async function loadPromotionQueueRows(env, opts = {}) {
       ORDER BY (status='needs_review') DESC, (status='ready_to_add') DESC, total_score DESC, updated_at DESC
       LIMIT ?${params.length}
   `).bind(...params).all().catch(() => ({ results: [] })))?.results || [];
+  const { tracked: trackedSet, openPositions: openPositionSet } = await buildTrackedTickerSet(env, KV);
   // Parse JSON columns for clean response.
-  const parsed = rows.map((r) => ({
+  let parsed = rows.map((r) => ({
     ...r,
     red_flags: tryParseJSON(r.red_flags_json) || [],
     components: tryParseJSON(r.components_json) || {},
     signals: tryParseJSON(r.signals_json) || {},
     red_flags_json: undefined, components_json: undefined, signals_json: undefined,
   }));
-  return { ok: true, count: parsed.length, rows: parsed };
+  parsed = dedupePromotionRowsByTicker(parsed).map((r) =>
+    annotatePromotionRowSignals(r, trackedSet, openPositionSet),
+  );
+  let hiddenTracked = 0;
+  const visible = [];
+  for (const row of sortPromotionRows(parsed)) {
+    if (!includeTracked && shouldSuppressTrackedPromotionRow(row.ticker, row.status, trackedSet)) {
+      hiddenTracked += 1;
+      continue;
+    }
+    visible.push(row);
+    if (visible.length >= limit) break;
+  }
+  return {
+    ok: true,
+    count: visible.length,
+    rows: visible,
+    meta: {
+      hidden_tracked: hiddenTracked,
+      deduped_from: rows.length,
+      tracked_universe_size: trackedSet.size,
+    },
+  };
 }
 
 function tryParseJSON(s) { try { return JSON.parse(s); } catch { return null; } }

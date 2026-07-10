@@ -437,7 +437,7 @@ function App({
     className: "tt-page-title"
   }, "Screener"), React.createElement("p", {
     className: "tt-page-lede"
-  }, viewMode === "promote" ? "Promotion Queue — thesis-quality scoring + operator review" : "Discover new tickers not yet in our universe")), React.createElement("div", {
+  }, viewMode === "promote" ? "Promotion Queue — net-new candidates only (already tracked + open positions hidden)" : "Discover new tickers not yet in our universe")), React.createElement("div", {
     className: "flex items-center gap-2 flex-wrap"
   }, viewMode === "discovery" && isAdmin && selectedTickers.size > 0 && React.createElement("button", {
     onClick: () => addToUniverse(Array.from(selectedTickers)),
@@ -485,15 +485,20 @@ function App({
   })), viewMode === "promote" && React.createElement("div", null, React.createElement("div", {
     className: "flex items-center gap-1 mb-4 bg-[#13201A] rounded-lg p-1 border border-[#1F3128] w-fit flex-wrap"
   }, [{
+    id: "needs_review",
+    label: "Needs Review",
+    color: "#f5c25c",
+    desc: "Score 40-60 or worth a look"
+  }, {
     id: "ready_to_add",
     label: "Ready",
     color: "#22c55e",
     desc: "Score ≥ 60, no critical red flags"
   }, {
-    id: "needs_review",
-    label: "Needs Review",
-    color: "#f5c25c",
-    desc: "Score 40-60 or worth a look"
+    id: "already_tracked",
+    label: "Already Tracked",
+    color: "#a78bfa",
+    desc: "In universe or open position — informational only"
   }, {
     id: "rejected",
     label: "Rejected",
@@ -530,10 +535,16 @@ function App({
     className: "text-xs text-[#8AA39A] py-8 text-center"
   }, "Loading promotion queue\u2026"), !pqLoading && pqRows.length === 0 && !pqErr && React.createElement("div", {
     className: "text-xs text-[#8AA39A] py-8 text-center"
-  }, "No candidates with status ", React.createElement("strong", null, pqStatusFilter), ".", isAdmin && React.createElement(React.Fragment, null, " Try ", React.createElement("button", {
+  }, "No candidates with status ", React.createElement("strong", null, pqStatusFilter), ".", pqMeta?.hidden_tracked > 0 && pqStatusFilter === "needs_review" && React.createElement(React.Fragment, null, " (", pqMeta.hidden_tracked, " already-tracked name", pqMeta.hidden_tracked !== 1 ? "s" : "", " hidden \u2014 see ", React.createElement("button", {
+    type: "button",
+    className: "underline text-[#a78bfa]",
+    onClick: () => setPqStatusFilter("already_tracked")
+  }, "Already Tracked"), ")"), isAdmin && React.createElement(React.Fragment, null, " Try ", React.createElement("button", {
     className: "underline text-[#f5c25c] ml-1",
     onClick: triggerPqRebuild
-  }, "rebuilding the queue"), ".")), React.createElement("div", {
+  }, "rebuilding the queue"), ".")), pqMeta?.hidden_tracked > 0 && pqRows.length > 0 && pqStatusFilter === "needs_review" && React.createElement("div", {
+    className: "text-[10px] text-[#8AA39A] mb-3"
+  }, pqMeta.hidden_tracked, " in-universe / open-position ticker", pqMeta.hidden_tracked !== 1 ? "s" : "", " hidden from this view."), React.createElement("div", {
     className: "flex flex-col gap-3"
   }, pqRows.map(row => {
     const score = Number(row.total_score) || 0;
@@ -546,6 +557,10 @@ function App({
       label: "NEEDS REVIEW",
       color: "#f5c25c",
       bg: "rgba(245,194,92,0.10)"
+    } : status === "already_tracked" ? {
+      label: "ALREADY TRACKED",
+      color: "#a78bfa",
+      bg: "rgba(167,139,250,0.10)"
     } : status === "approved" ? {
       label: "APPROVED",
       color: "#34d399",
@@ -643,13 +658,21 @@ function App({
       }
     }, statusMeta.label), sig?.in_universe && React.createElement("span", {
       className: "text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border",
-      title: "Already in your tracked universe (timed:tickers). No action needed unless you want to re-review.",
+      title: "Already in the tracked universe (SECTOR_MAP or timed:tickers).",
       style: {
         color: "#a78bfa",
         background: "rgba(167,139,250,0.10)",
         borderColor: "rgba(167,139,250,0.40)"
       }
-    }, "IN UNIVERSE")), React.createElement("div", {
+    }, "IN UNIVERSE"), sig?.has_open_position && React.createElement("span", {
+      className: "text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border",
+      title: "Active Trader or Investor open position on this ticker.",
+      style: {
+        color: "#60a5fa",
+        background: "rgba(96,165,250,0.10)",
+        borderColor: "rgba(96,165,250,0.40)"
+      }
+    }, "OPEN POSITION")), React.createElement("div", {
       className: "text-[10px] text-[#8AA39A]"
     }, Array.isArray(sig?.themes) && sig.themes.length > 0 && React.createElement(React.Fragment, null, "Themes: ", sig.themes.join(", "), " \xB7 "), Array.isArray(sig?.scan_types) && sig.scan_types.length > 0 && React.createElement(React.Fragment, null, "Scans: ", sig.scan_types.join(", "), " \xB7 "), "Appearances 7d: ", row.appearances_7d || 0, row.decided_by && React.createElement(React.Fragment, null, " \xB7 Decided by ", row.decided_by, " ", row.decided_at ? new Date(Number(row.decided_at)).toLocaleString() : ""))), React.createElement("div", {
       className: "flex items-baseline gap-2 shrink-0"
@@ -707,7 +730,7 @@ function App({
       dangerouslySetInnerHTML: {
         __html: String(row.thesis_text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\*\*([^*]+)\*\*/g, '<strong class="text-white">$1</strong>')
       }
-    })), isAdmin && (status === "ready_to_add" || status === "needs_review") && React.createElement("div", {
+    })), isAdmin && (status === "ready_to_add" || status === "needs_review") && !sig?.already_tracked && React.createElement("div", {
       className: "px-4 py-3 border-t border-[#1F3128] flex items-center gap-2"
     }, React.createElement("button", {
       onClick: () => decideOnCandidate(row.candidate_id, "approve"),
@@ -722,7 +745,7 @@ function App({
     }, "First seen ", row.first_seen_at ? new Date(Number(row.first_seen_at)).toLocaleDateString() : "—")));
   })), pqRows.length > 0 && React.createElement("div", {
     className: "text-[10px] text-[#51635A] mt-4 italic"
-  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/discovery/promotion-queue"), ". Scoring framework: Sustain 20 \xB7 Quality 20 \xB7 Theme 15 \xB7 News 15 \xB7 Insider 10 \xB7 Macro 10 \xB7 Peer 10 = 100. Auto-status: \u226560 + no critical flags \u2192 ready \xB7 \u226540 + no critical \u2192 needs review \xB7 otherwise \u2192 rejected. Operator decisions persist across rebuilds.")), viewMode === "discovery" && React.createElement(React.Fragment, null, (scanTs || scanMsg) && React.createElement("div", {
+  }, "Backed by ", React.createElement("code", null, "GET /timed/admin/discovery/promotion-queue"), ". Scoring framework: Sustain 20 \xB7 Quality 20 \xB7 Theme 15 \xB7 News 15 \xB7 Insider 10 \xB7 Macro 10 \xB7 Peer 10 = 100. Auto-status: \u226560 + no critical flags \u2192 ready \xB7 \u226525 + material thesis \u2192 needs review \xB7 otherwise \u2192 rejected. Already-tracked names (universe + open positions) auto-bucket to Already Tracked and are hidden from Needs Review. One card per ticker (newest row wins). Operator decisions persist across rebuilds.")), viewMode === "discovery" && React.createElement(React.Fragment, null, (scanTs || scanMsg) && React.createElement("div", {
     className: "text-[11px] text-[#51635A] mb-3 -mt-4"
   }, scanMsg && React.createElement("span", {
     className: "text-[#a78bfa] mr-3"
@@ -923,6 +946,6 @@ const screenerApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(screenerApp);
-// cache-bust:1783621051169:806765957
+// cache-bust:1783722480627:678045224
 
-// cache-bust:1783621051169:806765957
+// cache-bust:1783722480627:678045224

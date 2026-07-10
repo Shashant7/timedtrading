@@ -568,7 +568,7 @@
                   <h1 className="tt-page-title">Screener</h1>
                   <p className="tt-page-lede">
                     {viewMode === "promote"
-                      ? "Promotion Queue — thesis-quality scoring + operator review"
+                      ? "Promotion Queue — net-new candidates only (already tracked + open positions hidden)"
                       : "Discover new tickers not yet in our universe"}
                   </p>
                 </div>
@@ -650,8 +650,9 @@
                   {/* Status filter chips */}
                   <div className="flex items-center gap-1 mb-4 bg-[#13201A] rounded-lg p-1 border border-[#1F3128] w-fit flex-wrap">
                     {[
-                      { id: "ready_to_add",  label: "Ready",         color: "#22c55e", desc: "Score ≥ 60, no critical red flags" },
                       { id: "needs_review",  label: "Needs Review",  color: "#f5c25c", desc: "Score 40-60 or worth a look" },
+                      { id: "ready_to_add",  label: "Ready",         color: "#22c55e", desc: "Score ≥ 60, no critical red flags" },
+                      { id: "already_tracked", label: "Already Tracked", color: "#a78bfa", desc: "In universe or open position — informational only" },
                       { id: "rejected",      label: "Rejected",      color: "#9ca3af", desc: "Score < 40 or auto-rejected" },
                       { id: "approved",      label: "Approved",      color: "#34d399", desc: "Operator decision: approve" },
                       { id: "declined",      label: "Declined",      color: "#f87171", desc: "Operator decision: decline" },
@@ -685,7 +686,15 @@
                   {!pqLoading && pqRows.length === 0 && !pqErr && (
                     <div className="text-xs text-[#8AA39A] py-8 text-center">
                       No candidates with status <strong>{pqStatusFilter}</strong>.
+                      {pqMeta?.hidden_tracked > 0 && pqStatusFilter === "needs_review" && (
+                        <> ({pqMeta.hidden_tracked} already-tracked name{pqMeta.hidden_tracked !== 1 ? "s" : ""} hidden — see <button type="button" className="underline text-[#a78bfa]" onClick={() => setPqStatusFilter("already_tracked")}>Already Tracked</button>)</>
+                      )}
                       {isAdmin && <> Try <button className="underline text-[#f5c25c] ml-1" onClick={triggerPqRebuild}>rebuilding the queue</button>.</>}
+                    </div>
+                  )}
+                  {pqMeta?.hidden_tracked > 0 && pqRows.length > 0 && pqStatusFilter === "needs_review" && (
+                    <div className="text-[10px] text-[#8AA39A] mb-3">
+                      {pqMeta.hidden_tracked} in-universe / open-position ticker{pqMeta.hidden_tracked !== 1 ? "s" : ""} hidden from this view.
                     </div>
                   )}
 
@@ -696,6 +705,7 @@
                       const status = String(row.status || "").toLowerCase();
                       const statusMeta = status === "ready_to_add"  ? { label: "READY TO ADD",  color: "#22c55e", bg: "rgba(34,197,94,0.10)" }
                                        : status === "needs_review"  ? { label: "NEEDS REVIEW",  color: "#f5c25c", bg: "rgba(245,194,92,0.10)" }
+                                       : status === "already_tracked" ? { label: "ALREADY TRACKED", color: "#a78bfa", bg: "rgba(167,139,250,0.10)" }
                                        : status === "approved"      ? { label: "APPROVED",      color: "#34d399", bg: "rgba(52,211,153,0.12)" }
                                        : status === "declined"      ? { label: "DECLINED",      color: "#f87171", bg: "rgba(248,113,113,0.10)" }
                                        : status === "rejected"      ? { label: "REJECTED",      color: "#9ca3af", bg: "rgba(156,163,175,0.06)" }
@@ -761,10 +771,19 @@
                                 {sig?.in_universe && (
                                   <span
                                     className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border"
-                                    title="Already in your tracked universe (timed:tickers). No action needed unless you want to re-review."
+                                    title="Already in the tracked universe (SECTOR_MAP or timed:tickers)."
                                     style={{ color: "#a78bfa", background: "rgba(167,139,250,0.10)", borderColor: "rgba(167,139,250,0.40)" }}
                                   >
                                     IN UNIVERSE
+                                  </span>
+                                )}
+                                {sig?.has_open_position && (
+                                  <span
+                                    className="text-[10px] font-bold tracking-wider px-2 py-0.5 rounded border"
+                                    title="Active Trader or Investor open position on this ticker."
+                                    style={{ color: "#60a5fa", background: "rgba(96,165,250,0.10)", borderColor: "rgba(96,165,250,0.40)" }}
+                                  >
+                                    OPEN POSITION
                                   </span>
                                 )}
                               </div>
@@ -836,7 +855,7 @@
                           )}
 
                           {/* Operator actions */}
-                          {isAdmin && (status === "ready_to_add" || status === "needs_review") && (
+                          {isAdmin && (status === "ready_to_add" || status === "needs_review") && !sig?.already_tracked && (
                             <div className="px-4 py-3 border-t border-[#1F3128] flex items-center gap-2">
                               <button
                                 onClick={() => decideOnCandidate(row.candidate_id, "approve")}
@@ -867,8 +886,9 @@
                     <div className="text-[10px] text-[#51635A] mt-4 italic">
                       Backed by <code>GET /timed/admin/discovery/promotion-queue</code>. Scoring framework:
                       Sustain 20 · Quality 20 · Theme 15 · News 15 · Insider 10 · Macro 10 · Peer 10 = 100.
-                      Auto-status: ≥60 + no critical flags → ready · ≥40 + no critical → needs review · otherwise → rejected.
-                      Operator decisions persist across rebuilds.
+                      Auto-status: ≥60 + no critical flags → ready · ≥25 + material thesis → needs review · otherwise → rejected.
+                      Already-tracked names (universe + open positions) auto-bucket to Already Tracked and are hidden from Needs Review.
+                      One card per ticker (newest row wins). Operator decisions persist across rebuilds.
                     </div>
                   )}
                 </div>
