@@ -14,9 +14,10 @@
 //   • runScreenerAutoPromote skips when COO disabled
 //   • runScreenerAutoPromote respects daily cap
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   getRecentCooActions,
+  runCooCalibrationCycle,
   runMoveDiscoveryCycle,
   runScreenerAutoPromote,
 } from "./coo-orchestrator.js";
@@ -30,6 +31,14 @@ function makeKv() {
     async delete(k) { store.delete(k); },
   };
 }
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, text: async () => "" })));
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function makeEnv(over = {}) {
   return {
@@ -119,6 +128,35 @@ describe("COO orchestrator — runMoveDiscoveryCycle", () => {
     expect(result.summary.total_moves).toBe(0);
     const actions = await getRecentCooActions(env, 1);
     expect(actions.some((a) => a.kind === "move_discovery_scan")).toBe(true);
+  });
+});
+
+describe("COO orchestrator — calibration", () => {
+  it("requests a live-only promotion-candidate report and reports dry-run status", async () => {
+    const seen = [];
+    const env = makeEnv({
+      TIMED_API_KEY: "test-key",
+      _selfDispatch: async (path, init) => {
+        seen.push({ path, body: JSON.parse(init.body) });
+        return new Response(JSON.stringify({
+          ok: true,
+          report: {
+            report_id: "cal-test",
+            trade_classifications: { total_trades_after_exclusion: 120 },
+            vix_coverage: { known_pct: 92 },
+            wfo_summary: { verdict: "PASS" },
+          },
+        }));
+      },
+    });
+    const result = await runCooCalibrationCycle(env);
+    expect(result.ok).toBe(true);
+    expect(result.dry_run).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      path: "/timed/calibration/run",
+      body: { analysis_only: false, scope_kind: "live", live_only: true },
+    });
   });
 });
 

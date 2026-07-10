@@ -166,7 +166,8 @@ export async function runCooCalibrationCycle(env, options = {}) {
       body: JSON.stringify({
         scope_id: options.scopeId || `coo-auto-${new Date().toISOString().slice(0, 10)}`,
         analysis_only: false,
-        scope_kind: "global",
+        scope_kind: "live",
+        live_only: true,
       }),
     });
     runRes = await r.json();
@@ -175,20 +176,26 @@ export async function runCooCalibrationCycle(env, options = {}) {
         tier: "tier3", kind: "calibration", target: "run", applied: false,
         reason: `run failed: ${runRes?.error || "unknown"}`,
       });
-      return { ok: false, error: runRes?.error || "run_failed" };
+      const outcome = { ok: false, error: runRes?.error || "run_failed" };
+      await _notifyCalibrationCycle(env, null, outcome);
+      return outcome;
     }
   } catch (e) {
     await recordAction(env, {
       tier: "tier3", kind: "calibration", target: "run", applied: false,
       reason: `run threw: ${String(e?.message || e).slice(0, 200)}`,
     });
-    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+    const outcome = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    await _notifyCalibrationCycle(env, null, outcome);
+    return outcome;
   }
 
   const reportId = runRes?.report?.report_id;
   if (!reportId) {
     await recordAction(env, { tier: "tier3", kind: "calibration", target: "run", applied: false, reason: "no report_id in run response" });
-    return { ok: false, error: "no_report_id" };
+    const outcome = { ok: false, error: "no_report_id" };
+    await _notifyCalibrationCycle(env, runRes?.report, outcome);
+    return outcome;
   }
 
   // 2. If tier-1 auto-apply is disabled, log dry-run and exit.
@@ -198,7 +205,9 @@ export async function runCooCalibrationCycle(env, options = {}) {
       reason: "dry-run (COO_AUTO_APPLY_TIER1=false). Set to true after reviewing 7+ days of dry-run logs.",
       report_id: reportId,
     });
-    return { ok: true, report_id: reportId, applied: false, dry_run: true, elapsed_ms: Date.now() - t0 };
+    const outcome = { ok: true, report_id: reportId, applied: false, dry_run: true, elapsed_ms: Date.now() - t0 };
+    await _notifyCalibrationCycle(env, runRes.report, outcome);
+    return outcome;
   }
 
   // 3. Apply. The /apply endpoint already has BOUNDS + blendVal that
@@ -218,7 +227,9 @@ export async function runCooCalibrationCycle(env, options = {}) {
       reason: `apply threw: ${String(e?.message || e).slice(0, 200)}`,
       report_id: reportId,
     });
-    return { ok: false, error: String(e?.message || e).slice(0, 200), report_id: reportId };
+    const outcome = { ok: false, error: String(e?.message || e).slice(0, 200), report_id: reportId };
+    await _notifyCalibrationCycle(env, runRes.report, outcome);
+    return outcome;
   }
 
   await recordAction(env, {
@@ -231,13 +242,42 @@ export async function runCooCalibrationCycle(env, options = {}) {
     clamped_keys: applyRes?.clamped || [],
     report_id: reportId,
   });
-  return {
+  const outcome = {
     ok: !!applyRes?.ok,
     report_id: reportId,
     applied: applyRes?.applied || [],
     clamped: applyRes?.clamped || [],
+    error: applyRes?.ok ? null : (applyRes?.error || "apply_failed"),
     elapsed_ms: Date.now() - t0,
   };
+  await _notifyCalibrationCycle(env, runRes.report, outcome);
+  return outcome;
+}
+
+async function _notifyCalibrationCycle(env, report, outcome) {
+  try {
+    const coverage = Number(report?.vix_coverage?.known_pct);
+    const coverageText = Number.isFinite(coverage) ? `${coverage.toFixed(1)}%` : "missing";
+    const applied = Array.isArray(outcome?.applied) ? outcome.applied : [];
+    const status = outcome?.ok ? (outcome?.dry_run ? "DRY RUN" : applied.length ? "APPLIED" : "NO CHANGE") : "BLOCKED";
+    const lines = [
+      `Report: \`${outcome?.report_id || report?.report_id || "unknown"}\``,
+      `Live trades: ${Number(report?.trade_classifications?.total_trades_after_exclusion ?? report?.trade_count) || 0}`,
+      `VIX coverage: ${coverageText}`,
+      `Walk-forward: ${String(report?.wfo_summary?.verdict || "missing").toUpperCase()}`,
+      `Result: **${status}**${applied.length ? ` · ${applied.join(", ")}` : ""}`,
+    ];
+    if (outcome?.error) lines.push(`Reason: \`${String(outcome.error).slice(0, 180)}\``);
+    lines.push("Review: System Intelligence → Calibration.");
+    await notifyDiscord(env, {
+      title: "AI COO · Nightly Calibration",
+      description: lines.join("\n"),
+      color: outcome?.ok ? (applied.length ? 0x34d399 : 0xf59e0b) : 0xef4444,
+      timestamp: new Date().toISOString(),
+    }, "system");
+  } catch (e) {
+    console.warn("[COO calibration] notify failed:", String(e?.message || e).slice(0, 120));
+  }
 }
 
 // ── Self-healing actions ──────────────────────────────────────────────

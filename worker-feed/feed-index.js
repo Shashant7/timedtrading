@@ -36,6 +36,7 @@ import {
 import * as DataProvider from "../worker/data-provider.js";
 import { alpacaFetchSnapshots, alpacaBackfill } from "../worker/indicators.js";
 import { kvGetJSON } from "../worker/storage.js";
+import { recordCronFailure, recordCronSuccess } from "../worker/alerts.js";
 
 // ─── Provider routing (mirrors worker/index.js) ─────────────────────────────
 
@@ -239,6 +240,8 @@ function buildDeps(cal) {
     // 2026-07-07 (candle continuity doctrine)
     backfillCandles: candleBackfillLocal,
     ensureTickerOnboard: ensureTickerOnboardRemote,
+    recordCronFailure,
+    recordCronSuccess,
     // keep-alive deps
     usesTwelveData,
     isWithinOperatingHours: makeIsWithinOperatingHours(cal),

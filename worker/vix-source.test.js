@@ -3,6 +3,8 @@ import {
   VIX_VX1_FRESH_MS,
   isVx1Fresh,
   applyVixToPrices,
+  loadHistoricalVixSeries,
+  resolveHistoricalVixAtTs,
   resolveVixLevel,
   syncVixLatestStub,
 } from "./vix-source.js";
@@ -89,5 +91,38 @@ describe("vix-source", () => {
     expect(puts[0].key).toBe("timed:latest:VIX");
     expect(puts[0].val.price).toBe(17.8);
     expect(puts[0].val._macro_source).toBe("VX1!");
+  });
+
+  it("uses recorded entry VIX before Market Pulse history", () => {
+    const entryTs = Date.parse("2026-07-10T16:00:00Z");
+    const result = resolveHistoricalVixAtTs(entryTs, {
+      snapshots: [{ ts: entryTs, level: 21.5, source: "market_pulse_snapshot" }],
+      candles: [{ ts: entryTs, level: 22.1, source: "vx1_daily" }],
+    }, 19.8);
+    expect(result).toEqual({ level: 19.8, source: "entry_lineage" });
+  });
+
+  it("uses the Market Pulse snapshot before VX1! history", () => {
+    const entryTs = Date.parse("2026-07-10T16:00:00Z");
+    const result = resolveHistoricalVixAtTs(entryTs, {
+      snapshots: [{ ts: entryTs - 4 * 60 * 60 * 1000, level: 20.4, source: "market_pulse_snapshot" }],
+      candles: [{ ts: entryTs, level: 22.1, source: "vx1_daily" }],
+    });
+    expect(result).toEqual({ level: 20.4, source: "market_pulse_snapshot" });
+  });
+
+  it("loads canonical snapshot and VX1! history without VIXY", async () => {
+    const db = {
+      prepare(sql) {
+        return {
+          all: async () => sql.includes("daily_market_snapshots")
+            ? { results: [{ date: "2026-07-10", vix_close: 20.4 }] }
+            : { results: [{ ticker: "VX1!", ts: Date.parse("2026-07-09T20:00:00Z"), c: 21.2 }] },
+        };
+      },
+    };
+    const series = await loadHistoricalVixSeries(db);
+    expect(series.snapshots[0].level).toBe(20.4);
+    expect(series.candles[0]).toMatchObject({ level: 21.2, source: "vx1_daily" });
   });
 });

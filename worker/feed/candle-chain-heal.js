@@ -33,6 +33,24 @@ const HEAL_TFS = ["D", "60", "30", "10", "240", "W", "M"];
 /** Watchdog paging threshold: <20 chain-gaps is expected churn, >=20 is bad. */
 export const CHAIN_GAP_ALARM_THRESHOLD = 20;
 
+/**
+ * Normalize chain-gap backlog state for health surfaces and cron paging.
+ * A small queue is expected while new symbols are being seeded; a queue at
+ * the threshold means the bounded heal budget is not catching up.
+ */
+export function summarizeChainGapBacklog(candidates = [], result = null) {
+  const count = Array.isArray(candidates) ? candidates.length : 0;
+  const failed = Array.isArray(result?.failed) ? result.failed.length : 0;
+  return {
+    candidates_count: count,
+    threshold: CHAIN_GAP_ALARM_THRESHOLD,
+    alarm_active: count >= CHAIN_GAP_ALARM_THRESHOLD,
+    attempted: Array.isArray(result?.attempted) ? result.attempted.length : 0,
+    healed: Array.isArray(result?.healed) ? result.healed.length : 0,
+    failed,
+  };
+}
+
 /** Extract stale-chain candidates from the freshness summary. */
 export function extractChainGapCandidates(summary) {
   const out = [];

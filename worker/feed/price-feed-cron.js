@@ -42,6 +42,7 @@ import {
   extractChainGapCandidates,
   healChainGaps,
   onboardNewUniverseTickers,
+  summarizeChainGapBacklog,
 } from "./candle-chain-heal.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
@@ -830,7 +831,10 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               }
               const summary = await kvGetJSON(KV, "timed:freshness:summary");
               const candidates = extractChainGapCandidates(summary);
-              if (candidates.length === 0) return;
+              if (candidates.length === 0) {
+                deps.recordCronSuccess?.(env, "candle_chain_gap_backlog").catch(() => {});
+                return;
+              }
               const priorityTickers = typeof deps.collectPriorityChartTickers === "function"
                 ? await deps.collectPriorityChartTickers(env).catch(() => [])
                 : [];
@@ -839,15 +843,30 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
               // ~20 chain gaps and a `*/1` cron, 12/tick clears within 2
               // minutes; each per-ticker onboard sequences REST calls to stay
               // under TwelveData's 8-req/min limit so the cap is spend-safe.
-              await healChainGaps(env, ctx, candidates, {
+              const heal = await healChainGaps(env, ctx, candidates, {
                 backfill: deps.backfillCandles,
                 onboard: deps.ensureTickerOnboard,
               }, {
                 maxTickers: 12,
                 priorityTickers,
               });
+              const backlog = summarizeChainGapBacklog(candidates, heal);
+              if (backlog.alarm_active) {
+                deps.recordCronFailure?.(env, {
+                  op: "candle_chain_gap_backlog",
+                  error: `Chain gap backlog ${backlog.candidates_count}/${backlog.threshold}; attempted=${backlog.attempted}, healed=${backlog.healed}, failed=${backlog.failed}`,
+                  caller: "price_feed_cron",
+                }).catch(() => {});
+              } else {
+                deps.recordCronSuccess?.(env, "candle_chain_gap_backlog").catch(() => {});
+              }
             } catch (e) {
               console.warn("[CANDLE_CHAIN_HEAL] price-feed hook failed:", String(e?.message || e).slice(0, 200));
+              deps.recordCronFailure?.(env, {
+                op: "candle_chain_heal",
+                error: String(e?.message || e).slice(0, 200),
+                caller: "price_feed_cron",
+              }).catch(() => {});
             }
           })());
         }

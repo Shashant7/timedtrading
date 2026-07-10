@@ -4,6 +4,7 @@ import {
   detectNewTickers,
   healChainGaps,
   onboardNewUniverseTickers,
+  summarizeChainGapBacklog,
 } from "./candle-chain-heal.js";
 
 describe("extractChainGapCandidates", () => {
@@ -36,6 +37,31 @@ describe("detectNewTickers", () => {
 
   it("returns empty when nothing is new", () => {
     expect(detectNewTickers(["A", "B"], ["A", "B", "C"])).toEqual([]);
+  });
+});
+
+describe("summarizeChainGapBacklog", () => {
+  it("does not page for normal bounded churn", () => {
+    const summary = summarizeChainGapBacklog(
+      [{ ticker: "A" }, { ticker: "B" }],
+      { attempted: ["A", "B"], healed: [{ ticker: "A" }], failed: [] },
+    );
+    expect(summary.alarm_active).toBe(false);
+    expect(summary.candidates_count).toBe(2);
+    expect(summary.failed).toBe(0);
+  });
+
+  it("pages when backlog reaches the documented threshold", () => {
+    const candidates = Array.from({ length: 20 }, (_, i) => ({ ticker: `T${i}` }));
+    const summary = summarizeChainGapBacklog(candidates, {
+      attempted: candidates.slice(0, 12),
+      healed: [],
+      failed: [{ ticker: "T0" }],
+    });
+    expect(summary.alarm_active).toBe(true);
+    expect(summary.threshold).toBe(20);
+    expect(summary.attempted).toBe(12);
+    expect(summary.failed).toBe(1);
   });
 });
 
