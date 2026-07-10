@@ -2610,50 +2610,43 @@ function CTOLevelsPanel({
     }
   }, `Top setups (${movers.length}${movers.length >= 22 ? "+" : ""})`), movers.map(row)))));
 }
-function MarketState({
-  data,
-  onSelectTicker,
-  embedded
+const MARKET_PULSE_BANDS = [{
+  id: "read",
+  eyebrow: "Market read",
+  title: "Regime · Trend · Session"
+}, {
+  id: "benchmarks",
+  eyebrow: "Benchmarks",
+  title: "Indices & cross-asset"
+}, {
+  id: "sectors",
+  eyebrow: "Sector flow",
+  title: "Rotation & leaders"
+}, {
+  id: "movers",
+  eyebrow: "Movers",
+  title: "RTH & extended"
+}];
+function MarketPulseBand({
+  band,
+  children
 }) {
-  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
-  const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
-  if (order.length === 0) return null;
-  const body = h(React.Fragment, null, h("h2", {
-    className: "tt-sec-h",
-    style: {
-      margin: 0
-    }
-  }, "Where the indices stand"), h("div", {
-    className: "tt-mp-tiles-row"
-  }, order.map(sym => h(MarketPulseTile, {
-    key: sym,
-    sym,
-    t: data[sym],
-    onSelectTicker
-  }))));
-  if (embedded) {
-    return h("div", null, h("div", {
-      className: "tt-sec-title"
-    }, "MARKET PULSE"), body);
-  }
-  return h("section", {
-    className: "tt-row"
+  if (!children) return null;
+  return h("div", {
+    className: "tt-mp-band tt-mp-band--" + band.id,
+    "data-mp-band": band.id
   }, h("div", {
-    className: "tt-sec-title"
-  }, "MARKET PULSE"), body);
+    className: "tt-mp-band-head"
+  }, h("div", {
+    className: "tt-mp-band-eyebrow"
+  }, band.eyebrow), h("h3", {
+    className: "tt-mp-band-title"
+  }, band.title)), h("div", {
+    className: "tt-mp-band-body"
+  }, children));
 }
-function DailyCycleCompositePanel({
-  embedded,
-  onSelectTicker,
-  data
-}) {
+function useDailyCycleComposite() {
   const [composite, setComposite] = useState(null);
-  const [waveTicker, setWaveTicker] = useState(null);
-  const [wavePayload, setWavePayload] = useState(null);
-  const [waveLoading, setWaveLoading] = useState(false);
-  const [waveError, setWaveError] = useState(null);
-  const CI = window.TTCycleIntel || {};
-  const HC = window.TTHarmonicChart || {};
   useEffect(function () {
     let alive = true;
     const url = `${API_BASE}/timed/daily-cycle-composite`;
@@ -2671,6 +2664,188 @@ function DailyCycleCompositePanel({
       alive = false;
     };
   }, []);
+  return composite;
+}
+function readLatentRegime(data) {
+  if (!data) return {
+    latent: null,
+    meta: null,
+    postSummary: ""
+  };
+  let latent = null;
+  for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+    const lr = data[sym]?.latent_regime;
+    if (lr && lr.state) {
+      latent = lr;
+      break;
+    }
+  }
+  const LATENT_META = {
+    BULL_TREND: {
+      color: "var(--tt-up, #34d399)",
+      label: "Bull Trend"
+    },
+    CHOP: {
+      color: "var(--tt-accent, #f5c25c)",
+      label: "Chop"
+    },
+    BEAR_TREND: {
+      color: "var(--tt-dn, #f87171)",
+      label: "Bear Trend"
+    }
+  };
+  const meta = latent ? LATENT_META[latent.state] || {
+    color: "var(--tt-text-muted)",
+    label: latent.state
+  } : null;
+  const postSummary = latent?.posterior ? Object.entries(latent.posterior).sort(function (a, b) {
+    return (b[1] || 0) - (a[1] || 0);
+  }).map(function (kv) {
+    return kv[0].replace("_TREND", "").toLowerCase() + " " + Math.round((kv[1] || 0) * 100) + "%";
+  }).join(" · ") : "";
+  return {
+    latent,
+    meta,
+    postSummary
+  };
+}
+function readMarketSession(data) {
+  let phase = null,
+    open = null,
+    etDate = null;
+  if (data) {
+    for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
+      const ms = data[sym]?.market_session;
+      if (ms && ms.session_phase) {
+        phase = ms.session_phase;
+        open = ms.market_open;
+        etDate = ms.et_date || null;
+        break;
+      }
+    }
+  }
+  const label = open === true || phase === "rth" ? "RTH open" : phase === "premarket" ? "Pre-market" : phase === "afterhours" ? "After-hours" : phase === "closed" ? "Closed" : open === false ? "Closed" : "—";
+  const color = open === true || phase === "rth" ? "var(--tt-up-soft, #34d399)" : phase === "premarket" || phase === "afterhours" ? "var(--tt-accent, #f5c25c)" : "var(--tt-text-muted)";
+  return {
+    label,
+    color,
+    etDate
+  };
+}
+function MarketReadBand({
+  composite,
+  data
+}) {
+  const CI = window.TTCycleIntel || {};
+  const {
+    meta: _latentMeta,
+    postSummary: _postSummary
+  } = readLatentRegime(data);
+  const {
+    label: _sessionLabel,
+    color: _sessionCol,
+    etDate: _sessionETDate
+  } = readMarketSession(data);
+  const breadthCol = composite && CI.cycleColor ? CI.cycleColor(composite.breadth_cycle) : "var(--tt-accent)";
+  const indexMixLabel = composite && CI.formatIndexMix ? CI.formatIndexMix(composite.index_mix) : null;
+  return h("div", {
+    className: "tt-market-read"
+  }, h("div", {
+    className: "tt-market-read-cell"
+  }, h("div", {
+    className: "tt-market-read-label",
+    title: "Probabilistic read on index returns and volatility"
+  }, "Regime"), _latentMeta ? h(React.Fragment, null, h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: _latentMeta.color
+    }
+  }, _latentMeta.label), h("div", {
+    className: "tt-market-read-detail"
+  }, _postSummary ? h("code", null, _postSummary) : "posterior unavailable")) : h(React.Fragment, null, h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: "var(--tt-text-muted)"
+    }
+  }, "—"), h("div", {
+    className: "tt-market-read-detail"
+  }, "HMM not yet trained"))), h("div", {
+    className: "tt-market-read-cell"
+  }, h("div", {
+    className: "tt-market-read-label",
+    title: "Breadth-weighted trend across major indices"
+  }, "Trend"), composite ? h(React.Fragment, null, h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: breadthCol
+    }
+  }, CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), h("div", {
+    className: "tt-market-read-detail"
+  }, indexMixLabel ? h("code", null, indexMixLabel) : "index mix unavailable", composite.indices && composite.indices.SPY && h("span", null, " · SPY ", h("code", null, CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)))) : h(React.Fragment, null, h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: "var(--tt-text-muted)"
+    }
+  }, "—"), h("div", {
+    className: "tt-market-read-detail"
+  }, "loading composite…"))), h("div", {
+    className: "tt-market-read-cell"
+  }, h("div", {
+    className: "tt-market-read-label"
+  }, "Session"), h("div", {
+    className: "tt-market-read-value",
+    style: {
+      color: _sessionCol
+    }
+  }, _sessionLabel), h("div", {
+    className: "tt-market-read-detail"
+  }, _sessionETDate ? h("code", null, _sessionETDate + " ET") : "—")));
+}
+function MarketState({
+  data,
+  onSelectTicker,
+  embedded,
+  inPanel
+}) {
+  const candidates = ["SPY", "QQQ", "IWM", "VIXY", "BTCUSD", "ETHUSD", "GLD", "USO"];
+  const order = candidates.filter(sym => data?.[sym]).slice(0, 8);
+  if (order.length === 0) return null;
+  const body = h(React.Fragment, null, !inPanel && h("h2", {
+    className: "tt-sec-h",
+    style: {
+      margin: 0
+    }
+  }, "Where the indices stand"), h("div", {
+    className: "tt-mp-tiles-row"
+  }, order.map(sym => h(MarketPulseTile, {
+    key: sym,
+    sym,
+    t: data[sym],
+    onSelectTicker
+  }))));
+  if (embedded) {
+    if (inPanel) return body;
+    return h("div", null, h("div", {
+      className: "tt-sec-title"
+    }, "MARKET PULSE"), body);
+  }
+  return h("section", {
+    className: "tt-row"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "MARKET PULSE"), body);
+}
+function SectorFlowBand({
+  composite,
+  onSelectTicker,
+  data
+}) {
+  const [waveTicker, setWaveTicker] = useState(null);
+  const [wavePayload, setWavePayload] = useState(null);
+  const [waveLoading, setWaveLoading] = useState(false);
+  const [waveError, setWaveError] = useState(null);
+  const CI = window.TTCycleIntel || {};
+  const HC = window.TTHarmonicChart || {};
   useEffect(function () {
     if (!waveTicker) {
       setWavePayload(null);
@@ -2729,12 +2904,10 @@ function DailyCycleCompositePanel({
     if (ar !== 0) return ar;
     return (cycleRank[a.computed_cycle] ?? 9) - (cycleRank[b.computed_cycle] ?? 9);
   });
-  const indexMixLabel = CI.formatIndexMix ? CI.formatIndexMix(composite.index_mix) : null;
   const transitions = Array.isArray(composite.transitions) ? composite.transitions.slice(0, 4) : [];
   const sectorWatch = Array.isArray(composite.sector_watch) ? composite.sector_watch : [];
   const spotlights = sectorWatch.length === 0 && Array.isArray(composite.spotlights) ? composite.spotlights : [];
   const sectorRotation = composite.sector_rotation || null;
-  const breadthCol = CI.cycleColor ? CI.cycleColor(composite.breadth_cycle) : "var(--tt-accent)";
   function renderWatchTicker(sp) {
     const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
     const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
@@ -2833,106 +3006,9 @@ function DailyCycleCompositePanel({
       color: "#ff00ff"
     }
   }), "Projection")));
-  const _latent = function () {
-    if (!data) return null;
-    for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
-      const lr = data[sym]?.latent_regime;
-      if (lr && lr.state) return lr;
-    }
-    return null;
-  }();
-  const _LATENT_META = {
-    BULL_TREND: {
-      color: "var(--tt-up, #34d399)",
-      label: "Bull Trend"
-    },
-    CHOP: {
-      color: "var(--tt-accent, #f5c25c)",
-      label: "Chop"
-    },
-    BEAR_TREND: {
-      color: "var(--tt-dn, #f87171)",
-      label: "Bear Trend"
-    }
-  };
-  const _latentMeta = _latent ? _LATENT_META[_latent.state] || {
-    color: "var(--tt-text-muted)",
-    label: _latent.state
-  } : null;
-  const _postSummary = _latent?.posterior ? Object.entries(_latent.posterior).sort(function (a, b) {
-    return (b[1] || 0) - (a[1] || 0);
-  }).map(function (kv) {
-    return kv[0].replace("_TREND", "").toLowerCase() + " " + Math.round((kv[1] || 0) * 100) + "%";
-  }).join(" · ") : "";
-  let _sessionPhase = null,
-    _sessionOpen = null,
-    _sessionETDate = null;
-  if (data) {
-    for (const sym of ["SPY", "QQQ", "IWM", "DIA"]) {
-      const ms = data[sym]?.market_session;
-      if (ms && ms.session_phase) {
-        _sessionPhase = ms.session_phase;
-        _sessionOpen = ms.market_open;
-        _sessionETDate = ms.et_date || null;
-        break;
-      }
-    }
-  }
-  const _sessionLabel = _sessionOpen === true || _sessionPhase === "rth" ? "RTH open" : _sessionPhase === "premarket" ? "Pre-market" : _sessionPhase === "afterhours" ? "After-hours" : _sessionPhase === "closed" ? "Closed" : _sessionOpen === false ? "Closed" : "—";
-  const _sessionCol = _sessionOpen === true || _sessionPhase === "rth" ? "var(--tt-up-soft, #34d399)" : _sessionPhase === "premarket" || _sessionPhase === "afterhours" ? "var(--tt-accent, #f5c25c)" : "var(--tt-text-muted)";
-  const marketReadCard = h("div", {
-    className: "tt-market-read"
+  return h(React.Fragment, null, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
+    className: "tt-mp-sector-block"
   }, h("div", {
-    className: "tt-market-read-cell"
-  }, h("div", {
-    className: "tt-market-read-label",
-    title: "Probabilistic read on index returns and volatility"
-  }, "Regime"), _latentMeta ? h(React.Fragment, null, h("div", {
-    className: "tt-market-read-value",
-    style: {
-      color: _latentMeta.color
-    }
-  }, _latentMeta.label), h("div", {
-    className: "tt-market-read-detail"
-  }, _postSummary ? h("code", null, _postSummary) : "posterior unavailable")) : h(React.Fragment, null, h("div", {
-    className: "tt-market-read-value",
-    style: {
-      color: "var(--tt-text-muted)"
-    }
-  }, "—"), h("div", {
-    className: "tt-market-read-detail"
-  }, "HMM not yet trained"))), h("div", {
-    className: "tt-market-read-cell"
-  }, h("div", {
-    className: "tt-market-read-label",
-    title: "Breadth-weighted trend across major indices"
-  }, "Trend"), h("div", {
-    className: "tt-market-read-value",
-    style: {
-      color: breadthCol
-    }
-  }, CI.cycleLabel ? CI.cycleLabel(composite.breadth_cycle) : composite.breadth_cycle), h("div", {
-    className: "tt-market-read-detail"
-  }, indexMixLabel ? h("code", null, indexMixLabel) : "index mix unavailable", composite.indices && composite.indices.SPY && h("span", null, " · SPY ", h("code", null, CI.cycleLabel ? CI.cycleLabel(composite.indices.SPY.cycle) : composite.indices.SPY.cycle)))), h("div", {
-    className: "tt-market-read-cell"
-  }, h("div", {
-    className: "tt-market-read-label"
-  }, "Session"), h("div", {
-    className: "tt-market-read-value",
-    style: {
-      color: _sessionCol
-    }
-  }, _sessionLabel), h("div", {
-    className: "tt-market-read-detail"
-  }, _sessionETDate ? h("code", null, _sessionETDate + " ET") : "—")));
-  const readHelp = h("p", {
-    className: "tt-market-read-help"
-  }, "Regime, trend, and session answer different questions — they can disagree, and that is often the point.");
-  const body = h(React.Fragment, null, !embedded && h("div", {
-    className: "tt-sec-title"
-  }, "DAILY CYCLE COMPOSITE"), !embedded && h("div", {
-    className: "tt-sec-h"
-  }, "Market read, sector rotation, and the names leading each move"), marketReadCard, readHelp, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
     className: "tt-dcc-rotation-row"
   }, h("span", {
     className: "tt-dcc-row-title"
@@ -2993,7 +3069,9 @@ function DailyCycleCompositePanel({
         marginLeft: 4
       }
     }, "lagging"));
-  }))), sectorWatch.map(function (grp) {
+  })))), (sectorWatch.length > 0 || spotlights.length > 0) && h("div", {
+    className: "tt-mp-sector-block"
+  }, sectorWatch.map(function (grp) {
     const reasonLabel = CI.formatSectorWatchReason ? CI.formatSectorWatchReason(grp.reason) : grp.reason;
     return h("div", {
       key: grp.etf || grp.sector,
@@ -3010,7 +3088,7 @@ function DailyCycleCompositePanel({
         width: "100%"
       }
     }, (grp.tickers || []).map(renderWatchTicker)));
-  }), harmonicPanel, spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
+  }), spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
     className: "tt-dcc-spotlight-row"
   }, h("span", {
     className: "tt-dcc-row-title"
@@ -3023,7 +3101,9 @@ function DailyCycleCompositePanel({
       gap: 8,
       width: "100%"
     }
-  }, spotlights.map(renderWatchTicker))), transitions.length > 0 && h("div", {
+  }, spotlights.map(renderWatchTicker))), harmonicPanel), transitions.length > 0 && h("div", {
+    className: "tt-mp-sector-block tt-mp-sector-block--detail"
+  }, h("div", {
     className: "tt-dcc-shifts-row"
   }, h("span", {
     className: "tt-dcc-row-title"
@@ -3042,7 +3122,9 @@ function DailyCycleCompositePanel({
       className: "tt-dcc-trans",
       title: "Cycle transition since last scoring refresh"
     }, CI.formatTransition ? CI.formatTransition(tr) : tr.symbol + " " + tr.from + " → " + tr.to);
-  }))), h("div", {
+  })))), h("div", {
+    className: "tt-mp-sector-block tt-mp-sector-block--detail"
+  }, h("div", {
     className: "tt-dcc-row-title"
   }, "Sector trends", h("span", {
     className: "tt-dcc-row-title-sub"
@@ -3099,40 +3181,57 @@ function DailyCycleCompositePanel({
         color: "var(--tt-text-muted)"
       }
     }, label));
-  })));
-  if (embedded) return body;
-  return h("section", {
-    className: "tt-row"
-  }, body);
+  }))));
 }
 function MarketPulseWithMovers({
   data,
   onSelectTicker
 }) {
+  const composite = useDailyCycleComposite();
   if (!data) return h(MarketStateSkeleton);
   const universe = new Set(Object.keys(data).map(s => String(s).toUpperCase()));
+  const sectorBand = composite ? h(SectorFlowBand, {
+    composite,
+    onSelectTicker,
+    data
+  }) : h("div", {
+    className: "tt-mp-band-focus",
+    style: {
+      color: "var(--tt-text-faint)",
+      fontSize: 11
+    }
+  }, "Loading sector flow…");
   return h("section", {
     className: "tt-row"
   }, h("div", {
     className: "tt-card tt-card-pad tt-mp-panel"
+  }, h("div", {
+    className: "tt-mp-panel-head"
+  }, h("div", {
+    className: "tt-sec-title"
+  }, "MARKET PULSE")), h(MarketPulseBand, {
+    band: MARKET_PULSE_BANDS[0]
+  }, h(MarketReadBand, {
+    composite,
+    data
+  })), h(MarketPulseBand, {
+    band: MARKET_PULSE_BANDS[1]
   }, h(MarketState, {
     data,
     onSelectTicker,
-    embedded: true
-  }), h("div", {
-    className: "tt-mp-divider"
-  }), h(DailyCycleCompositePanel, {
     embedded: true,
-    onSelectTicker,
-    data
-  }), h("div", {
-    className: "tt-mp-divider"
-  }), h(TopMovers, {
+    inPanel: true
+  })), h(MarketPulseBand, {
+    band: MARKET_PULSE_BANDS[2]
+  }, sectorBand), h(MarketPulseBand, {
+    band: MARKET_PULSE_BANDS[3]
+  }, h(TopMovers, {
     data,
     onSelectTicker,
     universe,
-    embedded: true
-  })));
+    embedded: true,
+    inPanel: true
+  }))));
 }
 function MacroStrip({
   brief,
@@ -3813,7 +3912,8 @@ function TopMovers({
   onSelectTicker,
   universe,
   strip,
-  embedded
+  embedded,
+  inPanel
 }) {
   const arr = useMemo(() => {
     if (!data) return [];
@@ -3853,7 +3953,7 @@ function TopMovers({
   if (embedded) {
     return h("div", {
       className: "tt-mp-movers-embed"
-    }, h("div", {
+    }, !inPanel && h("div", {
       className: "tt-sec-title",
       style: {
         marginBottom: 4
@@ -7070,6 +7170,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783513828017:365018512
+// cache-bust:1783717603164:34368519
 
-// cache-bust:1783513828017:365018512
+// cache-bust:1783717603164:34368519

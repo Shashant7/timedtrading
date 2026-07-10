@@ -17,37 +17,37 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1783513828017" />
-    <script defer src="/vendor/react.production.min.js?v=1783513828017"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1783513828017"></script>
-    <script defer src="shared-rail-helpers.js?v=1783513828017"></script>
-    <script defer src="shared-verdict-ui.js?v=1783513828017"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1783513828017" />
-<script defer src="/vendor/marked.min.js?v=1783513828017"></script>
-    <script defer src="auth-gate.js?v=1783513828017"></script>
-    <script defer src="tt-fetch-cache.js?v=1783513828017"></script>
-    <script defer src="tt-live-data.js?v=1783513828017"></script>
-    <script src="tt-bottom-nav.js?v=1783513828017" defer></script>
-    <script defer src="investor-nav-badge.js?v=1783513828017"></script>
-    <script src="tt-nav-extras.js?v=1783513828017" defer></script>
-    <script src="tt-global-search.js?v=1783513828017" defer></script>
-    <script src="tt-rail-bridge.js?v=1783513828017" defer></script>
-    <script src="tt-activity-strip.js?v=1783513828017" defer></script>
-    <script defer src="shared-price-utils.js?v=1783513828017"></script>
-    <script defer src="tt-cycle-intel.js?v=1783513828017"></script>
-    <script defer src="tt-harmonic-chart.js?v=1783513828017"></script>
-    <script defer src="tt-sparkline-config.js?v=1783513828017"></script>
-    <script defer src="tt-pattern-detect.js?v=1783513828017"></script>
-    <script defer src="shared-lane-card.js?v=1783513828017"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1783717603164" />
+    <script defer src="/vendor/react.production.min.js?v=1783717603164"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1783717603164"></script>
+    <script defer src="shared-rail-helpers.js?v=1783717603164"></script>
+    <script defer src="shared-verdict-ui.js?v=1783717603164"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1783717603164" />
+<script defer src="/vendor/marked.min.js?v=1783717603164"></script>
+    <script defer src="auth-gate.js?v=1783717603164"></script>
+    <script defer src="tt-fetch-cache.js?v=1783717603164"></script>
+    <script defer src="tt-live-data.js?v=1783717603164"></script>
+    <script src="tt-bottom-nav.js?v=1783717603164" defer></script>
+    <script defer src="investor-nav-badge.js?v=1783717603164"></script>
+    <script src="tt-nav-extras.js?v=1783717603164" defer></script>
+    <script src="tt-global-search.js?v=1783717603164" defer></script>
+    <script src="tt-rail-bridge.js?v=1783717603164" defer></script>
+    <script src="tt-activity-strip.js?v=1783717603164" defer></script>
+    <script defer src="shared-price-utils.js?v=1783717603164"></script>
+    <script defer src="tt-cycle-intel.js?v=1783717603164"></script>
+    <script defer src="tt-harmonic-chart.js?v=1783717603164"></script>
+    <script defer src="tt-sparkline-config.js?v=1783717603164"></script>
+    <script defer src="tt-pattern-detect.js?v=1783717603164"></script>
+    <script defer src="shared-lane-card.js?v=1783717603164"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
-    <script defer src="ds-components.js?v=1783513828017"></script>
+    <script defer src="ds-components.js?v=1783717603164"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
-    <script defer src="tt-bubble-search-utils.js?v=1783513828017"></script>
-    <script defer src="shared-bubble-chart.compiled.js?v=1783513828017"></script>
+    <script defer src="tt-bubble-search-utils.js?v=1783717603164"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1783717603164"></script>
     <!-- Right rail (~880KB) lazy-loads on first card click or idle prefetch. -->
-    <script defer src="tt-rail-lazy-load.js?v=1783513828017"></script>
+    <script defer src="tt-rail-lazy-load.js?v=1783717603164"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -71,10 +71,11 @@
          "Uptrend" (breadth EMA) — they measure different things. */
       .tt-market-read {
         display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px; padding: 12px 14px; margin-bottom: 12px;
+        gap: 12px; padding: 14px 16px; margin-bottom: 0;
         border-radius: 12px;
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.10);
+        background: rgba(255,255,255,0.055);
+        border: 1px solid rgba(255,255,255,0.14);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
       }
       @media (max-width: 640px) {
         .tt-market-read { grid-template-columns: 1fr; }
@@ -83,7 +84,7 @@
         display: flex; flex-direction: column; gap: 4px; min-width: 0;
       }
       .tt-market-read-cell + .tt-market-read-cell {
-        padding-left: 12px; border-left: 1px solid rgba(255,255,255,0.06);
+        padding-left: 14px; border-left: 1px solid rgba(255,255,255,0.12);
       }
       @media (max-width: 640px) {
         .tt-market-read-cell + .tt-market-read-cell {
@@ -93,19 +94,21 @@
       }
       .tt-market-read-label {
         font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
-        text-transform: uppercase; color: var(--tt-text-faint, #64748b);
+        text-transform: uppercase; color: var(--tt-text-muted, #94a3b8);
         font-family: var(--tt-font-mono);
       }
       .tt-market-read-value {
-        font-size: 15px; font-weight: 700; line-height: 1.15;
+        font-size: 16px; font-weight: 800; line-height: 1.15;
+        color: var(--tt-text);
       }
       .tt-market-read-detail {
         font-size: 11px; color: var(--tt-text-muted); line-height: 1.35;
       }
       .tt-market-read-detail code {
         font-family: var(--tt-font-mono); font-size: 10.5px;
-        padding: 1px 5px; border-radius: 4px;
-        background: rgba(255,255,255,0.06); color: var(--tt-text);
+        padding: 2px 6px; border-radius: 4px;
+        background: rgba(255,255,255,0.09); color: var(--tt-text);
+        border: 1px solid rgba(255,255,255,0.08);
       }
       .tt-market-read-help {
         font-size: 10.5px; color: var(--tt-text-faint); line-height: 1.4;
@@ -113,19 +116,23 @@
       }
       .tt-market-read-help strong { color: var(--tt-text-muted); font-weight: 600; }
       .tt-dcc-row-title {
-        font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
-        text-transform: uppercase; color: var(--tt-text-muted);
+        font-size: 10px; font-weight: 800; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--tt-text, #e2e8f0);
         margin-bottom: 6px;
       }
       .tt-dcc-row-title-sub {
-        font-size: 10.5px; color: var(--tt-text-faint); font-weight: 500;
+        font-size: 10.5px; color: var(--tt-text-muted); font-weight: 500;
         letter-spacing: 0; text-transform: none; margin-left: 8px;
       }
       .tt-dcc-pill {
         display: inline-flex; align-items: center; gap: 6px;
-        padding: 3px 9px; border-radius: 999px;
+        padding: 4px 10px; border-radius: 999px;
         font-family: var(--tt-font-mono); font-size: 10.5px; font-weight: 700;
-        border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.07);
+      }
+      .tt-dcc-pill:hover {
+        background: rgba(255,255,255,0.11);
+        border-color: rgba(255,255,255,0.22);
       }
       .tt-dcc-trans {
         font-size: 10.5px; color: var(--tt-warn, #f59e0b); font-family: var(--tt-font-mono);
@@ -1288,6 +1295,72 @@
         height: auto;
       }
       .tt-mp-panel { padding: 16px 18px; }
+      .tt-mp-panel-head {
+        margin-bottom: 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid rgba(255,255,255,0.12);
+      }
+      .tt-mp-band {
+        padding: 14px 12px;
+        margin: 0 -4px;
+        border-radius: 12px;
+      }
+      .tt-mp-band + .tt-mp-band {
+        border-top: none;
+        margin-top: 8px;
+        padding-top: 14px;
+      }
+      .tt-mp-band--read {
+        background: rgba(56, 189, 248, 0.06);
+        border: 1px solid rgba(56, 189, 248, 0.14);
+      }
+      .tt-mp-band--benchmarks {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.10);
+      }
+      .tt-mp-band--sectors {
+        background: rgba(245, 194, 92, 0.05);
+        border: 1px solid rgba(245, 194, 92, 0.12);
+      }
+      .tt-mp-band--movers {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.11);
+      }
+      .tt-mp-band-head {
+        margin-bottom: 10px;
+      }
+      .tt-mp-band-eyebrow {
+        font-size: 9.5px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--tt-text-muted, #94a3b8);
+        font-family: var(--tt-font-mono);
+        margin-bottom: 4px;
+      }
+      .tt-mp-band-title {
+        margin: 0;
+        font-family: var(--tt-font-display);
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        color: var(--tt-text);
+        line-height: 1.2;
+      }
+      .tt-mp-band-body { min-width: 0; }
+      .tt-mp-band .tt-market-read {
+        background: rgba(0,0,0,0.18);
+        border-color: rgba(255,255,255,0.12);
+      }
+      .tt-mp-sector-block {
+        margin-bottom: 12px;
+      }
+      .tt-mp-sector-block--detail {
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: rgba(0,0,0,0.15);
+        border: 1px solid rgba(255,255,255,0.10);
+      }
       .tt-mp-divider {
         height: 1px;
         background: var(--tt-border, rgba(255,255,255,0.08));
@@ -1336,11 +1409,23 @@
           padding: 10px !important;
         }
       }
+      .tt-mp-band--benchmarks .ds-tickercard {
+        background: rgba(0,0,0,0.2) !important;
+        border-color: rgba(255,255,255,0.14) !important;
+      }
+      .tt-mp-band--benchmarks .ds-tickercard:hover {
+        border-color: rgba(255,255,255,0.22) !important;
+        background: rgba(0,0,0,0.28) !important;
+      }
+      .tt-mp-band--sectors .tt-strip-chip {
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(255,255,255,0.14);
+      }
       /* Compact Top Movers under Market Pulse */
       .tt-mp-movers-compact-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
+        gap: 10px;
       }
       .tt-mp-movers-compact-grid.has-ext {
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1348,36 +1433,42 @@
       @media (max-width: 900px) {
         .tt-mp-movers-compact-grid.has-ext { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
+      .tt-mover-compact-col {
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: rgba(0,0,0,0.14);
+        border: 1px solid rgba(255,255,255,0.10);
+      }
       .tt-mover-compact-col__title {
         font-size: 9px;
-        font-weight: 700;
+        font-weight: 800;
         letter-spacing: 0.08em;
-        color: var(--tt-text-dim);
+        color: var(--tt-text-muted);
         margin-bottom: 6px;
       }
-      .tt-mover-compact-list { display: flex; flex-direction: column; gap: 3px; }
+      .tt-mover-compact-list { display: flex; flex-direction: column; gap: 4px; }
       .tt-mover-compact {
         display: flex;
         align-items: center;
         justify-content: flex-start;
         gap: 6px;
         width: 100%;
-        padding: 4px 6px;
+        padding: 5px 7px;
         border-radius: 6px;
-        border: 1px solid transparent;
-        background: transparent;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
         cursor: pointer;
         font-family: var(--tt-font-mono);
         text-align: left;
       }
       .tt-mover-compact:hover {
-        background: rgba(255,255,255,0.04);
-        border-color: var(--tt-border, rgba(255,255,255,0.06));
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.14);
       }
-      .tt-mover-compact__sym { font-size: 11px; font-weight: 700; color: var(--tt-text); flex: 1; min-width: 0; }
-      .tt-mover-compact__pct { font-size: 11px; font-weight: 700; margin-left: auto; flex-shrink: 0; }
-      .tt-mover-compact__pct.up { color: var(--tt-up-soft); }
-      .tt-mover-compact__pct.dn { color: var(--tt-dn-soft); }
+      .tt-mover-compact__sym { font-size: 11px; font-weight: 800; color: var(--tt-text); flex: 1; min-width: 0; }
+      .tt-mover-compact__pct { font-size: 11px; font-weight: 800; margin-left: auto; flex-shrink: 0; }
+      .tt-mover-compact__pct.up { color: var(--tt-up, #34d399); }
+      .tt-mover-compact__pct.dn { color: var(--tt-dn, #f87171); }
       .tt-mover-compact__pct.mut { color: var(--tt-text-dim); }
       .tt-mover-compact__ext { font-size: 8px; opacity: 0.75; margin-left: 2px; }
       .tt-mover-compact-empty { font-size: 11px; color: var(--tt-text-faint); font-style: italic; }
@@ -2188,7 +2279,7 @@
   <body>
 
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1783513828017"></script>
+    <script defer src="shared-nav.js?v=1783717603164"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
@@ -2204,7 +2295,7 @@
       </main>
     </div>
 
-    <script defer src="today.compiled.js?v=1783513828017"></script>
+    <script defer src="today.compiled.js?v=1783717603164"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -2213,4 +2304,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1783513828017:365018512 -->
+<!-- cache-bust:1783717603164:34368519 -->
