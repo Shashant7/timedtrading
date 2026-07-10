@@ -516,6 +516,21 @@
       .inv-kanban-card .ds-tickercard {
         border-radius: var(--vf-radius-md, 18px) !important;
       }
+      /* Owned cards: POS + trace rows need more than the fixed 42px mid slot. */
+      .inv-kanban-card .ds-tickercard.tt-lane-card.tt-lane-card--owned {
+        --tt-lane-card-h: auto;
+        --tt-lane-mid-h: auto;
+        height: auto;
+        min-height: 154px;
+        max-height: none;
+      }
+      .inv-kanban-card .tt-lane-card__mid {
+        flex: 0 0 auto !important;
+        height: auto !important;
+        min-height: 0 !important;
+        max-height: none !important;
+        overflow: visible !important;
+      }
     </style>
   </head>
   <body class="vf-page">

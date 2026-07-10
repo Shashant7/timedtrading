@@ -3870,6 +3870,36 @@
         "regime_score": 0,
         "btc_pct": -2,
         "eth_pct": -2.01
+      },
+      {
+        "date": "2026-07-09",
+        "vix_close": 17.75,
+        "vix_state": "normal",
+        "spy_pct": 0,
+        "qqq_pct": 0,
+        "iwm_pct": 0,
+        "offense_avg_pct": 0,
+        "defense_avg_pct": 0,
+        "sector_rotation": "balanced",
+        "regime_overall": "balanced",
+        "regime_score": 0,
+        "btc_pct": 1.58,
+        "eth_pct": 0.28
+      },
+      {
+        "date": "2026-07-10",
+        "vix_close": 17.33,
+        "vix_state": "normal",
+        "spy_pct": 0,
+        "qqq_pct": 0,
+        "iwm_pct": 0,
+        "offense_avg_pct": 0,
+        "defense_avg_pct": 0,
+        "sector_rotation": "balanced",
+        "regime_overall": "balanced",
+        "regime_score": 0,
+        "btc_pct": 1.68,
+        "eth_pct": 2.74
       }
     ],
     "success": true,
@@ -3879,14 +3909,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 2.9539
+        "sql_duration_ms": 4.5526
       },
-      "duration": 2.9539,
+      "duration": 4.5526,
       "changes": 0,
-      "last_row_id": 12762,
+      "last_row_id": 62872,
       "changed_db": false,
-      "size_after": 4593950720,
-      "rows_read": 258,
+      "size_after": 4256284672,
+      "rows_read": 260,
       "rows_written": 0,
       "total_attempts": 1
     }

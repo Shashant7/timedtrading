@@ -75,18 +75,33 @@ function briefPriceFeedToTicker(sym, row) {
     extended_percent_change: row.ahdp
   };
 }
-function briefSpotFromFeed(row) {
+function briefSpotFromFeed(row, preferRth = false) {
   if (!row) return null;
   const mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+  if (preferRth || mktOpen) {
+    const p = Number(row.p);
+    if (Number.isFinite(p) && p > 0) return p;
+  }
   const ext = Number(row.ahp);
   const p = Number(row.p);
   if (!mktOpen && Number.isFinite(ext) && ext > 0) return ext;
   return Number.isFinite(p) && p > 0 ? p : null;
 }
-function briefDayPctFromFeed(sym, row) {
+function briefDayPctFromFeed(sym, row, preferRth = false) {
   if (!row) return null;
   const t = briefPriceFeedToTicker(sym, row);
   const mktOpen = window.TimedPriceUtils?.isNyRegularMarketOpen?.() ?? true;
+  if (preferRth || mktOpen) {
+    const dc = window.TimedPriceUtils?.getDailyChange?.(t);
+    if (Number.isFinite(dc?.dayPct)) return dc.dayPct;
+    const spot = briefSpotFromFeed(row, true);
+    const pc = Number(row.pc);
+    if (Number.isFinite(spot) && Number.isFinite(pc) && pc > 0 && Math.abs(spot - pc) > 0.0001) {
+      return Math.round((spot - pc) / pc * 10000) / 100;
+    }
+    const dp = Number(row.dp);
+    if (Number.isFinite(dp)) return dp;
+  }
   if (!mktOpen) {
     const ext = window.TimedPriceUtils?.getExtChange?.(t);
     if (ext && Number.isFinite(ext.pct)) return ext.pct;
@@ -100,20 +115,21 @@ function briefDayPctFromFeed(sym, row) {
   }
   return Number.isFinite(dc?.dayPct) ? dc.dayPct : Number.isFinite(Number(row.dp)) ? Number(row.dp) : null;
 }
-function enrichBriefTraderRow(row, livePx) {
+function enrichBriefTraderRow(row, livePx, preferRth = false) {
   const sym = String(row?.ticker || "").toUpperCase();
   const pf = livePx?.[sym];
-  const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.dayPct;
+  const dayPct = pf ? briefDayPctFromFeed(sym, pf, preferRth) : row?.dayPct;
+  const spot = pf ? briefSpotFromFeed(pf, preferRth) : Number(row?.price);
   return {
     ...row,
     dayPct: Number.isFinite(dayPct) ? dayPct : row?.dayPct
   };
 }
-function enrichBriefInvestorRow(row, livePx) {
+function enrichBriefInvestorRow(row, livePx, preferRth = false) {
   const sym = String(row?.ticker || "").toUpperCase();
   const pf = livePx?.[sym];
-  const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.dayPct;
-  const spot = pf ? briefSpotFromFeed(pf) : Number(row?.price);
+  const dayPct = pf ? briefDayPctFromFeed(sym, pf, preferRth) : row?.dayPct;
+  const spot = pf ? briefSpotFromFeed(pf, preferRth) : Number(row?.price);
   const avgEntry = Number(row?.avgEntry);
   let unrealPct = row?.unrealPct;
   if (Number.isFinite(spot) && spot > 0 && Number.isFinite(avgEntry) && avgEntry > 0) {
@@ -125,10 +141,10 @@ function enrichBriefInvestorRow(row, livePx) {
     unrealPct: Number.isFinite(unrealPct) ? unrealPct : row?.unrealPct
   };
 }
-function enrichBriefMoverRow(row, livePx) {
+function enrichBriefMoverRow(row, livePx, preferRth = false) {
   const sym = String(row?.ticker || "").toUpperCase();
   const pf = livePx?.[sym];
-  const dayPct = pf ? briefDayPctFromFeed(sym, pf) : row?.pct;
+  const dayPct = pf ? briefDayPctFromFeed(sym, pf, preferRth) : row?.pct;
   return {
     ...row,
     pct: Number.isFinite(dayPct) ? dayPct : row?.pct
@@ -290,7 +306,8 @@ function modelActionChipMeta(row) {
 function BriefChipStrip({
   sectionKey,
   infographic,
-  sectionBody
+  sectionBody,
+  preferRth = false
 }) {
   const info = infographic || {};
   const livePx = useBriefLivePriceMap();
@@ -306,10 +323,13 @@ function BriefChipStrip({
       const href = row.lane === "investor" ? `/investor.html?ticker=${encodeURIComponent(sym)}` : `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
       const meta = modelActionChipMeta(row);
       const sub = Number.isFinite(Number(row.price)) && Number(row.price) > 0 ? `@ $${Number(row.price).toFixed(2)}` : row.sub ? String(row.sub).replace(/_/g, " ").slice(0, 24) : null;
+      const pfRow = livePx?.[sym];
+      const liveDay = pfRow ? briefDayPctFromFeed(sym, pfRow, preferRth) : row.dayPct;
       return React.createElement(BriefTickerChip, {
         key: `${sym}-${row.action}-${i}`,
         sym: sym,
         pct: row.pct,
+        pct2: Number.isFinite(liveDay) ? liveDay : row.dayPct,
         sub: sub,
         href: href,
         actionChip: meta,
@@ -337,7 +357,7 @@ function BriefChipStrip({
         marginBottom: l.length ? 10 : 0
       }
     }, g.map(row => {
-      const enriched = enrichBriefMoverRow(row, livePx);
+      const enriched = enrichBriefMoverRow(row, livePx, preferRth);
       const sym = String(enriched.ticker || "").toUpperCase();
       return React.createElement(BriefTickerChip, {
         key: `g-${sym}`,
@@ -351,7 +371,7 @@ function BriefChipStrip({
     }, "Losers"), React.createElement("div", {
       className: "tt-strip-scroll"
     }, l.map(row => {
-      const enriched = enrichBriefMoverRow(row, livePx);
+      const enriched = enrichBriefMoverRow(row, livePx, preferRth);
       const sym = String(enriched.ticker || "").toUpperCase();
       return React.createElement(BriefTickerChip, {
         key: `l-${sym}`,
@@ -370,7 +390,8 @@ function BriefChipStrip({
 function BriefPositionStack({
   sectionKey,
   infographic,
-  sectionBody
+  sectionBody,
+  preferRth = false
 }) {
   const livePx = useBriefLivePriceMap();
   const guidanceMap = useMemo(() => {
@@ -384,8 +405,8 @@ function BriefPositionStack({
   const rawRows = isTrader ? Array.isArray(info.traderPositions) ? info.traderPositions : [] : Array.isArray(info.investorHoldings) ? info.investorHoldings : [];
   const rows = useMemo(() => {
     if (!rawRows.length) return [];
-    return rawRows.map(r => isTrader ? enrichBriefTraderRow(r, livePx) : enrichBriefInvestorRow(r, livePx));
-  }, [rawRows, livePx, isTrader]);
+    return rawRows.map(r => isTrader ? enrichBriefTraderRow(r, livePx, preferRth) : enrichBriefInvestorRow(r, livePx, preferRth));
+  }, [rawRows, livePx, isTrader, preferRth]);
   if (!rows.length) return null;
   return React.createElement("div", {
     className: "tt-brief-pos-stack"
@@ -427,7 +448,8 @@ function briefSectionBodyForDisplay(sectionKey, body, infographic) {
 }
 function BriefContent({
   content,
-  infographic
+  infographic,
+  preferRth = false
 }) {
   const sections = useMemo(() => {
     if (window.TimedBriefMarkdown?.parseBriefDisplaySections) {
@@ -447,11 +469,13 @@ function BriefContent({
   }, sec.title && React.createElement("h2", null, sec.title), sec.key && BRIEF_POSITION_SECTION_KEYS.has(sec.key) ? React.createElement(BriefPositionStack, {
     sectionKey: sec.key,
     infographic: infographic,
-    sectionBody: sec.body
+    sectionBody: sec.body,
+    preferRth: preferRth
   }) : React.createElement(React.Fragment, null, sec.key && React.createElement(BriefChipStrip, {
     sectionKey: sec.key,
     infographic: infographic,
-    sectionBody: sec.body
+    sectionBody: sec.body,
+    preferRth: preferRth
   }), sec.body ? React.createElement("div", {
     dangerouslySetInnerHTML: {
       __html: renderMarkdownBody(briefSectionBodyForDisplay(sec.key, sec.body, infographic))
@@ -1252,12 +1276,13 @@ function BriefCard({
     data: brief.infographic
   }), isMorning && brief.sessionContext && React.createElement(SessionContextBanner, {
     sessionContext: brief.sessionContext
-  }), React.createElement(BriefContent, {
-    content: brief.content,
-    infographic: brief.infographic
   }), !isMorning && brief.croNote && React.createElement(CRODeskWrapPanel, {
     croNote: brief.croNote,
     accentColor: accentColor
+  }), React.createElement(BriefContent, {
+    content: brief.content,
+    infographic: brief.infographic,
+    preferRth: !isMorning
   }), isMorning && React.createElement(IndexOutlookSection, {
     brief: brief,
     accentColor: accentColor,
@@ -3149,6 +3174,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783546702290:418277699
+// cache-bust:1783633275871:600977975
 
-// cache-bust:1783546702290:418277699
+// cache-bust:1783633275871:600977975

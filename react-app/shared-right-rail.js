@@ -361,6 +361,11 @@
         const tier = H.deriveInvestorActionTier ? H.deriveInvestorActionTier(r) : null;
         const execReady = tier === "act_now" || tier === "ready";
         if (stage === "accumulate" && !execReady) stage = o ? "watch" : "research_on_watch";
+        else if (stage === "accumulate" && execReady) {
+          const lastType = String(r?.position?.last_action_type || "").toUpperCase();
+          const entered = o && (["BUY", "DCA_BUY", "ADD"].includes(lastType) || (Number(r?.position?.first_entry_ts) || 0) > 0);
+          stage = entered ? "accumulate_entered" : "accumulate_queued";
+        }
         return stage;
       };
       const deriveTier = H.deriveInvestorActionTier || function () { return null; };

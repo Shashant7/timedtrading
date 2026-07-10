@@ -15,6 +15,7 @@ import {
   resolveIndexRthSessionMoveFromCandles,
 } from "./daily-brief.js";
 import { stripBriefTopMoversBody } from "./daily-brief-markdown.js";
+import { injectEmailBriefTickerChips, buildEmailCRODeskBlock } from "./email.js";
 
 describe("buildPremarketGapContext session window", () => {
   const pf = {
@@ -115,6 +116,48 @@ describe("formatIndexSessionGroundTruthBlock", () => {
     expect(block).toMatch(/GROUND TRUTH/);
     expect(block).toContain("SPY: +0.78%");
     expect(block).toContain("QQQ: +1.70%");
+  });
+});
+
+describe("evening brief email parity", () => {
+  it("injectEmailBriefTickerChips renders non-zero RTH day change on position chips", () => {
+    const html = injectEmailBriefTickerChips(
+      "<h2>Active Trader Report</h2><p>body</p>",
+      {
+        traderPositions: [{ ticker: "GRNY", direction: "LONG", pnlPct: 0.4, dayPct: 0.82 }],
+        investorHoldings: [],
+        modelActionChips: [],
+        topMovers: { gainers: [], losers: [] },
+      },
+      "https://timed-trading.com",
+    );
+    expect(html).toContain("0.4%");
+    expect(html).toContain("0.82%");
+    expect(html).not.toContain("0.00% today");
+  });
+
+  it("buildEmailCRODeskBlock renders structured desk wrap", () => {
+    const block = buildEmailCRODeskBlock({
+      verdict: "Tech rebound with broad participation.",
+      asOfDate: "2026-07-09",
+      observations: [{ section: "SECTOR ROTATION", text: "Financials led." }],
+    }, "#a78bfa");
+    expect(block).toContain("CRO Research Desk");
+    expect(block).toContain("Tech rebound");
+    expect(block).toContain("SECTOR ROTATION");
+  });
+});
+
+describe("buildBriefModelActionChips", () => {
+  it("stamps RTH dayPct on entry chips for evening brief", () => {
+    const now = Date.now();
+    const chips = buildBriefModelActionChips({
+      briefType: "evening",
+      todayEntries: [{ ticker: "GRNY", direction: "LONG", price: 27.64, reason: "setup" }],
+      priceFeedRaw: { GRNY: { p: 27.86, dp: 0.82, p_ts: now, t: now } },
+    });
+    expect(chips).toHaveLength(1);
+    expect(chips[0].dayPct).toBeCloseTo(0.82, 2);
   });
 });
 
