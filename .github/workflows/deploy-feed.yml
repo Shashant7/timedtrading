@@ -98,22 +98,32 @@ jobs:
             OK=$(echo "$HEALTH" | jq -r '.ok // false')
             ENABLED=$(echo "$HEALTH" | jq -r '.feed_enabled // false')
             AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // "null"')
-            echo "ok=$OK feed_enabled=$ENABLED prices_age_sec=$AGE"
+            OP_HOURS=$(echo "$HEALTH" | jq -r '.operating_hours // false')
+            CRON_ACTIVE=$(echo "$HEALTH" | jq -r '.price_feed_cron_active // false')
+            FEED_MODE=$(echo "$HEALTH" | jq -r '.feed_mode // "?"')
+            echo "ok=$OK feed_enabled=$ENABLED prices_age_sec=$AGE mode=$FEED_MODE cron_active=$CRON_ACTIVE operating_hours=$OP_HOURS"
             if [ "$OK" != "true" ]; then
               echo "::error::tt-feed /feed/health did not return ok:true after deploy"
               exit 1
             fi
+            # Freshness only matters while the */1 cron is actively writing.
+            # Saturday afternoon / quiet windows intentionally leave the last
+            # RTH snapshot in KV — same gate as watchdog.yml.
             if [ "$ENABLED" != "true" ] || [ "$AGE" = "null" ] || [ "$AGE" -le "$MAX_AGE_SEC" ]; then
               break
             fi
+            if [ "$OP_HOURS" != "true" ] || [ "$CRON_ACTIVE" != "true" ]; then
+              echo "::notice::prices ${AGE}s stale outside active feed window (mode=$FEED_MODE) — expected, smoke passes."
+              break
+            fi
             if [ "$attempt" -lt "$RETRIES" ]; then
-              echo "prices still stale (${AGE}s > ${MAX_AGE_SEC}s); waiting for next cron tick..."
+              echo "prices still stale (${AGE}s > ${MAX_AGE_SEC}s) during active feed window; waiting for next cron tick..."
             fi
           done
-          # When the feed owns the */1 cron, also assert freshness (3 min
-          # tolerance). While FEED_ENABLED=false the monolith owns the feed
-          # and this check is informational only.
-          if [ "$ENABLED" = "true" ] && [ "$AGE" != "null" ] && [ "$AGE" -gt "$MAX_AGE_SEC" ]; then
-            echo "::error::tt-feed owns the price feed but timed:prices is ${AGE}s stale after ${RETRIES} attempts"
+          # When the feed owns the */1 cron during an active window, assert
+          # freshness (3 min tolerance). Quiet/off-hours staleness is expected.
+          if [ "$ENABLED" = "true" ] && [ "$AGE" != "null" ] && [ "$AGE" -gt "$MAX_AGE_SEC" ] \
+             && [ "$OP_HOURS" = "true" ] && [ "$CRON_ACTIVE" = "true" ]; then
+            echo "::error::tt-feed owns the price feed but timed:prices is ${AGE}s stale after ${RETRIES} attempts (mode=$FEED_MODE)"
             exit 1
           fi
