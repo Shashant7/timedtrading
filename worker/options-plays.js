@@ -1263,6 +1263,77 @@ export function resolveExpirationWithChain(ideal, chain, now = Date.now()) {
   return snapExpirationToChain(ideal, listChainExpirationDates(chain), now);
 }
 
+function _chainLegCount(chain) {
+  return (chain?.calls?.length || 0) + (chain?.puts?.length || 0);
+}
+
+/**
+ * List expirations, snap the ideal profile date to a listed cycle, then
+ * fetch a chain for that date. Broad-chain Alpaca fallback when the snapped
+ * date has no legs (monthly ETF cycles like CIBR Jul 21 / Aug 21).
+ *
+ * fetchExpirations / fetchChain are injected so callers can wire Alpaca +
+ * TwelveData and unit tests can mock providers.
+ */
+export async function resolveAndFetchOptionsChain({
+  env,
+  ticker,
+  idealExp,
+  fetchExpirations,
+  fetchChain,
+  fetchChainFallback = null,
+  listedExpirations = null,
+  now = Date.now(),
+  strikeRangePct = 0.25,
+}) {
+  let resolvedExp = idealExp;
+  let chain = null;
+  let status = "not_attempted";
+  let provider = "alpaca";
+
+  const listed = Array.isArray(listedExpirations) && listedExpirations.length
+    ? listedExpirations
+    : null;
+  if (listed) {
+    resolvedExp = snapExpirationToChain(idealExp, listed, now);
+  } else if (typeof fetchExpirations === "function") {
+    const expRes = await fetchExpirations(env, ticker);
+    if (expRes?.ok && expRes.expirations?.length) {
+      resolvedExp = snapExpirationToChain(idealExp, expRes.expirations, now);
+    }
+  }
+
+  let chainRes = await fetchChain(env, ticker, resolvedExp?.iso || null, { strikeRangePct });
+  if (!chainRes?.ok || _chainLegCount(chainRes) === 0) {
+    if (typeof fetchChainFallback === "function" && resolvedExp?.iso) {
+      const fb = await fetchChainFallback(env, ticker, resolvedExp.iso);
+      if (fb?.ok && _chainLegCount(fb) > 0) {
+        chainRes = fb;
+        provider = "twelvedata";
+      }
+    }
+  }
+
+  if (chainRes?.ok && _chainLegCount(chainRes) > 0) {
+    chain = filterChainToExpiration(chainRes, resolvedExp.iso);
+    status = `fresh_fetch:${provider}`;
+    return { chain, resolvedExp, status, raw: chainRes };
+  }
+
+  const broadRes = await fetchChain(env, ticker, null, { strikeRangePct });
+  if (broadRes?.ok && _chainLegCount(broadRes) > 0) {
+    resolvedExp = resolveExpirationWithChain(idealExp, broadRes, now);
+    chain = filterChainToExpiration(broadRes, resolvedExp.iso);
+    if (_chainLegCount(chain) > 0) {
+      status = "broad_chain_fallback";
+      return { chain, resolvedExp, status, raw: broadRes };
+    }
+  }
+
+  status = `provider_error:${chainRes?.error || broadRes?.error || "empty_chain"}`;
+  return { chain: null, resolvedExp, status, raw: null };
+}
+
 // ── Black-Scholes (no-chain estimator) ─────────────────────────────────────
 // Standard BS for European-style options. Good enough for premium estimates
 // when we don't have the live chain. Replaced by chain bid/ask in v2.
