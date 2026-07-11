@@ -18,9 +18,12 @@ import {
   compactOptionsPlay,
   lookupLETF,
   pickExpirationForProfile,
+  resolveExpirationWithChain,
+  snapExpirationToChain,
+  filterChainToExpiration,
   PROFILE_META,
 } from "./options-plays.js";
-import { alpacaFetchOptionsChain } from "./alpaca-options.js";
+import { alpacaFetchOptionsChain, alpacaFetchOptionsExpirations } from "./alpaca-options.js";
 
 const SHADOW_ARCHETYPES = Object.freeze({
   LONG: "long_call",
@@ -63,6 +66,7 @@ function buildSharesExpression({
     const riskPerShare = Math.abs(p - sl1) || 1;
     qty = Math.max(1, Math.floor(dar / riskPerShare));
   }
+  qty = qty >= 10 ? Math.round(qty * 10) / 10 : Math.round(qty * 10000) / 10000;
   const desk = String(mode || "").toLowerCase() === "investor" ? "investor" : "trader";
   const raw = {
     archetype: dir === "LONG" ? "stock_long" : "stock_short",
@@ -355,11 +359,31 @@ export async function buildShadowOptionsPlayAsync({
     let chain = tickerData?.options_chain || tickerData?._options_chain || null;
 
     if (!chain && optionsShadowFetchChainEnabled(env) && env) {
-      const exp = pickExpirationForProfile(contract, profile);
-      const chainRes = await alpacaFetchOptionsChain(env, ticker, exp?.iso || null, {
+      const idealExp = pickExpirationForProfile(contract, profile);
+      let resolvedExp = idealExp;
+      const expRes = await alpacaFetchOptionsExpirations(env, ticker);
+      if (expRes?.ok && expRes.expirations?.length) {
+        resolvedExp = snapExpirationToChain(idealExp, expRes.expirations);
+      }
+      let chainRes = await alpacaFetchOptionsChain(env, ticker, resolvedExp.iso || null, {
         strikeRangePct: 0.25,
       });
-      if (chainRes?.ok) chain = chainRes;
+      if (chainRes?.ok && ((chainRes.calls?.length || 0) + (chainRes.puts?.length || 0)) > 0) {
+        chain = filterChainToExpiration(chainRes, resolvedExp.iso);
+      } else {
+        const broadRes = await alpacaFetchOptionsChain(env, ticker, null, { strikeRangePct: 0.25 });
+        if (broadRes?.ok) {
+          resolvedExp = resolveExpirationWithChain(idealExp, broadRes);
+          const filtered = filterChainToExpiration(broadRes, resolvedExp.iso);
+          if ((filtered.calls?.length || 0) + (filtered.puts?.length || 0) > 0) {
+            chain = filtered;
+          }
+        }
+      }
+    } else if (chain) {
+      const idealExp = pickExpirationForProfile(contract, profile);
+      const resolvedExp = resolveExpirationWithChain(idealExp, chain);
+      chain = filterChainToExpiration(chain, resolvedExp.iso);
     }
 
     const baseDelta = modelTargetDelta({

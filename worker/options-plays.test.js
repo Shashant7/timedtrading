@@ -47,6 +47,9 @@ import {
   pickSpreadShortStrikePrice,
   refineStrikeWithModelLevels,
   buildOptionsModelReconciliation,
+  snapExpirationToChain,
+  resolveExpirationWithChain,
+  filterChainToExpiration,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -1066,5 +1069,75 @@ describe("buildOptionsLadder — profile differentiation + timing on singles", (
     expect(align.allow).toBe(true);
     expect(align.timing_override).toBe(true);
     expect(align.side).toBe("LONG");
+  });
+});
+
+describe("snapExpirationToChain — monthly ETF cycles", () => {
+  // CIBR-style: model snaps swing to nearest Friday (Jul 31) but chain
+  // lists Jul 21 + Aug 21 monthly cycles only.
+  const CIBR_NOW = new Date("2026-07-09T15:00:00.000Z").getTime();
+
+  it("snaps synthetic Jul 31 target to Jul 21 when that is the nearer listed DTE", () => {
+    const ideal = pickExpirationForProfile({
+      ticker: "CIBR",
+      price: 92,
+      direction: "LONG",
+      sl: 88,
+      tp1: 95,
+      stage: "swing",
+      mode: "trader",
+    }, "speculator", CIBR_NOW);
+    expect(ideal.iso).toBe("2026-07-31");
+
+    const snapped = snapExpirationToChain(ideal, ["2026-07-21", "2026-08-21"], CIBR_NOW);
+    expect(snapped.iso).toBe("2026-07-21");
+    expect(snapped.chain_snapped).toBe(true);
+    expect(snapped.dte).toBeGreaterThanOrEqual(10);
+    expect(snapped.dte).toBeLessThanOrEqual(14);
+  });
+
+  it("buildOptionsLadder uses chain-listed expiration and strike for long_call", () => {
+    const ideal = pickExpirationForProfile({
+      ticker: "CIBR",
+      price: 91.93,
+      direction: "LONG",
+      sl: 88.25,
+      tp1: 94.76,
+      stage: "swing",
+      mode: "trader",
+      atr_pct: 0.025,
+    }, "speculator", CIBR_NOW);
+    const chain = {
+      ok: true,
+      symbol: "CIBR",
+      expiration: "2026-07-21",
+      calls: [
+        { strike: 90, bid: 3.2, ask: 3.6, mid: 3.4, delta: 0.55, expiration: "2026-07-21" },
+        { strike: 92, bid: 2.4, ask: 2.8, mid: 2.6, delta: 0.48, expiration: "2026-07-21" },
+        { strike: 95, bid: 1.5, ask: 1.8, mid: 1.65, delta: 0.35, expiration: "2026-07-21" },
+      ],
+      puts: [],
+    };
+    const ladder = buildOptionsLadder({
+      ticker: "CIBR",
+      price: 91.93,
+      direction: "LONG",
+      sl: 88.25,
+      tp1: 94.76,
+      stage: "swing",
+      mode: "trader",
+      atr_pct: 0.025,
+    }, {
+      profile: "speculator",
+      chain,
+      confluence: { mode: "READY" },
+      now: CIBR_NOW,
+    });
+    const lc = ladder.ladder.find((s) => s.archetype === "long_call");
+    expect(lc).toBeTruthy();
+    expect(lc.expiration.iso).toBe("2026-07-21");
+    expect(lc.expiration.iso).not.toBe(ideal.iso);
+    expect([90, 92]).toContain(lc.legs[0].strike);
+    expect(lc.legs[0].expiration).toBe("2026-07-21");
   });
 });
