@@ -1191,6 +1191,78 @@ export function pickExpirationForProfile(contract, profile = DEFAULT_RISK_PROFIL
   return pickExpiration(stage, now);
 }
 
+/** Distinct ISO expiration dates present on a normalized options chain. */
+export function listChainExpirationDates(chain) {
+  const set = new Set();
+  if (!chain || typeof chain !== "object") return [];
+  if (chain.expiration) set.add(String(chain.expiration));
+  for (const leg of [...(chain.calls || []), ...(chain.puts || [])]) {
+    if (leg?.expiration) set.add(String(leg.expiration));
+  }
+  return Array.from(set).sort();
+}
+
+/**
+ * Snap an ideal expiration (often a synthetic Friday) to the nearest
+ * listed chain date by DTE distance. ETFs like CIBR list monthly cycles
+ * (e.g. Jul 21 / Aug 21) — not every Friday.
+ */
+export function snapExpirationToChain(ideal, listedExpirations, now = Date.now()) {
+  if (!ideal || typeof ideal !== "object") return ideal;
+  const list = Array.isArray(listedExpirations) ? listedExpirations.filter(Boolean) : [];
+  if (!list.length) return ideal;
+  const targetDte = Number.isFinite(Number(ideal.dte)) ? Number(ideal.dte) : 21;
+
+  let bestIso = null;
+  let bestDist = Infinity;
+  for (const iso of list) {
+    const ms = Date.parse(`${iso}T21:00:00Z`);
+    if (!Number.isFinite(ms)) continue;
+    const dte = Math.round((ms - now) / 86400000);
+    if (dte < 1) continue;
+    const dist = Math.abs(dte - targetDte);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIso = iso;
+    }
+  }
+  if (!bestIso) {
+    for (const iso of list) {
+      const ms = Date.parse(`${iso}T21:00:00Z`);
+      if (!Number.isFinite(ms)) continue;
+      if (Math.round((ms - now) / 86400000) >= 1) {
+        bestIso = iso;
+        break;
+      }
+    }
+  }
+  if (!bestIso || bestIso === ideal.iso) return ideal;
+
+  const d = new Date(`${bestIso}T21:00:00Z`);
+  const dte = Math.round((d.getTime() - now) / 86400000);
+  return {
+    iso: bestIso,
+    dte,
+    label: `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })} (${dte}DTE)`,
+    chain_snapped: true,
+    ideal_iso: ideal.iso,
+  };
+}
+
+/** Keep only legs for one expiration (chain payloads may mix dates). */
+export function filterChainToExpiration(chain, expirationIso) {
+  if (!chain || !expirationIso) return chain;
+  const iso = String(expirationIso);
+  const calls = (chain.calls || []).filter((l) => !l.expiration || l.expiration === iso);
+  const puts = (chain.puts || []).filter((l) => !l.expiration || l.expiration === iso);
+  return { ...chain, expiration: iso, calls, puts };
+}
+
+/** Resolve ideal profile expiration against a live chain's listed dates. */
+export function resolveExpirationWithChain(ideal, chain, now = Date.now()) {
+  return snapExpirationToChain(ideal, listChainExpirationDates(chain), now);
+}
+
 // ── Black-Scholes (no-chain estimator) ─────────────────────────────────────
 // Standard BS for European-style options. Good enough for premium estimates
 // when we don't have the live chain. Replaced by chain bid/ask in v2.
@@ -2488,7 +2560,12 @@ export function buildOptionsLadder(contract, opts = {}) {
   const atrPct = Number(contract.atr_pct ?? contract.atrPct ?? 0.025);
   const isInvestorMode = String(contract?.mode || "").toLowerCase() === "investor"
     || classifySetupStage(contract) === "investor";
-  const expiration = pickExpirationForProfile(contract, profile, opts.now || Date.now());
+  let expiration = pickExpirationForProfile(contract, profile, opts.now || Date.now());
+  let chain = opts.chain || null;
+  if (chain && listChainExpirationDates(chain).length) {
+    expiration = resolveExpirationWithChain(expiration, chain, opts.now || Date.now());
+    chain = filterChainToExpiration(chain, expiration.iso);
+  }
   const tickerSym = String(contract.ticker || "").toUpperCase();
   const isIndexTrader = isDayTradeTicker(tickerSym) && !isInvestorMode;
   const indexWantsSingleLeg = isIndexTrader && (profile === "speculator" || profile === "aggressive");
@@ -2536,7 +2613,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     atrPct, expiration, contracts,
     account_value: accountValue, risk_budget_pct: riskBudgetPct,
     dollars_at_risk: dollarsAtRisk,
-    chain: opts.chain || null,
+    chain: chain,
     themes: Array.isArray(opts.themes) ? opts.themes : [],
     levels,
     targetDelta,
