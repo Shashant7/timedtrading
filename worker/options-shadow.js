@@ -18,8 +18,8 @@ import {
   compactOptionsPlay,
   lookupLETF,
   pickExpirationForProfile,
+  resolveAndFetchOptionsChain,
   resolveExpirationWithChain,
-  snapExpirationToChain,
   filterChainToExpiration,
   PROFILE_META,
 } from "./options-plays.js";
@@ -360,26 +360,14 @@ export async function buildShadowOptionsPlayAsync({
 
     if (!chain && optionsShadowFetchChainEnabled(env) && env) {
       const idealExp = pickExpirationForProfile(contract, profile);
-      let resolvedExp = idealExp;
-      const expRes = await alpacaFetchOptionsExpirations(env, ticker);
-      if (expRes?.ok && expRes.expirations?.length) {
-        resolvedExp = snapExpirationToChain(idealExp, expRes.expirations);
-      }
-      let chainRes = await alpacaFetchOptionsChain(env, ticker, resolvedExp.iso || null, {
-        strikeRangePct: 0.25,
+      const fetched = await resolveAndFetchOptionsChain({
+        env,
+        ticker,
+        idealExp,
+        fetchExpirations: alpacaFetchOptionsExpirations,
+        fetchChain: alpacaFetchOptionsChain,
       });
-      if (chainRes?.ok && ((chainRes.calls?.length || 0) + (chainRes.puts?.length || 0)) > 0) {
-        chain = filterChainToExpiration(chainRes, resolvedExp.iso);
-      } else {
-        const broadRes = await alpacaFetchOptionsChain(env, ticker, null, { strikeRangePct: 0.25 });
-        if (broadRes?.ok) {
-          resolvedExp = resolveExpirationWithChain(idealExp, broadRes);
-          const filtered = filterChainToExpiration(broadRes, resolvedExp.iso);
-          if ((filtered.calls?.length || 0) + (filtered.puts?.length || 0) > 0) {
-            chain = filtered;
-          }
-        }
-      }
+      chain = fetched.chain;
     } else if (chain) {
       const idealExp = pickExpirationForProfile(contract, profile);
       const resolvedExp = resolveExpirationWithChain(idealExp, chain);

@@ -50,6 +50,7 @@ import {
   snapExpirationToChain,
   resolveExpirationWithChain,
   filterChainToExpiration,
+  resolveAndFetchOptionsChain,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -1139,5 +1140,77 @@ describe("snapExpirationToChain — monthly ETF cycles", () => {
     expect(lc.expiration.iso).not.toBe(ideal.iso);
     expect([90, 92]).toContain(lc.legs[0].strike);
     expect(lc.legs[0].expiration).toBe("2026-07-21");
+  });
+});
+
+describe("resolveAndFetchOptionsChain — CIBR monthly cycle", () => {
+  const CIBR_NOW = new Date("2026-07-09T15:00:00.000Z").getTime();
+  const CIBR_IDEAL = pickExpirationForProfile({
+    ticker: "CIBR",
+    price: 91.93,
+    direction: "LONG",
+    sl: 88.25,
+    tp1: 94.76,
+    stage: "swing",
+    mode: "trader",
+    atr_pct: 0.025,
+  }, "speculator", CIBR_NOW);
+
+  it("snaps to Jul 21 and returns chain legs when Jul 31 fetch is empty", async () => {
+    const jul21Chain = {
+      ok: true,
+      symbol: "CIBR",
+      expiration: "2026-07-21",
+      calls: [{ strike: 92, bid: 2.4, ask: 2.8, mid: 2.6, delta: 0.48, expiration: "2026-07-21" }],
+      puts: [],
+      fetched_at: CIBR_NOW,
+    };
+    const fetchExpirations = async () => ({
+      ok: true,
+      expirations: ["2026-07-21", "2026-08-21"],
+    });
+    const fetchChain = async (_env, _sym, exp) => {
+      if (exp === "2026-07-31") return { ok: true, calls: [], puts: [] };
+      if (exp === "2026-07-21") return jul21Chain;
+      return { ok: false, error: "unexpected" };
+    };
+    const out = await resolveAndFetchOptionsChain({
+      env: {},
+      ticker: "CIBR",
+      idealExp: CIBR_IDEAL,
+      fetchExpirations,
+      fetchChain,
+      now: CIBR_NOW,
+    });
+    expect(out.resolvedExp.iso).toBe("2026-07-21");
+    expect(out.chain?.calls?.[0]?.expiration).toBe("2026-07-21");
+    expect(out.status).toBe("fresh_fetch:alpaca");
+  });
+
+  it("uses broad-chain fallback when snapped date has no legs", async () => {
+    const broadChain = {
+      ok: true,
+      symbol: "CIBR",
+      calls: [
+        { strike: 90, bid: 3.2, ask: 3.6, mid: 3.4, delta: 0.55, expiration: "2026-07-21" },
+        { strike: 95, bid: 1.5, ask: 1.8, mid: 1.65, delta: 0.35, expiration: "2026-08-21" },
+      ],
+      puts: [],
+    };
+    const fetchChain = async (_env, _sym, exp) => {
+      if (exp === null) return broadChain;
+      return { ok: true, calls: [], puts: [] };
+    };
+    const out = await resolveAndFetchOptionsChain({
+      env: {},
+      ticker: "CIBR",
+      idealExp: CIBR_IDEAL,
+      listedExpirations: ["2026-07-21", "2026-08-21"],
+      fetchChain,
+      now: CIBR_NOW,
+    });
+    expect(out.resolvedExp.iso).toBe("2026-07-21");
+    expect(out.chain?.calls?.length).toBe(1);
+    expect(out.status).toBe("broad_chain_fallback");
   });
 });

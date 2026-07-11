@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   isPriceValueFresh,
   mergeFreshnessIntoLatest,
@@ -232,6 +232,18 @@ describe("overlayLivePricesOntoMap", () => {
 // always included; the non-priority remainder rotates so overflow tickers
 // don't starve tick after tick.
 describe("syncLivePricesToChartCandles coverage rotation", () => {
+  // D-bar writes anchor to etDateStr(now); weekends/holidays skip D rows.
+  const RTH_WEEKDAY_MS = new Date("2026-07-07T15:00:00.000Z").getTime();
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(RTH_WEEKDAY_MS);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   function mockDb() {
     const batches = [];
     return {
