@@ -1403,6 +1403,32 @@
       })));
     }
     const EMPTY_PRICE_LINES = Object.freeze([]);
+    const LWCHART_VISIBLE_BARS = Object.freeze({
+      "5": 156,
+      "15": 52,
+      "30": 26,
+      "60": 20,
+      "240": 60,
+      "D": 30,
+      "W": 52
+    });
+    function snapLwChartToRecent(chart, chartTf, barCount) {
+      if (!chart || !(barCount > 0)) return;
+      const barsToShow = LWCHART_VISIBLE_BARS[String(chartTf)] || barCount;
+      try {
+        if (barCount > barsToShow) {
+          chart.timeScale().setVisibleLogicalRange({
+            from: barCount - barsToShow,
+            to: barCount + 5
+          });
+        } else {
+          chart.timeScale().fitContent();
+        }
+        if (typeof chart.timeScale().scrollToRealTime === "function") {
+          chart.timeScale().scrollToRealTime();
+        }
+      } catch (_) {}
+    }
     function InvestorTabPanel({
       ticker,
       latestTicker,
@@ -4426,8 +4452,10 @@
         }
         lastMappedSigRef.current = sig;
         const prevParts = typeof prevSig === "string" ? prevSig.split("|") : null;
+        const prevBarCount = prevParts ? Number(prevParts[0]) : -1;
+        const substantialGrowth = prevBarCount > 0 && mapped.length - prevBarCount > 5;
         const sameSpine = !!(prevParts && firstDataLoadAppliedRef.current && Number(prevParts[1]) === Number(first?.time));
-        const lenPrev = prevParts ? Number(prevParts[0]) : -1;
+        const lenPrev = prevBarCount;
         const lastTimePrev = prevParts ? Number(prevParts[3]) : -1;
         let fastPath = false;
         if (sameSpine && mapped.length === lenPrev && Number(last.time) === lastTimePrev) {
@@ -4445,7 +4473,7 @@
         }
         if (!fastPath) {
           let prevVisibleRange = null;
-          if (firstDataLoadAppliedRef.current) {
+          if (firstDataLoadAppliedRef.current && !substantialGrowth) {
             try {
               prevVisibleRange = chart.timeScale().getVisibleLogicalRange();
             } catch (_) {}
@@ -4453,7 +4481,7 @@
           try {
             candleSeries.setData(mapped);
           } catch (_) {}
-          if (firstDataLoadAppliedRef.current && prevVisibleRange) {
+          if (firstDataLoadAppliedRef.current && prevVisibleRange && !substantialGrowth) {
             try {
               chart.timeScale().setVisibleLogicalRange(prevVisibleRange);
             } catch (_) {}
@@ -4553,30 +4581,10 @@
             candleSeries.setMarkers(baseMarkers);
           } catch (_) {}
         }
-        if (!firstDataLoadAppliedRef.current) {
+        if (!firstDataLoadAppliedRef.current || substantialGrowth) {
           firstDataLoadAppliedRef.current = true;
-          const _visibleBars = {
-            "5": 156,
-            "15": 52,
-            "30": 26,
-            "60": 20,
-            "240": 60,
-            "D": 30,
-            "W": 52
-          };
-          const _barsToShow = _visibleBars[String(chartTf)] || mapped.length;
-          if (mapped.length > _barsToShow) {
-            try {
-              chart.timeScale().setVisibleLogicalRange({
-                from: mapped.length - _barsToShow,
-                to: mapped.length + 5
-              });
-            } catch (_) {}
-          } else {
-            try {
-              chart.timeScale().fitContent();
-            } catch (_) {}
-          }
+          snapLwChartToRecent(chart, chartTf, mapped.length);
+          requestAnimationFrame(() => snapLwChartToRecent(chart, chartTf, mapped.length));
         }
       }, [mapped, indicatorData, propMarkers, chartTf, LWC]);
       useEffect(() => {
@@ -4848,22 +4856,7 @@
               autoScale: true
             });
           } catch (_) {}
-          try {
-            const _visibleBars = {
-              "5": 156,
-              "15": 52,
-              "30": 26,
-              "60": 20,
-              "240": 60,
-              "D": 30,
-              "W": 52
-            };
-            const bars = _visibleBars[String(chartTf)] || mapped.length;
-            if (mapped.length > bars) chart.timeScale().setVisibleLogicalRange({
-              from: mapped.length - bars,
-              to: mapped.length + 5
-            });else chart.timeScale().fitContent();
-          } catch (_) {}
+          snapLwChartToRecent(chart, chartTf, mapped.length);
         },
         className: "px-1.5 py-px rounded text-[9px] font-semibold border border-white/[0.08] text-[#7c8493] hover:text-white hover:border-white/20 transition-colors",
         title: "Reset zoom — re-enable autoscale and snap to the default window"
@@ -22660,4 +22653,4 @@
   };
 })();
 
-// cache-bust:1783621051169:806765957
+// cache-bust:1783791538673:264663515
