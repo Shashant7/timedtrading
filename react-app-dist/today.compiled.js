@@ -3268,14 +3268,27 @@ function TickerLogo({
   }, mono);
 }
 const MOVER_LIMIT = 10;
-const getExtMoverPct = t => {
+const getExtMoverDisplay = t => {
   const ext = window.TimedPriceUtils?.getExtChange?.(t);
-  if (Number.isFinite(ext?.pct)) return ext.pct;
-  if (!isNyRegularMarketOpen()) {
+  let pct = Number.isFinite(ext?.pct) ? ext.pct : NaN;
+  let price = Number.isFinite(ext?.price) ? ext.price : NaN;
+  if (!Number.isFinite(pct) && !isNyRegularMarketOpen()) {
     const raw = Number(t?._ah_change_pct ?? t?.extended_percent_change);
-    if (Number.isFinite(raw)) return raw;
+    if (Number.isFinite(raw)) pct = raw;
   }
-  return NaN;
+  if (!Number.isFinite(price)) {
+    price = Number(t?._ah_price ?? t?.extended_price);
+  }
+  return {
+    pct,
+    price
+  };
+};
+const getExtMoverPct = t => {
+  const {
+    pct
+  } = getExtMoverDisplay(t);
+  return Number.isFinite(pct) ? pct : NaN;
 };
 function MoverRow({
   rk,
@@ -3285,9 +3298,9 @@ function MoverRow({
   universe
 }) {
   const dc = getDailyChange(t);
-  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
-  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
-  const price = mode === "ext" ? Number(ext?.price) : Number(t?.price);
+  const extDisp = mode === "ext" ? getExtMoverDisplay(t) : null;
+  const pct = mode === "ext" ? Number(extDisp?.pct) : Number(dc?.dayPct);
+  const price = mode === "ext" ? Number(extDisp?.price) : Number(t?.price);
   const rthClose = mode === "ext" ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price) : null;
   const showRthSub = mode === "ext" && Number.isFinite(rthClose) && Number.isFinite(price) && Math.abs(rthClose - price) / price > 0.001;
   const sym = String(t?.ticker || "").toUpperCase();
@@ -3324,8 +3337,8 @@ function CompactMoverChip({
   onSelectTicker
 }) {
   const dc = getDailyChange(t);
-  const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
-  const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+  const extDisp = mode === "ext" ? getExtMoverDisplay(t) : null;
+  const pct = mode === "ext" ? Number(extDisp?.pct) : Number(dc?.dayPct);
   const sym = String(t?.ticker || "").toUpperCase();
   const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
   return h("button", {
@@ -6681,6 +6694,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783852489393:908223076
+// cache-bust:1783853182053:795513815
 
-// cache-bust:1783852489393:908223076
+// cache-bust:1783853182053:795513815
