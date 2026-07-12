@@ -783,6 +783,13 @@ input, button, select, textarea {
   min-height: var(--tt-lane-card-h);
   max-height: var(--tt-lane-card-h);
   text-align: left;
+  /* Match Market Pulse benchmark tile contrast (today .tt-mp-band--benchmarks). */
+  background: rgba(0, 0, 0, 0.2);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.ds-tickercard.tt-lane-card:hover {
+  background: rgba(0, 0, 0, 0.28);
+  border-color: rgba(255, 255, 255, 0.22);
 }
 .ds-tickercard.tt-lane-card.tt-lane-card--active,
 .ds-tickercard.tt-lane-card.tt-lane-card--owned {
