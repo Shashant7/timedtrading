@@ -879,681 +879,168 @@ function MarketPulseTile({
     }
   }));
 }
-function formatDayTradeSuppressLabel(s) {
-  if (!s || typeof s !== "object") return "unknown";
-  const lean = s.day_lean ? String(s.day_lean).toUpperCase() : "";
-  const conv = s.day_lean_conviction ? String(s.day_lean_conviction).toLowerCase() : "";
-  const mode = s.confluence_mode ? String(s.confluence_mode).toUpperCase() : "";
-  switch (String(s.reason || "")) {
-    case "day_lean_low_conviction":
-      return `playbook lean ${lean || "mixed"} but conviction is low${mode ? ` · fusion ${mode}` : ""}`;
-    case "no_directional_signal_low_vol":
-      return `no actionable day lean${lean ? ` (${lean}${conv ? ` · ${conv}` : ""})` : ""} and low vol · fusion ${mode || "WAIT"}`;
-    case "wait_no_directional_bet":
-      return `layer fusion is WAIT — no directional 0DTE bet${lean ? ` · playbook ${lean}` : ""}`;
-    default:
-      if (String(s.reason || "").startsWith("strike_drift")) {
-        return `strike drifted too far from spot (${String(s.reason).replace(/_/g, " ")})`;
-      }
-      return String(s.reason || "unknown").replace(/_/g, " ");
-  }
-}
-function dayTradeModelLevelsLine(p, flavor) {
-  const gp = p?.game_plan;
-  if (!gp) return null;
-  const fmt = n => Number.isFinite(Number(n)) && Number(n) > 0 ? `$${Number(n).toFixed(2)}` : null;
-  if (flavor === "call") {
-    const trig = fmt(gp.bull_trigger);
-    const tgt = fmt(gp.bull_target);
-    if (!trig && !tgt) return null;
-    return `Playbook: ${trig ? `reclaim ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
-  }
-  if (flavor === "put") {
-    const trig = fmt(gp.bear_trigger);
-    const tgt = fmt(gp.bear_target);
-    if (!trig && !tgt) return null;
-    return `Playbook: ${trig ? `break ${trig}` : ""}${trig && tgt ? " · " : ""}${tgt ? `target ${tgt}` : ""}`;
-  }
-  if (flavor === "straddle") {
-    const up = fmt(gp.bull_target);
-    const dn = fmt(gp.bear_target);
-    if (!up && !dn) return null;
-    return `Playbook range: ${dn || "?"} – ${up || "?"}`;
-  }
-  return null;
-}
-function OptionsPlaysOfTheDay({
+function ConvexityPlaysStrip({
   onSelectTicker,
-  layout = "grid"
+  embedded
 }) {
   const [plays, setPlays] = useState(null);
-  const [dayTradePlays, setDayTradePlays] = useState(null);
-  const [dayTradeExp, setDayTradeExp] = useState(null);
-  const [dayTradeSuppressed, setDayTradeSuppressed] = useState(null);
-  const [dayTradeAsOf, setDayTradeAsOf] = useState(null);
   const [loading, setLoading] = useState(true);
-  const isSidebar = layout === "sidebar";
   useEffect(() => {
     let alive = true;
-    const defer = setTimeout(() => {
-      (async () => {
-        try {
-          const _optsUrl = `${API_BASE}/timed/options/all?limit=10`;
-          const j = window.TTFetchCache ? await window.TTFetchCache.get(_optsUrl, {
-            ttlMs: 60000,
-            maxAgeMs: 300000,
-            fetchOpts: {
-              credentials: "include"
-            }
-          }) : await fetchJsonRetry(_optsUrl);
-          if (!j) return;
-          if (alive && j?.ok && Array.isArray(j.plays)) {
-            const actionable = j.plays.filter(p => ["RIDE", "DRIFT", "READY", "FADE"].includes(p.confluence_mode));
-            setPlays(actionable);
+    (async () => {
+      try {
+        if (!window._ttIsPro) {
+          if (alive) {
+            setPlays([]);
+            setLoading(false);
           }
-          if (alive && j?.ok && Array.isArray(j.day_trade_plays)) {
-            setDayTradePlays(j.day_trade_plays);
-            setDayTradeExp(j.day_trade_expiration || null);
-            setDayTradeSuppressed(Array.isArray(j.day_trade_suppressed) ? j.day_trade_suppressed : []);
-            setDayTradeAsOf(Number(j.generated_at || j._cached_at) || null);
-          }
-        } catch (_) {} finally {
-          if (alive) setLoading(false);
+          return;
         }
-      })();
-    }, 4000);
+        const url = `${API_BASE}/timed/options/convexity?limit=10`;
+        const j = window.TTFetchCache ? await window.TTFetchCache.get(url, {
+          ttlMs: 60000,
+          maxAgeMs: 300000,
+          fetchOpts: {
+            credentials: "include"
+          }
+        }) : await fetchJsonRetry(url);
+        if (alive && j?.ok && Array.isArray(j.plays)) setPlays(j.plays);else if (alive) setPlays([]);
+      } catch (_) {
+        if (alive) setPlays([]);
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
     return () => {
       alive = false;
-      clearTimeout(defer);
     };
   }, []);
-  if (loading) {
-    const skSlotCount = isSidebar ? 4 : 4;
-    const skContainerStyle = isSidebar ? {
-      display: "flex",
-      flexDirection: "column",
-      gap: 8
-    } : {
-      display: "grid",
-      gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-      gap: 10
-    };
+  const wrap = children => {
+    if (embedded) return h("div", {
+      className: "tt-universe-panel__convexity",
+      id: "convexity-plays"
+    }, children);
     return h("section", {
-      className: isSidebar ? "" : "tt-row",
-      style: {
-        marginBottom: isSidebar ? 0 : 24
-      }
-    }, h("div", {
-      style: {
-        display: "flex",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        marginBottom: 8,
-        gap: 8,
-        flexWrap: "wrap"
-      }
-    }, h("div", null, h("div", {
-      className: "tt-sec-title"
-    }, "OPTIONS PLAYS OF THE DAY"), h("div", {
-      style: {
-        fontSize: 14,
-        fontWeight: 600,
-        color: "var(--tt-text)",
-        letterSpacing: "-0.005em"
-      }
-    }, isSidebar ? "Today's setups" : "Confluence-Driven Strategies")), h("span", {
-      style: {
-        fontSize: 10,
-        color: "var(--tt-text-faint)",
-        fontStyle: "italic"
-      }
-    }, "Loading…")), h("div", {
-      style: skContainerStyle
-    }, Array.from({
-      length: skSlotCount
-    }, (_, i) => h("div", {
-      key: `sk-${i}`,
-      style: {
-        padding: isSidebar ? 10 : 12,
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.04)",
-        borderRadius: 10,
-        minHeight: isSidebar ? 76 : 110,
-        position: "relative",
-        overflow: "hidden"
-      }
-    }, h("div", {
-      style: {
-        width: "60%",
-        height: 12,
-        background: "rgba(255,255,255,0.06)",
-        borderRadius: 4,
-        marginBottom: 6
-      }
-    }), h("div", {
-      style: {
-        width: "85%",
-        height: 11,
-        background: "rgba(255,255,255,0.04)",
-        borderRadius: 4,
-        marginBottom: 5
-      }
-    }), h("div", {
-      style: {
-        width: "40%",
-        height: 9,
-        background: "rgba(255,255,255,0.04)",
-        borderRadius: 4
-      }
-    }), h("div", {
-      style: {
-        position: "absolute",
-        inset: 0,
-        background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent)",
-        animation: "tt-skeleton-shimmer 1.6s linear infinite"
-      }
-    })))));
-  }
-  const renderDayTradeStrip = () => {
-    if (!dayTradePlays || dayTradePlays.length === 0) return null;
-    const dteLabel = dayTradeExp?.dte === 0 ? "0DTE (Today)" : `${dayTradeExp?.dte ?? "?"}DTE (${dayTradeExp?.label || "Next session"})`;
-    const asOfMs = Number(dayTradeAsOf);
-    const asOfLabel = Number.isFinite(asOfMs) && asOfMs > 0 ? new Date(asOfMs).toLocaleTimeString("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      minute: "2-digit"
-    }) + " ET" : null;
-    const asOfAgeMin = Number.isFinite(asOfMs) && asOfMs > 0 ? Math.floor((Date.now() - asOfMs) / 60000) : null;
-    const asOfStale = asOfAgeMin != null && asOfAgeMin > 15;
-    return h("section", {
-      className: isSidebar ? "" : "tt-row",
-      style: {
-        marginBottom: isSidebar ? 12 : 18
-      }
-    }, h("div", {
-      style: {
-        display: "flex",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        marginBottom: 8,
-        gap: 8,
-        flexWrap: "wrap"
-      }
-    }, h("div", null, h("div", {
-      className: "tt-sec-title",
-      style: {
-        color: "#f5c25c"
-      }
-    }, "OPTIONS PLAYS · DAY TRADE INDEX ETFs"), h("div", {
-      style: {
-        fontSize: 13,
-        fontWeight: 600,
-        color: "var(--tt-text)",
-        letterSpacing: "-0.005em"
-      }
-    }, `SPY · QQQ · IWM · DIA — ${dteLabel}`)), h("span", {
-      style: {
-        fontSize: 10,
-        color: "var(--tt-text-muted)",
-        fontStyle: "italic"
-      },
-      title: "Short-dated day-trade plays for index ETFs. Separate from any swing/investor play on the same ticker."
-    }, "scalps only · manage actively")), h("div", {
-      style: {
-        fontSize: 10.5,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.5,
-        marginBottom: 8
-      }
-    }, asOfLabel && h("span", {
-      style: {
-        display: "inline-block",
-        marginBottom: 4,
-        marginRight: 6,
-        fontSize: 9.5,
-        fontWeight: 700,
-        letterSpacing: "0.04em",
-        padding: "1px 7px",
-        borderRadius: 999,
-        color: asOfStale ? "#fbbf24" : "#34d399",
-        border: `1px solid ${asOfStale ? "rgba(245,158,11,0.4)" : "rgba(52,211,153,0.4)"}`,
-        background: asOfStale ? "rgba(245,158,11,0.08)" : "rgba(52,211,153,0.08)"
-      }
-    }, asOfStale ? `STALE · spot as of ${asOfLabel}` : `LIVE · spot as of ${asOfLabel}`), h("strong", {
-      style: {
-        color: "var(--tt-text)"
-      }
-    }, "Spot"), " = the index price when this play was last computed. The strike is anchored to that spot and re-validated each cycle (~5 min) — a play only shows while its strike is within ~2% of spot, so it's a valid read for ", h("strong", null, dayTradeExp?.dte === 0 ? "today's session" : "the next session"), ". 0DTE expires today; 1DTE the next session. Intraday scalps — manage actively. ", asOfStale ? "This quote hasn't refreshed in a while — confirm the live price before acting." : ""), h("div", {
-      style: isSidebar ? {
-        display: "flex",
-        flexDirection: "column",
-        gap: 8
-      } : {
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-        gap: 10
-      }
-    }, dayTradePlays.map(p => {
-      const flavor = p.primary?._day_trade_flavor || "call";
-      const flavorColor = flavor === "put" ? "#f87171" : flavor === "straddle" ? "#a78bfa" : "#34d399";
-      const flavorLabel = flavor === "put" ? "PUT" : flavor === "straddle" ? "STRADDLE" : "CALL";
-      const strike = Number(p.strike || p.primary?.strikes?.primary) || null;
-      const spot = Number(p.price) || null;
-      const strikeBlurb = strike ? flavor === "straddle" ? `$${strike} straddle (spot $${spot ? spot.toFixed(2) : "?"})` : `$${strike} ${flavorLabel.toLowerCase()} (spot $${spot ? spot.toFixed(2) : "?"})` : p.primary?.label || "Day-trade play";
-      const driftPct = strike && spot ? Math.abs(strike - spot) / spot * 100 : null;
-      const driftLabel = driftPct == null ? null : driftPct < 0.5 ? "At the money" : `${driftPct.toFixed(1)}% from spot`;
-      const driftColor = driftPct == null ? "var(--tt-text-dim)" : driftPct < 1 ? "#34d399" : driftPct < 2 ? "#fbbf24" : "#f87171";
-      const flavorSource = p.flavor_source || p.primary?._day_trade_flavor_source || null;
-      const dayLean = String(p.day_lean || p.primary?._day_trade_lean || "").toUpperCase();
-      const dayLeanConv = String(p.day_lean_conviction || "").toLowerCase();
-      const modelLine = dayTradeModelLevelsLine(p, flavor);
-      const sourceLabel = flavorSource === "day_lean" && dayLean ? `Playbook lean ${dayLean}${dayLeanConv ? ` (${dayLeanConv})` : ""}` : p.confluence_mode && p.confluence_mode !== "UNKNOWN" ? `Layer fusion ${p.confluence_mode}${Number.isFinite(Number(p.confluence_score)) ? ` · ${p.confluence_score}/100` : ""}` : null;
-      return h("div", {
-        key: `dt-${p.ticker}`,
-        onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
-        style: {
-          padding: 10,
-          background: "linear-gradient(135deg, rgba(245,194,92,0.10), rgba(245,194,92,0.04))",
-          border: "1px solid rgba(245,194,92,0.40)",
-          borderRadius: 10,
-          cursor: "pointer",
-          position: "relative"
-        },
-        onMouseEnter: e => {
-          e.currentTarget.style.transform = "translateY(-1px)";
-        },
-        onMouseLeave: e => {
-          e.currentTarget.style.transform = "translateY(0)";
-        }
-      }, h("div", {
-        style: {
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: 6,
-          flexWrap: "wrap"
-        }
-      }, h("span", {
-        style: {
-          fontSize: 14,
-          fontWeight: 700,
-          color: "var(--tt-text)"
-        }
-      }, p.ticker), h("span", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          padding: "2px 6px",
-          borderRadius: 4,
-          color: "#f5c25c",
-          background: "rgba(245,194,92,0.18)",
-          border: "1px solid rgba(245,194,92,0.50)",
-          letterSpacing: "0.05em"
-        },
-        title: "Day-trade play — same-day or next-day expiration. NOT a swing/investor recommendation."
-      }, `DAY TRADE · ${p.day_trade_dte}DTE`), h("span", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          padding: "2px 6px",
-          borderRadius: 4,
-          color: flavorColor,
-          background: `${flavorColor}1A`,
-          border: `1px solid ${flavorColor}50`,
-          letterSpacing: "0.05em"
-        }
-      }, flavorLabel)), h("div", {
-        style: {
-          fontSize: 12,
-          fontWeight: 700,
-          color: "var(--tt-text)",
-          fontFamily: "var(--tt-font-mono)",
-          marginBottom: 4,
-          letterSpacing: "0.01em"
-        }
-      }, strikeBlurb), h("div", {
-        style: {
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          flexWrap: "wrap",
-          fontSize: 10,
-          color: "var(--tt-text-muted)",
-          lineHeight: 1.4,
-          marginBottom: 6
-        }
-      }, h("span", null, p.primary?.expiration?.label || `${p.day_trade_dte}DTE`), driftLabel && h("span", {
-        title: "How close the suggested strike is to the spot it was anchored to. A play only shows while within ~2% of spot.",
-        style: {
-          fontWeight: 700,
-          color: driftColor,
-          border: `1px solid ${driftColor}55`,
-          borderRadius: 4,
-          padding: "0 5px"
-        }
-      }, driftLabel), asOfLabel && h("span", {
-        style: {
-          color: "var(--tt-text-dim)"
-        }
-      }, `· as of ${asOfLabel}`)), sourceLabel && h("div", {
-        style: {
-          fontSize: 10,
-          color: "var(--tt-text-muted)",
-          lineHeight: 1.4,
-          marginBottom: 4
-        },
-        title: flavorSource === "day_lean" ? "0/1DTE flavor follows the same index playbook lean as Day Predictions" : "0/1DTE flavor follows multi-layer fusion alignment"
-      }, sourceLabel), modelLine && h("div", {
-        style: {
-          fontSize: 10,
-          color: "var(--tt-text)",
-          lineHeight: 1.4,
-          marginBottom: 6,
-          fontFamily: "var(--tt-font-mono)"
-        }
-      }, modelLine), p.primary?.max_loss_usd && h("div", {
-        style: {
-          fontSize: 10.5,
-          color: "var(--tt-text-muted)",
-          fontFamily: "var(--tt-font-mono)",
-          lineHeight: 1.4
-        }
-      }, "Max loss ", h("strong", {
-        style: {
-          color: "#f87171"
-        }
-      }, `$${p.primary.max_loss_usd}`), p.primary.breakeven ? h("span", null, " · BE ", h("strong", {
-        style: {
-          color: "var(--tt-text)"
-        }
-      }, `$${Number(p.primary.breakeven).toFixed(2)}`)) : p.primary.breakeven_up ? h("span", null, " · BE ", h("strong", {
-        style: {
-          color: "var(--tt-text)"
-        }
-      }, `$${Number(p.primary.breakeven_down).toFixed(2)} / $${Number(p.primary.breakeven_up).toFixed(2)}`)) : null));
-    })), Array.isArray(dayTradeSuppressed) && dayTradeSuppressed.length > 0 && h("div", {
-      style: {
-        marginTop: 6,
-        padding: "6px 10px",
-        fontSize: 10,
-        color: "var(--tt-text-faint)",
-        fontStyle: "italic",
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.04)",
-        borderRadius: 6
-      },
-      title: "Day-trade plays we considered but suppressed for one of: strike drifted too far from spot, after-close 0DTE expired, no clear directional signal at low vol."
-    }, "Suppressed: ", dayTradeSuppressed.map(s => `${s.ticker} (${formatDayTradeSuppressLabel(s)})`).join(" · ")));
+      id: "convexity-plays",
+      className: "tt-row"
+    }, children);
   };
-  if (!plays || plays.length === 0) {
-    if (isSidebar) {
-      return h(React.Fragment, null, renderDayTradeStrip(), h("section", null, h("div", {
-        style: {
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          marginBottom: 8,
-          gap: 8,
-          flexWrap: "wrap"
-        }
-      }, h("div", null, h("div", {
-        className: "tt-sec-title"
-      }, "OPTIONS PLAYS OF THE DAY"), h("div", {
-        style: {
-          fontSize: 14,
-          fontWeight: 600,
-          color: "var(--tt-text)",
-          letterSpacing: "-0.005em"
-        }
-      }, "Today's setups"))), h("div", {
-        className: "tt-card tt-card-pad",
-        style: {
-          fontSize: 12,
-          color: "var(--tt-text-muted)",
-          lineHeight: 1.5
-        }
-      }, "No actionable plays right now — the model is in WAIT across the universe. The Options Tab on any ticker will still show the full strategy ladder when you want to look manually.")));
-    }
-    return h(React.Fragment, null, renderDayTradeStrip(), h("section", {
-      className: "tt-row",
-      style: {
-        marginBottom: 24
-      }
-    }, h("div", {
-      style: {
-        marginBottom: 8
-      }
-    }, h("div", {
-      className: "tt-sec-title"
-    }, "OPTIONS PLAYS OF THE DAY"), h("div", {
-      style: {
-        fontSize: 14,
-        fontWeight: 600,
-        color: "var(--tt-text)"
-      }
-    }, "Confluence-Driven Strategies")), h("div", {
-      className: "tt-card tt-card-pad",
-      style: {
-        fontSize: 12.5,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.5
-      }
-    }, "No conviction swing plays right now — nothing in the universe clears the fusion floor (≥40/100 multi-layer agreement) with an actionable mode. This row fills in when a setup reaches RIDE / DRIFT / READY with real layer agreement. The Options tab on any ticker still shows its full strategy ladder, including the weaker educational structures.")));
-  }
-  const MODE_META = {
-    RIDE: {
-      color: "#34d399",
-      bg: "rgba(52,211,153,0.10)",
-      icon: "🚀"
-    },
-    READY: {
-      color: "#f5c25c",
-      bg: "rgba(245,194,92,0.10)",
-      icon: "⏳"
-    },
-    DRIFT: {
-      color: "#60a5fa",
-      bg: "rgba(96,165,250,0.10)",
-      icon: "🌊"
-    },
-    FADE: {
-      color: "#a78bfa",
-      bg: "rgba(167,139,250,0.10)",
-      icon: "↩️"
-    }
-  };
-  const containerStyle = isSidebar ? {
-    display: "flex",
-    flexDirection: "column",
-    gap: 8
-  } : {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-    gap: 10
-  };
-  return h(React.Fragment, null, renderDayTradeStrip(), h("section", {
-    className: isSidebar ? "" : "tt-row",
-    style: {
-      marginBottom: isSidebar ? 0 : 24
-    }
-  }, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      marginBottom: 8,
-      gap: 8,
-      flexWrap: "wrap"
-    }
-  }, h("div", null, h("div", {
+  const head = h(React.Fragment, null, h("div", {
     className: "tt-sec-title"
-  }, "OPTIONS PLAYS OF THE DAY"), h("div", {
+  }, "CONVEXITY PLAYS"), h("div", {
+    className: "tt-sec-h"
+  }, "Short-dated OTM lotto and moonshot ideas when direction, floor, and timing align. Sized for asymmetric payoff — not share entries."));
+  if (!window._ttIsPro) {
+    return wrap(h(React.Fragment, null, head, h("div", {
+      className: "tt-ready__locked",
+      style: {
+        marginTop: 8
+      }
+    }, "Upgrade to Pro to see convexity plays.")));
+  }
+  if (loading) {
+    return wrap(h(React.Fragment, null, head, h("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--tt-text-muted)",
+        marginTop: 8
+      }
+    }, "Loading convexity plays…")));
+  }
+  if (!plays || plays.length === 0) {
+    return wrap(h(React.Fragment, null, head, h("div", {
+      className: "tt-ready__empty",
+      style: {
+        marginTop: 8
+      }
+    }, "No convexity plays aligned right now.")));
+  }
+  const fmtAsOf = ms => {
+    const n = Number(ms);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    return new Date(n).toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: "America/New_York"
+    });
+  };
+  return wrap(h(React.Fragment, null, head, h("div", {
+    className: "tt-ready-scroll tt-opp-scroll",
+    role: "list",
     style: {
-      fontSize: 14,
-      fontWeight: 600,
-      color: "var(--tt-text)",
-      letterSpacing: "-0.005em"
+      marginTop: 8
     }
-  }, isSidebar ? `${plays.length} actionable` : "Confluence-Driven Strategies")), !isSidebar && h("a", {
-    href: "/learn.html#active-strategy",
-    style: {
-      fontSize: 11,
-      color: "var(--tt-text-muted)",
-      textDecoration: "none"
-    }
-  }, "How this works →")), h("div", {
-    style: containerStyle
   }, plays.map(p => {
-    const meta = MODE_META[p.confluence_mode] || MODE_META.READY;
-    const disp = p.model_disposition || null;
-    const effDir = String(disp?.effective_direction || p.effective_direction || p.direction || "").toUpperCase();
-    const contractDir = String(disp?.contract_direction || p.contract_direction || p.direction || "").toUpperCase();
-    const dirFlipped = !!(disp?.direction_flipped || p.direction_flipped_by_confluence);
-    const dirColor = effDir === "SHORT" ? "#f87171" : effDir === "LONG" ? "#34d399" : "var(--tt-text-muted)";
-    const isMoonshot = p.primary?._moonshot_active;
-    const cardBg = isMoonshot ? "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(245,194,92,0.12))" : meta.bg;
-    const cardBorder = isMoonshot ? "2px solid rgba(245,194,92,0.55)" : `1px solid ${meta.color}33`;
+    const isMoon = p.play_class === "moonshot";
+    const badgeColor = isMoon ? "#a78bfa" : "#f5c25c";
+    const dirColor = String(p.direction || "").toUpperCase() === "SHORT" ? "#f87171" : "#34d399";
     return h("div", {
-      key: p.ticker,
-      onClick: () => onSelectTicker && onSelectTicker(p.ticker, "OPTIONS"),
+      key: p.ticker + (p.play_class || ""),
+      role: "listitem",
+      className: "tt-strip-card",
+      onClick: () => onSelectTicker && onSelectTicker(p.ticker, "SNAPSHOT"),
       style: {
-        padding: isSidebar ? 10 : 12,
-        background: cardBg,
-        border: cardBorder,
-        borderRadius: 10,
         cursor: "pointer",
-        transition: "transform 100ms ease, background 100ms ease",
-        boxShadow: isMoonshot ? "0 4px 16px rgba(167,139,250,0.20)" : "none",
-        position: "relative"
-      },
-      onMouseEnter: e => {
-        e.currentTarget.style.transform = "translateY(-1px)";
-        if (!isMoonshot) e.currentTarget.style.background = meta.color + "20";
-      },
-      onMouseLeave: e => {
-        e.currentTarget.style.transform = "";
-        if (!isMoonshot) e.currentTarget.style.background = cardBg;
-      }
-    }, isMoonshot && h("div", {
-      style: {
-        position: "absolute",
-        top: -8,
-        right: 8,
-        fontSize: 9,
-        fontWeight: 800,
-        letterSpacing: "0.10em",
-        color: "#0b0e11",
-        padding: "2px 8px",
-        borderRadius: 999,
-        background: "linear-gradient(90deg, #f5c25c, #a78bfa)"
-      }
-    }, "🌙 MOONSHOT"), h("div", {
-      style: {
-        display: "flex",
-        alignItems: "baseline",
-        justifyContent: "space-between",
-        marginBottom: isSidebar ? 4 : 6,
-        gap: 4,
-        flexWrap: "wrap"
+        border: isMoon ? "2px solid rgba(167,139,250,0.45)" : "1px solid rgba(245,194,92,0.35)",
+        background: isMoon ? "linear-gradient(135deg, rgba(167,139,250,0.12), rgba(52,211,153,0.06))" : "rgba(245,194,92,0.06)"
       }
     }, h("div", {
       style: {
         display: "flex",
-        alignItems: "baseline",
+        alignItems: "center",
         gap: 6,
-        flexWrap: "wrap"
+        flexWrap: "wrap",
+        marginBottom: 6
       }
     }, h("strong", {
       style: {
-        fontSize: isSidebar ? 14 : 16,
-        color: "var(--tt-text)"
+        fontSize: 15
       }
-    }, p.ticker), effDir && h("span", {
-      style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: dirColor,
-        letterSpacing: "0.05em"
-      }
-    }, "PLAY ", effDir), dirFlipped && contractDir && contractDir !== effDir && h("span", {
+    }, p.ticker), h("span", {
       style: {
         fontSize: 9,
-        fontWeight: 600,
-        color: "var(--tt-text-faint)",
-        letterSpacing: "0.04em"
-      },
-      title: "Trader contract direction — play faded intentionally"
-    }, "(contract ", contractDir, ")")), h("div", {
-      style: {
-        display: "flex",
-        gap: 4,
-        flexWrap: "wrap"
-      }
-    }, disp && h("span", {
-      style: {
-        fontSize: 9,
-        fontWeight: 700,
-        letterSpacing: "0.05em",
-        color: disp.stance_color || "#9ca3af",
+        fontWeight: 800,
+        letterSpacing: "0.08em",
         padding: "2px 7px",
         borderRadius: 999,
-        background: (disp.stance_color || "#9ca3af") + "22",
-        border: `1px solid ${disp.stance_color || "#9ca3af"}44`
+        background: badgeColor + "33",
+        color: badgeColor
       }
-    }, disp.stance_label), h("span", {
+    }, isMoon ? "MOONSHOT" : "LOTTO"), p.direction && h("span", {
       style: {
         fontSize: 10,
         fontWeight: 700,
-        color: meta.color,
-        padding: "2px 8px",
-        borderRadius: 999,
-        background: meta.color + "20",
-        letterSpacing: "0.05em"
+        color: dirColor
       }
-    }, meta.icon, " ", p.confluence_mode))), h("div", {
+    }, p.direction), p.confluence_mode && h("span", {
+      className: "ds-chip ds-chip--sm",
       style: {
-        fontSize: isSidebar ? 12 : 13,
-        fontWeight: 700,
-        color: "var(--tt-text)",
-        marginBottom: isSidebar ? 3 : 4,
-        lineHeight: 1.3
+        fontFamily: "var(--tt-font-mono)",
+        fontSize: 9
       }
-    }, p.primary?.label || "—"), h("div", {
+    }, p.confluence_mode)), h("div", {
+      style: {
+        fontSize: 11,
+        color: "var(--tt-text-muted)",
+        lineHeight: 1.4,
+        marginBottom: 6
+      }
+    }, p.label || p.rationale_short || ""), h("div", {
       style: {
         display: "flex",
-        gap: isSidebar ? 8 : 12,
-        fontSize: isSidebar ? 10 : 11,
-        color: "var(--tt-text-muted)",
-        fontFamily: "var(--tt-font-mono)",
-        flexWrap: "wrap"
-      }
-    }, p.primary?.expiration?.label && h("span", null, p.primary.expiration.label), p.primary?.max_loss_usd != null && h("span", null, "Risk ", h("strong", {
-      style: {
-        color: "#f87171"
-      }
-    }, "$", p.primary.max_loss_usd >= 1000 ? Math.round(p.primary.max_loss_usd).toLocaleString() : p.primary.max_loss_usd)), p.primary?.max_gain_usd != null && h("span", null, "Gain ", h("strong", {
-      style: {
-        color: "#34d399"
-      }
-    }, "$", p.primary.max_gain_usd >= 1000 ? Math.round(p.primary.max_gain_usd).toLocaleString() : p.primary.max_gain_usd))), disp?.summary && h("div", {
-      style: {
-        marginTop: 6,
-        fontSize: isSidebar ? 10 : 11,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.4
-      }
-    }, disp.summary), !isSidebar && h("div", {
-      style: {
-        marginTop: 6,
+        gap: 10,
+        flexWrap: "wrap",
         fontSize: 10,
-        color: "var(--tt-text-faint)"
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-text-muted)"
       }
-    }, "Fusion ", h("strong", {
+    }, Number.isFinite(Number(p.strike)) && h("span", null, "$", Number(p.strike).toFixed(2), " strike"), p.expiration?.label && h("span", null, p.expiration.label), p.max_loss_usd != null && h("span", null, "Risk $", p.max_loss_usd), p.top_target_underlying != null && h("span", null, "3×+ @ $", Number(p.top_target_underlying).toFixed(2))), h("div", {
       style: {
-        color: "var(--tt-text)",
-        fontFamily: "var(--tt-font-mono)"
+        fontSize: 9,
+        color: "var(--tt-text-faint)",
+        marginTop: 6
       }
-    }, p.confluence_score || 0, "/100"), disp?.fusion_label ? " · " + disp.fusion_label : "", " · ", p.setup_grade || "—", disp?.valid_play === false ? " · educational only" : ""));
+    }, "Premium may go to zero.", fmtAsOf(p.as_of_ms) ? " · as of " + fmtAsOf(p.as_of_ms) + " ET" : ""));
   }))));
 }
 function computeOpenPositionPnlPct(tr, livePx) {
@@ -6709,6 +6196,11 @@ function TodayApp({
     ensureSpark
   }), h("div", {
     className: "tt-universe-panel__divider"
+  }), h(ConvexityPlaysStrip, {
+    onSelectTicker,
+    embedded: true
+  }), h("div", {
+    className: "tt-universe-panel__divider"
   }), h(GrowthIdeasStrip, {
     onSelectTicker,
     user,
@@ -7170,6 +6662,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783791538673:264663515
+// cache-bust:1783829084642:326943053
 
-// cache-bust:1783791538673:264663515
+// cache-bust:1783829084642:326943053

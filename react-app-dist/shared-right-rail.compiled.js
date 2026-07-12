@@ -11460,7 +11460,72 @@
         }, String(ticker.state).replace(/_/g, " ")), ticker?.kanban_stage && React.createElement("span", {
           className: "ds-chip ds-chip--sm ds-chip--accent",
           title: "Active management stage"
-        }, String(ticker.kanban_stage).replace(/_/g, " ")))), discoveryThesis?.found && discoveryThesis?.thesis_text && (() => {
+        }, String(ticker.kanban_stage).replace(/_/g, " ")))), (() => {
+          const cx = optionsTabData?.convexity;
+          if (!cx?.actionable || !cx?.primary) return null;
+          const p = cx.primary;
+          const traderDir = String(v2TraderPosture?.direction || v2ProposedPlanDir || predictionContract?.posture_direction || predictionContract?.direction || "").toUpperCase();
+          const playDir = String(p.direction || "").toUpperCase();
+          if (traderDir && playDir && traderDir !== playDir) return null;
+          const isMoon = cx.play_class === "moonshot";
+          const accent = isMoon ? "#a78bfa" : "#f5c25c";
+          const mbt = p.multi_bagger_targets || {};
+          const tgt3 = Number(mbt["3x_underlying_at"] ?? mbt["2x_underlying_at"]);
+          return React.createElement(Panel, {
+            title: "Convexity Play",
+            action: h("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)",
+                color: accent,
+                borderColor: accent + "55"
+              }
+            }, isMoon ? "MOONSHOT" : "LOTTO")
+          }, React.createElement("div", {
+            style: {
+              fontSize: 13,
+              fontWeight: 700,
+              color: "var(--ds-text-body)",
+              marginBottom: 6,
+              lineHeight: 1.4
+            }
+          }, p.label || p.rationale_short || "Short-dated OTM convexity"), React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              fontSize: 11,
+              fontFamily: "var(--tt-font-mono)",
+              color: "var(--ds-text-muted)",
+              marginBottom: 8
+            }
+          }, Number.isFinite(Number(p.strike)) && h("span", null, "$", Number(p.strike).toFixed(2), " strike"), p.expiration?.label && h("span", null, p.expiration.label), p.max_loss_usd != null && h("span", null, "Max loss $", p.max_loss_usd), Number.isFinite(tgt3) && h("span", null, "3×+ @ $", tgt3.toFixed(2))), Number.isFinite(Number(p.stop_level)) && p.stop_level > 0 && h("div", {
+            style: {
+              fontSize: 11,
+              color: "var(--ds-text-muted)",
+              marginBottom: 6
+            }
+          }, "Floor / stop reference: $", Number(p.stop_level).toFixed(2)), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-faint)",
+              marginBottom: 8
+            }
+          }, "Premium may go to zero. Not a share entry."), React.createElement("button", {
+            type: "button",
+            onClick: () => setRailTab("OPTIONS"),
+            style: {
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--ds-accent)",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              textDecoration: "underline"
+            }
+          }, "Full ladder on Options tab"));
+        })(), discoveryThesis?.found && discoveryThesis?.thesis_text && (() => {
           const score = Number(discoveryThesis.total_score) || 0;
           const status = String(discoveryThesis.status || "").toLowerCase();
           const statusMeta = status === "approved" ? {
@@ -22653,4 +22718,4 @@
   };
 })();
 
-// cache-bust:1783791538673:264663515
+// cache-bust:1783829084642:326943053
