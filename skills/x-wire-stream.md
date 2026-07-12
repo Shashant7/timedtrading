@@ -146,9 +146,10 @@ cd /workspace/worker
 
 | Trigger | Behavior |
 |---|---|
-| `*/1` (feed window) | `deltaOneStreamStart` every minute; poll only if unhealthy or 15m backup |
-| `*/5` (macro-release window) | Same gate as `*/1` |
-| Hourly (weekdays 11–22 UTC) | Poll **only** when stream disabled or unhealthy |
+| `*/1` (always) | `deltaOneStreamStart` every minute (24/7, independent of price-feed window) |
+| `*/1` poll | Stream unhealthy → poll every minute (24/7); healthy → 15m backup **only inside** feed window |
+| `*/5` (macro-release window, weekdays) | Same poll gate as `*/1` during 12–19 UTC |
+| Hourly | Weekdays 11–22 UTC: poll when stream disabled/unhealthy; **weekends**: hourly check when unhealthy |
 | Nightly batch (`tt-research`) | Always polls once (overnight catch-up) |
 
 ---
@@ -161,6 +162,7 @@ cd /workspace/worker
 | `healthy: false`, `lastError: no_x_api_bearer_token` | Set `X_API_BEARER_TOKEN` secret |
 | `healthy: false`, connect errors | X API quota / filtered-stream entitlement; try `POST .../stream/start` |
 | Posts in D1 but no Discord | `DISCORD_GENERAL_WEBHOOK_URL` unset; or first backfill without `since_id` (poll only) |
+| Weekend headlines missing | Fixed 2026-07-12: stream keepalive + unhealthy poll were gated behind `isPriceFeedCron` — redeploy monolith if still stale |
 | Pulse empty | LLM classify path — check `macro-wire-intel` logs; `OPENAI_API_KEY` on worker |
 | Duplicate posts | Should not happen — `INSERT OR IGNORE` on `post_id` |
 
