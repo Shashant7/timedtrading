@@ -27,7 +27,7 @@
 //   • capsTickers — 250 tickers → only top 200 by recent magnitude.
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { runMoveDiscovery, computeMovePatterns, isDiscoveryEligibleTicker, MAX_PLAUSIBLE_MOVE_PCT } from "./move-discovery.js";
+import { runMoveDiscovery, computeMovePatterns, isDiscoveryEligibleTicker, MAX_PLAUSIBLE_MOVE_PCT, isCorruptDailyBar, markCorruptDiscoveryBars } from "./move-discovery.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
@@ -490,5 +490,66 @@ describe("discovery scan scope (2026-06-10 TICK/PSTG incident)", () => {
     // cap; SOXL +201% (real 3x-ETF run) must survive.
     expect(Math.abs(2227.01) > MAX_PLAUSIBLE_MOVE_PCT).toBe(true);
     expect(Math.abs(201.37) > MAX_PLAUSIBLE_MOVE_PCT).toBe(false);
+  });
+
+  it("flags ECHO-style single-bar discontinuities between agreeing neighbors", () => {
+    const prev = { c: 109.17 };
+    const bar = { c: 0.25 };
+    const next = { c: 106.04 };
+    expect(isCorruptDailyBar(prev, bar, next)).toBe(true);
+    expect(isCorruptDailyBar(prev, { c: 108.5 }, next)).toBe(false);
+    expect(isCorruptDailyBar(prev, { c: 50 }, { c: 48 })).toBe(false);
+  });
+
+  it("drops -99% ECHO artifact moves from discovery scan", async () => {
+    const ticker = "ECHO";
+    const days = 40;
+    const startMs = Date.now() - days * 86400000;
+    const candles = [];
+    for (let i = 0; i < days; i++) {
+      const ts = startMs + i * 86400000;
+      let price = 109;
+      if (i === 25) price = 0.25;
+      else if (i > 25) price = 106;
+      candles.push({ ticker, ts, o: price, h: price + 0.5, l: price - 0.5, c: price, v: 1000 });
+    }
+    const db = makeDb({ "ticker_candles": candles, "trades": [] });
+    const result = await runMoveDiscovery(makeEnv({ db, kv: makeKv() }));
+    expect(result.ok).toBe(true);
+    const echoMisses = (result.missed_signals?.top_missed || []).filter((m) => m.ticker === "ECHO");
+    expect(echoMisses.length).toBe(0);
+    const kv = makeKv();
+    await runMoveDiscovery(makeEnv({ db, kv }));
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    const echoMoves = (stored.moves || []).filter((m) => m.ticker === "ECHO");
+    expect(echoMoves.every((m) => Math.abs(m.move_pct) < 90)).toBe(true);
+  });
+
+  it("keeps real multi-day leveraged runs (SOXL +201% class)", async () => {
+    const candles = flatHistory("SOXL", 40, 20, {
+      startDayIdx: 14, endDayIdx: 39, endPrice: 60.27,
+    });
+    const db = makeDb({ "ticker_candles": candles, "trades": [] });
+    const result = await runMoveDiscovery(makeEnv({ db, kv: makeKv() }));
+    expect(result.ok).toBe(true);
+    expect(result.summary.total_moves).toBeGreaterThan(0);
+    const kv = makeKv();
+    await runMoveDiscovery(makeEnv({ db, kv }));
+    const stored = JSON.parse(kv._store.get("timed:move-discovery"));
+    const soxlMoves = (stored.moves || []).filter((m) => m.ticker === "SOXL");
+    expect(soxlMoves.length).toBeGreaterThan(0);
+    expect(Math.max(...soxlMoves.map((m) => m.move_pct))).toBeGreaterThan(100);
+  });
+});
+
+describe("markCorruptDiscoveryBars", () => {
+  it("marks only isolated glitch bars, not gradual trends", () => {
+    const candles = [
+      { c: 100 }, { c: 100 }, { c: 0.2 }, { c: 99 }, { c: 98 },
+    ];
+    markCorruptDiscoveryBars(candles);
+    expect(candles[2]._corrupt).toBe(true);
+    expect(candles[0]._corrupt).toBeUndefined();
+    expect(candles[4]._corrupt).toBeUndefined();
   });
 });

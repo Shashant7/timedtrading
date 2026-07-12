@@ -69,9 +69,54 @@ export function isDiscoveryEligibleTicker(sym) {
    window) survive, mis-adjusted splits do not. */
 export const MAX_PLAUSIBLE_MOVE_PCT = 300;
 
+/* 2026-06-15 — SINGLE-BAR DISCONTINUITY GUARD. ECHO Jun 19 2026 had one
+   corrupt D-bar (close $0.25 between ~$109 neighbors) that produced
+   -99% "misses" in every 5–40d window. MAX_PLAUSIBLE_MOVE_PCT only
+   caps upside explosions; steep collapses from one bad print need a
+   neighbor-agreement test. Exported for unit tests. */
+export const CORRUPT_BAR_NEIGHBOR_AGREE_MAX_PCT = 30;
+export const CORRUPT_BAR_DISCONNECT_MIN_RATIO = 0.20;
+export const CORRUPT_BAR_DISCONNECT_MAX_RATIO = 5;
+
+export function isCorruptDailyBar(prev, bar, next) {
+  if (!prev || !bar || !next) return false;
+  const pc = Number(prev.c);
+  const bc = Number(bar.c);
+  const nc = Number(next.c);
+  if (!Number.isFinite(pc) || !Number.isFinite(bc) || !Number.isFinite(nc)) return false;
+  if (pc <= 0 || bc <= 0 || nc <= 0) return false;
+  const neighRef = (pc + nc) / 2;
+  const neighDriftPct = Math.abs(pc - nc) / neighRef * 100;
+  if (neighDriftPct > CORRUPT_BAR_NEIGHBOR_AGREE_MAX_PCT) return false;
+  const low = Math.min(pc, nc) * CORRUPT_BAR_DISCONNECT_MIN_RATIO;
+  const high = Math.max(pc, nc) * CORRUPT_BAR_DISCONNECT_MAX_RATIO;
+  return bc < low || bc > high;
+}
+
+export function markCorruptDiscoveryBars(candles = []) {
+  if (!Array.isArray(candles) || candles.length < 3) return candles;
+  for (let i = 1; i < candles.length - 1; i++) {
+    if (isCorruptDailyBar(candles[i - 1], candles[i], candles[i + 1])) {
+      candles[i]._corrupt = true;
+    }
+  }
+  return candles;
+}
+
+function windowHasCorruptBar(candles, startIdx, endIdx) {
+  for (let j = startIdx; j <= endIdx; j++) {
+    if (candles[j]?._corrupt) return true;
+  }
+  return false;
+}
+
 function computeATR(candles, period = 14) {
   const atrs = new Array(candles.length).fill(0);
   for (let i = 1; i < candles.length; i++) {
+    if (candles[i]._corrupt || candles[i - 1]._corrupt) {
+      atrs[i] = atrs[i - 1];
+      continue;
+    }
     const tr = Math.max(
       candles[i].h - candles[i].l,
       Math.abs(candles[i].h - candles[i - 1].c),
@@ -444,7 +489,10 @@ export async function runMoveDiscovery(env, opts = {}) {
       ts: tsMs, o, h, l, c: close, v: Number(c.v || 0),
     });
   }
-  for (const t of Object.keys(byTicker)) byTicker[t].sort((a, b) => a.ts - b.ts);
+  for (const t of Object.keys(byTicker)) {
+    byTicker[t].sort((a, b) => a.ts - b.ts);
+    markCorruptDiscoveryBars(byTicker[t]);
+  }
 
   let tickers = Object.keys(byTicker).filter((t) => byTicker[t].length >= 20);
   if (tickers.length > MAX_TICKERS) {
@@ -512,6 +560,7 @@ export async function runMoveDiscovery(env, opts = {}) {
         const startPrice = candles[startIdx].c;
         const endPrice = candles[i].c;
         if (startPrice <= 0) continue;
+        if (windowHasCorruptBar(candles, startIdx, i)) continue;
         const movePct = ((endPrice - startPrice) / startPrice) * 100;
         const moveAtr = Math.abs(endPrice - startPrice) / atr;
         if (moveAtr < minAtr) continue;
