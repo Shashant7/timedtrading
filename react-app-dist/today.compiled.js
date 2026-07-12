@@ -925,11 +925,15 @@ function ConvexityPlaysStrip({
       className: "tt-row"
     }, children);
   };
-  const head = h(React.Fragment, null, h("div", {
+  const head = h("div", {
+    className: "tt-ready__head"
+  }, h("div", {
     className: "tt-sec-title"
-  }, "CONVEXITY PLAYS"), h("div", {
-    className: "tt-sec-h"
-  }, "Short-dated OTM lotto and moonshot ideas when direction, floor, and timing align. Sized for asymmetric payoff — not share entries."));
+  }, "CONVEXITY"), h("h2", {
+    className: "tt-ready__title"
+  }, "Lotto & moonshot ideas"), h("p", {
+    className: "tt-ready__sub"
+  }, "Short-dated OTM plays when direction, floor, and timing align. Sized for asymmetric payoff — not share entries."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -3266,7 +3270,12 @@ function TickerLogo({
 const MOVER_LIMIT = 10;
 const getExtMoverPct = t => {
   const ext = window.TimedPriceUtils?.getExtChange?.(t);
-  return Number.isFinite(ext?.pct) ? ext.pct : NaN;
+  if (Number.isFinite(ext?.pct)) return ext.pct;
+  if (!isNyRegularMarketOpen()) {
+    const raw = Number(t?._ah_change_pct ?? t?.extended_percent_change);
+    if (Number.isFinite(raw)) return raw;
+  }
+  return NaN;
 };
 function MoverRow({
   rk,
@@ -3436,18 +3445,9 @@ function TopMovers({
       pct: getExtMoverPct(t)
     })).filter(x => Number.isFinite(x.pct) && Math.abs(x.pct) > 0.05).sort((a, b) => a.pct - b.pct).slice(0, MOVER_LIMIT).map(x => x.t);
   }, [arr, open]);
-  const hasExt = extGain.length > 0 || extLoss.length > 0;
+  const showExt = !open;
   if (embedded) {
-    return h("div", {
-      className: "tt-mp-movers-embed"
-    }, !inPanel && h("div", {
-      className: "tt-sec-title",
-      style: {
-        marginBottom: 4
-      }
-    }, "TOP MOVERS"), h("div", {
-      className: `tt-mp-movers-compact-grid${hasExt ? " has-ext" : ""}`
-    }, h(CompactMoversCol, {
+    const rthCols = h(React.Fragment, null, h(CompactMoversCol, {
       title: "RTH GAINERS",
       items: rthGain,
       mode: "rth",
@@ -3457,17 +3457,36 @@ function TopMovers({
       items: rthLoss,
       mode: "rth",
       onSelectTicker
-    }), hasExt && h(CompactMoversCol, {
+    }));
+    const extCols = h(React.Fragment, null, h(CompactMoversCol, {
       title: "EXT GAINERS",
       items: extGain,
       mode: "ext",
       onSelectTicker
-    }), hasExt && h(CompactMoversCol, {
+    }), h(CompactMoversCol, {
       title: "EXT LOSERS",
       items: extLoss,
       mode: "ext",
       onSelectTicker
-    })));
+    }));
+    return h("div", {
+      className: `tt-mp-movers-embed${inPanel && showExt ? " tt-mp-movers-embed--stacked" : ""}`
+    }, !inPanel && h("div", {
+      className: "tt-sec-title",
+      style: {
+        marginBottom: 4
+      }
+    }, "TOP MOVERS"), inPanel && showExt ? h(React.Fragment, null, h("div", {
+      className: "tt-mp-movers-compact-grid"
+    }, rthCols), h("div", {
+      className: "tt-mp-movers-ext-block"
+    }, h("div", {
+      className: "tt-mp-movers-compact-grid"
+    }, extCols)), h("div", {
+      className: "tt-mp-movers-compact-grid tt-mp-movers-compact-grid--quad"
+    }, rthCols, extCols)) : h("div", {
+      className: `tt-mp-movers-compact-grid${showExt ? " tt-mp-movers-compact-grid--quad" : ""}`
+    }, rthCols, showExt && extCols));
   }
   if (strip) {
     const moverChip = (t, mode) => {
@@ -3538,7 +3557,7 @@ function TopMovers({
     mode: "rth",
     onSelectTicker,
     universe
-  })), hasExt && h("div", {
+  })), showExt && h("div", {
     className: "tt-grid tt-grid-2",
     style: {
       marginTop: 12
@@ -6662,6 +6681,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783829084642:326943053
+// cache-bust:1783852489393:908223076
 
-// cache-bust:1783829084642:326943053
+// cache-bust:1783852489393:908223076

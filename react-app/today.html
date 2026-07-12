@@ -1421,11 +1421,20 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
       }
-      .tt-mp-movers-compact-grid.has-ext {
+      .tt-mp-movers-compact-grid--quad {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
+      .tt-mp-movers-ext-block {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.10);
+      }
       @media (max-width: 900px) {
-        .tt-mp-movers-compact-grid.has-ext { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        /* Stacked RTH + EXT rows — 4-up grid hid EXT below the fold on phones. */
+        .tt-mp-movers-embed--stacked .tt-mp-movers-compact-grid--quad { display: none; }
+      }
+      @media (min-width: 901px) {
+        .tt-mp-movers-embed--stacked .tt-mp-movers-ext-block { display: none; }
       }
       .tt-mover-compact-col {
         padding: 8px 10px;
@@ -3104,9 +3113,12 @@
           return h("section", { id: "convexity-plays", className: "tt-row" }, children);
         };
 
-        const head = h(React.Fragment, null,
-          h("div", { className: "tt-sec-title" }, "CONVEXITY PLAYS"),
-          h("div", { className: "tt-sec-h" }, "Short-dated OTM lotto and moonshot ideas when direction, floor, and timing align. Sized for asymmetric payoff — not share entries."),
+        const head = h("div", { className: "tt-ready__head" },
+          h("div", { className: "tt-sec-title" }, "CONVEXITY"),
+          h("h2", { className: "tt-ready__title" }, "Lotto & moonshot ideas"),
+          h("p", { className: "tt-ready__sub" },
+            "Short-dated OTM plays when direction, floor, and timing align. Sized for asymmetric payoff — not share entries.",
+          ),
         );
 
         if (!window._ttIsPro) {
@@ -4861,7 +4873,13 @@
       const MOVER_LIMIT = 10;
       const getExtMoverPct = (t) => {
         const ext = window.TimedPriceUtils?.getExtChange?.(t);
-        return Number.isFinite(ext?.pct) ? ext.pct : NaN;
+        if (Number.isFinite(ext?.pct)) return ext.pct;
+        // /timed/all can carry ahdp before the 30s price poll adds receipt ts.
+        if (!isNyRegularMarketOpen()) {
+          const raw = Number(t?._ah_change_pct ?? t?.extended_percent_change);
+          if (Number.isFinite(raw)) return raw;
+        }
+        return NaN;
       };
 
       function MoverRow({ rk, t, mode, onSelectTicker, universe }) {
@@ -4996,19 +5014,34 @@
             .map(x => x.t);
         }, [arr, open]);
 
-        const hasExt = extGain.length > 0 || extLoss.length > 0;
+        const showExt = !open;
 
         if (embedded) {
-          return h("div", { className: "tt-mp-movers-embed" },
+          const rthCols = h(React.Fragment, null,
+            h(CompactMoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker }),
+            h(CompactMoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth", onSelectTicker }),
+          );
+          const extCols = h(React.Fragment, null,
+            h(CompactMoversCol, { title: "EXT GAINERS", items: extGain, mode: "ext", onSelectTicker }),
+            h(CompactMoversCol, { title: "EXT LOSERS", items: extLoss, mode: "ext", onSelectTicker }),
+          );
+          return h("div", { className: `tt-mp-movers-embed${inPanel && showExt ? " tt-mp-movers-embed--stacked" : ""}` },
             !inPanel && h("div", { className: "tt-sec-title", style: { marginBottom: 4 } }, "TOP MOVERS"),
-            h("div", {
-              className: `tt-mp-movers-compact-grid${hasExt ? " has-ext" : ""}`,
-            },
-              h(CompactMoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker }),
-              h(CompactMoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth", onSelectTicker }),
-              hasExt && h(CompactMoversCol, { title: "EXT GAINERS", items: extGain, mode: "ext", onSelectTicker }),
-              hasExt && h(CompactMoversCol, { title: "EXT LOSERS", items: extLoss, mode: "ext", onSelectTicker }),
-            ),
+            inPanel && showExt
+              ? h(React.Fragment, null,
+                  h("div", { className: "tt-mp-movers-compact-grid" }, rthCols),
+                  h("div", { className: "tt-mp-movers-ext-block" },
+                    h("div", { className: "tt-mp-movers-compact-grid" }, extCols),
+                  ),
+                  h("div", { className: "tt-mp-movers-compact-grid tt-mp-movers-compact-grid--quad" },
+                    rthCols,
+                    extCols,
+                  ),
+                )
+              : h("div", { className: `tt-mp-movers-compact-grid${showExt ? " tt-mp-movers-compact-grid--quad" : ""}` },
+                  rthCols,
+                  showExt && extCols,
+                ),
           );
         }
 
@@ -5064,7 +5097,7 @@
             h(MoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker, universe }),
             h(MoversCol, { title: "RTH LOSERS",  items: rthLoss, mode: "rth", onSelectTicker, universe }),
           ),
-          hasExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 12 } },
+          showExt && h("div", { className: "tt-grid tt-grid-2", style: { marginTop: 12 } },
             h(MoversCol, { title: "EXT GAINERS (after-hours)", items: extGain, mode: "ext", onSelectTicker, universe }),
             h(MoversCol, { title: "EXT LOSERS (after-hours)",  items: extLoss, mode: "ext", onSelectTicker, universe }),
           ),
