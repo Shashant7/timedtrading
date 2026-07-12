@@ -125,7 +125,7 @@ When not actionable: `{ "actionable": false }` only — no reason string in API 
 ```
 READY SETUPS
 ────────────
-CONVEXITY PLAYS   ← new
+CONVEXITY   ← new (sub: Lotto & moonshot ideas)
 ────────────
 GROWTH IDEAS
 ────────────
@@ -134,7 +134,7 @@ TECHNICAL SETUPS
 
 **Section copy:**
 
-- Title: `CONVEXITY PLAYS`
+- Title: `CONVEXITY` — subheading `Lotto & moonshot ideas`, description in `tt-ready__sub`
 - Sub: Short-dated OTM lotto & moonshot ideas when direction, floor, and timing align. Sized for asymmetric payoff — not share entries.
 
 **Card fields:** ticker, play_class badge (LOTTO / MOONSHOT), strike + DTE, max loss, top multi-bagger target, confluence chip, as-of time.

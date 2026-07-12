@@ -17,37 +17,37 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1783829084642" />
-    <script defer src="/vendor/react.production.min.js?v=1783829084642"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1783829084642"></script>
-    <script defer src="shared-rail-helpers.js?v=1783829084642"></script>
-    <script defer src="shared-verdict-ui.js?v=1783829084642"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1783829084642" />
-<script defer src="/vendor/marked.min.js?v=1783829084642"></script>
-    <script defer src="auth-gate.js?v=1783829084642"></script>
-    <script defer src="tt-fetch-cache.js?v=1783829084642"></script>
-    <script defer src="tt-live-data.js?v=1783829084642"></script>
-    <script src="tt-bottom-nav.js?v=1783829084642" defer></script>
-    <script defer src="investor-nav-badge.js?v=1783829084642"></script>
-    <script src="tt-nav-extras.js?v=1783829084642" defer></script>
-    <script src="tt-global-search.js?v=1783829084642" defer></script>
-    <script src="tt-rail-bridge.js?v=1783829084642" defer></script>
-    <script src="tt-activity-strip.js?v=1783829084642" defer></script>
-    <script defer src="shared-price-utils.js?v=1783829084642"></script>
-    <script defer src="tt-cycle-intel.js?v=1783829084642"></script>
-    <script defer src="tt-harmonic-chart.js?v=1783829084642"></script>
-    <script defer src="tt-sparkline-config.js?v=1783829084642"></script>
-    <script defer src="tt-pattern-detect.js?v=1783829084642"></script>
-    <script defer src="shared-lane-card.js?v=1783829084642"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1783852489393" />
+    <script defer src="/vendor/react.production.min.js?v=1783852489393"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1783852489393"></script>
+    <script defer src="shared-rail-helpers.js?v=1783852489393"></script>
+    <script defer src="shared-verdict-ui.js?v=1783852489393"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1783852489393" />
+<script defer src="/vendor/marked.min.js?v=1783852489393"></script>
+    <script defer src="auth-gate.js?v=1783852489393"></script>
+    <script defer src="tt-fetch-cache.js?v=1783852489393"></script>
+    <script defer src="tt-live-data.js?v=1783852489393"></script>
+    <script src="tt-bottom-nav.js?v=1783852489393" defer></script>
+    <script defer src="investor-nav-badge.js?v=1783852489393"></script>
+    <script src="tt-nav-extras.js?v=1783852489393" defer></script>
+    <script src="tt-global-search.js?v=1783852489393" defer></script>
+    <script src="tt-rail-bridge.js?v=1783852489393" defer></script>
+    <script src="tt-activity-strip.js?v=1783852489393" defer></script>
+    <script defer src="shared-price-utils.js?v=1783852489393"></script>
+    <script defer src="tt-cycle-intel.js?v=1783852489393"></script>
+    <script defer src="tt-harmonic-chart.js?v=1783852489393"></script>
+    <script defer src="tt-sparkline-config.js?v=1783852489393"></script>
+    <script defer src="tt-pattern-detect.js?v=1783852489393"></script>
+    <script defer src="shared-lane-card.js?v=1783852489393"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
-    <script defer src="ds-components.js?v=1783829084642"></script>
+    <script defer src="ds-components.js?v=1783852489393"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
-    <script defer src="tt-bubble-search-utils.js?v=1783829084642"></script>
-    <script defer src="shared-bubble-chart.compiled.js?v=1783829084642"></script>
+    <script defer src="tt-bubble-search-utils.js?v=1783852489393"></script>
+    <script defer src="shared-bubble-chart.compiled.js?v=1783852489393"></script>
     <!-- Right rail (~880KB) lazy-loads on first card click or idle prefetch. -->
-    <script defer src="tt-rail-lazy-load.js?v=1783829084642"></script>
+    <script defer src="tt-rail-lazy-load.js?v=1783852489393"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -1427,11 +1427,20 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
       }
-      .tt-mp-movers-compact-grid.has-ext {
+      .tt-mp-movers-compact-grid--quad {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
+      .tt-mp-movers-ext-block {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.10);
+      }
       @media (max-width: 900px) {
-        .tt-mp-movers-compact-grid.has-ext { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        /* Stacked RTH + EXT rows — 4-up grid hid EXT below the fold on phones. */
+        .tt-mp-movers-embed--stacked .tt-mp-movers-compact-grid--quad { display: none; }
+      }
+      @media (min-width: 901px) {
+        .tt-mp-movers-embed--stacked .tt-mp-movers-ext-block { display: none; }
       }
       .tt-mover-compact-col {
         padding: 8px 10px;
@@ -2280,7 +2289,7 @@
   <body>
 
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1783829084642"></script>
+    <script defer src="shared-nav.js?v=1783852489393"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
@@ -2296,7 +2305,7 @@
       </main>
     </div>
 
-    <script defer src="today.compiled.js?v=1783829084642"></script>
+    <script defer src="today.compiled.js?v=1783852489393"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -2305,4 +2314,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1783829084642:326943053 -->
+<!-- cache-bust:1783852489393:908223076 -->
