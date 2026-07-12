@@ -170,6 +170,8 @@ export const ARCHETYPES = {
   // the fused 8-layer verdict to time both DIRECTION and MOMENT.
   moonshot_call:       { directional: "long",    risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🌙 Moonshot Call" },
   moonshot_put:        { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🌙 Moonshot Put" },
+  lotto_call:          { directional: "long",    risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🎲 Lotto Call" },
+  lotto_put:           { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "🎲 Lotto Put" },
   long_call:           { directional: "long",    risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "Long Call" },
   long_put:            { directional: "short",   risk_class: "speculator",   max_loss: "capped_at_premium", max_gain: "uncapped",  label: "Long Put" },
   // LEAPs — Long-term Equity AnticiPation Securities. By SEC/CBOE convention
@@ -240,6 +242,66 @@ export function pickMoonshotExpiration(now = Date.now()) {
     dte,
     label: `${friday.toLocaleDateString("en-US", { month: "short", day: "numeric" })} (${dte}DTE) · short-dated`,
   };
+}
+
+/**
+ * Lotto expiration — 0–3 DTE. Indices use daily 0/1DTE picker; singles use
+ * the nearest weekday within three sessions (Mon–Fri listed weeklies).
+ */
+export function pickLottoExpiration(ticker, now = Date.now()) {
+  const sym = String(ticker || "").toUpperCase();
+  if (isDayTradeTicker(sym)) {
+    return pickDayTradeExpiration(now);
+  }
+  const _isWeekendUtc = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
+  for (let d = 0; d <= 3; d++) {
+    const day = new Date(now + d * 86400000);
+    if (_isWeekendUtc(day)) continue;
+    const iso = day.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const labelDate = day.toLocaleDateString("en-US", {
+      timeZone: "America/New_York",
+      month: "short",
+      day: "numeric",
+    });
+    return {
+      iso,
+      dte: d,
+      label: d === 0 ? `Today ${labelDate} (${d}DTE)` : `${labelDate} (${d}DTE)`,
+    };
+  }
+  return pickDayTradeExpiration(now, { forceTomorrow: true });
+}
+
+/**
+ * Lotto activation — floor + timing at READY; no in-motion prerequisite.
+ * Speculator / aggressive only (same as moonshot).
+ */
+export function shouldActivateLotto({ confluence, contract, profile, direction }) {
+  if (profile !== "speculator" && profile !== "aggressive") {
+    return { activate: false, reason: "profile_not_speculator_or_aggressive" };
+  }
+  if (!confluence) return { activate: false, reason: "no_confluence" };
+  const mode = String(confluence.mode || "").toUpperCase();
+  if (!["READY", "RIDE", "DRIFT"].includes(mode)) {
+    return { activate: false, reason: `mode_${mode}_not_lotto_eligible` };
+  }
+  const side = String(confluence.side || direction || contract?.direction || "").toUpperCase();
+  if (side !== "LONG" && side !== "SHORT") {
+    return { activate: false, reason: "no_directional_side" };
+  }
+  if (mode === "READY") {
+    const timing = confluence.timing || {};
+    const price = Number(contract?.price);
+    const sl = Number(contract?.sl);
+    const timingOk = (side === "LONG" && timing.call_opportunity)
+      || (side === "SHORT" && timing.put_opportunity);
+    const floorOk = (side === "LONG" && price > 0 && sl > 0 && price >= sl)
+      || (side === "SHORT" && price > 0 && sl > 0 && price <= sl);
+    if (!timingOk && !floorOk) {
+      return { activate: false, reason: "ready_no_floor_or_compression_timing" };
+    }
+  }
+  return { activate: true, side };
 }
 
 /**
@@ -2078,6 +2140,73 @@ function buildCoveredCall(ctx) {
 //   • Sizing: 25-50% of standard risk budget (lottery)
 //   • Trade mgmt: scale out 100%+ profits aggressively, exit < 3 days
 //     if no follow-through (theta cliff)
+function buildLotto(ctx, direction, { lottoMaxLossUsd = 50 } = {}) {
+  const { price, sl, atrPct, chain, ticker } = ctx;
+  const expiration = pickLottoExpiration(ticker, Date.now());
+  const targetDelta = 0.15;
+  const type = direction === "SHORT" ? "P" : "C";
+
+  let strike, chainLeg;
+  if (chain) {
+    const picked = pickLegByDelta(chain, type, targetDelta, price);
+    if (picked.leg) {
+      strike = Number(picked.leg.strike);
+      chainLeg = picked.leg;
+    }
+  }
+  if (!strike) {
+    strike = deltaToStrikeBS({ price, targetDelta, dte: expiration.dte, atrPct, type })
+          || (direction === "SHORT" ? snapStrike(price * 0.98) : snapStrike(price * 1.02));
+  }
+
+  const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type, chainLeg });
+  if (!prem || prem.mid <= 0) return null;
+  const premPerShare = prem.mid;
+  const budget = Math.max(25, Number(lottoMaxLossUsd) || 50);
+  const lottoContracts = Math.max(1, Math.floor(budget / (premPerShare * 100)));
+  const maxLoss = premPerShare * 100 * lottoContracts;
+
+  const underlyingFor = (intrinsicPerShare) => direction === "SHORT"
+    ? Math.max(0, strike - intrinsicPerShare)
+    : strike + intrinsicPerShare;
+  const px2x = underlyingFor(premPerShare);
+  const px3x = underlyingFor(premPerShare * 2);
+
+  const archetype = direction === "SHORT" ? "lotto_put" : "lotto_call";
+  return {
+    archetype,
+    label: `🎲 Lotto ${direction === "SHORT" ? "Put" : "Call"} (${expiration.dte}DTE, ${(targetDelta * 100).toFixed(0)}Δ)`,
+    rationale: `🎲 Floor + timing align — cheap OTM gamma before/at the move. ${lottoContracts}× $${strike} ${type === "P" ? "puts" : "calls"} exp ${expiration.dte}DTE. Risk $${Math.round(maxLoss)} (premium may go to zero) for 3×+ if ${ticker || "underlying"} runs to $${px3x.toFixed(2)}.`,
+    target_delta: targetDelta,
+    actual_delta: Number(prem.greeks?.delta) || null,
+    legs: [{
+      action: "BUY", optionType: type === "P" ? "PUT" : "CALL",
+      strike, expiration: expiration.iso, qty: lottoContracts,
+      premium_mid: Number(prem.mid?.toFixed(2)) || null,
+      leg_cost_usd: Math.round(prem.mid * 100 * lottoContracts),
+      side_label: "debit",
+    }],
+    strikes: { primary: strike },
+    expiration,
+    premium: prem,
+    contracts: lottoContracts,
+    max_loss_usd: Math.round(maxLoss),
+    max_gain_label: "Uncapped — gamma-driven",
+    breakeven: direction === "SHORT" ? strike - premPerShare : strike + premPerShare,
+    multi_bagger_targets: {
+      "2x_underlying_at": +px2x.toFixed(2),
+      "3x_underlying_at": +px3x.toFixed(2),
+    },
+    lotto: true,
+    sizing_note: `Fixed $${Math.round(budget)} max-loss budget`,
+    trade_mgmt: [
+      "🎯 Take profit at +100% / +200% — do not hold to zero theta",
+      `🛡 Hard stop: ${ticker || "underlying"} violates floor $${Number(sl || 0).toFixed(2) || "SL"}`,
+      `💸 Premium ≈ $${premPerShare.toFixed(2)}/contract × ${lottoContracts} = $${Math.round(maxLoss)} at risk`,
+    ],
+  };
+}
+
 function buildMoonshot(ctx, direction) {
   const { price, tp1, sl, atrPct, contracts, chain, dollars_at_risk, motion } = ctx;
   const expiration = pickMoonshotExpiration();
@@ -2734,6 +2863,13 @@ export function buildOptionsLadder(contract, opts = {}) {
     || (verdict?.timing?.put_opportunity ? "SHORT" : null);
   const activeDir = String(playDirection || levelLean || "").toUpperCase();
 
+  const lottoDecision = shouldActivateLotto({
+    confluence: opts.confluence,
+    contract: { ...contract, price, sl },
+    profile,
+    direction: activeDir,
+  });
+
   const exitForFade = pickExitTargetPrice(ctx) ?? tp1;
   let ctxEff;
   if (fadeFlipped) {
@@ -2777,9 +2913,22 @@ export function buildOptionsLadder(contract, opts = {}) {
       activeDir || playDirection,
     );
     if (moonshot) {
-      moonshot._confluence_boost = true; // always top of ladder when active
+      moonshot._confluence_boost = true;
       moonshot._moonshot_active = true;
       ladder.push(moonshot);
+    }
+  }
+
+  if (lottoDecision.activate && !suppressDirectional && !moonshotDecision.activate) {
+    const lottoMax = Number(opts.lotto_max_loss_usd) || 50;
+    const lotto = buildLotto(
+      { ...ctxEff, chain },
+      activeDir || playDirection,
+      { lottoMaxLossUsd: lottoMax },
+    );
+    if (lotto) {
+      lotto._lotto_active = true;
+      ladder.push(lotto);
     }
   }
 
@@ -3026,7 +3175,11 @@ export function buildOptionsLadder(contract, opts = {}) {
   }
 
   const ranked = rankByProfile(ladder, profile, { ticker: tickerSym });
-  const primary = ranked[0] || null;
+  let primary = ranked[0] || null;
+  // Lotto is additive for convexity surfaces — do not hijack Options tab primary.
+  if (primary && (primary.lotto || String(primary.archetype || "").startsWith("lotto_"))) {
+    primary = ranked.find((s) => !s.lotto && !String(s.archetype || "").startsWith("lotto_")) || primary;
+  }
 
   // Also build a per-profile preview so the UI can show "what each profile
   // would do with this setup" — educational on the Today page.

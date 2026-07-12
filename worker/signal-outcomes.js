@@ -125,6 +125,9 @@ export function optionsPlayToSignal(play, meta = {}) {
   const ticker = String(meta.ticker || play.ticker || "").toUpperCase();
   if (!ticker) return null;
   const archetype = String(play.archetype || "").toLowerCase();
+  const play_class = archetype.includes("moonshot") ? "moonshot"
+    : archetype.includes("lotto") ? "lotto"
+    : null;
   const firstOptLeg = (play.legs || []).find((l) => l?.kind === "option") || null;
   const vehicle =
     archetype.includes("spread") ? "spread"
@@ -159,6 +162,7 @@ export function optionsPlayToSignal(play, meta = {}) {
     horizon_days: expiryTs ? null : 30,
     payload: {
       archetype: play.archetype || null,
+      play_class,
       label: play.label || null,
       net_cost_usd: play.net_cost_usd ?? null,
       net_side: play.net_side || null,

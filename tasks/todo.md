@@ -22,6 +22,10 @@
 
 ### Active
 
+- [x] **Convexity Plays row + Now tab panel (2026-06-15).** Single universe strip
+      (lotto + moonshot); Snapshot panel when aligned; no suppressed list; Pro gate;
+      READY lotto at floor; investor lane included. Branch: `cursor/convexity-plays-df0c`.
+
 - [x] **Trader plan / Now tab posture alignment (2026-07-08).** When LTF lean
       conflicts with HTF contract on watch/setup (INTU), align Trade Plan +
       Now invalidation to posture; HTF template as alternate note.
