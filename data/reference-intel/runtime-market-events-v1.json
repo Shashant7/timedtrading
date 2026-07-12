@@ -35757,13 +35757,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 41.1963
+        "sql_duration_ms": 43.5508
       },
-      "duration": 41.1963,
+      "duration": 43.5508,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4143747072,
+      "size_after": 3969355776,
       "rows_read": 3972,
       "rows_written": 0,
       "total_attempts": 1
