@@ -4871,23 +4871,31 @@
       // (logo + symbol + meta + right-side stack). Click handler still
       // calls onSelectTicker to open the right rail.
       const MOVER_LIMIT = 10;
-      const getExtMoverPct = (t) => {
+      const getExtMoverDisplay = (t) => {
         const ext = window.TimedPriceUtils?.getExtChange?.(t);
-        if (Number.isFinite(ext?.pct)) return ext.pct;
+        let pct = Number.isFinite(ext?.pct) ? ext.pct : NaN;
+        let price = Number.isFinite(ext?.price) ? ext.price : NaN;
         // /timed/all can carry ahdp before the 30s price poll adds receipt ts.
-        if (!isNyRegularMarketOpen()) {
+        if (!Number.isFinite(pct) && !isNyRegularMarketOpen()) {
           const raw = Number(t?._ah_change_pct ?? t?.extended_percent_change);
-          if (Number.isFinite(raw)) return raw;
+          if (Number.isFinite(raw)) pct = raw;
         }
-        return NaN;
+        if (!Number.isFinite(price)) {
+          price = Number(t?._ah_price ?? t?.extended_price);
+        }
+        return { pct, price };
+      };
+      const getExtMoverPct = (t) => {
+        const { pct } = getExtMoverDisplay(t);
+        return Number.isFinite(pct) ? pct : NaN;
       };
 
       function MoverRow({ rk, t, mode, onSelectTicker, universe }) {
         const dc = getDailyChange(t);
-        const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
-        const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+        const extDisp = mode === "ext" ? getExtMoverDisplay(t) : null;
+        const pct = mode === "ext" ? Number(extDisp?.pct) : Number(dc?.dayPct);
         const price = mode === "ext"
-          ? Number(ext?.price)
+          ? Number(extDisp?.price)
           : Number(t?.price);
         const rthClose = mode === "ext"
           ? Number(window.TimedPriceUtils?.getHeadlinePrice?.(t) ?? t?.price)
@@ -4924,8 +4932,8 @@
       }
       function CompactMoverChip({ t, mode, onSelectTicker }) {
         const dc = getDailyChange(t);
-        const ext = mode === "ext" ? window.TimedPriceUtils?.getExtChange?.(t) : null;
-        const pct = mode === "ext" ? Number(ext?.pct) : Number(dc?.dayPct);
+        const extDisp = mode === "ext" ? getExtMoverDisplay(t) : null;
+        const pct = mode === "ext" ? Number(extDisp?.pct) : Number(dc?.dayPct);
         const sym = String(t?.ticker || "").toUpperCase();
         const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
         return h("button", {
