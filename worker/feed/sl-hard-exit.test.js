@@ -7,11 +7,74 @@ import {
   mergeFreshQuoteIntoTickerData,
   resolvePriceForStopCheck,
   resolvePublishedStopLoss,
+  resolveAuthoritativeEntryPrice,
+  entryPriceSourcesDiverge,
+  shouldDeferFeedSlOutsideRth,
   shouldRefreshQuoteForStopCheck,
   shouldRefreshQuoteForTradeMgmt,
   priceDivergencePct,
   evaluateSlCloseFreshQuote,
 } from "./sl-hard-exit.js";
+
+describe("resolveAuthoritativeEntryPrice", () => {
+  it("prefers D1 position VWAP over stale KV trade entry", () => {
+    const px = resolveAuthoritativeEntryPrice(
+      { entryPrice: 83.39 },
+      { avg_entry_price: 80.34 },
+    );
+    expect(px).toBeCloseTo(80.34, 2);
+  });
+});
+
+describe("entryPriceSourcesDiverge", () => {
+  it("flags KO-class trim drift between KV and D1", () => {
+    expect(entryPriceSourcesDiverge(
+      { entryPrice: 83.39 },
+      { avg_entry_price: 80.34 },
+    )).toBe(true);
+  });
+});
+
+describe("shouldDeferFeedSlOutsideRth", () => {
+  it("defers when only check price is past SL but feed is above stop", () => {
+    const r = shouldDeferFeedSlOutsideRth({
+      marketOpen: false,
+      direction: "LONG",
+      checkPx: 81.20,
+      feedPx: 81.55,
+      sl: 81.50,
+      entryPx: 80.34,
+      pnlPct: -2.39,
+    });
+    expect(r.defer).toBe(true);
+    expect(r.reason).toBe("pnl_implied_only_outside_rth");
+  });
+
+  it("allows material feed breach outside RTH", () => {
+    const r = shouldDeferFeedSlOutsideRth({
+      marketOpen: false,
+      direction: "LONG",
+      checkPx: 80.50,
+      feedPx: 80.50,
+      sl: 82.00,
+      entryPx: 83.39,
+    });
+    expect(r.defer).toBe(false);
+    expect(r.reason).toBe("material_feed_breach");
+  });
+});
+
+describe("collectStopCheckPriceCandidates", () => {
+  it("skips PnL-implied marks when KV entry diverges from D1 VWAP", () => {
+    const cands = collectStopCheckPriceCandidates(
+      {},
+      81.40,
+      { direction: "LONG", entryPrice: 83.39, pnlPct: -2.39 },
+      { avg_entry_price: 80.34 },
+    );
+    expect(cands).toEqual([81.40]);
+  });
+});
 
 describe("resolvePublishedStopLoss", () => {
   it("falls back from empty positions SL to trade SL", () => {

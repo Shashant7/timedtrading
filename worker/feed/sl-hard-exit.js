@@ -2,6 +2,81 @@
 // Stops are contractual with the user — breach must close unless the stop
 // itself was explicitly moved (defend tighten), not merely deferred to Defend.
 
+/** D1 positions VWAP beats stale KV trades.entry_price (KO-class trims). */
+export function resolveAuthoritativeEntryPrice(openTrade, openPositionContext = null) {
+  const fromPos = Number(
+    openPositionContext?.avg_entry_price
+    ?? openPositionContext?.avgEntry
+    ?? openPositionContext?.entryPrice,
+  );
+  if (Number.isFinite(fromPos) && fromPos > 0) return fromPos;
+
+  const fromTrade = Number(openTrade?.entryPrice ?? openTrade?.entry_price);
+  if (Number.isFinite(fromTrade) && fromTrade > 0) return fromTrade;
+  return null;
+}
+
+/** KV entry diverges from D1 VWAP after trims — PnL-implied marks are untrustworthy. */
+export function entryPriceSourcesDiverge(openTrade, openPositionContext = null, tolerancePct = 0.5) {
+  const auth = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
+  const kv = Number(openTrade?.entryPrice ?? openTrade?.entry_price);
+  if (!(auth > 0) || !(kv > 0)) return false;
+  return (Math.abs(auth - kv) / auth) * 100 > tolerancePct;
+}
+
+/** Pre/post-market: defer marginal SL unless loss is catastrophic or breach is material. */
+export function shouldDeferFeedSlOutsideRth({
+  marketOpen = true,
+  direction = "LONG",
+  checkPx,
+  feedPx,
+  sl,
+  entryPx,
+  pnlPct,
+  catastrophicLossPct = -4,
+  extWickCushionPct = 1.0,
+  materialBreachPct = 1.0,
+} = {}) {
+  if (marketOpen) return { defer: false, reason: "rth" };
+
+  const dir = String(direction || "LONG").toUpperCase();
+  const stop = Number(sl);
+  const check = Number(checkPx);
+  const feed = Number(feedPx);
+  const entry = Number(entryPx);
+
+  if (!(stop > 0) || !(check > 0)) {
+    return { defer: false, reason: "missing_inputs" };
+  }
+
+  const overshoot = stopLossOvershootPct(dir, check, stop);
+  const feedPastSl = Number.isFinite(feed) && feed > 0 && isStopLossBreached(dir, feed, stop);
+  const feedOvershoot = feedPastSl ? stopLossOvershootPct(dir, feed, stop) : 0;
+
+  const pnl = Number(pnlPct);
+  if (Number.isFinite(entry) && entry > 0 && Number.isFinite(pnl) && pnl <= catastrophicLossPct) {
+    return { defer: false, reason: "catastrophic_loss", pnlPct: pnl };
+  }
+
+  if (feedPastSl && feedOvershoot >= materialBreachPct) {
+    return { defer: false, reason: "material_feed_breach", overshoot_pct: feedOvershoot };
+  }
+
+  if (overshoot >= materialBreachPct && feedPastSl) {
+    return { defer: false, reason: "material_check_breach", overshoot_pct: overshoot };
+  }
+
+  if (!feedPastSl) {
+    return { defer: true, reason: "pnl_implied_only_outside_rth", checkPx: check, feedPx: feed };
+  }
+
+  if (overshoot < extWickCushionPct) {
+    return { defer: true, reason: "ext_wick_cushion", overshoot_pct: overshoot };
+  }
+
+  return { defer: false, reason: "allowed_outside_rth" };
+}
+
 /** Authoritative published SL: positions row → trade row → entry history. */
 export function resolvePublishedStopLoss(openPositionContext, openTrade) {
   const fromPos = Number(openPositionContext?.sl ?? openPositionContext?.stop_loss);
@@ -28,7 +103,13 @@ function pushCandidate(cands, v) {
  * Every print we might use for stop enforcement — plus PnL-implied marks
  * when headline price lags (NVDA-class: px ~200 while market ~194).
  */
-export function collectStopCheckPriceCandidates(tickerData, pxNow, openTrade = null, openPositionContext = null) {
+export function collectStopCheckPriceCandidates(
+  tickerData,
+  pxNow,
+  openTrade = null,
+  openPositionContext = null,
+  options = {},
+) {
   const cands = [];
   pushCandidate(cands, pxNow);
   if (tickerData && typeof tickerData === "object") {
@@ -41,36 +122,44 @@ export function collectStopCheckPriceCandidates(tickerData, pxNow, openTrade = n
     pushCandidate(cands, tickerData.ah_price);
   }
 
-  const entryPx = Number(
-    openTrade?.entryPrice ?? openTrade?.entry_price
-    ?? openPositionContext?.entryPrice ?? openPositionContext?.avgEntry,
-  );
+  const includePnlImplied = options.includePnlImplied !== false;
+  const entryPx = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
   const dir = String(openTrade?.direction ?? openPositionContext?.direction ?? tickerData?.direction ?? "LONG").toUpperCase();
 
-  const pnlSources = [
-    openTrade?.pnlPct,
-    openTrade?.pnl_pct,
-    tickerData?.__exit_meta?.pnl_pct,
-    tickerData?.__exit_doctrine?.pnl,
-    openPositionContext?.maxAdverseExcursion,
-    openPositionContext?.max_adverse_excursion,
-    openTrade?.maxAdverseExcursion,
-    openTrade?.max_adverse_excursion,
-  ];
-  for (const raw of pnlSources) {
-    const pnl = Number(raw);
-    if (!Number.isFinite(entryPx) || entryPx <= 0 || !Number.isFinite(pnl)) continue;
-    if (dir === "LONG") pushCandidate(cands, entryPx * (1 + pnl / 100));
-    else if (dir === "SHORT") pushCandidate(cands, entryPx * (1 - pnl / 100));
+  if (includePnlImplied && !(entryPriceSourcesDiverge(openTrade, openPositionContext))) {
+    const pnlSources = [
+      openTrade?.pnlPct,
+      openTrade?.pnl_pct,
+      tickerData?.__exit_meta?.pnl_pct,
+      tickerData?.__exit_doctrine?.pnl,
+      openPositionContext?.maxAdverseExcursion,
+      openPositionContext?.max_adverse_excursion,
+      openTrade?.maxAdverseExcursion,
+      openTrade?.max_adverse_excursion,
+    ];
+    for (const raw of pnlSources) {
+      const pnl = Number(raw);
+      if (!Number.isFinite(entryPx) || entryPx <= 0 || !Number.isFinite(pnl)) continue;
+      if (dir === "LONG") pushCandidate(cands, entryPx * (1 + pnl / 100));
+      else if (dir === "SHORT") pushCandidate(cands, entryPx * (1 - pnl / 100));
+    }
   }
 
   return cands;
 }
 
 /** Worst-case print vs published stop — always conservative for the direction. */
-export function resolvePriceForStopCheck(tickerData, pxNow, direction, marketOpen, openTrade = null, openPositionContext = null) {
+export function resolvePriceForStopCheck(
+  tickerData,
+  pxNow,
+  direction,
+  marketOpen,
+  openTrade = null,
+  openPositionContext = null,
+  options = {},
+) {
   void marketOpen; // kept for call-site compatibility; session no longer gates candidate set
-  const cands = collectStopCheckPriceCandidates(tickerData, pxNow, openTrade, openPositionContext);
+  const cands = collectStopCheckPriceCandidates(tickerData, pxNow, openTrade, openPositionContext, options);
   if (cands.length === 0) return Number(pxNow);
   const dir = String(direction || "").toUpperCase();
   if (dir === "LONG") return Math.min(...cands);
@@ -291,6 +380,30 @@ export function applySlHardExitSafetyNet({
   out.slCheckPrice = checkPx;
 
   if (!isStopLossBreached(dir, checkPx, sl)) return out;
+
+  const feedPx = Number(
+    tickerData?.__feed_sl_hard_close?.feed_px
+    ?? tickerData?.price
+    ?? tickerData?._live_price
+    ?? pxNow,
+  );
+  const entryPx = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
+  const defer = shouldDeferFeedSlOutsideRth({
+    marketOpen,
+    direction: dir,
+    checkPx,
+    feedPx,
+    sl,
+    entryPx,
+    pnlPct: openTrade?.pnlPct ?? openTrade?.pnl_pct,
+  });
+  if (defer.defer) {
+    out.tickerData = {
+      ...tickerData,
+      __sl_outside_rth_deferred: defer,
+    };
+    return out;
+  }
 
   out.slBreached = true;
   out.slHardClose = true;

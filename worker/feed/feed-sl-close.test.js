@@ -39,7 +39,7 @@ describe("detectFeedSlBreaches", () => {
     expect(breaches[0].sl).toBeCloseTo(198.81, 2);
   });
 
-  it("uses PnL-implied price when feed alone would miss breach", () => {
+  it("does not use PnL-implied price on feed cron (KV entry lags D1 VWAP)", () => {
     const trade = {
       ticker: "NVDA",
       direction: "LONG",
@@ -48,11 +48,40 @@ describe("detectFeedSlBreaches", () => {
       pnlPct: -8.0,
       sl: 198.81,
     };
-    // Headline feed still above SL but loss implies worse print
+    // Headline feed still above SL but loss implies worse print — feed cron ignores PnL
     const prices = { NVDA: { p: 200.2, pc: 197.58 } };
     const breaches = detectFeedSlBreaches([trade], prices, true);
+    expect(breaches).toHaveLength(0);
+  });
+
+  it("defers marginal SL breach outside RTH when feed is above stop", () => {
+    const trade = {
+      ticker: "KO",
+      direction: "LONG",
+      status: "OPEN",
+      entryPrice: 83.39,
+      pnlPct: -2.39,
+      sl: 81.50,
+      history: [{ type: "ENTRY", sl_price: 81.50 }],
+    };
+    const prices = { KO: { p: 81.40, pc: 83.00 } };
+    const breaches = detectFeedSlBreaches([trade], prices, false);
+    expect(breaches).toHaveLength(0);
+  });
+
+  it("still detects material feed breach outside RTH", () => {
+    const trade = {
+      ticker: "KO",
+      direction: "LONG",
+      status: "OPEN",
+      entryPrice: 83.39,
+      sl: 82.00,
+      history: [{ type: "ENTRY", sl_price: 82.00 }],
+    };
+    const prices = { KO: { p: 80.50, pc: 83.00 } };
+    const breaches = detectFeedSlBreaches([trade], prices, false);
     expect(breaches).toHaveLength(1);
-    expect(breaches[0].checkPx).toBeLessThan(198.81);
+    expect(breaches[0].feedPx).toBeCloseTo(80.50, 2);
   });
 
   it("detects SHORT breach when feed price is above SL", () => {

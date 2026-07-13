@@ -7,6 +7,8 @@ import {
   resolvePublishedStopLoss,
   resolvePriceForStopCheck,
   isStopLossBreached,
+  resolveAuthoritativeEntryPrice,
+  shouldDeferFeedSlOutsideRth,
 } from "./sl-hard-exit.js";
 
 const TRIGGER_RING_KEY = "timed:feed-sl-triggers";
@@ -29,6 +31,8 @@ export function buildTickerDataFromFeedSnap(sym, feedSnap, marketOpen = true) {
 /**
  * Scan open trades against the current prices map. Returns breaches where
  * worst-case check price is past the published stop (history → trade row).
+ * Feed cron uses feed prints only (no PnL-implied marks) — KV entry/pnl
+ * lag D1 VWAP after trims (KO-class false breaches).
  */
 export function detectFeedSlBreaches(openTrades, pricesMap, marketOpen = true) {
   const breaches = [];
@@ -55,11 +59,24 @@ export function detectFeedSlBreaches(openTrades, pricesMap, marketOpen = true) {
       marketOpen,
       trade,
       null,
+      { includePnlImplied: false },
     );
 
-    if (isStopLossBreached(direction, checkPx, sl)) {
-      breaches.push({ sym, trade, sl, checkPx, feedPx, direction });
-    }
+    if (!isStopLossBreached(direction, checkPx, sl)) continue;
+
+    const entryPx = resolveAuthoritativeEntryPrice(trade, null);
+    const defer = shouldDeferFeedSlOutsideRth({
+      marketOpen,
+      direction,
+      checkPx,
+      feedPx,
+      sl,
+      entryPx,
+      pnlPct: trade?.pnlPct ?? trade?.pnl_pct,
+    });
+    if (defer.defer) continue;
+
+    breaches.push({ sym, trade, sl, checkPx, feedPx, direction });
   }
   return breaches;
 }
