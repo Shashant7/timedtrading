@@ -854,6 +854,189 @@ export async function fetchFinnhubSymbolEarnings(env, symbol, fromDate, toDate) 
   }
 }
 
+/** Megacaps + money-center banks — must survive week caps (KO-class bank week). */
+export const PRIORITY_EARNINGS_TICKERS = new Set([
+  "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX", "AMD",
+  "JPM", "BAC", "WFC", "C", "GS", "MS", "BLK", "USB", "PNC", "SCHW", "TFC", "FITB",
+  "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "XOM", "CVX", "CAT", "BA", "DIS",
+]);
+
+export const BANK_EARNINGS_TICKERS = new Set([
+  "JPM", "BAC", "WFC", "C", "GS", "MS", "BLK", "USB", "PNC", "SCHW", "TFC", "FITB", "CFG", "STT", "RF",
+]);
+
+function earningsHourLabel(hour) {
+  const h = String(hour || "").toLowerCase();
+  if (h === "bmo") return "Pre-Market";
+  if (h === "amc") return "After-Hours";
+  return hour || "TBD";
+}
+
+function earningsPriorityScore(event, ourTickers = new Set()) {
+  const sym = String(event?.symbol || "").toUpperCase();
+  let score = 0;
+  if (ourTickers.has(sym)) score += 100;
+  if (PRIORITY_EARNINGS_TICKERS.has(sym)) score += 80;
+  if (BANK_EARNINGS_TICKERS.has(sym)) score += 70;
+  const rev = Number(event?.revenueEstimate);
+  if (rev > 20e9) score += 60;
+  else if (rev > 5e9) score += 40;
+  else if (rev > 1e9) score += 20;
+  return score;
+}
+
+/** Date-ordered week list that keeps each day's headline names (banks/megacaps). */
+export function prioritizeWeekEarnings(events, opts = {}) {
+  const ourTickers = opts.ourTickers || new Set();
+  const max = Number(opts.max) > 0 ? Number(opts.max) : 30;
+  const list = Array.isArray(events) ? events.filter((e) => e?.symbol && e?.date) : [];
+  if (list.length <= max) {
+    return [...list].sort((a, b) => {
+      const da = String(a.date).slice(0, 10);
+      const db = String(b.date).slice(0, 10);
+      if (da !== db) return da.localeCompare(db);
+      return earningsPriorityScore(b, ourTickers) - earningsPriorityScore(a, ourTickers);
+    });
+  }
+
+  const byDate = new Map();
+  for (const e of list) {
+    const d = String(e.date).slice(0, 10);
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(e);
+  }
+  const dates = [...byDate.keys()].sort();
+  const picked = [];
+  const pickedKeys = new Set();
+  const tryPush = (e) => {
+    const key = `${String(e.symbol).toUpperCase()}:${String(e.date).slice(0, 10)}`;
+    if (pickedKeys.has(key) || picked.length >= max) return;
+    pickedKeys.add(key);
+    picked.push(e);
+  };
+  const isHeadline = (e) => {
+    const sym = String(e.symbol || "").toUpperCase();
+    return ourTickers.has(sym)
+      || PRIORITY_EARNINGS_TICKERS.has(sym)
+      || BANK_EARNINGS_TICKERS.has(sym)
+      || (Number(e.revenueEstimate) > 5e9);
+  };
+
+  for (const d of dates) {
+    const day = [...byDate.get(d)].sort(
+      (a, b) => earningsPriorityScore(b, ourTickers) - earningsPriorityScore(a, ourTickers),
+    );
+    for (const e of day) {
+      if (isHeadline(e)) tryPush(e);
+    }
+  }
+  for (const d of dates) {
+    for (const e of byDate.get(d)) tryPush(e);
+  }
+
+  return picked.sort((a, b) => {
+    const da = String(a.date).slice(0, 10);
+    const db = String(b.date).slice(0, 10);
+    if (da !== db) return da.localeCompare(db);
+    return earningsPriorityScore(b, ourTickers) - earningsPriorityScore(a, ourTickers);
+  });
+}
+
+export function summarizeEarningsWeek(weekEarnings = []) {
+  const list = Array.isArray(weekEarnings) ? weekEarnings : [];
+  if (list.length === 0) {
+    return {
+      intensity: "unknown",
+      label: "Earnings calendar unavailable — omit week-intensity claims; do not say light or heavy.",
+    };
+  }
+  const banks = list.filter((e) => BANK_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase()));
+  const megas = list.filter((e) => Number(e.revenueEstimate) > 20e9);
+  if (banks.length >= 4) {
+    const syms = [...new Set(banks.map((e) => e.symbol))].slice(0, 8).join(", ");
+    return {
+      intensity: "heavy",
+      label: `Heavy earnings week — major bank reports (${syms}${banks.length > 8 ? ", …" : ""})`,
+    };
+  }
+  if (list.length >= 12 || megas.length >= 3) {
+    return { intensity: "busy", label: `Busy earnings week — ${list.length} notable reports on deck` };
+  }
+  return { intensity: "moderate", label: `Moderate earnings week — ${list.length} notable reports` };
+}
+
+function formatEarningsLine(e) {
+  const sym = String(e.symbol || "").toUpperCase();
+  const hour = earningsHourLabel(e.hour);
+  const pricePart = e.currentPrice
+    ? ` ($${e.currentPrice}${e.dayChangePct ? ", " + e.dayChangePct : ""})`
+    : "";
+  const epsPart = e.epsEstimate != null ? `, EPS est ${Number(e.epsEstimate).toFixed(2)}` : "";
+  const rev = Number(e.revenueEstimate);
+  const revPart = rev > 0 ? `, Rev est $${(rev / 1e9).toFixed(1)}B` : "";
+  return `${sym}${pricePart} (${hour}${epsPart}${revPart})`;
+}
+
+/** Grouped, copy-ready earnings block for the LLM Earnings Watch section. */
+export function buildEarningsCalendarDigest({ today, todayEarnings = [], weekEarnings = [] } = {}) {
+  const todayList = Array.isArray(todayEarnings) ? todayEarnings : [];
+  const weekList = Array.isArray(weekEarnings) ? weekEarnings : [];
+  const summary = summarizeEarningsWeek(weekList);
+
+  const todayBlock = todayList.length > 0
+    ? todayList.slice(0, 8).map(formatEarningsLine).join("\n")
+    : "No major earnings today.";
+
+  const byDate = new Map();
+  for (const e of weekList) {
+    const d = String(e.date || "").slice(0, 10);
+    if (!d || d === today) continue;
+    if (!byDate.has(d)) byDate.set(d, []);
+    byDate.get(d).push(e);
+  }
+
+  const dayLines = [];
+  for (const [date, items] of [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const sorted = [...items].sort(
+      (a, b) => earningsPriorityScore(b, new Set()) - earningsPriorityScore(a, new Set()),
+    );
+    const syms = sorted.slice(0, 10).map((e) => String(e.symbol || "").toUpperCase()).join(", ");
+    const banks = sorted.filter((e) => BANK_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase()));
+    const tag = banks.length >= 3
+      ? ` [big bank day: ${banks.map((e) => e.symbol).join(", ")}]`
+      : "";
+    const dow = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    dayLines.push(`${dow}: ${syms}${tag}`);
+  }
+
+  const weekBlock = dayLines.length > 0
+    ? dayLines.join("\n")
+    : (weekList.length > 0
+      ? weekList.slice(0, 12).map((e) => `${e.symbol} (${String(e.date).slice(0, 10)}, ${earningsHourLabel(e.hour)})`).join(", ")
+      : "Earnings calendar unavailable — do not claim a light week.");
+
+  return {
+    summary,
+    todayBlock,
+    weekBlock,
+    weekSummaryLine: summary.label,
+    promptBlock: [
+      `WEEK INTENSITY (use this line for "This week:" — never contradict it): ${summary.label}`,
+      "",
+      "TODAY:",
+      todayBlock,
+      "",
+      "REST OF WEEK (grouped by day — cite names):",
+      weekBlock,
+    ].join("\n"),
+  };
+}
+
 /**
  * Fetch economic calendar from Finnhub.
  * Returns array of { country, event, time, impact, actual, estimate, prev, unit }
@@ -2121,10 +2304,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
   const sectorMap = opts.SECTOR_MAP || {};
   const ourTickers = new Set(Object.keys(sectorMap));
   const todayEarningsRaw = earningsWeek.filter(e => (e.date || "").slice(0, 10) === today);
-  const weekEarnings = earningsWeek.filter(e =>
+  const weekEarningsFiltered = earningsWeek.filter(e =>
     ourTickers.has(e.symbol) ||
+    PRIORITY_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase()) ||
     (e.revenueEstimate && e.revenueEstimate > 1e9) // large-cap fallback
   );
+  const weekEarnings = prioritizeWeekEarnings(weekEarningsFiltered, { ourTickers, max: 30 });
 
   // Enrich today's earnings tickers with current price, daily change, and chart setup.
   //
@@ -2482,7 +2667,12 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     diaScenario,
     sectors,
     todayEarnings,
-    weekEarnings: weekEarnings.slice(0, 30), // cap for prompt size
+    weekEarnings,
+    earningsCalendarDigest: buildEarningsCalendarDigest({
+      today,
+      todayEarnings,
+      weekEarnings,
+    }),
     todayEconomicEvents: todayEcon.slice(0, 12),
     yesterdayEconomicEvents: yesterdayEcon.slice(0, 10),
     economicEvents: weekEcon.slice(0, 15),
@@ -4376,12 +4566,17 @@ function buildRetailFriendlyOutputSpec(type) {
 4. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing EVERY name shown in that block with its % move. Do not omit or substitute tickers. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
 5. **Active Trader Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
 6. **Investor Portfolio** (~80 words — open holdings only if not already covered in Model Actions: ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
-7. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. What catalysts to watch.)
+7. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. Use Earnings Calendar Digest WEEK INTENSITY line — never "light earnings week" when banks/megacaps are listed. What catalysts to watch.)
 8. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) today's market mood in one sentence, (b) playbook tie-in — one sentence linking the setup to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model is entering or staying patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
 2. **Model Actions Today** (~60 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** cite EVERY name from the "Investor Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no investor actions" ONLY when that block is empty; then note open holdings status. Separate lanes — do not merge.)
 3. **The Market Read** (~220 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
-4. **Earnings Watch & Macro News** (today's reports + macro releases BY NAME with scheduled time + consensus; after prints land, lead with actual vs estimate)
+4. **Earnings Watch & Macro News** (~120 words — structured bullets, not a wall of text)
+   - **Earnings today:** one line from Earnings Calendar Digest (TODAY block). If none, say "No major earnings today."
+   - **This week:** MUST use the WEEK INTENSITY line from Earnings Calendar Digest verbatim — never "light earnings week" when digest says heavy/busy/moderate. Then 1-2 bullets naming the biggest days (e.g. Tuesday bank cluster: JPM, BAC, WFC, C, GS).
+   - **Macro:** one bullet per release — format: **Day Time ET — Event:** est X.XX. One short impact clause (≤12 words). Every macro bullet needs impact text; do not leave bare estimates.
+   - **Headline driver:** one bullet on the top tape-moving story from headlines data (if any).
+   - Do NOT repeat macro events in Index Outlook. Do NOT invent earnings names absent from the digest.
 5. **Index Outlook & Game Plan** (~320 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
 6. **On Watch — Entry Radar** (~70 words — per ticker, one line — lane + WHY)
 7. **Risk Factors** (1-2 key risks, ≤20 words each)
@@ -4421,6 +4616,7 @@ ${sections}
 - **Active Trader Report / Investor Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
 - **NEVER claim "no macro events today" unless the economic-data section above explicitly listed real sources returning a confirmed-empty calendar.** Missing data ≠ a quiet calendar.
+- **NEVER say "light earnings week"** when Earnings Calendar Digest lists heavy/busy/moderate intensity or names major banks/megacaps. Use the digest WEEK INTENSITY line verbatim.
 - **At a Glance is mandatory** and must stay jargon-free. Email subject + Discord description pull from this section — if it reads like a textbook, rewrite it.
 - **Model Actions Today** must always appear and must label Trader vs Investor lanes explicitly.
 - **Educational transparency**: Active Trader / On Watch names are what the model is tracking — NOT buy recommendations. Say so once in At a Glance or Model Actions if any names are listed.
@@ -4636,10 +4832,13 @@ ${data.todayEarnings.length > 0
       }).join("\n")
     : "No major earnings today."}
 
-## Earnings This Week:
+## Earnings Calendar Digest (COPY-READY — use verbatim in Earnings Watch & Macro News):
+${data.earningsCalendarDigest?.promptBlock || "Earnings calendar unavailable — omit week-intensity claims."}
+
+## Earnings This Week (reference list):
 ${data.weekEarnings.length > 0
-    ? data.weekEarnings.slice(0, 15).map(e => `${e.symbol} (${e.date}, ${e.hour === "bmo" ? "Pre-Market" : e.hour === "amc" ? "After-Hours" : e.hour || "TBD"})`).join(", ")
-    : "Light earnings week."}
+    ? data.weekEarnings.slice(0, 20).map(e => `${e.symbol} (${e.date}, ${e.hour === "bmo" ? "Pre-Market" : e.hour === "amc" ? "After-Hours" : e.hour || "TBD"})`).join(", ")
+    : "Earnings calendar unavailable — do NOT say 'light earnings week'; omit the week-intensity line instead."}
 
 ## TODAY'S Economic Data Releases (CRITICAL — analyze these in detail):
 ${data.todayEconomicEvents.length > 0
@@ -4877,6 +5076,9 @@ ${(data.topHeadlines || []).length > 0
 ${data.todayEarnings.filter(e => e.hour === "amc").length > 0
     ? data.todayEarnings.filter(e => e.hour === "amc").map(e => `${e.symbol}: EPS Est: ${e.epsEstimate ?? "N/A"}${e.epsActual != null ? `, EPS Actual: ${e.epsActual}` : ", Results pending"}, Rev Est: ${e.revenueEstimate ? "$" + (e.revenueEstimate / 1e9).toFixed(1) + "B" : "N/A"}${e.revenueActual ? `, Rev Actual: $${(e.revenueActual / 1e9).toFixed(1)}B` : ""}`).join("\n")
     : "No major after-hours earnings today."}
+
+## Earnings Calendar Digest (COPY-READY — use in Looking Ahead):
+${data.earningsCalendarDigest?.promptBlock || "Earnings calendar unavailable — omit week-intensity claims."}
 
 ## On Watch — the model's live entry candidates (Setup / In-Review lanes):
 ${(data.onWatch || []).length > 0
@@ -5536,12 +5738,25 @@ function buildBriefInfographic(data, type) {
   }));
   const todayEarnings = (data.todayEarnings || []).slice(0, 8).map(e => ({
     date: today,
-    when: e.hour || (e.session === "bmo" ? "Before Open" : e.session === "amc" ? "After Close" : null),
-    title: `${(e.ticker || e.symbol || "").toUpperCase()} earnings`,
-    severity: "medium",
+    when: earningsHourLabel(e.hour),
+    title: `${(e.symbol || e.ticker || "").toUpperCase()} earnings`,
+    severity: PRIORITY_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase()) ? "high" : "medium",
     kind: "earnings",
   }));
-  const events = [...todayEconomic, ...todayEarnings];
+  const weekEarningsRibbon = (data.weekEarnings || [])
+    .filter((e) => String(e.date || "").slice(0, 10) !== today)
+    .slice(0, 6)
+    .map((e) => ({
+      date: String(e.date || "").slice(0, 10),
+      when: earningsHourLabel(e.hour),
+      title: `${String(e.symbol || "").toUpperCase()} earnings`,
+      severity: BANK_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase())
+        || PRIORITY_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase())
+        ? "high"
+        : "medium",
+      kind: "earnings",
+    }));
+  const events = [...todayEconomic, ...todayEarnings, ...weekEarningsRibbon];
 
   const risks = [];
   const opps = [];
@@ -5589,6 +5804,7 @@ function buildBriefInfographic(data, type) {
     sectors: sectorMini,
     macro,
     events,
+    earningsWeekSummary: data.earningsCalendarDigest?.weekSummaryLine || null,
     risks: risks.slice(0, 5),
     opportunities: opps.slice(0, 5),
     // 2026-05-22 — Top broad-market headlines (Reuters / Bloomberg / WSJ etc.)
