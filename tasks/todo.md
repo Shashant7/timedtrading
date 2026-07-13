@@ -35,6 +35,11 @@
       RTH close; EXT on _ah_*; WS tick_batch must not wipe EXT or promote
       extended print to headline. Branch: `cursor/market-pulse-closed-price-ca70`.
 
+- [x] **KO 4 AM false SL exit (2026-07-13).** Feed cron hard-closed KO at 4:01 AM
+      ET with stale KV entry ($83.39) vs D1 VWAP ($80.34). Fix: feed-only SL
+      checks, outside-RTH defer, authoritative entry at close/email.
+      Branch: `cursor/ko-feed-sl-fix-df0c`.
+
 - [ ] **Options shadow mode (2026-07-08).** Long call/put shadow plays on
       trader + investor entry Discord/email (`OPTIONS_SHADOW_MODE=1`).
       Plan: [`2026-07-08-options-shadow-mode-plan.md`](2026-07-08-options-shadow-mode-plan.md).
