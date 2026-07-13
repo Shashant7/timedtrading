@@ -10,6 +10,12 @@ import {
   formatTrimDeltaPct,
   formatTrimTotalPct,
 } from "./trade-trim-display.js";
+import {
+  parseBriefMarkdownSections,
+  parseBriefPositionGuidanceByTicker,
+  stripBriefInvestorPortfolioBody,
+  stripBriefTopMoversBody,
+} from "./daily-brief-markdown.js";
 
 // 2026-06-22 — Email-specific brief cleanup.
 //
@@ -997,6 +1003,93 @@ function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
   </span>`;
 }
 
+const EMAIL_BRIEF_POSITION_SECTION_KEYS = new Set(["activeTrader", "investorPortfolio"]);
+
+function buildEmailBriefSectionHeading(title) {
+  if (!title) return "";
+  return `<h2 style="margin:28px 0 10px;font-size:24px;font-weight:400;color:white;font-family:${EMAIL_FONT_EDITORIAL};letter-spacing:-0.01em;line-height:1.2;border-bottom:1px solid ${BRAND.border};padding-bottom:8px">${_esc(title)}</h2>`;
+}
+
+function buildEmailBriefChipStrip(sectionKey, infographic, baseUrl) {
+  const info = infographic || {};
+  if (sectionKey === "modelActions") {
+    const rows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
+    if (!rows.length) return "";
+    return `<div style="margin:10px 0 14px;line-height:1">${rows.map((r) => buildEmailBriefTickerChip(
+      r.ticker, r.pct ?? r.pnlPct, String(r.action || "").replace(/_/g, " "), baseUrl, r.dayPct,
+    )).join("")}</div>`;
+  }
+  if (sectionKey === "topMovers") {
+    const g = info.topMovers?.gainers || [];
+    const l = info.topMovers?.losers || [];
+    if (!g.length && !l.length) return "";
+    return `<div style="margin:10px 0 14px;line-height:1">${[
+      ...g.map((r) => buildEmailBriefTickerChip(r.ticker, r.pct, null, baseUrl)),
+      ...l.map((r) => buildEmailBriefTickerChip(r.ticker, r.pct, null, baseUrl)),
+    ].join("")}</div>`;
+  }
+  return "";
+}
+
+/** Chip + guidance row per open position (parity with web BriefPositionStack). */
+export function buildEmailBriefPositionStack(sectionKey, infographic, sectionBody, baseUrl) {
+  const info = infographic || {};
+  const isTrader = sectionKey === "activeTrader";
+  const rows = isTrader
+    ? (Array.isArray(info.traderPositions) ? info.traderPositions : [])
+    : (Array.isArray(info.investorHoldings) ? info.investorHoldings : []);
+  if (!rows.length) return "";
+  const guidanceMap = parseBriefPositionGuidanceByTicker(sectionBody || "");
+  return rows.map((p) => {
+    const sym = String(p.ticker || "").toUpperCase();
+    if (!sym) return "";
+    const pct = isTrader ? p.pnlPct : p.unrealPct;
+    const sub = isTrader
+      ? String(p.direction || "").toUpperCase()
+      : (p.stage ? String(p.stage).replace(/_/g, " ") : null);
+    const chip = buildEmailBriefTickerChip(sym, pct, sub, baseUrl, p.dayPct);
+    const guidance = guidanceMap[sym] || "";
+    const guidanceHtml = guidance
+      ? `<span style="font-size:13px;line-height:1.45;color:${BRAND.textSecondary};font-family:${EMAIL_FONT_UI}"> — ${_esc(guidance)}</span>`
+      : "";
+    return `<div style="margin:0 0 14px;line-height:1.5">${chip}${guidanceHtml}</div>`;
+  }).filter(Boolean).join("");
+}
+
+function briefEmailSectionBodyForDisplay(sectionKey, body, infographic) {
+  const raw = body || "";
+  if (sectionKey === "topMovers") return stripBriefTopMoversBody(raw);
+  if (sectionKey === "investorPortfolio") {
+    const hasHoldings = Array.isArray(infographic?.investorHoldings) && infographic.investorHoldings.length > 0;
+    return stripBriefInvestorPortfolioBody(raw, hasHoldings);
+  }
+  return raw;
+}
+
+function buildEmailBriefSectionHtml(section, infographic, baseUrl) {
+  const title = section?.title || "";
+  const key = section?.key || null;
+  const heading = buildEmailBriefSectionHeading(title);
+  if (key && EMAIL_BRIEF_POSITION_SECTION_KEYS.has(key)) {
+    const stack = buildEmailBriefPositionStack(key, infographic, section.body, baseUrl);
+    if (stack) return `${heading}${stack}`;
+    const body = briefEmailSectionBodyForDisplay(key, section.body, infographic);
+    return `${heading}${body ? markdownToEmailHtml(body) : ""}`;
+  }
+  const chips = key ? buildEmailBriefChipStrip(key, infographic, baseUrl) : "";
+  const body = briefEmailSectionBodyForDisplay(key, section.body, infographic);
+  const bodyHtml = body ? markdownToEmailHtml(body) : "";
+  return `${heading}${chips}${bodyHtml}`;
+}
+
+/** Render full brief narrative with section-aware chips and position stacks. */
+export function buildEmailBriefContentHtml(content, infographic, baseUrl) {
+  const stripped = stripBriefMarkdownForEmail(content);
+  const sections = parseBriefMarkdownSections(stripped);
+  if (!sections.length) return markdownToEmailHtml(stripped);
+  return sections.map((sec) => buildEmailBriefSectionHtml(sec, infographic, baseUrl)).join("");
+}
+
 /** Inject logo ticker chips under key brief sections (parity with web tt-strip-chip). */
 export function injectEmailBriefTickerChips(html, infographic, baseUrl) {
   if (!html || !infographic) return html || "";
@@ -1004,34 +1097,22 @@ export function injectEmailBriefTickerChips(html, infographic, baseUrl) {
   let out = html;
   const inject = (title, chipsHtml) => {
     if (!chipsHtml) return;
-    const re = new RegExp(`(<h2[^>]*>${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</h2>)`, "i");
+    const re = new RegExp(`(<h2[^>]*>${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[^<]*</h2>)`, "i");
     out = out.replace(re, `$1<div style="margin:10px 0 14px;line-height:1">${chipsHtml}</div>`);
   };
   const modelRows = Array.isArray(info.modelActionChips) ? info.modelActionChips : [];
   if (modelRows.length) {
-    inject("Model Actions Today", modelRows.map((r) => buildEmailBriefTickerChip(
+    inject("Model Actions", modelRows.map((r) => buildEmailBriefTickerChip(
       r.ticker, r.pct ?? r.pnlPct, String(r.action || "").replace(/_/g, " "), baseUrl, r.dayPct,
     )).join(""));
   }
   const g = info.topMovers?.gainers || [];
   const l = info.topMovers?.losers || [];
   if (g.length || l.length) {
-    inject("Today's Top Movers", [
+    inject("Top Movers", [
       ...g.map((r) => buildEmailBriefTickerChip(r.ticker, r.pct, null, baseUrl)),
       ...l.map((r) => buildEmailBriefTickerChip(r.ticker, r.pct, null, baseUrl)),
     ].join(""));
-  }
-  const trader = Array.isArray(info.traderPositions) ? info.traderPositions : [];
-  if (trader.length) {
-    inject("Active Trader Report", trader.map((p) => buildEmailBriefTickerChip(
-      p.ticker, p.pnlPct, String(p.direction || "").toUpperCase(), baseUrl, p.dayPct,
-    )).join(""));
-  }
-  const inv = Array.isArray(info.investorHoldings) ? info.investorHoldings : [];
-  if (inv.length) {
-    inject("Investor Portfolio", inv.map((p) => buildEmailBriefTickerChip(
-      p.ticker, p.unrealPct, p.stage ? String(p.stage).replace(/_/g, " ") : null, baseUrl, p.dayPct,
-    )).join(""));
   }
   return out;
 }
@@ -1056,11 +1137,7 @@ export async function sendDailyBriefEmail(env, userEmail, brief) {
     : null;
 
   const strippedContent = stripBriefMarkdownForEmail(content);
-  const briefHtml = injectEmailBriefTickerChips(
-    markdownToEmailHtml(strippedContent),
-    infographic,
-    baseUrl,
-  );
+  const briefHtml = buildEmailBriefContentHtml(strippedContent, infographic, baseUrl);
   const accentColor = type === "morning" ? BRAND.warning : BRAND.editorial;
   const croDeskHtml = type === "evening" ? buildEmailCRODeskBlock(croNote, accentColor) : "";
 

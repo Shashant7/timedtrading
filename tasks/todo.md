@@ -40,9 +40,11 @@
       checks, outside-RTH defer, authoritative entry at close/email.
       Branch: `cursor/ko-feed-sl-fix-df0c`.
 
-- [ ] **Daily Brief earnings + polish (2026-07-13).** Fix "light earnings week"
+- [x] **Daily Brief earnings + polish (2026-07-13).** Fix "light earnings week"
       when big banks reporting; prioritize week calendar; structured Earnings
-      Watch digest. Branch: `cursor/daily-brief-earnings-polish-df0c`.
+      Watch digest. Branch: `cursor/daily-brief-earnings-polish-df0c`. PR #1099.
+
+- [ ] **Options shadow mode (2026-07-08).** Long call/put shadow plays on
       trader + investor entry Discord/email (`OPTIONS_SHADOW_MODE=1`).
       Plan: [`2026-07-08-options-shadow-mode-plan.md`](2026-07-08-options-shadow-mode-plan.md).
       PR: `cursor/options-shadow-mode-df0c`. Next: enable on tt-engine preprod,
