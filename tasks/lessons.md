@@ -6,6 +6,21 @@
 
 ---
 
+## Feed SL hard-close at 4 AM used stale KV entry → false loss (KO) [2026-07-13]
+
+KO Active Trader exit email at 4:01 AM ET showed entry $83.39 / exit $81.40 /
+-2.39% while the open Invest position had D1 VWAP entry $80.34 (+3.92%).
+The `*/1` price-feed cron (`detectFeedSlBreaches`) combined stale KV
+`trades.entry_price` with stale `pnlPct` to imply a price below the published
+stop even though the live feed print was only marginally below SL in thin
+pre-market. The feed hard-close path (`__feed_sl_hard_close_applied`) then
+closed immediately, bypassing outside-RTH wick deferral and fresh-quote guards
+that the scoring path applies. Fixes: feed cron uses feed price only (no
+PnL-implied marks), defer marginal SL outside RTH unless catastrophic/material,
+resolve authoritative entry from D1 `positions.cost_basis/total_qty` before
+close P&L and email. LESSON: KV `timed:trades:all` lags D1 after trims — never
+use KV entry+pnl for */1 stop enforcement; always prefer position VWAP.
+
 ## Calendar divergence: three "is the market open?" answers → stale universe [2026-07-03]
 
 The Jul 2 `investor_compute_stale_candles` pages (34% → 76% within a minute)
