@@ -829,6 +829,7 @@
         const sectors = Array.isArray(data.sectors) ? data.sectors : [];
         const macro = Array.isArray(data.macro) ? data.macro : [];
         const events = Array.isArray(data.events) ? data.events : [];
+        const earningsWeekSummary = data.earningsWeekSummary || null;
         const risks = Array.isArray(data.risks) ? data.risks : [];
         const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
         const topHeadlines = Array.isArray(data.topHeadlines) ? data.topHeadlines : [];
@@ -1265,7 +1266,10 @@
                 subtle separator. */}
             {events.length > 0 && (
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold">Today's Catalysts</div>
+                <div className="text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold">Catalysts</div>
+                {earningsWeekSummary && (
+                  <div className="text-[12px] text-[#8AA39A] mb-2 leading-snug">{earningsWeekSummary}</div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {events.map((e, i) => {
                     // Try to split "AAPL: Earnings" pattern so we can render ticker bold

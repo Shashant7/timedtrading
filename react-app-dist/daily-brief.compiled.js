@@ -591,6 +591,7 @@ function BriefInfographic({
   const sectors = Array.isArray(data.sectors) ? data.sectors : [];
   const macro = Array.isArray(data.macro) ? data.macro : [];
   const events = Array.isArray(data.events) ? data.events : [];
+  const earningsWeekSummary = data.earningsWeekSummary || null;
   const risks = Array.isArray(data.risks) ? data.risks : [];
   const opps = Array.isArray(data.opportunities) ? data.opportunities : [];
   const topHeadlines = Array.isArray(data.topHeadlines) ? data.topHeadlines : [];
@@ -1045,7 +1046,9 @@ function BriefInfographic({
     key: i
   }, "\u2022 ", o))))), events.length > 0 && React.createElement("div", null, React.createElement("div", {
     className: "text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold"
-  }, "Today's Catalysts"), React.createElement("div", {
+  }, "Catalysts"), earningsWeekSummary && React.createElement("div", {
+    className: "text-[12px] text-[#8AA39A] mb-2 leading-snug"
+  }, earningsWeekSummary), React.createElement("div", {
     className: "flex flex-wrap gap-2"
   }, events.map((e, i) => {
     const colonIdx = String(e.title || "").indexOf(":");
@@ -3174,6 +3177,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1783862931351:783680311
+// cache-bust:1783949131174:901654649
 
-// cache-bust:1783862931351:783680311
+// cache-bust:1783949131174:901654649
