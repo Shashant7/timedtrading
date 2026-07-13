@@ -15,7 +15,7 @@ import {
   resolveIndexRthSessionMoveFromCandles,
 } from "./daily-brief.js";
 import { stripBriefTopMoversBody } from "./daily-brief-markdown.js";
-import { injectEmailBriefTickerChips, buildEmailCRODeskBlock } from "./email.js";
+import { injectEmailBriefTickerChips, buildEmailCRODeskBlock, buildEmailBriefContentHtml, buildEmailBriefPositionStack } from "./email.js";
 
 describe("buildPremarketGapContext session window", () => {
   const pf = {
@@ -120,20 +120,85 @@ describe("formatIndexSessionGroundTruthBlock", () => {
 });
 
 describe("evening brief email parity", () => {
-  it("injectEmailBriefTickerChips renders non-zero RTH day change on position chips", () => {
-    const html = injectEmailBriefTickerChips(
-      "<h2>Active Trader Report</h2><p>body</p>",
+  it("buildEmailBriefPositionStack interleaves chip and guidance per holding", () => {
+    const stack = buildEmailBriefPositionStack(
+      "investorPortfolio",
       {
-        traderPositions: [{ ticker: "GRNY", direction: "LONG", pnlPct: 0.4, dayPct: 0.82 }],
-        investorHoldings: [],
+        investorHoldings: [
+          { ticker: "KO", unrealPct: 2.1, dayPct: 0.4, stage: "accumulate" },
+          { ticker: "NVDA", unrealPct: -1.2, dayPct: -0.3, stage: "core_hold" },
+        ],
+      },
+      [
+        "- **KO** · today +0.4% · return +2.1% · accumulate · hold dips near support",
+        "- **NVDA**: thesis intact · add on weakness",
+      ].join("\n"),
+      "https://timed-trading.com",
+    );
+    const koIdx = stack.indexOf("KO");
+    const nvdaIdx = stack.indexOf("NVDA");
+    const koGuidanceIdx = stack.indexOf("hold dips near support");
+    const nvdaGuidanceIdx = stack.indexOf("thesis intact");
+    expect(koIdx).toBeGreaterThanOrEqual(0);
+    expect(nvdaIdx).toBeGreaterThan(koIdx);
+    expect(koGuidanceIdx).toBeGreaterThan(koIdx);
+    expect(koGuidanceIdx).toBeLessThan(nvdaIdx);
+    expect(nvdaGuidanceIdx).toBeGreaterThan(nvdaIdx);
+  });
+
+  it("buildEmailBriefContentHtml does not render duplicate investor bullets below chips", () => {
+    const html = buildEmailBriefContentHtml(
+      [
+        "## Investor Portfolio",
+        "- **KO** · today +0.4% · return +2.1% · accumulate · hold dips near support",
+        "- **NVDA**: thesis intact · add on weakness",
+      ].join("\n"),
+      {
+        investorHoldings: [
+          { ticker: "KO", unrealPct: 2.1, dayPct: 0.4, stage: "accumulate" },
+          { ticker: "NVDA", unrealPct: -1.2, dayPct: -0.3, stage: "core_hold" },
+        ],
+        traderPositions: [],
         modelActionChips: [],
         topMovers: { gainers: [], losers: [] },
       },
       "https://timed-trading.com",
     );
-    expect(html).toContain("0.4%");
+    expect(html).toContain("KO");
+    expect(html).toContain("hold dips near support");
+    expect(html).toContain("NVDA");
+    expect(html).toContain("thesis intact");
+    expect((html.match(/<li/g) || []).length).toBe(0);
+  });
+
+  it("buildEmailBriefPositionStack renders non-zero RTH day change on position chips", () => {
+    const stack = buildEmailBriefPositionStack(
+      "activeTrader",
+      {
+        traderPositions: [{ ticker: "GRNY", direction: "LONG", pnlPct: 0.4, dayPct: 0.82 }],
+      },
+      "- **GRNY** · thesis holding · trim into strength",
+      "https://timed-trading.com",
+    );
+    expect(stack).toContain("0.4%");
+    expect(stack).toContain("0.82%");
+    expect(stack).not.toContain("0.00% today");
+    expect(stack).toContain("thesis holding");
+  });
+
+  it("injectEmailBriefTickerChips still renders model action and mover chips", () => {
+    const html = injectEmailBriefTickerChips(
+      "<h2>Model Actions Today</h2><p>body</p>",
+      {
+        traderPositions: [],
+        investorHoldings: [],
+        modelActionChips: [{ ticker: "GRNY", action: "ENTRY", pnlPct: 0.4, dayPct: 0.82 }],
+        topMovers: { gainers: [], losers: [] },
+      },
+      "https://timed-trading.com",
+    );
+    expect(html).toContain("GRNY");
     expect(html).toContain("0.82%");
-    expect(html).not.toContain("0.00% today");
   });
 
   it("buildEmailCRODeskBlock renders structured desk wrap", () => {

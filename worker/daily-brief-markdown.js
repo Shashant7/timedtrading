@@ -92,24 +92,30 @@ export function parseBriefPositionGuidanceByTicker(body) {
   return map;
 }
 
-/** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
-export function parseBriefDisplaySections(md) {
-  const cleaned = stripBriefMarkdownForDisplay(md);
-  if (!cleaned) return [];
-  const chunks = cleaned.split(/\n(?=##\s+)/).map((c) => c.trim()).filter(Boolean);
+function _parseBriefMarkdownChunks(md) {
+  if (!md) return [];
+  const chunks = md.split(/\n(?=##\s+)/).map((c) => c.trim()).filter(Boolean);
   return chunks.map((chunk) => {
     const m = chunk.match(/^##\s+(.+?)(?:\n([\s\S]*))?$/);
     if (!m) return { title: "", body: chunk, key: null };
     const title = m[1].trim();
     const body = (m[2] || "").trim();
-    const lower = title.toLowerCase();
-    let key = null;
-    if (lower.includes("model actions")) key = "modelActions";
-    else if (lower.includes("top movers")) key = "topMovers";
-    else if (lower.includes("active trader")) key = "activeTrader";
-    else if (lower.includes("investor portfolio")) key = "investorPortfolio";
+    const key = briefSectionChipKey(title);
     return { title, body, key };
   });
+}
+
+/** Split markdown into ## sections without web-only stripping (email path). */
+export function parseBriefMarkdownSections(md) {
+  if (!md || typeof md !== "string") return [];
+  return _parseBriefMarkdownChunks(md.trim());
+}
+
+/** Split display markdown into ## sections (after stripBriefMarkdownForDisplay). */
+export function parseBriefDisplaySections(md) {
+  const cleaned = stripBriefMarkdownForDisplay(md);
+  if (!cleaned) return [];
+  return _parseBriefMarkdownChunks(cleaned);
 }
 
 export function briefSectionChipKey(title) {
