@@ -35,7 +35,7 @@
       RTH close; EXT on _ah_*; WS tick_batch must not wipe EXT or promote
       extended print to headline. Branch: `cursor/market-pulse-closed-price-ca70`.
 
-- [ ] **KO 4 AM false SL exit (2026-07-13).** Feed cron hard-closed KO at 4:01 AM
+- [x] **KO 4 AM false SL exit (2026-07-13).** Feed cron hard-closed KO at 4:01 AM
       ET with stale KV entry ($83.39) vs D1 VWAP ($80.34). Fix: feed-only SL
       checks, outside-RTH defer, authoritative entry at close/email.
       Branch: `cursor/ko-feed-sl-fix-df0c`.
