@@ -1522,16 +1522,45 @@ export function estimateOptionAtTargetPrice({
 // Convenience wrapper used by builders below.
 // Prefers real chain data when `chainLeg` is supplied (v2 — real bid/ask/IV/OI).
 // Falls back to Black-Scholes + ATR-implied vol when chainLeg is null (v1).
+export function resolveChainLegMid(chainLeg, { price = null, strike = null, type = null } = {}) {
+  if (!chainLeg || typeof chainLeg !== "object") return null;
+  const bid = Number(chainLeg.bid);
+  const ask = Number(chainLeg.ask);
+  let mid = null;
+  if (Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0) {
+    mid = Math.round(((bid + ask) / 2) * 100) / 100;
+  } else if (Number.isFinite(Number(chainLeg.mid)) && Number(chainLeg.mid) > 0) {
+    mid = Number(chainLeg.mid);
+  } else if (Number.isFinite(Number(chainLeg.last)) && Number(chainLeg.last) > 0) {
+    mid = Number(chainLeg.last);
+  }
+  if (!(mid > 0)) return null;
+  // ITM floor: reject last-trade zombies that print below intrinsic.
+  const px = Number(price);
+  const k = Number(strike);
+  const side = String(type || "").toUpperCase();
+  if (Number.isFinite(px) && px > 0 && Number.isFinite(k) && k > 0) {
+    const intrinsic = side === "P" || side === "PUT"
+      ? Math.max(0, k - px)
+      : Math.max(0, px - k);
+    if (intrinsic > 0.5 && mid + 0.05 < intrinsic * 0.85) return null;
+  }
+  return mid;
+}
+
 export function estimatePremium({ price, strike, dte, atrPct, ivOverride, type, chainLeg = null }) {
   // ── Real chain path ────────────────────────────────────────────────
-  if (chainLeg && Number.isFinite(chainLeg.mid) && chainLeg.mid > 0) {
+  const liveMid = resolveChainLegMid(chainLeg, { price, strike, type });
+  if (chainLeg && liveMid > 0) {
     const bid = Number(chainLeg.bid);
     const ask = Number(chainLeg.ask);
     const iv = Number(chainLeg.implied_volatility) || impliedVolFromATR(atrPct);
     return {
-      mid: chainLeg.mid,
-      low: Number.isFinite(bid) && bid > 0 ? bid : Math.round(chainLeg.mid * 0.95 * 100) / 100,
-      high: Number.isFinite(ask) && ask > 0 ? ask : Math.round(chainLeg.mid * 1.05 * 100) / 100,
+      mid: liveMid,
+      bid: Number.isFinite(bid) && bid > 0 ? bid : null,
+      ask: Number.isFinite(ask) && ask > 0 ? ask : null,
+      low: Number.isFinite(bid) && bid > 0 ? bid : Math.round(liveMid * 0.95 * 100) / 100,
+      high: Number.isFinite(ask) && ask > 0 ? ask : Math.round(liveMid * 1.05 * 100) / 100,
       iv_used: Math.round(iv * 100) / 100,
       greeks: {
         delta: Number.isFinite(chainLeg.delta) ? chainLeg.delta : null,
@@ -1546,6 +1575,7 @@ export function estimatePremium({ price, strike, dte, atrPct, ivOverride, type, 
       spread_pct: Number.isFinite(bid) && Number.isFinite(ask) && ask > 0
         ? Math.round(((ask - bid) / ask) * 1000) / 10
         : null,
+      expiration: chainLeg.expiration || null,
     };
   }
 
@@ -1599,6 +1629,22 @@ function _chainLeg(chain, side, strike) {
     if (d < bestDiff && d <= 1.0) { best = l; bestDiff = d; }
   }
   return best;
+}
+
+/** Re-bind chain leg after strike refine — prevents pricing strike A with leg B. */
+export function bindChainLegForStrike(chain, side, strike, prevLeg = null) {
+  const exact = _chainLeg(chain, side, strike);
+  if (exact) return exact;
+  if (prevLeg && Math.abs(Number(prevLeg.strike) - Number(strike)) < 0.01) return prevLeg;
+  return null;
+}
+
+/** Prefer a chain already filtered to `expirationIso`; else null. */
+export function chainForExpiration(chain, expirationIso) {
+  if (!chain || !expirationIso) return null;
+  const filtered = filterChainToExpiration(chain, expirationIso);
+  if (_chainLegCount(filtered) > 0) return filtered;
+  return null;
 }
 
 /**
@@ -1690,6 +1736,7 @@ function buildLongCall(ctx) {
     deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate";
   }
   strike = refineStrikeWithModelLevels(strike, levels);
+  chainLeg = bindChainLegForStrike(chain, "C", strike, chainLeg);
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "C", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
@@ -1776,7 +1823,7 @@ function buildLongCall(ctx) {
  * ladder (ranker, profile preview, warnings) just works.
  */
 function buildLeapCall(ctx) {
-  const { price, tp1, tp2, sl, atrPct, contracts, chain, targetDelta = 0.80, levels = [] } = ctx;
+  const { price, tp1, tp2, sl, atrPct, contracts, targetDelta = 0.80, levels = [] } = ctx;
   const exitTarget = pickExitTargetPrice(ctx) ?? tp1;
   // Force a real LEAP expiration. Caller may have passed a short one
   // (e.g. classifySetupStage routes Investor → 90 DTE today); override
@@ -1784,6 +1831,29 @@ function buildLeapCall(ctx) {
   const expiration = (ctx.expiration && Number(ctx.expiration.dte) >= 270)
     ? ctx.expiration
     : pickLeapExpiration();
+
+  // CRITICAL: only price LEAPs off a chain for the LEAP expiration.
+  // The ladder often attaches a short swing chain (e.g. 66 DTE); using those
+  // bids for a Jan LEAP label produced AEHR $55C @ $24 vs live ~$45.
+  let chain = ctx.leap_chain || null;
+  if (!chain && ctx.chain) {
+    const dates = listChainExpirationDates(ctx.chain);
+    if (dates.includes(expiration.iso) || !dates.length) {
+      chain = chainForExpiration(ctx.chain, expiration.iso) || (
+        // Unlabeled legs on a single-expiry payload: accept only if the
+        // chain.expiration matches the LEAP date.
+        (ctx.chain.expiration === expiration.iso || !ctx.chain.expiration)
+          ? ctx.chain
+          : null
+      );
+    }
+  }
+  // Reject legs that belong to a different listed expiration.
+  if (chain) {
+    const misfit = [...(chain.calls || []), ...(chain.puts || [])]
+      .some((l) => l?.expiration && l.expiration !== expiration.iso);
+    if (misfit) chain = chainForExpiration(chain, expiration.iso);
+  }
 
   let strike, chainLeg, deltaSource = "snap_itm_deep";
   if (chain) {
@@ -1801,6 +1871,7 @@ function buildLeapCall(ctx) {
     deltaSource = chain ? "chain_no_delta_fallback" : "bs_estimate_deep_itm";
   }
   strike = refineStrikeWithModelLevels(strike, levels);
+  chainLeg = bindChainLegForStrike(chain, "C", strike, chainLeg);
   const prem = estimatePremium({ price, strike, dte: expiration.dte, atrPct, type: "C", chainLeg });
   if (!prem) return null;
   const premPerShare = prem.mid;
@@ -2762,9 +2833,20 @@ export function buildOptionsLadder(contract, opts = {}) {
     || classifySetupStage(contract) === "investor";
   let expiration = pickExpirationForProfile(contract, profile, opts.now || Date.now());
   let chain = opts.chain || null;
+  let leapChain = opts.leap_chain || null;
   if (chain && listChainExpirationDates(chain).length) {
     expiration = resolveExpirationWithChain(expiration, chain, opts.now || Date.now());
     chain = filterChainToExpiration(chain, expiration.iso);
+  }
+  // Prefer an explicitly fetched LEAP cycle; else reuse a full_chain blob
+  // that already contains the LEAP expiry.
+  if (!leapChain && opts.full_chain) {
+    const leapIdeal = pickLeapExpiration(opts.now || Date.now());
+    const listed = listChainExpirationDates(opts.full_chain);
+    const leapResolved = listed.length
+      ? snapExpirationToChain(leapIdeal, listed, opts.now || Date.now())
+      : leapIdeal;
+    leapChain = chainForExpiration(opts.full_chain, leapResolved.iso);
   }
   const tickerSym = String(contract.ticker || "").toUpperCase();
   const isIndexTrader = isDayTradeTicker(tickerSym) && !isInvestorMode;
@@ -2814,6 +2896,7 @@ export function buildOptionsLadder(contract, opts = {}) {
     account_value: accountValue, risk_budget_pct: riskBudgetPct,
     dollars_at_risk: dollarsAtRisk,
     chain: chain,
+    leap_chain: leapChain,
     themes: Array.isArray(opts.themes) ? opts.themes : [],
     levels,
     targetDelta,
@@ -2947,9 +3030,14 @@ export function buildOptionsLadder(contract, opts = {}) {
 
   if (!suppressDirectional && (buildDir === "LONG" || buildDir === "")) {
     if (!indexWantsSingleLeg) {
+      const leapIdeal = pickLeapExpiration(opts.now || Date.now());
+      const leapExp = leapChain
+        ? (resolveExpirationWithChain(leapIdeal, leapChain, opts.now || Date.now()) || leapIdeal)
+        : leapIdeal;
       const leap = buildLeapCall({
         ...ctxEff,
-        expiration: pickLeapExpiration(),
+        leap_chain: leapChain,
+        expiration: leapExp,
         targetDelta: 0.80,
       });
       if (leap) {

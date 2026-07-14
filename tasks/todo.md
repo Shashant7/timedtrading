@@ -22,6 +22,13 @@
 
 ### Active
 
+- [x] **LEAP premium vs live chain + health watchdog (2026-07-14).** AEHR LEAP
+      was priced off the swing (~66 DTE) chain while labeled Jan LEAP. Fetch LEAP
+      cycle separately; rebind leg after strike refine; intrinsic floor on mid.
+      Watchdog: exclude BTC/ETH from RTH valueStale; fail threshold 40 (notice 15).
+      Branch: `cursor/leap-premium-health-df0c`.
+
+
 - [x] **Bubble map: fix mixed encode + zoom/pan (2026-07-14).** Map
       `HTF_BEAR_LTF_PULLBACK` → bear_mixed (bounce); soften weak aligned →
       mixed with diameter; zoom/pan controls; From=disc Lean=arrow.

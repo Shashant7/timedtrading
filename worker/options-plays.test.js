@@ -51,6 +51,9 @@ import {
   resolveExpirationWithChain,
   filterChainToExpiration,
   resolveAndFetchOptionsChain,
+  resolveChainLegMid,
+  buildOptionsLadder,
+  resolveChainLegMid,
 } from "./options-plays.js";
 
 const SPY_CONTRACT = {
@@ -1212,5 +1215,48 @@ describe("resolveAndFetchOptionsChain — CIBR monthly cycle", () => {
     expect(out.resolvedExp.iso).toBe("2026-07-21");
     expect(out.chain?.calls?.length).toBe(1);
     expect(out.status).toBe("broad_chain_fallback");
+  });
+});
+
+
+describe("LEAP premium expiration binding", () => {
+  it("rejects mid below ITM intrinsic (zombie last)", () => {
+    expect(resolveChainLegMid({ mid: 10, bid: null, ask: null }, { price: 71, strike: 55, type: "C" })).toBeNull();
+  });
+
+  it("prefers bid/ask mid over stale mid field", () => {
+    expect(resolveChainLegMid({ bid: 43.5, ask: 47.5, mid: 10 }, { price: 71, strike: 55, type: "C" })).toBe(45.5);
+  });
+
+  it("prices LEAP from leap_chain not the swing chain", () => {
+    const swing = {
+      expiration: "2026-09-18",
+      calls: [{ strike: 55, bid: 22, ask: 26, mid: 24, delta: 0.77, expiration: "2026-09-18", implied_volatility: 1.4 }],
+      puts: [],
+    };
+    const leap = {
+      expiration: "2028-01-21",
+      calls: [{ strike: 55, bid: 43.5, ask: 47.5, mid: 45.5, delta: 0.84, expiration: "2028-01-21", implied_volatility: 1.3 }],
+      puts: [],
+    };
+    const ladder = buildOptionsLadder({
+      ticker: "AEHR",
+      price: 71,
+      direction: "LONG",
+      mode: "investor",
+      stage: "investor",
+      sl: 50,
+      tp1: 90,
+      atr_pct: 0.1,
+    }, {
+      profile: "moderate",
+      chain: swing,
+      leap_chain: leap,
+      account_value: 100000,
+    });
+    expect(ladder?.primary?.archetype).toBe("leap_call");
+    expect(Number(ladder.primary.expiration.dte)).toBeGreaterThan(270);
+    expect(ladder.primary.premium.mid).toBe(45.5);
+    expect(ladder.primary.premium.source).toBe("live_chain");
   });
 });
