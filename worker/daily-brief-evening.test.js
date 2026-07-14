@@ -186,6 +186,30 @@ describe("evening brief email parity", () => {
     expect(stack).toContain("thesis holding");
   });
 
+  it("buildEmailBriefPositionStack omits % when unrealPct/dayPct are null (no Number(null)→0%)", () => {
+    const stack = buildEmailBriefPositionStack(
+      "investorPortfolio",
+      {
+        investorHoldings: [
+          { ticker: "CW", unrealPct: null, dayPct: null, stage: "watch" },
+          { ticker: "LLY", unrealPct: null, dayPct: -2.37, stage: "watch" },
+        ],
+      },
+      [
+        "- **CW**: mixed signals · hold",
+        "- **LLY**: -4.5% on the day · defend levels",
+      ].join("\n"),
+      "https://timed-trading.com",
+    );
+    expect(stack).toContain("CW");
+    expect(stack).toContain("watch");
+    expect(stack).not.toMatch(/\+0\.0%/);
+    expect(stack).not.toContain("0.00% today");
+    // Day% alone is promoted to the primary colored slot.
+    expect(stack).toContain("-2.4%");
+    expect(stack).not.toContain("(-2.37% today)");
+  });
+
   it("injectEmailBriefTickerChips still renders model action and mover chips", () => {
     const html = injectEmailBriefTickerChips(
       "<h2>Model Actions Today</h2><p>body</p>",

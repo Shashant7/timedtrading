@@ -975,13 +975,16 @@ function markdownToEmailHtml(md) {
 }
 
 function _emailBriefPct(pct, digits = 1) {
+  // Number(null) === 0 — treat missing values as unknown, never as flat 0%.
+  if (pct == null || pct === "") return "";
   const v = Number(pct);
   if (!Number.isFinite(v)) return "";
   return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
 }
 
-/** Skip "(+0.00% today)" when day change is unknown — only render a real RTH print. */
+/** Skip when day change is unknown — never coerce null → "(+0.00% today)". */
 function _emailBriefDayPctLabel(pct) {
+  if (pct == null || pct === "") return "";
   const v = Number(pct);
   if (!Number.isFinite(v)) return "";
   return `(${_emailBriefPct(v, 2)} today)`;
@@ -991,15 +994,24 @@ function buildEmailBriefTickerChip(sym, pct, sub, baseUrl, pct2) {
   const SYM = String(sym || "").toUpperCase();
   if (!SYM) return "";
   const logo = `${baseUrl}/timed/logo/${encodeURIComponent(SYM)}.png`;
-  const pctStr = _emailBriefPct(pct);
-  const dayLabel = _emailBriefDayPctLabel(pct2);
-  const color = Number(pct) >= 0 ? BRAND.green : "#fb7185";
+  // When P&L / total-return is unknown but RTH day% is known, promote day% to
+  // the primary (colored) slot so chips don't look empty / falsely flat.
+  let primary = pct;
+  let dayPct = pct2;
+  if ((primary == null || primary === "") && dayPct != null && dayPct !== "") {
+    primary = dayPct;
+    dayPct = null;
+  }
+  const pctStr = _emailBriefPct(primary);
+  const dayLabel = _emailBriefDayPctLabel(dayPct);
+  const primaryNum = (primary == null || primary === "") ? NaN : Number(primary);
+  const color = Number.isFinite(primaryNum) && primaryNum < 0 ? "#fb7185" : BRAND.green;
   return `<span style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;margin:0 6px 6px 0;border-radius:999px;border:1px solid ${BRAND.border};background:rgba(255,255,255,0.04);vertical-align:middle">
     <img src="${logo}" alt="" width="18" height="18" style="border-radius:50%;background:#fff;object-fit:cover" />
     <span style="font-family:ui-monospace,monospace;font-weight:700;color:${BRAND.textPrimary};font-size:12px">${_esc(SYM)}</span>
     ${sub ? `<span style="font-size:10px;color:${BRAND.textMuted}">${_esc(sub)}</span>` : ""}
     ${pctStr ? `<span style="font-family:ui-monospace,monospace;font-weight:700;color:${color};font-size:11px">${pctStr}</span>` : ""}
-    ${(() => { const d = dayLabel; return d ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">${d}</span>` : ""; })()}
+    ${dayLabel ? `<span style="font-family:ui-monospace,monospace;font-size:10px;color:${BRAND.textMuted}">${dayLabel}</span>` : ""}
   </span>`;
 }
 

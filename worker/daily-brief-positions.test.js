@@ -61,14 +61,14 @@ describe("daily-brief open positions", () => {
     expect(traderPositions[0].dayPct).toBeCloseTo(0.82, 2);
   });
 
-  it("buildInfographicPositionRows returns zero dayPct when closed session uses EXT path incorrectly", () => {
+  it("buildInfographicPositionRows falls back to RTH dp when EXT is flat outside RTH", () => {
     const now = Date.now();
     const pf = { GRNY: { p: 27.86, pc: 27.64, dp: 0.82, ahp: 27.86, ahdp: 0, p_ts: now, t: now } };
     const { traderPositions } = buildInfographicPositionRows([{
       ticker: "GRNY", direction: "LONG", entryPrice: 27.64, pnlPct: 0.4, status: "OPEN",
     }], [], pf, false);
-    // ahp === p when no extended drift → bogus 0% "today" without RTH flag
-    expect(traderPositions[0].dayPct).toBe(0);
+    // Flat EXT (ahp parked on RTH close) should not stamp a bogus 0% — use RTH dp.
+    expect(traderPositions[0].dayPct).toBeCloseTo(0.82, 2);
   });
 
   it("liveDayPctFromPriceFeedRow falls back to p vs pc when dp is zero during RTH", () => {

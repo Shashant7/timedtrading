@@ -33,6 +33,7 @@ function renderMarkdown(md) {
   return renderMarkdownBody(cleaned);
 }
 function fmtBriefPct(pct, digits = 1) {
+  if (pct == null || pct === "") return null;
   const v = Number(pct);
   if (!Number.isFinite(v)) return null;
   return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
@@ -209,9 +210,16 @@ function BriefTickerChip({
 }) {
   const SYM = String(sym || "").toUpperCase();
   if (!SYM) return null;
-  const pctStr = fmtBriefPct(pct);
-  const pct2Str = fmtBriefPct(pct2, 2);
-  const pctColor = Number(pct) >= 0 ? "var(--tt-up-soft, #34d399)" : "var(--tt-dn-soft, #fb7185)";
+  let primary = pct;
+  let dayPct = pct2;
+  if ((primary == null || primary === "") && dayPct != null && dayPct !== "") {
+    primary = dayPct;
+    dayPct = null;
+  }
+  const pctStr = fmtBriefPct(primary);
+  const pct2Str = fmtBriefPct(dayPct, 2);
+  const primaryNum = primary == null || primary === "" ? NaN : Number(primary);
+  const pctColor = Number.isFinite(primaryNum) && primaryNum < 0 ? "var(--tt-dn-soft, #fb7185)" : "var(--tt-up-soft, #34d399)";
   const inner = React.createElement(React.Fragment, null, React.createElement(BriefTickerLogo, {
     sym: SYM,
     size: 18
@@ -3202,6 +3210,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1784052256004:498895764
+// cache-bust:1784063544148:316183797
 
-// cache-bust:1784052256004:498895764
+// cache-bust:1784063544148:316183797
