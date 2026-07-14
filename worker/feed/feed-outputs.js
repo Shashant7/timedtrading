@@ -57,7 +57,11 @@ export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {
 
 // Futures / index gauges have their own TV-heartbeat lane and never carry
 // vendor quote receipts — exclude from equity value-staleness accounting.
-const VALUE_STALE_EXCLUDE = new Set(["SPX", "US500", "VIX", "VVIX", "NDX", "DJI", "RUT", "DXY", "TNX", "TEST"]);
+const VALUE_STALE_EXCLUDE = new Set([
+  "SPX", "US500", "VIX", "VVIX", "NDX", "DJI", "RUT", "DXY", "TNX", "TEST",
+  // 24/7 crypto — equity RTH quote-age gate does not apply.
+  "BTCUSD", "ETHUSD",
+]);
 
 function isValueStaleEligible(sym) {
   return !/[!:.$/]/.test(sym) && !VALUE_STALE_EXCLUDE.has(sym);

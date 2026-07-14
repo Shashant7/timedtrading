@@ -3388,3 +3388,6 @@ Rules:
 
 ## 2026-07-14 — Bubble map “no mixed” was a state-name mis-map
 Production emits `HTF_BEAR_LTF_PULLBACK` for the bounce cell (HTF bear, LTF recovering). Classifying any state containing `PULLBACK` as yellow collapse all bounce names into pullback and zeroed out `bear_mixed`. Map `HTF_BEAR_LTF_PULLBACK` → `bear_mixed`; only `HTF_BULL_LTF_PULLBACK` is yellow pullback.
+
+## 2026-07-14 — LEAP cards priced off the wrong expiration
+`/timed/options/ticker` fetched the profile/swing chain (often ~60–90 DTE) and passed it into `buildOptionsLadder`. `buildLeapCall` then overrode the **label** to a Jan LEAP (~540 DTE) but still took bid/ask from the short chain — AEHR $55C showed ~$24 (Sep) while Webull Jan LEAP was ~$45. Always fetch + bind the LEAP cycle separately (`leap_chain`), re-lookup the leg after strike refine, and reject mids below ITM intrinsic.

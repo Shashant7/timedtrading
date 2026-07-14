@@ -125,8 +125,13 @@ jobs:
               VALUE_LIST=$(echo "$HEALTH" | jq -r '(.valueStaleSymbols // []) | join(",")')
               STALESYMS=$(echo "$HEALTH" | jq -r '.staleSymbolCount // "null"')
               STALELIST=$(echo "$HEALTH" | jq -r '(.staleSymbols // []) | join(",")')
-              if [ "$VALUE_STALE" != "null" ] && [ "$VALUE_STALE" -ge 15 ]; then
+              # Fail only on widespread display-staleness (≥40). 15–39 stays a
+              # notice — quiet names often age past 10m without a wedged feed
+              # (watchdog 2026-07-14 AEHR-day false page at 51 with green chain smoke).
+              if [ "$VALUE_STALE" != "null" ] && [ "$VALUE_STALE" -ge 40 ]; then
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${VALUE_STALE} symbols display-stale (vendor quote aged) — ${VALUE_LIST}."
+              elif [ "$VALUE_STALE" != "null" ] && [ "$VALUE_STALE" -ge 15 ]; then
+                echo "::notice::$BASE: ${VALUE_STALE} symbols display-stale (vendor quote aged) — ${VALUE_LIST}."
               elif [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 50 ]; then
                 FAILED="yes"; DETAIL="$DETAIL $BASE: ${STALESYMS} symbols stale despite sweep (${STALELIST})."
               elif [ "$STALESYMS" != "null" ] && [ "$STALESYMS" -gt 20 ]; then
