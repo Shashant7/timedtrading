@@ -146,6 +146,12 @@ describe("lookupLETF — single-name mappings", () => {
     expect(lookupLETF("NVDA")?.long).toBe("NVDU");
     expect(lookupLETF("NVDA")?.short).toBe("NVDD");
   });
+
+  it("maps AEHR to AEHG (2× Leverage Shares)", () => {
+    expect(lookupLETF("AEHR")?.long).toBe("AEHG");
+    expect(lookupLETF("AEHR")?.factor).toBe(2);
+    expect(lookupLETF("aehr")?.long).toBe("AEHG");
+  });
 });
 
 describe("ladder long_call available for shadow tiers", () => {
