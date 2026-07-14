@@ -35799,7 +35799,7 @@
         "event_type": "earnings",
         "event_name": "FBK Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -2.61,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -35844,7 +35844,7 @@
         "event_type": "earnings",
         "event_name": "LEXX Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 7.73,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -36245,6 +36245,15 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-16",
+        "event_type": "macro",
+        "event_name": "Jun Retail Sales m/m",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-07-17",
         "event_type": "earnings",
         "event_name": "ALV Earnings",
@@ -36288,6 +36297,33 @@
         "surprise_pct": null,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-17",
+        "event_type": "macro",
+        "event_name": "Jul P UMich 1yr Inf Exp",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-17",
+        "event_type": "macro",
+        "event_name": "Jul P UMich Sentiment",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-17",
+        "event_type": "macro",
+        "event_name": "Jun Import Price m/m",
+        "impact": "medium",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
       }
     ],
     "success": true,
@@ -36297,14 +36333,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 41.532
+        "sql_duration_ms": 36.6883
       },
-      "duration": 41.532,
+      "duration": 36.6883,
       "changes": 0,
-      "last_row_id": 71147915,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 3931447296,
-      "rows_read": 4032,
+      "size_after": 3982336000,
+      "rows_read": 4036,
       "rows_written": 0,
       "total_attempts": 1
     }
