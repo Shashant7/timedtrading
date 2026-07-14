@@ -326,6 +326,206 @@
     const seed = String(symbol || "").split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
     return seed % 5 * step;
   }
+  const ALIGN_FILL = {
+    bull_aligned: "#22c55e",
+    bull_mixed: "#22c55e",
+    pullback: "#eab308",
+    bear_aligned: "#f43f5e",
+    bear_mixed: "#f43f5e",
+    neutral: "#64748b"
+  };
+  const FORECAST_STATE_TARGET = {
+    HTF_BULL_LTF_BULL: {
+      htf: 28,
+      ltf: 18
+    },
+    HTF_BEAR_LTF_BEAR: {
+      htf: -28,
+      ltf: -18
+    },
+    HTF_BULL_LTF_BEAR: {
+      htf: 24,
+      ltf: -14
+    },
+    HTF_BULL_LTF_BEAR_PULLBACK: {
+      htf: 24,
+      ltf: -14
+    },
+    HTF_BEAR_LTF_BULL: {
+      htf: -24,
+      ltf: 14
+    },
+    HTF_BEAR_LTF_BULL_BOUNCE: {
+      htf: -24,
+      ltf: 14
+    }
+  };
+  function classifyAlignmentBucket(state, htfScore, ltfScore) {
+    const s = String(state || "").toUpperCase();
+    if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
+    if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
+    if (s.includes("PULLBACK")) return "pullback";
+    if (s.includes("BOUNCE") || s.includes("REVERSAL")) return "bear_mixed";
+    if (s.startsWith("HTF_BULL")) return "bull_mixed";
+    if (s.startsWith("HTF_BEAR")) return "bear_mixed";
+    const h = Number(htfScore);
+    const l = Number(ltfScore);
+    if (Number.isFinite(h) && Number.isFinite(l)) {
+      if (h > 8 && l > 8) return "bull_aligned";
+      if (h < -8 && l < -8) return "bear_aligned";
+      if (h > 8 && l < -4) return "pullback";
+      if (h < -8 && l > 4) return "bear_mixed";
+      if (h > 4) return "bull_mixed";
+      if (h < -4) return "bear_mixed";
+    }
+    return "neutral";
+  }
+  function resolveBubbleRr(tickerLike) {
+    const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : NaN;
+    if (Number.isFinite(rrRaw) && rrRaw > 0) return rrRaw;
+    const price = Number(tickerLike?.price ?? tickerLike?.close ?? tickerLike?.c);
+    const sl = Number(tickerLike?.sl);
+    let tp = Number(tickerLike?.tp_exit);
+    if (!Number.isFinite(tp) || tp <= 0) tp = Number(tickerLike?.tp_runner);
+    if (!(price > 0) || !(sl > 0) || !(tp > 0)) return 0.5;
+    const risk = Math.abs(price - sl);
+    if (!(risk > 0)) return 0.5;
+    return Math.abs(tp - price) / risk;
+  }
+  function resolveBubbleProbability(tickerLike) {
+    const conv = Number(tickerLike?.focus_conviction_score ?? tickerLike?.__focus_conviction_score ?? tickerLike?.conviction);
+    if (Number.isFinite(conv) && conv > 0) return Math.max(0, Math.min(100, conv));
+    const conf = Number(tickerLike?.regime_forecast?.confidence);
+    if (Number.isFinite(conf) && conf > 0) {
+      return conf <= 1 ? Math.round(conf * 100) : Math.max(0, Math.min(100, conf));
+    }
+    return null;
+  }
+  function probabilityStrokeStyle(probability) {
+    if (probability == null || !Number.isFinite(probability)) {
+      return {
+        tier: "none",
+        stroke: "none",
+        strokeWidth: 0,
+        dash: null
+      };
+    }
+    if (probability < 40) {
+      return {
+        tier: "none",
+        stroke: "none",
+        strokeWidth: 0,
+        dash: null
+      };
+    }
+    if (probability < 70) {
+      return {
+        tier: "medium",
+        stroke: "rgba(255,255,255,0.72)",
+        strokeWidth: 1.4,
+        dash: "2.5 2.5"
+      };
+    }
+    return {
+      tier: "high",
+      stroke: "rgba(255,255,255,0.9)",
+      strokeWidth: 1.8,
+      dash: null
+    };
+  }
+  function resolveBubbleOrigin(tickerLike) {
+    const recent = tickerLike?._journey?.recent;
+    if (!Array.isArray(recent) || recent.length < 2) return null;
+    const nowHtf = Number(tickerLike?.htf_score);
+    const nowLtf = Number(tickerLike?.ltf_score);
+    for (let i = recent.length - 2; i >= 0; i--) {
+      const k = recent[i];
+      const h = Number(k?.htf);
+      const l = Number(k?.ltf);
+      if (!Number.isFinite(h) || !Number.isFinite(l)) continue;
+      if (!Number.isFinite(nowHtf) || !Number.isFinite(nowLtf)) return {
+        htf: h,
+        ltf: l
+      };
+      if (Math.abs(h - nowHtf) + Math.abs(l - nowLtf) >= 2.5) return {
+        htf: h,
+        ltf: l
+      };
+    }
+    const k = recent[recent.length - 2];
+    const h = Number(k?.htf);
+    const l = Number(k?.ltf);
+    if (Number.isFinite(h) && Number.isFinite(l)) return {
+      htf: h,
+      ltf: l
+    };
+    return null;
+  }
+  function resolveBubbleForecastTarget(tickerLike) {
+    const fc = tickerLike?.regime_forecast;
+    const dist = fc?.p_1d || fc?.p_next;
+    if (!dist || typeof dist !== "object") return null;
+    let best = null;
+    let bestP = 0;
+    for (const [st, p] of Object.entries(dist)) {
+      const n = Number(p);
+      if (Number.isFinite(n) && n > bestP) {
+        bestP = n;
+        best = st;
+      }
+    }
+    if (!best || bestP < 0.22) return null;
+    const key = String(best).toUpperCase();
+    if (FORECAST_STATE_TARGET[key]) return {
+      ...FORECAST_STATE_TARGET[key],
+      state: key,
+      p: bestP
+    };
+    if (key.includes("PULLBACK") || key.includes("BULL") && key.includes("BEAR") && key.indexOf("BULL") < key.indexOf("BEAR")) {
+      return {
+        htf: 24,
+        ltf: -14,
+        state: key,
+        p: bestP
+      };
+    }
+    if (key.includes("BOUNCE") || key.includes("BEAR") && key.includes("BULL") && key.indexOf("BEAR") < key.indexOf("BULL")) {
+      return {
+        htf: -24,
+        ltf: 14,
+        state: key,
+        p: bestP
+      };
+    }
+    if (key.includes("BULL") && !key.includes("BEAR")) return {
+      htf: 28,
+      ltf: 18,
+      state: key,
+      p: bestP
+    };
+    if (key.includes("BEAR") && !key.includes("BULL")) return {
+      htf: -28,
+      ltf: -18,
+      state: key,
+      p: bestP
+    };
+    return null;
+  }
+  function clampVectorPx(dx, dy, maxLen = 14) {
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0.5)) return null;
+    if (len <= maxLen) return {
+      dx,
+      dy,
+      len
+    };
+    const s = maxLen / len;
+    return {
+      dx: dx * s,
+      dy: dy * s,
+      len: maxLen
+    };
+  }
   function computeBubbleRadiusModel(tickerLike, symbolOverride = null, {
     baseSize = 4,
     rrCap = 5,
@@ -336,12 +536,9 @@
     const waiting = tickerLike?.waitingForData === true;
     const comp = completionForSize(tickerLike);
     const validComp = Number.isFinite(comp) ? Math.max(0, Math.min(1, comp)) : 0;
-    const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : 0.5;
-    const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
+    const rr = resolveBubbleRr(tickerLike);
     const cappedRR = Math.min(rr, rrCap);
-    const tier = String(tickerLike?.focus_tier ?? tickerLike?.__focus_tier ?? tickerLike?.focusTier ?? "").toUpperCase();
-    const tierBump = tier === "A" ? 1.5 : tier === "B" ? 0.8 : tier === "C" ? 0.3 : 0;
-    const size = waiting ? baseSize * 0.7 : baseSize + cappedRR * rrMultiplier * (1 - validComp) + tierBump;
+    const size = waiting ? baseSize * 0.7 : baseSize + cappedRR * rrMultiplier * (1 - validComp);
     const finalSize = Math.max(baseSize, size + bubbleSizeSeed(symbolOverride || tickerLike?.ticker));
     return Math.max(minRadius, Math.min(maxRadius, finalSize));
   }
@@ -635,28 +832,27 @@
     const isActionable = ["in_review", "enter", "enter_now", "just_entered", "just_flipped", "flip_watch", "trim", "defend", "exit"].includes(ks) || ["ACCUMULATE", "REDUCE", "DEFEND"].includes(investorAction);
     const finalSize = isActionable ? baseBubbleR + 2 : baseBubbleR;
     const move = getMoveStatusInfo(ticker);
-    const bubbleFill = getBubbleFillChange(ticker);
-    const dayPct = Number(bubbleFill?.pct);
-    const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
-    const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
-    const _bTickerSym = ticker?.ticker || "";
-    const _bNorm = window.TimedPriceUtils?.getNormalizedIntensity ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _bTickerType, _bVolAtr, _bTickerSym) : Math.abs(dayPct) / 2.5;
-    let tintAlpha;
-    if (_bNorm <= 0.2) tintAlpha = 0.25 + _bNorm * 1.25;else if (_bNorm <= 0.5) tintAlpha = 0.50 + (_bNorm - 0.2) / 0.3 * 0.20;else if (_bNorm <= 1.0) tintAlpha = 0.70 + (_bNorm - 0.5) / 0.5 * 0.15;else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
-    const isUp = dayPct >= 0;
-    const hasDayData = bubbleFill?.hasData === true;
-    const fillColor = waitingForData ? "rgba(55,65,81,0.4)" : !hasDayData ? "rgba(100,116,139,0.3)" : isUp ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
+    const alignBucket = classifyAlignmentBucket(ticker.state, ticker.htf_score, ticker.ltf_score);
+    const alignFill = ALIGN_FILL[alignBucket] || ALIGN_FILL.neutral;
+    const isMixed = alignBucket === "bull_mixed" || alignBucket === "bear_mixed";
+    const fillColor = waitingForData ? "rgba(55,65,81,0.45)" : alignFill;
     const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : 0.92;
     const moveOpacityMult = waitingForData || isHovered ? 1 : move.status === "INVALIDATED" ? 0.25 : move.status === "COMPLETED" ? 0.6 : 1;
     const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
-    const borderWidth = waitingForData ? 1 : isActionable ? 2 : 1.2;
-    const borderColor = waitingForData ? "rgba(139,146,160,0.5)" : isActionable ? "rgba(255,255,255,0.85)" : isUp ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.5)";
+    const probability = resolveBubbleProbability(ticker);
+    const strokeStyle = probabilityStrokeStyle(probability);
+    const borderWidth = waitingForData ? 1 : isActionable && strokeStyle.tier === "high" ? Math.max(2, strokeStyle.strokeWidth) : strokeStyle.strokeWidth;
+    const borderColor = waitingForData ? "rgba(139,146,160,0.5)" : strokeStyle.stroke;
     const bubbleSize = isHovered ? finalSize * 1.15 : finalSize;
     const ltfScore = Number(ticker.ltf_score) || 0;
     const htfScore = Number(ticker.htf_score) || 0;
     const x = Number.isFinite(Number(layoutX)) ? Number(layoutX) : htfScore * scaleX + offsetX;
     const y = Number.isFinite(Number(layoutY)) ? Number(layoutY) : ltfScore * scaleY + offsetY;
     const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
+    const origin = resolveBubbleOrigin(ticker);
+    const forecast = resolveBubbleForecastTarget(ticker);
+    const fromVec = origin ? clampVectorPx((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, isHovered ? 18 : 13) : null;
+    const toVec = forecast ? clampVectorPx((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, isHovered ? 18 : 13) : null;
     const stageIconData = (() => {
       if (investorAction) {
         if (investorAction === "ACCUMULATE") return {
@@ -746,14 +942,10 @@
     const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
     const relLabelY = -renderedSize - 8;
     const isTimeTravel = !!ticker._isTimeTravel;
-    const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
-    const dayChgPts = isTimeTravel ? 0 : Number.isFinite(Number(bubbleFill?.chg)) ? Number(bubbleFill.chg) : 0;
-    const baseDriftY = clampPx(-dayChgPts * 2, 15);
-    const baseDriftX = clampPx(dayChgPts * 1, 8);
     const impulseX = isTimeTravel ? 0 : Number(ticker._price_impulse_x) || 0;
     const impulseY = isTimeTravel ? 0 : Number(ticker._price_impulse_y) || 0;
-    const targetX = x + baseDriftX + impulseX;
-    const targetY = y + baseDriftY + impulseY;
+    const targetX = x + impulseX;
+    const targetY = y + impulseY;
     const seed = useMemo(() => {
       let h = 0;
       const s = ticker.ticker || '';
@@ -834,14 +1026,53 @@
         touchAction: "manipulation",
         opacity: insightDimmed && !isHovered ? 0.12 : 1
       }
-    }, decisionTooltip && React.createElement("title", null, decisionTooltip), showGlow && React.createElement(React.Fragment, null, React.createElement("circle", {
+    }, decisionTooltip && React.createElement("title", null, decisionTooltip), fromVec && React.createElement("g", {
+      opacity: isHovered ? 0.7 : 0.38,
+      style: {
+        pointerEvents: "none"
+      }
+    }, React.createElement("line", {
+      x1: fromVec.dx,
+      y1: fromVec.dy,
+      x2: 0,
+      y2: 0,
+      stroke: "rgba(226,232,240,0.9)",
+      strokeWidth: "1.1",
+      strokeLinecap: "round"
+    }), React.createElement("circle", {
+      cx: fromVec.dx,
+      cy: fromVec.dy,
+      r: "1.6",
+      fill: "rgba(226,232,240,0.85)"
+    })), toVec && React.createElement("g", {
+      opacity: isHovered ? 0.7 : 0.38,
+      style: {
+        pointerEvents: "none"
+      }
+    }, React.createElement("line", {
+      x1: 0,
+      y1: 0,
+      x2: toVec.dx,
+      y2: toVec.dy,
+      stroke: "rgba(226,232,240,0.85)",
+      strokeWidth: "1.1",
+      strokeLinecap: "round",
+      strokeDasharray: "2.5 2.5"
+    }), React.createElement("circle", {
+      cx: toVec.dx,
+      cy: toVec.dy,
+      r: "1.4",
+      fill: "none",
+      stroke: "rgba(226,232,240,0.8)",
+      strokeWidth: "0.9"
+    })), showGlow && React.createElement(React.Fragment, null, React.createElement("circle", {
       cx: 0,
       cy: 0,
       r: renderedSize + 6,
       fill: "none",
-      stroke: borderColor,
+      stroke: alignFill,
       strokeWidth: "1.5",
-      opacity: "0.4"
+      opacity: "0.35"
     }, React.createElement("animate", {
       attributeName: "r",
       values: `${renderedSize + 3};${renderedSize + 8};${renderedSize + 3}`,
@@ -849,7 +1080,7 @@
       repeatCount: "indefinite"
     }), React.createElement("animate", {
       attributeName: "opacity",
-      values: "0.5;0.15;0.5",
+      values: "0.45;0.12;0.45",
       dur: "2s",
       repeatCount: "indefinite"
     })), React.createElement("circle", {
@@ -857,11 +1088,11 @@
       cy: 0,
       r: renderedSize + 2,
       fill: "none",
-      stroke: "rgba(255,255,255,0.5)",
+      stroke: "rgba(255,255,255,0.45)",
       strokeWidth: "1"
     }, React.createElement("animate", {
       attributeName: "opacity",
-      values: "0.2;0.6;0.2",
+      values: "0.2;0.55;0.2",
       dur: "1.8s",
       repeatCount: "indefinite"
     }))), React.createElement("circle", {
@@ -871,7 +1102,20 @@
       fill: fillColor,
       stroke: borderColor,
       strokeWidth: borderWidth,
+      strokeDasharray: strokeStyle.dash || undefined,
       opacity: opacity
+    }), isMixed && !waitingForData && React.createElement("line", {
+      x1: -renderedSize * 0.72,
+      y1: 0,
+      x2: renderedSize * 0.72,
+      y2: 0,
+      stroke: "rgba(15,23,42,0.55)",
+      strokeWidth: "1.6",
+      strokeLinecap: "round",
+      opacity: opacity,
+      style: {
+        pointerEvents: "none"
+      }
     }), hasEarnings && React.createElement("g", {
       style: {
         pointerEvents: "none"
@@ -2706,8 +2950,15 @@
     JOURNEY_LOOKBACK_MS: JOURNEY_LOOKBACK_MS,
     SVGBubble: SVGBubble,
     summarizeEntryDecision: summarizeEntryDecision,
-    ENTRY_DECISION_LABELS: ENTRY_DECISION_LABELS
+    ENTRY_DECISION_LABELS: ENTRY_DECISION_LABELS,
+    classifyAlignmentBucket: classifyAlignmentBucket,
+    resolveBubbleRr: resolveBubbleRr,
+    resolveBubbleProbability: resolveBubbleProbability,
+    probabilityStrokeStyle: probabilityStrokeStyle,
+    resolveBubbleOrigin: resolveBubbleOrigin,
+    resolveBubbleForecastTarget: resolveBubbleForecastTarget,
+    ALIGN_FILL: ALIGN_FILL
   };
 })();
 
-// cache-bust:1783949131174:901654649
+// cache-bust:1784032718998:331760849

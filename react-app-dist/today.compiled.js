@@ -3945,11 +3945,58 @@ function classifyStateBucket(state) {
 const STATE_BUCKET_COLOR = {
   bull_aligned: "#22c55e",
   bear_aligned: "#f43f5e",
-  pullback: "#f5c25c",
-  bull_mixed: "#34d399",
-  bear_mixed: "#fb7185",
+  pullback: "#eab308",
+  bull_mixed: "#22c55e",
+  bear_mixed: "#f43f5e",
   neutral: "#6b7280"
 };
+function BubbleMapEncodeLegend() {
+  return h("div", {
+    className: "bm-legend",
+    "aria-label": "Bubble map legend"
+  }, h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull Aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot bm-leg-dot--mixed",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull Mixed"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#eab308"
+    }
+  }), "Pullback"), h("span", null, h("span", {
+    className: "bm-leg-dot",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear Aligned"), h("span", null, h("span", {
+    className: "bm-leg-dot bm-leg-dot--mixed",
+    style: {
+      background: "#f43f5e"
+    }
+  }), "Bear Mixed"), h("span", {
+    className: "bm-leg-meta"
+  }, "Size = R:R to Target 2"), h("span", {
+    className: "bm-leg-meta"
+  }, h("span", {
+    className: "bm-leg-stroke bm-leg-stroke--none"
+  }), "Low · ", h("span", {
+    className: "bm-leg-stroke bm-leg-stroke--med"
+  }), "Med · ", h("span", {
+    className: "bm-leg-stroke bm-leg-stroke--high"
+  }), "High prob"), h("span", {
+    className: "bm-leg-meta"
+  }, h("span", {
+    className: "bm-leg-vec"
+  }), "From · ", h("span", {
+    className: "bm-leg-vec bm-leg-vec--dot"
+  }), "Model"));
+}
 const TT_NORM_TICKER = t => {
   let s = String(t || "").trim().toUpperCase();
   if (s === "BRK.B" || s === "BRK-B") s = "BRK-B";
@@ -5007,34 +5054,7 @@ function TickerLaneSection({
     className: "tt-sec-title"
   }, "BUBBLE MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Where every ticker sits on momentum × trend")), h("div", {
-    className: "bm-legend"
-  }, h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull aligned"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#34d399"
-    }
-  }), "Bull mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f5c25c"
-    }
-  }), "Pullback"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#fb7185"
-    }
-  }), "Bear mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f43f5e"
-    }
-  }), "Bear aligned"))), h("div", {
+  }, "Where every ticker sits on momentum × trend")), h(BubbleMapEncodeLegend)), h("div", {
     className: "tt-bmap-block"
   }, h(SharedBubbleMapSection, {
     allTickers,
@@ -5081,7 +5101,7 @@ function BubbleMapGuide() {
         window.localStorage.setItem(storageKey, "1");
       } catch (_) {}
     }
-  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."), h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."), h("li", null, "Top-right green zone: bullish alignment. Bottom-left red zone: bearish alignment."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
+  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."), h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."), h("li", null, "Fill color = HTF/LTF alignment (green / yellow pullback / red). Mixed states show a diameter line."), h("li", null, "Bubble size = R:R to Target 2 (distance to TP exit vs stop). Stroke = setup probability (none / dotted / solid)."), h("li", null, "Solid stub = where the score came from; dotted stub = where the model leans next."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
 }
 function BubbleMapViewportSplit({
   allTickers,
@@ -5112,34 +5132,7 @@ function BubbleMapViewportSplit({
     className: "tt-sec-title"
   }, "BUBBLE MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Where every ticker sits on momentum \u00d7 trend")), h("div", {
-    className: "bm-legend"
-  }, h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull aligned"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#34d399"
-    }
-  }), "Bull mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f5c25c"
-    }
-  }), "Pullback"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#fb7185"
-    }
-  }), "Bear mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f43f5e"
-    }
-  }), "Bear aligned"))), h("div", {
+  }, "Where every ticker sits on momentum \u00d7 trend")), h(BubbleMapEncodeLegend)), h("div", {
     className: "bmv-split"
   }, h(Viewport, {
     visible,
@@ -5229,34 +5222,7 @@ function SharedBubbleMapSection({
     className: "tt-sec-title"
   }, "BUBBLE MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Where every ticker sits on momentum \u00d7 trend")), h("div", {
-    className: "bm-legend"
-  }, h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull aligned"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#34d399"
-    }
-  }), "Bull mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f5c25c"
-    }
-  }), "Pullback"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#fb7185"
-    }
-  }), "Bear mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f43f5e"
-    }
-  }), "Bear aligned")));
+  }, "Where every ticker sits on momentum \u00d7 trend")), h(BubbleMapEncodeLegend));
   const chartBody = h("div", {
     className: "tt-card tt-card-pad",
     style: {
@@ -5419,34 +5385,7 @@ function BubbleMap({
     className: "tt-sec-title"
   }, "BUBBLE MAP"), h("div", {
     className: "tt-sec-h"
-  }, "Where every ticker sits on momentum × trend")), h("div", {
-    className: "bm-legend"
-  }, h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull aligned"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#34d399"
-    }
-  }), "Bull mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f5c25c"
-    }
-  }), "Pullback"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#fb7185"
-    }
-  }), "Bear mixed"), h("span", null, h("span", {
-    className: "bm-leg-dot",
-    style: {
-      background: "#f43f5e"
-    }
-  }), "Bear aligned"))), h("div", {
+  }, "Where every ticker sits on momentum × trend")), h(BubbleMapEncodeLegend)), h("div", {
     className: "tt-card tt-card-pad"
   }, h("div", {
     className: "bm-stage",
@@ -6694,6 +6633,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1783949131174:901654649
+// cache-bust:1784032718998:331760849
 
-// cache-bust:1783949131174:901654649
+// cache-bust:1784032718998:331760849

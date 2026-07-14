@@ -1109,14 +1109,57 @@
       .bm-tooltip .row strong { color: var(--tt-text); }
       .bm-legend {
         display: flex;
-        gap: 12px;
+        gap: 8px 12px;
         flex-wrap: wrap;
         align-items: center;
         font-size: 10.5px;
         color: var(--tt-text-dim);
         margin-top: 8px;
       }
-      .bm-leg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+      .bm-leg-dot {
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+        position: relative;
+        box-sizing: border-box;
+      }
+      .bm-leg-dot--mixed::after {
+        content: "";
+        position: absolute;
+        left: 1px;
+        right: 1px;
+        top: 50%;
+        height: 1.5px;
+        margin-top: -0.75px;
+        background: rgba(15, 23, 42, 0.7);
+        border-radius: 1px;
+      }
+      .bm-leg-meta { opacity: 0.92; white-space: nowrap; }
+      .bm-leg-stroke {
+        display: inline-block;
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        margin-right: 5px;
+        vertical-align: middle;
+        box-sizing: border-box;
+        background: rgba(148, 163, 184, 0.22);
+      }
+      .bm-leg-stroke--none { border: 1px solid transparent; }
+      .bm-leg-stroke--med { border: 1.5px dashed rgba(226, 232, 240, 0.85); background: transparent; }
+      .bm-leg-stroke--high { border: 1.5px solid rgba(226, 232, 240, 0.95); background: transparent; }
+      .bm-leg-vec {
+        display: inline-block;
+        width: 14px;
+        height: 0;
+        margin: 0 5px 2px 0;
+        vertical-align: middle;
+        border-top: 1.5px solid rgba(226, 232, 240, 0.85);
+      }
+      .bm-leg-vec--dot { border-top-style: dotted; }
       .bm-meta {
         display: flex;
         gap: 12px;
@@ -5438,11 +5481,32 @@
       const STATE_BUCKET_COLOR = {
         bull_aligned: "#22c55e",
         bear_aligned: "#f43f5e",
-        pullback:     "#f5c25c",
-        bull_mixed:   "#34d399",
-        bear_mixed:   "#fb7185",
+        pullback:     "#eab308",
+        bull_mixed:   "#22c55e",
+        bear_mixed:   "#f43f5e",
         neutral:      "#6b7280",
       };
+
+      /** Compact encode legend — color = alignment, size = R:R, stroke = probability. */
+      function BubbleMapEncodeLegend() {
+        return h("div", { className: "bm-legend", "aria-label": "Bubble map legend" },
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull Aligned"),
+          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed", style: { background: "#22c55e" } }), "Bull Mixed"),
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#eab308" } }), "Pullback"),
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear Aligned"),
+          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed", style: { background: "#f43f5e" } }), "Bear Mixed"),
+          h("span", { className: "bm-leg-meta" }, "Size = R:R to Target 2"),
+          h("span", { className: "bm-leg-meta" },
+            h("span", { className: "bm-leg-stroke bm-leg-stroke--none" }), "Low · ",
+            h("span", { className: "bm-leg-stroke bm-leg-stroke--med" }), "Med · ",
+            h("span", { className: "bm-leg-stroke bm-leg-stroke--high" }), "High prob",
+          ),
+          h("span", { className: "bm-leg-meta" },
+            h("span", { className: "bm-leg-vec" }), "From · ",
+            h("span", { className: "bm-leg-vec bm-leg-vec--dot" }), "Model",
+          ),
+        );
+      }
 
       // ── Constants mirroring index-react.source.html ─────────────
       const TT_NORM_TICKER = (t) => {
@@ -6536,13 +6600,7 @@
               h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
               h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum × trend"),
             ),
-            h("div", { className: "bm-legend" },
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull aligned"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#34d399" } }), "Bull mixed"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f5c25c" } }), "Pullback"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#fb7185" } }), "Bear mixed"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear aligned"),
-            ),
+            h(BubbleMapEncodeLegend),
           ),
           h("div", { className: "tt-bmap-block" },
             h(SharedBubbleMapSection, {
@@ -6590,7 +6648,9 @@
           h("ul", null,
             h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."),
             h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."),
-            h("li", null, "Top-right green zone: bullish alignment. Bottom-left red zone: bearish alignment."),
+            h("li", null, "Fill color = HTF/LTF alignment (green / yellow pullback / red). Mixed states show a diameter line."),
+            h("li", null, "Bubble size = R:R to Target 2 (distance to TP exit vs stop). Stroke = setup probability (none / dotted / solid)."),
+            h("li", null, "Solid stub = where the score came from; dotted stub = where the model leans next."),
             h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel."),
           ),
         );
@@ -6604,13 +6664,7 @@
               h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
               h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum \u00d7 trend"),
             ),
-            h("div", { className: "bm-legend" },
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull aligned"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#34d399" } }), "Bull mixed"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f5c25c" } }), "Pullback"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#fb7185" } }), "Bear mixed"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear aligned"),
-            ),
+            h(BubbleMapEncodeLegend),
           ),
           h("div", { className: "bmv-split" },
             h(Viewport, { visible, rankedTickerPositions, query, sparkCache, ensureSpark, onSelectTicker, activeChip: filters?.activeChip }),
@@ -6691,13 +6745,7 @@
             h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
             h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum \u00d7 trend"),
           ),
-          h("div", { className: "bm-legend" },
-            h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull aligned"),
-            h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#34d399" } }), "Bull mixed"),
-            h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f5c25c" } }), "Pullback"),
-            h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#fb7185" } }), "Bear mixed"),
-            h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear aligned"),
-          ),
+          h(BubbleMapEncodeLegend),
         );
 
         const chartBody = h("div", { className: "tt-card tt-card-pad", style: { padding: 0, overflow: "hidden" } },
@@ -6842,13 +6890,7 @@
               h("div", { className: "tt-sec-title" }, "BUBBLE MAP"),
               h("div", { className: "tt-sec-h" }, "Where every ticker sits on momentum × trend"),
             ),
-            h("div", { className: "bm-legend" },
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull aligned"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#34d399" } }), "Bull mixed"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f5c25c" } }), "Pullback"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#fb7185" } }), "Bear mixed"),
-              h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear aligned"),
-            ),
+            h(BubbleMapEncodeLegend),
           ),
           h("div", { className: "tt-card tt-card-pad" },
             h("div", { className: "bm-stage", ref: stageRef },

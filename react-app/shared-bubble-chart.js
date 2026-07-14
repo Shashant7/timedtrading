@@ -428,6 +428,149 @@
     return (seed % 5) * step;
   }
 
+  // ── Bubble visual encoding (alignment color / R:R size / probability stroke / vectors)
+  const ALIGN_FILL = {
+    bull_aligned: "#22c55e",
+    bull_mixed: "#22c55e",
+    pullback: "#eab308",
+    bear_aligned: "#f43f5e",
+    bear_mixed: "#f43f5e",
+    neutral: "#64748b",
+  };
+
+  const FORECAST_STATE_TARGET = {
+    HTF_BULL_LTF_BULL: { htf: 28, ltf: 18 },
+    HTF_BEAR_LTF_BEAR: { htf: -28, ltf: -18 },
+    HTF_BULL_LTF_BEAR: { htf: 24, ltf: -14 },
+    HTF_BULL_LTF_BEAR_PULLBACK: { htf: 24, ltf: -14 },
+    HTF_BEAR_LTF_BULL: { htf: -24, ltf: 14 },
+    HTF_BEAR_LTF_BULL_BOUNCE: { htf: -24, ltf: 14 },
+  };
+
+  /** Align state → fill bucket (legend semantics). */
+  function classifyAlignmentBucket(state, htfScore, ltfScore) {
+    const s = String(state || "").toUpperCase();
+    if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
+    if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
+    if (s.includes("PULLBACK")) return "pullback";
+    if (s.includes("BOUNCE") || s.includes("REVERSAL")) return "bear_mixed";
+    if (s.startsWith("HTF_BULL")) return "bull_mixed";
+    if (s.startsWith("HTF_BEAR")) return "bear_mixed";
+    const h = Number(htfScore);
+    const l = Number(ltfScore);
+    if (Number.isFinite(h) && Number.isFinite(l)) {
+      if (h > 8 && l > 8) return "bull_aligned";
+      if (h < -8 && l < -8) return "bear_aligned";
+      if (h > 8 && l < -4) return "pullback";
+      if (h < -8 && l > 4) return "bear_mixed";
+      if (h > 4) return "bull_mixed";
+      if (h < -4) return "bear_mixed";
+    }
+    return "neutral";
+  }
+
+  /** R:R for size — current price → TP2 (tp_exit) vs distance to SL. */
+  function resolveBubbleRr(tickerLike) {
+    const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : NaN;
+    if (Number.isFinite(rrRaw) && rrRaw > 0) return rrRaw;
+    const price = Number(tickerLike?.price ?? tickerLike?.close ?? tickerLike?.c);
+    const sl = Number(tickerLike?.sl);
+    let tp = Number(tickerLike?.tp_exit);
+    if (!Number.isFinite(tp) || tp <= 0) tp = Number(tickerLike?.tp_runner);
+    if (!(price > 0) || !(sl > 0) || !(tp > 0)) return 0.5;
+    const risk = Math.abs(price - sl);
+    if (!(risk > 0)) return 0.5;
+    return Math.abs(tp - price) / risk;
+  }
+
+  /**
+   * Setup probability / conviction for stroke.
+   * Low  (<40) → no stroke; Med (40–69) → dotted; High (≥70) → solid.
+   */
+  function resolveBubbleProbability(tickerLike) {
+    const conv = Number(
+      tickerLike?.focus_conviction_score
+        ?? tickerLike?.__focus_conviction_score
+        ?? tickerLike?.conviction,
+    );
+    if (Number.isFinite(conv) && conv > 0) return Math.max(0, Math.min(100, conv));
+    const conf = Number(tickerLike?.regime_forecast?.confidence);
+    if (Number.isFinite(conf) && conf > 0) {
+      return conf <= 1 ? Math.round(conf * 100) : Math.max(0, Math.min(100, conf));
+    }
+    return null;
+  }
+
+  function probabilityStrokeStyle(probability) {
+    if (probability == null || !Number.isFinite(probability)) {
+      return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
+    }
+    if (probability < 40) {
+      return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
+    }
+    if (probability < 70) {
+      return { tier: "medium", stroke: "rgba(255,255,255,0.72)", strokeWidth: 1.4, dash: "2.5 2.5" };
+    }
+    return { tier: "high", stroke: "rgba(255,255,255,0.9)", strokeWidth: 1.8, dash: null };
+  }
+
+  /** Prior HTF/LTF from journey keyframes ("where it came from"). */
+  function resolveBubbleOrigin(tickerLike) {
+    const recent = tickerLike?._journey?.recent;
+    if (!Array.isArray(recent) || recent.length < 2) return null;
+    const nowHtf = Number(tickerLike?.htf_score);
+    const nowLtf = Number(tickerLike?.ltf_score);
+    for (let i = recent.length - 2; i >= 0; i--) {
+      const k = recent[i];
+      const h = Number(k?.htf);
+      const l = Number(k?.ltf);
+      if (!Number.isFinite(h) || !Number.isFinite(l)) continue;
+      if (!Number.isFinite(nowHtf) || !Number.isFinite(nowLtf)) return { htf: h, ltf: l };
+      if (Math.abs(h - nowHtf) + Math.abs(l - nowLtf) >= 2.5) return { htf: h, ltf: l };
+    }
+    const k = recent[recent.length - 2];
+    const h = Number(k?.htf);
+    const l = Number(k?.ltf);
+    if (Number.isFinite(h) && Number.isFinite(l)) return { htf: h, ltf: l };
+    return null;
+  }
+
+  /** Forecast target HTF/LTF from Markov next-state distribution. */
+  function resolveBubbleForecastTarget(tickerLike) {
+    const fc = tickerLike?.regime_forecast;
+    const dist = fc?.p_1d || fc?.p_next;
+    if (!dist || typeof dist !== "object") return null;
+    let best = null;
+    let bestP = 0;
+    for (const [st, p] of Object.entries(dist)) {
+      const n = Number(p);
+      if (Number.isFinite(n) && n > bestP) {
+        bestP = n;
+        best = st;
+      }
+    }
+    if (!best || bestP < 0.22) return null;
+    const key = String(best).toUpperCase();
+    if (FORECAST_STATE_TARGET[key]) return { ...FORECAST_STATE_TARGET[key], state: key, p: bestP };
+    if (key.includes("PULLBACK") || (key.includes("BULL") && key.includes("BEAR") && key.indexOf("BULL") < key.indexOf("BEAR"))) {
+      return { htf: 24, ltf: -14, state: key, p: bestP };
+    }
+    if (key.includes("BOUNCE") || (key.includes("BEAR") && key.includes("BULL") && key.indexOf("BEAR") < key.indexOf("BULL"))) {
+      return { htf: -24, ltf: 14, state: key, p: bestP };
+    }
+    if (key.includes("BULL") && !key.includes("BEAR")) return { htf: 28, ltf: 18, state: key, p: bestP };
+    if (key.includes("BEAR") && !key.includes("BULL")) return { htf: -28, ltf: -18, state: key, p: bestP };
+    return null;
+  }
+
+  function clampVectorPx(dx, dy, maxLen = 14) {
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0.5)) return null;
+    if (len <= maxLen) return { dx, dy, len };
+    const s = maxLen / len;
+    return { dx: dx * s, dy: dy * s, len: maxLen };
+  }
+
   function computeBubbleRadiusModel(
     tickerLike,
     symbolOverride = null,
@@ -438,22 +581,12 @@
     const validComp = Number.isFinite(comp)
       ? Math.max(0, Math.min(1, comp))
       : 0;
-    const rrRaw = tickerLike?.rr != null ? Number(tickerLike.rr) : 0.5;
-    const rr = Number.isFinite(rrRaw) && rrRaw > 0 ? rrRaw : 0.5;
+    // Size encodes R:R to Target 2 (tp_exit) vs SL — larger = more reward vs risk left.
+    const rr = resolveBubbleRr(tickerLike);
     const cappedRR = Math.min(rr, rrCap);
-    // V15 P0.7.43 — small conviction-tier bump so the bubble size also
-    // reflects setup quality, not just R:R + completion. Tier A/B/C is
-    // the focus-tier composite emitted by the worker; absent ⇒ 0 bump.
-    const tier = String(
-      tickerLike?.focus_tier
-        ?? tickerLike?.__focus_tier
-        ?? tickerLike?.focusTier
-        ?? "",
-    ).toUpperCase();
-    const tierBump = tier === "A" ? 1.5 : tier === "B" ? 0.8 : tier === "C" ? 0.3 : 0;
     const size = waiting
       ? baseSize * 0.7
-      : baseSize + cappedRR * rrMultiplier * (1 - validComp) + tierBump;
+      : baseSize + cappedRR * rrMultiplier * (1 - validComp);
     const finalSize = Math.max(
       baseSize,
       size + bubbleSizeSeed(symbolOverride || tickerLike?.ticker),
@@ -855,29 +988,13 @@
 
       const move = getMoveStatusInfo(ticker);
 
-      // Session-aware fill color — RTH daily change; outside RTH use EXT
-      // when available (matches Top Movers EXT row + right-rail EXT chip).
-      const bubbleFill = getBubbleFillChange(ticker);
-      const dayPct = Number(bubbleFill?.pct);
-      const _bTickerType = ticker?.tickerType || ticker?._tickerType || ticker?.ticker_type || "";
-      const _bVolAtr = Number(ticker?.volatility_atr_pct || ticker?._volatility_atr_pct) || undefined;
-      const _bTickerSym = ticker?.ticker || "";
-      const _bNorm = window.TimedPriceUtils?.getNormalizedIntensity
-        ? window.TimedPriceUtils.getNormalizedIntensity(dayPct, _bTickerType, _bVolAtr, _bTickerSym)
-        : Math.abs(dayPct) / 2.5;
-      let tintAlpha;
-      if (_bNorm <= 0.2) tintAlpha = 0.25 + _bNorm * 1.25;
-      else if (_bNorm <= 0.5) tintAlpha = 0.50 + ((_bNorm - 0.2) / 0.3) * 0.20;
-      else if (_bNorm <= 1.0) tintAlpha = 0.70 + ((_bNorm - 0.5) / 0.5) * 0.15;
-      else tintAlpha = Math.min(0.95, 0.85 + (_bNorm - 1) * 0.05);
-
-      const isUp = dayPct >= 0;
-      const hasDayData = bubbleFill?.hasData === true;
+      // Alignment fill (not daily % — legend/encode match).
+      const alignBucket = classifyAlignmentBucket(ticker.state, ticker.htf_score, ticker.ltf_score);
+      const alignFill = ALIGN_FILL[alignBucket] || ALIGN_FILL.neutral;
+      const isMixed = alignBucket === "bull_mixed" || alignBucket === "bear_mixed";
       const fillColor = waitingForData
-        ? "rgba(55,65,81,0.4)"
-        : !hasDayData
-          ? "rgba(100,116,139,0.3)"
-          : isUp ? `rgba(34,197,94,${tintAlpha})` : `rgba(239,68,68,${tintAlpha})`;
+        ? "rgba(55,65,81,0.45)"
+        : alignFill;
 
       // Opacity: clean fade for invalidated/completed
       const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : 0.92;
@@ -887,13 +1004,13 @@
         : 1;
       const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
 
-      // Flat, clean border
-      const borderWidth = waitingForData ? 1 : isActionable ? 2 : 1.2;
+      // Stroke = setup probability (conviction). Low none / med dotted / high solid.
+      const probability = resolveBubbleProbability(ticker);
+      const strokeStyle = probabilityStrokeStyle(probability);
+      const borderWidth = waitingForData ? 1 : (isActionable && strokeStyle.tier === "high" ? Math.max(2, strokeStyle.strokeWidth) : strokeStyle.strokeWidth);
       const borderColor = waitingForData
         ? "rgba(139,146,160,0.5)"
-        : isActionable
-          ? "rgba(255,255,255,0.85)"
-          : isUp ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.5)";
+        : strokeStyle.stroke;
 
       const bubbleSize = isHovered ? finalSize * 1.15 : finalSize;
 
@@ -917,6 +1034,16 @@
         : ltfScore * scaleY + offsetY;
 
       const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
+
+      // From / to vectors in local bubble coords (subtle stubs).
+      const origin = resolveBubbleOrigin(ticker);
+      const forecast = resolveBubbleForecastTarget(ticker);
+      const fromVec = origin
+        ? clampVectorPx((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, isHovered ? 18 : 13)
+        : null;
+      const toVec = forecast
+        ? clampVectorPx((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, isHovered ? 18 : 13)
+        : null;
 
       const stageIconData = (() => {
         /* 2026-06-02 — Investor pages: prefer _investorAction over the
@@ -948,16 +1075,12 @@
       const relLabelY = -renderedSize - 8;
 
       const isTimeTravel = !!ticker._isTimeTravel;
-      const clampPx = (v, mx) => Math.sign(v) * Math.min(Math.abs(v), mx);
-      // In Time Travel mode, strip live-data offsets so position is purely score-driven
-      const dayChgPts = isTimeTravel ? 0 : (Number.isFinite(Number(bubbleFill?.chg)) ? Number(bubbleFill.chg) : 0);
-      const baseDriftY = clampPx(-dayChgPts * 2, 15);
-      const baseDriftX = clampPx(dayChgPts * 1, 8);
+      // Live position is score-driven — no daily-% drift (would fight alignment encode + vectors).
       const impulseX = isTimeTravel ? 0 : (Number(ticker._price_impulse_x) || 0);
       const impulseY = isTimeTravel ? 0 : (Number(ticker._price_impulse_y) || 0);
 
-      const targetX = x + baseDriftX + impulseX;
-      const targetY = y + baseDriftY + impulseY;
+      const targetX = x + impulseX;
+      const targetY = y + impulseY;
 
       // Stable per-bubble seed from ticker name for organic randomization
       const seed = useMemo(() => {
@@ -1025,18 +1148,70 @@
           style={{ cursor: "pointer", touchAction: "manipulation", opacity: insightDimmed && !isHovered ? 0.12 : 1 }}
         >
           {decisionTooltip && <title>{decisionTooltip}</title>}
+          {/* From (solid) / forecast (dotted) stubs — score space, clamped short. */}
+          {fromVec && (
+            <g opacity={isHovered ? 0.7 : 0.38} style={{ pointerEvents: "none" }}>
+              <line
+                x1={fromVec.dx}
+                y1={fromVec.dy}
+                x2={0}
+                y2={0}
+                stroke="rgba(226,232,240,0.9)"
+                strokeWidth="1.1"
+                strokeLinecap="round"
+              />
+              <circle cx={fromVec.dx} cy={fromVec.dy} r="1.6" fill="rgba(226,232,240,0.85)" />
+            </g>
+          )}
+          {toVec && (
+            <g opacity={isHovered ? 0.7 : 0.38} style={{ pointerEvents: "none" }}>
+              <line
+                x1={0}
+                y1={0}
+                x2={toVec.dx}
+                y2={toVec.dy}
+                stroke="rgba(226,232,240,0.85)"
+                strokeWidth="1.1"
+                strokeLinecap="round"
+                strokeDasharray="2.5 2.5"
+              />
+              <circle cx={toVec.dx} cy={toVec.dy} r="1.4" fill="none" stroke="rgba(226,232,240,0.8)" strokeWidth="0.9" />
+            </g>
+          )}
           {showGlow && (
             <>
-              <circle cx={0} cy={0} r={renderedSize + 6} fill="none" stroke={borderColor} strokeWidth="1.5" opacity="0.4">
+              <circle cx={0} cy={0} r={renderedSize + 6} fill="none" stroke={alignFill} strokeWidth="1.5" opacity="0.35">
                 <animate attributeName="r" values={`${renderedSize + 3};${renderedSize + 8};${renderedSize + 3}`} dur="2s" repeatCount="indefinite" />
-                <animate attributeName="opacity" values="0.5;0.15;0.5" dur="2s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.45;0.12;0.45" dur="2s" repeatCount="indefinite" />
               </circle>
-              <circle cx={0} cy={0} r={renderedSize + 2} fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1">
-                <animate attributeName="opacity" values="0.2;0.6;0.2" dur="1.8s" repeatCount="indefinite" />
+              <circle cx={0} cy={0} r={renderedSize + 2} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1">
+                <animate attributeName="opacity" values="0.2;0.55;0.2" dur="1.8s" repeatCount="indefinite" />
               </circle>
             </>
           )}
-          <circle cx={0} cy={0} r={renderedSize} fill={fillColor} stroke={borderColor} strokeWidth={borderWidth} opacity={opacity} />
+          <circle
+            cx={0}
+            cy={0}
+            r={renderedSize}
+            fill={fillColor}
+            stroke={borderColor}
+            strokeWidth={borderWidth}
+            strokeDasharray={strokeStyle.dash || undefined}
+            opacity={opacity}
+          />
+          {isMixed && !waitingForData && (
+            <line
+              x1={-renderedSize * 0.72}
+              y1={0}
+              x2={renderedSize * 0.72}
+              y2={0}
+              stroke="rgba(15,23,42,0.55)"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              opacity={opacity}
+              style={{ pointerEvents: "none" }}
+            />
+          )}
           {hasEarnings && (
             <g style={{pointerEvents: "none"}}>
               <circle cx={renderedSize * 0.7} cy={-renderedSize * 0.7} r={6} fill="rgba(245,158,11,0.3)" stroke="#f59e0b" strokeWidth="0.8" />
@@ -3420,5 +3595,12 @@
     SVGBubble: SVGBubble,
     summarizeEntryDecision: summarizeEntryDecision,
     ENTRY_DECISION_LABELS: ENTRY_DECISION_LABELS,
+    classifyAlignmentBucket: classifyAlignmentBucket,
+    resolveBubbleRr: resolveBubbleRr,
+    resolveBubbleProbability: resolveBubbleProbability,
+    probabilityStrokeStyle: probabilityStrokeStyle,
+    resolveBubbleOrigin: resolveBubbleOrigin,
+    resolveBubbleForecastTarget: resolveBubbleForecastTarget,
+    ALIGN_FILL: ALIGN_FILL,
   };
 })();
