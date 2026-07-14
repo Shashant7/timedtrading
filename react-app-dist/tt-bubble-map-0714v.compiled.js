@@ -510,6 +510,35 @@
       len: maxLen
     };
   }
+  function rimDirectionStub(dx, dy, radius, {
+    tipExtra = 13,
+    gap = 2
+  } = {}) {
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0.5)) return null;
+    const ux = dx / len;
+    const uy = dy / len;
+    const r = Math.max(3, Number(radius) || 0);
+    const startR = r + gap;
+    const tipR = r + Math.max(8, tipExtra);
+    return {
+      x1: ux * startR,
+      y1: uy * startR,
+      x2: ux * tipR,
+      y2: uy * tipR,
+      ux,
+      uy,
+      tipR
+    };
+  }
+  function arrowHeadPoints(tx, ty, ux, uy, size = 7) {
+    const bx = tx - ux * size;
+    const by = ty - uy * size;
+    const px = -uy;
+    const py = ux;
+    const w = size * 0.58;
+    return `${tx},${ty} ${bx + px * w},${by + py * w} ${bx - px * w},${by - py * w}`;
+  }
   function computeBubbleRadiusModel(tickerLike, symbolOverride = null, {
     baseSize = 4,
     rrCap = 5,
@@ -835,8 +864,6 @@
     const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
     const origin = resolveBubbleOrigin(ticker);
     const forecast = resolveBubbleForecastTarget(ticker);
-    const fromVec = origin ? clampVectorPx((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, isHovered ? 24 : 18) : null;
-    const toVec = forecast ? clampVectorPx((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, isHovered ? 24 : 18) : null;
     const stageIconData = (() => {
       if (investorAction) {
         if (investorAction === "ACCUMULATE") return {
@@ -921,6 +948,15 @@
     })();
     const showGlow = !waitingForData && isActionable;
     const renderedSize = Math.max(3, Math.min(50, bubbleSize));
+    const tipExtra = isHovered ? 16 : 12;
+    const fromStub = origin ? rimDirectionStub((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, renderedSize, {
+      tipExtra,
+      gap: 2.25
+    }) : null;
+    const toStub = forecast ? rimDirectionStub((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, renderedSize, {
+      tipExtra,
+      gap: 2.25
+    }) : null;
     const labelY = y - renderedSize - 8;
     const decisionSummary = summarizeEntryDecision(ticker);
     const decisionTooltip = decisionSummary ? `System ${decisionSummary.status}: ${decisionSummary.detail}` : null;
@@ -1010,48 +1046,7 @@
         touchAction: "manipulation",
         opacity: insightDimmed && !isHovered ? 0.12 : 1
       }
-    }, decisionTooltip && React.createElement("title", null, decisionTooltip), fromVec && React.createElement("g", {
-      opacity: isHovered ? 0.95 : 0.78,
-      style: {
-        pointerEvents: "none"
-      }
-    }, React.createElement("line", {
-      x1: fromVec.dx,
-      y1: fromVec.dy,
-      x2: 0,
-      y2: 0,
-      stroke: "rgba(248,250,252,0.95)",
-      strokeWidth: "1.8",
-      strokeLinecap: "round"
-    }), React.createElement("circle", {
-      cx: fromVec.dx,
-      cy: fromVec.dy,
-      r: "2.4",
-      fill: "rgba(248,250,252,0.95)",
-      stroke: "rgba(15,23,42,0.55)",
-      strokeWidth: "0.6"
-    })), toVec && React.createElement("g", {
-      opacity: isHovered ? 0.95 : 0.78,
-      style: {
-        pointerEvents: "none"
-      }
-    }, React.createElement("line", {
-      x1: 0,
-      y1: 0,
-      x2: toVec.dx,
-      y2: toVec.dy,
-      stroke: "rgba(248,250,252,0.92)",
-      strokeWidth: "1.8",
-      strokeLinecap: "round",
-      strokeDasharray: "3.5 2.5"
-    }), React.createElement("circle", {
-      cx: toVec.dx,
-      cy: toVec.dy,
-      r: "2.2",
-      fill: "rgba(15,23,42,0.35)",
-      stroke: "rgba(248,250,252,0.95)",
-      strokeWidth: "1.2"
-    })), showGlow && React.createElement(React.Fragment, null, React.createElement("circle", {
+    }, decisionTooltip && React.createElement("title", null, decisionTooltip), showGlow && React.createElement(React.Fragment, null, React.createElement("circle", {
       cx: 0,
       cy: 0,
       r: renderedSize + 6,
@@ -1102,7 +1097,70 @@
       style: {
         pointerEvents: "none"
       }
-    }), hasEarnings && React.createElement("g", {
+    }), fromStub && React.createElement("g", {
+      opacity: isHovered ? 1 : 0.92,
+      style: {
+        pointerEvents: "none"
+      }
+    }, React.createElement("line", {
+      x1: fromStub.x1,
+      y1: fromStub.y1,
+      x2: fromStub.x2 - fromStub.ux * 3,
+      y2: fromStub.y2 - fromStub.uy * 3,
+      stroke: "rgba(15,23,42,0.7)",
+      strokeWidth: "4",
+      strokeLinecap: "round"
+    }), React.createElement("line", {
+      x1: fromStub.x1,
+      y1: fromStub.y1,
+      x2: fromStub.x2 - fromStub.ux * 3,
+      y2: fromStub.y2 - fromStub.uy * 3,
+      stroke: "#f8fafc",
+      strokeWidth: "2",
+      strokeLinecap: "round"
+    }), React.createElement("circle", {
+      cx: fromStub.x2,
+      cy: fromStub.y2,
+      r: "4.2",
+      fill: "rgba(15,23,42,0.55)",
+      stroke: "none"
+    }), React.createElement("circle", {
+      cx: fromStub.x2,
+      cy: fromStub.y2,
+      r: "3.1",
+      fill: "#f8fafc",
+      stroke: "rgba(15,23,42,0.85)",
+      strokeWidth: "1.15"
+    })), toStub && React.createElement("g", {
+      opacity: isHovered ? 1 : 0.94,
+      style: {
+        pointerEvents: "none"
+      }
+    }, React.createElement("line", {
+      x1: toStub.x1,
+      y1: toStub.y1,
+      x2: toStub.x2 - toStub.ux * 5.5,
+      y2: toStub.y2 - toStub.uy * 5.5,
+      stroke: "rgba(15,23,42,0.72)",
+      strokeWidth: "4",
+      strokeLinecap: "round",
+      strokeDasharray: "4.5 3"
+    }), React.createElement("line", {
+      x1: toStub.x1,
+      y1: toStub.y1,
+      x2: toStub.x2 - toStub.ux * 5.5,
+      y2: toStub.y2 - toStub.uy * 5.5,
+      stroke: "#38bdf8",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeDasharray: "4.5 3"
+    }), React.createElement("polygon", {
+      points: arrowHeadPoints(toStub.x2, toStub.y2, toStub.ux, toStub.uy, isHovered ? 8 : 7),
+      fill: "#38bdf8",
+      stroke: "rgba(15,23,42,0.85)",
+      strokeWidth: "1",
+      strokeLinejoin: "round"
+    })), hasEarnings && React.createElement("g", {
       style: {
         pointerEvents: "none"
       }
@@ -2947,4 +3005,4 @@
   };
 })();
 
-// cache-bust:1784035681418:416078802
+// cache-bust:1784039214915:596732467

@@ -3990,10 +3990,12 @@ function BubbleMapEncodeLegend() {
   }), "High prob"), h("span", {
     className: "bm-leg-meta"
   }, h("span", {
-    className: "bm-leg-vec"
+    className: "bm-leg-vec",
+    title: "Journey history"
   }), "From · ", h("span", {
-    className: "bm-leg-vec bm-leg-vec--dot"
-  }), "Model"));
+    className: "bm-leg-vec bm-leg-vec--lean",
+    title: "Model lean"
+  }), "Lean"));
 }
 const TT_NORM_TICKER = t => {
   let s = String(t || "").trim().toUpperCase();
@@ -6631,6 +6633,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784035681418:416078802
+// cache-bust:1784039214915:596732467
 
-// cache-bust:1784035681418:416078802
+// cache-bust:1784039214915:596732467

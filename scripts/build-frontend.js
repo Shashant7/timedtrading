@@ -123,7 +123,7 @@ function compileSharedBubbleChart() {
   // P0.B.1 — extracted from index-react.source.html. Loaded by today.html
   // (and eventually active-trader.html / investor.html after Phase 4 split).
   // Has JSX (BubbleChart React component) so needs babel transform.
-  compileSharedScript("shared-bubble-chart.js", "tt-bubble-map-0714.compiled.js");
+  compileSharedScript("shared-bubble-chart.js", "tt-bubble-map-0714v.compiled.js");
 }
 
 function compileSharedScript(srcName, destName) {
