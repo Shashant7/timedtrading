@@ -3281,6 +3281,10 @@
                   h("span", {
                     style: { fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", padding: "2px 7px", borderRadius: 999, background: badgeColor + "33", color: badgeColor },
                   }, isMoon ? "MOONSHOT" : "LOTTO"),
+                  p.earnings_prep && h("span", {
+                    style: { fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 999, background: "rgba(251,146,60,0.2)", color: "#fb923c" },
+                    title: "Advisory OTM into earnings — IV crush risk; not a share entry",
+                  }, "EARNINGS PREP"),
                   p.direction && h("span", { style: { fontSize: 10, fontWeight: 700, color: dirColor } }, p.direction),
                   p.confluence_mode && h("span", { className: "ds-chip ds-chip--sm", style: { fontFamily: "var(--tt-font-mono)", fontSize: 9 } }, p.confluence_mode),
                 ),

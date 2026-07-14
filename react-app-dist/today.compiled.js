@@ -1010,7 +1010,18 @@ function ConvexityPlaysStrip({
         background: badgeColor + "33",
         color: badgeColor
       }
-    }, isMoon ? "MOONSHOT" : "LOTTO"), p.direction && h("span", {
+    }, isMoon ? "MOONSHOT" : "LOTTO"), p.earnings_prep && h("span", {
+      style: {
+        fontSize: 9,
+        fontWeight: 800,
+        letterSpacing: "0.06em",
+        padding: "2px 7px",
+        borderRadius: 999,
+        background: "rgba(251,146,60,0.2)",
+        color: "#fb923c"
+      },
+      title: "Advisory OTM into earnings — IV crush risk; not a share entry"
+    }, "EARNINGS PREP"), p.direction && h("span", {
       style: {
         fontSize: 10,
         fontWeight: 700,
@@ -6641,6 +6652,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784052256004:498895764
+// cache-bust:1784071650892:220929543
 
-// cache-bust:1784052256004:498895764
+// cache-bust:1784071650892:220929543

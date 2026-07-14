@@ -91,8 +91,12 @@ export function isConvexityPlayActionable({
 
   const mode = String(confluence?.mode || "").toUpperCase();
   if (playClass === "lotto") {
-    if (!["READY", "RIDE", "DRIFT"].includes(mode)) return false;
-    if (mode === "READY") {
+    const earnPrep = !!play._earnings_prep;
+    const lottoModes = earnPrep
+      ? ["READY", "RIDE", "DRIFT", "WAIT"]
+      : ["READY", "RIDE", "DRIFT"];
+    if (!lottoModes.includes(mode)) return false;
+    if (mode === "READY" || (earnPrep && mode === "WAIT")) {
       const side = String(confluence?.side || contract?.direction || "").toUpperCase();
       const timing = timingLean(confluence);
       const floor = floorHeld({
@@ -100,7 +104,8 @@ export function isConvexityPlayActionable({
         sl: contract?.sl,
         direction: side,
       });
-      if (!floor && timing !== side) return false;
+      if (mode === "WAIT" && !floor) return false;
+      if (mode === "READY" && !floor && timing !== side) return false;
     }
   } else if (playClass === "moonshot") {
     if (!["RIDE", "DRIFT"].includes(mode) && !(play._moonshot_active && mode === "RIDE")) {
@@ -189,9 +194,12 @@ export function toConvexityCard({
       && !String(chainStatus).startsWith("exception") ? "live" : "estimated",
     as_of_ms: Number(asOfMs) || Date.now(),
     label: play.label || null,
-    rationale_short: playClass === "lotto"
-      ? "Short-dated OTM — sized for total premium loss; 3×+ if the move fires."
-      : "Gamma window — multi-bagger target if momentum continues.",
+    earnings_prep: !!play._earnings_prep,
+    rationale_short: play._earnings_prep
+      ? "Earnings-prep lotto — cheap OTM into the print; IV crush risk; not a share entry."
+      : playClass === "lotto"
+        ? "Short-dated OTM — sized for total premium loss; 3×+ if the move fires."
+        : "Gamma window — multi-bagger target if momentum continues.",
   };
 }
 
@@ -201,6 +209,10 @@ export function rankConvexityCards(cards = []) {
     const aMoon = a.play_class === "moonshot" ? 0 : 1;
     const bMoon = b.play_class === "moonshot" ? 0 : 1;
     if (aMoon !== bMoon) return aMoon - bMoon;
+    // Prefer earnings-prep lottos over generic quiet-tape lottos.
+    const aEarn = a.earnings_prep ? 0 : 1;
+    const bEarn = b.earnings_prep ? 0 : 1;
+    if (aEarn !== bEarn) return aEarn - bEarn;
     return (Number(b.confluence_score) || 0) - (Number(a.confluence_score) || 0);
   });
   return list;

@@ -91,6 +91,7 @@ const SINGLE_NAME_LETF = {
   COIN: { long: "CONL", short: null,    factor: 2, note: "GraniteShares 2× COIN" },
   MSTR: { long: "MSTU", short: "MSTZ", long_alts: ["MSTX"], short_alts: ["SMST"], factor: 2, note: "2× MSTR" },
   TSM:  { long: "TSMU", short: null,    factor: 2, note: "Direxion 2× TSM" },
+  AEHR: { long: "AEHG", short: null,    factor: 2, note: "Leverage Shares 2× AEHR" },
 };
 
 // Theme-level LETF fallback (when ticker matches a tier-1 theme, suggest the
@@ -302,6 +303,85 @@ export function shouldActivateLotto({ confluence, contract, profile, direction }
     }
   }
   return { activate: true, side };
+}
+
+/**
+ * Resolve calendar days to next earnings from contract / ticker payloads.
+ * Returns null when unknown.
+ */
+export function resolveEarningsDte(contract = {}, tickerData = {}) {
+  const candidates = [
+    contract?.earnings_dte,
+    contract?.earningsDte,
+    contract?.days_to_earnings,
+    tickerData?.earnings_dte,
+    tickerData?.earningsDte,
+    tickerData?.days_to_earnings,
+    tickerData?.daysToEarnings,
+  ];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return null;
+}
+
+/**
+ * Advisory earnings-prep lotto — surface cheap OTM convexity into a print
+ * WITHOUT loosening Active Trader share entry / flatten risk-off.
+ *
+ * Window: earnings in 1–5 calendar days. Allows READY/RIDE/DRIFT and WAIT
+ * (WAIT only when the directional floor is held — pre-catalyst hesitation
+ * is common). Requires floor, compression timing, or a reclaim/pullback
+ * structure flag.
+ */
+export function shouldActivateEarningsPrepLotto({
+  confluence,
+  contract,
+  profile,
+  direction,
+  tickerData,
+  earningsDte,
+} = {}) {
+  if (profile !== "speculator" && profile !== "aggressive") {
+    return { activate: false, reason: "profile_not_speculator_or_aggressive" };
+  }
+  const dte = resolveEarningsDte(
+    { ...(contract || {}), earnings_dte: earningsDte ?? contract?.earnings_dte },
+    tickerData || {},
+  );
+  if (!Number.isFinite(dte) || dte < 1 || dte > 5) {
+    return { activate: false, reason: "earnings_dte_out_of_window" };
+  }
+  if (!confluence) return { activate: false, reason: "no_confluence" };
+  const mode = String(confluence.mode || "").toUpperCase();
+  if (!["READY", "RIDE", "DRIFT", "WAIT"].includes(mode)) {
+    return { activate: false, reason: `mode_${mode}_not_earnings_prep` };
+  }
+  const side = String(confluence.side || direction || contract?.direction || "").toUpperCase();
+  if (side !== "LONG" && side !== "SHORT") {
+    return { activate: false, reason: "no_directional_side" };
+  }
+  const price = Number(contract?.price);
+  const sl = Number(contract?.sl);
+  const timing = confluence.timing || {};
+  const timingOk = (side === "LONG" && timing.call_opportunity)
+    || (side === "SHORT" && timing.put_opportunity);
+  const floorOk = (side === "LONG" && price > 0 && sl > 0 && price >= sl)
+    || (side === "SHORT" && price > 0 && sl > 0 && price <= sl);
+  const state = String(tickerData?.state || contract?.state || "").toUpperCase();
+  const path = String(tickerData?.entry_path || tickerData?.entryPath || "").toLowerCase();
+  const reclaimOk = /RECLAIM|PULLBACK|BOUNCE/.test(state)
+    || /reclaim|pullback|bounce/.test(path)
+    || !!(tickerData?.flags?.phase_leave)
+    || !!(confluence?.supertrend_trigger?.reclaimed);
+  if (!floorOk && !timingOk && !reclaimOk) {
+    return { activate: false, reason: "no_floor_timing_or_reclaim" };
+  }
+  if (mode === "WAIT" && !floorOk) {
+    return { activate: false, reason: "wait_requires_floor" };
+  }
+  return { activate: true, side, earnings_dte: dte, earnings_prep: true };
 }
 
 /**
@@ -1118,16 +1198,25 @@ export function detectMomentumInMotion(tickerData) {
   }
 
   // Direction must be consistent — day and 5d should agree (no whipsaw).
+  // Exception: a decisive day reclaim (≥4%) may override a lingering 5d
+  // pullback (common into earnings: multi-day dip, then reclaim ignition).
   const dayDir  = dayPct > 0 ? "LONG" : dayPct < 0 ? "SHORT" : null;
   const multiDir = fiveDayPct > 0 ? "LONG" : fiveDayPct < 0 ? "SHORT" : null;
+  let direction = dayDir || multiDir;
+  let reclaimOverride = false;
   if (dayDir && multiDir && dayDir !== multiDir) {
-    return { in_motion: false, reason: "whipsaw (day ↔ 5d disagree)", day_change_pct: dayPct, multi_day_change_pct: fiveDayPct };
+    if (absDay >= 4) {
+      direction = dayDir;
+      reclaimOverride = true;
+    } else {
+      return { in_motion: false, reason: "whipsaw (day ↔ 5d disagree)", day_change_pct: dayPct, multi_day_change_pct: fiveDayPct };
+    }
   }
 
-  const direction = dayDir || multiDir;
   const evidence = [];
   if (absDay >= 3) evidence.push(`day ${dayPct >= 0 ? "+" : ""}${dayPct.toFixed(1)}%`);
   if (absMulti >= 5) evidence.push(`5d ${fiveDayPct >= 0 ? "+" : ""}${fiveDayPct.toFixed(1)}%`);
+  if (reclaimOverride) evidence.push("day reclaim vs 5d pullback");
   if (Number.isFinite(volRatio) && volRatio >= 1.5) evidence.push(`vol ${volRatio.toFixed(1)}× avg`);
 
   return {
@@ -1137,6 +1226,7 @@ export function detectMomentumInMotion(tickerData) {
     multi_day_change_pct: fiveDayPct,
     volume_ratio: volRatio,
     evidence: evidence.join(" · "),
+    reclaim_override: reclaimOverride || undefined,
   };
 }
 
@@ -2952,6 +3042,14 @@ export function buildOptionsLadder(contract, opts = {}) {
     profile,
     direction: activeDir,
   });
+  const earningsPrepDecision = shouldActivateEarningsPrepLotto({
+    confluence: opts.confluence,
+    contract: { ...contract, price, sl },
+    profile,
+    direction: activeDir,
+    tickerData: opts.tickerData || contract,
+    earningsDte: resolveEarningsDte(contract, opts.tickerData || {}),
+  });
 
   const exitForFade = pickExitTargetPrice(ctx) ?? tp1;
   let ctxEff;
@@ -3002,7 +3100,13 @@ export function buildOptionsLadder(contract, opts = {}) {
     }
   }
 
-  if (lottoDecision.activate && !suppressDirectional && !moonshotDecision.activate) {
+  // Standard lotto needs directional allowance; earnings-prep lotto is
+  // advisory only (premium-defined risk) and may surface even under WAIT
+  // when the floor is held into a 1–5d earnings window.
+  const activateStandardLotto = lottoDecision.activate && !suppressDirectional && !moonshotDecision.activate;
+  const activateEarningsPrepLotto = earningsPrepDecision.activate && !moonshotDecision.activate
+    && !activateStandardLotto;
+  if (activateStandardLotto || activateEarningsPrepLotto) {
     const lottoMax = Number(opts.lotto_max_loss_usd) || 50;
     const lotto = buildLotto(
       { ...ctxEff, chain },
@@ -3011,6 +3115,17 @@ export function buildOptionsLadder(contract, opts = {}) {
     );
     if (lotto) {
       lotto._lotto_active = true;
+      if (activateEarningsPrepLotto) {
+        const ed = earningsPrepDecision.earnings_dte;
+        lotto._earnings_prep = true;
+        lotto.label = `⚡ Earnings Prep Lotto ${String(activeDir || playDirection).toUpperCase() === "SHORT" ? "Put" : "Call"} (${lotto.expiration?.dte ?? "?"}DTE)`;
+        lotto.rationale = `⚡ Earnings in ${ed}d — advisory OTM gamma into the print (IV crush risk; not a share entry signal). `
+          + (lotto.rationale || "");
+        lotto.trade_mgmt = [
+          `⚠ Print in ~${ed}d — size for total premium loss; prefer exit before report unless the thesis is explicitly event-driven`,
+          ...(Array.isArray(lotto.trade_mgmt) ? lotto.trade_mgmt : []),
+        ];
+      }
       ladder.push(lotto);
     }
   }
