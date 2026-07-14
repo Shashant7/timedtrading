@@ -11,10 +11,15 @@ import {
 
 describe("bubble map encode", () => {
   it("classifies alignment buckets for fill legend", () => {
-    expect(classifyAlignmentBucket("HTF_BULL_LTF_BULL")).toBe("bull_aligned");
+    expect(classifyAlignmentBucket("HTF_BULL_LTF_BULL", 20, 15)).toBe("bull_aligned");
+    expect(classifyAlignmentBucket("HTF_BULL_LTF_BULL", 20, 4)).toBe("bull_mixed");
+    expect(classifyAlignmentBucket("HTF_BULL_LTF_PULLBACK")).toBe("pullback");
     expect(classifyAlignmentBucket("HTF_BULL_LTF_BEAR_PULLBACK")).toBe("pullback");
     expect(classifyAlignmentBucket("HTF_BULL_LTF_NEUTRAL")).toBe("bull_mixed");
-    expect(classifyAlignmentBucket("HTF_BEAR_LTF_BEAR")).toBe("bear_aligned");
+    expect(classifyAlignmentBucket("HTF_BEAR_LTF_BEAR", -20, -15)).toBe("bear_aligned");
+    expect(classifyAlignmentBucket("HTF_BEAR_LTF_BEAR", -20, -3)).toBe("bear_mixed");
+    // Production bounce state — must NOT land in yellow pullback.
+    expect(classifyAlignmentBucket("HTF_BEAR_LTF_PULLBACK")).toBe("bear_mixed");
     expect(classifyAlignmentBucket("HTF_BEAR_LTF_BULL_BOUNCE")).toBe("bear_mixed");
     expect(ALIGN_FILL.pullback).toBe("#eab308");
     expect(ALIGN_FILL.bull_aligned).toBe(ALIGN_FILL.bull_mixed);

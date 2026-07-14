@@ -362,14 +362,27 @@
   };
   function classifyAlignmentBucket(state, htfScore, ltfScore) {
     const s = String(state || "").toUpperCase();
-    if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
-    if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
-    if (s.includes("PULLBACK")) return "pullback";
-    if (s.includes("BOUNCE") || s.includes("REVERSAL")) return "bear_mixed";
-    if (s.startsWith("HTF_BULL")) return "bull_mixed";
-    if (s.startsWith("HTF_BEAR")) return "bear_mixed";
     const h = Number(htfScore);
     const l = Number(ltfScore);
+    if (s === "HTF_BULL_LTF_BULL") {
+      if (Number.isFinite(l) && l < 8) return "bull_mixed";
+      return "bull_aligned";
+    }
+    if (s === "HTF_BEAR_LTF_BEAR") {
+      if (Number.isFinite(l) && l > -8) return "bear_mixed";
+      return "bear_aligned";
+    }
+    if (s === "HTF_BULL_LTF_PULLBACK" || s === "HTF_BULL_LTF_BEAR_PULLBACK" || s === "HTF_BULL_LTF_BEAR") {
+      return "pullback";
+    }
+    if (s === "HTF_BEAR_LTF_PULLBACK" || s === "HTF_BEAR_LTF_BULL_BOUNCE" || s === "HTF_BEAR_LTF_BULL" || s.includes("BOUNCE") || s.includes("REVERSAL")) {
+      return "bear_mixed";
+    }
+    if (s.includes("PULLBACK")) {
+      return s.startsWith("HTF_BEAR") ? "bear_mixed" : "pullback";
+    }
+    if (s.startsWith("HTF_BULL")) return "bull_mixed";
+    if (s.startsWith("HTF_BEAR")) return "bear_mixed";
     if (Number.isFinite(h) && Number.isFinite(l)) {
       if (h > 8 && l > 8) return "bull_aligned";
       if (h < -8 && l < -8) return "bear_aligned";
@@ -1121,16 +1134,16 @@
     }), React.createElement("circle", {
       cx: fromStub.x2,
       cy: fromStub.y2,
-      r: "4.2",
-      fill: "rgba(15,23,42,0.55)",
+      r: "5",
+      fill: "rgba(15,23,42,0.7)",
       stroke: "none"
     }), React.createElement("circle", {
       cx: fromStub.x2,
       cy: fromStub.y2,
-      r: "3.1",
+      r: "3.6",
       fill: "#f8fafc",
-      stroke: "rgba(15,23,42,0.85)",
-      strokeWidth: "1.15"
+      stroke: "rgba(15,23,42,0.95)",
+      strokeWidth: "1.35"
     })), toStub && React.createElement("g", {
       opacity: isHovered ? 1 : 0.94,
       style: {
@@ -1155,7 +1168,7 @@
       strokeLinecap: "round",
       strokeDasharray: "4.5 3"
     }), React.createElement("polygon", {
-      points: arrowHeadPoints(toStub.x2, toStub.y2, toStub.ux, toStub.uy, isHovered ? 8 : 7),
+      points: arrowHeadPoints(toStub.x2, toStub.y2, toStub.ux, toStub.uy, isHovered ? 9.5 : 8.5),
       fill: "#38bdf8",
       stroke: "rgba(15,23,42,0.85)",
       strokeWidth: "1",
@@ -1281,6 +1294,10 @@
       y: 0
     });
     const [showLabels, setShowLabels] = useState(true);
+    const [viewZoom, setViewZoom] = useState(1);
+    const [panHtf, setPanHtf] = useState(0);
+    const [panLtf, setPanLtf] = useState(0);
+    const panDragRef = useRef(null);
     const [crosshairPos, setCrosshairPos] = useState(null);
     const containerRef = React.useRef(null);
     const hoveredTickerRef = React.useRef(hoveredTicker);
@@ -1363,8 +1380,15 @@
         }
         return Array.isArray(tickers) ? tickers : [];
       })();
-      const domainXMax = axisDomain(domainBase, "htf_score", 50);
-      const domainYMax = axisDomain(domainBase, "ltf_score", 50);
+      const baseDomainXMax = axisDomain(domainBase, "htf_score", 50);
+      const baseDomainYMax = axisDomain(domainBase, "ltf_score", 50);
+      const zoom = clamp(Number(viewZoom) || 1, 1, 4);
+      const domainXMax = Math.max(8, baseDomainXMax / zoom);
+      const domainYMax = Math.max(8, baseDomainYMax / zoom);
+      const maxPanHtf = Math.max(0, baseDomainXMax - domainXMax);
+      const maxPanLtf = Math.max(0, baseDomainYMax - domainYMax);
+      const centerHtf = clamp(Number(panHtf) || 0, -maxPanHtf, maxPanHtf);
+      const centerLtf = clamp(Number(panLtf) || 0, -maxPanLtf, maxPanLtf);
       const scaleX = plotWidth / (2 * domainXMax);
       const scaleY = plotHeight / (2 * domainYMax);
       const offsetX = margin;
@@ -1382,17 +1406,34 @@
         const clampedProjected = clamp(projected, -1, 1);
         return Math.sign(clampedProjected) * Math.pow(Math.abs(clampedProjected), 1 / exponent) * safeMax;
       };
-      const xForHtf = value => offsetX + (projectAxisValue(value, domainXMax, axisExponentX) + 1) / 2 * plotWidth;
-      const yForLtf = value => offsetY + (1 - (projectAxisValue(value, domainYMax, axisExponentY) + 1) / 2) * plotHeight;
+      const xForHtf = value => offsetX + (projectAxisValue(value - centerHtf, domainXMax, axisExponentX) + 1) / 2 * plotWidth;
+      const yForLtf = value => offsetY + (1 - (projectAxisValue(value - centerLtf, domainYMax, axisExponentY) + 1) / 2) * plotHeight;
       const chartXForHtf = value => xForHtf(value) - offsetX;
       const chartYForLtf = value => yForLtf(value) - offsetY;
       const htfFromChartX = chartX => {
         const normalized = clamp(chartX, 0, plotWidth) / Math.max(plotWidth, 1) * 2 - 1;
-        return invertAxisProjection(normalized, domainXMax, axisExponentX);
+        return invertAxisProjection(normalized, domainXMax, axisExponentX) + centerHtf;
       };
       const ltfFromChartY = chartY => {
         const normalized = (1 - clamp(chartY, 0, plotHeight) / Math.max(plotHeight, 1)) * 2 - 1;
-        return invertAxisProjection(normalized, domainYMax, axisExponentY);
+        return invertAxisProjection(normalized, domainYMax, axisExponentY) + centerLtf;
+      };
+      const nudgePan = (dHtf, dLtf) => {
+        setPanHtf(v => clamp((Number(v) || 0) + dHtf, -maxPanHtf, maxPanHtf));
+        setPanLtf(v => clamp((Number(v) || 0) + dLtf, -maxPanLtf, maxPanLtf));
+      };
+      const setZoomKeepCenter = nextZoom => {
+        const nz = clamp(nextZoom, 1, 4);
+        setViewZoom(nz);
+        if (nz <= 1.01) {
+          setPanHtf(0);
+          setPanLtf(0);
+        }
+      };
+      const resetView = () => {
+        setViewZoom(1);
+        setPanHtf(0);
+        setPanLtf(0);
       };
       const handlePointerMove = (clientX, clientY, targetEl) => {
         const rect = targetEl.getBoundingClientRect();
@@ -1525,32 +1566,165 @@
         ref: containerRef,
         className: "w-full h-full bg-white/[0.02] rounded-xl border border-white/[0.06] p-2 relative"
       }, React.createElement("div", {
-        className: "absolute top-2 right-2 z-10"
+        className: "absolute top-2 right-2 z-10 flex flex-col items-end gap-1.5"
       }, React.createElement("button", {
+        type: "button",
         onClick: () => setShowLabels(!showLabels),
         className: "px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs text-[#6b7280] hover:bg-white/5 transition-colors"
-      }, showLabels ? "Hide Labels" : "Show Labels")), React.createElement("svg", {
+      }, showLabels ? "Hide Labels" : "Show Labels"), React.createElement("div", {
+        className: "flex items-center gap-1 rounded-lg bg-[#0b1220]/92 border border-white/[0.08] p-1 shadow-lg",
+        style: {
+          backdropFilter: "blur(6px)"
+        },
+        "aria-label": "Bubble map zoom and pan"
+      }, React.createElement("button", {
+        type: "button",
+        title: "Zoom out",
+        "aria-label": "Zoom out",
+        onClick: () => setZoomKeepCenter(zoom / 1.35),
+        disabled: zoom <= 1.01,
+        className: "w-8 h-8 rounded-md text-sm font-semibold text-[#e5e7eb] bg-white/[0.04] border border-white/[0.08] disabled:opacity-35 hover:bg-white/[0.08]"
+      }, "\u2212"), React.createElement("div", {
+        className: "min-w-[44px] text-center text-[10px] font-mono text-[#9ca3af] tabular-nums"
+      }, zoom.toFixed(1), "\xD7"), React.createElement("button", {
+        type: "button",
+        title: "Zoom in",
+        "aria-label": "Zoom in",
+        onClick: () => setZoomKeepCenter(zoom * 1.35),
+        disabled: zoom >= 3.99,
+        className: "w-8 h-8 rounded-md text-sm font-semibold text-[#e5e7eb] bg-white/[0.04] border border-white/[0.08] disabled:opacity-35 hover:bg-white/[0.08]"
+      }, "+"), React.createElement("button", {
+        type: "button",
+        title: "Reset view",
+        "aria-label": "Reset view",
+        onClick: resetView,
+        className: "h-8 px-2 rounded-md text-[10px] font-semibold uppercase tracking-wide text-[#9ca3af] bg-white/[0.03] border border-white/[0.08] hover:bg-white/[0.08]"
+      }, "Reset")), zoom > 1.05 && React.createElement("div", {
+        className: "grid grid-cols-3 gap-0.5 rounded-lg bg-[#0b1220]/92 border border-white/[0.08] p-1",
+        "aria-label": "Pan controls"
+      }, React.createElement("span", null), React.createElement("button", {
+        type: "button",
+        "aria-label": "Pan up",
+        onClick: () => nudgePan(0, domainYMax * 0.22),
+        className: "w-7 h-7 rounded text-[#e5e7eb] bg-white/[0.04] border border-white/[0.08] text-[11px]"
+      }, "\u25B2"), React.createElement("span", null), React.createElement("button", {
+        type: "button",
+        "aria-label": "Pan left",
+        onClick: () => nudgePan(-domainXMax * 0.22, 0),
+        className: "w-7 h-7 rounded text-[#e5e7eb] bg-white/[0.04] border border-white/[0.08] text-[11px]"
+      }, "\u25C0"), React.createElement("button", {
+        type: "button",
+        "aria-label": "Recenter",
+        onClick: () => {
+          setPanHtf(0);
+          setPanLtf(0);
+        },
+        className: "w-7 h-7 rounded text-[9px] text-[#9ca3af] bg-white/[0.03] border border-white/[0.08]"
+      }, "\u29BF"), React.createElement("button", {
+        type: "button",
+        "aria-label": "Pan right",
+        onClick: () => nudgePan(domainXMax * 0.22, 0),
+        className: "w-7 h-7 rounded text-[#e5e7eb] bg-white/[0.04] border border-white/[0.08] text-[11px]"
+      }, "\u25B6"), React.createElement("span", null), React.createElement("button", {
+        type: "button",
+        "aria-label": "Pan down",
+        onClick: () => nudgePan(0, -domainYMax * 0.22),
+        className: "w-7 h-7 rounded text-[#e5e7eb] bg-white/[0.04] border border-white/[0.08] text-[11px]"
+      }, "\u25BC"), React.createElement("span", null))), React.createElement("svg", {
         width: "100%",
         height: "100%",
         viewBox: `0 0 ${chartWidth} ${chartHeight}`,
         preserveAspectRatio: "xMidYMid meet",
-        onMouseMove: handleMouseMove,
-        onMouseLeave: handleMouseLeave,
+        onMouseMove: e => {
+          const drag = panDragRef.current;
+          if (drag && e.buttons & 1) {
+            const dx = e.clientX - drag.x0;
+            const dy = e.clientY - drag.y0;
+            if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+            const scoreDx = -(dx / Math.max(plotWidth, 1)) * domainXMax * 2;
+            const scoreDy = dy / Math.max(plotHeight, 1) * domainYMax * 2;
+            setPanHtf(clamp(drag.panHtf0 + scoreDx, -maxPanHtf, maxPanHtf));
+            setPanLtf(clamp(drag.panLtf0 + scoreDy, -maxPanLtf, maxPanLtf));
+            return;
+          }
+          handleMouseMove(e);
+        },
+        onMouseLeave: () => {
+          panDragRef.current = null;
+          handleMouseLeave();
+        },
+        onMouseDown: e => {
+          if (zoom <= 1.01) return;
+          const tag = e.target.tagName?.toLowerCase();
+          const isBg = e.target === e.currentTarget || tag === "rect" || tag === "line" || tag === "text" || tag === "path";
+          if (!isBg) return;
+          panDragRef.current = {
+            x0: e.clientX,
+            y0: e.clientY,
+            panHtf0: centerHtf,
+            panLtf0: centerLtf,
+            moved: false
+          };
+        },
+        onMouseUp: () => {
+          panDragRef.current = null;
+        },
+        onWheel: e => {
+          if (!(e.ctrlKey || e.metaKey || e.shiftKey)) return;
+          e.preventDefault();
+          const factor = e.deltaY > 0 ? 1 / 1.12 : 1.12;
+          setZoomKeepCenter(zoom * factor);
+        },
         onClick: e => {
+          if (panDragRef.current?.moved) {
+            panDragRef.current = null;
+            return;
+          }
           const tag = e.target.tagName?.toLowerCase();
           const isBg = e.target === e.currentTarget || tag === "rect" || tag === "line" || tag === "text";
           if (isBg && typeof onBackgroundClick === "function") {
             onBackgroundClick();
           }
         },
-        onTouchMove: e => {
+        onTouchStart: e => {
+          if (zoom <= 1.01 || e.touches.length !== 1) return;
+          const tag = e.target.tagName?.toLowerCase();
+          const isBg = e.target === e.currentTarget || tag === "rect" || tag === "line" || tag === "text" || tag === "path";
+          if (!isBg) return;
           const touch = e.touches[0];
+          panDragRef.current = {
+            x0: touch.clientX,
+            y0: touch.clientY,
+            panHtf0: centerHtf,
+            panLtf0: centerLtf,
+            moved: false
+          };
+        },
+        onTouchMove: e => {
+          const drag = panDragRef.current;
+          const touch = e.touches[0];
+          if (drag && touch && e.touches.length === 1 && zoom > 1.01) {
+            const dx = touch.clientX - drag.x0;
+            const dy = touch.clientY - drag.y0;
+            if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+            const scoreDx = -(dx / Math.max(plotWidth, 1)) * domainXMax * 2;
+            const scoreDy = dy / Math.max(plotHeight, 1) * domainYMax * 2;
+            setPanHtf(clamp(drag.panHtf0 + scoreDx, -maxPanHtf, maxPanHtf));
+            setPanLtf(clamp(drag.panLtf0 + scoreDy, -maxPanLtf, maxPanLtf));
+            return;
+          }
           if (touch) {
             handlePointerMove(touch.clientX, touch.clientY, e.currentTarget);
           }
         },
-        onTouchEnd: handleMouseLeave,
-        className: "w-full h-full touch-none"
+        onTouchEnd: () => {
+          panDragRef.current = null;
+          handleMouseLeave();
+        },
+        className: "w-full h-full touch-none",
+        style: {
+          cursor: zoom > 1.05 ? "grab" : undefined
+        }
       }, React.createElement("defs", null, React.createElement("pattern", {
         id: "grid",
         width: "50",
@@ -3005,4 +3179,4 @@
   };
 })();
 
-// cache-bust:1784039214915:596732467
+// cache-bust:1784041685304:165806258

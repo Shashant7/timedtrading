@@ -9,16 +9,48 @@ export const ALIGN_FILL = {
   neutral: "#64748b",
 };
 
+/** Align state → fill bucket (legend semantics).
+ * Production emits HTF_{BULL|BEAR}_LTF_{BULL|BEAR|PULLBACK}.
+ * HTF_BEAR_LTF_PULLBACK is the bounce/mixed cell (HTF bear, LTF recovering) —
+ * NOT the yellow pullback bucket (that is HTF_BULL_LTF_PULLBACK only).
+ */
 export function classifyAlignmentBucket(state, htfScore, ltfScore) {
   const s = String(state || "").toUpperCase();
-  if (s === "HTF_BULL_LTF_BULL") return "bull_aligned";
-  if (s === "HTF_BEAR_LTF_BEAR") return "bear_aligned";
-  if (s.includes("PULLBACK")) return "pullback";
-  if (s.includes("BOUNCE") || s.includes("REVERSAL")) return "bear_mixed";
-  if (s.startsWith("HTF_BULL")) return "bull_mixed";
-  if (s.startsWith("HTF_BEAR")) return "bear_mixed";
   const h = Number(htfScore);
   const l = Number(ltfScore);
+
+  if (s === "HTF_BULL_LTF_BULL") {
+    // Soft mix: aligned label but LTF not convincingly with HTF.
+    if (Number.isFinite(l) && l < 8) return "bull_mixed";
+    return "bull_aligned";
+  }
+  if (s === "HTF_BEAR_LTF_BEAR") {
+    if (Number.isFinite(l) && l > -8) return "bear_mixed";
+    return "bear_aligned";
+  }
+  // Bull pullback (HTF bull, LTF weak) — yellow.
+  if (
+    s === "HTF_BULL_LTF_PULLBACK"
+    || s === "HTF_BULL_LTF_BEAR_PULLBACK"
+    || s === "HTF_BULL_LTF_BEAR"
+  ) {
+    return "pullback";
+  }
+  // Bear bounce / mixed (HTF bear, LTF lifting) — red + diameter.
+  if (
+    s === "HTF_BEAR_LTF_PULLBACK"
+    || s === "HTF_BEAR_LTF_BULL_BOUNCE"
+    || s === "HTF_BEAR_LTF_BULL"
+    || s.includes("BOUNCE")
+    || s.includes("REVERSAL")
+  ) {
+    return "bear_mixed";
+  }
+  if (s.includes("PULLBACK")) {
+    return s.startsWith("HTF_BEAR") ? "bear_mixed" : "pullback";
+  }
+  if (s.startsWith("HTF_BULL")) return "bull_mixed";
+  if (s.startsWith("HTF_BEAR")) return "bear_mixed";
   if (Number.isFinite(h) && Number.isFinite(l)) {
     if (h > 8 && l > 8) return "bull_aligned";
     if (h < -8 && l < -8) return "bear_aligned";
