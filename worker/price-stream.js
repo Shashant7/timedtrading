@@ -39,19 +39,38 @@ const CRYPTO_REVERSE = { "BTC/USD": "BTCUSD", "ETH/USD": "ETHUSD" };
 // quote receipt time) and p_ts (last time `p` actually moved).
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Build one flush row from stream symState — always carries q_ts/p_ts. */
-export function buildStreamFlushRow(s, now = Date.now()) {
-  const pc = s.prevClose || 0;
+/**
+ * Build one flush row from stream symState — always carries q_ts/p_ts.
+ *
+ * Outside RTH (PRE/AH/CLOSED) for equities: `p`/`dc`/`dp` stay on today's
+ * RTH close; the live last print lands on `ahp`/`ahdc`/`ahdp`. Writing AH
+ * into `p` (IBM Jul 14) made RTH movers / headline day% look like a session
+ * crash when the move was extended-hours only.
+ *
+ * @param {object} s
+ * @param {number} [now]
+ * @param {{ session?: string, isCrypto?: boolean }} [opts]
+ */
+export function buildStreamFlushRow(s, now = Date.now(), opts = {}) {
+  const pc = Number(s.prevClose) || 0;
+  const last = Number(s.last) || 0;
+  const rthClose = Number(s.dailyClose) || 0;
+  const session = String(opts.session || "RTH").toUpperCase();
+  const isCrypto = opts.isCrypto === true;
+  const lastTs = Number(s.lastTs) || now;
+
+  // Equities outside RTH: prefer RTH close for display `p`. Crypto is 24/7.
+  const useAh = !isCrypto && session !== "RTH" && rthClose > 0 && last > 0;
+  const displayP = useAh ? rthClose : last;
 
   let dayChg = null, dayChgPct = null;
-  if (pc > 0) {
-    dayChg = Math.round((s.last - pc) * 100) / 100;
-    dayChgPct = Math.round(((s.last - pc) / pc) * 10000) / 100;
+  if (pc > 0 && displayP > 0) {
+    dayChg = Math.round((displayP - pc) * 100) / 100;
+    dayChgPct = Math.round(((displayP - pc) / pc) * 10000) / 100;
   }
 
-  const lastTs = Number(s.lastTs) || now;
-  return {
-    p: Math.round(s.last * 100) / 100,
+  const row = {
+    p: Math.round(displayP * 100) / 100,
     pc: Math.round(pc * 100) / 100,
     dc: dayChg,
     dp: dayChgPct,
@@ -62,27 +81,64 @@ export function buildStreamFlushRow(s, now = Date.now()) {
     q_ts: lastTs,
     p_ts: Number(s.lastChangeTs) || lastTs,
   };
+
+  if (useAh && Math.abs(last - rthClose) / rthClose > 0.0005) {
+    row.ahp = Math.round(last * 100) / 100;
+    row.ahdc = Math.round((last - rthClose) * 100) / 100;
+    row.ahdp = Math.round(((last - rthClose) / rthClose) * 10000) / 100;
+  }
+
+  return row;
 }
 
 /**
  * Merge one stream flush row onto the existing KV row. Never regresses
  * q_ts/p_ts below what a REST path already stamped; preserves REST-written
  * extended-hours fields and other metadata the stream doesn't know about.
+ *
+ * Outside RTH: a stream row that still carries AH-as-`p` (legacy / missing
+ * dailyClose) must not clobber a REST-correct RTH close already on the row.
  */
-export function mergeStreamRowIntoKv(ex, row) {
+export function mergeStreamRowIntoKv(ex, row, opts = {}) {
   const base = ex || {};
-  const merged = row.pc > 0
-    ? { ...base, ...row }
+  const session = String(opts.session || "RTH").toUpperCase();
+  const isCrypto = opts.isCrypto === true;
+  const outsideRth = !isCrypto && session !== "RTH";
+
+  let next = row;
+  if (outsideRth) {
+    const baseP = Number(base.p) || 0;
+    const rowP = Number(row?.p) || 0;
+    const rowAhp = Number(row?.ahp) || 0;
+    // Legacy stream shape: AH last written to `p` with no ahp, while REST
+    // already has the correct RTH close on the row (IBM Jul 14).
+    if (baseP > 0 && rowP > 0 && !(rowAhp > 0) && Math.abs(rowP - baseP) / baseP > 0.015) {
+      next = {
+        ...row,
+        p: baseP,
+        pc: base.pc,
+        dc: base.dc,
+        dp: base.dp,
+        ahp: Math.round(rowP * 100) / 100,
+        ahdc: Math.round((rowP - baseP) * 100) / 100,
+        ahdp: Math.round(((rowP - baseP) / baseP) * 10000) / 100,
+        p_ts: Number(base.p_ts) || row.p_ts,
+      };
+    }
+  }
+
+  const merged = next.pc > 0
+    ? { ...base, ...next }
     : {
         ...base,
-        p: row.p,
-        t: row.t,
-        dh: row.dh || base.dh,
-        dl: row.dl || base.dl,
-        dv: row.dv || base.dv,
+        p: next.p,
+        t: next.t,
+        dh: next.dh || base.dh,
+        dl: next.dl || base.dl,
+        dv: next.dv || base.dv,
       };
-  merged.q_ts = Math.max(Number(base.q_ts) || 0, Number(row.q_ts) || 0);
-  merged.p_ts = Math.max(Number(base.p_ts) || 0, Number(row.p_ts) || 0);
+  merged.q_ts = Math.max(Number(base.q_ts) || 0, Number(next.q_ts) || 0);
+  merged.p_ts = Math.max(Number(base.p_ts) || 0, Number(next.p_ts) || 0);
   return merged;
 }
 
@@ -188,30 +244,37 @@ export class PriceStream {
 
   _applySnapshots(snaps) {
     let count = 0;
+    const session = this._getSession();
+    const outsideRth = session !== "RTH";
     for (const [sym, data] of Object.entries(snaps)) {
       const existing = this.symState[sym];
+      const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+      // Outside RTH: live print prefers extended_price; dailyClose holds RTH close.
+      const extP = Number(data.extendedPrice) || 0;
+      const rthP = Number(data.dailyClose) || Number(data.price) || 0;
+      const liveP = (!isCrypto && outsideRth && extP > 0) ? extP : (Number(data.price) || rthP || 0);
       if (existing) {
         if (data.prevDailyClose > 0) existing.prevClose = data.prevDailyClose;
-        if (data.dailyClose > 0) existing.dailyClose = data.dailyClose;
+        if (rthP > 0) existing.dailyClose = rthP;
         if (data.dailyOpen > 0) existing.dayOpen = data.dailyOpen;
         if (data.dailyHigh > 0) existing.dayHigh = data.dailyHigh;
         if (data.dailyLow > 0) existing.dayLow = data.dailyLow;
         if (data.dailyVolume > 0) existing.dayVol = data.dailyVolume;
         const nextTs = Number(data.trade_ts) || 0;
-        const priceChanged = data.price > 0 && Math.abs(data.price - (existing.last || 0)) > 0.0001;
-        if (data.price > 0 && (nextTs > (existing.lastTs || 0) || priceChanged)) {
-          existing.last = data.price;
+        const priceChanged = liveP > 0 && Math.abs(liveP - (existing.last || 0)) > 0.0001;
+        if (liveP > 0 && (nextTs > (existing.lastTs || 0) || priceChanged)) {
+          existing.last = liveP;
           existing.lastTs = priceChanged ? Math.max(nextTs, Date.now()) : nextTs;
           if (priceChanged) existing.lastChangeTs = existing.lastTs;
         }
         existing.dirty = true;
       } else {
         this.symState[sym] = {
-          last: data.price || 0,
+          last: liveP || 0,
           lastTs: data.trade_ts || Date.now(),
           lastChangeTs: data.trade_ts || Date.now(),
           prevClose: data.prevDailyClose || 0,
-          dailyClose: data.dailyClose || 0,
+          dailyClose: rthP || 0,
           dayOpen: data.dailyOpen || 0,
           dayHigh: data.dailyHigh || 0,
           dayLow: data.dailyLow || 0,
@@ -238,11 +301,13 @@ export class PriceStream {
     const now = Date.now();
     const pricesData = {};
 
+    const session = this._getSession();
     for (const sym of dirtySyms) {
       const s = this.symState[sym];
       // Rows always carry q_ts/p_ts — every downstream freshness gate keys
       // off these, and a bare p+t row reads as a zombie (MU/WDC/SOXL 2026-07-07).
-      pricesData[sym] = buildStreamFlushRow(s, now);
+      const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+      pricesData[sym] = buildStreamFlushRow(s, now, { session, isCrypto });
       s.dirty = false;
     }
 
@@ -284,7 +349,8 @@ export class PriceStream {
 
         const merged = { ...existing };
         for (const [sym, data] of Object.entries(pricesData)) {
-          merged[sym] = mergeStreamRowIntoKv(existing[sym], data);
+          const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+          merged[sym] = mergeStreamRowIntoKv(existing[sym], data, { session, isCrypto });
         }
 
         const mergedCount = Object.keys(merged).length;
@@ -402,24 +468,17 @@ export class PriceStream {
 
     if (url.pathname === "/prices") {
       const prices = {};
+      const session = this._getSession();
       for (const [sym, s] of Object.entries(this.symState)) {
         if (s.last > 0) {
-          const pc = s.prevClose || 0;
-          prices[sym] = {
-            p: s.last,
-            t: s.lastTs,
-            q_ts: s.lastTs,
-            p_ts: s.lastChangeTs || s.lastTs,
-            pc,
-            dc: pc > 0 ? Math.round((s.last - pc) * 100) / 100 : 0,
-            dp: pc > 0 ? Math.round(((s.last - pc) / pc) * 10000) / 100 : 0,
-            o: s.dayOpen || 0,
-            h: s.dayHigh || 0,
-            l: s.dayLow || 0,
-            c: s.dailyClose || 0,
-            v: s.dayVol || 0,
-            src: "twelvedata_ws",
-          };
+          const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
+          prices[sym] = buildStreamFlushRow(s, Date.now(), { session, isCrypto });
+          prices[sym].o = s.dayOpen || 0;
+          prices[sym].h = s.dayHigh || 0;
+          prices[sym].l = s.dayLow || 0;
+          prices[sym].c = s.dailyClose || 0;
+          prices[sym].v = s.dayVol || 0;
+          prices[sym].src = "twelvedata_ws";
         }
       }
       return _json({ ok: true, prices, updated_at: Date.now() });

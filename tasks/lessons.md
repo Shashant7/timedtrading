@@ -6,6 +6,18 @@
 
 ---
 
+## Real AH crash ≠ false price — but stream wrote it onto RTH `p` (IBM) [2026-07-14]
+
+IBM gapped ~−23% in pre/AH to ~$222 (real). Operator screenshots showed the
+same dump in **both** RTH and EXT movers, and headline −23%, so it looked like
+a bad quote. TwelveData RTH close was still ~$290 (+0.9%); the WS price stream
+was flushing AH last onto `timed:prices.p`/`dp` outside RTH. Fix:
+`buildStreamFlushRow` parks AH on `ahp`/`ahdp` when session ≠ RTH and keeps
+`p`/`dp` on `dailyClose`; merge remaps legacy AH-on-p ticks. LESSON: a large
+valid extended move can still be a display bug if writers ignore session —
+don't "reject" the AH print; keep RTH and EXT fields separate. Chart "16h ago"
+on 1H during premarket is normal (last RTH bar ~prior 4pm).
+
 ## Feed SL hard-close at 4 AM used stale KV entry → false loss (KO) [2026-07-13]
 
 KO Active Trader exit email at 4:01 AM ET showed entry $83.39 / exit $81.40 /

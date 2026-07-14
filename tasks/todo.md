@@ -22,6 +22,16 @@
 
 ### Active
 
+- [x] **Stream preserves RTH `p` outside RTH (IBM Jul 14).** Real ~−23% AH
+      dump was valid, but WS flush wrote AH onto `timed:prices.p` so RTH
+      movers/headline also showed −23%. Session-aware `buildStreamFlushRow` +
+      merge remap. Branch: `cursor/stream-ah-preserve-rth-df0c`.
+
+- [x] **Daily Brief email position stacks (2026-07-13).** Investor Portfolio +
+      Active Trader email sections now render chip — guidance per holding (parity
+      with web `BriefPositionStack`), not grouped chips then grouped bullets.
+      Branch: `cursor/email-brief-position-stack-df0c`.
+
 - [x] **Convexity Plays row + Now tab panel (2026-06-15).** Single universe strip
       (lotto + moonshot); Snapshot panel when aligned; no suppressed list; Pro gate;
       READY lotto at floor; investor lane included. Branch: `cursor/convexity-plays-df0c`.
