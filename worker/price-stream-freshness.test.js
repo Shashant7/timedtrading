@@ -35,6 +35,30 @@ describe("buildStreamFlushRow", () => {
     const row = buildStreamFlushRow({ last: 157.89, lastTs: now - 10_000, lastChangeTs: now - 10_000, prevClose: 194.65 }, now);
     expect(isPriceValueFresh(row, now, true)).toBe(true);
   });
+
+  it("outside RTH keeps RTH close on p and parks live print on ahp (IBM pattern)", () => {
+    const now = Date.now();
+    const row = buildStreamFlushRow({
+      last: 222.69,
+      dailyClose: 290.23,
+      prevClose: 287.56,
+      lastTs: now,
+      lastChangeTs: now,
+    }, now, { session: "PRE" });
+    expect(row.p).toBe(290.23);
+    expect(row.dp).toBeCloseTo(0.93, 1);
+    expect(row.ahp).toBe(222.69);
+    expect(row.ahdp).toBeCloseTo(-23.27, 1);
+  });
+
+  it("crypto outside RTH still writes last onto p", () => {
+    const now = Date.now();
+    const row = buildStreamFlushRow({
+      last: 65000, dailyClose: 64000, prevClose: 64000, lastTs: now, lastChangeTs: now,
+    }, now, { session: "PRE", isCrypto: true });
+    expect(row.p).toBe(65000);
+    expect(row.ahp).toBeUndefined();
+  });
 });
 
 describe("mergeStreamRowIntoKv", () => {
@@ -67,6 +91,24 @@ describe("mergeStreamRowIntoKv", () => {
     expect(merged.p).toBe(51);
     expect(merged.pc).toBe(49); // seeded pc preserved
     expect(merged.dc).toBe(1);
+    expect(merged.q_ts).toBe(now);
+  });
+
+  it("outside RTH remaps legacy AH-on-p ticks onto ahp without clobbering RTH close", () => {
+    const now = Date.now();
+    const ex = {
+      p: 290.23, pc: 287.56, dc: 2.67, dp: 0.93,
+      q_ts: now - 60_000, p_ts: now - 60_000,
+    };
+    const legacyAhOnP = {
+      p: 222.69, pc: 287.56, dc: -64.87, dp: -22.56,
+      t: now, q_ts: now, p_ts: now,
+    };
+    const merged = mergeStreamRowIntoKv(ex, legacyAhOnP, { session: "PRE" });
+    expect(merged.p).toBe(290.23);
+    expect(merged.dp).toBe(0.93);
+    expect(merged.ahp).toBe(222.69);
+    expect(merged.ahdp).toBeCloseTo(-23.27, 1);
     expect(merged.q_ts).toBe(now);
   });
 });
