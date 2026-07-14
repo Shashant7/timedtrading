@@ -25,11 +25,11 @@ describe("bubble map encode", () => {
     expect(resolveBubbleRr({ price: 100, sl: 90, tp_exit: 130 })).toBeCloseTo(3, 5);
   });
 
-  it("maps conviction to stroke tiers", () => {
+  it("maps conviction to stroke tiers (medium inherits none)", () => {
     expect(probabilityStrokeStyle(resolveBubbleProbability({ focus_conviction_score: 25 })).tier).toBe("none");
-    expect(probabilityStrokeStyle(resolveBubbleProbability({ focus_conviction_score: 55 })).tier).toBe("medium");
+    expect(probabilityStrokeStyle(resolveBubbleProbability({ focus_conviction_score: 55 })).tier).toBe("none");
     expect(probabilityStrokeStyle(resolveBubbleProbability({ focus_conviction_score: 80 })).tier).toBe("high");
-    expect(probabilityStrokeStyle(55).dash).toBe("2.5 2.5");
+    expect(probabilityStrokeStyle(55).dash).toBeNull();
   });
 
   it("reads journey origin and markov forecast targets", () => {

@@ -1153,13 +1153,13 @@
       .bm-leg-stroke--high { border: 1.5px solid rgba(226, 232, 240, 0.95); background: transparent; }
       .bm-leg-vec {
         display: inline-block;
-        width: 14px;
+        width: 16px;
         height: 0;
         margin: 0 5px 2px 0;
         vertical-align: middle;
-        border-top: 1.5px solid rgba(226, 232, 240, 0.85);
+        border-top: 2px solid rgba(248, 250, 252, 0.95);
       }
-      .bm-leg-vec--dot { border-top-style: dotted; }
+      .bm-leg-vec--dot { border-top-style: dotted; border-top-width: 2px; }
       .bm-meta {
         display: flex;
         gap: 12px;
@@ -5480,10 +5480,10 @@
       }
       const STATE_BUCKET_COLOR = {
         bull_aligned: "#22c55e",
-        bear_aligned: "#f43f5e",
+        bear_aligned: "#b91c1c",
         pullback:     "#eab308",
         bull_mixed:   "#22c55e",
-        bear_mixed:   "#f43f5e",
+        bear_mixed:   "#b91c1c",
         neutral:      "#6b7280",
       };
 
@@ -5493,12 +5493,11 @@
           h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull Aligned"),
           h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed", style: { background: "#22c55e" } }), "Bull Mixed"),
           h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#eab308" } }), "Pullback"),
-          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#f43f5e" } }), "Bear Aligned"),
-          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed", style: { background: "#f43f5e" } }), "Bear Mixed"),
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#b91c1c" } }), "Bear Aligned"),
+          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed", style: { background: "#b91c1c" } }), "Bear Mixed"),
           h("span", { className: "bm-leg-meta" }, "Size = R:R to Target 2"),
           h("span", { className: "bm-leg-meta" },
-            h("span", { className: "bm-leg-stroke bm-leg-stroke--none" }), "Low · ",
-            h("span", { className: "bm-leg-stroke bm-leg-stroke--med" }), "Med · ",
+            h("span", { className: "bm-leg-stroke bm-leg-stroke--none" }), "Low/Med · ",
             h("span", { className: "bm-leg-stroke bm-leg-stroke--high" }), "High prob",
           ),
           h("span", { className: "bm-leg-meta" },
@@ -6649,7 +6648,7 @@
             h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."),
             h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."),
             h("li", null, "Fill color = HTF/LTF alignment (green / yellow pullback / red). Mixed states show a diameter line."),
-            h("li", null, "Bubble size = R:R to Target 2 (distance to TP exit vs stop). Stroke = setup probability (none / dotted / solid)."),
+            h("li", null, "Bubble size = R:R to Target 2 (distance to TP exit vs stop). Solid stroke = high setup probability; low/med have no stroke."),
             h("li", null, "Solid stub = where the score came from; dotted stub = where the model leans next."),
             h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel."),
           ),
