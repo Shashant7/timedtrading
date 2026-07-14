@@ -4,7 +4,7 @@
 // helper functions used internally. Loaded by /today.html.
 //
 // HOW THIS FILE IS USED:
-//   1. Page HTML loads <script src='tt-bubble-map-0714.compiled.js'>
+//   1. Page HTML loads <script src='tt-bubble-map-0714v.compiled.js'>
 //   2. JS exposes window.TimedBubbleChart = { BubbleChart, helpers... }
 //   3. React app uses h(window.TimedBubbleChart.BubbleChart, props)
 //
@@ -565,6 +565,40 @@
     return { dx: dx * s, dy: dy * s, len: maxLen };
   }
 
+  /**
+   * Rim-anchored direction stub: shaft starts just outside the bubble edge
+   * and ends tipExtra px beyond it. Keeps markers readable on large bubbles
+   * (old center→tip clamps were often buried under the fill).
+   */
+  function rimDirectionStub(dx, dy, radius, { tipExtra = 13, gap = 2 } = {}) {
+    const len = Math.hypot(dx, dy);
+    if (!(len > 0.5)) return null;
+    const ux = dx / len;
+    const uy = dy / len;
+    const r = Math.max(3, Number(radius) || 0);
+    const startR = r + gap;
+    const tipR = r + Math.max(8, tipExtra);
+    return {
+      x1: ux * startR,
+      y1: uy * startR,
+      x2: ux * tipR,
+      y2: uy * tipR,
+      ux,
+      uy,
+      tipR,
+    };
+  }
+
+  /** Filled arrowhead polygon facing along (ux, uy), tip at (tx, ty). */
+  function arrowHeadPoints(tx, ty, ux, uy, size = 7) {
+    const bx = tx - ux * size;
+    const by = ty - uy * size;
+    const px = -uy;
+    const py = ux;
+    const w = size * 0.58;
+    return `${tx},${ty} ${bx + px * w},${by + py * w} ${bx - px * w},${by - py * w}`;
+  }
+
   function computeBubbleRadiusModel(
     tickerLike,
     symbolOverride = null,
@@ -1029,15 +1063,8 @@
 
       const hasEarnings = !!window._ttEarningsMap?.[ticker.ticker];
 
-      // From / to vectors in local bubble coords (subtle stubs).
       const origin = resolveBubbleOrigin(ticker);
       const forecast = resolveBubbleForecastTarget(ticker);
-      const fromVec = origin
-        ? clampVectorPx((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, isHovered ? 24 : 18)
-        : null;
-      const toVec = forecast
-        ? clampVectorPx((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, isHovered ? 24 : 18)
-        : null;
 
       const stageIconData = (() => {
         /* 2026-06-02 — Investor pages: prefer _investorAction over the
@@ -1061,6 +1088,24 @@
 
       const showGlow = !waitingForData && isActionable;
       const renderedSize = Math.max(3, Math.min(50, bubbleSize));
+      // Rim-anchored stubs so tips stay outside the fill on large bubbles.
+      const tipExtra = isHovered ? 16 : 12;
+      const fromStub = origin
+        ? rimDirectionStub(
+          (origin.htf - htfScore) * scaleX,
+          (origin.ltf - ltfScore) * scaleY,
+          renderedSize,
+          { tipExtra, gap: 2.25 },
+        )
+        : null;
+      const toStub = forecast
+        ? rimDirectionStub(
+          (forecast.htf - htfScore) * scaleX,
+          (forecast.ltf - ltfScore) * scaleY,
+          renderedSize,
+          { tipExtra, gap: 2.25 },
+        )
+        : null;
       const labelY = y - renderedSize - 8;
 
       const decisionSummary = summarizeEntryDecision(ticker);
@@ -1142,36 +1187,6 @@
           style={{ cursor: "pointer", touchAction: "manipulation", opacity: insightDimmed && !isHovered ? 0.12 : 1 }}
         >
           {decisionTooltip && <title>{decisionTooltip}</title>}
-          {/* From (solid) / forecast (dotted) stubs — score space, clamped short. */}
-          {fromVec && (
-            <g opacity={isHovered ? 0.95 : 0.78} style={{ pointerEvents: "none" }}>
-              <line
-                x1={fromVec.dx}
-                y1={fromVec.dy}
-                x2={0}
-                y2={0}
-                stroke="rgba(248,250,252,0.95)"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <circle cx={fromVec.dx} cy={fromVec.dy} r="2.4" fill="rgba(248,250,252,0.95)" stroke="rgba(15,23,42,0.55)" strokeWidth="0.6" />
-            </g>
-          )}
-          {toVec && (
-            <g opacity={isHovered ? 0.95 : 0.78} style={{ pointerEvents: "none" }}>
-              <line
-                x1={0}
-                y1={0}
-                x2={toVec.dx}
-                y2={toVec.dy}
-                stroke="rgba(248,250,252,0.92)"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeDasharray="3.5 2.5"
-              />
-              <circle cx={toVec.dx} cy={toVec.dy} r="2.2" fill="rgba(15,23,42,0.35)" stroke="rgba(248,250,252,0.95)" strokeWidth="1.2" />
-            </g>
-          )}
           {showGlow && (
             <>
               <circle cx={0} cy={0} r={renderedSize + 6} fill="none" stroke={alignFill} strokeWidth="1.5" opacity="0.35">
@@ -1205,6 +1220,75 @@
               opacity={opacity}
               style={{ pointerEvents: "none" }}
             />
+          )}
+          {/* Direction history (solid + origin disc) / model lean (dashed + arrow). */}
+          {fromStub && (
+            <g opacity={isHovered ? 1 : 0.92} style={{ pointerEvents: "none" }}>
+              <line
+                x1={fromStub.x1}
+                y1={fromStub.y1}
+                x2={fromStub.x2 - fromStub.ux * 3}
+                y2={fromStub.y2 - fromStub.uy * 3}
+                stroke="rgba(15,23,42,0.7)"
+                strokeWidth="4"
+                strokeLinecap="round"
+              />
+              <line
+                x1={fromStub.x1}
+                y1={fromStub.y1}
+                x2={fromStub.x2 - fromStub.ux * 3}
+                y2={fromStub.y2 - fromStub.uy * 3}
+                stroke="#f8fafc"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+              <circle
+                cx={fromStub.x2}
+                cy={fromStub.y2}
+                r="4.2"
+                fill="rgba(15,23,42,0.55)"
+                stroke="none"
+              />
+              <circle
+                cx={fromStub.x2}
+                cy={fromStub.y2}
+                r="3.1"
+                fill="#f8fafc"
+                stroke="rgba(15,23,42,0.85)"
+                strokeWidth="1.15"
+              />
+            </g>
+          )}
+          {toStub && (
+            <g opacity={isHovered ? 1 : 0.94} style={{ pointerEvents: "none" }}>
+              <line
+                x1={toStub.x1}
+                y1={toStub.y1}
+                x2={toStub.x2 - toStub.ux * 5.5}
+                y2={toStub.y2 - toStub.uy * 5.5}
+                stroke="rgba(15,23,42,0.72)"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray="4.5 3"
+              />
+              <line
+                x1={toStub.x1}
+                y1={toStub.y1}
+                x2={toStub.x2 - toStub.ux * 5.5}
+                y2={toStub.y2 - toStub.uy * 5.5}
+                stroke="#38bdf8"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeDasharray="4.5 3"
+              />
+              <polygon
+                points={arrowHeadPoints(toStub.x2, toStub.y2, toStub.ux, toStub.uy, isHovered ? 8 : 7)}
+                fill="#38bdf8"
+                stroke="rgba(15,23,42,0.85)"
+                strokeWidth="1"
+                strokeLinejoin="round"
+              />
+            </g>
           )}
           {hasEarnings && (
             <g style={{pointerEvents: "none"}}>
