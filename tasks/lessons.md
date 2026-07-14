@@ -3385,3 +3385,6 @@ Rules:
    vendor stamps >20 min old during RTH; `/timed/health` exposes
    writer-independent `valueStaleCount`/`valueStaleSymbols` computed from
    row stamps directly.
+
+## 2026-07-14 — Bubble map “no mixed” was a state-name mis-map
+Production emits `HTF_BEAR_LTF_PULLBACK` for the bounce cell (HTF bear, LTF recovering). Classifying any state containing `PULLBACK` as yellow collapse all bounce names into pullback and zeroed out `bear_mixed`. Map `HTF_BEAR_LTF_PULLBACK` → `bear_mixed`; only `HTF_BULL_LTF_PULLBACK` is yellow pullback.

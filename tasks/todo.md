@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Bubble map: fix mixed encode + zoom/pan (2026-07-14).** Map
+      `HTF_BEAR_LTF_PULLBACK` → bear_mixed (bounce); soften weak aligned →
+      mixed with diameter; zoom/pan controls; From=disc Lean=arrow.
+      Branch: `cursor/bubble-map-mixed-zoom-df0c`.
+
+
 - [x] **Bubble vector polish (2026-07-14).** Rim-anchored From/Lean markers
       (halo shaft, origin disc, cyan arrowhead) so history/lean readable on
       large bubbles. Branch: `cursor/bubble-vector-polish-df0c`.
