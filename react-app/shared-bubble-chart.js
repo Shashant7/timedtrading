@@ -433,8 +433,8 @@
     bull_aligned: "#22c55e",
     bull_mixed: "#22c55e",
     pullback: "#eab308",
-    bear_aligned: "#f43f5e",
-    bear_mixed: "#f43f5e",
+    bear_aligned: "#b91c1c",
+    bear_mixed: "#b91c1c",
     neutral: "#64748b",
   };
 
@@ -485,7 +485,7 @@
 
   /**
    * Setup probability / conviction for stroke.
-   * Low  (<40) → no stroke; Med (40–69) → dotted; High (≥70) → solid.
+   * Low / Med (<70) → no stroke; High (≥70) → solid.
    */
   function resolveBubbleProbability(tickerLike) {
     const conv = Number(
@@ -502,16 +502,10 @@
   }
 
   function probabilityStrokeStyle(probability) {
-    if (probability == null || !Number.isFinite(probability)) {
+    if (probability == null || !Number.isFinite(probability) || probability < 70) {
       return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
     }
-    if (probability < 40) {
-      return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
-    }
-    if (probability < 70) {
-      return { tier: "medium", stroke: "rgba(255,255,255,0.72)", strokeWidth: 1.4, dash: "2.5 2.5" };
-    }
-    return { tier: "high", stroke: "rgba(255,255,255,0.9)", strokeWidth: 1.8, dash: null };
+    return { tier: "high", stroke: "rgba(255,255,255,0.95)", strokeWidth: 2, dash: null };
   }
 
   /** Prior HTF/LTF from journey keyframes ("where it came from"). */
@@ -1039,10 +1033,10 @@
       const origin = resolveBubbleOrigin(ticker);
       const forecast = resolveBubbleForecastTarget(ticker);
       const fromVec = origin
-        ? clampVectorPx((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, isHovered ? 18 : 13)
+        ? clampVectorPx((origin.htf - htfScore) * scaleX, (origin.ltf - ltfScore) * scaleY, isHovered ? 24 : 18)
         : null;
       const toVec = forecast
-        ? clampVectorPx((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, isHovered ? 18 : 13)
+        ? clampVectorPx((forecast.htf - htfScore) * scaleX, (forecast.ltf - ltfScore) * scaleY, isHovered ? 24 : 18)
         : null;
 
       const stageIconData = (() => {
@@ -1150,32 +1144,32 @@
           {decisionTooltip && <title>{decisionTooltip}</title>}
           {/* From (solid) / forecast (dotted) stubs — score space, clamped short. */}
           {fromVec && (
-            <g opacity={isHovered ? 0.7 : 0.38} style={{ pointerEvents: "none" }}>
+            <g opacity={isHovered ? 0.95 : 0.78} style={{ pointerEvents: "none" }}>
               <line
                 x1={fromVec.dx}
                 y1={fromVec.dy}
                 x2={0}
                 y2={0}
-                stroke="rgba(226,232,240,0.9)"
-                strokeWidth="1.1"
+                stroke="rgba(248,250,252,0.95)"
+                strokeWidth="1.8"
                 strokeLinecap="round"
               />
-              <circle cx={fromVec.dx} cy={fromVec.dy} r="1.6" fill="rgba(226,232,240,0.85)" />
+              <circle cx={fromVec.dx} cy={fromVec.dy} r="2.4" fill="rgba(248,250,252,0.95)" stroke="rgba(15,23,42,0.55)" strokeWidth="0.6" />
             </g>
           )}
           {toVec && (
-            <g opacity={isHovered ? 0.7 : 0.38} style={{ pointerEvents: "none" }}>
+            <g opacity={isHovered ? 0.95 : 0.78} style={{ pointerEvents: "none" }}>
               <line
                 x1={0}
                 y1={0}
                 x2={toVec.dx}
                 y2={toVec.dy}
-                stroke="rgba(226,232,240,0.85)"
-                strokeWidth="1.1"
+                stroke="rgba(248,250,252,0.92)"
+                strokeWidth="1.8"
                 strokeLinecap="round"
-                strokeDasharray="2.5 2.5"
+                strokeDasharray="3.5 2.5"
               />
-              <circle cx={toVec.dx} cy={toVec.dy} r="1.4" fill="none" stroke="rgba(226,232,240,0.8)" strokeWidth="0.9" />
+              <circle cx={toVec.dx} cy={toVec.dy} r="2.2" fill="rgba(15,23,42,0.35)" stroke="rgba(248,250,252,0.95)" strokeWidth="1.2" />
             </g>
           )}
           {showGlow && (

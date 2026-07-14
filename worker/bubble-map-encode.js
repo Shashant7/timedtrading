@@ -4,8 +4,8 @@ export const ALIGN_FILL = {
   bull_aligned: "#22c55e",
   bull_mixed: "#22c55e",
   pullback: "#eab308",
-  bear_aligned: "#f43f5e",
-  bear_mixed: "#f43f5e",
+  bear_aligned: "#b91c1c",
+  bear_mixed: "#b91c1c",
   neutral: "#64748b",
 };
 
@@ -59,14 +59,11 @@ export function resolveBubbleProbability(tickerLike) {
 }
 
 export function probabilityStrokeStyle(probability) {
-  if (probability == null || !Number.isFinite(probability)) {
+  // Low + medium share no-stroke; only high conviction gets a solid outline.
+  if (probability == null || !Number.isFinite(probability) || probability < 70) {
     return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
   }
-  if (probability < 40) return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
-  if (probability < 70) {
-    return { tier: "medium", stroke: "rgba(255,255,255,0.72)", strokeWidth: 1.4, dash: "2.5 2.5" };
-  }
-  return { tier: "high", stroke: "rgba(255,255,255,0.9)", strokeWidth: 1.8, dash: null };
+  return { tier: "high", stroke: "rgba(255,255,255,0.95)", strokeWidth: 2, dash: null };
 }
 
 export function resolveBubbleOrigin(tickerLike) {

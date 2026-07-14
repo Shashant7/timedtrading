@@ -3944,10 +3944,10 @@ function classifyStateBucket(state) {
 }
 const STATE_BUCKET_COLOR = {
   bull_aligned: "#22c55e",
-  bear_aligned: "#f43f5e",
+  bear_aligned: "#b91c1c",
   pullback: "#eab308",
   bull_mixed: "#22c55e",
-  bear_mixed: "#f43f5e",
+  bear_mixed: "#b91c1c",
   neutral: "#6b7280"
 };
 function BubbleMapEncodeLegend() {
@@ -3972,12 +3972,12 @@ function BubbleMapEncodeLegend() {
   }), "Pullback"), h("span", null, h("span", {
     className: "bm-leg-dot",
     style: {
-      background: "#f43f5e"
+      background: "#b91c1c"
     }
   }), "Bear Aligned"), h("span", null, h("span", {
     className: "bm-leg-dot bm-leg-dot--mixed",
     style: {
-      background: "#f43f5e"
+      background: "#b91c1c"
     }
   }), "Bear Mixed"), h("span", {
     className: "bm-leg-meta"
@@ -3985,9 +3985,7 @@ function BubbleMapEncodeLegend() {
     className: "bm-leg-meta"
   }, h("span", {
     className: "bm-leg-stroke bm-leg-stroke--none"
-  }), "Low · ", h("span", {
-    className: "bm-leg-stroke bm-leg-stroke--med"
-  }), "Med · ", h("span", {
+  }), "Low/Med · ", h("span", {
     className: "bm-leg-stroke bm-leg-stroke--high"
   }), "High prob"), h("span", {
     className: "bm-leg-meta"
@@ -5101,7 +5099,7 @@ function BubbleMapGuide() {
         window.localStorage.setItem(storageKey, "1");
       } catch (_) {}
     }
-  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."), h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."), h("li", null, "Fill color = HTF/LTF alignment (green / yellow pullback / red). Mixed states show a diameter line."), h("li", null, "Bubble size = R:R to Target 2 (distance to TP exit vs stop). Stroke = setup probability (none / dotted / solid)."), h("li", null, "Solid stub = where the score came from; dotted stub = where the model leans next."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
+  }, "Got it")), h("ul", null, h("li", null, "Horizontal axis (HTF Score): higher-timeframe trend — left is bearish, right is bullish."), h("li", null, "Vertical axis (LTF Score): short-term momentum — bottom is weak, top is strong."), h("li", null, "Fill color = HTF/LTF alignment (green / yellow pullback / red). Mixed states show a diameter line."), h("li", null, "Bubble size = R:R to Target 2 (distance to TP exit vs stop). Solid stroke = high setup probability; low/med have no stroke."), h("li", null, "Solid stub = where the score came from; dotted stub = where the model leans next."), h("li", null, "Click any bubble to open levels, setup quality, and trade context in the detail panel.")));
 }
 function BubbleMapViewportSplit({
   allTickers,
@@ -6633,6 +6631,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784032718998:331760849
+// cache-bust:1784034942282:892416315
 
-// cache-bust:1784032718998:331760849
+// cache-bust:1784034942282:892416315
