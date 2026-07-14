@@ -4,7 +4,7 @@
 // helper functions used internally. Loaded by /today.html.
 //
 // HOW THIS FILE IS USED:
-//   1. Page HTML loads <script src='tt-bubble-map-0714z.compiled.js'>
+//   1. Page HTML loads <script src='tt-bubble-map-0714m.compiled.js'>
 //   2. JS exposes window.TimedBubbleChart = { BubbleChart, helpers... }
 //   3. React app uses h(window.TimedBubbleChart.BubbleChart, props)
 //
@@ -447,7 +447,6 @@
     HTF_BEAR_LTF_BULL_BOUNCE: { htf: -24, ltf: 14 },
   };
 
-  /** Align state → fill bucket (legend semantics). */
   /** Align state → fill bucket (legend semantics).
    * Production emits HTF_{BULL|BEAR}_LTF_{BULL|BEAR|PULLBACK}.
    * HTF_BEAR_LTF_PULLBACK is the bounce/mixed cell (HTF bear, LTF recovering) —
@@ -475,7 +474,7 @@
     ) {
       return "pullback";
     }
-    // Bear bounce / mixed (HTF bear, LTF lifting) — red + diameter.
+    // Bear bounce / mixed (HTF bear, LTF lifting) — red + subtle "~".
     if (
       s === "HTF_BEAR_LTF_PULLBACK"
       || s === "HTF_BEAR_LTF_BULL_BOUNCE"
@@ -1241,17 +1240,25 @@
             opacity={opacity}
           />
           {isMixed && !waitingForData && (
-            <line
-              x1={-renderedSize * 0.72}
-              y1={0}
-              x2={renderedSize * 0.72}
-              y2={0}
-              stroke="rgba(15,23,42,0.55)"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              opacity={opacity}
-              style={{ pointerEvents: "none" }}
-            />
+            /* Bull Mixed: dark ~ for contrast on green. Bear Mixed: softer light ~. */
+            <text
+              x={0}
+              y={0.55}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize={Math.max(
+                alignBucket === "bull_mixed" ? 10 : 8,
+                Math.min(alignBucket === "bull_mixed" ? 16 : 13, renderedSize * (alignBucket === "bull_mixed" ? 1.1 : 0.95)),
+              )}
+              fontWeight={alignBucket === "bull_mixed" ? "700" : "500"}
+              fill={alignBucket === "bull_mixed" ? "rgba(15,23,42,0.78)" : "rgba(248,250,252,0.62)"}
+              stroke={alignBucket === "bull_mixed" ? "rgba(248,250,252,0.35)" : "rgba(15,23,42,0.22)"}
+              strokeWidth={alignBucket === "bull_mixed" ? 0.45 : 0.25}
+              opacity={isHovered ? 0.95 : (alignBucket === "bull_mixed" ? 0.88 : 0.55)}
+              style={{ pointerEvents: "none", letterSpacing: "-0.06em" }}
+            >
+              ~
+            </text>
           )}
           {/* Direction history (solid + origin disc) / model lean (dashed + arrow). */}
           {fromStub && (

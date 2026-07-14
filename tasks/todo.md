@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **Bubble legend R:R/Prob + mixed tilde (2026-07-14).** Legend shows Size=R:R
+      and High Prob stroke; mixed = subtle "~" on bubble + legend (AT/Investor/
+      Today/Brief). Branch: `cursor/bubble-legend-mixed-df0c`.
+
+
 - [x] **LEAP premium vs live chain + health watchdog (2026-07-14).** AEHR LEAP
       was priced off the swing (~66 DTE) chain while labeled Jan LEAP. Fetch LEAP
       cycle separately; rebind leg after strike refine; intrinsic floor on mid.
