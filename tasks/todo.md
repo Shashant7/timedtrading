@@ -22,6 +22,7 @@
 
 ### Active
 
+<<<<<<< HEAD
 - [x] **Stream preserves RTH `p` outside RTH (IBM Jul 14).** Real ~−23% AH
       dump was valid, but WS flush wrote AH onto `timed:prices.p` so RTH
       movers/headline also showed −23%. Session-aware `buildStreamFlushRow` +
@@ -31,6 +32,12 @@
       Active Trader email sections now render chip — guidance per holding (parity
       with web `BriefPositionStack`), not grouped chips then grouped bullets.
       Branch: `cursor/email-brief-position-stack-df0c`.
+=======
+- [x] **Bubble map encode refresh (2026-07-14).** Alignment fills (mixed =
+      diameter line, Pullback = yellow); size = R:R to Target 2; stroke =
+      probability (none/dotted/solid); subtle from/forecast vectors.
+      Branch: `cursor/bubble-map-encode-df0c`.
+>>>>>>> 6036b6756 (Refresh bubble map encode: alignment, R:R size, probability stroke, vectors)
 
 - [x] **Convexity Plays row + Now tab panel (2026-06-15).** Single universe strip
       (lotto + moonshot); Snapshot panel when aligned; no suppressed list; Pro gate;
