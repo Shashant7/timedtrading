@@ -100,7 +100,10 @@ export function liveDayPctFromPriceFeedRow(row, marketOpen = true) {
     const spot = liveSpotFromPriceFeedRow(row, false);
     const priorClose = priorRthCloseFromPriceFeedRow(row, false);
     if (Number.isFinite(spot) && Number.isFinite(priorClose) && priorClose > 0) {
-      return Math.round(((spot - priorClose) / priorClose) * 10000) / 100;
+      const gapPct = Math.round(((spot - priorClose) / priorClose) * 10000) / 100;
+      // Flat EXT vs prior close (ahp still parked on RTH close) is not a real
+      // "0% today" — fall through to last RTH day% so brief chips aren't blanked.
+      if (gapPct !== 0) return gapPct;
     }
   }
   const dp = Number(row.dp);
@@ -1733,7 +1736,8 @@ function mapBriefInvestorPositionRow(p, investorProfileMap = {}, liveScores = {}
 export function buildInfographicPositionRows(openTrades = [], investorPositions = [], priceFeedRaw = {}, marketOpen = true) {
   const pf = priceFeedRaw && typeof priceFeedRaw === "object" ? priceFeedRaw : {};
   const traderPositions = (openTrades || []).map((t) => {
-    const td = pf[t.ticker] || {};
+    const sym = String(t.ticker || "").toUpperCase();
+    const td = pf[sym] || pf[t.ticker] || {};
     // Session-aware: outside RTH use the extended print so the email's open-book
     // rows don't show yesterday's RTH close + change during pre/post-market.
     const dayPct = liveDayPctFromPriceFeedRow(td, marketOpen);
