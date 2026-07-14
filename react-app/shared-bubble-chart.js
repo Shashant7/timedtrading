@@ -4,7 +4,7 @@
 // helper functions used internally. Loaded by /today.html.
 //
 // HOW THIS FILE IS USED:
-//   1. Page HTML loads <script src='shared-bubble-chart.compiled.js'>
+//   1. Page HTML loads <script src='tt-bubble-chart.compiled.js'>
 //   2. JS exposes window.TimedBubbleChart = { BubbleChart, helpers... }
 //   3. React app uses h(window.TimedBubbleChart.BubbleChart, props)
 //
