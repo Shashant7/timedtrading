@@ -23,7 +23,7 @@
     <script src="ds-components.js?v=20260501a"></script>
     <!-- 2026-06-16 — Bubble map (market pulse + open positions) at the end of
          the brief. Reuses the shared SVG plot from the Today page. -->
-    <script src="tt-bubble-map-0714z.compiled.js?v=20260714z"></script>
+    <script src="tt-bubble-map-0714m.compiled.js?v=20260714m"></script>
     <!-- 2026-05-26 — Nav parity with today/AT/investor pages: badges on
          Active Trader + Investor links (open trade count / actionable
          count), bottom nav on mobile, global search overlay, activity
@@ -39,7 +39,32 @@
       .db-bubble-row { margin-top: 40px; }
       .db-bubble-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
       .db-bubble-legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--tt-text-muted, #6E867D); flex-wrap: wrap; align-items: center; }
-      .db-bubble-legend .bdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+      .db-bubble-legend .bdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: middle; position: relative; box-sizing: border-box; }
+      .db-bubble-legend .bdot--mixed { width: 11px; height: 11px; }
+      .db-bubble-legend .bdot--mixed::after {
+        content: "~"; position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-52%);
+        text-align: center; font-size: 10px; font-weight: 700; line-height: 1;
+      }
+      .db-bubble-legend .bdot--mixed-bull::after {
+        color: rgba(15, 23, 42, 0.85); text-shadow: 0 0 1px rgba(248, 250, 252, 0.35);
+      }
+      .db-bubble-legend .bdot--mixed-bear::after {
+        font-weight: 500; color: rgba(248, 250, 252, 0.7);
+        text-shadow: 0 0 2px rgba(15, 23, 42, 0.35); opacity: 0.85;
+      }
+      .db-bubble-legend .bmeta { opacity: 0.9; white-space: nowrap; }
+      .db-bubble-legend .bstroke {
+        display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+        margin-right: 4px; vertical-align: middle; box-sizing: border-box;
+        background: rgba(148, 163, 184, 0.2);
+      }
+      .db-bubble-legend .bstroke--high {
+        border: 1.5px solid rgba(226, 232, 240, 0.95); background: transparent;
+      }
+      .db-bubble-legend .bsize { display: inline-flex; align-items: center; gap: 2px; margin-right: 3px; vertical-align: middle; }
+      .db-bubble-legend .bsize i { display: inline-block; border-radius: 50%; background: rgba(148, 163, 184, 0.45); }
+      .db-bubble-legend .bsize i.s { width: 5px; height: 5px; }
+      .db-bubble-legend .bsize i.l { width: 10px; height: 10px; }
       .db-bubble-card { padding: 0; overflow: hidden; border-radius: 14px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); }
       .db-bubble-stage { position: relative; height: min(72vh, 760px); min-height: 520px; }
       @media (max-width: 1024px) { .db-bubble-stage { height: 70vh; min-height: 480px; } }
@@ -2821,10 +2846,14 @@
                   {visible.length} tickers{openCount > 0 ? ` · ${openCount} open positions` : ""} — x: LTF momentum, y: HTF trend strength
                 </p>
               </div>
-              <div className="db-bubble-legend">
-                <span><span className="bdot" style={{ background: "#22c55e" }} />Bull aligned</span>
-                <span><span className="bdot" style={{ background: "#38F2A1" }} />Pullback</span>
-                <span><span className="bdot" style={{ background: "#f43f5e" }} />Bear aligned</span>
+              <div className="db-bubble-legend" aria-label="Bubble map legend">
+                <span><span className="bdot" style={{ background: "#22c55e" }} />Bull</span>
+                <span><span className="bdot bdot--mixed bdot--mixed-bull" style={{ background: "#22c55e" }} />Bull Mixed (~)</span>
+                <span><span className="bdot" style={{ background: "#eab308" }} />Pullback</span>
+                <span><span className="bdot" style={{ background: "#b91c1c" }} />Bear</span>
+                <span><span className="bdot bdot--mixed bdot--mixed-bear" style={{ background: "#b91c1c" }} />Bear Mixed (~)</span>
+                <span className="bmeta"><span className="bsize"><i className="s" /><i className="l" /></span>Size = R:R</span>
+                <span className="bmeta"><span className="bstroke" />Low/Med · <span className="bstroke bstroke--high" />High Prob</span>
               </div>
             </div>
             <div className="db-bubble-card">

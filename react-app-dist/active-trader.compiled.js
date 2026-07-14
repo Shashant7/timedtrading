@@ -1272,23 +1272,48 @@ function ATBubbleMap({
   }, "Where every board ticker sits on momentum \u00d7 trend"), h("p", {
     className: "tt-sec-sub"
   }, `${visible.length} tickers across all lanes`)), h("div", {
-    className: "at-bubble-legend"
+    className: "at-bubble-legend",
+    "aria-label": "Bubble map legend"
   }, h("span", null, h("span", {
     className: "bdot",
     style: {
       background: "#22c55e"
     }
-  }), "Bull aligned"), h("span", null, h("span", {
+  }), "Bull"), h("span", null, h("span", {
+    className: "bdot bdot--mixed bdot--mixed-bull",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull Mixed (~)"), h("span", null, h("span", {
     className: "bdot",
     style: {
-      background: "#38F2A1"
+      background: "#eab308"
     }
   }), "Pullback"), h("span", null, h("span", {
     className: "bdot",
     style: {
-      background: "#f43f5e"
+      background: "#b91c1c"
     }
-  }), "Bear aligned"))), h("div", {
+  }), "Bear"), h("span", null, h("span", {
+    className: "bdot bdot--mixed bdot--mixed-bear",
+    style: {
+      background: "#b91c1c"
+    }
+  }), "Bear Mixed (~)"), h("span", {
+    className: "bmeta"
+  }, h("span", {
+    className: "bsize"
+  }, h("i", {
+    className: "s"
+  }), h("i", {
+    className: "l"
+  })), "Size = R:R"), h("span", {
+    className: "bmeta"
+  }, h("span", {
+    className: "bstroke"
+  }), "Low/Med · ", h("span", {
+    className: "bstroke bstroke--high"
+  }), "High Prob"))), h("div", {
     className: "tt-card at-bubble-card"
   }, h("div", {
     className: "at-bubble-stage"
@@ -2055,6 +2080,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784041685304:165806258
+// cache-bust:1784052256004:498895764
 
-// cache-bust:1784041685304:165806258
+// cache-bust:1784052256004:498895764

@@ -2770,23 +2770,48 @@ function BriefBubbleMap({
       color: "var(--tt-text-3, #6E867D)"
     }
   }, visible.length, " tickers", openCount > 0 ? ` · ${openCount} open positions` : "", " \u2014 x: LTF momentum, y: HTF trend strength")), React.createElement("div", {
-    className: "db-bubble-legend"
+    className: "db-bubble-legend",
+    "aria-label": "Bubble map legend"
   }, React.createElement("span", null, React.createElement("span", {
     className: "bdot",
     style: {
       background: "#22c55e"
     }
-  }), "Bull aligned"), React.createElement("span", null, React.createElement("span", {
+  }), "Bull"), React.createElement("span", null, React.createElement("span", {
+    className: "bdot bdot--mixed bdot--mixed-bull",
+    style: {
+      background: "#22c55e"
+    }
+  }), "Bull Mixed (~)"), React.createElement("span", null, React.createElement("span", {
     className: "bdot",
     style: {
-      background: "#38F2A1"
+      background: "#eab308"
     }
   }), "Pullback"), React.createElement("span", null, React.createElement("span", {
     className: "bdot",
     style: {
-      background: "#f43f5e"
+      background: "#b91c1c"
     }
-  }), "Bear aligned"))), React.createElement("div", {
+  }), "Bear"), React.createElement("span", null, React.createElement("span", {
+    className: "bdot bdot--mixed bdot--mixed-bear",
+    style: {
+      background: "#b91c1c"
+    }
+  }), "Bear Mixed (~)"), React.createElement("span", {
+    className: "bmeta"
+  }, React.createElement("span", {
+    className: "bsize"
+  }, React.createElement("i", {
+    className: "s"
+  }), React.createElement("i", {
+    className: "l"
+  })), "Size = R:R"), React.createElement("span", {
+    className: "bmeta"
+  }, React.createElement("span", {
+    className: "bstroke"
+  }), "Low/Med \xB7 ", React.createElement("span", {
+    className: "bstroke bstroke--high"
+  }), "High Prob"))), React.createElement("div", {
     className: "db-bubble-card"
   }, React.createElement("div", {
     className: "db-bubble-stage"
@@ -3177,6 +3202,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1784041685304:165806258
+// cache-bust:1784052256004:498895764
 
-// cache-bust:1784041685304:165806258
+// cache-bust:1784052256004:498895764

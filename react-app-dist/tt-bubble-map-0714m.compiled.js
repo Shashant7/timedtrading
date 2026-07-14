@@ -1098,19 +1098,22 @@
       strokeWidth: borderWidth,
       strokeDasharray: strokeStyle.dash || undefined,
       opacity: opacity
-    }), isMixed && !waitingForData && React.createElement("line", {
-      x1: -renderedSize * 0.72,
-      y1: 0,
-      x2: renderedSize * 0.72,
-      y2: 0,
-      stroke: "rgba(15,23,42,0.55)",
-      strokeWidth: "1.6",
-      strokeLinecap: "round",
-      opacity: opacity,
+    }), isMixed && !waitingForData && React.createElement("text", {
+      x: 0,
+      y: 0.55,
+      textAnchor: "middle",
+      dominantBaseline: "middle",
+      fontSize: Math.max(alignBucket === "bull_mixed" ? 10 : 8, Math.min(alignBucket === "bull_mixed" ? 16 : 13, renderedSize * (alignBucket === "bull_mixed" ? 1.1 : 0.95))),
+      fontWeight: alignBucket === "bull_mixed" ? "700" : "500",
+      fill: alignBucket === "bull_mixed" ? "rgba(15,23,42,0.78)" : "rgba(248,250,252,0.62)",
+      stroke: alignBucket === "bull_mixed" ? "rgba(248,250,252,0.35)" : "rgba(15,23,42,0.22)",
+      strokeWidth: alignBucket === "bull_mixed" ? 0.45 : 0.25,
+      opacity: isHovered ? 0.95 : alignBucket === "bull_mixed" ? 0.88 : 0.55,
       style: {
-        pointerEvents: "none"
+        pointerEvents: "none",
+        letterSpacing: "-0.06em"
       }
-    }), fromStub && React.createElement("g", {
+    }, "~"), fromStub && React.createElement("g", {
       opacity: isHovered ? 1 : 0.92,
       style: {
         pointerEvents: "none"
@@ -3179,4 +3182,4 @@
   };
 })();
 
-// cache-bust:1784041685304:165806258
+// cache-bust:1784052256004:498895764
