@@ -35975,6 +35975,186 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "JPM Earnings",
+        "impact": "high",
+        "surprise_pct": 6.91,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "GS Earnings",
+        "impact": "high",
+        "surprise_pct": 45.07,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "BAC Earnings",
+        "impact": "high",
+        "surprise_pct": 7.17,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "C Earnings",
+        "impact": "high",
+        "surprise_pct": 14.28,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "WFC Earnings",
+        "impact": "high",
+        "surprise_pct": 13.43,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "AEHR Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "AIR Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "ANGO Earnings",
+        "impact": "high",
+        "surprise_pct": 23.75,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "BRLL Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "CANB Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "CRSB Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "CXH Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "EQBK Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "FAST Earnings",
+        "impact": "high",
+        "surprise_pct": -0.87,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "HARL Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "KMTS Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "LOOP Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "PBNC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "PXED Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-14",
+        "event_type": "earnings",
+        "event_name": "SNV Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-07-15",
         "event_type": "macro",
         "event_name": "Jun Core CPI (MoM)",
@@ -36068,6 +36248,33 @@
         "date": "2026-07-15",
         "event_type": "earnings",
         "event_name": "MS Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-15",
+        "event_type": "earnings",
+        "event_name": "PNC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-15",
+        "event_type": "earnings",
+        "event_name": "MTB Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 0,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-07-15",
+        "event_type": "earnings",
+        "event_name": "UAL Earnings",
         "impact": "high",
         "surprise_pct": null,
         "spy_reaction_pct": 0,
@@ -36333,14 +36540,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 36.6883
+        "sql_duration_ms": 40.7404
       },
-      "duration": 36.6883,
+      "duration": 40.7404,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 71282746,
       "changed_db": false,
-      "size_after": 3982336000,
-      "rows_read": 4036,
+      "size_after": 4117385216,
+      "rows_read": 4059,
       "rows_written": 0,
       "total_attempts": 1
     }
