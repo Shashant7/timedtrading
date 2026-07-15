@@ -36024,7 +36024,7 @@
         "event_type": "earnings",
         "event_name": "AEHR Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 1528.57,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -36087,7 +36087,7 @@
         "event_type": "earnings",
         "event_name": "EQBK Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 13.75,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -36114,7 +36114,7 @@
         "event_type": "earnings",
         "event_name": "KMTS Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -10.27,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -36123,7 +36123,7 @@
         "event_type": "earnings",
         "event_name": "LOOP Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -37.25,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -36141,7 +36141,7 @@
         "event_type": "earnings",
         "event_name": "PXED Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 6.21,
         "spy_reaction_pct": 0,
         "sector_reaction_pct": null
       },
@@ -36540,13 +36540,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 40.7404
+        "sql_duration_ms": 32.2922
       },
-      "duration": 40.7404,
+      "duration": 32.2922,
       "changes": 0,
-      "last_row_id": 71282746,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4117385216,
+      "size_after": 4161380352,
       "rows_read": 4059,
       "rows_written": 0,
       "total_attempts": 1

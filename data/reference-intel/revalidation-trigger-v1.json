@@ -1,8 +1,8 @@
 {
-  "generated_at_utc": "2026-07-14T19:43:30.001722+00:00",
-  "refresh_cycle_ts": "20260714-194303",
+  "generated_at_utc": "2026-07-15T08:34:26.968482+00:00",
+  "refresh_cycle_ts": "20260715-083406",
   "runtime_source_mode": "fresh_export",
-  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260714-194303.json",
+  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260715-083406.json",
   "candidate_selection_file": "data/reference-intel/reference-selection-v1.json",
   "alerts": {
     "reference_drift_alert": false,
