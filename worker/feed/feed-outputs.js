@@ -20,7 +20,12 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
-import { isNyRegularMarketOpenStatic } from "../market-calendar.js";
+import {
+  getETMinutes,
+  isNyRegularMarketOpenStatic,
+  RTH_CLOSE,
+  RTH_OPEN,
+} from "../market-calendar.js";
 import { etDateStr, tradingDateUtcMs, isTradingDay } from "../foundation/trading-calendar.js";
 import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
 
@@ -46,6 +51,78 @@ export function quoteReceiptTimestamp(pf) {
   const p = priceValueTimestamp(pf);
   if (q > 0 && p > 0) return Math.max(q, p);
   return q > 0 ? q : p;
+}
+
+/**
+ * Stamp for a successful REST / stale-sweep write into timed:prices.
+ *
+ * Prefer the vendor trade clock when it is itself fresh (stream-parity for
+ * active prints). Otherwise use receipt time — quiet names often keep a
+ * day-old trade_ts even after TD returns a valid quote, and rewriting
+ * `q_ts` to that aged stamp leaves the row permanently value-stale so
+ * overlay + Discord open-ramp never heal (price_value_freshness daily page).
+ */
+export function resolveRestQuoteReceiptTs(tradeTs, nowMs = Date.now()) {
+  const now = Number(nowMs) || Date.now();
+  const trade = Number(tradeTs) || 0;
+  if (trade > 0 && (now - trade) <= PF_FRESH_MS) return trade;
+  return now;
+}
+
+/** Minutes since 9:30 ET on an RTH day; null outside RTH. */
+export function minutesSinceRthOpen(nowMs = Date.now()) {
+  const et = getETMinutes(new Date(nowMs));
+  if (et < RTH_OPEN || et >= RTH_CLOSE) return null;
+  return et - RTH_OPEN;
+}
+
+/**
+ * Aggressive per-symbol stale sweep (10m / cap 120) during RTH AND extended
+ * hours (4 AM–8 PM ET). Overnight corpses must warm on premarket REST/heal
+ * so the book is in sync by 9:00 ET — not wait for the 9:30 open.
+ */
+export function usesAggressiveQuoteSweep(marketOpen, extendedSession) {
+  return !!(marketOpen || extendedSession);
+}
+
+/** Discord / tombstone page threshold — align with watchdog fail (≥40). */
+export const VALUE_STALE_PAGE_COUNT = 40;
+/** Short RTH-open grace after premarket warm (stragglers only). */
+export const VALUE_STALE_OPEN_GRACE_MIN = 5;
+/** Premarket readiness gate — page from 9:00 ET if still ≥40 before the open. */
+export const VALUE_STALE_PREOPEN_ET_MIN = 9 * 60;
+
+/**
+ * Decide whether price_value_freshness should Discord-page.
+ * Premarket warms from 4 AM; pages from 9:00 ET if still bad; RTH pages after
+ * a short open grace. Real wedged feeds still page; overnight warmup does not.
+ */
+export function decideValueFreshnessPage({
+  count,
+  marketOpen,
+  extendedSession,
+  nowMs = Date.now(),
+  pageCount = VALUE_STALE_PAGE_COUNT,
+  openGraceMin = VALUE_STALE_OPEN_GRACE_MIN,
+  preopenEtMin = VALUE_STALE_PREOPEN_ET_MIN,
+} = {}) {
+  const n = Number(count) || 0;
+  if (n < pageCount) return { page: false, success: true, reason: "under_threshold" };
+  const et = getETMinutes(new Date(nowMs));
+  if (marketOpen) {
+    const minsOpen = et - RTH_OPEN;
+    if (minsOpen >= 0 && minsOpen < openGraceMin) {
+      return { page: false, success: false, reason: "open_grace", minsOpen };
+    }
+    return { page: true, success: false, reason: "rth_stale", minsOpen };
+  }
+  if (extendedSession && et >= preopenEtMin && et < RTH_OPEN) {
+    return { page: true, success: false, reason: "preopen_not_ready" };
+  }
+  if (extendedSession) {
+    return { page: false, success: false, reason: "premarket_warming" };
+  }
+  return { page: false, success: false, reason: "outside_watch_window" };
 }
 
 export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {

@@ -1,13 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  decideValueFreshnessPage,
   isPriceValueFresh,
   mergeFreshnessIntoLatest,
+  minutesSinceRthOpen,
   overlayTimedPricesRow,
   overlayLivePricesOntoMap,
+  PF_FRESH_MS,
   priceValueTimestamp,
   quoteReceiptTimestamp,
+  resolveRestQuoteReceiptTs,
   syncLivePricesToChartCandles,
+  usesAggressiveQuoteSweep,
+  VALUE_STALE_OPEN_GRACE_MIN,
+  VALUE_STALE_PAGE_COUNT,
+  VALUE_STALE_PREOPEN_ET_MIN,
 } from "./feed-outputs.js";
+import { RTH_OPEN } from "../market-calendar.js";
 
 describe("priceValueTimestamp", () => {
   it("prefers p_ts over poll t", () => {
@@ -27,6 +36,113 @@ describe("quoteReceiptTimestamp", () => {
 
   it("does not fall back to poll t", () => {
     expect(quoteReceiptTimestamp({ t: Date.now() })).toBe(0);
+  });
+});
+
+describe("resolveRestQuoteReceiptTs", () => {
+  it("keeps a fresh vendor trade_ts", () => {
+    const now = Date.now();
+    const trade = now - 2 * 60 * 1000;
+    expect(resolveRestQuoteReceiptTs(trade, now)).toBe(trade);
+  });
+
+  it("stamps receipt now when vendor trade_ts is aged (overnight / quiet print)", () => {
+    const now = Date.now();
+    const aged = now - 17 * 60 * 60 * 1000;
+    expect(resolveRestQuoteReceiptTs(aged, now)).toBe(now);
+  });
+
+  it("stamps receipt now when trade_ts is missing", () => {
+    const now = Date.now();
+    expect(resolveRestQuoteReceiptTs(0, now)).toBe(now);
+    expect(resolveRestQuoteReceiptTs(null, now)).toBe(now);
+  });
+
+  it("treats trade_ts just beyond PF_FRESH_MS as receipt-now", () => {
+    const now = Date.now();
+    expect(resolveRestQuoteReceiptTs(now - PF_FRESH_MS - 1, now)).toBe(now);
+  });
+});
+
+describe("minutesSinceRthOpen + page thresholds", () => {
+  it("exports watchdog-aligned page count, short open grace, and 9:00 preopen gate", () => {
+    expect(VALUE_STALE_PAGE_COUNT).toBe(40);
+    expect(VALUE_STALE_OPEN_GRACE_MIN).toBe(5);
+    expect(VALUE_STALE_PREOPEN_ET_MIN).toBe(9 * 60);
+  });
+
+  it("returns minutes since 9:30 ET during RTH", () => {
+    // Construct a UTC instant that is ~9:45 ET on a known weekday.
+    // 2026-07-15 13:45 UTC = 09:45 ET (EDT).
+    const at945 = Date.parse("2026-07-15T13:45:00Z");
+    expect(minutesSinceRthOpen(at945)).toBe(15);
+  });
+
+  it("returns null outside RTH", () => {
+    const preOpen = Date.parse("2026-07-15T13:00:00Z"); // 09:00 ET
+    const afterClose = Date.parse("2026-07-15T21:00:00Z"); // 17:00 ET
+    expect(minutesSinceRthOpen(preOpen)).toBeNull();
+    expect(minutesSinceRthOpen(afterClose)).toBeNull();
+  });
+
+  it("open grace covers the first minutes after RTH_OPEN", () => {
+    expect(RTH_OPEN + VALUE_STALE_OPEN_GRACE_MIN).toBe(575); // 9:35 ET
+  });
+});
+
+describe("usesAggressiveQuoteSweep", () => {
+  it("is true during RTH and extended session, false overnight", () => {
+    expect(usesAggressiveQuoteSweep(true, false)).toBe(true);
+    expect(usesAggressiveQuoteSweep(false, true)).toBe(true);
+    expect(usesAggressiveQuoteSweep(false, false)).toBe(false);
+  });
+});
+
+describe("decideValueFreshnessPage", () => {
+  it("succeeds under the page threshold", () => {
+    expect(decideValueFreshnessPage({
+      count: 8,
+      marketOpen: true,
+      extendedSession: false,
+      nowMs: Date.parse("2026-07-15T14:00:00Z"),
+    })).toMatchObject({ page: false, success: true, reason: "under_threshold" });
+  });
+
+  it("warms quietly before 9:00 ET during premarket", () => {
+    // 2026-07-15 12:00 UTC = 08:00 ET
+    expect(decideValueFreshnessPage({
+      count: 200,
+      marketOpen: false,
+      extendedSession: true,
+      nowMs: Date.parse("2026-07-15T12:00:00Z"),
+    })).toMatchObject({ page: false, success: false, reason: "premarket_warming" });
+  });
+
+  it("pages from 9:00 ET preopen when still deeply stale", () => {
+    // 2026-07-15 13:05 UTC = 09:05 ET
+    expect(decideValueFreshnessPage({
+      count: 80,
+      marketOpen: false,
+      extendedSession: true,
+      nowMs: Date.parse("2026-07-15T13:05:00Z"),
+    })).toMatchObject({ page: true, success: false, reason: "preopen_not_ready" });
+  });
+
+  it("applies short open grace then pages during RTH", () => {
+    // 09:32 ET — inside 5m grace
+    expect(decideValueFreshnessPage({
+      count: 80,
+      marketOpen: true,
+      extendedSession: false,
+      nowMs: Date.parse("2026-07-15T13:32:00Z"),
+    })).toMatchObject({ page: false, reason: "open_grace" });
+    // 09:40 ET — past grace
+    expect(decideValueFreshnessPage({
+      count: 80,
+      marketOpen: true,
+      extendedSession: false,
+      nowMs: Date.parse("2026-07-15T13:40:00Z"),
+    })).toMatchObject({ page: true, reason: "rth_stale" });
   });
 });
 

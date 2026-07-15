@@ -22,6 +22,17 @@
 
 ### Active
 
+- [x] **Daily `price_value_freshness` Discord noise (2026-07-15).** Open-ramp pages
+      ≥300 overnight-stale symbols at 9:30 ET every day (Discord ≥10 vs watchdog ≥40);
+      REST heal rewrote `q_ts` from aged vendor `trade_ts` so rows never cleared.
+      Stamp receipt `q_ts` on REST/heal; page at ≥40; 20m RTH-open grace.
+      Branch: `cursor/price-value-freshness-noise-df0c`. PR #1113. Deployed.
+
+- [ ] **Premarket warm by 9:00 ET (2026-07-15).** Stale sweep used 26h threshold
+      whenever `!RTH`, so overnight ages never healed during 4 AM–9:30 PM despite
+      REST. Use RTH-style sweep during extended session; page from 9:00 ET if still
+      ≥40; shrink open grace to 5m. Same branch/PR #1113.
+
 - [x] **Bubble legend R:R/Prob + mixed tilde (2026-07-14).** Legend shows Size=R:R
       and High Prob stroke; mixed = subtle "~" on bubble + legend (AT/Investor/
       Today/Brief). Branch: `cursor/bubble-legend-mixed-df0c`.
