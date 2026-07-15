@@ -6,6 +6,20 @@
 
 ---
 
+## Newton IBM vignette — shakeout highs after structural damage are iffy [2026-07-15]
+
+Mark Newton (Fundstrat) on the IBM plunge: the move looked abrupt, but
+preceding tells were classic structure decay — deep erratic retracements,
+Nov'25–May'26 pullback overbalancing in time + undercutting the last major
+swing low, then a robust shakeout back to new highs while the regime had
+already morphed bull → multi-year sideways, monthly MACD negative, and
+distribution volume on down days. Capture (verbatim + checklist):
+`data/reference-intel/tech-warnings/ibm-newton-2026-07-15.{md,json,jpg}`.
+Rule of thumb: ATH/new-high reclaim after swing undercut + HTF momentum
+rollover is a **warning**, not auto-confirmation — prefer stabilize / no
+hero. Investor Phase DISTRIBUTION already cautions; do not treat late
+shakeouts as fresh accumulate fuel without HTF check.
+
 ## Real AH crash ≠ false price — but stream wrote it onto RTH `p` (IBM) [2026-07-14]
 
 IBM gapped ~−23% in pre/AH to ~$222 (real). Operator screenshots showed the
