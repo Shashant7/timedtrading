@@ -45,10 +45,9 @@ import {
   summarizeChainGapBacklog,
 } from "./candle-chain-heal.js";
 import {
-  minutesSinceRthOpen,
+  decideValueFreshnessPage,
   resolveRestQuoteReceiptTs,
-  VALUE_STALE_OPEN_GRACE_MIN,
-  VALUE_STALE_PAGE_COUNT,
+  usesAggressiveQuoteSweep,
 } from "./feed-outputs.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
@@ -561,16 +560,13 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         let _stillStale = [];
         try {
           const _sweepNow = Date.now();
-          // 2026-06-10 v2 — SESSION-AWARE threshold. v1 used a flat 30 min,
-          // which after the close flagged the ENTIRE universe (last trades
-          // are hours old once RTH ends — live probe showed 244 "stale"
-          // symbols at 23:30 UTC). Market open: 30 min is real staleness.
-          // Market closed: only a trade timestamp older than 26 HOURS is a
-          // corpse (normal overnight age is ≤ ~18h; 26h spans a full
-          // session + overnight without false-flagging weekends' first
-          // ticks either, since the sweep just re-confirms them cheaply).
-          const STALE_SWEEP_MS = _marketOpen ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
-          const SWEEP_CAP = _marketOpen ? 120 : 48;
+          // Session-aware threshold: RTH + extended (PM/AH) use a tight 10m
+          // window so premarket REST/heal warms overnight ages by 9:00 ET.
+          // True overnight / weekends keep the 26h corpse bar (last prints
+          // are expected to age; sweep just reconfirms cheaply).
+          const _aggressiveSweep = usesAggressiveQuoteSweep(_marketOpen, _extendedSession);
+          const STALE_SWEEP_MS = _aggressiveSweep ? 10 * 60 * 1000 : 26 * 60 * 60 * 1000;
+          const SWEEP_CAP = _aggressiveSweep ? 120 : 48;
           // 2026-06-11 v4 — sweep EVERYTHING in the price blob, not just
           // the configured lists. SMCI was in neither SECTOR_MAP nor
           // timed:tickers — it's a screener/discovery candidate that got
@@ -671,8 +667,8 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
           // endpoint + watchdog surface these (count + samples) during RTH
           // only. On holidays / weekends the last-trade clock is expected
           // to age; suppress false-positive watchdog pages.
-          stale_symbols: _marketOpen ? _stillStale.slice(0, 30) : [],
-          stale_symbol_count: _marketOpen ? _stillStale.length : 0,
+          stale_symbols: (_marketOpen || _extendedSession) ? _stillStale.slice(0, 30) : [],
+          stale_symbol_count: (_marketOpen || _extendedSession) ? _stillStale.length : 0,
           market_open: _marketOpen,
         });
         ctx.waitUntil(deps.notifyPriceHub(env, { type: "prices", data: prices, updated_at: priceUpdateTs }));
@@ -688,31 +684,38 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         // + 10-min grace: only symbols >20 min stale count, so quiet-tape
         // trade_ts lag doesn't false-page.
         //
-        // Discord noise fix (2026-07-15): overnight rows look ~17h stale at
-        // the open; page threshold aligns with watchdog (≥40), and the
-        // first 20m of RTH skip paging while the */1 sweep drains backlog.
-        if (_marketOpen) {
+        // Premarket warm (2026-07-15): extended session uses the same
+        // aggressive sweep; Discord pages from 9:00 ET if still ≥40 so
+        // the book is expected in sync before the open (not only at 9:30).
+        if (_marketOpen || _extendedSession) {
           try {
             const { summarizeValueStaleSymbols } = await import("./feed-outputs.js");
             const { recordCronFailure, recordCronSuccess } = await import("../alerts.js");
+            // Always evaluate against the RTH freshness window — preopen
+            // readiness means receipts are minutes-old, not "within 26h".
             const _vs = summarizeValueStaleSymbols(prices, priceUpdateTs, true, 10, { graceMs: 10 * 60 * 1000 });
-            const _minsOpen = minutesSinceRthOpen(priceUpdateTs);
-            const _inOpenGrace = _minsOpen != null && _minsOpen < VALUE_STALE_OPEN_GRACE_MIN;
-            if (_vs.count >= VALUE_STALE_PAGE_COUNT) {
-              if (_inOpenGrace) {
-                console.warn(
-                  `[PRICE FEED] value-staleness open-grace: ${_vs.count} symbols >20m stale ` +
-                  `(${_minsOpen}m after open; page suppressed until ${VALUE_STALE_OPEN_GRACE_MIN}m). Worst: ${_vs.symbols.join(", ")}`,
-                );
-              } else {
-                ctx.waitUntil(recordCronFailure(env, {
-                  op: "price_value_freshness",
-                  error: `${_vs.count} symbols with vendor quote >20m stale during RTH — users may see prior-day prices. Worst: ${_vs.symbols.join(", ")}`,
-                  caller: "price_feed_cron",
-                }).catch(() => {}));
-              }
-            } else {
+            const _decision = decideValueFreshnessPage({
+              count: _vs.count,
+              marketOpen: _marketOpen,
+              extendedSession: _extendedSession,
+              nowMs: priceUpdateTs,
+            });
+            if (_decision.success) {
               ctx.waitUntil(recordCronSuccess(env, "price_value_freshness").catch(() => {}));
+            } else if (_decision.page) {
+              const _label = _decision.reason === "preopen_not_ready"
+                ? `${_vs.count} symbols with vendor quote >20m stale by 9:00 ET preopen — users may see prior-day prices. Worst: ${_vs.symbols.join(", ")}`
+                : `${_vs.count} symbols with vendor quote >20m stale during RTH — users may see prior-day prices. Worst: ${_vs.symbols.join(", ")}`;
+              ctx.waitUntil(recordCronFailure(env, {
+                op: "price_value_freshness",
+                error: _label,
+                caller: "price_feed_cron",
+              }).catch(() => {}));
+            } else if (_decision.reason === "open_grace" || _decision.reason === "premarket_warming") {
+              console.warn(
+                `[PRICE FEED] value-staleness ${_decision.reason}: ${_vs.count} symbols >20m stale ` +
+                `(page suppressed). Worst: ${_vs.symbols.join(", ")}`,
+              );
             }
           } catch (e) {
             console.warn("[PRICE FEED] value-staleness guardrail error:", String(e?.message || e).slice(0, 200));

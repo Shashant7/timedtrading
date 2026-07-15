@@ -3397,8 +3397,9 @@ Rules:
 3. Display-staleness guardrail: the */1 feed cron pages
    `price_value_freshness` (cron tombstone → Discord) when ≥40 symbols have
    vendor stamps >20 min old during RTH (aligned with watchdog fail); skips
-   Discord for the first 20 minutes after 9:30 ET while the sweep drains
-   overnight backlog; `/timed/health` exposes writer-independent
+   Discord for the first 5 minutes after 9:30 ET (stragglers after premarket
+   warm); pages from **9:00 ET preopen** if still ≥40 so the book is expected
+   in sync before the bell; `/timed/health` exposes writer-independent
    `valueStaleCount`/`valueStaleSymbols` computed from row stamps directly.
 
 ## 2026-07-15 — Daily `price_value_freshness` Discord was open-ramp noise
@@ -3412,10 +3413,13 @@ Every morning ~9:30 ET Discord `#system-alerts` paged
 3. REST/heal rewrote `q_ts = snap.trade_ts` — quiet/overnight names keep an
    aged vendor trade clock, so heal never cleared value-stale and a
    handful of chronic zombies (SATS) lingered all day.
+4. Stale sweep used the **26h** overnight bar whenever `!RTH`, so premarket
+   (4 AM–9:30) never treated 17h ages as healable despite REST/EXT data.
 
 Fix: `resolveRestQuoteReceiptTs` stamps receipt `now` when trade_ts is
-outside the 10m fresh window; page threshold 40 + 20m RTH-open grace.
-Real wedged feeds (still ≥40 after grace) still page.
+outside the 10m fresh window; aggressive 10m/120 sweep during extended
+session too; page threshold 40; 9:00 ET preopen readiness page; 5m RTH
+open grace. Real wedged feeds (still ≥40 after grace / at 9:00) still page.
 
 ## 2026-07-14 — Bubble map “no mixed” was a state-name mis-map
 Production emits `HTF_BEAR_LTF_PULLBACK` for the bounce cell (HTF bear, LTF recovering). Classifying any state containing `PULLBACK` as yellow collapse all bounce names into pullback and zeroed out `bear_mixed`. Map `HTF_BEAR_LTF_PULLBACK` → `bear_mixed`; only `HTF_BULL_LTF_PULLBACK` is yellow pullback.
