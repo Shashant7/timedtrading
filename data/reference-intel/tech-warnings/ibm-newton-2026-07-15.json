@@ -1,0 +1,62 @@
+{
+  "id": "ibm-newton-2026-07-15",
+  "captured_at": "2026-07-15T01:37:00Z",
+  "source": {
+    "author": "Mark Newton CMT",
+    "handle": "MarkNewtonCMT",
+    "url": "https://x.com/MarkNewtonCMT/status/2077201396336619876",
+    "post_id": "2077201396336619876",
+    "created_at": "2026-07-15T01:19:40Z",
+    "affiliation": "Fundstrat — Global Head of Technical Strategy"
+  },
+  "tickers": ["IBM"],
+  "theme": "iffy_structure_after_shakeout_highs",
+  "use_as": "reference_example_spotting_deteriorating_bull",
+  "chart_path": "ibm-newton-2026-07-15-chart.jpg",
+  "text": "IBM plunge might have caught many off-guard, but there were certainly signs of $IBM starting to trade a lot more erratically as of early last year beginning with a series of deep retracements\n\nThen, the IBM pullback from Nov '25 into May '26 overbalanced in time & undercut the last major Swing low. Despite a subsequent robust shakeout back to new highs, the broader structure had already begun to weaken quite a bit in morphing from an intermediate-term bull into more of a multi-yr sideways pattern & monthly MACD rolled over to negative early this year.\n\nVolume also began to show much greater signs of distribution & spiking on many of the \"down\" days in recent months. It goes without saying that $212 now becomes critically important, though right above a 50% retracement of the low-to-high range since '20. No position & important to let this stabilize before trying to be the hero.",
+  "iffy_tells": [
+    {
+      "key": "erratic_deep_retracements",
+      "summary": "Series of deep retracements — price starts trading erratically vs prior clean trend."
+    },
+    {
+      "key": "pullback_overbalance_in_time",
+      "summary": "Corrective leg overbalances prior corrective legs in duration (Nov '25 → May '26)."
+    },
+    {
+      "key": "undercut_last_major_swing_low",
+      "summary": "Pullback undercuts the prior major swing low — structural damage, not healthy digression."
+    },
+    {
+      "key": "shakeout_to_new_highs_after_damage",
+      "summary": "Robust shakeout/rally back to new highs AFTER the structure already weakened — classic trap for late bulls."
+    },
+    {
+      "key": "bull_to_multi_year_sideways",
+      "summary": "Character morph: intermediate-term bull → multi-year sideways / distribution regime."
+    },
+    {
+      "key": "monthly_macd_rollover",
+      "summary": "Monthly MACD rolls negative — higher-timeframe momentum confirms deterioration."
+    },
+    {
+      "key": "distribution_volume_on_down_days",
+      "summary": "Volume spikes on down days; distribution character in recent months."
+    },
+    {
+      "key": "critical_level_above_50pct_retracement",
+      "summary": "Key support ($212) sits just above the 50% retracement of the 2020 low-to-high range — lost zone = further damage."
+    },
+    {
+      "key": "do_not_hero",
+      "summary": "No position; let price stabilize before catching falling knives."
+    }
+  ],
+  "operator_note": "Canonical example of spotting an iffy situation: new highs after structural damage are not confirmation; they can be the last shakeout before a plunge. Prefer HTF deterioration (monthly MACD, regime morph, distribution volume) over the most recent up-leg.",
+  "tt_system_hooks": [
+    "Investor weekly Phase DISTRIBUTION already warns (worker/investor.js).",
+    "phase_left_distribution / setup-sequence stage used in foundation mining.",
+    "Gap: no first-class 'shakeout-to-new-highs after swing undercut + HTF MACD rollover' composite warn for CIO/rail thesis.",
+    "Useful as a CIO reference vignette when defending REDUCE/WATCH vs chasing a reclaim at ATH."
+  ]
+}

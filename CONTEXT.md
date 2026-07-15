@@ -217,6 +217,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Iffy structure after shakeout highs (2026-07-15)**
+- Newton/IBM vignette: deep retracements → overbalance + swing undercut →
+  shakeout to new highs while HTF already weakened (bull→sideways, monthly
+  MACD roll, distribution volume) is a classic trap. Capture at
+  `data/reference-intel/tech-warnings/ibm-newton-2026-07-15.*`. Treat ATH
+  reclaim after structural damage as caution, not fresh long fuel.
+
 **Market calendar = ONE source, CI-guarded (2026-07-03, PRs #962–#965, #969)**
 - "Is the market open?" lives in three synced tables (`worker/market-calendar.js`,
   `worker/foundation/trading-calendar.js`, `react-app/shared-price-utils.js`) —
