@@ -3395,10 +3395,27 @@ Rules:
 2. Blob-level fields (`stale_symbols`, `stale_symbol_count`, `market_open`)
    must survive partial writers.
 3. Display-staleness guardrail: the */1 feed cron pages
-   `price_value_freshness` (cron tombstone → Discord) when ≥10 symbols have
-   vendor stamps >20 min old during RTH; `/timed/health` exposes
-   writer-independent `valueStaleCount`/`valueStaleSymbols` computed from
-   row stamps directly.
+   `price_value_freshness` (cron tombstone → Discord) when ≥40 symbols have
+   vendor stamps >20 min old during RTH (aligned with watchdog fail); skips
+   Discord for the first 20 minutes after 9:30 ET while the sweep drains
+   overnight backlog; `/timed/health` exposes writer-independent
+   `valueStaleCount`/`valueStaleSymbols` computed from row stamps directly.
+
+## 2026-07-15 — Daily `price_value_freshness` Discord was open-ramp noise
+
+Every morning ~9:30 ET Discord `#system-alerts` paged
+`price_value_freshness` with ~300 symbols "vendor quote >20m stale"
+(SATS:1339m, LULU/CSCO:~1050m — overnight ages). Causes:
+1. Overnight `q_ts` is ~17h old; at open every blob row looks value-stale
+   before the capped sweep (120/min) can drain them.
+2. Discord paged at ≥10 while watchdog only fails at ≥40.
+3. REST/heal rewrote `q_ts = snap.trade_ts` — quiet/overnight names keep an
+   aged vendor trade clock, so heal never cleared value-stale and a
+   handful of chronic zombies (SATS) lingered all day.
+
+Fix: `resolveRestQuoteReceiptTs` stamps receipt `now` when trade_ts is
+outside the 10m fresh window; page threshold 40 + 20m RTH-open grace.
+Real wedged feeds (still ≥40 after grace) still page.
 
 ## 2026-07-14 — Bubble map “no mixed” was a state-name mis-map
 Production emits `HTF_BEAR_LTF_PULLBACK` for the bounce cell (HTF bear, LTF recovering). Classifying any state containing `PULLBACK` as yellow collapse all bounce names into pullback and zeroed out `bear_mixed`. Map `HTF_BEAR_LTF_PULLBACK` → `bear_mixed`; only `HTF_BULL_LTF_PULLBACK` is yellow pullback.

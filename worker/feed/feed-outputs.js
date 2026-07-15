@@ -20,7 +20,12 @@
 
 import { kvGetJSON, kvPutJSON } from "../storage.js";
 import { normalizeTfKey } from "../ingest.js";
-import { isNyRegularMarketOpenStatic } from "../market-calendar.js";
+import {
+  getETMinutes,
+  isNyRegularMarketOpenStatic,
+  RTH_CLOSE,
+  RTH_OPEN,
+} from "../market-calendar.js";
 import { etDateStr, tradingDateUtcMs, isTradingDay } from "../foundation/trading-calendar.js";
 import { adjustPrevCloseForSplit } from "./prev-close-reconcile.js";
 
@@ -47,6 +52,34 @@ export function quoteReceiptTimestamp(pf) {
   if (q > 0 && p > 0) return Math.max(q, p);
   return q > 0 ? q : p;
 }
+
+/**
+ * Stamp for a successful REST / stale-sweep write into timed:prices.
+ *
+ * Prefer the vendor trade clock when it is itself fresh (stream-parity for
+ * active prints). Otherwise use receipt time — quiet names often keep a
+ * day-old trade_ts even after TD returns a valid quote, and rewriting
+ * `q_ts` to that aged stamp leaves the row permanently value-stale so
+ * overlay + Discord open-ramp never heal (price_value_freshness daily page).
+ */
+export function resolveRestQuoteReceiptTs(tradeTs, nowMs = Date.now()) {
+  const now = Number(nowMs) || Date.now();
+  const trade = Number(tradeTs) || 0;
+  if (trade > 0 && (now - trade) <= PF_FRESH_MS) return trade;
+  return now;
+}
+
+/** Minutes since 9:30 ET on an RTH day; null outside RTH. */
+export function minutesSinceRthOpen(nowMs = Date.now()) {
+  const et = getETMinutes(new Date(nowMs));
+  if (et < RTH_OPEN || et >= RTH_CLOSE) return null;
+  return et - RTH_OPEN;
+}
+
+/** Discord / tombstone page threshold — align with watchdog fail (≥40). */
+export const VALUE_STALE_PAGE_COUNT = 40;
+/** Skip paging while the 1-min sweep drains overnight backlog after the open. */
+export const VALUE_STALE_OPEN_GRACE_MIN = 20;
 
 export function isPriceValueFresh(pf, nowMs = Date.now(), marketOpen = true) {
   const ts = quoteReceiptTimestamp(pf);

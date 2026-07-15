@@ -44,6 +44,12 @@ import {
   onboardNewUniverseTickers,
   summarizeChainGapBacklog,
 } from "./candle-chain-heal.js";
+import {
+  minutesSinceRthOpen,
+  resolveRestQuoteReceiptTs,
+  VALUE_STALE_OPEN_GRACE_MIN,
+  VALUE_STALE_PAGE_COUNT,
+} from "./feed-outputs.js";
 
 /** Per-symbol `t` on REST/sweep writes = feed poll time, not last exchange print. */
 function feedPollTimestamp(nowMs = Date.now()) {
@@ -193,7 +199,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                   dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                   dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                   dv: snap.dailyVolume || prev.dv || 0,
-                  q_ts: Number(snap.trade_ts) || 0,
+                  q_ts: resolveRestQuoteReceiptTs(snap.trade_ts),
                   ...ah,
                 });
                 restCount++;
@@ -444,7 +450,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                q_ts: Number(snap.trade_ts) || 0,
+                q_ts: resolveRestQuoteReceiptTs(snap.trade_ts),
                 ...ah,
               });
               restFallbackCount++;
@@ -635,7 +641,7 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
                 dh: snap.dailyHigh > 0 ? Math.round(snap.dailyHigh * 100) / 100 : (prev.dh || 0),
                 dl: snap.dailyLow > 0 ? Math.round(snap.dailyLow * 100) / 100 : (prev.dl || 0),
                 dv: snap.dailyVolume || prev.dv || 0,
-                q_ts: Number(snap.trade_ts) || 0,
+                q_ts: resolveRestQuoteReceiptTs(snap.trade_ts, _sweepNow),
                 ...ah,
               }, _sweepNow);
               _healed++;
@@ -681,17 +687,30 @@ export async function runPriceFeedCron(env, ctx, opts, deps) {
         // cron tombstone lane instead of failing silently. 10-min window
         // + 10-min grace: only symbols >20 min stale count, so quiet-tape
         // trade_ts lag doesn't false-page.
+        //
+        // Discord noise fix (2026-07-15): overnight rows look ~17h stale at
+        // the open; page threshold aligns with watchdog (≥40), and the
+        // first 20m of RTH skip paging while the */1 sweep drains backlog.
         if (_marketOpen) {
           try {
             const { summarizeValueStaleSymbols } = await import("./feed-outputs.js");
             const { recordCronFailure, recordCronSuccess } = await import("../alerts.js");
             const _vs = summarizeValueStaleSymbols(prices, priceUpdateTs, true, 10, { graceMs: 10 * 60 * 1000 });
-            if (_vs.count >= 10) {
-              ctx.waitUntil(recordCronFailure(env, {
-                op: "price_value_freshness",
-                error: `${_vs.count} symbols with vendor quote >20m stale during RTH — users may see prior-day prices. Worst: ${_vs.symbols.join(", ")}`,
-                caller: "price_feed_cron",
-              }).catch(() => {}));
+            const _minsOpen = minutesSinceRthOpen(priceUpdateTs);
+            const _inOpenGrace = _minsOpen != null && _minsOpen < VALUE_STALE_OPEN_GRACE_MIN;
+            if (_vs.count >= VALUE_STALE_PAGE_COUNT) {
+              if (_inOpenGrace) {
+                console.warn(
+                  `[PRICE FEED] value-staleness open-grace: ${_vs.count} symbols >20m stale ` +
+                  `(${_minsOpen}m after open; page suppressed until ${VALUE_STALE_OPEN_GRACE_MIN}m). Worst: ${_vs.symbols.join(", ")}`,
+                );
+              } else {
+                ctx.waitUntil(recordCronFailure(env, {
+                  op: "price_value_freshness",
+                  error: `${_vs.count} symbols with vendor quote >20m stale during RTH — users may see prior-day prices. Worst: ${_vs.symbols.join(", ")}`,
+                  caller: "price_feed_cron",
+                }).catch(() => {}));
+              }
             } else {
               ctx.waitUntil(recordCronSuccess(env, "price_value_freshness").catch(() => {}));
             }
