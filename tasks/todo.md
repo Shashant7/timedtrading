@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **UNP false early_dead_money flatten (2026-07-15).** LONG trimmed 65% green
+- [x] **UNP false early_dead_money flatten (2026-07-15).** LONG trimmed 65% green
       day 1; day 2 runner flattened at −1.25% via `early_dead_money_flatten` while
       SL 277.92 untouched; next day rallied to 297. Live `getPositionContext` lacked
       MFE/`__tradeRef` so gate saw MFE=0. Enrich context + trim-exempt dead-money.
