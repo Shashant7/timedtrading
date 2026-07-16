@@ -36565,7 +36565,7 @@
         "event_name": "Jun Core PPI (MoM)",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.36,
+        "spy_reaction_pct": 0.4,
         "sector_reaction_pct": null
       },
       {
@@ -36583,7 +36583,7 @@
         "event_name": "Jul Homebuilder Sentiment",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.36,
+        "spy_reaction_pct": 0.4,
         "sector_reaction_pct": null
       },
       {
@@ -36600,7 +36600,7 @@
         "event_type": "earnings",
         "event_name": "ABT Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 1.38,
         "spy_reaction_pct": 0.36,
         "sector_reaction_pct": null
       },
@@ -36636,7 +36636,7 @@
         "event_type": "earnings",
         "event_name": "GE Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 5.48,
         "spy_reaction_pct": 0.36,
         "sector_reaction_pct": null
       },
@@ -36717,7 +36717,7 @@
         "event_type": "earnings",
         "event_name": "UNH Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 29.91,
         "spy_reaction_pct": 0.36,
         "sector_reaction_pct": null
       },
@@ -36736,7 +36736,7 @@
         "event_name": "Jun Retail Sales m/m",
         "impact": "high",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.36,
+        "spy_reaction_pct": 0.4,
         "sector_reaction_pct": null
       },
       {
@@ -36790,7 +36790,7 @@
         "event_name": "Jul P UMich 1yr Inf Exp",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.36,
+        "spy_reaction_pct": 0.4,
         "sector_reaction_pct": null
       },
       {
@@ -36799,7 +36799,7 @@
         "event_name": "Jul P UMich Sentiment",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.36,
+        "spy_reaction_pct": 0.4,
         "sector_reaction_pct": null
       },
       {
@@ -36808,7 +36808,7 @@
         "event_name": "Jun Import Price m/m",
         "impact": "medium",
         "surprise_pct": null,
-        "spy_reaction_pct": 0.36,
+        "spy_reaction_pct": 0.4,
         "sector_reaction_pct": null
       }
     ],
@@ -36819,13 +36819,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 42.2464
+        "sql_duration_ms": 55.1496
       },
-      "duration": 42.2464,
+      "duration": 55.1496,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 71526083,
       "changed_db": false,
-      "size_after": 4170502144,
+      "size_after": 4302090240,
       "rows_read": 4090,
       "rows_written": 0,
       "total_attempts": 1
