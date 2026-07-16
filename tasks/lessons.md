@@ -3402,6 +3402,18 @@ Rules:
    in sync before the bell; `/timed/health` exposes writer-independent
    `valueStaleCount`/`valueStaleSymbols` computed from row stamps directly.
 
+## 2026-07-15 — UNP early_dead_money flattened a trimmed runner (false MFE=0)
+
+UNP LONG `UNP-1784038005806-3a0fg6yvu` (ATH breakout, entry 289.58, SL 277.92):
+trimmed 65% green at 291.08 on Jul 14, then Jul 15 exit via
+`early_dead_money_flatten` at 285.95 (−1.25% on runner) — SL never touched.
+Jul 16 daily closed 297.27. Root cause: live `processTradeSimulation` passed
+`getPositionContext()` into `classifyKanbanStage` (SL/qty only; no MFE,
+`trimmedPct`, or `__tradeRef`). Replay already enriched. Gate read MFE=0
+and treated a working trimmed trade as "never worked". Fix: enrich live
+context from open trade before classify; exempt dead-money cuts when
+`trimmedPct >= 0.25`.
+
 ## 2026-07-15 — Daily `price_value_freshness` Discord was open-ramp noise
 
 Every morning ~9:30 ET Discord `#system-alerts` paged
