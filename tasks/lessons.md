@@ -3402,6 +3402,19 @@ Rules:
    in sync before the bell; `/timed/health` exposes writer-independent
    `valueStaleCount`/`valueStaleSymbols` computed from row stamps directly.
 
+## 2026-07-16 — `price_value_freshness` mid-RTH page: tt-feed was stale (not monolith)
+
+Discord paged 48 symbols ~30–35m stale during RTH (NTRA/TTMI/ZM/…). Blob
+`updated_at` was fresh (`twelvedata_stream`) and majors were live — a WS
+shard went quiet and the */1 stale sweep never healed those rows. Root
+cause: **tt-feed** owns the feed cron (`PRICE_FEED_EXTERNAL` cutover) but
+was last deployed ~2026-07-10; July 15 receipt-`q_ts` / premarket-warm
+fixes shipped only via monolith `wrangler deploy`. Agents that deploy
+`worker/` alone do not update tt-feed. Redeploying `worker-feed/` cleared
+valueStaleCount 47 → 0 within ~2 minutes. Rule: any change under
+`worker/feed/**` must deploy **tt-feed** (and monolith if it still runs
+fallback). See `skills/worker-topology.md` / `skills/deploy.md`.
+
 ## 2026-07-15 — UNP early_dead_money flattened a trimmed runner (false MFE=0)
 
 UNP LONG `UNP-1784038005806-3a0fg6yvu` (ATH breakout, entry 289.58, SL 277.92):

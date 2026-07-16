@@ -28,6 +28,10 @@
       MFE/`__tradeRef` so gate saw MFE=0. Enrich context + trim-exempt dead-money.
       Branch: `cursor/unp-dead-money-mfe-df0c`.
 
+- [x] **Mid-RTH price_value_freshness (2026-07-16).** 48 symbols ~33m stale (NTRA…).
+      tt-feed last deployed Jul 10 while feed heal fixes were monolith-only.
+      Redeployed `worker-feed/`; valueStale 47→0. Documented in deploy/topology skills.
+
 - [x] **Daily `price_value_freshness` Discord noise (2026-07-15).** Open-ramp pages
       ≥300 overnight-stale symbols at 9:30 ET every day (Discord ≥10 vs watchdog ≥40);
       REST heal rewrote `q_ts` from aged vendor `trade_ts` so rows never cleared.

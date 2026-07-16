@@ -60,10 +60,15 @@ redeploys them too — keep `scheduled()` role-gating intact.
 ## Health / verification
 
 ```bash
-curl -s https://timed-trading.com/timed/health | jq '{ok, pricesAgeSec, pricesSource, tombstones}'
+curl -s https://timed-trading.com/timed/health | jq '{ok, pricesAgeSec, pricesSource, valueStaleCount, tombstones}'
 curl -s https://tt-feed.shashant.workers.dev/feed/health | jq
 # engine / research health require CF Access service token headers
 ```
+
+**Stale tt-feed trap (2026-07-16):** after feed cutover, deploying only
+`worker/` leaves tt-feed on old code. Mid-RTH `price_value_freshness`
+pages (~40+ symbols at ~30m) with a fresh stream blob usually mean the
+heal cron on tt-feed is wedged/outdated — redeploy `worker-feed/`.
 
 - `watchdog.yml` (GitHub Actions, every 30 min) checks health + feed age +
   scoring freshness. It tolerates Cloudflare bot-challenge HTML (warns,

@@ -36,6 +36,24 @@ cd /workspace/worker
 
 Both must succeed. The deploy is fast (~5s each).
 
+### Feed cron lives on `tt-feed` (post-cutover)
+
+If `PRICE_FEED_EXTERNAL=true` on the monolith (paired with
+`FEED_ENABLED=true` on tt-feed), **monolith deploys do not refresh the
+*/1 price-feed cron**. Any change under `worker/feed/**` (or
+`worker-feed/**`) must also deploy tt-feed:
+
+```bash
+cd /workspace/worker-feed
+../node_modules/.bin/wrangler deploy 2>&1 | tail -5
+# Verify: prices_age_sec fresh + price_feed_cron_active
+curl -s https://tt-feed.shashant.workers.dev/feed/health | python3 -m json.tool
+```
+
+Symptom of a stale tt-feed: Discord `price_value_freshness` with ~30–40m
+ages on a cohort while majors stay live and `pricesSource=twelvedata_stream`
+(stream DO is on the monolith; heal cron is not).
+
 ### Verify
 
 ```bash
