@@ -341,6 +341,10 @@ playbook in `skills/security-auth-patterns.md`)**
 - External watchdog (`watchdog.yml`, 30-min) reads `/timed/health`
   (`cronTickAgeMin` + `cronFailures`) — new critical subsystems add
   their freshness to that ONE endpoint, not bespoke endpoints.
+- **Chain-smoke overlay**: do not trust a lone `_live_price` that
+  diverges from settled `price` (zombie left by merge).
+  `mergeFreshnessIntoLatest` must stamp `_live_price` with `p` (deploy
+  tt-feed when touching `worker/feed/**`).
 - **tt-feed staleness**: watchdog only fails `prices_age_sec > 600` when
   `operating_hours` AND `price_feed_cron_active` (from `/feed/health`) —
   Saturday quiet windows intentionally stop `computeFeedWindow()` ticks.

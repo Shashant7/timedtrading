@@ -130,6 +130,24 @@ describe("runChainSmoke", () => {
     expect(res.links.overlay.per_ticker.SPY.divergence_pct).toBeGreaterThan(3);
   });
 
+  it("zombie _live_price behind settled price → overlay uses price (AAPL watchdog false page)", async () => {
+    // Merge lane stamped price≈600 from feed but left _live_price at an old
+    // print (~557 → ~7% diverge). Smoke must not page on the zombie field.
+    const env = healthyEnv({
+      kvBlobs: {
+        "timed:latest:SPY": {
+          ticker: "SPY", price: 600.1, _live_price: 557.0,
+          ingest_ts: NOW - 4 * MIN,
+          _freshness: { grade: "FRESH", enforced: true },
+        },
+      },
+    });
+    const res = await runChainSmoke(env, OPTS);
+    expect(res.ok).toBe(true);
+    expect(res.links.overlay.status).toBe("ok");
+    expect(res.links.overlay.per_ticker.SPY.divergence_pct).toBeLessThan(1);
+  });
+
   it("market closed → intraday links idle, nothing fails on stale ages", async () => {
     const env = healthyEnv({
       kvBlobs: {
