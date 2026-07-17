@@ -5747,8 +5747,11 @@
         });
 
         // ── Open Positions — tickers the model is actively managing ──
+        // Includes Active Trader opens (_openTrade) AND Investor opens
+        // (_openInvestor). Kanban hold/trim/defend fallback covers trader
+        // management stages when the positions book briefly lags.
         const openPositions = allTickers.filter((t) => {
-          if (t?._openTrade || t?.has_open_position) return true;
+          if (t?._openTrade || t?._openInvestor || t?.has_open_position) return true;
           const ks = String(t?.kanban_stage || "").toLowerCase();
           return ["hold", "active", "just_entered", "trim", "defend", "exiting"].includes(ks);
         });
@@ -5756,7 +5759,7 @@
           id: "open_positions", label: "Open Positions", count: openPositions.length,
           tickers: openPositions.map((t) => t.ticker),
           row: "focus",
-          tooltip: "Tickers with an open trader or investor position.",
+          tooltip: "Tickers with an open Active Trader or Investor position.",
         });
 
         // ── All — full scored universe (placeholders without HTF/LTF stay hidden
@@ -6081,11 +6084,16 @@
         return { saved, toggle };
       }
 
-      // ── useOpenTrades — live positions book only (source=positions).
-      //   Promoted/backtest ledger rows must NOT attach as _openTrade —
-      //   they poison Setup-lane tickers (INTC) with false "Open Long".
+      // ── useOpenTrades — Active Trader positions + Investor opens.
+      //   Trader book: /timed/trades?source=positions only (promoted/backtest
+      //   ledger rows must NOT attach as _openTrade — they poison Setup-lane
+      //   tickers with false "Open Long").
+      //   Investor book: /timed/investor/positions OPEN rows — required for
+      //   the Today bubble "Open Positions" chip (hero strip already fetched
+      //   both; Daily Brief bubble already does too).
       function useOpenTrades(enabled) {
         const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+        const [investorByTicker, setInvestorByTicker] = useState(() => new Map());
         const isOpen = (tr) => {
           try {
             return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
@@ -6094,9 +6102,14 @@
 
         const refresh = useCallback(async () => {
           try {
-            const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store" })
-              .then((r) => (r.ok ? r.json() : null))
-              .catch(() => null);
+            const [posRes, invRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/trades?source=positions`, { cache: "no-store", credentials: "include" })
+                .then((r) => (r.ok ? r.json() : null))
+                .catch(() => null),
+              fetch(`${API_BASE}/timed/investor/positions`, { cache: "no-store", credentials: "include" })
+                .then((r) => (r.ok ? r.json() : null))
+                .catch(() => null),
+            ]);
             const m = new Map();
             const accept = (tr) => {
               if (!isOpen(tr)) return;
@@ -6110,7 +6123,18 @@
             };
             if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
             setTradeByTicker(m);
-          } catch (_) { /* leave previous map */ }
+
+            const inv = new Map();
+            const positions = (invRes?.ok && Array.isArray(invRes.positions)) ? invRes.positions : [];
+            for (const p of positions) {
+              if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+              if (!(Number(p?.total_shares) > 0)) continue;
+              const sym = String(p?.ticker || "").toUpperCase();
+              if (!sym) continue;
+              inv.set(sym, p);
+            }
+            setInvestorByTicker(inv);
+          } catch (_) { /* leave previous maps */ }
         }, []);
 
         useEffect(() => {
@@ -6120,7 +6144,17 @@
           return () => clearInterval(id);
         }, [enabled, refresh]);
 
-        return tradeByTicker;
+        return { tradeByTicker, investorByTicker };
+      }
+
+      function investorActionFromPosition(p) {
+        const stage = String(p?.kanban_stage || p?.investor_stage || p?.stage || "").toLowerCase();
+        if (stage.includes("accumul")) return "ACCUMULATE";
+        if (stage.includes("defend")) return "DEFEND";
+        if (stage.includes("reduc") || stage.includes("trim")) return "REDUCE";
+        if (stage.includes("exit")) return "EXITED";
+        if (stage.includes("watch") && !stage.includes("hold")) return "WATCH";
+        return "HOLD";
       }
 
       // Master filter — narrow by activeChip + query, applied once at the
@@ -6363,14 +6397,16 @@
           } catch (_) { return null; }
         })();
         const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
+        const investorOpen = !!(!openTrade && t?._openInvestor);
         const biasLabel = tradeDir === "LONG"  ? "Open Long"
                        : tradeDir === "SHORT" ? "Open Short"
+                       : investorOpen ? "Investor Open"
                        : _posture?.label ? _posture.label
                        : _modelDir === "LONG"  ? "Bullish"
                        : _modelDir === "SHORT" ? "Bearish"
                        : "Neutral";
         const biasLabelLc = String(biasLabel).toLowerCase();
-        const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up"
+        const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") || biasLabelLc.includes("investor") ? "ds-chip--up"
                          : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn"
                          : "ds-chip--solid";
 
@@ -6383,6 +6419,14 @@
           if (stage === "defend") return { label: "Defend", cls: "ds-chip--dn" };
           if (stage === "exit") return { label: "Exit", cls: "ds-chip--dn" };
           if (stage === "hold" || stage === "active" || stage === "just_entered") return { label: "Hold", cls: "ds-chip--up" };
+          // Investor-only open with a non-trader stage — still surface ownership.
+          if (investorOpen) {
+            const act = String(t?._investorAction || "HOLD").toUpperCase();
+            if (act === "ACCUMULATE") return { label: "Accumulate", cls: "ds-chip--up" };
+            if (act === "DEFEND") return { label: "Defend", cls: "ds-chip--dn" };
+            if (act === "REDUCE") return { label: "Reduce", cls: "ds-chip--accent" };
+            return { label: "Investor", cls: "ds-chip--up" };
+          }
           return null;
         })();
         const actionChips = viewportActionChips(t);
@@ -7375,12 +7419,14 @@
         );
         // Single source of truth for the universe, trades, chips, and
         // filtered set. allTickers is enriched with _openTrade +
-        // _effectiveKanbanStage so the bubble chart's stage overlay,
-        // the Viewport card stage chip, and Active Trader's kanban lanes
-        // all agree (e.g. OKE shows DEFEND on both pages instead of EXIT
-        // on Today + DEFEND on AT).
+        // _openInvestor + _effectiveKanbanStage so the bubble chart's
+        // stage overlay, the Viewport card stage chip, and Active Trader's
+        // kanban lanes all agree (e.g. OKE shows DEFEND on both pages
+        // instead of EXIT on Today + DEFEND on AT). Investor opens are
+        // required for the Open Positions bubble chip (parity with the
+        // hero strip + Daily Brief bubble).
         const isAdmin = !!window._ttIsAdmin;
-        const tradeByTicker = useOpenTrades(!!data);
+        const { tradeByTicker, investorByTicker } = useOpenTrades(!!data);
         // Set up 1H sparkline cache at TodayApp level so it's installed for
         // every DS card (Market Pulse tiles + Viewport cards). Lifted from
         // Viewport so MarketPulseTile can read window._dsEnsureSparkline /
@@ -7398,16 +7444,57 @@
           const raw = Object.entries(data)
             .filter(([k, v]) => !!k && v && typeof v === "object")
             .map(([k, v]) => v && v.ticker ? v : { ticker: String(k).toUpperCase(), ...(v || {}) });
-          return raw.map((t) => {
+          const mapped = raw.map((t) => {
             const sym = String(t.ticker || "").toUpperCase();
             const rawTrade = tradeByTicker.get(sym) || null;
             const trade = (rawTrade && window.TimedPriceUtils?.isTradeOpen?.(rawTrade)) ? rawTrade : null;
+            const inv = investorByTicker.get(sym) || null;
             const eff = computeEffectiveStage(t, trade);
-            if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
-            return { ...t, _openTrade: trade, _effectiveKanbanStage: eff, kanban_stage: eff,
-              ...(trade ? { has_open_position: true, position_direction: trade.direction || t.position_direction } : {}) };
+            const investorOnly = !!inv && !trade;
+            const baseChanged = eff !== String(t?.kanban_stage || "").toLowerCase() || !!trade || !!inv;
+            if (!baseChanged) return t;
+            return {
+              ...t,
+              _openTrade: trade,
+              _openInvestor: inv || undefined,
+              _effectiveKanbanStage: eff,
+              kanban_stage: eff,
+              ...(trade ? {
+                has_open_position: true,
+                position_direction: trade.direction || t.position_direction,
+              } : {}),
+              ...(inv ? {
+                has_open_position: true,
+                // Investor book is long-only; keep trader direction when both open.
+                position_direction: trade?.direction || t.position_direction || "LONG",
+              } : {}),
+              // Bubble badge: investor action only when there is no trader
+              // open (trader stage icons win when both books hold the name).
+              ...(investorOnly ? { _investorAction: investorActionFromPosition(inv) } : {}),
+            };
           });
-        }, [data, tradeByTicker]);
+          // Inject investor-only opens missing from /timed/all (same pattern
+          // as AT trader stub injection) so Open Positions can list them.
+          const known = new Set(mapped.map((t) => String(t?.ticker || "").toUpperCase()));
+          const injected = [];
+          investorByTicker.forEach((p, sym) => {
+            if (!sym || known.has(sym)) return;
+            const mark = Number(p?.currentPrice) || Number(p?.price) || null;
+            injected.push({
+              ticker: sym,
+              price: mark,
+              close: mark,
+              has_open_position: true,
+              position_direction: "LONG",
+              _openInvestor: p,
+              _investorAction: investorActionFromPosition(p),
+              _injectedOpenInvestor: true,
+              kanban_stage: String(p?.kanban_stage || p?.investor_stage || "hold").toLowerCase(),
+              investor_stage: p?.investor_stage || p?.kanban_stage || null,
+            });
+          });
+          return injected.length ? mapped.concat(injected) : mapped;
+        }, [data, tradeByTicker, investorByTicker]);
         const { saved: savedSet, toggle: toggleSaved } = useSavedTickers();
         const chips   = useMemo(() => computeInsightChips(allTickers, { isAdmin, savedSet }), [allTickers, isAdmin, savedSet]);
         const visible = useMemo(() => applyFilters(allTickers, filters, chips),     [allTickers, filters, chips]);
