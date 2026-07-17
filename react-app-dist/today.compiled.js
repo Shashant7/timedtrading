@@ -4150,7 +4150,7 @@ function computeInsightChips(allTickers, opts) {
     tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Queued sorts first."
   });
   const openPositions = allTickers.filter(t => {
-    if (t?._openTrade || t?.has_open_position) return true;
+    if (t?._openTrade || t?._openInvestor || t?.has_open_position) return true;
     const ks = String(t?.kanban_stage || "").toLowerCase();
     return ["hold", "active", "just_entered", "trim", "defend", "exiting"].includes(ks);
   });
@@ -4160,7 +4160,7 @@ function computeInsightChips(allTickers, opts) {
     count: openPositions.length,
     tickers: openPositions.map(t => t.ticker),
     row: "focus",
-    tooltip: "Tickers with an open trader or investor position."
+    tooltip: "Tickers with an open Active Trader or Investor position."
   });
   chips.push({
     id: "all",
@@ -4462,6 +4462,7 @@ function useSavedTickers() {
 }
 function useOpenTrades(enabled) {
   const [tradeByTicker, setTradeByTicker] = useState(() => new Map());
+  const [investorByTicker, setInvestorByTicker] = useState(() => new Map());
   const isOpen = tr => {
     try {
       return window.TimedPriceUtils?.isTradeOpen?.(tr) ?? false;
@@ -4471,9 +4472,13 @@ function useOpenTrades(enabled) {
   };
   const refresh = useCallback(async () => {
     try {
-      const posRes = await fetch(`${API_BASE}/timed/trades?source=positions`, {
-        cache: "no-store"
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const [posRes, invRes] = await Promise.all([fetch(`${API_BASE}/timed/trades?source=positions`, {
+        cache: "no-store",
+        credentials: "include"
+      }).then(r => r.ok ? r.json() : null).catch(() => null), fetch(`${API_BASE}/timed/investor/positions`, {
+        cache: "no-store",
+        credentials: "include"
+      }).then(r => r.ok ? r.json() : null).catch(() => null)]);
       const m = new Map();
       const accept = tr => {
         if (!isOpen(tr)) return;
@@ -4487,6 +4492,16 @@ function useOpenTrades(enabled) {
       };
       if (posRes?.ok && Array.isArray(posRes.trades)) posRes.trades.forEach(accept);
       setTradeByTicker(m);
+      const inv = new Map();
+      const positions = invRes?.ok && Array.isArray(invRes.positions) ? invRes.positions : [];
+      for (const p of positions) {
+        if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+        if (!(Number(p?.total_shares) > 0)) continue;
+        const sym = String(p?.ticker || "").toUpperCase();
+        if (!sym) continue;
+        inv.set(sym, p);
+      }
+      setInvestorByTicker(inv);
     } catch (_) {}
   }, []);
   useEffect(() => {
@@ -4495,7 +4510,19 @@ function useOpenTrades(enabled) {
     const id = setInterval(refresh, 180000);
     return () => clearInterval(id);
   }, [enabled, refresh]);
-  return tradeByTicker;
+  return {
+    tradeByTicker,
+    investorByTicker
+  };
+}
+function investorActionFromPosition(p) {
+  const stage = String(p?.kanban_stage || p?.investor_stage || p?.stage || "").toLowerCase();
+  if (stage.includes("accumul")) return "ACCUMULATE";
+  if (stage.includes("defend")) return "DEFEND";
+  if (stage.includes("reduc") || stage.includes("trim")) return "REDUCE";
+  if (stage.includes("exit")) return "EXITED";
+  if (stage.includes("watch") && !stage.includes("hold")) return "WATCH";
+  return "HOLD";
 }
 function hasBubbleMapScores(t) {
   const fn = window.TTBubbleSearchUtils?.hasBubbleMapScores;
@@ -4713,9 +4740,10 @@ function ViewportCard({
     }
   })();
   const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
-  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
+  const investorOpen = !!(!openTrade && t?._openInvestor);
+  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : investorOpen ? "Investor Open" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
   const biasLabelLc = String(biasLabel).toLowerCase();
-  const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
+  const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") || biasLabelLc.includes("investor") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
@@ -4734,6 +4762,25 @@ function ViewportCard({
       label: "Hold",
       cls: "ds-chip--up"
     };
+    if (investorOpen) {
+      const act = String(t?._investorAction || "HOLD").toUpperCase();
+      if (act === "ACCUMULATE") return {
+        label: "Accumulate",
+        cls: "ds-chip--up"
+      };
+      if (act === "DEFEND") return {
+        label: "Defend",
+        cls: "ds-chip--dn"
+      };
+      if (act === "REDUCE") return {
+        label: "Reduce",
+        cls: "ds-chip--accent"
+      };
+      return {
+        label: "Investor",
+        cls: "ds-chip--up"
+      };
+    }
     return null;
   })();
   const actionChips = viewportActionChips(t);
@@ -5934,7 +5981,10 @@ function TodayApp({
   }, [earningsMap]);
   const universeSet = useMemo(() => data ? new Set(Object.keys(data).map(s => String(s).toUpperCase())) : new Set(), [data]);
   const isAdmin = !!window._ttIsAdmin;
-  const tradeByTicker = useOpenTrades(!!data);
+  const {
+    tradeByTicker,
+    investorByTicker
+  } = useOpenTrades(!!data);
   const {
     cache: sparkCache,
     ensure: ensureSpark
@@ -5945,24 +5995,54 @@ function TodayApp({
       ticker: String(k).toUpperCase(),
       ...(v || {})
     });
-    return raw.map(t => {
+    const mapped = raw.map(t => {
       const sym = String(t.ticker || "").toUpperCase();
       const rawTrade = tradeByTicker.get(sym) || null;
       const trade = rawTrade && window.TimedPriceUtils?.isTradeOpen?.(rawTrade) ? rawTrade : null;
+      const inv = investorByTicker.get(sym) || null;
       const eff = computeEffectiveStage(t, trade);
-      if (eff === String(t?.kanban_stage || "").toLowerCase() && !trade) return t;
+      const investorOnly = !!inv && !trade;
+      const baseChanged = eff !== String(t?.kanban_stage || "").toLowerCase() || !!trade || !!inv;
+      if (!baseChanged) return t;
       return {
         ...t,
         _openTrade: trade,
+        _openInvestor: inv || undefined,
         _effectiveKanbanStage: eff,
         kanban_stage: eff,
         ...(trade ? {
           has_open_position: true,
           position_direction: trade.direction || t.position_direction
+        } : {}),
+        ...(inv ? {
+          has_open_position: true,
+          position_direction: trade?.direction || t.position_direction || "LONG"
+        } : {}),
+        ...(investorOnly ? {
+          _investorAction: investorActionFromPosition(inv)
         } : {})
       };
     });
-  }, [data, tradeByTicker]);
+    const known = new Set(mapped.map(t => String(t?.ticker || "").toUpperCase()));
+    const injected = [];
+    investorByTicker.forEach((p, sym) => {
+      if (!sym || known.has(sym)) return;
+      const mark = Number(p?.currentPrice) || Number(p?.price) || null;
+      injected.push({
+        ticker: sym,
+        price: mark,
+        close: mark,
+        has_open_position: true,
+        position_direction: "LONG",
+        _openInvestor: p,
+        _investorAction: investorActionFromPosition(p),
+        _injectedOpenInvestor: true,
+        kanban_stage: String(p?.kanban_stage || p?.investor_stage || "hold").toLowerCase(),
+        investor_stage: p?.investor_stage || p?.kanban_stage || null
+      });
+    });
+    return injected.length ? mapped.concat(injected) : mapped;
+  }, [data, tradeByTicker, investorByTicker]);
   const {
     saved: savedSet,
     toggle: toggleSaved
@@ -6652,6 +6732,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784071650892:220929543
+// cache-bust:1784308366936:632531093
 
-// cache-bust:1784071650892:220929543
+// cache-bust:1784308366936:632531093

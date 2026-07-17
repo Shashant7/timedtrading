@@ -22,6 +22,14 @@
 
 ### Active
 
+- [x] **Today bubble Open Positions missing Investor (2026-07-17).**
+      Open Positions chip / bubble map only attached Active Trader
+      `useOpenTrades` (`/timed/trades?source=positions`). Investor opens from
+      `/timed/investor/positions` already power the hero Open Positions strip
+      and Daily Brief bubble, but not Today’s chip filter. Merge investor
+      opens into allTickers (`has_open_position` + `_openInvestor`) so both
+      books show. Branch: `cursor/today-bubble-investor-open-df0c`.
+
 - [x] **Watchdog overlay false page — AAPL zombie `_live_price` (2026-07-17).**
       External watchdog red twice (14:13 / 15:58 UTC) on
       `chain-smoke: overlay AAPL:diverge≈7.3%` while feed/candles/scoring OK

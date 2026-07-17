@@ -6,6 +6,15 @@
 
 ---
 
+## Today bubble Open Positions must include Investor book [2026-07-17]
+
+The hero Open Positions strip and Daily Brief bubble already fetch
+`/timed/trades?source=positions` **and** `/timed/investor/positions`, but
+Today’s bubble chip used only `useOpenTrades` (trader book). With ~3 trader
+opens vs ~20 investor opens, “Open Positions” looked almost empty. Any
+shared Open Positions filter on Today must enrich `allTickers` with both
+books (`_openTrade` + `_openInvestor` / `has_open_position`).
+
 ## Chain-smoke overlay false page from zombie `_live_price` (AAPL) [2026-07-17]
 
 External watchdog went red twice on RTH with everything else green:
