@@ -59,7 +59,7 @@
         background: rgba(148, 163, 184, 0.2);
       }
       .db-bubble-legend .bstroke--high {
-        border: 1.5px solid rgba(226, 232, 240, 0.95); background: transparent;
+        border: 1.5px solid rgba(244, 245, 247, 0.55); background: transparent;
       }
       .db-bubble-legend .bsize { display: inline-flex; align-items: center; gap: 2px; margin-right: 3px; vertical-align: middle; }
       .db-bubble-legend .bsize i { display: inline-block; border-radius: 50%; background: rgba(148, 163, 184, 0.45); }
@@ -2858,13 +2858,23 @@
                 </p>
               </div>
               <div className="db-bubble-legend" aria-label="Bubble map legend">
-                <span><span className="bdot" style={{ background: "#22c55e" }} />Bull</span>
-                <span><span className="bdot bdot--mixed bdot--mixed-bull" style={{ background: "#22c55e" }} />Bull Mixed (~)</span>
-                <span><span className="bdot" style={{ background: "#eab308" }} />Pullback</span>
-                <span><span className="bdot" style={{ background: "#b91c1c" }} />Bear</span>
-                <span><span className="bdot bdot--mixed bdot--mixed-bear" style={{ background: "#b91c1c" }} />Bear Mixed (~)</span>
-                <span className="bmeta"><span className="bsize"><i className="s" /><i className="l" /></span>Size = R:R</span>
-                <span className="bmeta"><span className="bstroke" />Low/Med · <span className="bstroke bstroke--high" />High Prob</span>
+                {(() => {
+                  const af = (window.TimedBubbleChart && window.TimedBubbleChart.ALIGN_FILL) || {
+                    bull_aligned: "#34d399", bull_mixed: "#34d399",
+                    pullback: "#e0b265", bear_aligned: "#f43f5e", bear_mixed: "#f43f5e",
+                  };
+                  return (
+                    <>
+                      <span><span className="bdot" style={{ background: af.bull_aligned }} />Bull</span>
+                      <span><span className="bdot bdot--mixed bdot--mixed-bull" style={{ background: af.bull_mixed }} />Bull Mixed (~)</span>
+                      <span><span className="bdot" style={{ background: af.pullback }} />Pullback</span>
+                      <span><span className="bdot" style={{ background: af.bear_aligned }} />Bear</span>
+                      <span><span className="bdot bdot--mixed bdot--mixed-bear" style={{ background: af.bear_mixed }} />Bear Mixed (~)</span>
+                      <span className="bmeta"><span className="bsize"><i className="s" /><i className="l" /></span>Size = R:R</span>
+                      <span className="bmeta"><span className="bstroke" />Low/Med · <span className="bstroke bstroke--high" />High Prob</span>
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <div className="db-bubble-card">

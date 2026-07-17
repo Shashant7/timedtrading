@@ -346,46 +346,55 @@ function InvBubbleMap({
   }, `${visible.length} tickers${bubbleMapFilter ? " (filtered)" : ""}`)), h("div", {
     className: "inv-bubble-legend",
     "aria-label": "Bubble map legend"
-  }, h("span", null, h("span", {
-    className: "bdot",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull"), h("span", null, h("span", {
-    className: "bdot bdot--mixed bdot--mixed-bull",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull Mixed (~)"), h("span", null, h("span", {
-    className: "bdot",
-    style: {
-      background: "#eab308"
-    }
-  }), "Pullback"), h("span", null, h("span", {
-    className: "bdot",
-    style: {
-      background: "#b91c1c"
-    }
-  }), "Bear"), h("span", null, h("span", {
-    className: "bdot bdot--mixed bdot--mixed-bear",
-    style: {
-      background: "#b91c1c"
-    }
-  }), "Bear Mixed (~)"), h("span", {
-    className: "bmeta"
-  }, h("span", {
-    className: "bsize"
-  }, h("i", {
-    className: "s"
-  }), h("i", {
-    className: "l"
-  })), "Size = R:R"), h("span", {
-    className: "bmeta"
-  }, h("span", {
-    className: "bstroke"
-  }), "Low/Med · ", h("span", {
-    className: "bstroke bstroke--high"
-  }), "High Prob"))), h("div", {
+  }, (() => {
+    const af = window.TimedBubbleChart && window.TimedBubbleChart.ALIGN_FILL || {
+      bull_aligned: "#34d399",
+      bull_mixed: "#34d399",
+      pullback: "#e0b265",
+      bear_aligned: "#f43f5e",
+      bear_mixed: "#f43f5e"
+    };
+    return [h("span", null, h("span", {
+      className: "bdot",
+      style: {
+        background: af.bull_aligned
+      }
+    }), "Bull"), h("span", null, h("span", {
+      className: "bdot bdot--mixed bdot--mixed-bull",
+      style: {
+        background: af.bull_mixed
+      }
+    }), "Bull Mixed (~)"), h("span", null, h("span", {
+      className: "bdot",
+      style: {
+        background: af.pullback
+      }
+    }), "Pullback"), h("span", null, h("span", {
+      className: "bdot",
+      style: {
+        background: af.bear_aligned
+      }
+    }), "Bear"), h("span", null, h("span", {
+      className: "bdot bdot--mixed bdot--mixed-bear",
+      style: {
+        background: af.bear_mixed
+      }
+    }), "Bear Mixed (~)"), h("span", {
+      className: "bmeta"
+    }, h("span", {
+      className: "bsize"
+    }, h("i", {
+      className: "s"
+    }), h("i", {
+      className: "l"
+    })), "Size = R:R"), h("span", {
+      className: "bmeta"
+    }, h("span", {
+      className: "bstroke"
+    }), "Low/Med · ", h("span", {
+      className: "bstroke bstroke--high"
+    }), "High Prob")];
+  })())), h("div", {
     className: "inv-bubble-filters",
     role: "toolbar",
     "aria-label": "Bubble map lane filters"
@@ -967,6 +976,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(InvestorApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784308366936:632531093
+// cache-bust:1784321787947:238357818
 
-// cache-bust:1784308366936:632531093
+// cache-bust:1784321787947:238357818

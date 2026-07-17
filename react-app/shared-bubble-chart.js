@@ -429,13 +429,17 @@
   }
 
   // ── Bubble visual encoding (alignment color / R:R size / probability stroke / vectors)
+  // Restrained DS tones (mirror worker/bubble-map-encode.js ALIGN_FILL):
+  //   bull → --tt-success / --ds-up-soft (#34d399)
+  //   bear → --ds-dn (#f43f5e)
+  //   pullback → --ds-accent-soft (#e0b265)
   const ALIGN_FILL = {
-    bull_aligned: "#22c55e",
-    bull_mixed: "#22c55e",
-    pullback: "#eab308",
-    bear_aligned: "#b91c1c",
-    bear_mixed: "#b91c1c",
-    neutral: "#64748b",
+    bull_aligned: "#34d399",
+    bull_mixed: "#34d399",
+    pullback: "#e0b265",
+    bear_aligned: "#f43f5e",
+    bear_mixed: "#f43f5e",
+    neutral: "#6b7280",
   };
 
   const FORECAST_STATE_TARGET = {
@@ -536,7 +540,7 @@
     if (probability == null || !Number.isFinite(probability) || probability < 70) {
       return { tier: "none", stroke: "none", strokeWidth: 0, dash: null };
     }
-    return { tier: "high", stroke: "rgba(255,255,255,0.95)", strokeWidth: 2, dash: null };
+    return { tier: "high", stroke: "rgba(244,245,247,0.55)", strokeWidth: 1.5, dash: null };
   }
 
   /** Prior HTF/LTF from journey keyframes ("where it came from"). */
@@ -1055,11 +1059,12 @@
         ? "rgba(55,65,81,0.45)"
         : alignFill;
 
-      // Opacity: clean fade for invalidated/completed
-      const baseOpacity = waitingForData ? 0.55 : isHovered ? 1 : 0.92;
+      // Opacity: restrained resting fill (design-system surfaces are soft);
+      // hover brings the bubble forward. Invalidated/completed still fade.
+      const baseOpacity = waitingForData ? 0.45 : isHovered ? 0.92 : 0.68;
       const moveOpacityMult = waitingForData || isHovered ? 1
         : move.status === "INVALIDATED" ? 0.25
-        : move.status === "COMPLETED" ? 0.6
+        : move.status === "COMPLETED" ? 0.55
         : 1;
       const opacity = Math.max(0.12, baseOpacity * moveOpacityMult);
 
@@ -1102,18 +1107,18 @@
            Trader kanban stage. MU bug: was showing 'EXIT' from Trader
            kanban when the Investor action is DEFEND (owned + exhausted). */
         if (investorAction) {
-          if (investorAction === "ACCUMULATE") return { icon: "➕", fill: "#22c55e", bg: "rgba(34,197,94,0.22)", border: "#22c55e", label: "ACCUMULATE" };
-          if (investorAction === "HOLD")       return { icon: "⊙", fill: "#38bdf8", bg: "rgba(56,189,248,0.18)", border: "#38bdf8", label: "HOLD" };
-          if (investorAction === "DEFEND")     return { icon: "🛡", fill: "#fb923c", bg: "rgba(251,146,60,0.22)", border: "#fb923c", label: "DEFEND" };
-          if (investorAction === "REDUCE")     return { icon: "✂", fill: "#facc15", bg: "rgba(250,204,21,0.22)", border: "#facc15", label: "REDUCE" };
-          if (investorAction === "WATCH")      return { icon: "👁", fill: "#94a3b8", bg: "rgba(148,163,184,0.18)", border: "#94a3b8", label: "WATCH" };
-          if (investorAction === "EXITED")     return { icon: "✕", fill: "#64748b", bg: "rgba(100,116,139,0.18)", border: "#64748b", label: "EXITED" };
+          if (investorAction === "ACCUMULATE") return { icon: "➕", fill: "#34d399", bg: "rgba(52,211,153,0.16)", border: "#34d399", label: "ACCUMULATE" };
+          if (investorAction === "HOLD")       return { icon: "⊙", fill: "#8c92a0", bg: "rgba(140,146,160,0.14)", border: "#8c92a0", label: "HOLD" };
+          if (investorAction === "DEFEND")     return { icon: "🛡", fill: "#e0b265", bg: "rgba(224,178,101,0.16)", border: "#e0b265", label: "DEFEND" };
+          if (investorAction === "REDUCE")     return { icon: "✂", fill: "#f59e0b", bg: "rgba(245,158,11,0.14)", border: "#f59e0b", label: "REDUCE" };
+          if (investorAction === "WATCH")      return { icon: "👁", fill: "#8c92a0", bg: "rgba(140,146,160,0.12)", border: "#8c92a0", label: "WATCH" };
+          if (investorAction === "EXITED")     return { icon: "✕", fill: "#6b7280", bg: "rgba(107,114,128,0.14)", border: "#6b7280", label: "EXITED" };
         }
-        if (ks === "in_review" || ks === "enter_now" || ks === "enter") return { icon: "🔍", fill: "#f59e0b", bg: "rgba(245,158,11,0.25)", border: "#f59e0b", label: "REVIEW" };
-        if (ks === "just_entered" || ks === "just_flipped") return { icon: "✅", fill: "#00e676", bg: "rgba(0,230,118,0.25)", border: "#00e676", label: "INITIATED" };
-        if (ks === "trim") return { icon: "✂", fill: "#facc15", bg: "rgba(250,204,21,0.2)", border: "#facc15", label: "TRIM" };
-        if (ks === "exit") return { icon: "✕", fill: "#f87171", bg: "rgba(248,113,113,0.25)", border: "#f87171", label: "EXIT" };
-        if (ks === "defend") return { icon: "🛡", fill: "#fb923c", bg: "rgba(251,146,60,0.2)", border: "#fb923c", label: "DEFEND" };
+        if (ks === "in_review" || ks === "enter_now" || ks === "enter") return { icon: "🔍", fill: "#e0b265", bg: "rgba(224,178,101,0.16)", border: "#e0b265", label: "REVIEW" };
+        if (ks === "just_entered" || ks === "just_flipped") return { icon: "✅", fill: "#34d399", bg: "rgba(52,211,153,0.16)", border: "#34d399", label: "INITIATED" };
+        if (ks === "trim") return { icon: "✂", fill: "#f59e0b", bg: "rgba(245,158,11,0.14)", border: "#f59e0b", label: "TRIM" };
+        if (ks === "exit") return { icon: "✕", fill: "#f43f5e", bg: "rgba(244,63,94,0.14)", border: "#f43f5e", label: "EXIT" };
+        if (ks === "defend") return { icon: "🛡", fill: "#e0b265", bg: "rgba(224,178,101,0.16)", border: "#e0b265", label: "DEFEND" };
         return null;
       })();
 
@@ -1220,12 +1225,12 @@
           {decisionTooltip && <title>{decisionTooltip}</title>}
           {showGlow && (
             <>
-              <circle cx={0} cy={0} r={renderedSize + 6} fill="none" stroke={alignFill} strokeWidth="1.5" opacity="0.35">
-                <animate attributeName="r" values={`${renderedSize + 3};${renderedSize + 8};${renderedSize + 3}`} dur="2s" repeatCount="indefinite" />
-                <animate attributeName="opacity" values="0.45;0.12;0.45" dur="2s" repeatCount="indefinite" />
+              <circle cx={0} cy={0} r={renderedSize + 6} fill="none" stroke={alignFill} strokeWidth="1.25" opacity="0.22">
+                <animate attributeName="r" values={`${renderedSize + 3};${renderedSize + 7};${renderedSize + 3}`} dur="2.4s" repeatCount="indefinite" />
+                <animate attributeName="opacity" values="0.28;0.08;0.28" dur="2.4s" repeatCount="indefinite" />
               </circle>
-              <circle cx={0} cy={0} r={renderedSize + 2} fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="1">
-                <animate attributeName="opacity" values="0.2;0.55;0.2" dur="1.8s" repeatCount="indefinite" />
+              <circle cx={0} cy={0} r={renderedSize + 2} fill="none" stroke="rgba(244,245,247,0.28)" strokeWidth="1">
+                <animate attributeName="opacity" values="0.12;0.32;0.12" dur="2.2s" repeatCount="indefinite" />
               </circle>
             </>
           )}
@@ -2094,19 +2099,20 @@
               );
             })}
 
-            {/* Quadrant labels — HTF horizontal (L/R), LTF vertical (T/B) */}
+            {/* Quadrant labels — HTF horizontal (L/R), LTF vertical (T/B).
+                Muted DS tones at low opacity so they stay atmosphere, not chrome. */}
             {/* Top-Left: BOUNCE / REVERSAL (HTF<0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BOUNCE / REVERSAL</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bearish, LTF Strong</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 18} fill="#e0b265" fontSize="11" fontWeight="600" textAnchor="middle" opacity="0.28">BOUNCE / REVERSAL</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + 30} fill="#e0b265" fontSize="7" textAnchor="middle" opacity="0.20">HTF Bearish, LTF Strong</text>
             {/* Top-Right: BULLISH MOMENTUM (HTF>0, LTF>0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#22c55e" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BULLISH MOMENTUM</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#22c55e" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 18} fill="#34d399" fontSize="11" fontWeight="600" textAnchor="middle" opacity="0.28">BULLISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + 30} fill="#34d399" fontSize="7" textAnchor="middle" opacity="0.20">All Timeframes Aligned</text>
             {/* Bottom-Left: BEARISH MOMENTUM (HTF<0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#ef4444" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">BEARISH MOMENTUM</text>
-            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#ef4444" fontSize="7" textAnchor="middle" opacity="0.30">All Timeframes Aligned</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 14} fill="#f43f5e" fontSize="11" fontWeight="600" textAnchor="middle" opacity="0.28">BEARISH MOMENTUM</text>
+            <text x={offsetX + plotWidth * 0.12} y={offsetY + plotHeight - 3} fill="#f43f5e" fontSize="7" textAnchor="middle" opacity="0.20">All Timeframes Aligned</text>
             {/* Bottom-Right: PULLBACK (HTF>0, LTF<0) */}
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#f59e0b" fontSize="11" fontWeight="700" textAnchor="middle" opacity="0.38">PULLBACK</text>
-            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#f59e0b" fontSize="7" textAnchor="middle" opacity="0.30">HTF Bullish, LTF Weak</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 14} fill="#e0b265" fontSize="11" fontWeight="600" textAnchor="middle" opacity="0.28">PULLBACK</text>
+            <text x={offsetX + plotWidth * 0.88} y={offsetY + plotHeight - 3} fill="#e0b265" fontSize="7" textAnchor="middle" opacity="0.20">HTF Bullish, LTF Weak</text>
 
             {/* Corridors — HTF half-plane × LTF entry band */}
             {(() => {
@@ -2122,9 +2128,9 @@
               const bearX = xForHtf(-domainXMax);
               return (
                 <>
-                  <rect x={bullX} y={longYTop} width={bullW} height={longH} fill="rgba(34,197,94,0.08)" stroke="rgba(34,197,94,0.35)" strokeWidth="1" strokeDasharray="6 4" />
+                  <rect x={bullX} y={longYTop} width={bullW} height={longH} fill="rgba(52,211,153,0.05)" stroke="rgba(52,211,153,0.22)" strokeWidth="1" strokeDasharray="6 4" />
                   <text x={bullX + bullW / 2} y={longYTop + longH / 2} fill="rgba(34,197,94,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BULL SETUP ZONE</text>
-                  <rect x={bearX} y={shortYTop} width={bearW} height={shortH} fill="rgba(239,68,68,0.08)" stroke="rgba(239,68,68,0.35)" strokeWidth="1" strokeDasharray="6 4" />
+                  <rect x={bearX} y={shortYTop} width={bearW} height={shortH} fill="rgba(244,63,94,0.05)" stroke="rgba(244,63,94,0.22)" strokeWidth="1" strokeDasharray="6 4" />
                   <text x={bearX + bearW / 2} y={shortYTop + shortH / 2} fill="rgba(239,68,68,0.42)" fontSize="10" fontWeight="600" textAnchor="middle" dominantBaseline="middle" style={{pointerEvents:"none"}}>BEAR SETUP ZONE</text>
                 </>
               );

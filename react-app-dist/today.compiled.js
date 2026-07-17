@@ -3953,42 +3953,43 @@ function classifyStateBucket(state) {
   if (s.startsWith("HTF_BEAR")) return "bear_mixed";
   return "neutral";
 }
-const STATE_BUCKET_COLOR = {
-  bull_aligned: "#22c55e",
-  bear_aligned: "#b91c1c",
-  pullback: "#eab308",
-  bull_mixed: "#22c55e",
-  bear_mixed: "#b91c1c",
+const STATE_BUCKET_COLOR = window.TimedBubbleChart && window.TimedBubbleChart.ALIGN_FILL || {
+  bull_aligned: "#34d399",
+  bear_aligned: "#f43f5e",
+  pullback: "#e0b265",
+  bull_mixed: "#34d399",
+  bear_mixed: "#f43f5e",
   neutral: "#6b7280"
 };
 function BubbleMapEncodeLegend() {
+  const af = STATE_BUCKET_COLOR;
   return h("div", {
     className: "bm-legend",
     "aria-label": "Bubble map legend"
   }, h("span", null, h("span", {
     className: "bm-leg-dot",
     style: {
-      background: "#22c55e"
+      background: af.bull_aligned
     }
   }), "Bull"), h("span", null, h("span", {
     className: "bm-leg-dot bm-leg-dot--mixed bm-leg-dot--mixed-bull",
     style: {
-      background: "#22c55e"
+      background: af.bull_mixed
     }
   }), "Bull Mixed (~)"), h("span", null, h("span", {
     className: "bm-leg-dot",
     style: {
-      background: "#eab308"
+      background: af.pullback
     }
   }), "Pullback"), h("span", null, h("span", {
     className: "bm-leg-dot",
     style: {
-      background: "#b91c1c"
+      background: af.bear_aligned
     }
   }), "Bear"), h("span", null, h("span", {
     className: "bm-leg-dot bm-leg-dot--mixed bm-leg-dot--mixed-bear",
     style: {
-      background: "#b91c1c"
+      background: af.bear_mixed
     }
   }), "Bear Mixed (~)"), h("span", {
     className: "bm-leg-meta",
@@ -6732,6 +6733,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784308366936:632531093
+// cache-bust:1784321787947:238357818
 
-// cache-bust:1784308366936:632531093
+// cache-bust:1784321787947:238357818
