@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Bubble map colors → design-system restrained tones (2026-07-17).**
+- [x] **Bubble map colors → design-system restrained tones (2026-07-17).**
       Alignment fills were neon (#22c55e / #b91c1c / #eab308) at ~0.92 opacity.
       Retone to `--tt-success` / `--ds-dn` / `--ds-accent-soft`, lower fill
       opacity, soften corridors + quadrant labels; legends read shared
