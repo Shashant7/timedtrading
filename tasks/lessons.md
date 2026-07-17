@@ -6,6 +6,13 @@
 
 ---
 
+## Bubble map fills should use restrained DS tones, not neon chips [2026-07-17]
+
+Alignment fills at full neon (`#22c55e` / `#b91c1c` / `#eab308`) + ~0.92
+opacity shout over the panel. Prefer `--tt-success` / `--ds-dn` /
+`--ds-accent-soft`, resting opacity ~0.68, and keep legends wired to
+`TimedBubbleChart.ALIGN_FILL` so encode + chrome stay in sync.
+
 ## Today bubble Open Positions must include Investor book [2026-07-17]
 
 The hero Open Positions strip and Daily Brief bubble already fetch

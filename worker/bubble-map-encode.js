@@ -1,12 +1,16 @@
 /** Pure bubble-map visual encode helpers (mirrored in shared-bubble-chart.js). */
 
+// Design-system restrained tones (tt-tokens / DESIGN.md):
+//   bull → --tt-success / --ds-up-soft
+//   bear → --ds-dn (warmer than pure danger)
+//   pullback → --ds-accent-soft (gold, not neon yellow)
 export const ALIGN_FILL = {
-  bull_aligned: "#22c55e",
-  bull_mixed: "#22c55e",
-  pullback: "#eab308",
-  bear_aligned: "#b91c1c",
-  bear_mixed: "#b91c1c",
-  neutral: "#64748b",
+  bull_aligned: "#34d399",
+  bull_mixed: "#34d399",
+  pullback: "#e0b265",
+  bear_aligned: "#f43f5e",
+  bear_mixed: "#f43f5e",
+  neutral: "#6b7280",
 };
 
 /** Align state → fill bucket (legend semantics).

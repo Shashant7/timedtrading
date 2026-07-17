@@ -104,6 +104,13 @@
   --ds-dn-bg:         rgba(244, 63, 94, 0.10);
   --ds-flat:          #9CA3AF;
 
+  /* Bubble map alignment fills — softer than raw direction chips so the
+     chart sits in the panel instead of shouting over cards/chrome. */
+  --ds-bubble-bull:     var(--ds-up-soft);
+  --ds-bubble-bear:     var(--ds-dn);
+  --ds-bubble-pullback: var(--ds-accent-soft);
+  --ds-bubble-neutral:  #6B7280;
+
   /* Semantic accents — used SPARINGLY */
   --ds-info:          #60A5FA;
   --ds-warn:          #F59E0B;

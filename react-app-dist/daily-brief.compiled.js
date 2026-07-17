@@ -2780,46 +2780,55 @@ function BriefBubbleMap({
   }, visible.length, " tickers", openCount > 0 ? ` · ${openCount} open positions` : "", " \u2014 x: LTF momentum, y: HTF trend strength")), React.createElement("div", {
     className: "db-bubble-legend",
     "aria-label": "Bubble map legend"
-  }, React.createElement("span", null, React.createElement("span", {
-    className: "bdot",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull"), React.createElement("span", null, React.createElement("span", {
-    className: "bdot bdot--mixed bdot--mixed-bull",
-    style: {
-      background: "#22c55e"
-    }
-  }), "Bull Mixed (~)"), React.createElement("span", null, React.createElement("span", {
-    className: "bdot",
-    style: {
-      background: "#eab308"
-    }
-  }), "Pullback"), React.createElement("span", null, React.createElement("span", {
-    className: "bdot",
-    style: {
-      background: "#b91c1c"
-    }
-  }), "Bear"), React.createElement("span", null, React.createElement("span", {
-    className: "bdot bdot--mixed bdot--mixed-bear",
-    style: {
-      background: "#b91c1c"
-    }
-  }), "Bear Mixed (~)"), React.createElement("span", {
-    className: "bmeta"
-  }, React.createElement("span", {
-    className: "bsize"
-  }, React.createElement("i", {
-    className: "s"
-  }), React.createElement("i", {
-    className: "l"
-  })), "Size = R:R"), React.createElement("span", {
-    className: "bmeta"
-  }, React.createElement("span", {
-    className: "bstroke"
-  }), "Low/Med \xB7 ", React.createElement("span", {
-    className: "bstroke bstroke--high"
-  }), "High Prob"))), React.createElement("div", {
+  }, (() => {
+    const af = window.TimedBubbleChart && window.TimedBubbleChart.ALIGN_FILL || {
+      bull_aligned: "#34d399",
+      bull_mixed: "#34d399",
+      pullback: "#e0b265",
+      bear_aligned: "#f43f5e",
+      bear_mixed: "#f43f5e"
+    };
+    return React.createElement(React.Fragment, null, React.createElement("span", null, React.createElement("span", {
+      className: "bdot",
+      style: {
+        background: af.bull_aligned
+      }
+    }), "Bull"), React.createElement("span", null, React.createElement("span", {
+      className: "bdot bdot--mixed bdot--mixed-bull",
+      style: {
+        background: af.bull_mixed
+      }
+    }), "Bull Mixed (~)"), React.createElement("span", null, React.createElement("span", {
+      className: "bdot",
+      style: {
+        background: af.pullback
+      }
+    }), "Pullback"), React.createElement("span", null, React.createElement("span", {
+      className: "bdot",
+      style: {
+        background: af.bear_aligned
+      }
+    }), "Bear"), React.createElement("span", null, React.createElement("span", {
+      className: "bdot bdot--mixed bdot--mixed-bear",
+      style: {
+        background: af.bear_mixed
+      }
+    }), "Bear Mixed (~)"), React.createElement("span", {
+      className: "bmeta"
+    }, React.createElement("span", {
+      className: "bsize"
+    }, React.createElement("i", {
+      className: "s"
+    }), React.createElement("i", {
+      className: "l"
+    })), "Size = R:R"), React.createElement("span", {
+      className: "bmeta"
+    }, React.createElement("span", {
+      className: "bstroke"
+    }), "Low/Med \xB7 ", React.createElement("span", {
+      className: "bstroke bstroke--high"
+    }), "High Prob"));
+  })())), React.createElement("div", {
     className: "db-bubble-card"
   }, React.createElement("div", {
     className: "db-bubble-stage"
@@ -3210,6 +3219,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1784308366936:632531093
+// cache-bust:1784321787947:238357818
 
-// cache-bust:1784308366936:632531093
+// cache-bust:1784321787947:238357818

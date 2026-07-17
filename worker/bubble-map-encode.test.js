@@ -21,7 +21,9 @@ describe("bubble map encode", () => {
     // Production bounce state — must NOT land in yellow pullback.
     expect(classifyAlignmentBucket("HTF_BEAR_LTF_PULLBACK")).toBe("bear_mixed");
     expect(classifyAlignmentBucket("HTF_BEAR_LTF_BULL_BOUNCE")).toBe("bear_mixed");
-    expect(ALIGN_FILL.pullback).toBe("#eab308");
+    expect(ALIGN_FILL.pullback).toBe("#e0b265");
+    expect(ALIGN_FILL.bull_aligned).toBe("#34d399");
+    expect(ALIGN_FILL.bear_aligned).toBe("#f43f5e");
     expect(ALIGN_FILL.bull_aligned).toBe(ALIGN_FILL.bull_mixed);
   });
 

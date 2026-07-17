@@ -1182,7 +1182,7 @@
       }
       .bm-leg-stroke--none { border: 1px solid transparent; }
       .bm-leg-stroke--med { border: 1.5px dashed rgba(226, 232, 240, 0.85); background: transparent; }
-      .bm-leg-stroke--high { border: 1.5px solid rgba(226, 232, 240, 0.95); background: transparent; }
+      .bm-leg-stroke--high { border: 1.5px solid rgba(244, 245, 247, 0.55); background: transparent; }
       .bm-leg-vec {
         position: relative;
         display: inline-block;
@@ -5554,23 +5554,24 @@
         if (s.startsWith("HTF_BEAR"))  return "bear_mixed";
         return "neutral";
       }
-      const STATE_BUCKET_COLOR = {
-        bull_aligned: "#22c55e",
-        bear_aligned: "#b91c1c",
-        pullback:     "#eab308",
-        bull_mixed:   "#22c55e",
-        bear_mixed:   "#b91c1c",
+      const STATE_BUCKET_COLOR = (window.TimedBubbleChart && window.TimedBubbleChart.ALIGN_FILL) || {
+        bull_aligned: "#34d399",
+        bear_aligned: "#f43f5e",
+        pullback:     "#e0b265",
+        bull_mixed:   "#34d399",
+        bear_mixed:   "#f43f5e",
         neutral:      "#6b7280",
       };
 
       /** Compact encode legend — color = alignment, size = R:R, stroke = probability. */
       function BubbleMapEncodeLegend() {
+        const af = STATE_BUCKET_COLOR;
         return h("div", { className: "bm-legend", "aria-label": "Bubble map legend" },
-          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#22c55e" } }), "Bull"),
-          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed bm-leg-dot--mixed-bull", style: { background: "#22c55e" } }), "Bull Mixed (~)"),
-          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#eab308" } }), "Pullback"),
-          h("span", null, h("span", { className: "bm-leg-dot", style: { background: "#b91c1c" } }), "Bear"),
-          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed bm-leg-dot--mixed-bear", style: { background: "#b91c1c" } }), "Bear Mixed (~)"),
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: af.bull_aligned } }), "Bull"),
+          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed bm-leg-dot--mixed-bull", style: { background: af.bull_mixed } }), "Bull Mixed (~)"),
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: af.pullback } }), "Pullback"),
+          h("span", null, h("span", { className: "bm-leg-dot", style: { background: af.bear_aligned } }), "Bear"),
+          h("span", null, h("span", { className: "bm-leg-dot bm-leg-dot--mixed bm-leg-dot--mixed-bear", style: { background: af.bear_mixed } }), "Bear Mixed (~)"),
           h("span", { className: "bm-leg-meta", title: "Bubble radius encodes reward vs risk to Target 2" },
             h("span", { className: "bm-leg-size" }, h("i", { className: "s" }), h("i", { className: "l" })),
             "Size = R:R",
