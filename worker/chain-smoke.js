@@ -46,6 +46,33 @@ function ageMin(ts, nowMs) {
 }
 
 /**
+ * Overlay smoke compares timed:latest vs timed:prices.
+ * Prefer `_live_price` when it agrees with `price`; if a zombie
+ * `_live_price` diverges from the settled `price` field (merge lane
+ * updates price/close but historically left `_live_price` behind),
+ * use `price` so the check measures the API's reconciled view.
+ * When both disagree with each other and a feed px is available, pick
+ * the candidate closer to the feed (still fails if that exceeds 3%).
+ */
+export function resolveOverlayLatestPx(latest, feedPx = 0) {
+  const live = Number(latest?._live_price) || 0;
+  const price = Number(latest?.price) || 0;
+  if (live > 0 && price > 0) {
+    const liveVsPricePct = Math.abs(live - price) / price * 100;
+    if (liveVsPricePct > OVERLAY_DIVERGENCE_PCT) {
+      const fp = Number(feedPx) || 0;
+      if (fp > 0) {
+        const dLive = Math.abs(live - fp) / fp;
+        const dPrice = Math.abs(price - fp) / fp;
+        return dPrice <= dLive ? price : live;
+      }
+      return price;
+    }
+  }
+  return live || price || 0;
+}
+
+/**
  * Walk the chain for the sentinel tickers. Returns:
  * { ok, checked_at, session: {market_open, within_operating_hours, ...},
  *   sentinels, links: { feed, candles, scoring, overlay }, failing_links }
@@ -155,8 +182,8 @@ export async function runChainSmoke(env, opts = {}) {
         }
       }
 
-      const latestPx = Number(latest?._live_price ?? latest?.price) || 0;
       const feedPx = Number(pricesRows?.[sym]?.p) || 0;
+      const latestPx = resolveOverlayLatestPx(latest, feedPx);
       let divergencePct = null;
       if (latestPx > 0 && feedPx > 0) {
         divergencePct = Math.round(Math.abs(latestPx - feedPx) / feedPx * 10000) / 100;

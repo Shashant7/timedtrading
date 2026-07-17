@@ -496,6 +496,28 @@ describe("mergeFreshnessIntoLatest merge-lane regression", () => {
     expect(row._ah_price).toBeUndefined();
   });
 
+  it("stamps _live_price with price so zombie overlay fields cannot persist", async () => {
+    const kv = mockKV({
+      "timed:latest:AAPL": {
+        ticker: "AAPL",
+        price: 307.77,
+        close: 307.77,
+        _live_price: 307.77,
+        prev_close: 325,
+      },
+    });
+    const res = await mergeFreshnessIntoLatest(
+      kv,
+      { AAPL: { p: 331.91, pc: 325, t: Date.now(), dc: 6.91, dp: 2.13 } },
+      { marketOpen: true },
+    );
+    expect(res.merged).toBe(1);
+    const row = JSON.parse(kv.store.get("timed:latest:AAPL"));
+    expect(row.price).toBe(331.91);
+    expect(row.close).toBe(331.91);
+    expect(row._live_price).toBe(331.91);
+  });
+
   it("works without opts (env-less static session fallback, no throw)", async () => {
     const kv = mockKV({ "timed:latest:MSFT": { ticker: "MSFT", price: 500, prev_close: 495 } });
     const res = await mergeFreshnessIntoLatest(kv, { MSFT: { p: 502, pc: 495, t: Date.now(), dc: 7, dp: 1.41 } });

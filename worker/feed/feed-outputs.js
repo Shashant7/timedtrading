@@ -480,6 +480,10 @@ export async function mergeFreshnessIntoLatest(KV, prices, opts = {}) {
           ...existing,
           price: updatedPrice,
           close: updatedPrice,
+          // Keep _live_price in lockstep with price/close. Merge used to
+          // leave a zombie _live_price (AAPL ~307 vs ~332) that chain-smoke
+          // and some consumers preferred over the settled price.
+          _live_price: updatedPrice,
           prev_close: updatedPc || existing.prev_close,
           day_change: finalDc,
           day_change_pct: finalDp,

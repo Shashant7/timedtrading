@@ -6,6 +6,18 @@
 
 ---
 
+## Chain-smoke overlay false page from zombie `_live_price` (AAPL) [2026-07-17]
+
+External watchdog went red twice on RTH with everything else green:
+`chain-smoke: overlay AAPL:diverge≈7.3%`. `timed:prices` and settled
+`timed:latest.price`/`close` were ~$332; `_live_price` was stuck ~$307.
+`mergeFreshnessIntoLatest` updated price/close but not `_live_price`, and
+chain-smoke preferred `_live_price ?? price`. Fix: stamp `_live_price` in
+the merge lane (parity with `overlayTimedPricesRow`); smoke resolves
+overlay px by discarding a zombie `_live_price` that diverges from
+`price` (pick closer to feed). Deploy **monolith** (chain-smoke) **and
+tt-feed** (`worker/feed/feed-outputs.js`).
+
 ## Newton IBM vignette — shakeout highs after structural damage are iffy [2026-07-15]
 
 Mark Newton (Fundstrat) on the IBM plunge: the move looked abrupt, but

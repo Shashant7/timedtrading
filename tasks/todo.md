@@ -22,6 +22,16 @@
 
 ### Active
 
+- [x] **Watchdog overlay false page — AAPL zombie `_live_price` (2026-07-17).**
+      External watchdog red twice (14:13 / 15:58 UTC) on
+      `chain-smoke: overlay AAPL:diverge≈7.3%` while feed/candles/scoring OK
+      and `timed:prices` AAPL matched settled `price`/`close`. Root cause:
+      `timed:latest:AAPL._live_price` stuck ~307 vs ~332; chain-smoke preferred
+      `_live_price`; `mergeFreshnessIntoLatest` updated price/close but not
+      `_live_price`. Fix: smoke picks closer/settled price; merge stamps
+      `_live_price`. Branch: `cursor/watchdog-overlay-zombie-df0c`. PR #1115.
+      Deployed monolith + tt-feed; chain overlay AAPL diverge now ~0.07%.
+
 - [x] **UNP false early_dead_money flatten (2026-07-15).** LONG trimmed 65% green
       day 1; day 2 runner flattened at −1.25% via `early_dead_money_flatten` while
       SL 277.92 untouched; next day rallied to 297. Live `getPositionContext` lacked

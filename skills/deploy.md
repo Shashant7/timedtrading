@@ -17,6 +17,7 @@ need it live for the user.
 | What you changed | What to deploy |
 |---|---|
 | `worker/*.js`, `worker/wrangler.toml`, `worker/*.sql` | **Worker, BOTH envs** (default + production) |
+| `worker/feed/**` (price feed, merge, stream helpers) | **tt-feed too** (`worker-feed/`) — after cutover the */1 heal/merge cron runs there, not on the monolith |
 | `react-app/shared-right-rail.js` (the right-rail React source) | **Rail compile + frontend build + git push** |
 | `react-app/*.html` (any page using JSX/React) | **Frontend build + git push** |
 | Any static asset under `react-app/` | **git push** (Pages auto-deploys) |
@@ -110,6 +111,11 @@ The main worker reaches the bridge via the `BROKER_BRIDGE_URL` env var
 - **Skipping the second wrangler deploy.** Production is a separate
   Cloudflare environment. The default deploy goes to workers.dev URL; the
   production deploy goes to the custom domain. Both must run.
+- **Editing `worker/feed/**` but only deploying the monolith.** tt-feed owns
+  the */1 price-feed/heal/merge lane after cutover. Deploy
+  `cd worker-feed && ../node_modules/.bin/wrangler deploy` (and production
+  if that config uses envs) or the merge/heal fix never reaches the cron
+  that writes `timed:prices` / `mergeFreshnessIntoLatest`.
 - **Forgetting to `git push` after `npm run build:frontend`.** Pages
   deploys only on push to `main` — `wrangler` does NOT publish Pages.
 - **Forgetting to compile the right rail.** Edits to `shared-right-rail.js`
