@@ -13,6 +13,7 @@ import {
   deriveSetupGateShadowFromEvents,
   setupGateShadowEnabled,
 } from "./setup-gate-shadow.js";
+import { interpretSetupThroughCharacter } from "../business-character.js";
 
 const DEFAULT_LOOKBACK_MS = 48 * 60 * 60 * 1000;
 
@@ -49,12 +50,30 @@ export function deriveSetupShadowFromEvents(events = [], payload = {}, opts = {}
   const traderPosture = summarizeTraderPosture(sequences, opts.postureOpts || {});
   const now = Number(payload?.ts || payload?.ingest_ts || Date.now());
 
+  // Business-character lens: same sequence stage, different meaning for
+  // steady value vs growth compounder. Observability only — not an entry gate.
+  const character = payload?._business_character || context?.business_character || null;
+  const leadSeq = active[0] || null;
+  const characterRead = character
+    ? interpretSetupThroughCharacter(character, leadSeq || {})
+    : null;
+
   return {
     setup_shadow: true,
     setup_sequences: active.slice(0, 6).map(compactSequenceForPayload),
     setup_shadow_posture: traderPosture,
     setup_shadow_event_count: events.length,
     setup_shadow_as_of_ts: now,
+    setup_shadow_business_character: character
+      ? {
+          archetype: character.archetype || null,
+          quality_grade: character.quality_grade ?? null,
+          growth_class: character.growth_class ?? null,
+          valuation_state: character.valuation_state ?? null,
+          lens_summary: character.technical_lens?.summary || character.lens_summary || null,
+        }
+      : null,
+    setup_shadow_character_read: characterRead,
   };
 }
 

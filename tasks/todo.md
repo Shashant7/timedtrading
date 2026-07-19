@@ -22,6 +22,17 @@
 
 ### Active
 
+- [ ] **Unified Model Lifecycle — trust the process (2026-07-19).**
+      Product reframe: Active Trader vs Investor are the same actions
+      (buy/trim/sell) with different horizons — not different products.
+      Canonical states: Watching → Queued → Bought → Held → Trimming → Exited.
+      Plan: [`plans/unified-model-lifecycle.plan.md`](../plans/unified-model-lifecycle.plan.md).
+      Contract + stamp in progress (`worker/model-lifecycle.js`,
+      `_model_lifecycle` on scoring + investor revalidate). Next: Today/Right
+      Rail "what the model is doing" surface; one board; notification taxonomy;
+      broker executes lifecycle events. Related: business character lens
+      (`worker/business-character.js`) so fundamentals change what technicals mean.
+
 - [x] **Bubble map colors → design-system restrained tones (2026-07-17).**
       Alignment fills were neon (#22c55e / #b91c1c / #eab308) at ~0.92 opacity.
       Retone to `--tt-success` / `--ds-dn` / `--ds-accent-soft`, lower fill

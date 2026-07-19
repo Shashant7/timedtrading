@@ -266,6 +266,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   lean overrides the multi-day confluence gate; low conviction falls back).
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.
+  **Product surface (2026-07-19):** AT vs Investor are the same actions
+  (buy/trim/sell) with different horizons — not separate products. Canonical
+  lifecycle: Watching → Queued → Bought → Held → Trimming → Exited. See
+  [`plans/unified-model-lifecycle.plan.md`](plans/unified-model-lifecycle.plan.md).
+  Stamp: `_model_lifecycle` on scored payloads + investor scores.
 - PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
   Close magnets + a 20-day window made every level read "highly likely"; a
   ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and

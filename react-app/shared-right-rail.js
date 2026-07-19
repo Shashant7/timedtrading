@@ -6416,6 +6416,8 @@
               setup_gate_shadow: hasGates,
               setup_gates: hasGates ? src.setup_gates : null,
               setup_gate_lookback_hours: src.setup_gate_lookback_hours ?? null,
+              business_character: src.setup_shadow_business_character || src._business_character || null,
+              character_read: src.setup_shadow_character_read || null,
             };
           };
 
@@ -7791,6 +7793,14 @@
                         ctx.vix_regime && { key: "vix", label: `VIX ${ctx.vix_regime}`, cls: "ds-chip--solid", title: "VIX regime context" },
                         ctx.index_posture && { key: "idx", label: `Index ${ctx.index_posture}`, cls: "ds-chip--solid", title: "Index posture context" },
                         ctx.ticker_personality && { key: "pers", label: String(ctx.ticker_personality).replace(/_/g, " "), cls: "ds-chip--accent", title: "Ticker personality" },
+                        (setupShadowDiag.business_character?.archetype || ctx.business_character?.archetype) && {
+                          key: "biz",
+                          label: String(setupShadowDiag.business_character?.archetype || ctx.business_character?.archetype).replace(/_/g, " "),
+                          cls: "ds-chip--accent",
+                          title: setupShadowDiag.business_character?.lens_summary
+                            || ctx.business_character?.lens_summary
+                            || "Business character — fundamentals lens on technicals",
+                        },
                         setupShadowDiag.snapshot_source && {
                           key: "snaps",
                           label: `${setupShadowDiag.snapshot_count || 0} snaps · ${setupShadowDiag.snapshot_source}${setupShadowDiag.inline_from_payload ? " · live payload" : ""}`,
@@ -7826,10 +7836,25 @@
                           ))}
                         </div>
                       );
+                      const characterRead = setupShadowDiag.character_read?.read
+                        || setupShadowDiag.business_character?.lens_summary
+                        || ctx.business_character?.lens_summary
+                        || null;
+                      const characterBlock = characterRead ? (
+                        <p style={{
+                          margin: "6px 0 0",
+                          fontSize: 11,
+                          lineHeight: 1.45,
+                          color: "var(--ds-text-muted)",
+                        }}>
+                          {characterRead}
+                        </p>
+                      ) : null;
                       if (!compact) {
                         return (
                           <div style={{ marginBottom: active.length ? "var(--ds-space-2)" : 0 }}>
                             {chipRow}
+                            {characterBlock}
                           </div>
                         );
                       }
@@ -7846,6 +7871,7 @@
                             Context & diagnostics
                           </summary>
                           {chipRow}
+                          {characterBlock}
                         </details>
                       );
                     })()}
