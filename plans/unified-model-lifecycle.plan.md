@@ -72,7 +72,7 @@ The model may shoot **any of the three** vehicles on each signal:
 
 - Pref default: all three allowed (`allowed_vehicles`). BYOB later narrows the menu; it does not invent a fourth product.
 - At ENTRY the engine records `source=model_play` in `signal_outcomes` plus lineage `model_play` / `vehicle_menu`.
-- **Sim fill (2026-07-19):** live book executes the pick via `worker/model-play-sim.js` (`deep_audit_model_play_sim_enabled`, default on). Options = long-debit paper (BS mark); LETF = mapped ticker quote; shares unchanged. Replay stays shares-only. Broker bridge still separate.
+- **Sim fill (2026-07-19):** code path in `worker/model-play-sim.js` — Options = long-debit BS paper; LETF = mapped quote. **Default OFF** (`deep_audit_model_play_sim_enabled`) until D1 vehicle persistence + close/trim accounting land. Broker bridge skips non-shares fills.
 - Endpoints: `GET /timed/admin/play-performance` and `GET /timed/play-performance` — W/L, win rate, avg/sum pct by play.
 
 ## What we stop doing

@@ -28,14 +28,17 @@ const LONG_DEBIT_ARCHETYPES = new Set([
 ]);
 
 export function isModelPlaySimEnabled(env, { isReplay = false } = {}) {
-  // Replay stays shares-only for historical parity unless explicitly forced.
+  // DEFAULT OFF until D1 positions/trades hydrate vehicle fills
+  // (options_paper / letf_paper) and close/trim cash paths are vehicle-aware.
+  // Flip deep_audit_model_play_sim_enabled=true only after that lands.
+  // Replay stays shares-only unless explicitly forced.
   if (isReplay) {
     return String(env?._deepAuditConfig?.deep_audit_model_play_sim_replay ?? "false") === "true";
   }
   const cfg = env?._deepAuditConfig?.deep_audit_model_play_sim_enabled
     ?? env?.MODEL_PLAY_SIM_ENABLED
-    ?? "true";
-  return String(cfg) !== "false";
+    ?? "false";
+  return String(cfg) === "true";
 }
 
 /** Long debit single-leg only — credit/undefined-risk stays counterfactual. */

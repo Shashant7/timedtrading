@@ -273,8 +273,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Stamp: `_model_lifecycle` on scored payloads + investor scores.
   **Ways to play:** model chooses Shares / Leveraged ETF / Options per signal
   (`play_vehicle`); dogfood via `source=model_play` + `/timed/play-performance`
-  (W/L + outcome_pct). Live sim fills the pick (`model-play-sim.js`: options
-  long-debit BS paper, LETF mapped quote); replay stays shares-only.
+  (W/L + outcome_pct). Multi-vehicle sim fill code exists (`model-play-sim.js`)
+  but is **default OFF** (`deep_audit_model_play_sim_enabled`) until D1
+  persists vehicle fills; without the flag book still fills shares.
 - PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
   Close magnets + a 20-day window made every level read "highly likely"; a
   ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and

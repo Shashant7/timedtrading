@@ -168,9 +168,12 @@ describe("applyModelPlaySimToTrade", () => {
 });
 
 describe("isModelPlaySimEnabled", () => {
-  it("defaults on for live, off for replay", () => {
-    expect(isModelPlaySimEnabled({}, { isReplay: false })).toBe(true);
+  it("defaults off until D1 vehicle persistence is ready", () => {
+    expect(isModelPlaySimEnabled({}, { isReplay: false })).toBe(false);
     expect(isModelPlaySimEnabled({}, { isReplay: true })).toBe(false);
+    expect(isModelPlaySimEnabled({
+      _deepAuditConfig: { deep_audit_model_play_sim_enabled: "true" },
+    })).toBe(true);
     expect(isModelPlaySimEnabled({
       _deepAuditConfig: { deep_audit_model_play_sim_enabled: "false" },
     })).toBe(false);

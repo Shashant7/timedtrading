@@ -35,7 +35,7 @@ Out of scope for MVP: credit spreads, covered calls, naked shorts, real option c
 
 ## Config
 
-`deep_audit_model_play_sim_enabled` — default **true** on live sim book (dogfood on). Replay stays shares-only for parity unless explicitly enabled.
+`deep_audit_model_play_sim_enabled` — default **false** until D1 hydrates `options_paper` / `letf_paper` and close/trim cash is vehicle-aware. Code path is wired; flip on only after persistence. Replay stays shares-only unless `deep_audit_model_play_sim_replay=true`.
 
 ## Honesty
 
