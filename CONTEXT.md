@@ -579,7 +579,7 @@ Seven memory layers assembled by `buildCIOMemory()` — no D1 calls at decision 
 4. **Ticker personality + franchise/blacklist**: From `ticker_profiles` + model_config.
 5. **CIO self-accuracy**: Approval WR, last 3 reject reasons, correctness.
 6. **Episodic market backdrop**: Today's VIX/oil/sector rotation + similar historical episodes via `findSimilarEpisodes()`.
-7. **Event-driven context**: Macro events (CPI/FOMC/NFP), direct + proxy earnings via `TICKER_PROXY_MAP`, post-event trade patterns.
+7. **Event-driven context**: Macro events (CPI/FOMC/NFP/OpEx 3rd Friday), direct + proxy earnings via `TICKER_PROXY_MAP`, post-event trade patterns. Monthly OpEx is generated (`worker/opex-calendar.js`), synced into `market_events`, and gated like other macros (`PRE_OPEX_RISK_REDUCTION` + entry block; 8h window into 4 PM ET).
 
 New D1 tables: `daily_market_snapshots` (macro signals per date incl. `btc_pct`/`eth_pct`, persisted from Daily Brief), `market_events` (macro + earnings results).
 `TICKER_PROXY_MAP` in `sector-mapping.js`: peer groups, ETF proxies, earnings correlations (NVDA→AMD/SOXL), crypto correlations (BTCUSD→SPY/QQQ, ETHUSD→IWM/XLF).

@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **OpEx on macro calendar + entry/exit risk (2026-07-19).**
+- [x] **OpEx on macro calendar + entry/exit risk (2026-07-19).**
       Market-wide monthly options expiration (3rd Friday / triple witching)
       was missing from the curated macro calendar and pre-event gates.
       Generate OpEx into Today/Brief calendar; sync `market_events`; add
