@@ -145,7 +145,7 @@ describe("model play dogfood", () => {
     expect(sig.source).toBe("model_play");
     expect(sig.vehicle).toBe("options");
     expect(sig.signal_id).toBe("model_play:trade-9");
-    expect(sig.payload.executed_vehicle).toBe("shares");
+    expect(sig.payload.executed_vehicle).toBe("shares"); // default meta; sim wiring overrides at entry
     expect(modelPlayLineage(menu).play_vehicle).toBe("options");
   });
 

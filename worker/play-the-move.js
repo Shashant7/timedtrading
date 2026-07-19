@@ -11,11 +11,10 @@
 //  Doctrine:
 //   • Deterministic + explainable. No LLM. Suitability is a 0-100 score
 //     whose components are listed as reasons.
-//   • The engine still EXECUTES shares (simulation lane unchanged). The
-//     pick and every rejected alternative are recorded in the Signal
-//     Outcome Ledger as counterfactuals — so the data answers "would the
-//     options play have beaten the shares play on this same signal?"
-//     BEFORE any real multi-vehicle execution is wired.
+//   • Simulation fills the model's pick when model-play-sim is enabled
+//     (default on for live): Shares as shares, LETF as mapped ETF quote,
+//     Options as long-debit paper marked via BS+ATR. Rejected alternatives
+//     remain ledger counterfactuals. Replay stays shares-only for parity.
 //   • This is Pillar 3's foundation: BYOB later = filtering this same
 //     menu by a user profile and routing to a broker adapter.
 //

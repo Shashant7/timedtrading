@@ -30,9 +30,11 @@
       Contract + stamp done (`worker/model-lifecycle.js`). **Play vehicles**
       (Shares / LETF / Options): model picks any of three; `source=model_play`
       ledger + `/timed/play-performance` dogfood scorecard; stamped on
-      lifecycle + Discord/email + Right Rail chip. Next: Today "what the model
-      is doing" surface; one board; notification taxonomy; broker fills the
-      chosen play (not shares-only). Related: business character lens.
+      lifecycle + Discord/email + Right Rail chip. **Sim fill** via
+      `worker/model-play-sim.js` (options long-debit paper + LETF quote;
+      default on live, shares-only in replay). Next: Today surface; one board;
+      notification taxonomy; broker bridge for real fills. Related: business
+      character lens.
 
 - [x] **Bubble map colors → design-system restrained tones (2026-07-17).**
       Alignment fills were neon (#22c55e / #b91c1c / #eab308) at ~0.92 opacity.
