@@ -89,4 +89,17 @@ describe("resolveModelLifecycle", () => {
     expect(r.levels.target_1).toBe(140);
     expect(formatLifecycleHeadline(r)).toMatch(/Held/);
   });
+
+  it("carries model play vehicle (shares|letf|options)", () => {
+    const r = resolveModelLifecycle({
+      ticker: "QQQ",
+      kanban_stage: "just_entered",
+      open_trader: true,
+      entry_ts: Date.now(),
+      play: { play_vehicle: "options", label: "Long Call", why: "convexity on 8% move" },
+    });
+    expect(r.play.play_vehicle).toBe("options");
+    expect(r.play.label).toMatch(/Call/);
+    expect(formatLifecycleHeadline(r)).toMatch(/options/);
+  });
 });

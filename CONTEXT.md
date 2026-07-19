@@ -271,6 +271,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   lifecycle: Watching → Queued → Bought → Held → Trimming → Exited. See
   [`plans/unified-model-lifecycle.plan.md`](plans/unified-model-lifecycle.plan.md).
   Stamp: `_model_lifecycle` on scored payloads + investor scores.
+  **Ways to play:** model chooses Shares / Leveraged ETF / Options per signal
+  (`play_vehicle`); dogfood via `source=model_play` + `/timed/play-performance`
+  (W/L + outcome_pct). Book still fills shares until multi-vehicle execution.
 - PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
   Close magnets + a 20-day window made every level read "highly likely"; a
   ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and

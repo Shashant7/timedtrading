@@ -27,11 +27,12 @@
       (buy/trim/sell) with different horizons — not different products.
       Canonical states: Watching → Queued → Bought → Held → Trimming → Exited.
       Plan: [`plans/unified-model-lifecycle.plan.md`](../plans/unified-model-lifecycle.plan.md).
-      Contract + stamp in progress (`worker/model-lifecycle.js`,
-      `_model_lifecycle` on scoring + investor revalidate). Next: Today/Right
-      Rail "what the model is doing" surface; one board; notification taxonomy;
-      broker executes lifecycle events. Related: business character lens
-      (`worker/business-character.js`) so fundamentals change what technicals mean.
+      Contract + stamp done (`worker/model-lifecycle.js`). **Play vehicles**
+      (Shares / LETF / Options): model picks any of three; `source=model_play`
+      ledger + `/timed/play-performance` dogfood scorecard; stamped on
+      lifecycle + Discord/email + Right Rail chip. Next: Today "what the model
+      is doing" surface; one board; notification taxonomy; broker fills the
+      chosen play (not shares-only). Related: business character lens.
 
 - [x] **Bubble map colors → design-system restrained tones (2026-07-17).**
       Alignment fills were neon (#22c55e / #b91c1c / #eab308) at ~0.92 opacity.

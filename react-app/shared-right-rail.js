@@ -6418,6 +6418,8 @@
               setup_gate_lookback_hours: src.setup_gate_lookback_hours ?? null,
               business_character: src.setup_shadow_business_character || src._business_character || null,
               character_read: src.setup_shadow_character_read || null,
+              model_play: src._model_lifecycle?.play || src._model_play || null,
+              model_lifecycle: src._model_lifecycle || null,
             };
           };
 
@@ -7800,6 +7802,24 @@
                           title: setupShadowDiag.business_character?.lens_summary
                             || ctx.business_character?.lens_summary
                             || "Business character — fundamentals lens on technicals",
+                        },
+                        (() => {
+                          const play = setupShadowDiag.model_play || ctx.model_play || null;
+                          const pv = play?.play_vehicle || (typeof play === "string" ? play : null);
+                          if (!pv) return null;
+                          const labels = { shares: "Shares", letf: "Leveraged ETF", options: "Options" };
+                          return {
+                            key: "play",
+                            label: `Play · ${labels[pv] || pv}`,
+                            cls: "ds-chip--accent",
+                            title: play?.why || play?.label || "Model play vehicle for this signal",
+                          };
+                        })(),
+                        setupShadowDiag.model_lifecycle?.state && {
+                          key: "life",
+                          label: setupShadowDiag.model_lifecycle.label || String(setupShadowDiag.model_lifecycle.state),
+                          cls: "ds-chip--solid",
+                          title: setupShadowDiag.model_lifecycle.why || "Unified model lifecycle state",
                         },
                         setupShadowDiag.snapshot_source && {
                           key: "snaps",

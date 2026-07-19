@@ -4,7 +4,10 @@ overview: 'Collapse Active Trader vs Investor mode theater into one model lifecy
 todos:
   - id: lifecycle-contract
     content: 'Canonical lifecycle states + resolver that maps trader kanban_stage and investor stage/actionTier into one enum; stamp on timed:latest + investor scores.'
-    status: in_progress
+    status: completed
+  - id: play-vehicles
+    content: 'Model play vehicles shares|letf|options — pick at entry, persist lineage, dogfood scorecard W/L/pct, surface on lifecycle + alerts.'
+    status: completed
   - id: trade-intent-levels
     content: 'Every ENTRY stamps why_entered + intent + levels (entry/sl/tp/invalidation) so UI shows the plan, not playbook options.'
     status: pending
@@ -15,7 +18,7 @@ todos:
     content: 'Primary feed = what the model did/is doing (bought/trimmed/exited) with WHY; secondary = research/context. Notifications follow the same taxonomy.'
     status: pending
   - id: broker-execution
-    content: 'Broker bridge executes against lifecycle events + account preferences; mode is not a routing fork for fills.'
+    content: 'Broker bridge executes against lifecycle events + account preferences; mode is not a routing fork for fills. Eventually fill the chosen play vehicle, not shares-only.'
     status: pending
 isProject: true
 ---
@@ -53,8 +56,24 @@ Horizon (`swing` | `long_haul` | `day`) and book (`model_trader` | `model_invest
 4. **Levels** — entry, invalidation/SL, targets, next decision price  
 5. **Business character** — steady value vs growth compounder (changes how levels are read)  
 6. **Confidence / conviction** — calibrated when validated; never the headline alone  
+7. **Play vehicle** — Shares / Leveraged ETF / Options — the model's chosen expression of the move  
 
-The UI leads with **event + plan**, not "here are six ways to play this ticker."
+The UI leads with **event + plan + play**, not "here are six ways to play this ticker."
+
+## Ways to play (first-class preference)
+
+The model may shoot **any of the three** vehicles on each signal:
+
+| Play | Meaning | Scorecard key |
+|------|---------|---------------|
+| **Shares** | Linear underlying | `play_vehicle=shares` |
+| **Leveraged ETF** | Mapped LETF (e.g. QQQ→TQQQ) | `play_vehicle=letf` |
+| **Options** | Calls/puts/spreads/LEAP/moonshot | `play_vehicle=options` |
+
+- Pref default: all three allowed (`allowed_vehicles`). BYOB later narrows the menu; it does not invent a fourth product.
+- At ENTRY the engine records `source=model_play` in `signal_outcomes` plus lineage `model_play` / `vehicle_menu`.
+- Simulation still **fills shares** until multi-vehicle broker execution; non-shares picks grade as counterfactuals against the same levels so dogfood answers win / loss / how much (`outcome_pct`) by vehicle.
+- Endpoints: `GET /timed/admin/play-performance` and `GET /timed/play-performance` — W/L, win rate, avg/sum pct by play.
 
 ## What we stop doing
 

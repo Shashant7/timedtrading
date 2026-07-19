@@ -25,8 +25,76 @@
 
 import { lookupLETF, shouldActivateMoonshot } from "./options-plays.js";
 
+/** Canonical play vehicles the model may shoot (user-facing pref + scorecard). */
+export const PLAY_VEHICLES = Object.freeze(["shares", "letf", "options"]);
+
+export const PLAY_VEHICLE_LABELS = Object.freeze({
+  shares: "Shares",
+  letf: "Leveraged ETF",
+  options: "Options",
+});
+
+export const DEFAULT_PLAY_PREFS = Object.freeze({
+  // Model may choose any of the three. User prefs can narrow later (BYOB).
+  allowed_vehicles: ["shares", "letf", "options"],
+});
+
+export function playVehicleLabel(vehicle) {
+  const v = normalizePlayVehicle(vehicle) || String(vehicle || "").toLowerCase();
+  return PLAY_VEHICLE_LABELS[v] || (v ? String(v) : null);
+}
+
+/** Pull model play from a trade row / signal snapshot (open or closed). */
+export function extractModelPlayFromTrade(trade) {
+  if (!trade) return null;
+  if (trade._model_play || trade.model_play || trade.__model_play) {
+    return trade._model_play || trade.model_play || trade.__model_play;
+  }
+  let snap = trade.signal_snapshot || trade.signal_snapshot_json || null;
+  if (typeof snap === "string") {
+    try { snap = JSON.parse(snap); } catch { snap = null; }
+  }
+  const menu = snap?.lineage?.vehicle_menu || snap?.vehicle_menu || null;
+  const pick = menu?.pick || trade.vehicle_pick || null;
+  if (!pick) return null;
+  const playVehicle = normalizePlayVehicle(pick.play_vehicle || pick.vehicle);
+  if (!playVehicle) return null;
+  return {
+    play_vehicle: playVehicle,
+    menu_vehicle: pick.vehicle || playVehicle,
+    label: pick.label || playVehicleLabel(playVehicle),
+    suitability: pick.suitability ?? null,
+    why: pick.why || null,
+    letf_ticker: pick.letf_ticker || null,
+    archetype: pick.archetype || null,
+    expected_move_pct: menu?.expected_move_pct ?? null,
+  };
+}
+
 function clampScore(n) {
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** Map menu / archetype labels → shares | letf | options. */
+export function normalizePlayVehicle(raw) {
+  const v = String(raw || "").toLowerCase().trim();
+  if (!v) return null;
+  if (v === "shares" || v === "equity" || v === "equity_long" || v === "stock") return "shares";
+  if (v === "letf" || v === "leveraged_etf" || v === "levered_etf") return "letf";
+  if (
+    v === "options" || v === "option" || v === "call" || v === "put"
+    || v === "long_call" || v === "long_put" || v === "leap" || v === "spread"
+    || v === "moonshot" || v === "covered_call" || v.includes("call") || v.includes("put")
+  ) return "options";
+  return null;
+}
+
+export function resolveAllowedPlayVehicles(prefs = {}) {
+  const raw = prefs.allowed_vehicles || prefs.allowedVehicles || DEFAULT_PLAY_PREFS.allowed_vehicles;
+  const list = (Array.isArray(raw) ? raw : String(raw).split(","))
+    .map((x) => normalizePlayVehicle(x))
+    .filter((x) => PLAY_VEHICLES.includes(x));
+  return list.length ? [...new Set(list)] : [...PLAY_VEHICLES];
 }
 
 /**
@@ -49,6 +117,7 @@ export function buildVehicleMenu(p = {}) {
   const mode = String(p.mode || "trader").toLowerCase();
   if (!ticker || !(price > 0)) return null;
 
+  const allowed = resolveAllowedPlayVehicles(p.playPrefs || p.prefs || t._play_prefs || {});
   const sgn = direction === "LONG" ? 1 : -1;
   const expectedMovePct = tp > 0 ? Math.round(((tp - price) / price) * sgn * 1000) / 10 : null;
   const holdIntent = String(t.hold_intent || t.horizon_bucket || "SWING").toUpperCase();
@@ -186,11 +255,26 @@ export function buildVehicleMenu(p = {}) {
 
   if (entries.length === 0) return null;
 
+  // Annotate every entry with canonical play_vehicle for prefs + scorecard.
+  for (const e of entries) {
+    e.play_vehicle = normalizePlayVehicle(e.vehicle) || e.vehicle;
+  }
+
+  // Pref filter: model only shoots among allowed vehicles (default = all three).
+  const candidates = entries.filter((e) => {
+    const pv = e.play_vehicle;
+    if (PLAY_VEHICLES.includes(pv)) return allowed.includes(pv);
+    // Non-core expressions (covered_call/moonshot) fold into options when allowed.
+    return allowed.includes("options") && normalizePlayVehicle(e.vehicle) === "options";
+  });
+  const pool = candidates.length ? candidates : entries.filter((e) => e.vehicle === "shares");
+
   // ── The engine's pick — highest suitability, shares wins ties ────────────
-  const ranked = [...entries].sort((a, b) =>
+  const ranked = [...pool].sort((a, b) =>
     (b.suitability - a.suitability) || (a.vehicle === "shares" ? -1 : 1),
   );
   const pick = ranked[0];
+  const playVehicle = normalizePlayVehicle(pick.vehicle) || "shares";
 
   return {
     generated_at: Date.now(),
@@ -199,12 +283,16 @@ export function buildVehicleMenu(p = {}) {
     mode,
     expected_move_pct: expectedMovePct,
     hold_intent: holdIntent,
+    allowed_vehicles: allowed,
     entries,
     pick: {
       vehicle: pick.vehicle,
+      play_vehicle: playVehicle,
       label: pick.label,
       suitability: pick.suitability,
       why: pick.reasons?.[0] || null,
+      letf_ticker: pick.letf_ticker || null,
+      archetype: pick.archetype || null,
     },
   };
 }
@@ -242,8 +330,132 @@ export function vehicleMenuToCounterfactualSignals(menu, meta = {}) {
         ? Date.parse(`${e.play.expiration.iso}T21:00:00Z`) || null
         : null,
       horizon_days: e.vehicle === "option" && e.play?.expiration?.iso ? null : 10,
-      payload: { suitability: e.suitability, picked: menu.pick?.vehicle === e.vehicle },
+      payload: {
+        suitability: e.suitability,
+        picked: menu.pick?.vehicle === e.vehicle,
+        play_vehicle: normalizePlayVehicle(e.vehicle),
+      },
     });
   }
   return out;
+}
+
+/**
+ * First-class MODEL PLAY signal — the vehicle the model chose.
+ * Dogfood scorecard keys on source='model_play' × vehicle ∈ {shares,letf,options}.
+ * Shares picks grade off the live trade; letf/options grade as counterfactuals
+ * until multi-vehicle execution is live.
+ */
+export function vehicleMenuToModelPlaySignal(menu, meta = {}) {
+  if (!menu?.pick?.vehicle) return null;
+  const playVehicle = normalizePlayVehicle(menu.pick.play_vehicle || menu.pick.vehicle) || "shares";
+  const refId = String(meta.tradeId || `${menu.ticker}:${menu.generated_at}`);
+  const pickEntry = (menu.entries || []).find((e) => e.vehicle === menu.pick.vehicle) || {};
+  return {
+    signal_id: `model_play:${refId}`,
+    source: "model_play",
+    desk: menu.mode === "investor" ? "investor" : "swing",
+    ticker: menu.ticker,
+    direction: menu.direction,
+    vehicle: playVehicle,
+    published_at: menu.generated_at,
+    thesis: `${menu.pick.label} · ${menu.pick.why || "model pick"}`,
+    ref_id: refId,
+    entry_price: Number(meta.price) || null,
+    target_price: Number(meta.tp) || null,
+    stop_price: Number(meta.sl) || null,
+    breakeven: playVehicle === "options" ? (Number(pickEntry.play?.breakeven) || null) : null,
+    expiry_ts: playVehicle === "options" && pickEntry.play?.expiration?.iso
+      ? Date.parse(`${pickEntry.play.expiration.iso}T21:00:00Z`) || null
+      : null,
+    horizon_days: playVehicle === "options" ? null : (playVehicle === "letf" ? 10 : 15),
+    payload: {
+      play_vehicle: playVehicle,
+      menu_vehicle: menu.pick.vehicle,
+      label: menu.pick.label,
+      suitability: menu.pick.suitability,
+      why: menu.pick.why,
+      letf_ticker: menu.pick.letf_ticker || pickEntry.letf_ticker || null,
+      archetype: menu.pick.archetype || pickEntry.archetype || null,
+      expected_move_pct: menu.expected_move_pct ?? null,
+      executed_vehicle: meta.executedVehicle || "shares",
+      allowed_vehicles: menu.allowed_vehicles || PLAY_VEHICLES,
+    },
+  };
+}
+
+/** Compact stamp for lifecycle / trade event / UI. */
+export function modelPlayLineage(menu) {
+  if (!menu?.pick) return null;
+  const playVehicle = normalizePlayVehicle(menu.pick.play_vehicle || menu.pick.vehicle) || "shares";
+  return {
+    play_vehicle: playVehicle,
+    menu_vehicle: menu.pick.vehicle,
+    label: menu.pick.label || null,
+    suitability: menu.pick.suitability ?? null,
+    why: menu.pick.why || null,
+    letf_ticker: menu.pick.letf_ticker || null,
+    archetype: menu.pick.archetype || null,
+    expected_move_pct: menu.expected_move_pct ?? null,
+    allowed_vehicles: menu.allowed_vehicles || PLAY_VEHICLES,
+  };
+}
+
+/**
+ * Dogfood scorecard — performance of model play picks by vehicle.
+ * Uses signal_outcomes where source='model_play'.
+ */
+export function summarizeModelPlayGroups(groups = []) {
+  const byVehicle = { shares: emptyPlayBucket(), letf: emptyPlayBucket(), options: emptyPlayBucket() };
+  for (const g of groups || []) {
+    if (String(g.source) !== "model_play") continue;
+    const pv = normalizePlayVehicle(g.vehicle);
+    if (!pv || !byVehicle[pv]) continue;
+    const b = byVehicle[pv];
+    b.n += Number(g.n) || 0;
+    b.resolved += Number(g.resolved) || 0;
+    b.wins += Number(g.wins) || 0;
+    b.losses += Number(g.losses) || 0;
+    b.flats += Number(g.flats) || 0;
+    if (g.avg_pct != null && Number.isFinite(Number(g.avg_pct))) {
+      b._pct_sum += Number(g.avg_pct) * (Number(g.resolved) || 0);
+      b._pct_n += Number(g.resolved) || 0;
+    }
+  }
+  const vehicles = PLAY_VEHICLES.map((v) => finalizePlayBucket(v, byVehicle[v]));
+  const totals = finalizePlayBucket("all", vehicles.reduce((acc, r) => {
+    acc.n += r.n; acc.resolved += r.resolved; acc.wins += r.wins;
+    acc.losses += r.losses; acc.flats += r.flats;
+    if (r.avg_pct != null && r.resolved > 0) {
+      acc._pct_sum += r.avg_pct * r.resolved;
+      acc._pct_n += r.resolved;
+    }
+    return acc;
+  }, emptyPlayBucket()));
+  return { vehicles, totals };
+}
+
+function emptyPlayBucket() {
+  return { n: 0, resolved: 0, wins: 0, losses: 0, flats: 0, _pct_sum: 0, _pct_n: 0 };
+}
+
+function finalizePlayBucket(vehicle, b) {
+  const closed = (b.wins || 0) + (b.losses || 0);
+  const avgPct = b._pct_n > 0 ? Math.round((b._pct_sum / b._pct_n) * 100) / 100 : null;
+  const sumPct = b._pct_n > 0 ? Math.round(b._pct_sum * 100) / 100 : null;
+  return {
+    play_vehicle: vehicle,
+    label: playVehicleLabel(vehicle) || vehicle,
+    n: b.n,
+    resolved: b.resolved,
+    open: Math.max(0, (b.n || 0) - (b.resolved || 0)),
+    wins: b.wins,
+    losses: b.losses,
+    flats: b.flats,
+    win_rate: closed > 0 ? Math.round((b.wins / closed) * 1000) / 10 : null,
+    // "How much" — avg and sum of underlying outcome_pct across resolved plays.
+    avg_pct: avgPct,
+    sum_pct: sumPct,
+    expectancy_pct: avgPct,
+  };
 }

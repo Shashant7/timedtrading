@@ -98,6 +98,7 @@ export function resolveModelLifecycle(input = {}) {
   const why = input.why || input.reason || input.stageReason || input.stage_reason || null;
   const intent = input.intent || defaultIntent(state, horizon, book);
   const levels = normalizeLevels(input.levels || input);
+  const play = normalizePlay(input.play || input.model_play || input.__model_play);
 
   return {
     version: MODEL_LIFECYCLE_VERSION,
@@ -106,6 +107,7 @@ export function resolveModelLifecycle(input = {}) {
     label: LIFECYCLE_LABELS[state] || state,
     horizon,
     book,
+    play,
     why: why ? String(why).slice(0, 280) : null,
     intent,
     levels,
@@ -116,6 +118,31 @@ export function resolveModelLifecycle(input = {}) {
       investor_lifecycle: investorState,
       action_tier: actionTier || null,
     },
+  };
+}
+
+/** Model play vehicle: shares | letf | options (+ label/why for UI). */
+function normalizePlay(raw) {
+  if (!raw || typeof raw !== "object") {
+    if (typeof raw === "string") {
+      const v = String(raw).toLowerCase();
+      if (v === "shares" || v === "letf" || v === "options") {
+        return { play_vehicle: v, label: null, why: null };
+      }
+    }
+    return null;
+  }
+  let v = String(raw.play_vehicle || raw.vehicle || "").toLowerCase();
+  if (v === "option") v = "options";
+  if (v === "leveraged_etf") v = "letf";
+  if (v !== "shares" && v !== "letf" && v !== "options") return null;
+  return {
+    play_vehicle: v,
+    label: raw.label || null,
+    why: raw.why || null,
+    suitability: Number.isFinite(Number(raw.suitability)) ? Number(raw.suitability) : null,
+    letf_ticker: raw.letf_ticker || null,
+    archetype: raw.archetype || null,
   };
 }
 
@@ -249,6 +276,7 @@ export function modelLifecycleLineage(lifecycle) {
     label: lifecycle.label,
     horizon: lifecycle.horizon,
     book: lifecycle.book,
+    play: lifecycle.play || null,
     why: lifecycle.why,
     intent: lifecycle.intent,
     levels: lifecycle.levels,
@@ -262,6 +290,7 @@ export function formatLifecycleHeadline(lifecycle) {
   if (!lifecycle) return null;
   const label = lifecycle.label || LIFECYCLE_LABELS[lifecycle.state] || lifecycle.state;
   const horizon = lifecycle.horizon ? ` · ${lifecycle.horizon.replace(/_/g, " ")}` : "";
+  const play = lifecycle.play?.play_vehicle ? ` · ${lifecycle.play.play_vehicle}` : "";
   const intent = lifecycle.intent ? ` — ${String(lifecycle.intent).replace(/_/g, " ")}` : "";
-  return `${label}${horizon}${intent}`;
+  return `${label}${horizon}${play}${intent}`;
 }
