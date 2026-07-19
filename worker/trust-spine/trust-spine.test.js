@@ -40,6 +40,34 @@ describe("plays-today", () => {
     });
     expect(q.plays[0].ticker).toBe("QQQ");
   });
+
+  it("surfaces confirm-stack EMA21 family with lifecycle + play chips", () => {
+    const q = buildTodayPlaysQueue({
+      confirmStackTickers: [{
+        ticker: "NVDA",
+        trigger_dir: "LONG",
+        confluence_mode: "RIDE",
+        setup_gates: { stack_full_confirm: { fires: true }, gate_runway_full: { fires: true } },
+        _model_lifecycle: { state: "queued", label: "Queued", horizon: "swing", why: "Confirm stack + EMA21" },
+        _model_play: { play_vehicle: "options", why: "Tier-A RIDE convexity" },
+        _business_character: { archetype: "growth_compounder" },
+        __conviction_tier: "A",
+        setup_sequences: [{ status: "entry_ready" }],
+      }],
+      limit: 10,
+    });
+    expect(q.slice.count).toBe(1);
+    const p = q.slice.plays[0];
+    expect(p.slice_family).toBe("confirm_stack_ema21");
+    expect(p.confirm_stack).toBe(true);
+    expect(p.runway_full).toBe(true);
+    expect(p.lifecycle.state).toBe("queued");
+    expect(p.play_vehicle).toBe("options");
+    expect(p.play_label).toBe("Options");
+    expect(p.business_character).toBe("growth_compounder");
+    expect(p.sequence_entry_ready).toBe(true);
+    expect(q.plays[0].ticker).toBe("NVDA");
+  });
 });
 
 describe("scorecard", () => {
