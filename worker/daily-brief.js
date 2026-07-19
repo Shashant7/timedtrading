@@ -687,6 +687,8 @@ const MACRO_EVENT_DEFAULT_TIME_ET = {
   PCE: "08:30",
   NFP: "08:30",
   FOMC: "14:00",
+  // Equity options expire into the close — OpEx risk window is OpEx-day RTH.
+  OPEX: "16:00",
 };
 
 export function classifyMarketEventKey(eventName, eventType = "macro") {
@@ -698,6 +700,7 @@ export function classifyMarketEventKey(eventName, eventType = "macro") {
   if (name.includes("FOMC") || name.includes("FEDERAL RESERVE")) return "FOMC";
   if (name.includes("PCE") || name.includes("PERSONAL CONSUMPTION")) return "PCE";
   if (name.includes("NFP") || name.includes("NONFARM PAYROLL") || name.includes("NON-FARM PAYROLL")) return "NFP";
+  if (name.includes("OPEX") || name.includes("OPTIONS EXPIRATION") || name.includes("TRIPLE WITCH")) return "OPEX";
   return eventType === "macro" ? "OTHER_MACRO" : "OTHER";
 }
 

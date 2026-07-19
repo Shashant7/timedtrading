@@ -80,6 +80,16 @@ export const CURATED_MACRO_EVENTS = [
   { date: "2025-10-03", name: "Initial Jobless Claims (week)", impact: "medium", actual: "225K", estimate: "222K", previous: "219K" },
   { date: "2026-01-23", name: "Initial Jobless Claims (week)", impact: "medium", actual: "223K", estimate: "221K", previous: "217K" },
   { date: "2026-02-20", name: "Initial Jobless Claims (week)", impact: "medium", actual: "219K", estimate: "215K", previous: "213K" },
+  // Monthly OpEx (3rd Friday) — replay risk windows for Jul'25 → Mar'26.
+  { date: "2025-07-18", name: "Monthly Options Expiration (OpEx)", impact: "high" },
+  { date: "2025-08-15", name: "Monthly Options Expiration (OpEx)", impact: "high" },
+  { date: "2025-09-19", name: "Monthly Options Expiration (Triple Witching)", impact: "high" },
+  { date: "2025-10-17", name: "Monthly Options Expiration (OpEx)", impact: "high" },
+  { date: "2025-11-21", name: "Monthly Options Expiration (OpEx)", impact: "high" },
+  { date: "2025-12-19", name: "Monthly Options Expiration (Triple Witching)", impact: "high" },
+  { date: "2026-01-16", name: "Monthly Options Expiration (OpEx)", impact: "high" },
+  { date: "2026-02-20", name: "Monthly Options Expiration (OpEx)", impact: "high" },
+  { date: "2026-03-20", name: "Monthly Options Expiration (Triple Witching)", impact: "high" },
 ];
 
 function asDateKey(value, fallback) {

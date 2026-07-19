@@ -16,6 +16,7 @@ export const MACRO_SERIES_MATCHERS = [
   { key: "jolts", match: /jolts/i, kind: "jobs" },
   { key: "gdp", match: /\bgdp\b/i, kind: "growth" },
   { key: "fedfunds", match: /fomc|fed (rate|funds|decision)/i, kind: "fomc" },
+  { key: "opex", match: /\bopex\b|options expiration|triple witch/i, kind: "opex" },
 ];
 
 const IMPACT_RANK = { high: 3, medium: 2, low: 1 };
