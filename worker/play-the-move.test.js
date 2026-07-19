@@ -4,6 +4,10 @@ import { describe, it, expect } from "vitest";
 import {
   buildVehicleMenu,
   vehicleMenuToCounterfactualSignals,
+  vehicleMenuToModelPlaySignal,
+  normalizePlayVehicle,
+  summarizeModelPlayGroups,
+  modelPlayLineage,
 } from "./play-the-move.js";
 
 const basePlay = {
@@ -49,7 +53,17 @@ describe("buildVehicleMenu", () => {
     expect(menu.expected_move_pct).toBeCloseTo(8, 5);
     // 8% expected move + breakeven cleared → the option outranks shares.
     expect(menu.pick.vehicle).toBe("option");
+    expect(menu.pick.play_vehicle).toBe("options");
     expect(menu.pick.why).toBeTruthy();
+    expect(menu.allowed_vehicles).toEqual(["shares", "letf", "options"]);
+  });
+
+  it("respects allowed_vehicles prefs (shares-only)", () => {
+    const menu = buildVehicleMenu(bigMoveInput({
+      playPrefs: { allowed_vehicles: ["shares"] },
+    }));
+    expect(menu.pick.play_vehicle).toBe("shares");
+    expect(menu.allowed_vehicles).toEqual(["shares"]);
   });
 
   it("prefers shares for modest expected moves", () => {
@@ -112,5 +126,41 @@ describe("vehicleMenuToCounterfactualSignals", () => {
     const sigs = vehicleMenuToCounterfactualSignals(menu, { tradeId: "t1", price: 100 });
     const cc = sigs.find((s) => s.vehicle === "covered_call");
     expect(cc.direction).toBe("SHORT");
+  });
+});
+
+describe("model play dogfood", () => {
+  it("normalizes vehicles to shares|letf|options", () => {
+    expect(normalizePlayVehicle("option")).toBe("options");
+    expect(normalizePlayVehicle("long_call")).toBe("options");
+    expect(normalizePlayVehicle("leveraged_etf")).toBe("letf");
+    expect(normalizePlayVehicle("shares")).toBe("shares");
+  });
+
+  it("emits a first-class model_play signal for the pick", () => {
+    const menu = buildVehicleMenu(bigMoveInput());
+    const sig = vehicleMenuToModelPlaySignal(menu, {
+      tradeId: "trade-9", price: 100, tp: 108, sl: 95, executedVehicle: "shares",
+    });
+    expect(sig.source).toBe("model_play");
+    expect(sig.vehicle).toBe("options");
+    expect(sig.signal_id).toBe("model_play:trade-9");
+    expect(sig.payload.executed_vehicle).toBe("shares"); // default meta; sim wiring overrides at entry
+    expect(modelPlayLineage(menu).play_vehicle).toBe("options");
+  });
+
+  it("aggregates scorecard buckets", () => {
+    const s = summarizeModelPlayGroups([
+      { source: "model_play", vehicle: "options", n: 10, resolved: 8, wins: 5, losses: 3, flats: 0, avg_pct: 2.5 },
+      { source: "model_play", vehicle: "shares", n: 20, resolved: 18, wins: 10, losses: 8, flats: 0, avg_pct: 0.4 },
+      { source: "vehicle_counterfactual", vehicle: "letf", n: 5, resolved: 5, wins: 2, losses: 3, flats: 0, avg_pct: -1 },
+    ]);
+    const opt = s.vehicles.find((v) => v.play_vehicle === "options");
+    expect(opt.wins).toBe(5);
+    expect(opt.label).toBe("Options");
+    expect(opt.sum_pct).toBeCloseTo(20, 5); // 2.5 * 8
+    expect(s.vehicles.find((v) => v.play_vehicle === "shares").n).toBe(20);
+    expect(s.vehicles.find((v) => v.play_vehicle === "letf").n).toBe(0); // counterfactuals excluded
+    expect(s.totals.n).toBe(30);
   });
 });

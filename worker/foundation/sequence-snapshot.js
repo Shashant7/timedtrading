@@ -5,7 +5,7 @@
 // Shadow-only: does not alter scoring math or trade behavior.
 // -----------------------------------------------------------------------------
 
-export const SEQUENCE_SNAPSHOT_VERSION = 1;
+export const SEQUENCE_SNAPSHOT_VERSION = 2; // v2: business_character rides in the movie
 
 export const SEQUENCE_SIGNAL_TFS = Object.freeze(["D", "W", "M", "240", "4H", "60", "1H", "30", "15"]);
 
@@ -128,6 +128,22 @@ export function buildSequenceTrailSnapshot(payload = {}) {
     tf_tech: slimTfTech(payload.tf_tech),
     flags: slimFlags(payload.flags),
     orb: payload.orb?.primary ? { primary: { ...payload.orb.primary } } : (payload.orb || null),
+    // Business character rides in the movie so replay/mining can stratify
+    // technical sequences by what the business IS (steady value vs growth).
+    business_character: payload._business_character
+      ? {
+          archetype: payload._business_character.archetype || null,
+          quality_grade: payload._business_character.quality_grade ?? null,
+          growth_class: payload._business_character.growth_class ?? null,
+          valuation_state: payload._business_character.valuation_state ?? null,
+          compounder_tier: payload._business_character.compounder_tier ?? null,
+          pullback_means: payload._business_character.technical_lens?.pullback_means ?? null,
+          breakout_means: payload._business_character.technical_lens?.breakout_means ?? null,
+          confirmation_need: payload._business_character.technical_lens?.confirmation_need ?? null,
+          patience: payload._business_character.technical_lens?.patience ?? null,
+          summary: payload._business_character.technical_lens?.summary ?? null,
+        }
+      : null,
   };
 
   for (const k of Object.keys(snap)) {

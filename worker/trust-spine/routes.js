@@ -25,6 +25,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
     } catch { /* fallback empty */ }
 
     let readySetups = [];
+    let confirmStackTickers = [];
     try {
       const all = await kvGetJSON(KV, "timed:all:snapshot")
         || await kvGetJSON(KV, "timed:all:micro")
@@ -37,13 +38,28 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
       for (const { sym, t } of entries) {
         if (!sym || !t || typeof t !== "object") continue;
         const stage = String(t?.kanban_stage || "").toLowerCase();
-        if (stage === "accumulate" || stage === "act_now" || stage === "ready") {
+        const lifeState = String(t?._model_lifecycle?.state || "").toLowerCase();
+        if (
+          stage === "accumulate" || stage === "act_now" || stage === "ready"
+          || stage === "enter" || stage === "enter_now" || stage === "in_review"
+          || stage === "just_entered" || stage === "hold"
+          || ["queued", "bought", "held", "watching"].includes(lifeState)
+        ) {
           readySetups.push({ ticker: sym, ...t });
+        }
+        // Thin slice: confirm-stack fires (or live ST+squeeze+reclaim fallback).
+        const confirm = t?.setup_gates?.stack_full_confirm?.fires === true;
+        const flags = t?.flags || {};
+        const reclaim = !!(flags.ema21_reclaim || t.__pullback_confirmed || flags.ripster_reclaim);
+        const stFlip = !!(flags.st_flip_bull || flags.st_flip_bear);
+        const squeeze = !!(flags.sq30_release || flags.squeeze_release);
+        if (confirm || (reclaim && stFlip && squeeze)) {
+          confirmStackTickers.push({ ticker: sym, ...t });
         }
       }
     } catch { /* */ }
 
-    const queue = buildTodayPlaysQueue({ optionsPlays, readySetups, limit });
+    const queue = buildTodayPlaysQueue({ optionsPlays, readySetups, confirmStackTickers, limit });
     return sendJSON({ ok: true, ...queue }, 200, corsHeaders(env, req));
   }
 

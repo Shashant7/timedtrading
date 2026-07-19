@@ -266,6 +266,21 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   lean overrides the multi-day confluence gate; low conviction falls back).
   Hierarchy: Day Trader (today/tmrw) → Active Trader (multi-day) → Investor
   (long haul); keep each lane's horizon honest.
+  **Product surface (2026-07-19):** AT vs Investor are the same actions
+  (buy/trim/sell) with different horizons — not separate products. Canonical
+  lifecycle: Watching → Queued → Bought → Held → Trimming → Exited. See
+  [`plans/unified-model-lifecycle.plan.md`](plans/unified-model-lifecycle.plan.md).
+  Stamp: `_model_lifecycle` on scored payloads + investor scores.
+  **Ways to play:** model chooses Shares / Leveraged ETF / Options per signal
+  (`play_vehicle`); dogfood via `source=model_play` + `/timed/play-performance`
+  (W/L + outcome_pct). Multi-vehicle sim fill code exists (`model-play-sim.js`)
+  but is **default OFF** (`deep_audit_model_play_sim_enabled`) until D1
+  persists vehicle fills; without the flag book still fills shares.
+  **Thin slice (not flag-flip):** Confirm-stack EMA21 runners — one family
+  end-to-end under lifecycle + play UI. Plan:
+  [`plans/confirm-stack-ema21-slice.plan.md`](plans/confirm-stack-ema21-slice.plan.md).
+  Today strip + `/timed/plays/today` slice. Widen only if capture/MFE beats
+  ~4.8% baseline OOS.
 - PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
   Close magnets + a 20-day window made every level read "highly likely"; a
   ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and

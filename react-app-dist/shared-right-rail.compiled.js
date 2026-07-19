@@ -7722,7 +7722,11 @@
             events: [],
             setup_gate_shadow: hasGates,
             setup_gates: hasGates ? src.setup_gates : null,
-            setup_gate_lookback_hours: src.setup_gate_lookback_hours ?? null
+            setup_gate_lookback_hours: src.setup_gate_lookback_hours ?? null,
+            business_character: src.setup_shadow_business_character || src._business_character || null,
+            character_read: src.setup_shadow_character_read || null,
+            model_play: src._model_lifecycle?.play || src._model_play || null,
+            model_lifecycle: src._model_lifecycle || null
           };
         };
         const inline = buildInlineShadowDiag();
@@ -9018,6 +9022,31 @@
               label: String(ctx.ticker_personality).replace(/_/g, " "),
               cls: "ds-chip--accent",
               title: "Ticker personality"
+            }, (setupShadowDiag.business_character?.archetype || ctx.business_character?.archetype) && {
+              key: "biz",
+              label: String(setupShadowDiag.business_character?.archetype || ctx.business_character?.archetype).replace(/_/g, " "),
+              cls: "ds-chip--accent",
+              title: setupShadowDiag.business_character?.lens_summary || ctx.business_character?.lens_summary || "Business character — fundamentals lens on technicals"
+            }, (() => {
+              const play = setupShadowDiag.model_play || ctx.model_play || null;
+              const pv = play?.play_vehicle || (typeof play === "string" ? play : null);
+              if (!pv) return null;
+              const labels = {
+                shares: "Shares",
+                letf: "Leveraged ETF",
+                options: "Options"
+              };
+              return {
+                key: "play",
+                label: `Play · ${labels[pv] || pv}`,
+                cls: "ds-chip--accent",
+                title: play?.why || play?.label || "Model play vehicle for this signal"
+              };
+            })(), setupShadowDiag.model_lifecycle?.state && {
+              key: "life",
+              label: setupShadowDiag.model_lifecycle.label || String(setupShadowDiag.model_lifecycle.state),
+              cls: "ds-chip--solid",
+              title: setupShadowDiag.model_lifecycle.why || "Unified model lifecycle state"
             }, setupShadowDiag.snapshot_source && {
               key: "snaps",
               label: `${setupShadowDiag.snapshot_count || 0} snaps · ${setupShadowDiag.snapshot_source}${setupShadowDiag.inline_from_payload ? " · live payload" : ""}`,
@@ -9051,12 +9080,21 @@
               } : undefined,
               title: c.title
             }, c.label)));
+            const characterRead = setupShadowDiag.character_read?.read || setupShadowDiag.business_character?.lens_summary || ctx.business_character?.lens_summary || null;
+            const characterBlock = characterRead ? React.createElement("p", {
+              style: {
+                margin: "6px 0 0",
+                fontSize: 11,
+                lineHeight: 1.45,
+                color: "var(--ds-text-muted)"
+              }
+            }, characterRead) : null;
             if (!compact) {
               return React.createElement("div", {
                 style: {
                   marginBottom: active.length ? "var(--ds-space-2)" : 0
                 }
-              }, chipRow);
+              }, chipRow, characterBlock);
             }
             return React.createElement("details", {
               style: {
@@ -9071,7 +9109,7 @@
                 fontWeight: 600,
                 marginBottom: 4
               }
-            }, "Context & diagnostics"), chipRow);
+            }, "Context & diagnostics"), chipRow, characterBlock);
           })(), active.length > 0 ? (() => {
             const primarySeq = sortedActive.find(s => {
               const id = s?.sequence_id ? String(s.sequence_id) : "";
@@ -22718,4 +22756,4 @@
   };
 })();
 
-// cache-bust:1784321787947:238357818
+// cache-bust:1784470579633:737001427
