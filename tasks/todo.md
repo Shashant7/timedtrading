@@ -22,19 +22,21 @@
 
 ### Active
 
+- [ ] **Confirm-stack EMA21 thin slice — build the instrument (2026-07-19).**
+      Not "flip flags after n≥30". One family end-to-end under unified
+      lifecycle + play UI. Plan:
+      [`plans/confirm-stack-ema21-slice.plan.md`](../plans/confirm-stack-ema21-slice.plan.md).
+      Today strip + `/timed/plays/today` slice fields shipping. Next: sequence
+      may propose Queued (tiny/paper); Tier-A RIDE options-first stamp;
+      capture/MFE attribution vs 4.8% baseline; widen only if OOS holds.
+
 - [ ] **Unified Model Lifecycle — trust the process (2026-07-19).**
       Product reframe: Active Trader vs Investor are the same actions
       (buy/trim/sell) with different horizons — not different products.
       Canonical states: Watching → Queued → Bought → Held → Trimming → Exited.
       Plan: [`plans/unified-model-lifecycle.plan.md`](../plans/unified-model-lifecycle.plan.md).
-      Contract + stamp done (`worker/model-lifecycle.js`). **Play vehicles**
-      (Shares / LETF / Options): model picks any of three; `source=model_play`
-      ledger + `/timed/play-performance` dogfood scorecard; stamped on
-      lifecycle + Discord/email + Right Rail chip. **Sim fill** via
-      `worker/model-play-sim.js` (options long-debit paper + LETF quote;
-      default on live, shares-only in replay). Next: Today surface; one board;
-      notification taxonomy; broker bridge for real fills. Related: business
-      character lens.
+      Contract + play vehicles + gated sim-fill on PR #1119/#1120. UI continues
+      via confirm-stack thin slice (Today surface).
 
 - [x] **Bubble map colors → design-system restrained tones (2026-07-17).**
       Alignment fills were neon (#22c55e / #b91c1c / #eab308) at ~0.92 opacity.
