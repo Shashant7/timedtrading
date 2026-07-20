@@ -14,6 +14,8 @@ import {
   shouldRefreshQuoteForTradeMgmt,
   priceDivergencePct,
   evaluateSlCloseFreshQuote,
+  evaluateClosePriceSanity,
+  closePriceNeedsFreshConfirm,
 } from "./sl-hard-exit.js";
 
 describe("resolveAuthoritativeEntryPrice", () => {
@@ -313,6 +315,45 @@ describe("applySlHardExitSafetyNet", () => {
     });
     expect(r.slHardClose).toBe(false);
     expect(r.tickerData.__sl_spike_deferred?.reason).toBe("check_past_sl_feed_not");
+  });
+});
+
+describe("evaluateClosePriceSanity", () => {
+  it("allows a close corroborated by the live feed", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 251.9, feedPx: 252.0 });
+    expect(r.action).toBe("allow");
+    expect(r.reason).toBe("feed_corroborates");
+  });
+
+  it("DEFERS the AMZN ghost close ($236 vs live $252) with no fresh quote", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 236.02, feedPx: 251.96 });
+    expect(r.action).toBe("defer");
+    expect(r.reason).toBe("divergent_close_no_fresh");
+  });
+
+  it("DEFERS the ghost close when a fresh quote confirms the feed, not the close", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 236.02, feedPx: 251.96, freshPx: 251.8 });
+    expect(r.action).toBe("defer");
+    expect(r.reason).toBe("close_price_uncorroborated");
+  });
+
+  it("ALLOWS a genuine fast move when a fresh quote corroborates the close", () => {
+    // Feed lagged at 252, but a real -6% move happened and the fresh quote confirms it.
+    const r = evaluateClosePriceSanity({ closePrice: 236.5, feedPx: 251.96, freshPx: 236.6 });
+    expect(r.action).toBe("allow");
+    expect(r.reason).toBe("fresh_corroborates_close");
+  });
+
+  it("allows when there is no feed anchor (cannot judge — must not block)", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 236.02, feedPx: 0 });
+    expect(r.action).toBe("allow");
+    expect(r.reason).toBe("no_feed_anchor");
+  });
+
+  it("closePriceNeedsFreshConfirm true only when divergence exceeds tolerance", () => {
+    expect(closePriceNeedsFreshConfirm(236.02, 251.96)).toBe(true);
+    expect(closePriceNeedsFreshConfirm(251.5, 251.96)).toBe(false);
+    expect(closePriceNeedsFreshConfirm(236.02, 0)).toBe(false);
   });
 });
 

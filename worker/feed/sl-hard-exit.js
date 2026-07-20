@@ -278,6 +278,64 @@ export function shouldRefreshQuoteForStopCheck({
   return false;
 }
 
+/**
+ * Universal close-price backstop. Every LIVE trade close funnels through this
+ * so a ghost / stale mark can never flatten a position (sim OR real broker).
+ *
+ * AMZN 2026-07-20: a fabricated $236 mark (real market ~$252, +6.3% away)
+ * hard-closed a LONG three times. This gate refuses to close at a price that
+ * diverges materially from the authoritative live feed unless a fresh quote
+ * corroborates it (a genuine fast move). If neither the feed nor a fresh quote
+ * supports the close price, DEFER — the next tick with a real price will exit.
+ *
+ * Pure decision fn: callers supply the feed anchor and (optionally) a fresh
+ * quote. `action:"allow"` = close; `action:"defer"` = skip this tick.
+ */
+export function evaluateClosePriceSanity({
+  closePrice,
+  feedPx,
+  freshPx,
+  maxDivergencePct = 3.5,
+} = {}) {
+  const p = Number(closePrice);
+  const feed = Number(feedPx);
+  const tol = Number(maxDivergencePct) > 0 ? Number(maxDivergencePct) : 3.5;
+
+  if (!(p > 0)) return { action: "allow", reason: "no_close_price" };
+  if (!(feed > 0)) return { action: "allow", reason: "no_feed_anchor" };
+
+  const feedDiv = priceDivergencePct(p, feed);
+  if (feedDiv <= tol) {
+    return { action: "allow", reason: "feed_corroborates", feedDiv };
+  }
+
+  const fresh = Number(freshPx);
+  if (fresh > 0) {
+    if (priceDivergencePct(p, fresh) <= tol) {
+      return { action: "allow", reason: "fresh_corroborates_close", feedDiv, freshPx: fresh };
+    }
+    return {
+      action: "defer",
+      reason: "close_price_uncorroborated",
+      feedDiv,
+      freshDiv: priceDivergencePct(p, fresh),
+      feedPx: feed,
+      freshPx: fresh,
+    };
+  }
+
+  return { action: "defer", reason: "divergent_close_no_fresh", feedDiv, feedPx: feed };
+}
+
+/** True when a divergent close price needs a fresh-quote confirmation. */
+export function closePriceNeedsFreshConfirm(closePrice, feedPx, maxDivergencePct = 3.5) {
+  const p = Number(closePrice);
+  const feed = Number(feedPx);
+  const tol = Number(maxDivergencePct) > 0 ? Number(maxDivergencePct) : 3.5;
+  if (!(p > 0) || !(feed > 0)) return false;
+  return priceDivergencePct(p, feed) > tol;
+}
+
 export function priceDivergencePct(a, b) {
   const x = Number(a);
   const y = Number(b);
