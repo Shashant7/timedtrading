@@ -51,7 +51,9 @@ import {
   handleWebullOauthDisconnect,
 } from "./bridge-webull-auth.js";
 import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
-import { listBrokers } from "./bridge-brokers.js";
+import { listBrokers, resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
+import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
+import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
 // field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
@@ -278,6 +280,26 @@ export default {
         const rows = await recentAudit(env, {
           user_id: url.searchParams.get("user_id"),
           limit: Number(url.searchParams.get("limit")) || 50,
+        });
+        return json({ ok: true, count: rows.length, rows });
+      }
+
+      // 2026-07-20 — Per-account ledger (real fills tied to each account).
+      if (method === "GET" && path === "/bridge/account-ledger") {
+        if (operatorFail) return operatorFail;
+        const rows = await readAccountLedger(env, {
+          broker_account_id: url.searchParams.get("broker_account_id"),
+          owner_id: url.searchParams.get("owner_id"),
+          limit: Number(url.searchParams.get("limit")) || 100,
+        });
+        return json({ ok: true, count: rows.length, rows });
+      }
+
+      // 2026-07-20 — Per-account sync snapshots (broker truth vs system).
+      if (method === "GET" && path === "/bridge/account-snapshots") {
+        if (operatorFail) return operatorFail;
+        const rows = await readAccountSnapshots(env, {
+          owner_id: url.searchParams.get("owner_id"),
         });
         return json({ ok: true, count: rows.length, rows });
       }
@@ -906,12 +928,18 @@ async function handleOrderWebhook(env, ctx, payload) {
     user_id: String(payload?.user_id || "").toLowerCase(),
     trade_id: payload?.trade_id || null,
     client_order_id: payload?.client_order_id ? String(payload.client_order_id) : null,
+    // Optional explicit account target. When omitted, resolveBridgeUser picks
+    // the account (single-account brokers or the class-preferred Webull sub).
+    broker_account_id: payload?.broker_account_id ? String(payload.broker_account_id) : null,
     ticker: String(payload?.ticker || "").toUpperCase(),
     side: String(payload?.side || "").toLowerCase(),
     qty: Number(payload?.qty || 0),
     entry: Number(payload?.entry || 0) || null,
     sl: payload?.sl == null ? null : Number(payload.sl),
     tp: payload?.tp == null ? null : Number(payload.tp),
+    order_kind: payload?.order_kind || null,
+    limit_price: payload?.limit_price == null ? null : Number(payload.limit_price),
+    vehicle: payload?.vehicle || null,
     decision_reason: payload?.decision_reason || null,
   };
 
@@ -976,6 +1004,29 @@ async function handleOrderWebhook(env, ctx, payload) {
 
   const user = pf.user;
   const estValue = pf.estimated_value;
+
+  // ── Broker-agnostic order plan ──
+  // Translate the model intent into a concrete plan for THIS broker,
+  // respecting its market/limit/OCO/bracket support. Records how protection
+  // is carried (native bracket vs OCO children vs engine-managed) so it is
+  // never a silent gap. Placement still uses the adapter primary; the plan
+  // documents intent + downgrades and drives per-account ledger metadata.
+  const brokerId = resolveBrokerId(user) || user?.broker || null;
+  const brokerAccountId = resolveBrokerAccountId(user);
+  const orderIntent = normalizeOrderIntent(sanitized);
+  const orderPlan = planBrokerOrder(brokerId, orderIntent);
+  await writeAudit(env, {
+    ts: Date.now(),
+    user_id: sanitized.user_id,
+    trade_id: sanitized.trade_id,
+    ticker: sanitized.ticker,
+    action: "order_plan",
+    side: sanitized.side,
+    qty: sanitized.qty,
+    status: orderPlan.ok ? "ok" : "rejected",
+    reject_reason: orderPlan.ok ? null : orderPlan.reject_reason,
+    request_json: { broker: brokerId, broker_account_id: brokerAccountId, plan: orderPlan, summary: summarizeOrderPlan(orderPlan) },
+  });
 
   // 2026-06-01 — Account-fit scaling: preflightOrder may have rounded
   // sanitized.qty down to fit caps + cash + concentration. Pick up the
@@ -1073,6 +1124,29 @@ async function handleOrderWebhook(env, ctx, payload) {
     response_json: place.response || place,
     latency_ms: place.latency_ms,
   });
+  // ── Per-account ledger: record every real fill/reject against the
+  // specific broker account (owner runs 5 Webull + 1 IBKR). ──
+  await recordAccountFill(env, {
+    ts: Date.now(),
+    owner_id: user?.owner_email || sanitized.user_id,
+    user_id: user?.user_id || sanitized.user_id,
+    broker: brokerId,
+    broker_account_id: brokerAccountId,
+    model_trade_id: sanitized.trade_id,
+    client_order_id: sanitized.client_order_id,
+    broker_order_id: rhOrderId,
+    ticker: sanitized.ticker,
+    side: sanitized.side,
+    event_type: classifyOrderLifecycle(sanitized.side) === "close" ? "EXIT" : "ENTRY",
+    order_type: orderPlan?.primary?.order_type || null,
+    protection_mode: orderPlan?.protection?.mode || null,
+    qty: Number(place?.response?.filled_qty ?? place?.response?.cumulative_quantity ?? sanitized.qty) || 0,
+    price: Number(place?.response?.avg_price ?? place?.response?.price ?? sanitized.entry) || 0,
+    status: place.ok ? "ok" : "error",
+    reject_reason: place.ok ? null : (place.error || "place_failed"),
+    meta: { scaling: pf.scaling || null, plan_downgrades: orderPlan?.downgrades || [] },
+  }).catch(() => {});
+
   if (place.ok) {
     await bumpDailyCounter(env, sanitized.user_id);
     const lifecycle = classifyOrderLifecycle(sanitized.side);
@@ -1098,10 +1172,7 @@ async function handleOrderWebhook(env, ctx, payload) {
     // top-level model_status — they just update the broker_*_order_ids
     // arrays (Phase C does that).
     if (lifecycle === "close" && sanitized.trade_id) {
-      const accountId = String(
-        user?.rh_account_number ?? user?.account_id
-        ?? user?.ibkr_account_id ?? user?.broker_account_id ?? "default"
-      );
+      const accountId = brokerAccountId;
       const exitReason = sanitized?.decision_reason || sanitized?.exit_reason || "exit";
       markManifestModelClosed(env, sanitized.user_id, sanitized.trade_id, accountId, {
         exitReason, exitTs: Date.now(),
