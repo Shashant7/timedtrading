@@ -41,6 +41,51 @@ deployed as separate Cloudflare Workers.
 
 ---
 
+## Broker-agnostic layer (2026-07-20)
+
+One model signal → any broker, respecting each broker's order-type support.
+
+- **Capability registry** — `bridge-brokers.js` `BROKER_REGISTRY[<id>].capabilities`
+  with two tiers: `native` (what the broker API can do — the roadmap) and
+  `adapter` (what our code sends TODAY). Read via `brokerCapabilities(id, tier)`.
+  Today every equity adapter is **market-only**; IBKR/Webull do options limit.
+- **Order planner** — `bridge-order-plan.js`: `normalizeOrderIntent(payload)` →
+  `planBrokerOrder(brokerId, intent)`. Translates market/limit and plans
+  protection as **`native_bracket`** (IBKR native) → **`oco_children`** →
+  **`synthetic_engine`** (engine-managed SL/TP + plain close when hit). Every
+  downgrade is recorded in the `order_plan` audit row so a dropped broker-side
+  stop is never silent. When adapters gain limit/bracket sends, flip the
+  planner to `tier:"native"` — no caller changes.
+- **Agnostic account id** — `resolveBrokerAccountId(user)` (includes
+  `webull_account_id`, which the old manifest/audit chain dropped to
+  `"default"`). Use it everywhere an account id is needed.
+
+## Per-account ledger + sync (the model book vs each real account)
+
+The main worker keeps ONE model book. Each REAL account (owner runs 5 Webull
++ 1 IBKR) now has its own ledger, in the bridge DB:
+
+- `broker_account_ledger` — one row per real fill/close/reject, tied to
+  `broker_account_id` (`bridge-account-ledger.js`).
+- `broker_account_snapshot` — latest positions + cash + drift per account,
+  written every reconcile cycle (broker truth for sync).
+- Reads (operator-authed): `GET /bridge/account-ledger?broker_account_id=…` and
+  `GET /bridge/account-snapshots?owner_id=…`.
+
+**Order → account binding:** `handleOrderWebhook` resolves the account via
+`resolveBridgeUser` (or an explicit `broker_account_id` in the payload),
+computes+audits the plan, places the order, and records the fill to that
+account's ledger. Manifest rows key on the real account id.
+
+### Still market-only / not yet wired (follow-ups)
+- Adapters still **send market equity orders**; limit/bracket/OCO **sending**
+  per broker is the next step (the planner + capabilities are ready for it).
+- **Multi-account fan-out** (mirror one signal to all 5 Webull accounts) is not
+  automatic — one order resolves to one account. Per-account ledger + explicit
+  `broker_account_id` targeting are in place to build fan-out on.
+
+---
+
 ## Webull — personal Trading API (operator account)
 
 Use this path when the operator has an **App Key + App Secret** from the

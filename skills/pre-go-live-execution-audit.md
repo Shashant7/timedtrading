@@ -98,13 +98,34 @@ See `skills/broker-bridge.md` for architecture. The bridge is
 7. **D1/KV parity:** `/timed/trades` (D1) and `timed:trades:all` (KV) agree
    on open count.
 
+## Broker-agnostic layer + per-account ledger (2026-07-20)
+
+The gaps around "which account" and "market vs OCO" are now addressed at the
+architecture level — see [`broker-bridge.md`](broker-bridge.md):
+
+- **Capability registry + order planner** (`bridge-brokers.js`,
+  `bridge-order-plan.js`) translate one model signal into a concrete plan per
+  broker and downgrade protection to `synthetic_engine` (never silently drop a
+  stop). Verify a plan: the `order_plan` audit row + `summarizeOrderPlan`.
+- **Per-account ledger** (`broker_account_ledger` / `broker_account_snapshot`)
+  ties every real fill + position snapshot to a specific `broker_account_id`
+  (Webull no longer collapses to `"default"`). Reads: `GET /bridge/account-ledger`,
+  `GET /bridge/account-snapshots`.
+
 ## Known residual gaps (track before full autonomy)
 
+- **Adapters still send MARKET equity orders** — limit/bracket/OCO *sending*
+  per broker is the next step; the planner + capabilities are ready (flip to
+  `tier:"native"` once adapters implement the richer sends). Until then SL/TP
+  are engine-managed (synthetic), protected by the central close gate.
+- **Multi-account fan-out** — one signal resolves to one account; fanning out
+  to all 5 Webull accounts is not automatic yet (build on the per-account
+  ledger + explicit `broker_account_id` targeting).
 - **Dual ledger:** sim + broker both execute; reconciler detects drift but
   cannot un-send. Decide the source of truth explicitly.
-- **MARKET/DAY orders only; OCO off** — SL/TP live in sim, not at broker.
 - **Fire-and-forget forward:** sim state commits even if the bridge call
-  fails; no fill webhook back into `trades`/`positions`.
+  fails; no fill webhook back into `trades`/`positions` (reconciler snapshot is
+  the periodic truth).
 - **Kanban SL classification** still reads headline `tickerData.price`; the
   central close gate + `applySlHardExitSafetyNet` are the backstops.
 
