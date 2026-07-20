@@ -11,6 +11,7 @@ import {
   webullGetBalance,
   webullGetPositions,
   webullLiveEnabled,
+  webullListOrders,
   webullPlaceOrder,
   webullPreviewOrder,
 } from "./bridge-webull-api.js";
@@ -64,6 +65,8 @@ function _mockResponse(kind, order, t0) {
       return { ...base, response: [], positions: [] };
     case "cancel":
       return { ...base, response: { status: "CANCELLED" } };
+    case "orders":
+      return { ...base, response: { orders: [] }, orders: [] };
     default:
       return { ...base, response: {} };
   }
@@ -121,6 +124,13 @@ export async function cancelOrder(env, user, orderId) {
   const t0 = Date.now();
   if (isMockMode(env)) return _mockResponse("cancel", user, t0);
   const res = await _liveCall(env, user, (token) => webullCancelOrder(env, user, orderId, token));
+  return withLatency(res, t0);
+}
+
+export async function listOrders(env, user, opts = {}) {
+  const t0 = Date.now();
+  if (isMockMode(env)) return _mockResponse("orders", user, t0);
+  const res = await _liveCall(env, user, (token) => webullListOrders(env, user, token, opts));
   return withLatency(res, t0);
 }
 

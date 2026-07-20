@@ -1015,6 +1015,11 @@ export async function cancelOrder(env, user, ibkrOrderId) {
   return callIbkr(env, user, "DELETE", `/iserver/account/${acctId}/order/${ibkrOrderId}`);
 }
 
+/** List live/recent orders for fill reconciliation. */
+export async function listOrders(env, user) {
+  return callIbkr(env, user, "GET", `/iserver/account/orders`);
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // OPTIONS — secdef lookup + multi-leg combo orders
 // ─────────────────────────────────────────────────────────────────────────
@@ -1271,6 +1276,9 @@ function _mockResponse(path, body, t0) {
         parent_id: leg?.parentId || null,
       })),
     };
+  }
+  if (path === "/iserver/account/orders" || path.startsWith("/iserver/account/orders")) {
+    return { ...base, response: { orders: [] } };
   }
   if (path.startsWith("/iserver/account/") && path.includes("/order/")) {
     return { ...base, response: { msg: "Request was submitted", order_id: path.split("/").pop() } };

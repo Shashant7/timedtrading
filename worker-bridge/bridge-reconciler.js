@@ -43,6 +43,7 @@ import { ensureMirrorManifestSchema } from "./bridge-manifest.js";
 import { emitDriftNotification } from "./bridge-notifications.js";
 import { snapshotAccount } from "./bridge-account-ledger.js";
 import { resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
+import { reconcileAccountFills } from "./bridge-fills.js";
 
 const TOLERANCE = {
   trader_equity: 0.01,
@@ -850,6 +851,16 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       stats.account_snapshot = "written";
     } catch (e) {
       console.warn("[RECONCILER] account snapshot failed:", String(e?.message || e).slice(0, 160));
+    }
+
+    // ── Fill reconciliation ──
+    // Poll the broker's recent orders and record real fills to the per-account
+    // ledger (submitted → filled qty/price); cancel OCO siblings on fill.
+    try {
+      const fillStats = await reconcileAccountFills(env, user, brokerAdapter, { limit: 50 });
+      stats.fills = fillStats;
+    } catch (e) {
+      console.warn("[RECONCILER] fill reconcile failed:", String(e?.message || e).slice(0, 160));
     }
   }
 

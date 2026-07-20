@@ -43,17 +43,23 @@ function sideToWebull(side) {
   return "BUY";
 }
 
-function buildOrderBody(user, order, { preview = false } = {}) {
+export function buildOrderBody(user, order, { preview = false } = {}) {
   const accountId = user?.webull_account_id;
   if (!accountId) throw new Error("webull_account_id_missing");
   const qty = Number(order?.qty);
   if (!Number.isFinite(qty) || qty <= 0) throw new Error("invalid_qty");
-  // Order type: MARKET (default) or LIMIT with a limit_price. The agnostic
-  // planner sets order_type; a LIMIT without a valid price falls back to
-  // MARKET so a bad plan can never place a $0 limit.
-  const wantLimit = String(order?.order_type || "market").toLowerCase() === "limit";
+  // Order type: MARKET (default), LIMIT, STOP, or STOP_LIMIT. The agnostic
+  // planner / OCO orchestrator sets order_type. A LIMIT/STOP with no valid
+  // price falls back to MARKET so a bad plan can never place a $0 order.
+  const kind = String(order?.order_type || "market").toLowerCase();
   const limitPrice = Number(order?.limit_price);
-  const useLimit = wantLimit && Number.isFinite(limitPrice) && limitPrice > 0;
+  const stopPrice = Number(order?.stop_price);
+  const hasLimit = Number.isFinite(limitPrice) && limitPrice > 0;
+  const hasStop = Number.isFinite(stopPrice) && stopPrice > 0;
+  let orderType = "MARKET";
+  if ((kind === "stop_limit") && hasStop && hasLimit) orderType = "STOP_LIMIT";
+  else if (kind === "stop" && hasStop) orderType = "STOP";
+  else if (kind === "limit" && hasLimit) orderType = "LIMIT";
   const body = {
     account_id: accountId,
     // Prefer the caller's stable client_order_id (per-account idempotency for
@@ -65,14 +71,15 @@ function buildOrderBody(user, order, { preview = false } = {}) {
         : `tt-${order?.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`),
     symbol: String(order?.ticker || "").toUpperCase(),
     side: sideToWebull(order?.side),
-    order_type: useLimit ? "LIMIT" : "MARKET",
+    order_type: orderType,
     entrust_type: "QTY",
     quantity: String(qty),
     time_in_force: String(order?.tif || "DAY").toUpperCase(),
     support_trading_session: "CORE",
     combo_type: "NORMAL",
   };
-  if (useLimit) body.limit_price = String(limitPrice);
+  if (orderType === "LIMIT" || orderType === "STOP_LIMIT") body.limit_price = String(limitPrice);
+  if (orderType === "STOP" || orderType === "STOP_LIMIT") body.stop_price = String(stopPrice);
   return body;
 }
 
@@ -328,6 +335,19 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
     body: {
       account_id: user.webull_account_id,
       client_order_id: String(orderId || ""),
+    },
+    accessToken,
+  });
+}
+
+/** List recent orders for an account — used for fill reconciliation. */
+export async function webullListOrders(env, user, accessToken, { limit = 50 } = {}) {
+  return signedFetch(env, {
+    path: WEBULL_API_PATHS.ordersList,
+    method: "POST",
+    body: {
+      account_id: user.webull_account_id,
+      page_size: Number(limit) || 50,
     },
     accessToken,
   });
