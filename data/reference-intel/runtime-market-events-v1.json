@@ -37233,13 +37233,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 38.5262
+        "sql_duration_ms": 36.0112
       },
-      "duration": 38.5262,
+      "duration": 36.0112,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 71671312,
       "changed_db": false,
-      "size_after": 4018454528,
+      "size_after": 3856695296,
       "rows_read": 4136,
       "rows_written": 0,
       "total_attempts": 1
