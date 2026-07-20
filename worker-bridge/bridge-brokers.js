@@ -58,7 +58,7 @@ export const BROKER_REGISTRY = {
         fractional: false,
         list_accounts: false,
         read_positions: true,
-        read_fills: false,
+        read_fills: true,
         cancel: true,
         tif: ["DAY", "GTC"],
       },
