@@ -26,7 +26,7 @@ import { hmacVerify } from "./bridge-crypto.js";
 import {
   ensureBridgeSchema, readUser, writeUser, listConnectedUsers,
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
-  claimOrderIdempotency,
+  claimOrderIdempotency, resolveBridgeAccounts,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
 import {
@@ -80,6 +80,15 @@ async function callMcpTool(env, user, toolName, args) {
 const reviewOrder = (env, user, order) => brokerAdapterFor(user).reviewOrder(env, user, order);
 const placeOrder  = (env, user, order) => brokerAdapterFor(user).placeOrder(env, user, order);
 const getPortfolio = (env, user) => brokerAdapterFor(user).getPortfolio(env, user);
+// Place respecting the agnostic plan: native bracket when the broker adapter
+// supports it AND the plan asked for it; otherwise a plain (market/limit) order.
+const placePlannedOrder = (env, user, order, plan) => {
+  const adapter = brokerAdapterFor(user);
+  if (plan?.protection?.mode === "native_bracket" && typeof adapter.placeBracketOrder === "function") {
+    return adapter.placeBracketOrder(env, user, order);
+  }
+  return adapter.placeOrder(env, user, order);
+};
 import {
   handleOauthStart, handleOauthCallback, handleOauthDisconnect,
 } from "./bridge-auth.js";
@@ -922,7 +931,50 @@ export default {
 //   6. bumpDailyCounter
 //   7. audit: place
 // ───────────────────────────────────────────────────────────────────
+// Dispatcher: fan the model signal out to every enabled account (owner runs
+// 5 Webull + 1 IBKR) when BROKER_FANOUT_ENABLED, else place on the single
+// resolved account (default, unchanged behavior). An explicit broker_account_id
+// always targets one account.
 async function handleOrderWebhook(env, ctx, payload) {
+  const owner = String(payload?.user_id || "").toLowerCase();
+  const fanoutOn = String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true";
+  if (!fanoutOn || payload?.broker_account_id) {
+    return handleSingleAccountOrder(env, ctx, payload);
+  }
+  const accounts = await resolveBridgeAccounts(env, owner, { enabledOnly: true });
+  if (accounts.length <= 1) {
+    return handleSingleAccountOrder(env, ctx, payload);
+  }
+  const results = [];
+  for (const acct of accounts) {
+    const acctId = resolveBrokerAccountId(acct);
+    const perPayload = {
+      ...payload,
+      user_id: acct.user_id,
+      broker_account_id: acctId,
+      // Per-account idempotency: one stable key per (trade, account) so a
+      // repeat fire dedupes per account, not across accounts.
+      client_order_id: payload?.client_order_id ? `${payload.client_order_id}-${acctId}` : null,
+    };
+    let res, body = null;
+    try {
+      res = await handleSingleAccountOrder(env, ctx, perPayload);
+      body = await res.clone().json().catch(() => null);
+    } catch (e) {
+      body = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    }
+    results.push({
+      broker_account_id: acctId,
+      user_id: acct.user_id,
+      broker: resolveBrokerId(acct) || acct.broker || null,
+      http_status: res?.status || 500,
+      result: body,
+    });
+  }
+  return json({ ok: true, fanout: true, accounts: results.length, results }, 200);
+}
+
+async function handleSingleAccountOrder(env, ctx, payload) {
   const t0 = Date.now();
   const sanitized = {
     user_id: String(payload?.user_id || "").toLowerCase(),
@@ -1015,6 +1067,13 @@ async function handleOrderWebhook(env, ctx, payload) {
   const brokerAccountId = resolveBrokerAccountId(user);
   const orderIntent = normalizeOrderIntent(sanitized);
   const orderPlan = planBrokerOrder(brokerId, orderIntent);
+  // Apply the capability-respecting plan back onto the order the adapter sends
+  // (e.g. a limit downgraded to market, or the executable tif).
+  if (orderPlan.ok && orderPlan.primary) {
+    sanitized.order_type = orderPlan.primary.order_type;
+    sanitized.limit_price = orderPlan.primary.limit_price;
+    sanitized.tif = orderPlan.primary.tif;
+  }
   await writeAudit(env, {
     ts: Date.now(),
     user_id: sanitized.user_id,
@@ -1103,9 +1162,13 @@ async function handleOrderWebhook(env, ctx, payload) {
     return json({ ok: false, rejected: true, reject_reason: "review_failed", review_response: review.response || review }, 200);
   }
 
-  // 4. Place
-  const place = await placeOrder(env, user, sanitized);
-  const rhOrderId = place?.response?.order_id || place?.response?.id || null;
+  // 4. Place (native bracket when planned + supported, else market/limit)
+  const place = await placePlannedOrder(env, user, sanitized, orderPlan);
+  // IBKR returns an array (parent + bracket legs); others a single object.
+  const _placeResp = place?.response;
+  const rhOrderId = Array.isArray(_placeResp)
+    ? (_placeResp[0]?.order_id || _placeResp[0]?.id || null)
+    : (_placeResp?.order_id || _placeResp?.id || null);
   await writeAudit(env, {
     ts: Date.now(),
     user_id: sanitized.user_id,

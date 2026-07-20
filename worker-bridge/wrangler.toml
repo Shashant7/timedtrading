@@ -66,6 +66,13 @@ BROKER_RECONCILE_DRY_RUN = "false"
 # managed. Full cancel/place dispatch lands in Phase E.
 BROKER_OCO_ENABLED = "false"
 
+# 2026-07-20 — Multi-account fan-out. When "true", a model signal for the
+# owner is mirrored to EVERY connected + enabled account (owner runs 5 Webull
+# + 1 IBKR), each with its own per-account idempotency key + ledger row. When
+# "false" (default) one order resolves to a single account (unchanged). An
+# explicit broker_account_id on the order always targets one account.
+BROKER_FANOUT_ENABLED = "false"
+
 # 2026-06-01 — Phase E daily owner digest dry-run flag.
 # When "true" the 21:30 UTC cron BUILDS digests but does NOT enqueue
 # them for the main-worker SendGrid send. Useful for first-day rollout
