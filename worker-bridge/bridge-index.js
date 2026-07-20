@@ -148,7 +148,23 @@ export default {
           webull_personal_configured: webullPersonalConfigured(env),
           webull_connect_configured: webullConnectConfigured(env),
           webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
-          supported_brokers: listBrokers().map((b) => ({ id: b.id, label: b.label, status: b.status })),
+          fanout_enabled: String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true",
+          supported_brokers: listBrokers().map((b) => {
+            const a = b.capabilities?.adapter || {};
+            return {
+              id: b.id,
+              label: b.label,
+              status: b.status,
+              // What the adapter can actually SEND today (agnostic layer).
+              sends: {
+                equity_market: !!a.equity?.market,
+                equity_limit: !!a.equity?.limit,
+                bracket: !!a.bracket,
+                options: !!(a.options?.limit || a.options?.market),
+                multi_account: !!b.multiAccount,
+              },
+            };
+          }),
           ts: Date.now(),
         });
       }

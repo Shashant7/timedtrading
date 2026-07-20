@@ -77,12 +77,30 @@ The main worker keeps ONE model book. Each REAL account (owner runs 5 Webull
 computes+audits the plan, places the order, and records the fill to that
 account's ledger. Manifest rows key on the real account id.
 
-### Still market-only / not yet wired (follow-ups)
-- Adapters still **send market equity orders**; limit/bracket/OCO **sending**
-  per broker is the next step (the planner + capabilities are ready for it).
-- **Multi-account fan-out** (mirror one signal to all 5 Webull accounts) is not
-  automatic — one order resolves to one account. Per-account ledger + explicit
-  `broker_account_id` targeting are in place to build fan-out on.
+### Order-type sending (2026-07-20 — wired)
+Adapters now send more than market. `GET /bridge/health` → `supported_brokers[].sends`
+shows the live matrix:
+- **IBKR:** market + **limit** (`buildIbkrLeg`) + **native bracket**
+  (`placeBracketOrder` = parent + STP(SL) + LMT(TP) GTC children as one OCA group).
+- **Webull:** market + **limit** (`buildOrderBody` LIMIT + `limit_price`).
+- **Robinhood:** market only (agentic API limit unconfirmed).
+The handler applies the plan's `order_type`/`tif` to the sent order and calls
+`placeBracketOrder` when `plan.protection.mode === "native_bracket"` and the
+adapter supports it. A limit with no valid price degrades to market.
+
+### Multi-account fan-out (2026-07-20 — wired, flag-gated)
+`BROKER_FANOUT_ENABLED` (default `"false"`). When `"true"`, one model signal
+mirrors to **every** connected+enabled account for the owner
+(`resolveBridgeAccounts` — the 5 Webull + 1 IBKR), each with its own
+per-account idempotency key (`tt-<action>-<trade>-<accountId>`) and ledger row.
+An explicit `broker_account_id` on the order always targets one account. Flip
+the flag only after verifying per-account manifests + ledger look right in `log`.
+
+### Remaining (next)
+- **Webull/RH native brackets + OCO cancel-then-replace** (IBKR bracket done;
+  Webull/RH protection stays `synthetic_engine`).
+- **Fill webhooks** back into the model book (reconciler snapshot is the
+  periodic truth today).
 
 ---
 

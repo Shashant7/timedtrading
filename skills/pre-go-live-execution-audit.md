@@ -112,15 +112,18 @@ architecture level — see [`broker-bridge.md`](broker-bridge.md):
   (Webull no longer collapses to `"default"`). Reads: `GET /bridge/account-ledger`,
   `GET /bridge/account-snapshots`.
 
+## Order-type sending + fan-out (2026-07-20 — wired)
+
+- **Limit + IBKR native bracket send** are live (`GET /bridge/health` →
+  `supported_brokers[].sends`). IBKR: market/limit/bracket. Webull: market/limit.
+  RH: market. Webull/RH protection stays `synthetic_engine` (engine-managed).
+- **Multi-account fan-out** behind `BROKER_FANOUT_ENABLED` (default off): one
+  signal → all enabled accounts, per-account idempotency + ledger.
+
 ## Known residual gaps (track before full autonomy)
 
-- **Adapters still send MARKET equity orders** — limit/bracket/OCO *sending*
-  per broker is the next step; the planner + capabilities are ready (flip to
-  `tier:"native"` once adapters implement the richer sends). Until then SL/TP
-  are engine-managed (synthetic), protected by the central close gate.
-- **Multi-account fan-out** — one signal resolves to one account; fanning out
-  to all 5 Webull accounts is not automatic yet (build on the per-account
-  ledger + explicit `broker_account_id` targeting).
+- **Webull/RH native brackets + OCO** not yet sent (IBKR bracket done; others
+  synthetic, protected by the central close gate).
 - **Dual ledger:** sim + broker both execute; reconciler detects drift but
   cannot un-send. Decide the source of truth explicitly.
 - **Fire-and-forget forward:** sim state commits even if the bridge call
