@@ -96,11 +96,30 @@ per-account idempotency key (`tt-<action>-<trade>-<accountId>`) and ledger row.
 An explicit `broker_account_id` on the order always targets one account. Flip
 the flag only after verifying per-account manifests + ledger look right in `log`.
 
+### Fill reconciliation (2026-07-20 — wired)
+Broker order APIs are pull-based (no push webhooks), so fills come from polling.
+`bridge-fills.js` `reconcileAccountFills` runs each reconcile cycle: it calls
+`adapter.listOrders`, normalizes each broker's order rows, and records real
+fills (submitted → filled qty/price) to `broker_account_ledger` — idempotent
+via a KV seen-marker. IBKR + Webull `listOrders` are wired (`read_fills` in
+health). The per-account ledger is the fill truth; the sim model book is
+untouched (model's book vs the account's book stay separate by design).
+
+### Webull emulated OCO (2026-07-20 — wired, gated)
+Webull has no native attached bracket, so protection is placed as **stop-loss +
+take-profit children** after a filled entry (`placeOcoChildren`), with
+client_order_ids `<base>-sl` / `<base>-tp`. When one child fills, fill
+reconciliation cancels the sibling (`ocoSiblingClientOrderId`). Gated by
+`BROKER_OCO_ENABLED` (default off) — the planner routes Webull protection to
+`oco_children` only when enabled, else `synthetic_engine`. IBKR still uses its
+native bracket; Robinhood stays market/synthetic (agentic API limit unconfirmed).
+
 ### Remaining (next)
-- **Webull/RH native brackets + OCO cancel-then-replace** (IBKR bracket done;
-  Webull/RH protection stays `synthetic_engine`).
-- **Fill webhooks** back into the model book (reconciler snapshot is the
-  periodic truth today).
+- **Robinhood** limit/bracket once the agentic wire format is published.
+- **IBKR standalone stop** equity orders (bracket STP children are wired; a
+  lone stop order is not).
+- Push fills into the model book if the operator ever wants broker-primary
+  execution (today: sim-primary, per-account ledger = broker truth).
 
 ---
 

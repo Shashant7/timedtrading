@@ -120,10 +120,19 @@ architecture level — see [`broker-bridge.md`](broker-bridge.md):
 - **Multi-account fan-out** behind `BROKER_FANOUT_ENABLED` (default off): one
   signal → all enabled accounts, per-account idempotency + ledger.
 
+## Fill reconciliation + Webull OCO (2026-07-20 — wired)
+
+- **Fill reconciliation** (`bridge-fills.js`) polls `adapter.listOrders` each
+  reconcile cycle and records real fills to `broker_account_ledger` (idempotent).
+  Verify: `GET /bridge/account-ledger` shows `FILL` rows after a broker fill.
+- **Webull OCO** places SL+TP children after a filled entry (gated by
+  `BROKER_OCO_ENABLED`); a filled child cancels its sibling. IBKR uses native
+  bracket. Robinhood stays market/synthetic.
+
 ## Known residual gaps (track before full autonomy)
 
-- **Webull/RH native brackets + OCO** not yet sent (IBKR bracket done; others
-  synthetic, protected by the central close gate).
+- **Robinhood** limit/bracket (agentic wire format unpublished); IBKR standalone
+  stop order (bracket STP children done).
 - **Dual ledger:** sim + broker both execute; reconciler detects drift but
   cannot un-send. Decide the source of truth explicitly.
 - **Fire-and-forget forward:** sim state commits even if the bridge call
