@@ -129,7 +129,9 @@ export function planBrokerOrder(brokerId, intent, opts = {}) {
 
     if (caps.bracket) {
       protection = { mode: "native_bracket", stop_loss: intent.stop_loss ?? null, take_profit: intent.take_profit ?? null, legs };
-    } else if (caps.oco) {
+    } else if (caps.oco && opts.ocoEnabled !== false) {
+      // Emulated OCO: place SL + TP children after entry; cancel the sibling
+      // when one fills (fill reconciliation drives the cancel).
       protection = { mode: "oco_children", stop_loss: intent.stop_loss ?? null, take_profit: intent.take_profit ?? null, legs };
     } else {
       // No broker-side protection — the lifecycle engine owns the SL/TP and

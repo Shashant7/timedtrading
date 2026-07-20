@@ -130,20 +130,21 @@ export const BROKER_REGISTRY = {
         read_fills: true,
         tif: ["DAY", "GTC"],
       },
-      // 2026-07-20: equity limit wired (buildOrderBody LIMIT + limit_price).
+      // 2026-07-20: equity limit + stop wired; OCO via emulated SL/TP children
+      // (place-after-entry + cancel-sibling-on-fill), gated by BROKER_OCO_ENABLED.
       adapter: {
-        equity: orderKinds({ market: true, limit: true }),
+        equity: orderKinds({ market: true, limit: true, stop: true, stop_limit: true }),
         options: orderKinds({ limit: true }),
         options_multi_leg: false,
         bracket: false,
-        oco: false,
+        oco: true,
         replace: false,
         fractional: false,
         list_accounts: true,
         read_positions: true,
-        read_fills: false,
+        read_fills: true,
         cancel: true,
-        tif: ["DAY"],
+        tif: ["DAY", "GTC"],
       },
     },
   },

@@ -46,10 +46,16 @@ describe("planBrokerOrder — respects each broker's order-type support", () => 
     ticker: "AMZN", side: "buy", qty: 17, sl: 243.36, tp: 267.28,
   });
 
-  it("Webull adapter: market entry, protection downgrades to synthetic_engine", () => {
+  it("Webull adapter: market entry, protection routes to emulated OCO children", () => {
     const plan = planBrokerOrder("webull", entryIntent);
     expect(plan.ok).toBe(true);
     expect(plan.primary.order_type).toBe("market");
+    expect(plan.protection.mode).toBe("oco_children");
+    expect(plan.protection.legs).toHaveLength(2);
+  });
+
+  it("Webull with OCO disabled falls back to synthetic_engine", () => {
+    const plan = planBrokerOrder("webull", entryIntent, { ocoEnabled: false });
     expect(plan.protection.mode).toBe("synthetic_engine");
     expect(plan.downgrades.some((d) => d.field === "protection")).toBe(true);
   });
@@ -78,11 +84,11 @@ describe("planBrokerOrder — respects each broker's order-type support", () => 
     expect(plan.downgrades.some((d) => d.field === "order_kind")).toBe(false);
   });
 
-  it("Webull adapter tier honors a limit entry (wired) but keeps synthetic protection", () => {
+  it("Webull adapter tier honors a limit entry (wired) with OCO protection", () => {
     const intent = normalizeOrderIntent({ ticker: "AMZN", side: "buy", qty: 10, order_kind: "limit", limit_price: 250, sl: 240, tp: 270 });
     const plan = planBrokerOrder("webull", intent);
     expect(plan.primary.order_type).toBe("limit");
-    expect(plan.protection.mode).toBe("synthetic_engine");
+    expect(plan.protection.mode).toBe("oco_children");
   });
 
   it("limit request on Robinhood (still market-only) downgrades to market", () => {
@@ -129,7 +135,7 @@ describe("planBrokerOrder — respects each broker's order-type support", () => 
   it("summary line is compact and audit-friendly", () => {
     const plan = planBrokerOrder("webull", entryIntent);
     expect(summarizeOrderPlan(plan)).toContain("webull:buy:17:market");
-    expect(summarizeOrderPlan(plan)).toContain("synthetic_engine");
+    expect(summarizeOrderPlan(plan)).toContain("oco_children");
   });
 });
 

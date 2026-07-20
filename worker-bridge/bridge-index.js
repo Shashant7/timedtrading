@@ -89,6 +89,72 @@ const placePlannedOrder = (env, user, order, plan) => {
   }
   return adapter.placeOrder(env, user, order);
 };
+
+// Emulated OCO for brokers without native brackets (Webull): after the entry
+// fills, place a stop-loss + take-profit child on the opposite side. Children
+// use `<base>-sl` / `<base>-tp` client_order_ids so fill reconciliation can
+// cancel the sibling when one fills. Records each child to the per-account
+// ledger. Returns [{ role, ok, order_id }].
+async function placeOcoChildren(env, user, sanitized, plan, ctx = {}) {
+  const acctId = ctx.brokerAccountId || resolveBrokerAccountId(user);
+  const qty = Number(ctx.filledQty) > 0 ? Number(ctx.filledQty) : Number(sanitized.qty);
+  const exitSide = String(sanitized.side || "buy").toLowerCase() === "buy" ? "sell" : "buy";
+  const base = `tt-oco-${sanitized.trade_id || "na"}-${acctId}`;
+  const sl = Number(plan?.protection?.stop_loss);
+  const tp = Number(plan?.protection?.take_profit);
+  const children = [];
+  if (Number.isFinite(sl) && sl > 0) {
+    children.push({ role: "sl", order_type: "stop", stop_price: sl, client_order_id: `${base}-sl` });
+  }
+  if (Number.isFinite(tp) && tp > 0) {
+    children.push({ role: "tp", order_type: "limit", limit_price: tp, client_order_id: `${base}-tp` });
+  }
+
+  const results = [];
+  for (const c of children) {
+    const childOrder = {
+      ticker: sanitized.ticker,
+      side: exitSide,
+      qty,
+      trade_id: sanitized.trade_id,
+      tif: "GTC",
+      order_type: c.order_type,
+      stop_price: c.stop_price,
+      limit_price: c.limit_price,
+      client_order_id: c.client_order_id,
+    };
+    let res;
+    try {
+      res = await placeOrder(env, user, childOrder);
+    } catch (e) {
+      res = { ok: false, error: String(e?.message || e).slice(0, 160) };
+    }
+    const childOrderId = Array.isArray(res?.response)
+      ? (res.response[0]?.order_id || null)
+      : (res?.response?.order_id || res?.response?.id || null);
+    await recordAccountFill(env, {
+      ts: Date.now(),
+      owner_id: user?.owner_email || sanitized.user_id,
+      user_id: user?.user_id || sanitized.user_id,
+      broker: ctx.brokerId || null,
+      broker_account_id: acctId,
+      model_trade_id: sanitized.trade_id,
+      client_order_id: c.client_order_id,
+      broker_order_id: childOrderId,
+      ticker: sanitized.ticker,
+      side: exitSide,
+      event_type: c.role === "sl" ? "OCO_STOP_LOSS" : "OCO_TAKE_PROFIT",
+      order_type: c.order_type,
+      protection_mode: "oco_children",
+      qty,
+      price: c.stop_price || c.limit_price || 0,
+      status: res?.ok ? "ok" : "error",
+      reject_reason: res?.ok ? null : (res?.error || "child_place_failed"),
+    }).catch(() => {});
+    results.push({ role: c.role, ok: !!res?.ok, order_id: childOrderId });
+  }
+  return results;
+}
 import {
   handleOauthStart, handleOauthCallback, handleOauthDisconnect,
 } from "./bridge-auth.js";
@@ -159,8 +225,11 @@ export default {
               sends: {
                 equity_market: !!a.equity?.market,
                 equity_limit: !!a.equity?.limit,
+                equity_stop: !!a.equity?.stop,
                 bracket: !!a.bracket,
+                oco: !!a.oco,
                 options: !!(a.options?.limit || a.options?.market),
+                reads_fills: !!a.read_fills,
                 multi_account: !!b.multiAccount,
               },
             };
@@ -1082,7 +1151,8 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   const brokerId = resolveBrokerId(user) || user?.broker || null;
   const brokerAccountId = resolveBrokerAccountId(user);
   const orderIntent = normalizeOrderIntent(sanitized);
-  const orderPlan = planBrokerOrder(brokerId, orderIntent);
+  const ocoEnabled = String(env?.BROKER_OCO_ENABLED || "false").toLowerCase() === "true";
+  const orderPlan = planBrokerOrder(brokerId, orderIntent, { ocoEnabled });
   // Apply the capability-respecting plan back onto the order the adapter sends
   // (e.g. a limit downgraded to market, or the executable tif).
   if (orderPlan.ok && orderPlan.primary) {
@@ -1242,6 +1312,26 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       });
       if (!mfRes?.ok && mfRes?.reason && env?.MANIFEST_DEBUG_LOG === "true") {
         console.warn(`[MANIFEST] entry write skipped for ${sanitized.user_id}/${sanitized.trade_id}: ${mfRes.reason}`);
+      }
+
+      // OCO protection: place SL + TP children after a filled entry when the
+      // plan asked for oco_children (broker has no native bracket). Sibling is
+      // cancelled by fill reconciliation when one child fills. Gated by
+      // BROKER_OCO_ENABLED (checked via the plan mode, set with ocoEnabled).
+      if (orderPlan?.protection?.mode === "oco_children") {
+        try {
+          const oco = await placeOcoChildren(env, user, sanitized, orderPlan, {
+            brokerId, brokerAccountId, filledQty,
+          });
+          await writeAudit(env, {
+            ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+            ticker: sanitized.ticker, action: "oco_children",
+            status: oco.some((c) => c.ok) ? "ok" : "error",
+            request_json: { children: oco },
+          });
+        } catch (e) {
+          console.warn(`[OCO] child placement failed for ${sanitized.trade_id}:`, String(e?.message || e).slice(0, 160));
+        }
       }
     }
     // 2026-06-01 — Phase B: on a successful EXIT, flip the manifest
