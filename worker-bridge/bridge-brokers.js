@@ -47,11 +47,12 @@ export const BROKER_REGISTRY = {
         tif: ["DAY", "GTC"],
       },
       // What bridge-ibkr.js actually sends today.
+      // 2026-07-20: equity limit + native bracket (placeBracketOrder) wired.
       adapter: {
-        equity: orderKinds({ market: true }),
+        equity: orderKinds({ market: true, limit: true }),
         options: orderKinds({ limit: true, market: true }),
         options_multi_leg: true,
-        bracket: false,
+        bracket: true,
         oco: false,
         replace: false,
         fractional: false,
@@ -59,7 +60,7 @@ export const BROKER_REGISTRY = {
         read_positions: true,
         read_fills: false,
         cancel: true,
-        tif: ["DAY"],
+        tif: ["DAY", "GTC"],
       },
     },
   },
@@ -129,8 +130,9 @@ export const BROKER_REGISTRY = {
         read_fills: true,
         tif: ["DAY", "GTC"],
       },
+      // 2026-07-20: equity limit wired (buildOrderBody LIMIT + limit_price).
       adapter: {
-        equity: orderKinds({ market: true }),
+        equity: orderKinds({ market: true, limit: true }),
         options: orderKinds({ limit: true }),
         options_multi_leg: false,
         bracket: false,

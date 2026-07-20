@@ -929,18 +929,36 @@ async function _accountId(env, user) {
   return creds?.accountId || user?.ibkr_account_id || "UNKNOWN";
 }
 
+// Map an agnostic side to an IBKR side. Entry buy → BUY; exit/sell/short → SELL.
+function ibkrSide(side) {
+  const s = String(side || "").toLowerCase();
+  if (s === "exit" || s === "sell" || s === "short") return "SELL";
+  return "BUY";
+}
+
+// Build a single IBKR order leg from the agnostic order, honoring MKT vs LMT.
+// A LIMIT without a valid price degrades to MKT so a bad plan can't place a
+// $0 limit.
+function buildIbkrLeg(conid, order) {
+  const wantLimit = String(order?.order_type || "market").toLowerCase() === "limit";
+  const price = Number(order?.limit_price);
+  const useLimit = wantLimit && Number.isFinite(price) && price > 0;
+  const leg = {
+    conid,
+    orderType: useLimit ? "LMT" : "MKT",
+    side: ibkrSide(order?.side),
+    quantity: Number(order?.qty),
+    tif: String(order?.tif || "DAY").toUpperCase(),
+  };
+  if (useLimit) leg.price = price;
+  return leg;
+}
+
 export async function reviewOrder(env, user, order) {
   const conid = await resolveConid(env, user, order.ticker);
   if (!conid) return { ok: false, error: `conid_not_found_for_${order.ticker}` };
   const acctId = await _accountId(env, user);
-  const body = {
-    acctId,
-    conid,
-    orderType: "MKT",
-    side: order.side === "exit" || order.side === "sell" ? "SELL" : "BUY",
-    quantity: Number(order.qty),
-    tif: "DAY",
-  };
+  const body = { acctId, ...buildIbkrLeg(conid, order) };
   return callIbkr(env, user, "POST", `/iserver/account/${acctId}/orders?preview=true`, body);
 }
 
@@ -948,15 +966,38 @@ export async function placeOrder(env, user, order) {
   const conid = await resolveConid(env, user, order.ticker);
   if (!conid) return { ok: false, error: `conid_not_found_for_${order.ticker}` };
   const acctId = await _accountId(env, user);
-  const body = {
-    acctId,
-    conid,
-    orderType: "MKT",
-    side: order.side === "exit" || order.side === "sell" ? "SELL" : (order.side === "short" ? "SELL" : "BUY"),
-    quantity: Number(order.qty),
-    tif: "DAY",
-  };
+  const body = { acctId, ...buildIbkrLeg(conid, order) };
   return callIbkr(env, user, "POST", `/iserver/account/${acctId}/orders`, body);
+}
+
+// Native IBKR bracket: parent entry + attached STP (stop-loss) and LMT
+// (take-profit) children, linked via cOID/parentId as one OCA group. IBKR
+// cancels the sibling when either child fills. Children are GTC so protection
+// persists past the session. Falls back to a plain place when no SL/TP given.
+export async function placeBracketOrder(env, user, order) {
+  const sl = Number(order?.sl);
+  const tp = Number(order?.tp);
+  const hasChildren = (Number.isFinite(sl) && sl > 0) || (Number.isFinite(tp) && tp > 0);
+  if (!hasChildren) return placeOrder(env, user, order);
+
+  const conid = await resolveConid(env, user, order.ticker);
+  if (!conid) return { ok: false, error: `conid_not_found_for_${order.ticker}` };
+  const acctId = await _accountId(env, user);
+
+  const parentCoid = `tt-${order?.trade_id || crypto.randomUUID().slice(0, 8)}-p`;
+  const entrySide = ibkrSide(order?.side);
+  const exitSide = entrySide === "BUY" ? "SELL" : "BUY";
+  const qty = Number(order?.qty);
+
+  const parent = { ...buildIbkrLeg(conid, order), cOID: parentCoid };
+  const orders = [parent];
+  if (Number.isFinite(sl) && sl > 0) {
+    orders.push({ conid, parentId: parentCoid, orderType: "STP", side: exitSide, quantity: qty, auxPrice: sl, tif: "GTC" });
+  }
+  if (Number.isFinite(tp) && tp > 0) {
+    orders.push({ conid, parentId: parentCoid, orderType: "LMT", side: exitSide, quantity: qty, price: tp, tif: "GTC" });
+  }
+  return callIbkr(env, user, "POST", `/iserver/account/${acctId}/orders`, { orders });
 }
 
 export async function getPortfolio(env, user) {
@@ -1217,13 +1258,18 @@ function _mockResponse(path, body, t0) {
     };
   }
   if (path.startsWith("/iserver/account/") && path.endsWith("/orders") && body) {
+    // Bracket bodies carry an `orders` array — echo one id per leg so tests
+    // and the operator can see parent + SL/TP were accepted.
+    const legs = Array.isArray(body?.orders) ? body.orders : [body];
     return {
       ...base,
-      response: [{
+      response: legs.map((leg) => ({
         order_id: `mock_ibkr_${crypto.randomUUID().slice(0, 8)}`,
         order_status: "Submitted",
         encrypt_message: "1",
-      }],
+        order_type: leg?.orderType || null,
+        parent_id: leg?.parentId || null,
+      })),
     };
   }
   if (path.startsWith("/iserver/account/") && path.includes("/order/")) {

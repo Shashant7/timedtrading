@@ -64,14 +64,30 @@ describe("planBrokerOrder — respects each broker's order-type support", () => 
     expect(stop.stop_price).toBe(243.36);
   });
 
-  it("IBKR adapter tier (today): market-only, synthetic protection", () => {
+  it("IBKR adapter tier now sends a native bracket (limit+bracket wired)", () => {
     const plan = planBrokerOrder("ibkr", entryIntent);
+    expect(plan.protection.mode).toBe("native_bracket");
+    expect(plan.protection.legs).toHaveLength(2);
+  });
+
+  it("IBKR adapter tier honors a limit entry (no downgrade)", () => {
+    const intent = normalizeOrderIntent({ ticker: "AMZN", side: "buy", qty: 10, order_kind: "limit", limit_price: 250 });
+    const plan = planBrokerOrder("ibkr", intent);
+    expect(plan.primary.order_type).toBe("limit");
+    expect(plan.primary.limit_price).toBe(250);
+    expect(plan.downgrades.some((d) => d.field === "order_kind")).toBe(false);
+  });
+
+  it("Webull adapter tier honors a limit entry (wired) but keeps synthetic protection", () => {
+    const intent = normalizeOrderIntent({ ticker: "AMZN", side: "buy", qty: 10, order_kind: "limit", limit_price: 250, sl: 240, tp: 270 });
+    const plan = planBrokerOrder("webull", intent);
+    expect(plan.primary.order_type).toBe("limit");
     expect(plan.protection.mode).toBe("synthetic_engine");
   });
 
-  it("limit request on a market-only adapter downgrades to market", () => {
+  it("limit request on Robinhood (still market-only) downgrades to market", () => {
     const intent = normalizeOrderIntent({ ticker: "AMZN", side: "buy", qty: 10, order_kind: "limit", limit_price: 250 });
-    const plan = planBrokerOrder("webull", intent);
+    const plan = planBrokerOrder("robinhood", intent);
     expect(plan.primary.order_type).toBe("market");
     expect(plan.downgrades.some((d) => d.field === "order_kind")).toBe(true);
   });
@@ -144,13 +160,14 @@ describe("resolveBrokerId", () => {
 });
 
 describe("brokerCapabilities tiers", () => {
-  it("adapter tier is market-only for equity across brokers today", () => {
-    for (const b of ["ibkr", "robinhood", "webull"]) {
-      const caps = brokerCapabilities(b, "adapter");
-      expect(caps.equity.market).toBe(true);
-      expect(caps.equity.limit).toBe(false);
-      expect(caps.bracket).toBe(false);
-    }
+  it("adapter tier reflects what each adapter can send today (2026-07-20)", () => {
+    // IBKR + Webull now send limit; IBKR sends native brackets. RH market-only.
+    expect(brokerCapabilities("ibkr", "adapter").equity.limit).toBe(true);
+    expect(brokerCapabilities("ibkr", "adapter").bracket).toBe(true);
+    expect(brokerCapabilities("webull", "adapter").equity.limit).toBe(true);
+    expect(brokerCapabilities("webull", "adapter").bracket).toBe(false);
+    expect(brokerCapabilities("robinhood", "adapter").equity.market).toBe(true);
+    expect(brokerCapabilities("robinhood", "adapter").equity.limit).toBe(false);
   });
   it("native tier exposes the broker's real order-type roadmap", () => {
     expect(brokerCapabilities("ibkr", "native").bracket).toBe(true);

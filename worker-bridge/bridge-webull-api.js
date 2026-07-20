@@ -48,20 +48,32 @@ function buildOrderBody(user, order, { preview = false } = {}) {
   if (!accountId) throw new Error("webull_account_id_missing");
   const qty = Number(order?.qty);
   if (!Number.isFinite(qty) || qty <= 0) throw new Error("invalid_qty");
-  return {
+  // Order type: MARKET (default) or LIMIT with a limit_price. The agnostic
+  // planner sets order_type; a LIMIT without a valid price falls back to
+  // MARKET so a bad plan can never place a $0 limit.
+  const wantLimit = String(order?.order_type || "market").toLowerCase() === "limit";
+  const limitPrice = Number(order?.limit_price);
+  const useLimit = wantLimit && Number.isFinite(limitPrice) && limitPrice > 0;
+  const body = {
     account_id: accountId,
+    // Prefer the caller's stable client_order_id (per-account idempotency for
+    // fan-out); fall back to a generated one for previews / ad-hoc orders.
     client_order_id: preview
       ? `tt-preview-${crypto.randomUUID().slice(0, 12)}`
-      : `tt-${order?.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`,
+      : (order?.client_order_id
+        ? String(order.client_order_id)
+        : `tt-${order?.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`),
     symbol: String(order?.ticker || "").toUpperCase(),
     side: sideToWebull(order?.side),
-    order_type: "MARKET",
+    order_type: useLimit ? "LIMIT" : "MARKET",
     entrust_type: "QTY",
     quantity: String(qty),
-    time_in_force: "DAY",
+    time_in_force: String(order?.tif || "DAY").toUpperCase(),
     support_trading_session: "CORE",
     combo_type: "NORMAL",
   };
+  if (useLimit) body.limit_price = String(limitPrice);
+  return body;
 }
 
 async function signedFetch(env, {
