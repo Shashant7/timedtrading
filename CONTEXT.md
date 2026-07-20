@@ -217,6 +217,15 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**No live close on a price no live source supports (2026-07-20)**
+- AMZN false `sl_breached` at a ghost `$236` (real ~`$252`) fired 3x. Every
+  LIVE close now funnels through `evaluateClosePriceSanity` in
+  `closeTradeAtPrice` — defers if the close price diverges >3.5% from
+  `timed:prices.p` without a fresh `/quote`. Never use `max_adverse_excursion`
+  as a stop candidate. D1 is authoritative; the TRADE UPDATE reconcile now
+  heals stale KV-CLOSED rows from D1-OPEN. Before enabling real orders, run
+  [`skills/pre-go-live-execution-audit.md`](skills/pre-go-live-execution-audit.md).
+
 **Iffy structure after shakeout highs (2026-07-15)**
 - Newton/IBM vignette: deep retracements → overbalance + swing undercut →
   shakeout to new highs while HTF already weakened (bull→sideways, monthly
