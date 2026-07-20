@@ -74,6 +74,23 @@ describe("collectStopCheckPriceCandidates", () => {
     );
     expect(cands).toEqual([81.40]);
   });
+
+  it("does not treat historical MAE as a live stop-check mark (AMZN false SL)", () => {
+    const cands = collectStopCheckPriceCandidates(
+      { price: 251.73 },
+      251.73,
+      {
+        direction: "LONG",
+        entryPrice: 251.71,
+        pnlPct: 0.01,
+        max_adverse_excursion: -6.2334,
+        maxAdverseExcursion: -6.2334,
+      },
+      { max_adverse_excursion: -6.2334 },
+    );
+    expect(Math.min(...cands)).toBeGreaterThan(250);
+    expect(cands.some((p) => p < 240)).toBe(false);
+  });
 });
 
 describe("resolvePublishedStopLoss", () => {
@@ -235,6 +252,28 @@ describe("applySlHardExitSafetyNet", () => {
     });
     expect(r.slHardClose).toBe(true);
     expect(r.slCheckPrice).toBeCloseTo(194.27, 2);
+  });
+
+  it("does not hard-close on poisoned MAE while live mark is above SL", () => {
+    const r = applySlHardExitSafetyNet({
+      openTrade: {
+        direction: "LONG",
+        status: "OPEN",
+        sl: 243.36,
+        entryPrice: 251.71,
+        pnlPct: 0.01,
+        max_adverse_excursion: -6.2334,
+      },
+      openPositionContext: { sl: 243.36, max_adverse_excursion: -6.2334 },
+      direction: "LONG",
+      pxNow: 251.73,
+      exitReasonRaw: "KANBAN_EXIT",
+      fuseExitFired: false,
+      tickerData: { price: 251.73, _live_price: 251.73 },
+      marketOpen: true,
+    });
+    expect(r.slHardClose).toBe(false);
+    expect(r.slBreached).toBe(false);
   });
 });
 

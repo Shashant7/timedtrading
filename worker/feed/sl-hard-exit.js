@@ -127,15 +127,14 @@ export function collectStopCheckPriceCandidates(
   const dir = String(openTrade?.direction ?? openPositionContext?.direction ?? tickerData?.direction ?? "LONG").toUpperCase();
 
   if (includePnlImplied && !(entryPriceSourcesDiverge(openTrade, openPositionContext))) {
+    // Current / doctrine PnL only — never historical MAE.
+    // AMZN 2026-07-20: a poisoned max_adverse_excursion (−6.23%) was treated as a
+    // live mark → implied $236 while 5m bars stayed ~$251.7 → false sl_breached.
     const pnlSources = [
       openTrade?.pnlPct,
       openTrade?.pnl_pct,
       tickerData?.__exit_meta?.pnl_pct,
       tickerData?.__exit_doctrine?.pnl,
-      openPositionContext?.maxAdverseExcursion,
-      openPositionContext?.max_adverse_excursion,
-      openTrade?.maxAdverseExcursion,
-      openTrade?.max_adverse_excursion,
     ];
     for (const raw of pnlSources) {
       const pnl = Number(raw);
