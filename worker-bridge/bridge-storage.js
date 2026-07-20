@@ -137,6 +137,37 @@ export async function setKillSwitch(env, state) {
   try { await KV.put(KILL_SWITCH_KEY, norm); return true; } catch (_) { return false; }
 }
 
+// ── Order idempotency ──────────────────────────────────────────────
+// A stable client_order_id (e.g. `tt-exit-<tradeId>`) is claimed once per
+// window. A repeat submit (retry, or a systematic false-exit that fires 3x
+// like AMZN 2026-07-20) returns { fresh:false } so the caller can skip the
+// real broker order. TTL 24h — a trade legitimately enters/exits once.
+const ORDER_CLAIM_KEY = (id) => `bridge:order:claim:${id}`;
+const ORDER_CLAIM_TTL_S = 24 * 60 * 60;
+
+export async function claimOrderIdempotency(env, clientOrderId) {
+  const KV = env?.BRIDGE_KV;
+  const id = String(clientOrderId || "").trim();
+  if (!KV || !id) return { fresh: true, id: id || null, skipped: "no_id" };
+  try {
+    const existing = await KV.get(ORDER_CLAIM_KEY(id));
+    if (existing) {
+      let prev = null;
+      try { prev = JSON.parse(existing); } catch (_) { prev = { raw: existing }; }
+      return { fresh: false, id, prior: prev };
+    }
+    await KV.put(
+      ORDER_CLAIM_KEY(id),
+      JSON.stringify({ claimed_at: Date.now() }),
+      { expirationTtl: ORDER_CLAIM_TTL_S },
+    );
+    return { fresh: true, id };
+  } catch (_) {
+    // KV failure must not block a legitimate order.
+    return { fresh: true, id, skipped: "kv_error" };
+  }
+}
+
 export async function recordOauthState(env, state, payload) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return false;

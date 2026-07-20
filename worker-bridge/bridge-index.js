@@ -26,6 +26,7 @@ import { hmacVerify } from "./bridge-crypto.js";
 import {
   ensureBridgeSchema, readUser, writeUser, listConnectedUsers,
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
+  claimOrderIdempotency,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
 import {
@@ -904,6 +905,7 @@ async function handleOrderWebhook(env, ctx, payload) {
   const sanitized = {
     user_id: String(payload?.user_id || "").toLowerCase(),
     trade_id: payload?.trade_id || null,
+    client_order_id: payload?.client_order_id ? String(payload.client_order_id) : null,
     ticker: String(payload?.ticker || "").toUpperCase(),
     side: String(payload?.side || "").toLowerCase(),
     qty: Number(payload?.qty || 0),
@@ -912,6 +914,30 @@ async function handleOrderWebhook(env, ctx, payload) {
     tp: payload?.tp == null ? null : Number(payload.tp),
     decision_reason: payload?.decision_reason || null,
   };
+
+  // 0. Idempotency — a stable client_order_id is claimed once per 24h.
+  // A repeated fire (retry, or a systematic false-exit firing 3x like
+  // AMZN 2026-07-20) is dropped BEFORE any broker review/place so a single
+  // erroneous decision can never turn into multiple real orders.
+  if (sanitized.client_order_id) {
+    const claim = await claimOrderIdempotency(env, sanitized.client_order_id);
+    if (!claim.fresh) {
+      await writeAudit(env, {
+        ts: Date.now(),
+        user_id: sanitized.user_id,
+        trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker,
+        action: "dedupe_skip",
+        side: sanitized.side,
+        qty: sanitized.qty,
+        status: "rejected",
+        reject_reason: `duplicate_client_order_id:${sanitized.client_order_id}`,
+        request_json: sanitized,
+        latency_ms: Date.now() - t0,
+      });
+      return json({ ok: true, deduped: true, client_order_id: sanitized.client_order_id }, 200);
+    }
+  }
 
   // 1. Preflight
   const pf = await preflightOrder(env, sanitized);
