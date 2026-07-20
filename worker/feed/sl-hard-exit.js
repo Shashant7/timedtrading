@@ -110,17 +110,26 @@ export function collectStopCheckPriceCandidates(
   openPositionContext = null,
   options = {},
 ) {
-  const cands = [];
-  pushCandidate(cands, pxNow);
+  const quoteCands = [];
+  pushCandidate(quoteCands, pxNow);
   if (tickerData && typeof tickerData === "object") {
-    pushCandidate(cands, tickerData.price);
-    pushCandidate(cands, tickerData._live_price);
-    pushCandidate(cands, tickerData.close);
-    pushCandidate(cands, tickerData._ah_price);
-    pushCandidate(cands, tickerData.ahp);
-    pushCandidate(cands, tickerData.extended_price);
-    pushCandidate(cands, tickerData.ah_price);
+    pushCandidate(quoteCands, tickerData.price);
+    pushCandidate(quoteCands, tickerData._live_price);
+    pushCandidate(quoteCands, tickerData.close);
+    pushCandidate(quoteCands, tickerData._ah_price);
+    pushCandidate(quoteCands, tickerData.ahp);
+    pushCandidate(quoteCands, tickerData.extended_price);
+    pushCandidate(quoteCands, tickerData.ah_price);
   }
+
+  // Spike-filter raw quotes against feed/live anchors only (not the spike
+  // itself). PnL-implied marks (NVDA-class lag) are gated separately below.
+  const liveAnchors = [
+    tickerData?.__feed_sl_hard_close?.feed_px,
+    tickerData?._live_price,
+  ];
+  if (!liveAnchors.some((n) => Number(n) > 0)) liveAnchors.push(pxNow);
+  const cands = filterSpikeStopCandidates(quoteCands, liveAnchors);
 
   const includePnlImplied = options.includePnlImplied !== false;
   const entryPx = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
@@ -136,15 +145,41 @@ export function collectStopCheckPriceCandidates(
       tickerData?.__exit_meta?.pnl_pct,
       tickerData?.__exit_doctrine?.pnl,
     ];
+    const liveAnchor = Number(
+      tickerData?.__feed_sl_hard_close?.feed_px
+      ?? tickerData?._live_price
+      ?? pxNow
+      ?? tickerData?.price,
+    );
     for (const raw of pnlSources) {
       const pnl = Number(raw);
       if (!Number.isFinite(entryPx) || entryPx <= 0 || !Number.isFinite(pnl)) continue;
+      // Stale closed-trade pnlPct (−6.23%) must not invent a ghost mark while
+      // the live print is still near entry / not confirming a large loss.
+      if (Number.isFinite(liveAnchor) && liveAnchor > 0 && pnl <= -2.5) {
+        const livePnl = dir === "LONG"
+          ? ((liveAnchor - entryPx) / entryPx) * 100
+          : ((entryPx - liveAnchor) / entryPx) * 100;
+        if (livePnl > -2.5 && pnl < livePnl - 2.5) continue;
+      }
       if (dir === "LONG") pushCandidate(cands, entryPx * (1 + pnl / 100));
       else if (dir === "SHORT") pushCandidate(cands, entryPx * (1 - pnl / 100));
     }
   }
 
   return cands;
+}
+
+/** Drop ghost prints that diverge sharply from live anchors (AMZN $236 vs ~$252). */
+export function filterSpikeStopCandidates(cands, anchors, maxDivPct = 2.5) {
+  const list = (Array.isArray(cands) ? cands : []).filter((n) => Number.isFinite(n) && n > 0);
+  const anchorList = (Array.isArray(anchors) ? anchors : [])
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (list.length === 0 || anchorList.length === 0) return list;
+  const anchor = anchorList.reduce((a, b) => a + b, 0) / anchorList.length;
+  const kept = list.filter((c) => priceDivergencePct(c, anchor) <= maxDivPct);
+  return kept.length > 0 ? kept : list;
 }
 
 /** Worst-case print vs published stop — always conservative for the direction. */
@@ -380,13 +415,38 @@ export function applySlHardExitSafetyNet({
 
   if (!isStopLossBreached(dir, checkPx, sl)) return out;
 
-  const feedPx = Number(
+  const authFeedPx = Number(
     tickerData?.__feed_sl_hard_close?.feed_px
-    ?? tickerData?.price
-    ?? tickerData?._live_price
-    ?? pxNow,
+    ?? tickerData?._live_price,
+  );
+  const feedPx = Number(
+    authFeedPx
+    || tickerData?.price
+    || pxNow,
   );
   const entryPx = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
+
+  // RTH spike veto: worst-case candidate past SL but authoritative live feed
+  // is not. Do NOT fall back to pxNow here — that breaks NVDA-class cases
+  // where the headline lags and only PnL-implied / true tape is past the stop.
+  if (
+    Number.isFinite(authFeedPx) && authFeedPx > 0
+    && !isStopLossBreached(dir, authFeedPx, sl)
+    && priceDivergencePct(checkPx, authFeedPx) >= 1.0
+  ) {
+    out.tickerData = {
+      ...tickerData,
+      __sl_spike_deferred: {
+        checkPx,
+        feedPx: authFeedPx,
+        sl,
+        divergence_pct: Number(priceDivergencePct(checkPx, authFeedPx).toFixed(3)),
+        reason: "check_past_sl_feed_not",
+      },
+    };
+    return out;
+  }
+
   const defer = shouldDeferFeedSlOutsideRth({
     marketOpen,
     direction: dir,

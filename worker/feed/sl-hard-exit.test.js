@@ -91,6 +91,20 @@ describe("collectStopCheckPriceCandidates", () => {
     expect(Math.min(...cands)).toBeGreaterThan(250);
     expect(cands.some((p) => p < 240)).toBe(false);
   });
+
+  it("drops stale closed-trade pnlPct that disagrees with the live mark", () => {
+    const cands = collectStopCheckPriceCandidates(
+      { price: 251.96, _live_price: 251.96 },
+      251.96,
+      {
+        direction: "LONG",
+        entryPrice: 251.71,
+        pnlPct: -6.2334,
+      },
+    );
+    expect(Math.min(...cands)).toBeGreaterThan(250);
+    expect(cands.some((p) => p < 240)).toBe(false);
+  });
 });
 
 describe("resolvePublishedStopLoss", () => {
@@ -274,6 +288,31 @@ describe("applySlHardExitSafetyNet", () => {
     });
     expect(r.slHardClose).toBe(false);
     expect(r.slBreached).toBe(false);
+  });
+
+  it("defers RTH hard-close when ghost check is past SL but feed is not", () => {
+    const r = applySlHardExitSafetyNet({
+      openTrade: {
+        direction: "LONG",
+        status: "OPEN",
+        sl: 243.36,
+        entryPrice: 251.71,
+        pnlPct: -6.2334,
+      },
+      openPositionContext: { sl: 243.36 },
+      direction: "LONG",
+      pxNow: 236.02,
+      exitReasonRaw: "sl_breached",
+      fuseExitFired: false,
+      tickerData: {
+        // Ghost headline only — authoritative feed still above the stop.
+        price: 236.02,
+        __feed_sl_hard_close: { feed_px: 251.96, sl: 243.36 },
+      },
+      marketOpen: true,
+    });
+    expect(r.slHardClose).toBe(false);
+    expect(r.tickerData.__sl_spike_deferred?.reason).toBe("check_past_sl_feed_not");
   });
 });
 
