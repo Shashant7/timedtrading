@@ -299,6 +299,44 @@ Vars: `WEBULL_AUTH_MODE` (`personal`|`connect`), `WEBULL_ENVIRONMENT` (`uat`|`pr
 
 ---
 
+## Robinhood Agentic MCP (2026-07-21 — API published, integration pending)
+
+Robinhood shipped the official **Agentic Trading MCP** (launched May 2026) at
+`https://agent.robinhood.com/mcp/trading` — the exact tools we scaffolded:
+`review_equity_order` / `place_equity_order` / `cancel_equity_order`, reads
+(`get_accounts`, `get_portfolio`, `get_equity_positions`, `get_equity_orders`,
+`get_equity_quotes`, `get_equity_tradability` with fractional flag, `search`),
+watchlists. Options tools are **rolling out** (not GA). So the old blocker
+("wire format unpublished") is gone.
+
+**What's wired now** (`bridge-robinhood.js`): a spec-correct MCP **Streamable
+HTTP** client — `initialize` handshake + `Mcp-Session-Id` (2025-11-25 spec) or
+stateless routing headers + `_meta` (2026-07-28 spec), selectable via
+`RH_MCP_PROTOCOL_VERSION` (default `2025-11-25`); parses both JSON and SSE
+responses; `listOrders` + `getEquityTradability` added. Capability registry
+updated (native: limit + fractional + fills; adapter: market-only until the
+`place_equity_order` limit/fractional arg schema is verified live).
+
+**Still required before RH orders flow (operator):**
+1. **Create + fund a dedicated Robinhood *Agentic* account** (desktop-only;
+   trading is restricted to it — your main account stays read-only).
+2. **Obtain an OAuth token** for it. This is the real remaining work: the MCP
+   is built for interactive agent clients (Claude/Cursor/ChatGPT/Codex) via
+   Robinhood's OAuth. Our `bridge-auth.js` still has placeholder OAuth URLs;
+   headless MCP OAuth (OAuth 2.1 + dynamic client registration + RFC 8707
+   resource indicators) needs to be finished, or a token captured from an
+   agent-client connect and stored on the user row (`rh_token_wrap`).
+3. **Verify** the live `place_equity_order` arg schema (order_type/limit/
+   fractional field names), then flip the RH adapter caps to match.
+
+**Spec caveat:** MCP had a large breaking change on **2026-07-28** (stateless —
+`initialize`/`Mcp-Session-Id` removed; routing headers + `_meta` + `server/discover`).
+RH launched under 2025-11-25; when it migrates, set `RH_MCP_PROTOCOL_VERSION=2026-07-28`.
+
+**Bottom line:** we're unblocked at the API level and the transport is wired,
+but "support" is not a flag flip — it needs the funded Agentic account + a
+working OAuth token + one round of live arg-schema verification.
+
 ## Repo layout
 
 | Path | Purpose |

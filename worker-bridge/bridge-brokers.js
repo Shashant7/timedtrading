@@ -69,25 +69,34 @@ export const BROKER_REGISTRY = {
     label: "Robinhood Agentic",
     connectKind: "oauth",
     connectPath: "/bridge/oauth/start",
-    supportsOptions: false,
-    supportsShorts: false,
-    status: "scaffold",
+    supportsOptions: false,       // options tools "rolling out" (not GA 2026-07)
+    supportsShorts: false,        // Agentic account: long equities + options only
+    // 2026-07-21 — Robinhood shipped the official Agentic Trading MCP (May 2026).
+    // Transport now wired (bridge-robinhood.js). Remaining before live: OAuth
+    // token for a funded, dedicated Agentic account + arg-schema verification.
+    status: "api_published_pending_oauth",
     accountField: "rh_account_number",
     multiAccount: false,
+    tradesRestrictedToDedicatedAccount: true, // agentic account only
     capabilities: {
       native: {
-        equity: orderKinds({ market: true, limit: true, stop: true, stop_limit: true, trailing: true }),
-        options: orderKinds({}),
+        // Docs: "placing orders with the different available order types";
+        // get_equity_tradability reports fractional eligibility.
+        equity: orderKinds({ market: true, limit: true, stop: true, stop_limit: true }),
+        options: orderKinds({ limit: true }),   // rolling out
         options_multi_leg: false,
-        bracket: false,      // RH brackets are UI-only; agentic API is market-first
+        bracket: false,      // no native attached bracket in the agentic MCP
         oco: false,
         replace: false,
         fractional: true,
-        list_accounts: true,
-        read_positions: true,
-        read_fills: true,
+        list_accounts: true, // get_accounts
+        read_positions: true, // get_equity_positions
+        read_fills: true,     // get_equity_orders
         tif: ["DAY", "GTC"],
       },
+      // What our adapter can execute TODAY once an OAuth token is present.
+      // Conservative: market only until the place_equity_order limit/fractional
+      // arg schema is verified against the live MCP.
       adapter: {
         equity: orderKinds({ market: true }),
         options: orderKinds({}),
@@ -96,9 +105,9 @@ export const BROKER_REGISTRY = {
         oco: false,
         replace: false,
         fractional: false,
-        list_accounts: false,
+        list_accounts: true,  // get_accounts wired
         read_positions: true,
-        read_fills: false,
+        read_fills: true,     // get_equity_orders wired
         cancel: true,
         tif: ["DAY"],
       },
