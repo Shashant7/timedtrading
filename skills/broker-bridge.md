@@ -113,6 +113,24 @@ fraction of capital**:
   (default on), `BROKER_FRACTIONAL_ENABLED`, `MODEL_BOOK_BASE_USD`,
   `BROKER_FRACTIONAL_MIN_USD`.
 
+### Reducer safety — never sell what the account doesn't hold (2026-07-21)
+
+A SELL/EXIT/TRIM the account doesn't have a position for would be a naked/short
+order — forbidden on a cash/IRA. Before placing any reducer the bridge checks
+**live broker positions** (`evaluateReducerAgainstPositions`, ground truth,
+independent of the manifest / `BROKER_MANIFEST_ENFORCE` mode):
+- **No position / flat / short** → **reject** (`no_broker_position` /
+  `position_flat`), audited as `reducer_rejected`. Nothing is sent to the broker.
+- **Requested > held** → **clamp** to the held qty (never oversell).
+- **Positions API unavailable** → allow through (broker is the final backstop),
+  unless `BROKER_REDUCER_REQUIRE_POSITION=true` (stricter).
+- Mock mode is skipped (no real positions).
+
+Also: `manifestAwareReducerCheck` now uses the agnostic account id (was dropping
+Webull to `"default"`), so manifest lookups match `writeEntryManifest`. Note the
+deployed `BROKER_MANIFEST_ENFORCE=log` only *logs* would-rejects — the live
+position guard is the real block, so a naked sell is stopped even in shadow mode.
+
 ### Enabling a specific Webull sub-account (e.g. Roth IRA)
 
 Each Webull sub-account is its own bridge user row keyed

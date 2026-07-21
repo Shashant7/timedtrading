@@ -88,6 +88,14 @@ BROKER_FRACTIONAL_ENABLED = "true"
 # Minimum notional for a fractional order (skip dust). Webull ~$5.
 BROKER_FRACTIONAL_MIN_USD = "5"
 
+# 2026-07-21 — Reducer position guard. Before any SELL/EXIT/TRIM the bridge
+# checks LIVE broker positions and rejects a sell with no position (never a
+# naked/short order — critical for cash/IRA) and clamps a sell that exceeds
+# the held qty. When the positions API is unavailable it allows through and
+# lets the broker be the backstop; set "true" to instead reject on an
+# unverifiable position (stricter, may block exits during a positions outage).
+BROKER_REDUCER_REQUIRE_POSITION = "false"
+
 # 2026-06-01 — Phase E daily owner digest dry-run flag.
 # When "true" the 21:30 UTC cron BUILDS digests but does NOT enqueue
 # them for the main-worker SendGrid send. Useful for first-day rollout

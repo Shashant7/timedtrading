@@ -28,7 +28,7 @@ import {
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
   claimOrderIdempotency, resolveBridgeAccounts,
 } from "./bridge-storage.js";
-import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
+import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions } from "./bridge-guards.js";
 import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow,
@@ -89,6 +89,42 @@ const placePlannedOrder = (env, user, order, plan) => {
   }
   return adapter.placeOrder(env, user, order);
 };
+
+// Confirm an account holds the position before a SELL/EXIT/TRIM. Uses live
+// broker positions (ground truth), so it protects even when the manifest is in
+// shadow mode or drifted. Fails SAFE for a confirmed no-position; on an
+// unavailable positions API it allows through (broker is the final backstop)
+// unless BROKER_REDUCER_REQUIRE_POSITION=true.
+async function verifyReducerHoldsPosition(env, user, sanitized) {
+  const adapter = brokerAdapterFor(user);
+  if (typeof adapter.getEquityPositions !== "function") {
+    return { ok: true, skip: "no_positions_api" };
+  }
+  let res;
+  try {
+    res = await adapter.getEquityPositions(env, user);
+  } catch (e) {
+    res = { ok: false, error: String(e?.message || e).slice(0, 160) };
+  }
+  // Mock mode has no real positions — don't false-reject during testing.
+  if (res?.mock) return { ok: true, skip: "mock_mode" };
+  if (!res || res.ok === false) {
+    const strict = String(env?.BROKER_REDUCER_REQUIRE_POSITION || "false").toLowerCase() === "true";
+    if (strict) return { ok: false, reason: "reducer_position_unverified", heldQty: null };
+    console.warn(`[REDUCER_GUARD] positions unavailable for ${sanitized.user_id}/${sanitized.ticker} — allowing (broker backstop)`);
+    return { ok: true, skip: "positions_unavailable" };
+  }
+  const positions = Array.isArray(res.positions) ? res.positions
+    : (Array.isArray(res.response) ? res.response : []);
+  const ev = evaluateReducerAgainstPositions({
+    ticker: sanitized.ticker,
+    requestedQty: sanitized.qty,
+    positions,
+  });
+  if (ev.action === "reject") return { ok: false, reason: ev.reason, heldQty: ev.heldQty };
+  if (ev.action === "clamp") return { ok: true, clampQty: ev.clampQty, heldQty: ev.heldQty };
+  return { ok: true, heldQty: ev.heldQty };
+}
 
 // Emulated OCO for brokers without native brackets (Webull): after the entry
 // fills, place a stop-loss + take-profit child on the opposite side. Children
@@ -1247,6 +1283,32 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   });
   if (!reviewOk) {
     return json({ ok: false, rejected: true, reject_reason: "review_failed", review_response: review.response || review }, 200);
+  }
+
+  // 3.5 — Ground-truth reducer guard. Before selling, confirm the account
+  // actually holds the position (live broker positions, not the manifest).
+  // A SELL/EXIT/TRIM with no position would be a naked/short order — forbidden
+  // on a cash/IRA account. Reject if flat/missing; clamp if the model asks to
+  // sell more than is held. Skips mock mode (no real positions to check).
+  const reducerLifecycle = classifyOrderLifecycle(sanitized.side);
+  if (reducerLifecycle === "reduce" || reducerLifecycle === "close") {
+    const posGuard = await verifyReducerHoldsPosition(env, user, sanitized);
+    if (!posGuard.ok) {
+      await writeAudit(env, {
+        ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker, action: "reducer_rejected", side: sanitized.side,
+        qty: sanitized.qty, status: "rejected", reject_reason: posGuard.reason,
+        request_json: { held_qty: posGuard.heldQty ?? null, broker_account_id: brokerAccountId },
+      });
+      return json({
+        ok: false, rejected: true, reject_reason: posGuard.reason,
+        held_qty: posGuard.heldQty ?? null, requested_qty: sanitized.qty,
+      }, 200);
+    }
+    if (posGuard.clampQty != null && posGuard.clampQty < Number(sanitized.qty)) {
+      console.warn(`[REDUCER_CLAMP] ${sanitized.user_id}/${sanitized.ticker}: sell ${sanitized.qty}→${posGuard.clampQty} (held=${posGuard.heldQty})`);
+      sanitized.qty = posGuard.clampQty;
+    }
   }
 
   // 4. Place (native bracket when planned + supported, else market/limit)

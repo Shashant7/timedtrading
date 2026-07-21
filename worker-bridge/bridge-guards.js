@@ -178,13 +178,10 @@ export async function manifestAwareReducerCheck(env, payload, user) {
   }
 
   const userId = String(payload?.user_id || user?.user_id || "").toLowerCase();
-  const brokerAccountId = String(
-    user?.rh_account_number
-      ?? user?.account_id
-      ?? user?.ibkr_account_id
-      ?? user?.broker_account_id
-      ?? "default"
-  );
+  // Use the agnostic account id (incl. webull_account_id) so the reducer
+  // lookup matches how writeEntryManifest keyed the row. The old chain
+  // dropped Webull to "default" → every Webull reducer missed its manifest.
+  const brokerAccountId = String(payload?.broker_account_id || resolveBrokerAccountId(user));
 
   let row = null;
   try {
@@ -292,6 +289,37 @@ export async function manifestAwareReducerCheck(env, payload, user) {
   }
 
   return { ok: true, lifecycle };
+}
+
+/**
+ * 2026-07-21 — Ground-truth reducer guard. A SELL/EXIT/TRIM must never exceed
+ * (or exist without) the account's actual long position — critical for a cash
+ * / IRA account that can't short. Independent of the manifest (which can drift
+ * or be in shadow mode): decide purely from live broker positions.
+ *
+ * @returns {{action:'proceed'|'reject'|'clamp', reason?, heldQty, clampQty?}}
+ */
+export function evaluateReducerAgainstPositions({ ticker, requestedQty, positions } = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  const req = Number(requestedQty) || 0;
+  const list = Array.isArray(positions) ? positions : [];
+  let held = 0;
+  let found = false;
+  for (const p of list) {
+    const psym = String(p?.symbol ?? p?.ticker ?? "").toUpperCase();
+    if (!psym || psym !== sym) continue;
+    found = true;
+    held += Number(p?.qty ?? p?.position ?? p?.quantity ?? 0) || 0;
+  }
+  // No long position (flat, missing, or short) → never send a sell.
+  if (!(held > 0)) {
+    return { action: "reject", reason: found ? "position_flat" : "no_broker_position", heldQty: held };
+  }
+  // Requesting more than held → clamp so we never oversell into a short.
+  if (req > 0 && req > held + 1e-9) {
+    return { action: "clamp", heldQty: held, clampQty: held };
+  }
+  return { action: "proceed", heldQty: held };
 }
 
 // Pure validator. Does not mutate KV.
