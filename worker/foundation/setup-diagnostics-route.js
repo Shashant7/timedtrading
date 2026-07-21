@@ -57,6 +57,11 @@ export function buildDiagnosticsContext(snapshot = {}, env = {}) {
     || "",
   ).trim().toLowerCase() || null;
 
+  const businessCharacter = snapshot._business_character
+    || snapshot.business_character
+    || snapshot.setup_snapshot?.business_character
+    || null;
+
   return {
     vix_regime: vixRegimeFromValue(vix),
     sector_posture: sectorPosture,
@@ -66,6 +71,29 @@ export function buildDiagnosticsContext(snapshot = {}, env = {}) {
       || snapshot.setup_snapshot?.ticker_personality
       || snapshot._ticker_profile?.behavior_type
       || null,
+    business_character: businessCharacter
+      ? {
+          archetype: businessCharacter.archetype || null,
+          quality_grade: businessCharacter.quality_grade ?? null,
+          growth_class: businessCharacter.growth_class ?? null,
+          valuation_state: businessCharacter.valuation_state ?? null,
+          lens_summary: businessCharacter.technical_lens?.summary
+            || businessCharacter.summary
+            || null,
+          pullback_means: businessCharacter.technical_lens?.pullback_means
+            || businessCharacter.pullback_means
+            || null,
+          breakout_means: businessCharacter.technical_lens?.breakout_means
+            || businessCharacter.breakout_means
+            || null,
+          confirmation_need: businessCharacter.technical_lens?.confirmation_need
+            || businessCharacter.confirmation_need
+            || null,
+          patience: businessCharacter.technical_lens?.patience
+            || businessCharacter.patience
+            || null,
+        }
+      : null,
     index_posture: indexPosture,
     regime_forecast_state: regimeForecast?.state || null,
     regime_forecast_confidence: Number.isFinite(Number(regimeForecast?.confidence))

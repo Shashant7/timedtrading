@@ -3,6 +3,7 @@ import {
   detectExhaustionWarnings as _detectExhaustionWarningsFromTiming,
 } from "./timing-signals.js";
 import { detectCompounderDipBuy } from "./growth-compounder.js";
+import { resolveModelLifecycle, modelLifecycleLineage } from "./model-lifecycle.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Intelligence Module
@@ -1344,6 +1345,24 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     _stage_revalidated: true,
     _stage_revalidated_at: Date.now(),
   };
+
+  // Unified lifecycle (Watching/Queued/Bought/Held/Trimming/Exited) — horizon is metadata.
+  try {
+    const _lc = resolveModelLifecycle({
+      ticker: String(td?.ticker || cached?.ticker || "").toUpperCase(),
+      investor_stage: stage.stage,
+      actionTier,
+      open_investor: !!(existingPosition || posMeta?.owned),
+      why: stage.reason || thesis.thesis || null,
+      entry: _livePx || td?.price,
+      sl: primaryInvalidation?.price,
+      intent: stage.stage === "accumulate" ? "accumulate_on_clear"
+        : stage.stage === "core_hold" ? "hold_structure"
+        : stage.stage === "reduce" ? "reduce_partial"
+        : null,
+    });
+    fresh._model_lifecycle = modelLifecycleLineage(_lc);
+  } catch (_) { /* best-effort */ }
 
   if (cached.stage !== stage.stage || cached.stageReason !== stage.reason) {
     fresh._stage_changed_from_cache = {

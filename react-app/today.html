@@ -3200,6 +3200,109 @@
       // Lazy-fetched on mount, cached 60s. Hidden when no open trades.
       // ─────────────────────────────────────────────────────────────
       // ─────────────────────────────────────────────────────────────
+      // ConfirmStackRunnersStrip — thin-slice proof family (2026-07-19)
+      // GET /timed/plays/today → slice.confirm_stack_ema21
+      // Lifecycle + play + confirm/runway chips. Click → Right Rail.
+      // Experts are inputs, not modes. No capital behavior change.
+      // ─────────────────────────────────────────────────────────────
+      function ConfirmStackRunnersStrip({ onSelectTicker, embedded }) {
+        const [slice, setSlice] = useState(null);
+        const [loading, setLoading] = useState(true);
+        useEffect(() => {
+          let alive = true;
+          (async () => {
+            try {
+              if (!window._ttIsPro) { if (alive) { setSlice({ plays: [] }); setLoading(false); } return; }
+              const url = `${API_BASE}/timed/plays/today?limit=24`;
+              const j = window.TTFetchCache
+                ? await window.TTFetchCache.get(url, { ttlMs: 45000, maxAgeMs: 180000, fetchOpts: { credentials: "include" } })
+                : await fetchJsonRetry(url);
+              if (alive && j?.ok) setSlice(j.slice || { plays: (j.plays || []).filter((p) => p.slice_family === "confirm_stack_ema21") });
+              else if (alive) setSlice({ plays: [] });
+            } catch (_) { if (alive) setSlice({ plays: [] }); }
+            finally { if (alive) setLoading(false); }
+          })();
+          return () => { alive = false; };
+        }, []);
+
+        const wrap = (children) => {
+          if (embedded) return h("div", { className: "tt-universe-panel__confirm-stack", id: "confirm-stack-runners" }, children);
+          return h("section", { id: "confirm-stack-runners", className: "tt-row" }, children);
+        };
+
+        const head = h("div", { className: "tt-ready__head" },
+          h("div", { className: "tt-sec-title" }, "MODEL PROCESS"),
+          h("h2", { className: "tt-ready__title" }, "Confirm-stack EMA21 runners"),
+          h("p", { className: "tt-ready__sub" },
+            "One setup family end-to-end: confirm stack + structure. Lifecycle and play are the surface — sequence, character, and conviction are chips, not modes.",
+          ),
+        );
+
+        if (!window._ttIsPro) {
+          return wrap(h(React.Fragment, null, head,
+            h("div", { className: "tt-ready__locked", style: { marginTop: 8 } }, "Upgrade to Pro to see model process runners."),
+          ));
+        }
+        if (loading) {
+          return wrap(h(React.Fragment, null, head,
+            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading confirm-stack runners…"),
+          ));
+        }
+        const plays = Array.isArray(slice?.plays) ? slice.plays : [];
+        if (!plays.length) {
+          return wrap(h(React.Fragment, null, head,
+            h("div", { className: "tt-ready__empty", style: { marginTop: 8 } },
+              "No confirm-stack runners stamped right now. When SuperTrend flip + squeeze + EMA21 reclaim align, they land here."),
+          ));
+        }
+
+        const chip = (label, title, accent) => h("span", {
+          className: `ds-chip ds-chip--sm ${accent ? "ds-chip--accent" : "ds-chip--solid"}`,
+          title: title || label,
+          style: { fontSize: 9 },
+        }, label);
+
+        return wrap(h(React.Fragment, null,
+          head,
+          h("div", { className: "tt-ready-scroll tt-opp-scroll", role: "list", style: { marginTop: 8 } },
+            plays.map((p) => {
+              const dir = String(p.direction || "").toUpperCase();
+              const dirColor = dir === "SHORT" ? "#f87171" : "#34d399";
+              const lifeLabel = p.lifecycle?.label || p.lifecycle?.state || p.mode || null;
+              return h("div", {
+                key: p.ticker + (p.kind || ""),
+                role: "listitem",
+                className: "tt-strip-card",
+                onClick: () => onSelectTicker && onSelectTicker(p.ticker, "SNAPSHOT"),
+                style: {
+                  cursor: "pointer",
+                  border: "1px solid rgba(52,211,153,0.28)",
+                  background: "linear-gradient(135deg, rgba(52,211,153,0.08), rgba(59,130,246,0.04))",
+                },
+              },
+                h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 } },
+                  h("strong", { style: { fontSize: 15 } }, p.ticker),
+                  dir && h("span", { style: { fontSize: 10, fontWeight: 700, color: dirColor } }, dir),
+                  lifeLabel && chip(String(lifeLabel).replace(/_/g, " "), p.lifecycle?.why || "Unified model lifecycle"),
+                  p.play_label && chip(`Play · ${p.play_label}`, p.play_why || "Model play vehicle"),
+                  p.confirm_stack === true && chip("Confirm ON", "stack_full_confirm", true),
+                  p.confirm_stack === false && chip("Confirm off", "stack_full_confirm"),
+                  p.runway_full === true && chip("Runway ON", "gate_runway_full", true),
+                  p.confluence_mode && chip(String(p.confluence_mode), "Confluence mode"),
+                  p.conviction_tier && chip(`Tier ${p.conviction_tier}`, "Conviction tier"),
+                  p.business_character && chip(String(p.business_character).replace(/_/g, " "), p.character_lens || "Business character"),
+                  p.sequence_entry_ready && chip("Seq ready", "Sequence entry_ready (context)", true),
+                ),
+                h("div", { style: { fontSize: 11, color: "var(--tt-text-muted)", lineHeight: 1.4 } },
+                  p.lifecycle?.why || p.headline || p.play_why || "Confirm-stack EMA21 runner",
+                ),
+              );
+            }),
+          ),
+        ));
+      }
+
+      // ─────────────────────────────────────────────────────────────
       // ConvexityPlaysStrip — lotto + moonshot row (2026-06-15)
       // GET /timed/options/convexity — Pro-gated; empty when none align.
       // ─────────────────────────────────────────────────────────────
@@ -7704,6 +7807,8 @@
                   sparkCache,
                   ensureSpark,
                 }),
+                h("div", { className: "tt-universe-panel__divider" }),
+                h(ConfirmStackRunnersStrip, { onSelectTicker, embedded: true }),
                 h("div", { className: "tt-universe-panel__divider" }),
                 h(ConvexityPlaysStrip, { onSelectTicker, embedded: true }),
                 h("div", { className: "tt-universe-panel__divider" }),
