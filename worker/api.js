@@ -415,9 +415,23 @@ export async function authenticateUser(req, env) {
   // If Access is not configured, fall back to no-auth (development mode)
   if (!teamDomain) return null;
 
-  const jwt =
+  // Prefer the CF Access assertion header; fall back to the CF_Authorization
+  // cookie. CF Access injects the assertion header only on requests to
+  // Access-protected paths — a same-origin `fetch()` from an admin page (e.g.
+  // the Mission Control "Enable live trading" toggle) can reach the worker
+  // with only the domain-wide CF_Authorization cookie and no assertion header,
+  // which previously 401'd a logged-in operator ("Toggle failed: unauthorized").
+  // The Pages `_worker.js` proxy already treats the cookie as a valid JWT
+  // source; do the same here. The cookie value is still fully verified by
+  // verifyAccessJWT (signature + aud + expiry), so this does not weaken auth.
+  let jwt =
     req.headers.get("CF-Access-JWT-Assertion") ||
     req.headers.get("cf-access-jwt-assertion");
+  if (!jwt) {
+    const cookie = req.headers.get("Cookie") || req.headers.get("cookie") || "";
+    const m = cookie.match(/(?:^|;\s*)CF_Authorization=([^;]+)/);
+    if (m) jwt = m[1];
+  }
   if (!jwt) return null;
 
   const payload = await verifyAccessJWT(jwt, teamDomain, aud);

@@ -203,3 +203,44 @@ describe("CF Access JWT — fail-closed verification", () => {
     expect(user).toBeNull();
   });
 });
+
+// 2026-07-21 — Admin session via the CF_Authorization cookie.
+// A same-origin fetch() from an admin page (e.g. the MC "Enable live trading"
+// toggle) can reach the worker with only the CF_Authorization cookie and no
+// CF-Access-JWT-Assertion header. authenticateUser must accept the cookie
+// (still fully verified) so a logged-in operator isn't 401'd on writes — while
+// a forged cookie is still rejected fail-closed.
+function cookieReq(jwt) {
+  return new Request("https://worker.test/timed/admin/broker-bridge/enable", {
+    method: "POST",
+    headers: { "Cookie": `CF_Authorization=${jwt}; other=1` },
+  });
+}
+
+describe("CF Access — CF_Authorization cookie fallback", () => {
+  it("accepts a genuinely-signed JWT presented via the CF_Authorization cookie", async () => {
+    const kp = await genRsaPair();
+    const jwt = await signJWT(kp, {
+      email: "operator@timed.test", aud: "test-aud", expOffsetSec: 3600, kid: "cookie-kid",
+    });
+    const jwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
+    globalThis.fetch = vi.fn(async () =>
+      new Response(JSON.stringify({ keys: [{ ...jwk, kid: "cookie-kid", alg: "RS256", use: "sig" }] }), { status: 200 }),
+    );
+    const user = await authenticateUser(cookieReq(jwt), ENV);
+    expect(user).not.toBeNull();
+    expect(user.email).toBe("operator@timed.test");
+  });
+
+  it("rejects a FORGED JWT presented via the cookie (fail-closed preserved)", async () => {
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({ keys: [] }), { status: 200 }));
+    const user = await authenticateUser(cookieReq(forgeJWT()), ENV);
+    expect(user).toBeNull();
+  });
+
+  it("returns null when neither header nor cookie is present", async () => {
+    const req = new Request("https://worker.test/timed/admin/x", { method: "POST" });
+    const user = await authenticateUser(req, ENV);
+    expect(user).toBeNull();
+  });
+});
