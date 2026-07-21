@@ -317,17 +317,36 @@ responses; `listOrders` + `getEquityTradability` added. Capability registry
 updated (native: limit + fractional + fills; adapter: market-only until the
 `place_equity_order` limit/fractional arg schema is verified live).
 
+**Headless OAuth (2026-07-21 — WIRED, `bridge-robinhood-auth.js`):**
+Full MCP OAuth 2.1: PRM discovery (RFC 9728) → AS metadata (RFC 8414) → client
+(pre-registered env, else DCR RFC 7591) → PKCE S256 → authorization code →
+token with the RFC 8707 `resource` indicator → **headless refresh** (resource
+on refresh too; token rotation). Runs server-side; the operator only approves
+consent once in a browser. Refresh runs on the `*/5` bridge cron.
+
+Connect flow:
+```bash
+BRIDGE=https://tt-broker-bridge.shashant.workers.dev
+OP="Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY"
+# 1. Start — returns an authorize_url (open it, log into RH, approve consent).
+curl -s -X POST "$BRIDGE/bridge/oauth/start" -H "$OP" -H "Content-Type: application/json" \
+  -d '{"user_id":"op@email.com"}' | python3 -m json.tool
+# 2. RH redirects to /bridge/oauth/callback?code=...&state=... → token stored.
+# 3. Verify connected:
+curl -s "$BRIDGE/bridge/status/user?user_id=op@email.com" -H "$OP" | python3 -m json.tool
+```
+Env: `RH_MCP_RESOURCE` (default the agentic MCP URL), optional discovery
+overrides `RH_OAUTH_AUTHORIZE_URL`/`RH_OAUTH_TOKEN_URL`/`RH_OAUTH_REGISTRATION_URL`/
+`RH_OAUTH_SCOPE`, optional pre-registered `ROBINHOOD_OAUTH_CLIENT_ID`/`_SECRET`.
+
 **Still required before RH orders flow (operator):**
 1. **Create + fund a dedicated Robinhood *Agentic* account** (desktop-only;
    trading is restricted to it — your main account stays read-only).
-2. **Obtain an OAuth token** for it. This is the real remaining work: the MCP
-   is built for interactive agent clients (Claude/Cursor/ChatGPT/Codex) via
-   Robinhood's OAuth. Our `bridge-auth.js` still has placeholder OAuth URLs;
-   headless MCP OAuth (OAuth 2.1 + dynamic client registration + RFC 8707
-   resource indicators) needs to be finished, or a token captured from an
-   agent-client connect and stored on the user row (`rh_token_wrap`).
+2. **Run the connect flow above** (one interactive consent), then flip
+   `broker_integration_enabled` for the RH user.
 3. **Verify** the live `place_equity_order` arg schema (order_type/limit/
-   fractional field names), then flip the RH adapter caps to match.
+   fractional field names) with a $1 review→place, then flip the RH adapter caps
+   (`bridge-brokers.js`) from market-only to match.
 
 **Spec caveat:** MCP had a large breaking change on **2026-07-28** (stateless —
 `initialize`/`Mcp-Session-Id` removed; routing headers + `_meta` + `server/discover`).

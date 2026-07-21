@@ -52,6 +52,7 @@ import {
   handleWebullOauthDisconnect,
 } from "./bridge-webull-auth.js";
 import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
+import { refreshRhTokensIfNeeded } from "./bridge-robinhood-auth.js";
 import { listBrokers, resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
 import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
@@ -1084,6 +1085,15 @@ export default {
       });
       if (refreshSummary && refreshSummary.refreshed > 0) {
         console.log(`[WEBULL/REFRESH] refreshed=${refreshSummary.refreshed} failed=${refreshSummary.failed}`);
+      }
+
+      // Robinhood MCP OAuth token refresh (headless).
+      const rhRefresh = await refreshRhTokensIfNeeded(env).catch((e) => {
+        console.warn("[RH/REFRESH] cron failed:", String(e?.message || e).slice(0, 200));
+        return null;
+      });
+      if (rhRefresh && rhRefresh.refreshed > 0) {
+        console.log(`[RH/REFRESH] refreshed=${rhRefresh.refreshed} failed=${rhRefresh.failed}`);
       }
 
       // Operating-hours gate: skip when NY market is closed (we don't

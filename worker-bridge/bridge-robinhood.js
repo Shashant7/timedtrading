@@ -19,6 +19,7 @@
 // Until then MOCK MODE (default) simulates success for end-to-end flow testing.
 
 import { unwrapSecret } from "./bridge-crypto.js";
+import { ensureRhAccessToken } from "./bridge-robinhood-auth.js";
 
 const RH_MCP_BASE = "https://agent.robinhood.com/mcp/trading";
 const RH_MCP_DEFAULT_PROTOCOL = "2025-11-25";
@@ -108,14 +109,19 @@ export function extractToolResult(rpc) {
   return { ok: !isError, response: structured, raw: result };
 }
 
-// Decrypt the user's RH access token from KV-stored wrap.
+// Resolve a fresh RH access token — refreshes via the OAuth refresh token
+// (headless) when near expiry, then returns the decrypted access token.
 async function getUserAccessToken(env, user) {
   if (!user?.rh_token_wrap) return null;
   try {
-    return await unwrapSecret(env, user.rh_token_wrap);
-  } catch (e) {
-    console.warn(`[BRIDGE/RH] token unwrap failed for ${user.user_id}:`, String(e?.message || e).slice(0, 200));
+    const res = await ensureRhAccessToken(env, user);
+    if (res.ok && res.access_token) return res.access_token;
+    console.warn(`[BRIDGE/RH] token refresh failed for ${user.user_id}:`, res.error || "unknown");
     return null;
+  } catch (e) {
+    console.warn(`[BRIDGE/RH] token resolve failed for ${user.user_id}:`, String(e?.message || e).slice(0, 200));
+    // Last-ditch: try the stored token directly.
+    try { return await unwrapSecret(env, user.rh_token_wrap); } catch (_) { return null; }
   }
 }
 

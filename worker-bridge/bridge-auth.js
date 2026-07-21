@@ -14,6 +14,11 @@
 
 import { wrapSecret, randomState } from "./bridge-crypto.js";
 import { recordOauthState, consumeOauthState, readUser, writeUser } from "./bridge-storage.js";
+import { startRhOauth, finishRhOauth } from "./bridge-robinhood-auth.js";
+
+function isMock(env) {
+  return String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false";
+}
 
 // ────────────────────────────────────────────────────────────────
 // TODO(phase1-operator): fill these from Robinhood's OAuth docs
@@ -37,10 +42,12 @@ export async function handleOauthStart(env, req) {
   if (!userId) {
     return { ok: false, error: "user_id_required", status: 400 };
   }
-  const clientId = env?.ROBINHOOD_OAUTH_CLIENT_ID;
-  if (!clientId) {
-    return { ok: false, error: "robinhood_oauth_client_id_not_configured", status: 503 };
+  // Live: run the real MCP OAuth (discovery → client → PKCE authorize URL).
+  if (!isMock(env)) {
+    return startRhOauth(env, req, userId);
   }
+  // Mock: keep the legacy placeholder-URL path for end-to-end flow testing.
+  const clientId = env?.ROBINHOOD_OAUTH_CLIENT_ID || "mock_client";
   const state = randomState(32);
   await recordOauthState(env, state, { user_id: userId, started_at: Date.now() });
 
@@ -77,82 +84,16 @@ export async function handleOauthCallback(env, req) {
   if (err) return { ok: false, error: `oauth_error:${err}`, status: 400 };
   if (!code || !state) return { ok: false, error: "missing_code_or_state", status: 400 };
 
-  const stateRow = await consumeOauthState(env, state);
-  if (!stateRow) return { ok: false, error: "state_expired_or_unknown", status: 400 };
-  const userId = String(stateRow.user_id).toLowerCase();
-
-  const clientId = env?.ROBINHOOD_OAUTH_CLIENT_ID;
-  const clientSecret = env?.ROBINHOOD_OAUTH_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    return { ok: false, error: "oauth_credentials_not_configured", status: 503 };
+  // Live: exchange the code via the real MCP token endpoint (PKCE + resource).
+  if (!isMock(env)) {
+    return finishRhOauth(env, req);
   }
 
   // Mock-mode shortcut so the flow can be tested without real RH OAuth.
-  if (String(env?.BROKER_BRIDGE_MOCK || "true").toLowerCase() !== "false") {
-    return await _finalizeMockConnection(env, userId);
-  }
-
-  const redirectUri = getRedirectUri(env, req);
-  const tokenBody = new URLSearchParams({
-    grant_type: "authorization_code",
-    code,
-    client_id: clientId,
-    client_secret: clientSecret,
-    redirect_uri: redirectUri,
-  });
-  let tokenResp;
-  try {
-    const r = await fetch(RH_TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: tokenBody.toString(),
-    });
-    const text = await r.text();
-    try { tokenResp = JSON.parse(text); } catch (_) { tokenResp = { _raw: text }; }
-    if (!r.ok) {
-      return { ok: false, error: `rh_token_${r.status}`, response: tokenResp, status: 502 };
-    }
-  } catch (e) {
-    return { ok: false, error: `rh_token_fetch_failed:${String(e?.message || e).slice(0, 100)}`, status: 502 };
-  }
-
-  const accessToken = tokenResp?.access_token;
-  const refreshToken = tokenResp?.refresh_token;
-  const expiresIn = Number(tokenResp?.expires_in) || 3600;
-  if (!accessToken) {
-    return { ok: false, error: "no_access_token_in_response", response: tokenResp, status: 502 };
-  }
-  const wrap = await wrapSecret(env, accessToken);
-  const refreshWrap = refreshToken ? await wrapSecret(env, refreshToken) : null;
-
-  const existing = (await readUser(env, userId)) || { user_id: userId };
-  const user = {
-    ...existing,
-    status: "connected",
-    connected_at: Date.now(),
-    rh_account_number: tokenResp?.account_number || null,
-    rh_token_wrap: wrap,
-    rh_refresh_wrap: refreshWrap,
-    rh_token_expires_at: Date.now() + (expiresIn * 1000),
-    broker_integration_enabled: existing.broker_integration_enabled ?? false,
-    daily_order_count: 0,
-    daily_order_count_date: new Date().toISOString().slice(0, 10),
-    total_orders_lifetime: existing.total_orders_lifetime || 0,
-    user_caps: existing.user_caps || {
-      max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
-      max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
-    },
-  };
-  await writeUser(env, userId, user);
-
-  return {
-    ok: true,
-    status: 200,
-    user_id: userId,
-    rh_account_number: user.rh_account_number,
-    broker_integration_enabled: user.broker_integration_enabled,
-    note: "User connected. Operator must explicitly flip broker_integration_enabled to true before any live orders flow.",
-  };
+  const stateRow = await consumeOauthState(env, state);
+  if (!stateRow) return { ok: false, error: "state_expired_or_unknown", status: 400 };
+  const userId = String(stateRow.user_id).toLowerCase();
+  return await _finalizeMockConnection(env, userId);
 }
 
 export async function handleOauthDisconnect(env, req) {
