@@ -41,6 +41,173 @@ deployed as separate Cloudflare Workers.
 
 ---
 
+## Broker-agnostic layer (2026-07-20)
+
+One model signal → any broker, respecting each broker's order-type support.
+
+- **Capability registry** — `bridge-brokers.js` `BROKER_REGISTRY[<id>].capabilities`
+  with two tiers: `native` (what the broker API can do — the roadmap) and
+  `adapter` (what our code sends TODAY). Read via `brokerCapabilities(id, tier)`.
+  Today every equity adapter is **market-only**; IBKR/Webull do options limit.
+- **Order planner** — `bridge-order-plan.js`: `normalizeOrderIntent(payload)` →
+  `planBrokerOrder(brokerId, intent)`. Translates market/limit and plans
+  protection as **`native_bracket`** (IBKR native) → **`oco_children`** →
+  **`synthetic_engine`** (engine-managed SL/TP + plain close when hit). Every
+  downgrade is recorded in the `order_plan` audit row so a dropped broker-side
+  stop is never silent. When adapters gain limit/bracket sends, flip the
+  planner to `tier:"native"` — no caller changes.
+- **Agnostic account id** — `resolveBrokerAccountId(user)` (includes
+  `webull_account_id`, which the old manifest/audit chain dropped to
+  `"default"`). Use it everywhere an account id is needed.
+
+## Per-account ledger + sync (the model book vs each real account)
+
+The main worker keeps ONE model book. Each REAL account (owner runs 5 Webull
++ 1 IBKR) now has its own ledger, in the bridge DB:
+
+- `broker_account_ledger` — one row per real fill/close/reject, tied to
+  `broker_account_id` (`bridge-account-ledger.js`).
+- `broker_account_snapshot` — latest positions + cash + drift per account,
+  written every reconcile cycle (broker truth for sync).
+- Reads (operator-authed): `GET /bridge/account-ledger?broker_account_id=…` and
+  `GET /bridge/account-snapshots?owner_id=…`.
+
+**Order → account binding:** `handleOrderWebhook` resolves the account via
+`resolveBridgeUser` (or an explicit `broker_account_id` in the payload),
+computes+audits the plan, places the order, and records the fill to that
+account's ledger. Manifest rows key on the real account id.
+
+### Order-type sending (2026-07-20 — wired)
+Adapters now send more than market. `GET /bridge/health` → `supported_brokers[].sends`
+shows the live matrix:
+- **IBKR:** market + **limit** (`buildIbkrLeg`) + **native bracket**
+  (`placeBracketOrder` = parent + STP(SL) + LMT(TP) GTC children as one OCA group).
+- **Webull:** market + **limit** (`buildOrderBody` LIMIT + `limit_price`).
+- **Robinhood:** market only (agentic API limit unconfirmed).
+The handler applies the plan's `order_type`/`tif` to the sent order and calls
+`placeBracketOrder` when `plan.protection.mode === "native_bracket"` and the
+adapter supports it. A limit with no valid price degrades to market.
+
+### Relational sizing + fractional shares (2026-07-21 — wired)
+
+The model sizes against its **$100k book**; a real account is usually smaller
+(e.g. a Webull **Roth IRA ~$16.5k**). Mirroring the raw share count would
+massively over-allocate the small account. `computeRelationalQty`
+(`bridge-sizing.js`) scales every ENTRY so the account deploys the **same
+fraction of capital**:
+
+- Default basis: `ratio = account_equity / MODEL_BOOK_BASE_USD` (100k). A
+  $16.5k account → ~0.165x → 17 AMZN shares becomes **~2.8**. Higher fidelity:
+  the order may carry `model_account_pct` or `model_capital_usd` (applied
+  directly) — set `MODEL_BOOK_BASE_USD` to the model's real book if it has grown.
+- **Never scales up** past the model qty (account ≥ book → unchanged).
+- **Fractional shares**: kept for brokers that support them (Webull
+  `fractional=true` in `/bridge/health.sends`); else floored to whole and
+  rejected when < 1 share.
+- **Fail-safe**: an entry is **rejected** (`account_equity_unknown_sync_required`)
+  when the account's equity isn't known — so a small account is never
+  over-allocated by falling back to the full model size. Sync the portfolio
+  first (below).
+- Applies to trader **and** investor entries. Reducers (trim/exit) are never
+  re-scaled (they close what's held). Config: `BROKER_RELATIONAL_SIZING`
+  (default on), `BROKER_FRACTIONAL_ENABLED`, `MODEL_BOOK_BASE_USD`,
+  `BROKER_FRACTIONAL_MIN_USD`.
+
+### Reducer safety — model vs user shares, qty reconcile, OCO cancel (2026-07-21)
+
+A reducer (SELL/EXIT/TRIM) runs a full pipeline before it can place:
+
+1. **Live position guard** (`evaluateReducerAgainstPositions`, ground truth):
+   no position / flat / short → **reject** (`no_broker_position` /
+   `position_flat`); mock skipped; positions API down → allow (broker backstop)
+   unless `BROKER_REDUCER_REQUIRE_POSITION=true`.
+2. **Model-vs-user linkage** — the manifest is keyed by `trade_id + account`, so
+   `broker_filled_qty` / `broker_remaining_qty` is the **model's** portion on
+   that account. The reducer is capped to the model portion — it never sells the
+   user's own shares — and untagged reducers (no `trade_id`) are rejected.
+3. **Qty reconciliation** (`reconcileReducerQty`): we trim in **percentages** —
+   `reduce_pct` applies to the model portion; a full exit flattens the model
+   portion; everything is clamped to live held qty. Discrepancies (account holds
+   less than model tracked = user trimmed more; or more = user added) are
+   **always logged** (`reducer_reconcile` audit) and **notified** on mismatch
+   (`reducer_discrepancy` audit + drift notification).
+4. **OCO cancel before place** — pending SL/TP children reserve the shares, so a
+   trim/flatten would be rejected ("qty locked up"). `cancelOcoChildren` cancels
+   the active children (found via the per-account ledger, so generation-stamped
+   re-placements are cancellable) before the reducer.
+5. **OCO re-place after a partial trim** — for the REMAINING qty, using SL/TP
+   recovered from the ledger (or the payload), with a fresh generation-stamped
+   id so a cancelled `client_order_id` is never reused. Full closes don't re-place.
+
+Also: `manifestAwareReducerCheck` uses the agnostic account id (was dropping
+Webull to `"default"`). **`BROKER_MANIFEST_ENFORCE=on`** (flipped 2026-07-21):
+a TRIM/EXIT with no matching manifest row for the trade+account is now
+**rejected** (was shadow "log"). The live-position guard remains the primary
+block; enforce is the second gate. Verify via `/bridge/health.manifest_enforce`.
+Emergency rollback: set it back to `"log"` (allow + warn) or `"off"`.
+
+### Enabling a specific Webull sub-account (e.g. Roth IRA)
+
+Each Webull sub-account is its own bridge user row keyed
+`{owner}#webull#{class-slug}` (e.g. `op@email#webull#roth-ira`). To turn one on:
+
+```bash
+BRIDGE=https://tt-broker-bridge.shashant.workers.dev
+OP="Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY"
+
+# 1. Confirm the sub-account exists + find its user_id (after Webull connect/sync)
+curl -s "$BRIDGE/bridge/status/user?user_id=op@email.com" -H "$OP" | python3 -m json.tool
+
+# 2. Sync the portfolio so equity_usd is populated (REQUIRED for sizing;
+#    entries reject with account_equity_unknown_sync_required until this runs).
+curl -s "$BRIDGE/bridge/portfolio" -H "$OP" | python3 -m json.tool
+
+# 3. Enable ONLY the Roth sub-account (per-account flag).
+curl -s -X POST "$BRIDGE/bridge/enable" -H "$OP" -H "Content-Type: application/json" \
+  -d '{"user_id":"op@email.com#webull#roth-ira","enable":true}' | python3 -m json.tool
+
+# 4. Verify sizing on the next mirrored entry via the per-account ledger.
+curl -s "$BRIDGE/bridge/account-ledger?broker_account_id=<WEBULL_ROTH_ACCT_ID>" -H "$OP" | python3 -m json.tool
+```
+
+Keep `BROKER_FANOUT_ENABLED=false` if you only want the Roth (one account)
+mirrored; leave other sub-accounts' `broker_integration_enabled=false`.
+
+### Multi-account fan-out (2026-07-20 — wired, flag-gated)
+`BROKER_FANOUT_ENABLED` (default `"false"`). When `"true"`, one model signal
+mirrors to **every** connected+enabled account for the owner
+(`resolveBridgeAccounts` — the 5 Webull + 1 IBKR), each with its own
+per-account idempotency key (`tt-<action>-<trade>-<accountId>`) and ledger row.
+An explicit `broker_account_id` on the order always targets one account. Flip
+the flag only after verifying per-account manifests + ledger look right in `log`.
+
+### Fill reconciliation (2026-07-20 — wired)
+Broker order APIs are pull-based (no push webhooks), so fills come from polling.
+`bridge-fills.js` `reconcileAccountFills` runs each reconcile cycle: it calls
+`adapter.listOrders`, normalizes each broker's order rows, and records real
+fills (submitted → filled qty/price) to `broker_account_ledger` — idempotent
+via a KV seen-marker. IBKR + Webull `listOrders` are wired (`read_fills` in
+health). The per-account ledger is the fill truth; the sim model book is
+untouched (model's book vs the account's book stay separate by design).
+
+### Webull emulated OCO (2026-07-20 — wired, gated)
+Webull has no native attached bracket, so protection is placed as **stop-loss +
+take-profit children** after a filled entry (`placeOcoChildren`), with
+client_order_ids `<base>-sl` / `<base>-tp`. When one child fills, fill
+reconciliation cancels the sibling (`ocoSiblingClientOrderId`). Gated by
+`BROKER_OCO_ENABLED` (default off) — the planner routes Webull protection to
+`oco_children` only when enabled, else `synthetic_engine`. IBKR still uses its
+native bracket; Robinhood stays market/synthetic (agentic API limit unconfirmed).
+
+### Remaining (next)
+- **Robinhood** limit/bracket once the agentic wire format is published.
+- **IBKR standalone stop** equity orders (bracket STP children are wired; a
+  lone stop order is not).
+- Push fills into the model book if the operator ever wants broker-primary
+  execution (today: sim-primary, per-account ledger = broker truth).
+
+---
+
 ## Webull — personal Trading API (operator account)
 
 Use this path when the operator has an **App Key + App Secret** from the

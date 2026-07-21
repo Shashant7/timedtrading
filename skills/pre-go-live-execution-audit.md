@@ -98,13 +98,46 @@ See `skills/broker-bridge.md` for architecture. The bridge is
 7. **D1/KV parity:** `/timed/trades` (D1) and `timed:trades:all` (KV) agree
    on open count.
 
+## Broker-agnostic layer + per-account ledger (2026-07-20)
+
+The gaps around "which account" and "market vs OCO" are now addressed at the
+architecture level — see [`broker-bridge.md`](broker-bridge.md):
+
+- **Capability registry + order planner** (`bridge-brokers.js`,
+  `bridge-order-plan.js`) translate one model signal into a concrete plan per
+  broker and downgrade protection to `synthetic_engine` (never silently drop a
+  stop). Verify a plan: the `order_plan` audit row + `summarizeOrderPlan`.
+- **Per-account ledger** (`broker_account_ledger` / `broker_account_snapshot`)
+  ties every real fill + position snapshot to a specific `broker_account_id`
+  (Webull no longer collapses to `"default"`). Reads: `GET /bridge/account-ledger`,
+  `GET /bridge/account-snapshots`.
+
+## Order-type sending + fan-out (2026-07-20 — wired)
+
+- **Limit + IBKR native bracket send** are live (`GET /bridge/health` →
+  `supported_brokers[].sends`). IBKR: market/limit/bracket. Webull: market/limit.
+  RH: market. Webull/RH protection stays `synthetic_engine` (engine-managed).
+- **Multi-account fan-out** behind `BROKER_FANOUT_ENABLED` (default off): one
+  signal → all enabled accounts, per-account idempotency + ledger.
+
+## Fill reconciliation + Webull OCO (2026-07-20 — wired)
+
+- **Fill reconciliation** (`bridge-fills.js`) polls `adapter.listOrders` each
+  reconcile cycle and records real fills to `broker_account_ledger` (idempotent).
+  Verify: `GET /bridge/account-ledger` shows `FILL` rows after a broker fill.
+- **Webull OCO** places SL+TP children after a filled entry (gated by
+  `BROKER_OCO_ENABLED`); a filled child cancels its sibling. IBKR uses native
+  bracket. Robinhood stays market/synthetic.
+
 ## Known residual gaps (track before full autonomy)
 
+- **Robinhood** limit/bracket (agentic wire format unpublished); IBKR standalone
+  stop order (bracket STP children done).
 - **Dual ledger:** sim + broker both execute; reconciler detects drift but
   cannot un-send. Decide the source of truth explicitly.
-- **MARKET/DAY orders only; OCO off** — SL/TP live in sim, not at broker.
 - **Fire-and-forget forward:** sim state commits even if the bridge call
-  fails; no fill webhook back into `trades`/`positions`.
+  fails; no fill webhook back into `trades`/`positions` (reconciler snapshot is
+  the periodic truth).
 - **Kanban SL classification** still reads headline `tickerData.price`; the
   central close gate + `applySlHardExitSafetyNet` are the backstops.
 

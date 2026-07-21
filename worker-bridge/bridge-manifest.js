@@ -27,6 +27,8 @@
 //   - Mirror suppression (sync_state='mirror_suppressed') is operator-
 //     set; the writer never flips that state.
 
+import { resolveBrokerAccountId } from "./bridge-brokers.js";
+
 const SCHEMA_DDL = [
   `CREATE TABLE IF NOT EXISTS mirror_trade_manifest (
     user_id                  TEXT NOT NULL,
@@ -180,13 +182,10 @@ export async function writeEntryManifest(env, payload, user, extras = {}) {
   if (!userId || !tradeId) {
     return { ok: false, action: "skipped", reason: "missing_user_id_or_trade_id" };
   }
-  const brokerAccountId = String(
-    user?.rh_account_number
-      ?? user?.account_id
-      ?? user?.ibkr_account_id
-      ?? user?.broker_account_id
-      ?? "default"
-  );
+  // Prefer an explicit account target from the payload; else resolve the
+  // agnostic account id from the user row (includes webull_account_id, which
+  // the old chain dropped → Webull manifests collapsed to "default").
+  const brokerAccountId = String(payload?.broker_account_id || resolveBrokerAccountId(user));
   const broker = String(user?.broker || "ibkr").toLowerCase();
   const ticker = String(payload?.ticker || "").trim().toUpperCase();
   const direction = String(payload?.direction || "LONG").toUpperCase();
@@ -301,10 +300,7 @@ export async function writeRejectedEntry(env, payload, user, rejectReason) {
   const userId = String(payload?.user_id || user?.user_id || "").toLowerCase();
   const tradeId = String(payload?.trade_id || "").trim();
   if (!userId || !tradeId) return { ok: false, action: "skipped", reason: "missing_user_id_or_trade_id" };
-  const brokerAccountId = String(
-    user?.rh_account_number ?? user?.account_id ?? user?.ibkr_account_id
-    ?? user?.broker_account_id ?? "default"
-  );
+  const brokerAccountId = String(payload?.broker_account_id || resolveBrokerAccountId(user));
   const broker = String(user?.broker || "ibkr").toLowerCase();
   const ticker = String(payload?.ticker || "").trim().toUpperCase();
   const direction = String(payload?.direction || "LONG").toUpperCase();

@@ -47,9 +47,11 @@ REJECT_SHORT_SIDES = "true"
 #   "on"  — reject TRIM/EXIT per §4.1 (manifest required)
 #   "log" — shadow mode: log "would_reject" but allow the order
 #   "off" — skip manifest check entirely (back-compat / emergency rollback)
-# Default to "log" for the first week of production so the operator
-# can review the warn-logs before flipping to "on".
-BROKER_MANIFEST_ENFORCE = "log"
+# 2026-07-21 — Flipped to "on" now that the reducer account-id lookup uses the
+# agnostic id (Webull no longer collapses to "default") so it matches the
+# manifest writer, and the live-position guard is the primary block. Enforce
+# now rejects a TRIM/EXIT with no matching manifest row for the trade+account.
+BROKER_MANIFEST_ENFORCE = "on"
 
 # 2026-06-01 — Phase C reconciler config.
 # When "true" the cron runs 24/7 (useful for Investor mode); otherwise
@@ -65,6 +67,36 @@ BROKER_RECONCILE_DRY_RUN = "false"
 # orchestration is skipped entirely and SL/TP placement is operator-
 # managed. Full cancel/place dispatch lands in Phase E.
 BROKER_OCO_ENABLED = "false"
+
+# 2026-07-20 — Multi-account fan-out. When "true", a model signal for the
+# owner is mirrored to EVERY connected + enabled account (owner runs 5 Webull
+# + 1 IBKR), each with its own per-account idempotency key + ledger row. When
+# "false" (default) one order resolves to a single account (unchanged). An
+# explicit broker_account_id on the order always targets one account.
+BROKER_FANOUT_ENABLED = "false"
+
+# 2026-07-21 — Relational position sizing. When "true" (default) an entry's
+# qty is scaled to the real account: model deploys X% of its book, so the
+# account deploys X% of ITS equity (e.g. a $16.5k Roth mirrors a $100k model
+# at ~0.165x). "false" restores raw model qty (caps still apply).
+BROKER_RELATIONAL_SIZING = "true"
+# The model's book size used as the sizing reference (its starting/nominal
+# port balance). Override per deploy; the main worker may also send
+# model_capital_usd / model_account_pct per order for higher fidelity.
+MODEL_BOOK_BASE_USD = "100000"
+# Fractional shares: when "true" (default) relational sizing keeps a decimal
+# qty for brokers that support it (Webull); else it floors to whole shares.
+BROKER_FRACTIONAL_ENABLED = "true"
+# Minimum notional for a fractional order (skip dust). Webull ~$5.
+BROKER_FRACTIONAL_MIN_USD = "5"
+
+# 2026-07-21 — Reducer position guard. Before any SELL/EXIT/TRIM the bridge
+# checks LIVE broker positions and rejects a sell with no position (never a
+# naked/short order — critical for cash/IRA) and clamps a sell that exceeds
+# the held qty. When the positions API is unavailable it allows through and
+# lets the broker be the backstop; set "true" to instead reject on an
+# unverifiable position (stricter, may block exits during a positions outage).
+BROKER_REDUCER_REQUIRE_POSITION = "false"
 
 # 2026-06-01 — Phase E daily owner digest dry-run flag.
 # When "true" the 21:30 UTC cron BUILDS digests but does NOT enqueue

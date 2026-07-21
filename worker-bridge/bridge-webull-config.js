@@ -12,6 +12,10 @@ export const WEBULL_API_PATHS = {
   orderPreview: "/openapi/trade/order/preview",
   orderPlace: "/openapi/trade/order/place",
   orderCancel: "/openapi/trade/order/cancel",
+  // 2026-07-20 — order-status read for fill reconciliation. VERIFY exact path
+  // against Webull OpenAPI docs before live (endpoint naming varies by API
+  // version); mock mode exercises the full flow independent of the path.
+  ordersList: "/openapi/trade/orders/list",
 };
 
 export function webullAuthMode(env) {
