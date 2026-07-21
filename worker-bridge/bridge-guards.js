@@ -396,7 +396,18 @@ export async function preflightOrder(env, payload) {
     const fractionalOn = fractionalCap
       && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false";
 
-    if (Number.isFinite(liveEquity) && liveEquity > 0 && liveEquity < modelBook) {
+    // Fail-safe: never mirror an entry to an account whose size we don't know
+    // — that would risk over-allocating a small account (the exact hazard for
+    // a Roth IRA). Require a portfolio sync (GET /bridge/portfolio populates
+    // equity_usd) first. Disable via BROKER_RELATIONAL_SIZING=false.
+    if (!(Number.isFinite(liveEquity) && liveEquity > 0)) {
+      return {
+        ok: false,
+        reject_reason: "account_equity_unknown_sync_required",
+        hint: "relational sizing needs account equity — call GET /bridge/portfolio to populate equity_usd, or set BROKER_RELATIONAL_SIZING=false",
+      };
+    }
+    if (liveEquity > 0 && liveEquity < modelBook) {
       const sized = computeRelationalQty({
         modelQty: Number(payload?.qty) || 0,
         entryPrice: entryPx,

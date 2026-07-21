@@ -88,6 +88,58 @@ The handler applies the plan's `order_type`/`tif` to the sent order and calls
 `placeBracketOrder` when `plan.protection.mode === "native_bracket"` and the
 adapter supports it. A limit with no valid price degrades to market.
 
+### Relational sizing + fractional shares (2026-07-21 — wired)
+
+The model sizes against its **$100k book**; a real account is usually smaller
+(e.g. a Webull **Roth IRA ~$16.5k**). Mirroring the raw share count would
+massively over-allocate the small account. `computeRelationalQty`
+(`bridge-sizing.js`) scales every ENTRY so the account deploys the **same
+fraction of capital**:
+
+- Default basis: `ratio = account_equity / MODEL_BOOK_BASE_USD` (100k). A
+  $16.5k account → ~0.165x → 17 AMZN shares becomes **~2.8**. Higher fidelity:
+  the order may carry `model_account_pct` or `model_capital_usd` (applied
+  directly) — set `MODEL_BOOK_BASE_USD` to the model's real book if it has grown.
+- **Never scales up** past the model qty (account ≥ book → unchanged).
+- **Fractional shares**: kept for brokers that support them (Webull
+  `fractional=true` in `/bridge/health.sends`); else floored to whole and
+  rejected when < 1 share.
+- **Fail-safe**: an entry is **rejected** (`account_equity_unknown_sync_required`)
+  when the account's equity isn't known — so a small account is never
+  over-allocated by falling back to the full model size. Sync the portfolio
+  first (below).
+- Applies to trader **and** investor entries. Reducers (trim/exit) are never
+  re-scaled (they close what's held). Config: `BROKER_RELATIONAL_SIZING`
+  (default on), `BROKER_FRACTIONAL_ENABLED`, `MODEL_BOOK_BASE_USD`,
+  `BROKER_FRACTIONAL_MIN_USD`.
+
+### Enabling a specific Webull sub-account (e.g. Roth IRA)
+
+Each Webull sub-account is its own bridge user row keyed
+`{owner}#webull#{class-slug}` (e.g. `op@email#webull#roth-ira`). To turn one on:
+
+```bash
+BRIDGE=https://tt-broker-bridge.shashant.workers.dev
+OP="Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY"
+
+# 1. Confirm the sub-account exists + find its user_id (after Webull connect/sync)
+curl -s "$BRIDGE/bridge/status/user?user_id=op@email.com" -H "$OP" | python3 -m json.tool
+
+# 2. Sync the portfolio so equity_usd is populated (REQUIRED for sizing;
+#    entries reject with account_equity_unknown_sync_required until this runs).
+curl -s "$BRIDGE/bridge/portfolio" -H "$OP" | python3 -m json.tool
+
+# 3. Enable ONLY the Roth sub-account (per-account flag).
+curl -s -X POST "$BRIDGE/bridge/enable" -H "$OP" -H "Content-Type: application/json" \
+  -d '{"user_id":"op@email.com#webull#roth-ira","enable":true}' | python3 -m json.tool
+
+# 4. Verify sizing on the next mirrored entry via the per-account ledger.
+curl -s "$BRIDGE/bridge/account-ledger?broker_account_id=<WEBULL_ROTH_ACCT_ID>" -H "$OP" | python3 -m json.tool
+```
+
+Keep `BROKER_FANOUT_ENABLED=false` if you only want the Roth (one account)
+mirrored; leave other sub-accounts' `broker_integration_enabled=false`.
+
 ### Multi-account fan-out (2026-07-20 — wired, flag-gated)
 `BROKER_FANOUT_ENABLED` (default `"false"`). When `"true"`, one model signal
 mirrors to **every** connected+enabled account for the owner

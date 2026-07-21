@@ -119,4 +119,16 @@ describe("preflightOrder — Roth IRA relational sizing", () => {
     expect(payload.qty).toBeGreaterThan(2.7);
     expect(payload.qty).toBeLessThan(2.9);
   });
+
+  it("fail-safe: rejects an entry when account equity is unknown (no over-allocation)", async () => {
+    const noEquity = { ...rothUser, equity_usd: undefined, cash_usd: undefined, buying_power_usd: undefined };
+    const env = makeEnv(noEquity);
+    const payload = {
+      user_id: "op@x.com#webull#roth-ira", trade_id: "AMZN-2", ticker: "AMZN",
+      side: "buy", qty: 17, entry: 251.71, mode: "trader",
+    };
+    const pf = await preflightOrder(env, payload);
+    expect(pf.ok).toBe(false);
+    expect(pf.reject_reason).toBe("account_equity_unknown_sync_required");
+  });
 });
