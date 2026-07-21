@@ -404,16 +404,28 @@ export async function fireAutoMirror(env, userEmail, payload) {
   const sigArr = new Uint8Array(sigBuf);
   for (let i = 0; i < sigArr.length; i++) sigStr += String.fromCharCode(sigArr[i]);
   const sig = btoa(sigStr);
-  const r = await fetch(`${bridgeUrl}/bridge/options/order`, {
+  // 2026-07-21 — Prefer the BROKER_BRIDGE service binding to bypass
+  // Cloudflare's worker-to-worker loop detection. A plain fetch to the
+  // bridge's workers.dev URL trips CF error 1042 and comes back as HTTP 404,
+  // so the options auto-mirror order silently never reaches the bridge —
+  // the identical failure fixed in forwardOrderToBridge. Falls back to HTTP
+  // fetch when the binding is absent (local dev).
+  const svc = env?.BROKER_BRIDGE;
+  const hasSvc = !!(svc && typeof svc.fetch === "function");
+  const reqUrl = `${bridgeUrl}/bridge/options/order`;
+  const reqInit = {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-bridge-signature": sig,
     },
     body,
-  });
+  };
+  const r = hasSvc
+    ? await svc.fetch(new Request(reqUrl, reqInit))
+    : await fetch(reqUrl, reqInit);
   const json = await r.json().catch(() => ({}));
-  return { ok: r.ok, status: r.status, response: json };
+  return { ok: r.ok, status: r.status, response: json, transport: hasSvc ? "service-binding" : "http" };
 }
 
 /**

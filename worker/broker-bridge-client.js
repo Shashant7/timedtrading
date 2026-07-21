@@ -49,7 +49,17 @@ export async function readClientRing(env) {
 export async function forwardOrderToBridge(env, order) {
   const bridgeUrl = env?.BROKER_BRIDGE_URL;
   const hmacKey  = env?.BROKER_BRIDGE_HMAC_KEY;
-  if (!bridgeUrl) return { ok: false, skip: "no_bridge_url" };
+  // 2026-07-21 — Prefer the Service Binding (env.BROKER_BRIDGE) over an HTTP
+  // fetch to the bridge's workers.dev URL. A plain worker-to-worker HTTP call
+  // trips Cloudflare's subrequest loop detection and comes back as HTTP 404
+  // ("error code: 1042") — which is exactly why every entry/exit order forward
+  // in the client ring showed http_status:404 and never reached the broker.
+  // The operator-side proxies (_callBridge/_postBridge in index.js) were
+  // already migrated to the binding for this reason; the order path was not.
+  // Falls back to HTTP fetch when the binding is absent (e.g. local dev).
+  const svc = env?.BROKER_BRIDGE;
+  const hasSvc = !!(svc && typeof svc.fetch === "function");
+  if (!hasSvc && !bridgeUrl) return { ok: false, skip: "no_bridge_url" };
   if (!hmacKey)  return { ok: false, skip: "no_hmac_key" };
 
   const body = JSON.stringify(order);
@@ -67,9 +77,14 @@ export async function forwardOrderToBridge(env, order) {
     qty: order.qty,
     trade_id: order.trade_id,
     client_order_id: order.client_order_id || null,
+    transport: hasSvc ? "service-binding" : "http",
   };
   try {
-    const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/order`, {
+    // Service-binding routes by binding name, not host — the URL host is
+    // arbitrary. Keep the real URL when we have it (harmless) so HTTP fallback
+    // and the binding hit the identical /bridge/order path.
+    const _url = `${(bridgeUrl || "https://bridge.internal").replace(/\/$/, "")}/bridge/order`;
+    const _reqInit = {
       method: "POST",
       signal: controller.signal,
       headers: {
@@ -77,7 +92,10 @@ export async function forwardOrderToBridge(env, order) {
         "x-bridge-signature": sig,
       },
       body,
-    });
+    };
+    const r = hasSvc
+      ? await svc.fetch(new Request(_url, _reqInit))
+      : await fetch(_url, _reqInit);
     const text = await r.text().catch(() => "");
     let parsed = null;
     try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
@@ -88,13 +106,13 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.reject_reason = parsed?.reject_reason || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);
-    return { ok, http_status: r.status, response: parsed, latency_ms: ringEntry.latency_ms };
+    return { ok, http_status: r.status, response: parsed, latency_ms: ringEntry.latency_ms, transport: ringEntry.transport };
   } catch (e) {
     ringEntry.status = "fetch_error";
     ringEntry.error = String(e?.message || e).slice(0, 200);
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);
-    return { ok: false, error: ringEntry.error };
+    return { ok: false, error: ringEntry.error, transport: ringEntry.transport };
   } finally {
     clearTimeout(tid);
   }
