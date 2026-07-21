@@ -63,6 +63,29 @@ export function parseProtectedResourceMetadata(json) {
   };
 }
 
+/**
+ * RFC 8414 well-known URLs for an issuer that MAY carry a path component.
+ * For `https://host/mcp/trading` the metadata is served at
+ * `https://host/.well-known/oauth-authorization-server/mcp/trading` (path
+ * inserted after the well-known segment), and often ALSO at the origin root.
+ * Robinhood serves both; the issuer-suffix form (`{issuer}/.well-known/...`)
+ * 404s, so it goes last.
+ */
+export function authServerMetadataUrls(issuer) {
+  const u = new URL(issuer);
+  const origin = u.origin;
+  const path = u.pathname.replace(/^\/|\/$/g, "");
+  const urls = [];
+  if (path) {
+    urls.push(`${origin}/.well-known/oauth-authorization-server/${path}`);
+    urls.push(`${origin}/.well-known/openid-configuration/${path}`);
+  }
+  urls.push(`${origin}/.well-known/oauth-authorization-server`);
+  urls.push(`${origin}/.well-known/openid-configuration`);
+  urls.push(`${issuer.replace(/\/$/, "")}/.well-known/oauth-authorization-server`);
+  return urls;
+}
+
 /** RFC 8414 Authorization Server Metadata → the endpoints we need. */
 export function parseAuthServerMetadata(json) {
   if (!json || typeof json !== "object") return null;
@@ -183,12 +206,11 @@ export async function discoverRhAuth(env) {
     return { ok: false, error: "protected_resource_metadata_not_found", resource };
   }
 
-  // 2. Authorization Server Metadata (RFC 8414 → OIDC fallback).
+  // 2. Authorization Server Metadata (RFC 8414 → OIDC fallback). The issuer
+  // may carry a path (RH: https://agent.robinhood.com/mcp/trading) so the
+  // well-known URL must be path-aware, not just issuer-suffixed.
   const asIssuer = prm.authorization_servers[0].replace(/\/$/, "");
-  const asCandidates = [
-    `${asIssuer}/.well-known/oauth-authorization-server`,
-    `${asIssuer}/.well-known/openid-configuration`,
-  ];
+  const asCandidates = authServerMetadataUrls(asIssuer);
   let asMeta = null;
   for (const url of asCandidates) {
     const r = await fetchJson(url);

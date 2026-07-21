@@ -339,6 +339,26 @@ Env: `RH_MCP_RESOURCE` (default the agentic MCP URL), optional discovery
 overrides `RH_OAUTH_AUTHORIZE_URL`/`RH_OAUTH_TOKEN_URL`/`RH_OAUTH_REGISTRATION_URL`/
 `RH_OAUTH_SCOPE`, optional pre-registered `ROBINHOOD_OAUTH_CLIENT_ID`/`_SECRET`.
 
+**Verified live (2026-07-21)** via `GET /bridge/test/rh-oauth-discovery` (and
+direct probe) — RH's discovery is standard and our flow matches:
+- 401 → `WWW-Authenticate: … resource_metadata=".../.well-known/oauth-protected-resource/mcp/trading"` (RFC 9728).
+- PRM → `authorization_servers: ["https://agent.robinhood.com/mcp/trading"]`, `scopes_supported: ["internal"]`.
+- AS metadata (at the **path-based** well-known `…/.well-known/oauth-authorization-server/mcp/trading`):
+  authorize `https://robinhood.com/oauth`, token `https://api.robinhood.com/oauth2/token/`,
+  **DCR** `https://agent.robinhood.com/oauth/trading/register`, PKCE **S256**,
+  grants `authorization_code`+`refresh_token`, **public client** (`token_endpoint_auth_method: none` → no secret).
+No env overrides needed — discovery + DCR work out of the box.
+
+**How our bridge fits the RH "connect an AI agent" steps:** the support article
+lists Claude/ChatGPT/Cursor/etc., but also "other platforms that support MCP
+connections." Our bridge IS such a platform — `POST /bridge/oauth/start` is our
+equivalent of "add the MCP link + authenticate." Opening the returned
+`authorize_url` on desktop runs RH login → **Agentic account onboarding**
+(auto-opens on first auth) → consent → redirect to our callback. Prereq: a
+primary RH individual account in good standing. Trades are restricted to the
+Agentic account, so after connect resolve the agentic account number via
+`get_accounts` and store it as `rh_account_number` (probe: `POST /bridge/test/rh-call {tool:"get_accounts"}`).
+
 **Still required before RH orders flow (operator):**
 1. **Create + fund a dedicated Robinhood *Agentic* account** (desktop-only;
    trading is restricted to it — your main account stays read-only).

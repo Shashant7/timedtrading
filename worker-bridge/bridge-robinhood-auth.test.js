@@ -4,6 +4,7 @@ import {
   codeChallengeS256,
   parseProtectedResourceMetadata,
   parseAuthServerMetadata,
+  authServerMetadataUrls,
   buildAuthorizeUrl,
   buildTokenForm,
   mcpResource,
@@ -32,6 +33,16 @@ describe("discovery metadata parsing", () => {
     });
     expect(prm.authorization_servers[0]).toBe("https://auth.robinhood.com");
     expect(prm.scopes_supported).toContain("agentic.trade");
+  });
+
+  it("builds path-aware well-known URLs (RH serves the path-based form)", () => {
+    // RH issuer carries a path; the path-based well-known must come FIRST
+    // (the issuer-suffix form 404s on RH).
+    const urls = authServerMetadataUrls("https://agent.robinhood.com/mcp/trading");
+    expect(urls[0]).toBe("https://agent.robinhood.com/.well-known/oauth-authorization-server/mcp/trading");
+    expect(urls).toContain("https://agent.robinhood.com/.well-known/oauth-authorization-server");
+    // issuer-suffix form (which 404s on RH) is present only as a last resort.
+    expect(urls[urls.length - 1]).toBe("https://agent.robinhood.com/mcp/trading/.well-known/oauth-authorization-server");
   });
 
   it("parses Authorization Server Metadata (RFC 8414)", () => {
