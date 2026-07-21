@@ -16,7 +16,7 @@
 
 export default {
   test: {
-    include: ["worker/**/*.test.js", "scripts/**/*.test.js", "tests/**/*.test.js"],
+    include: ["worker/**/*.test.js", "worker-bridge/**/*.test.js", "scripts/**/*.test.js", "tests/**/*.test.js"],
     environment: "node",
     environmentMatchGlobs: [
       // React component tests need a DOM (jsdom). All other tests run

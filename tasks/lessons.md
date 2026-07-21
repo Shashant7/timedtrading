@@ -6,6 +6,42 @@
 
 ---
 
+## Ghost/stale price closed AMZN 3x — every live close needs a price-sanity gate [2026-07-20]
+
+AMZN LONG entered `$251.71`, then `sl_breached` closed at **`$236.02`**
+(exactly `entry × (1 + MAE/100)`, −6.23%) while 5m bars stayed ~`$251.7`.
+It re-fired twice more after admin reopen, and the UI kept showing CLOSED.
+
+Three compounding faults (all now guarded — see
+[`skills/pre-go-live-execution-audit.md`](../skills/pre-go-live-execution-audit.md)):
+
+1. **`collectStopCheckPriceCandidates` treated `max_adverse_excursion` as a
+   live PnL-implied mark.** A poisoned MAE became a fabricated `$236` stop
+   price. Fix: never use MAE for stop candidates; ignore stale `pnlPct` that
+   disagrees with the live anchor; spike-filter quote candidates.
+2. **The RTH feed fast path skipped `evaluateSlCloseFreshQuote`**, so the
+   ghost closed immediately. Fix: a **central close-price sanity gate**
+   (`evaluateClosePriceSanity`) in `closeTradeAtPrice` — every LIVE close now
+   defers if its price diverges >3.5% from `timed:prices.p` without a fresh
+   `/quote` corroboration. This is the universal backstop across ALL exit
+   paths (SL, HLC, fuse, kanban, feed immediate) and it sits BEFORE the
+   broker-bridge forward, so a ghost exit never reaches a real broker.
+3. **`timed:trades:all` (KV cache) never healed from D1.** The reconcile
+   cron only CLOSED phantom KV-OPEN rows; it never promoted a D1-OPEN trade
+   over a stale KV-CLOSED row → "keeps showing closed" survived every admin
+   reopen and every cron tick. Fix: D1→KV promote in TRADE UPDATE reconcile
+   (`[TRADE RECONCILE] … healed N D1-open`). D1 is authoritative; KV is a cache.
+
+Also: after admin reopen, `timed:sl:reopen-suppress:<tradeId>` blocks repeat
+`sl_breached` for 45 min. For real orders, entry/exit forwards now carry a
+stable `client_order_id` and the bridge dedupes (`claimOrderIdempotency`) so
+a repeated false fire can't become multiple real orders; exit qty uses
+`remainingShares` (was `trade.size`/`trade.qty` → 0/wrong).
+
+Rule: **no live close may execute at a price no live source supports.** When
+a decision looks wrong, prefer DEFER over EXECUTE — the next tick with a real
+price self-corrects; an erroneous real order cannot be un-sent.
+
 ## OpEx is a session event — use close timestamp + longer RTH window [2026-07-19]
 
 Monthly options expiration is not an 8:30 print. Stamp `scheduled_ts` at

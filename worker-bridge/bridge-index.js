@@ -26,8 +26,9 @@ import { hmacVerify } from "./bridge-crypto.js";
 import {
   ensureBridgeSchema, readUser, writeUser, listConnectedUsers,
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
+  claimOrderIdempotency, resolveBridgeAccounts,
 } from "./bridge-storage.js";
-import { preflightOrder, bumpDailyCounter } from "./bridge-guards.js";
+import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
 import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow,
@@ -39,6 +40,7 @@ import {
 import { orchestrateOcoForReducer } from "./bridge-oco.js";
 import {
   drainNotifyQueue, buildDailyOwnerDigest, renderDailyOwnerDigestEmail,
+  emitDriftNotification,
 } from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
@@ -50,7 +52,9 @@ import {
   handleWebullOauthDisconnect,
 } from "./bridge-webull-auth.js";
 import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
-import { listBrokers } from "./bridge-brokers.js";
+import { listBrokers, resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
+import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
+import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
 // field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
@@ -77,6 +81,199 @@ async function callMcpTool(env, user, toolName, args) {
 const reviewOrder = (env, user, order) => brokerAdapterFor(user).reviewOrder(env, user, order);
 const placeOrder  = (env, user, order) => brokerAdapterFor(user).placeOrder(env, user, order);
 const getPortfolio = (env, user) => brokerAdapterFor(user).getPortfolio(env, user);
+// Place respecting the agnostic plan: native bracket when the broker adapter
+// supports it AND the plan asked for it; otherwise a plain (market/limit) order.
+const placePlannedOrder = (env, user, order, plan) => {
+  const adapter = brokerAdapterFor(user);
+  if (plan?.protection?.mode === "native_bracket" && typeof adapter.placeBracketOrder === "function") {
+    return adapter.placeBracketOrder(env, user, order);
+  }
+  return adapter.placeOrder(env, user, order);
+};
+
+// Cancel the pending OCO children (SL + TP) for a trade on an account. They
+// reserve the shares, so a trim/flatten must cancel them first or the broker
+// rejects the reducer ("qty locked up by open orders"). Children use the
+// deterministic `tt-oco-<trade>-<acct>-sl/-tp` client_order_ids (Webull cancels
+// by client_order_id). Records each cancel to the per-account ledger.
+async function cancelOcoChildren(env, user, tradeId, acctId, brokerId) {
+  const adapter = brokerAdapterFor(user);
+  if (typeof adapter.cancelOrder !== "function") return { cancelled: 0, legs: [] };
+  // Active child ids from the ledger (placed, not yet cancelled) + the
+  // deterministic base ids as a fallback for pre-ledger placements.
+  const ids = new Set(await activeOcoChildIds(env, acctId, tradeId));
+  ids.add(`tt-oco-${tradeId}-${acctId}-sl`);
+  ids.add(`tt-oco-${tradeId}-${acctId}-tp`);
+  const legs = [];
+  let cancelled = 0;
+  for (const coid of ids) {
+    let ok = false;
+    try {
+      const r = await adapter.cancelOrder(env, user, coid);
+      ok = !!(r && r.ok !== false);
+    } catch (_) { ok = false; }
+    if (ok) cancelled++;
+    legs.push({ client_order_id: coid, ok });
+    await recordAccountFill(env, {
+      ts: Date.now(),
+      owner_id: user?.owner_email || user?.user_id || null,
+      user_id: user?.user_id || null,
+      broker: brokerId || null,
+      broker_account_id: acctId,
+      model_trade_id: tradeId,
+      client_order_id: coid,
+      event_type: "OCO_CANCEL",
+      status: ok ? "ok" : "error",
+      meta: { reason: "reducer_cancel_before_place" },
+    }).catch(() => {});
+  }
+  return { cancelled, legs };
+}
+
+// Client_order_ids of OCO children placed for a trade that have not since been
+// cancelled — read from the per-account ledger so re-placed (generation-
+// stamped) children are still found and cancelled on the next reducer.
+async function activeOcoChildIds(env, acctId, tradeId) {
+  const active = new Set();
+  const cancelled = new Set();
+  try {
+    const rows = await readAccountLedger(env, { broker_account_id: acctId, limit: 300 });
+    // rows are newest-first; walk oldest-first so cancels applied after places win.
+    for (const r of [...rows].reverse()) {
+      if (String(r.model_trade_id) !== String(tradeId)) continue;
+      const coid = r.client_order_id;
+      if (!coid) continue;
+      if (r.event_type === "OCO_STOP_LOSS" || r.event_type === "OCO_TAKE_PROFIT") {
+        if (r.status === "ok") active.add(coid);
+      } else if (r.event_type === "OCO_CANCEL") {
+        cancelled.add(coid);
+      }
+    }
+  } catch (_) { /* best-effort */ }
+  for (const c of cancelled) active.delete(c);
+  return [...active];
+}
+
+// Recover the SL/TP prices for a trade's OCO children from the per-account
+// ledger so a trim can re-establish protection for the remaining qty.
+async function recoverOcoPrices(env, acctId, tradeId) {
+  const out = { sl: null, tp: null };
+  try {
+    const rows = await readAccountLedger(env, { broker_account_id: acctId, limit: 200 });
+    for (const r of rows) {
+      if (String(r.model_trade_id) !== String(tradeId)) continue;
+      if (out.sl == null && r.event_type === "OCO_STOP_LOSS" && Number(r.price) > 0) out.sl = Number(r.price);
+      if (out.tp == null && r.event_type === "OCO_TAKE_PROFIT" && Number(r.price) > 0) out.tp = Number(r.price);
+      if (out.sl != null && out.tp != null) break;
+    }
+  } catch (_) { /* best-effort */ }
+  return out;
+}
+
+// Confirm an account holds the position before a SELL/EXIT/TRIM. Uses live
+// broker positions (ground truth), so it protects even when the manifest is in
+// shadow mode or drifted. Fails SAFE for a confirmed no-position; on an
+// unavailable positions API it allows through (broker is the final backstop)
+// unless BROKER_REDUCER_REQUIRE_POSITION=true.
+async function verifyReducerHoldsPosition(env, user, sanitized) {
+  const adapter = brokerAdapterFor(user);
+  if (typeof adapter.getEquityPositions !== "function") {
+    return { ok: true, skip: "no_positions_api" };
+  }
+  let res;
+  try {
+    res = await adapter.getEquityPositions(env, user);
+  } catch (e) {
+    res = { ok: false, error: String(e?.message || e).slice(0, 160) };
+  }
+  // Mock mode has no real positions — don't false-reject during testing.
+  if (res?.mock) return { ok: true, skip: "mock_mode" };
+  if (!res || res.ok === false) {
+    const strict = String(env?.BROKER_REDUCER_REQUIRE_POSITION || "false").toLowerCase() === "true";
+    if (strict) return { ok: false, reason: "reducer_position_unverified", heldQty: null };
+    console.warn(`[REDUCER_GUARD] positions unavailable for ${sanitized.user_id}/${sanitized.ticker} — allowing (broker backstop)`);
+    return { ok: true, skip: "positions_unavailable" };
+  }
+  const positions = Array.isArray(res.positions) ? res.positions
+    : (Array.isArray(res.response) ? res.response : []);
+  const ev = evaluateReducerAgainstPositions({
+    ticker: sanitized.ticker,
+    requestedQty: sanitized.qty,
+    positions,
+  });
+  if (ev.action === "reject") return { ok: false, reason: ev.reason, heldQty: ev.heldQty };
+  if (ev.action === "clamp") return { ok: true, clampQty: ev.clampQty, heldQty: ev.heldQty };
+  return { ok: true, heldQty: ev.heldQty };
+}
+
+// Emulated OCO for brokers without native brackets (Webull): after the entry
+// fills, place a stop-loss + take-profit child on the opposite side. Children
+// use `<base>-sl` / `<base>-tp` client_order_ids so fill reconciliation can
+// cancel the sibling when one fills. Records each child to the per-account
+// ledger. Returns [{ role, ok, order_id }].
+async function placeOcoChildren(env, user, sanitized, plan, ctx = {}) {
+  const acctId = ctx.brokerAccountId || resolveBrokerAccountId(user);
+  const qty = Number(ctx.filledQty) > 0 ? Number(ctx.filledQty) : Number(sanitized.qty);
+  const exitSide = String(sanitized.side || "buy").toLowerCase() === "buy" ? "sell" : "buy";
+  // A generation suffix keeps re-placed children (after a trim) from reusing a
+  // cancelled client_order_id, which brokers reject. cancelOcoChildren finds
+  // active children from the ledger, so any suffix is cancellable later.
+  const base = `tt-oco-${sanitized.trade_id || "na"}-${acctId}${ctx.idSuffix ? `-${ctx.idSuffix}` : ""}`;
+  const sl = Number(plan?.protection?.stop_loss);
+  const tp = Number(plan?.protection?.take_profit);
+  const children = [];
+  if (Number.isFinite(sl) && sl > 0) {
+    children.push({ role: "sl", order_type: "stop", stop_price: sl, client_order_id: `${base}-sl` });
+  }
+  if (Number.isFinite(tp) && tp > 0) {
+    children.push({ role: "tp", order_type: "limit", limit_price: tp, client_order_id: `${base}-tp` });
+  }
+
+  const results = [];
+  for (const c of children) {
+    const childOrder = {
+      ticker: sanitized.ticker,
+      side: exitSide,
+      qty,
+      trade_id: sanitized.trade_id,
+      tif: "GTC",
+      order_type: c.order_type,
+      stop_price: c.stop_price,
+      limit_price: c.limit_price,
+      client_order_id: c.client_order_id,
+    };
+    let res;
+    try {
+      res = await placeOrder(env, user, childOrder);
+    } catch (e) {
+      res = { ok: false, error: String(e?.message || e).slice(0, 160) };
+    }
+    const childOrderId = Array.isArray(res?.response)
+      ? (res.response[0]?.order_id || null)
+      : (res?.response?.order_id || res?.response?.id || null);
+    await recordAccountFill(env, {
+      ts: Date.now(),
+      owner_id: user?.owner_email || sanitized.user_id,
+      user_id: user?.user_id || sanitized.user_id,
+      broker: ctx.brokerId || null,
+      broker_account_id: acctId,
+      model_trade_id: sanitized.trade_id,
+      client_order_id: c.client_order_id,
+      broker_order_id: childOrderId,
+      ticker: sanitized.ticker,
+      side: exitSide,
+      event_type: c.role === "sl" ? "OCO_STOP_LOSS" : "OCO_TAKE_PROFIT",
+      order_type: c.order_type,
+      protection_mode: "oco_children",
+      qty,
+      price: c.stop_price || c.limit_price || 0,
+      status: res?.ok ? "ok" : "error",
+      reject_reason: res?.ok ? null : (res?.error || "child_place_failed"),
+    }).catch(() => {});
+    results.push({ role: c.role, ok: !!res?.ok, order_id: childOrderId });
+  }
+  return results;
+}
 import {
   handleOauthStart, handleOauthCallback, handleOauthDisconnect,
 } from "./bridge-auth.js";
@@ -136,7 +333,29 @@ export default {
           webull_personal_configured: webullPersonalConfigured(env),
           webull_connect_configured: webullConnectConfigured(env),
           webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
-          supported_brokers: listBrokers().map((b) => ({ id: b.id, label: b.label, status: b.status })),
+          fanout_enabled: String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true",
+          manifest_enforce: String(env?.BROKER_MANIFEST_ENFORCE || "on").toLowerCase(),
+          oco_enabled: String(env?.BROKER_OCO_ENABLED || "").toLowerCase() === "true",
+          supported_brokers: listBrokers().map((b) => {
+            const a = b.capabilities?.adapter || {};
+            return {
+              id: b.id,
+              label: b.label,
+              status: b.status,
+              // What the adapter can actually SEND today (agnostic layer).
+              sends: {
+                equity_market: !!a.equity?.market,
+                equity_limit: !!a.equity?.limit,
+                equity_stop: !!a.equity?.stop,
+                bracket: !!a.bracket,
+                oco: !!a.oco,
+                options: !!(a.options?.limit || a.options?.market),
+                fractional: !!a.fractional,
+                reads_fills: !!a.read_fills,
+                multi_account: !!b.multiAccount,
+              },
+            };
+          }),
           ts: Date.now(),
         });
       }
@@ -277,6 +496,26 @@ export default {
         const rows = await recentAudit(env, {
           user_id: url.searchParams.get("user_id"),
           limit: Number(url.searchParams.get("limit")) || 50,
+        });
+        return json({ ok: true, count: rows.length, rows });
+      }
+
+      // 2026-07-20 — Per-account ledger (real fills tied to each account).
+      if (method === "GET" && path === "/bridge/account-ledger") {
+        if (operatorFail) return operatorFail;
+        const rows = await readAccountLedger(env, {
+          broker_account_id: url.searchParams.get("broker_account_id"),
+          owner_id: url.searchParams.get("owner_id"),
+          limit: Number(url.searchParams.get("limit")) || 100,
+        });
+        return json({ ok: true, count: rows.length, rows });
+      }
+
+      // 2026-07-20 — Per-account sync snapshots (broker truth vs system).
+      if (method === "GET" && path === "/bridge/account-snapshots") {
+        if (operatorFail) return operatorFail;
+        const rows = await readAccountSnapshots(env, {
+          owner_id: url.searchParams.get("owner_id"),
         });
         return json({ ok: true, count: rows.length, rows });
       }
@@ -899,19 +1138,93 @@ export default {
 //   6. bumpDailyCounter
 //   7. audit: place
 // ───────────────────────────────────────────────────────────────────
+// Dispatcher: fan the model signal out to every enabled account (owner runs
+// 5 Webull + 1 IBKR) when BROKER_FANOUT_ENABLED, else place on the single
+// resolved account (default, unchanged behavior). An explicit broker_account_id
+// always targets one account.
 async function handleOrderWebhook(env, ctx, payload) {
+  const owner = String(payload?.user_id || "").toLowerCase();
+  const fanoutOn = String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true";
+  if (!fanoutOn || payload?.broker_account_id) {
+    return handleSingleAccountOrder(env, ctx, payload);
+  }
+  const accounts = await resolveBridgeAccounts(env, owner, { enabledOnly: true });
+  if (accounts.length <= 1) {
+    return handleSingleAccountOrder(env, ctx, payload);
+  }
+  const results = [];
+  for (const acct of accounts) {
+    const acctId = resolveBrokerAccountId(acct);
+    const perPayload = {
+      ...payload,
+      user_id: acct.user_id,
+      broker_account_id: acctId,
+      // Per-account idempotency: one stable key per (trade, account) so a
+      // repeat fire dedupes per account, not across accounts.
+      client_order_id: payload?.client_order_id ? `${payload.client_order_id}-${acctId}` : null,
+    };
+    let res, body = null;
+    try {
+      res = await handleSingleAccountOrder(env, ctx, perPayload);
+      body = await res.clone().json().catch(() => null);
+    } catch (e) {
+      body = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    }
+    results.push({
+      broker_account_id: acctId,
+      user_id: acct.user_id,
+      broker: resolveBrokerId(acct) || acct.broker || null,
+      http_status: res?.status || 500,
+      result: body,
+    });
+  }
+  return json({ ok: true, fanout: true, accounts: results.length, results }, 200);
+}
+
+async function handleSingleAccountOrder(env, ctx, payload) {
   const t0 = Date.now();
   const sanitized = {
     user_id: String(payload?.user_id || "").toLowerCase(),
     trade_id: payload?.trade_id || null,
+    client_order_id: payload?.client_order_id ? String(payload.client_order_id) : null,
+    // Optional explicit account target. When omitted, resolveBridgeUser picks
+    // the account (single-account brokers or the class-preferred Webull sub).
+    broker_account_id: payload?.broker_account_id ? String(payload.broker_account_id) : null,
     ticker: String(payload?.ticker || "").toUpperCase(),
     side: String(payload?.side || "").toLowerCase(),
     qty: Number(payload?.qty || 0),
     entry: Number(payload?.entry || 0) || null,
     sl: payload?.sl == null ? null : Number(payload.sl),
     tp: payload?.tp == null ? null : Number(payload.tp),
+    order_kind: payload?.order_kind || null,
+    limit_price: payload?.limit_price == null ? null : Number(payload.limit_price),
+    vehicle: payload?.vehicle || null,
     decision_reason: payload?.decision_reason || null,
   };
+
+  // 0. Idempotency — a stable client_order_id is claimed once per 24h.
+  // A repeated fire (retry, or a systematic false-exit firing 3x like
+  // AMZN 2026-07-20) is dropped BEFORE any broker review/place so a single
+  // erroneous decision can never turn into multiple real orders.
+  if (sanitized.client_order_id) {
+    const claim = await claimOrderIdempotency(env, sanitized.client_order_id);
+    if (!claim.fresh) {
+      await writeAudit(env, {
+        ts: Date.now(),
+        user_id: sanitized.user_id,
+        trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker,
+        action: "dedupe_skip",
+        side: sanitized.side,
+        qty: sanitized.qty,
+        status: "rejected",
+        reject_reason: `duplicate_client_order_id:${sanitized.client_order_id}`,
+        request_json: sanitized,
+        latency_ms: Date.now() - t0,
+      });
+      return json({ ok: true, deduped: true, client_order_id: sanitized.client_order_id }, 200);
+    }
+  }
 
   // 1. Preflight
   const pf = await preflightOrder(env, sanitized);
@@ -950,6 +1263,37 @@ async function handleOrderWebhook(env, ctx, payload) {
 
   const user = pf.user;
   const estValue = pf.estimated_value;
+
+  // ── Broker-agnostic order plan ──
+  // Translate the model intent into a concrete plan for THIS broker,
+  // respecting its market/limit/OCO/bracket support. Records how protection
+  // is carried (native bracket vs OCO children vs engine-managed) so it is
+  // never a silent gap. Placement still uses the adapter primary; the plan
+  // documents intent + downgrades and drives per-account ledger metadata.
+  const brokerId = resolveBrokerId(user) || user?.broker || null;
+  const brokerAccountId = resolveBrokerAccountId(user);
+  const orderIntent = normalizeOrderIntent(sanitized);
+  const ocoEnabled = String(env?.BROKER_OCO_ENABLED || "false").toLowerCase() === "true";
+  const orderPlan = planBrokerOrder(brokerId, orderIntent, { ocoEnabled });
+  // Apply the capability-respecting plan back onto the order the adapter sends
+  // (e.g. a limit downgraded to market, or the executable tif).
+  if (orderPlan.ok && orderPlan.primary) {
+    sanitized.order_type = orderPlan.primary.order_type;
+    sanitized.limit_price = orderPlan.primary.limit_price;
+    sanitized.tif = orderPlan.primary.tif;
+  }
+  await writeAudit(env, {
+    ts: Date.now(),
+    user_id: sanitized.user_id,
+    trade_id: sanitized.trade_id,
+    ticker: sanitized.ticker,
+    action: "order_plan",
+    side: sanitized.side,
+    qty: sanitized.qty,
+    status: orderPlan.ok ? "ok" : "rejected",
+    reject_reason: orderPlan.ok ? null : orderPlan.reject_reason,
+    request_json: { broker: brokerId, broker_account_id: brokerAccountId, plan: orderPlan, summary: summarizeOrderPlan(orderPlan) },
+  });
 
   // 2026-06-01 — Account-fit scaling: preflightOrder may have rounded
   // sanitized.qty down to fit caps + cash + concentration. Pick up the
@@ -1026,9 +1370,114 @@ async function handleOrderWebhook(env, ctx, payload) {
     return json({ ok: false, rejected: true, reject_reason: "review_failed", review_response: review.response || review }, 200);
   }
 
-  // 4. Place
-  const place = await placeOrder(env, user, sanitized);
-  const rhOrderId = place?.response?.order_id || place?.response?.id || null;
+  // 3.5 — Ground-truth reducer guard. Before selling, confirm the account
+  // actually holds the position (live broker positions, not the manifest).
+  // A SELL/EXIT/TRIM with no position would be a naked/short order — forbidden
+  // on a cash/IRA account. Reject if flat/missing; clamp if the model asks to
+  // sell more than is held. Skips mock mode (no real positions to check).
+  const reducerLifecycle = classifyOrderLifecycle(sanitized.side);
+  if (reducerLifecycle === "reduce" || reducerLifecycle === "close") {
+    // (a) Live position — ground truth; reject if the account holds nothing.
+    const posGuard = await verifyReducerHoldsPosition(env, user, sanitized);
+    if (!posGuard.ok) {
+      await writeAudit(env, {
+        ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker, action: "reducer_rejected", side: sanitized.side,
+        qty: sanitized.qty, status: "rejected", reject_reason: posGuard.reason,
+        request_json: { held_qty: posGuard.heldQty ?? null, broker_account_id: brokerAccountId },
+      });
+      return json({
+        ok: false, rejected: true, reject_reason: posGuard.reason,
+        held_qty: posGuard.heldQty ?? null, requested_qty: sanitized.qty,
+      }, 200);
+    }
+    const heldQty = Number(posGuard.heldQty) || 0;
+
+    // (b) Model's tracked portion on THIS account (link via trade_id +
+    // account). We only ever reduce the model's shares, never the user's.
+    let modelRow = null;
+    let modelRemaining = null;
+    try {
+      if (sanitized.trade_id && posGuard.skip !== "mock_mode") {
+        modelRow = await readManifestRow(env, sanitized.user_id, sanitized.trade_id, brokerAccountId);
+        if (modelRow) {
+          const rem = Number(modelRow.broker_remaining_qty);
+          const filled = Number(modelRow.broker_filled_qty);
+          modelRemaining = rem > 0 ? rem : (filled > 0 ? filled : null);
+        }
+      }
+    } catch (_) { /* manifest read best-effort */ }
+
+    // (c) Reconcile: percentage of the model portion, capped to model shares,
+    // clamped to live holding. Never oversell, never touch user shares.
+    const recon = reconcileReducerQty({
+      side: sanitized.side,
+      requestedQty: sanitized.qty,
+      reducePct: sanitized.reduce_pct ?? sanitized.trim_pct ?? null,
+      modelRemainingQty: modelRemaining,
+      heldQty,
+    });
+
+    // (d) Always log the reconcile; log + notify on a discrepancy.
+    await writeAudit(env, {
+      ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+      ticker: sanitized.ticker, action: "reducer_reconcile", side: sanitized.side,
+      qty: recon.qty, status: recon.discrepancy ? "warn" : "ok",
+      request_json: {
+        requested_qty: sanitized.qty, resolved_qty: recon.qty,
+        model_remaining: modelRemaining, held_qty: heldQty,
+        reasons: recon.reasons, broker_account_id: brokerAccountId,
+      },
+    });
+    if (recon.discrepancy) {
+      console.warn(`[REDUCER_DISCREPANCY] ${sanitized.user_id}/${sanitized.ticker} trade=${sanitized.trade_id}: ${JSON.stringify(recon.discrepancy)}`);
+      await writeAudit(env, {
+        ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker, action: "reducer_discrepancy", side: sanitized.side,
+        qty: recon.qty, status: "warn",
+        reject_reason: recon.discrepancy.map((d) => d.kind).join(","),
+        request_json: { discrepancy: recon.discrepancy, model_remaining: modelRemaining, held_qty: heldQty },
+      });
+      if (modelRow) {
+        try {
+          await emitDriftNotification(env, {
+            ...modelRow, sync_state: "reconcile_error",
+            sync_note: `reducer discrepancy: ${recon.discrepancy.map((d) => d.note || d.kind).join("; ")}`,
+          }, "warn");
+        } catch (_) { /* notify best-effort */ }
+      }
+    }
+
+    if (!(recon.qty > 0)) {
+      return json({
+        ok: false, rejected: true, reject_reason: "nothing_to_reduce",
+        held_qty: heldQty, model_remaining: modelRemaining, requested_qty: sanitized.qty,
+      }, 200);
+    }
+    sanitized.qty = recon.qty;
+    sanitized._reducer = { isFull: recon.isFull, heldQty, modelRemaining };
+
+    // (e) Cancel pending OCO children — they reserve the shares, so a trim /
+    // flatten would otherwise be rejected by the broker ("qty locked up").
+    if (ocoEnabled && sanitized.trade_id) {
+      const cancelRes = await cancelOcoChildren(env, user, sanitized.trade_id, brokerAccountId, brokerId);
+      if (cancelRes.cancelled > 0) {
+        await writeAudit(env, {
+          ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+          ticker: sanitized.ticker, action: "oco_cancel_for_reducer", side: sanitized.side,
+          status: "ok", request_json: { cancelled: cancelRes.cancelled, legs: cancelRes.legs },
+        });
+      }
+    }
+  }
+
+  // 4. Place (native bracket when planned + supported, else market/limit)
+  const place = await placePlannedOrder(env, user, sanitized, orderPlan);
+  // IBKR returns an array (parent + bracket legs); others a single object.
+  const _placeResp = place?.response;
+  const rhOrderId = Array.isArray(_placeResp)
+    ? (_placeResp[0]?.order_id || _placeResp[0]?.id || null)
+    : (_placeResp?.order_id || _placeResp?.id || null);
   await writeAudit(env, {
     ts: Date.now(),
     user_id: sanitized.user_id,
@@ -1047,6 +1496,29 @@ async function handleOrderWebhook(env, ctx, payload) {
     response_json: place.response || place,
     latency_ms: place.latency_ms,
   });
+  // ── Per-account ledger: record every real fill/reject against the
+  // specific broker account (owner runs 5 Webull + 1 IBKR). ──
+  await recordAccountFill(env, {
+    ts: Date.now(),
+    owner_id: user?.owner_email || sanitized.user_id,
+    user_id: user?.user_id || sanitized.user_id,
+    broker: brokerId,
+    broker_account_id: brokerAccountId,
+    model_trade_id: sanitized.trade_id,
+    client_order_id: sanitized.client_order_id,
+    broker_order_id: rhOrderId,
+    ticker: sanitized.ticker,
+    side: sanitized.side,
+    event_type: classifyOrderLifecycle(sanitized.side) === "close" ? "EXIT" : "ENTRY",
+    order_type: orderPlan?.primary?.order_type || null,
+    protection_mode: orderPlan?.protection?.mode || null,
+    qty: Number(place?.response?.filled_qty ?? place?.response?.cumulative_quantity ?? sanitized.qty) || 0,
+    price: Number(place?.response?.avg_price ?? place?.response?.price ?? sanitized.entry) || 0,
+    status: place.ok ? "ok" : "error",
+    reject_reason: place.ok ? null : (place.error || "place_failed"),
+    meta: { scaling: pf.scaling || null, plan_downgrades: orderPlan?.downgrades || [] },
+  }).catch(() => {});
+
   if (place.ok) {
     await bumpDailyCounter(env, sanitized.user_id);
     const lifecycle = classifyOrderLifecycle(sanitized.side);
@@ -1064,6 +1536,26 @@ async function handleOrderWebhook(env, ctx, payload) {
       if (!mfRes?.ok && mfRes?.reason && env?.MANIFEST_DEBUG_LOG === "true") {
         console.warn(`[MANIFEST] entry write skipped for ${sanitized.user_id}/${sanitized.trade_id}: ${mfRes.reason}`);
       }
+
+      // OCO protection: place SL + TP children after a filled entry when the
+      // plan asked for oco_children (broker has no native bracket). Sibling is
+      // cancelled by fill reconciliation when one child fills. Gated by
+      // BROKER_OCO_ENABLED (checked via the plan mode, set with ocoEnabled).
+      if (orderPlan?.protection?.mode === "oco_children") {
+        try {
+          const oco = await placeOcoChildren(env, user, sanitized, orderPlan, {
+            brokerId, brokerAccountId, filledQty,
+          });
+          await writeAudit(env, {
+            ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+            ticker: sanitized.ticker, action: "oco_children",
+            status: oco.some((c) => c.ok) ? "ok" : "error",
+            request_json: { children: oco },
+          });
+        } catch (e) {
+          console.warn(`[OCO] child placement failed for ${sanitized.trade_id}:`, String(e?.message || e).slice(0, 160));
+        }
+      }
     }
     // 2026-06-01 — Phase B: on a successful EXIT, flip the manifest
     // row's model_status to 'CLOSED' so the reconciler (Phase C) knows
@@ -1072,14 +1564,45 @@ async function handleOrderWebhook(env, ctx, payload) {
     // top-level model_status — they just update the broker_*_order_ids
     // arrays (Phase C does that).
     if (lifecycle === "close" && sanitized.trade_id) {
-      const accountId = String(
-        user?.rh_account_number ?? user?.account_id
-        ?? user?.ibkr_account_id ?? user?.broker_account_id ?? "default"
-      );
+      const accountId = brokerAccountId;
       const exitReason = sanitized?.decision_reason || sanitized?.exit_reason || "exit";
       markManifestModelClosed(env, sanitized.user_id, sanitized.trade_id, accountId, {
         exitReason, exitTs: Date.now(),
       }).catch(e => console.warn("[MANIFEST] markClosed failed:", String(e?.message || e).slice(0, 160)));
+    }
+
+    // On a partial TRIM, re-establish OCO protection for the REMAINING qty
+    // (we cancelled the old children before placing the trim). Full closes
+    // don't re-place (position flat). SL/TP recovered from the ledger, or
+    // taken from the payload if the model sent them.
+    if (lifecycle === "reduce" && sanitized.trade_id && ocoEnabled) {
+      try {
+        const soldQty = Number(place?.response?.filled_qty ?? place?.response?.cumulative_quantity ?? sanitized.qty) || 0;
+        const heldBefore = Number(sanitized?._reducer?.heldQty) || 0;
+        const remaining = Math.max(0, heldBefore - soldQty);
+        if (remaining > 0) {
+          const recovered = await recoverOcoPrices(env, brokerAccountId, sanitized.trade_id);
+          const sl = Number(sanitized.sl) > 0 ? Number(sanitized.sl) : recovered.sl;
+          const tp = Number(sanitized.tp) > 0 ? Number(sanitized.tp) : recovered.tp;
+          if ((Number(sl) > 0) || (Number(tp) > 0)) {
+            const rplan = { protection: { mode: "oco_children", stop_loss: sl || null, take_profit: tp || null } };
+            const oco = await placeOcoChildren(env, user, sanitized, rplan, {
+              brokerId, brokerAccountId, filledQty: remaining,
+              idSuffix: `r${Date.now().toString(36)}`,
+            });
+            await writeAudit(env, {
+              ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+              ticker: sanitized.ticker, action: "oco_replace_after_trim",
+              status: oco.some((c) => c.ok) ? "ok" : "error",
+              request_json: { remaining_qty: remaining, sl, tp, children: oco },
+            });
+          } else {
+            console.warn(`[OCO] trim on ${sanitized.ticker}/${sanitized.trade_id}: no SL/TP to re-establish for remaining ${remaining} — protection not re-placed`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[OCO] re-place after trim failed for ${sanitized.trade_id}:`, String(e?.message || e).slice(0, 160));
+      }
     }
   }
 

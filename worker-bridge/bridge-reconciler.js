@@ -41,6 +41,9 @@
 
 import { ensureMirrorManifestSchema } from "./bridge-manifest.js";
 import { emitDriftNotification } from "./bridge-notifications.js";
+import { snapshotAccount } from "./bridge-account-ledger.js";
+import { resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
+import { reconcileAccountFills } from "./bridge-fills.js";
 
 const TOLERANCE = {
   trader_equity: 0.01,
@@ -817,6 +820,48 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       stats.rows_in_sync++;
     }
     stats.by_state[classification.sync_state] = (stats.by_state[classification.sync_state] || 0) + 1;
+  }
+
+  // ── Per-account sync snapshot ──
+  // Persist broker truth (positions + drift) for THIS account so the system
+  // and broker stay reconciled per real account, not just per manifest row.
+  if (!opts.dryRun) {
+    try {
+      const equityPositions = (equityRes?.positions || equityRes?.results || []).map((p) => ({
+        ticker: String(p.symbol || p.ticker || "").toUpperCase(),
+        qty: Number(p.qty ?? p.position ?? p.quantity) || 0,
+        avg_cost: Number(p.avg_cost ?? p.avgCost ?? p.avg_price) || null,
+        market_value: Number(p.market_value ?? p.marketValue) || null,
+        unrealized_pnl: Number(p.unrealized_pnl ?? p.unrealizedPnl) || null,
+      })).filter((p) => p.ticker);
+      await snapshotAccount(env, {
+        broker_account_id: resolveBrokerAccountId(user),
+        owner_id: user?.owner_email || userId,
+        user_id: userId,
+        broker: resolveBrokerId(user) || user?.broker || null,
+        account_label: user?.webull_account_label || user?.account_label || null,
+        cash_usd: user?.cash_usd ?? null,
+        equity_usd: user?.equity_usd ?? null,
+        buying_power_usd: user?.buying_power_usd ?? null,
+        positions: equityPositions,
+        in_sync: stats.rows_drifting === 0,
+        drift: [], // per-row drift already persisted on the manifest
+        synced_at: Date.now(),
+      });
+      stats.account_snapshot = "written";
+    } catch (e) {
+      console.warn("[RECONCILER] account snapshot failed:", String(e?.message || e).slice(0, 160));
+    }
+
+    // ── Fill reconciliation ──
+    // Poll the broker's recent orders and record real fills to the per-account
+    // ledger (submitted → filled qty/price); cancel OCO siblings on fill.
+    try {
+      const fillStats = await reconcileAccountFills(env, user, brokerAdapter, { limit: 50 });
+      stats.fills = fillStats;
+    } catch (e) {
+      console.warn("[RECONCILER] fill reconcile failed:", String(e?.message || e).slice(0, 160));
+    }
   }
 
   return stats;

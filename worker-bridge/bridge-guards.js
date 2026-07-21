@@ -7,6 +7,8 @@
 
 import { getKillSwitch, readUser, writeUser, resolveBridgeUser } from "./bridge-storage.js";
 import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
+import { brokerCapabilities, resolveBrokerId } from "./bridge-brokers.js";
+import { computeRelationalQty } from "./bridge-sizing.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
 // env var. The previous behavior accepted `REJECT_SHORT_SIDES=false`
@@ -176,13 +178,10 @@ export async function manifestAwareReducerCheck(env, payload, user) {
   }
 
   const userId = String(payload?.user_id || user?.user_id || "").toLowerCase();
-  const brokerAccountId = String(
-    user?.rh_account_number
-      ?? user?.account_id
-      ?? user?.ibkr_account_id
-      ?? user?.broker_account_id
-      ?? "default"
-  );
+  // Use the agnostic account id (incl. webull_account_id) so the reducer
+  // lookup matches how writeEntryManifest keyed the row. The old chain
+  // dropped Webull to "default" → every Webull reducer missed its manifest.
+  const brokerAccountId = String(payload?.broker_account_id || resolveBrokerAccountId(user));
 
   let row = null;
   try {
@@ -292,6 +291,119 @@ export async function manifestAwareReducerCheck(env, payload, user) {
   return { ok: true, lifecycle };
 }
 
+/**
+ * 2026-07-21 — Ground-truth reducer guard. A SELL/EXIT/TRIM must never exceed
+ * (or exist without) the account's actual long position — critical for a cash
+ * / IRA account that can't short. Independent of the manifest (which can drift
+ * or be in shadow mode): decide purely from live broker positions.
+ *
+ * @returns {{action:'proceed'|'reject'|'clamp', reason?, heldQty, clampQty?}}
+ */
+export function evaluateReducerAgainstPositions({ ticker, requestedQty, positions } = {}) {
+  const sym = String(ticker || "").toUpperCase();
+  const req = Number(requestedQty) || 0;
+  const list = Array.isArray(positions) ? positions : [];
+  let held = 0;
+  let found = false;
+  for (const p of list) {
+    const psym = String(p?.symbol ?? p?.ticker ?? "").toUpperCase();
+    if (!psym || psym !== sym) continue;
+    found = true;
+    held += Number(p?.qty ?? p?.position ?? p?.quantity ?? 0) || 0;
+  }
+  // No long position (flat, missing, or short) → never send a sell.
+  if (!(held > 0)) {
+    return { action: "reject", reason: found ? "position_flat" : "no_broker_position", heldQty: held };
+  }
+  // Requesting more than held → clamp so we never oversell into a short.
+  if (req > 0 && req > held + 1e-9) {
+    return { action: "clamp", heldQty: held, clampQty: held };
+  }
+  return { action: "proceed", heldQty: held };
+}
+
+/**
+ * 2026-07-21 — Reconcile a reducer's qty against the MODEL's tracked portion
+ * and the account's LIVE holding, so we (a) only ever reduce what the model
+ * opened on this account (never the user's own shares), (b) never sell more
+ * than is held, and (c) surface any discrepancy for log/notify.
+ *
+ * We trim in percentages: a `reducePct` applies to the model's tracked portion
+ * (or the held qty if the model portion is unknown). A full exit flattens the
+ * model portion. Everything is clamped to the live held qty.
+ *
+ * @returns {{qty, isFull, adjusted, discrepancy:Array|null, reasons:Array,
+ *            modelRemainingQty, heldQty}}
+ */
+export function reconcileReducerQty({
+  side,
+  requestedQty,
+  reducePct = null,
+  modelRemainingQty = null,
+  heldQty,
+  tolerance = 1e-6,
+} = {}) {
+  const lc = String(side || "").toLowerCase();
+  const isFull = lc === "exit" || lc === "close" || lc === "sell";
+  const held = Number(heldQty) || 0;
+  const model = modelRemainingQty == null ? null : Number(modelRemainingQty);
+  const reqQty = Number(requestedQty) || 0;
+  const reasons = [];
+  const discrepancy = [];
+
+  const pctRaw = reducePct == null ? null : Number(reducePct);
+  const pct = pctRaw != null && Number.isFinite(pctRaw) && pctRaw > 0
+    ? (pctRaw > 1 ? pctRaw / 100 : pctRaw)
+    : null;
+
+  let intended;
+  if (pct != null) {
+    const basis = model != null && model > 0 ? model : held;
+    intended = basis * pct;
+    reasons.push(`pct_${(pct * 100).toFixed(1)}_of_${model != null ? "model" : "held"}`);
+  } else if (isFull) {
+    intended = model != null && model > 0 ? model : held;
+    reasons.push(model != null ? "full_model_portion" : "full_held");
+  } else {
+    intended = reqQty;
+    reasons.push("explicit_qty");
+  }
+
+  // Never reduce more than the model's tracked portion (protect user shares).
+  if (model != null && intended > model + tolerance) {
+    intended = model;
+    reasons.push("capped_to_model_portion");
+  }
+
+  // Discrepancy detection vs live holding.
+  if (model != null) {
+    if (held + tolerance < model) {
+      discrepancy.push({ kind: "held_lt_model", held, model, note: "account holds less than model tracked (user may have trimmed/sold)" });
+    } else if (held > model + tolerance) {
+      discrepancy.push({ kind: "held_gt_model", held, model, note: "account holds more than model tracked (user may have added); reducing only the model portion" });
+    }
+  }
+
+  // Never sell more than is actually held (no naked/short).
+  let qty = intended;
+  if (qty > held + tolerance) {
+    discrepancy.push({ kind: "clamped_to_held", requested: intended, held });
+    qty = held;
+    reasons.push("clamped_to_held");
+  }
+  qty = Math.max(0, qty);
+
+  return {
+    qty,
+    isFull,
+    adjusted: Math.abs(qty - reqQty) > tolerance,
+    discrepancy: discrepancy.length ? discrepancy : null,
+    reasons,
+    modelRemainingQty: model,
+    heldQty: held,
+  };
+}
+
 // Pure validator. Does not mutate KV.
 export function validateOrderShape(payload, env) {
   if (!payload || typeof payload !== "object") {
@@ -371,43 +483,69 @@ export async function preflightOrder(env, payload) {
   const vehicleCheck = validateVehiclePrefs(payload, user);
   if (!vehicleCheck.ok) return vehicleCheck;
 
-  // 2026-06-01 — Account-size scaling for INVESTOR mode.
-  // The model sizes positions against $INVESTOR_CAPITAL ($100k notional
-  // in worker/index.js auto-rebalance). Real users have whatever the
-  // broker reports. Scale qty by user_equity / model_capital BEFORE the
-  // per-order / cash / concentration caps below (those then act as a
-  // safety floor — if even the scaled qty exceeds a cap, scale-to-fit
-  // rounds it down further).
+  // 2026-07-21 — Relational position sizing (BOTH modes).
+  // The model sizes against its $100k book; a real account (e.g. a Webull
+  // Roth IRA ~$16.5k) must deploy the SAME fraction of capital, not the raw
+  // model share count. Scale qty by the account/book ratio (or the model's
+  // own "% of account" when supplied) BEFORE the per-order / cash /
+  // concentration caps below (those remain a safety ceiling). Keeps
+  // fractional shares when the broker supports them (Webull); else whole.
   //
-  // Trader mode is NOT mode-scaled here: the model sizes Trader trades
-  // per-trade against a configured risk budget (varies by setup), so
-  // the absolute share count is already an honest single-trade size.
-  // Trader still goes through the per-order / cash / concentration
-  // caps below, which together act as the account-fit guardrails.
-  if (String(payload?.mode || "").toLowerCase() === "investor") {
-    const modelCapital = Number(payload?.model_capital_usd) || 100000;
-    const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd);
-    if (Number.isFinite(liveEquity) && liveEquity > 0 && modelCapital > 0 && liveEquity < modelCapital) {
-      const ratio = liveEquity / modelCapital;
-      const modelQty = Number(payload?.qty) || 0;
-      // Fractional shares are common on Robinhood + IBKR Fractional, so
-      // we preserve up to 4dp. Round-half-down to avoid over-allocation.
-      const scaledQty = Math.max(0, Math.floor(modelQty * ratio * 10000) / 10000);
-      if (scaledQty > 0 && scaledQty < modelQty) {
-        console.log(`[BRIDGE_SCALE] ${userId}/${payload.ticker} investor: equity-scaled qty ${modelQty}→${scaledQty} (ratio=${ratio.toFixed(3)} = $${liveEquity.toFixed(0)} / $${modelCapital.toFixed(0)})`);
-        payload.qty = scaledQty;
-      } else if (scaledQty === 0) {
-        // User equity is so small that 1 share of the model's allocation
-        // works out to literally zero. Reject with a clear message rather
-        // than silently no-op'ing.
+  // Applies to ENTRIES / ADDS only — reducers (trim/exit) close what's
+  // actually held, so they must not be re-scaled here.
+  const relationalOn = String(env?.BROKER_RELATIONAL_SIZING || "true").toLowerCase() !== "false";
+  const sizingLifecycle = classifyOrderLifecycle(payload?.side);
+  if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
+    const modelBook = Number(payload?.model_capital_usd)
+      || Number(env?.MODEL_BOOK_BASE_USD)
+      || 100000;
+    const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd || user?.buying_power_usd || user?.cash_usd);
+    const entryPx = Number(payload?.entry || payload?.price_target || 0);
+    const brokerId = resolveBrokerId(user) || user?.broker || null;
+    const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
+    const fractionalOn = fractionalCap
+      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false";
+
+    // Fail-safe: never mirror an entry to an account whose size we don't know
+    // — that would risk over-allocating a small account (the exact hazard for
+    // a Roth IRA). Require a portfolio sync (GET /bridge/portfolio populates
+    // equity_usd) first. Disable via BROKER_RELATIONAL_SIZING=false.
+    if (!(Number.isFinite(liveEquity) && liveEquity > 0)) {
+      return {
+        ok: false,
+        reject_reason: "account_equity_unknown_sync_required",
+        hint: "relational sizing needs account equity — call GET /bridge/portfolio to populate equity_usd, or set BROKER_RELATIONAL_SIZING=false",
+      };
+    }
+    if (liveEquity > 0 && liveEquity < modelBook) {
+      const sized = computeRelationalQty({
+        modelQty: Number(payload?.qty) || 0,
+        entryPrice: entryPx,
+        accountEquity: liveEquity,
+        modelBookUsd: modelBook,
+        modelAccountPct: payload?.model_account_pct ?? null,
+        fractional: fractionalOn,
+        minNotionalUsd: Number(env?.BROKER_FRACTIONAL_MIN_USD) || 1,
+      });
+      if (sized.ok && sized.qty < (Number(payload?.qty) || 0)) {
+        console.log(`[BRIDGE_SCALE] ${userId}/${payload.ticker} ${payload?.mode || "trader"}: relational qty ${payload.qty}→${sized.qty} (ratio=${sized.ratio.toFixed(3)} = $${liveEquity.toFixed(0)}/$${modelBook.toFixed(0)}, fractional=${sized.fractional_used})`);
+        payload.qty = sized.qty;
+        payload._sizing = {
+          model_qty: sized.model_qty, scaled_qty: sized.qty, ratio: sized.ratio,
+          account_equity_usd: liveEquity, model_book_usd: modelBook,
+          fractional_used: sized.fractional_used, basis: payload?.model_account_pct != null ? "model_account_pct" : "equity_ratio",
+        };
+      } else if (!sized.ok && (sized.reason === "account_too_small_for_one_share" || sized.reason === "below_min_notional")) {
         return {
           ok: false,
-          reject_reason: `account_too_small_for_investor_mirror_${liveEquity.toFixed(0)}_lt_${(modelCapital / Math.max(1, modelQty)).toFixed(0)}`,
+          reject_reason: `account_too_small_to_mirror_${liveEquity.toFixed(0)}_${sized.reason}`,
           equity_usd: liveEquity,
-          model_capital_usd: modelCapital,
-          model_qty: modelQty,
+          model_book_usd: modelBook,
+          model_qty: Number(payload?.qty) || 0,
+          entry: entryPx,
         };
       }
+      // sized.fallback (missing price/equity) → leave payload.qty, caps below apply.
     }
   }
 

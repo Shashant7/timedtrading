@@ -14,6 +14,8 @@ import {
   shouldRefreshQuoteForTradeMgmt,
   priceDivergencePct,
   evaluateSlCloseFreshQuote,
+  evaluateClosePriceSanity,
+  closePriceNeedsFreshConfirm,
 } from "./sl-hard-exit.js";
 
 describe("resolveAuthoritativeEntryPrice", () => {
@@ -73,6 +75,37 @@ describe("collectStopCheckPriceCandidates", () => {
       { avg_entry_price: 80.34 },
     );
     expect(cands).toEqual([81.40]);
+  });
+
+  it("does not treat historical MAE as a live stop-check mark (AMZN false SL)", () => {
+    const cands = collectStopCheckPriceCandidates(
+      { price: 251.73 },
+      251.73,
+      {
+        direction: "LONG",
+        entryPrice: 251.71,
+        pnlPct: 0.01,
+        max_adverse_excursion: -6.2334,
+        maxAdverseExcursion: -6.2334,
+      },
+      { max_adverse_excursion: -6.2334 },
+    );
+    expect(Math.min(...cands)).toBeGreaterThan(250);
+    expect(cands.some((p) => p < 240)).toBe(false);
+  });
+
+  it("drops stale closed-trade pnlPct that disagrees with the live mark", () => {
+    const cands = collectStopCheckPriceCandidates(
+      { price: 251.96, _live_price: 251.96 },
+      251.96,
+      {
+        direction: "LONG",
+        entryPrice: 251.71,
+        pnlPct: -6.2334,
+      },
+    );
+    expect(Math.min(...cands)).toBeGreaterThan(250);
+    expect(cands.some((p) => p < 240)).toBe(false);
   });
 });
 
@@ -235,6 +268,92 @@ describe("applySlHardExitSafetyNet", () => {
     });
     expect(r.slHardClose).toBe(true);
     expect(r.slCheckPrice).toBeCloseTo(194.27, 2);
+  });
+
+  it("does not hard-close on poisoned MAE while live mark is above SL", () => {
+    const r = applySlHardExitSafetyNet({
+      openTrade: {
+        direction: "LONG",
+        status: "OPEN",
+        sl: 243.36,
+        entryPrice: 251.71,
+        pnlPct: 0.01,
+        max_adverse_excursion: -6.2334,
+      },
+      openPositionContext: { sl: 243.36, max_adverse_excursion: -6.2334 },
+      direction: "LONG",
+      pxNow: 251.73,
+      exitReasonRaw: "KANBAN_EXIT",
+      fuseExitFired: false,
+      tickerData: { price: 251.73, _live_price: 251.73 },
+      marketOpen: true,
+    });
+    expect(r.slHardClose).toBe(false);
+    expect(r.slBreached).toBe(false);
+  });
+
+  it("defers RTH hard-close when ghost check is past SL but feed is not", () => {
+    const r = applySlHardExitSafetyNet({
+      openTrade: {
+        direction: "LONG",
+        status: "OPEN",
+        sl: 243.36,
+        entryPrice: 251.71,
+        pnlPct: -6.2334,
+      },
+      openPositionContext: { sl: 243.36 },
+      direction: "LONG",
+      pxNow: 236.02,
+      exitReasonRaw: "sl_breached",
+      fuseExitFired: false,
+      tickerData: {
+        // Ghost headline only — authoritative feed still above the stop.
+        price: 236.02,
+        __feed_sl_hard_close: { feed_px: 251.96, sl: 243.36 },
+      },
+      marketOpen: true,
+    });
+    expect(r.slHardClose).toBe(false);
+    expect(r.tickerData.__sl_spike_deferred?.reason).toBe("check_past_sl_feed_not");
+  });
+});
+
+describe("evaluateClosePriceSanity", () => {
+  it("allows a close corroborated by the live feed", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 251.9, feedPx: 252.0 });
+    expect(r.action).toBe("allow");
+    expect(r.reason).toBe("feed_corroborates");
+  });
+
+  it("DEFERS the AMZN ghost close ($236 vs live $252) with no fresh quote", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 236.02, feedPx: 251.96 });
+    expect(r.action).toBe("defer");
+    expect(r.reason).toBe("divergent_close_no_fresh");
+  });
+
+  it("DEFERS the ghost close when a fresh quote confirms the feed, not the close", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 236.02, feedPx: 251.96, freshPx: 251.8 });
+    expect(r.action).toBe("defer");
+    expect(r.reason).toBe("close_price_uncorroborated");
+  });
+
+  it("ALLOWS a genuine fast move when a fresh quote corroborates the close", () => {
+    // Feed lagged at 252, but a real -6% move happened and the fresh quote confirms it.
+    const r = evaluateClosePriceSanity({ closePrice: 236.5, feedPx: 251.96, freshPx: 236.6 });
+    expect(r.action).toBe("allow");
+    expect(r.reason).toBe("fresh_corroborates_close");
+  });
+
+  it("allows when there is no feed anchor (cannot judge — must not block)", () => {
+    const r = evaluateClosePriceSanity({ closePrice: 236.02, feedPx: 0 });
+    expect(r.action).toBe("allow");
+    expect(r.reason).toBe("no_feed_anchor");
+  });
+
+  it("closePriceNeedsFreshConfirm true only when divergence exceeds tolerance", () => {
+    expect(closePriceNeedsFreshConfirm(236.02, 251.96)).toBe(true);
+    expect(closePriceNeedsFreshConfirm(251.5, 251.96)).toBe(false);
+    expect(closePriceNeedsFreshConfirm(236.02, 0)).toBe(false);
   });
 });
 

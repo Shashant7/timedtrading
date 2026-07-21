@@ -110,42 +110,76 @@ export function collectStopCheckPriceCandidates(
   openPositionContext = null,
   options = {},
 ) {
-  const cands = [];
-  pushCandidate(cands, pxNow);
+  const quoteCands = [];
+  pushCandidate(quoteCands, pxNow);
   if (tickerData && typeof tickerData === "object") {
-    pushCandidate(cands, tickerData.price);
-    pushCandidate(cands, tickerData._live_price);
-    pushCandidate(cands, tickerData.close);
-    pushCandidate(cands, tickerData._ah_price);
-    pushCandidate(cands, tickerData.ahp);
-    pushCandidate(cands, tickerData.extended_price);
-    pushCandidate(cands, tickerData.ah_price);
+    pushCandidate(quoteCands, tickerData.price);
+    pushCandidate(quoteCands, tickerData._live_price);
+    pushCandidate(quoteCands, tickerData.close);
+    pushCandidate(quoteCands, tickerData._ah_price);
+    pushCandidate(quoteCands, tickerData.ahp);
+    pushCandidate(quoteCands, tickerData.extended_price);
+    pushCandidate(quoteCands, tickerData.ah_price);
   }
+
+  // Spike-filter raw quotes against feed/live anchors only (not the spike
+  // itself). PnL-implied marks (NVDA-class lag) are gated separately below.
+  const liveAnchors = [
+    tickerData?.__feed_sl_hard_close?.feed_px,
+    tickerData?._live_price,
+  ];
+  if (!liveAnchors.some((n) => Number(n) > 0)) liveAnchors.push(pxNow);
+  const cands = filterSpikeStopCandidates(quoteCands, liveAnchors);
 
   const includePnlImplied = options.includePnlImplied !== false;
   const entryPx = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
   const dir = String(openTrade?.direction ?? openPositionContext?.direction ?? tickerData?.direction ?? "LONG").toUpperCase();
 
   if (includePnlImplied && !(entryPriceSourcesDiverge(openTrade, openPositionContext))) {
+    // Current / doctrine PnL only — never historical MAE.
+    // AMZN 2026-07-20: a poisoned max_adverse_excursion (−6.23%) was treated as a
+    // live mark → implied $236 while 5m bars stayed ~$251.7 → false sl_breached.
     const pnlSources = [
       openTrade?.pnlPct,
       openTrade?.pnl_pct,
       tickerData?.__exit_meta?.pnl_pct,
       tickerData?.__exit_doctrine?.pnl,
-      openPositionContext?.maxAdverseExcursion,
-      openPositionContext?.max_adverse_excursion,
-      openTrade?.maxAdverseExcursion,
-      openTrade?.max_adverse_excursion,
     ];
+    const liveAnchor = Number(
+      tickerData?.__feed_sl_hard_close?.feed_px
+      ?? tickerData?._live_price
+      ?? pxNow
+      ?? tickerData?.price,
+    );
     for (const raw of pnlSources) {
       const pnl = Number(raw);
       if (!Number.isFinite(entryPx) || entryPx <= 0 || !Number.isFinite(pnl)) continue;
+      // Stale closed-trade pnlPct (−6.23%) must not invent a ghost mark while
+      // the live print is still near entry / not confirming a large loss.
+      if (Number.isFinite(liveAnchor) && liveAnchor > 0 && pnl <= -2.5) {
+        const livePnl = dir === "LONG"
+          ? ((liveAnchor - entryPx) / entryPx) * 100
+          : ((entryPx - liveAnchor) / entryPx) * 100;
+        if (livePnl > -2.5 && pnl < livePnl - 2.5) continue;
+      }
       if (dir === "LONG") pushCandidate(cands, entryPx * (1 + pnl / 100));
       else if (dir === "SHORT") pushCandidate(cands, entryPx * (1 - pnl / 100));
     }
   }
 
   return cands;
+}
+
+/** Drop ghost prints that diverge sharply from live anchors (AMZN $236 vs ~$252). */
+export function filterSpikeStopCandidates(cands, anchors, maxDivPct = 2.5) {
+  const list = (Array.isArray(cands) ? cands : []).filter((n) => Number.isFinite(n) && n > 0);
+  const anchorList = (Array.isArray(anchors) ? anchors : [])
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (list.length === 0 || anchorList.length === 0) return list;
+  const anchor = anchorList.reduce((a, b) => a + b, 0) / anchorList.length;
+  const kept = list.filter((c) => priceDivergencePct(c, anchor) <= maxDivPct);
+  return kept.length > 0 ? kept : list;
 }
 
 /** Worst-case print vs published stop — always conservative for the direction. */
@@ -242,6 +276,64 @@ export function shouldRefreshQuoteForStopCheck({
   }
 
   return false;
+}
+
+/**
+ * Universal close-price backstop. Every LIVE trade close funnels through this
+ * so a ghost / stale mark can never flatten a position (sim OR real broker).
+ *
+ * AMZN 2026-07-20: a fabricated $236 mark (real market ~$252, +6.3% away)
+ * hard-closed a LONG three times. This gate refuses to close at a price that
+ * diverges materially from the authoritative live feed unless a fresh quote
+ * corroborates it (a genuine fast move). If neither the feed nor a fresh quote
+ * supports the close price, DEFER — the next tick with a real price will exit.
+ *
+ * Pure decision fn: callers supply the feed anchor and (optionally) a fresh
+ * quote. `action:"allow"` = close; `action:"defer"` = skip this tick.
+ */
+export function evaluateClosePriceSanity({
+  closePrice,
+  feedPx,
+  freshPx,
+  maxDivergencePct = 3.5,
+} = {}) {
+  const p = Number(closePrice);
+  const feed = Number(feedPx);
+  const tol = Number(maxDivergencePct) > 0 ? Number(maxDivergencePct) : 3.5;
+
+  if (!(p > 0)) return { action: "allow", reason: "no_close_price" };
+  if (!(feed > 0)) return { action: "allow", reason: "no_feed_anchor" };
+
+  const feedDiv = priceDivergencePct(p, feed);
+  if (feedDiv <= tol) {
+    return { action: "allow", reason: "feed_corroborates", feedDiv };
+  }
+
+  const fresh = Number(freshPx);
+  if (fresh > 0) {
+    if (priceDivergencePct(p, fresh) <= tol) {
+      return { action: "allow", reason: "fresh_corroborates_close", feedDiv, freshPx: fresh };
+    }
+    return {
+      action: "defer",
+      reason: "close_price_uncorroborated",
+      feedDiv,
+      freshDiv: priceDivergencePct(p, fresh),
+      feedPx: feed,
+      freshPx: fresh,
+    };
+  }
+
+  return { action: "defer", reason: "divergent_close_no_fresh", feedDiv, feedPx: feed };
+}
+
+/** True when a divergent close price needs a fresh-quote confirmation. */
+export function closePriceNeedsFreshConfirm(closePrice, feedPx, maxDivergencePct = 3.5) {
+  const p = Number(closePrice);
+  const feed = Number(feedPx);
+  const tol = Number(maxDivergencePct) > 0 ? Number(maxDivergencePct) : 3.5;
+  if (!(p > 0) || !(feed > 0)) return false;
+  return priceDivergencePct(p, feed) > tol;
 }
 
 export function priceDivergencePct(a, b) {
@@ -381,13 +473,38 @@ export function applySlHardExitSafetyNet({
 
   if (!isStopLossBreached(dir, checkPx, sl)) return out;
 
-  const feedPx = Number(
+  const authFeedPx = Number(
     tickerData?.__feed_sl_hard_close?.feed_px
-    ?? tickerData?.price
-    ?? tickerData?._live_price
-    ?? pxNow,
+    ?? tickerData?._live_price,
+  );
+  const feedPx = Number(
+    authFeedPx
+    || tickerData?.price
+    || pxNow,
   );
   const entryPx = resolveAuthoritativeEntryPrice(openTrade, openPositionContext);
+
+  // RTH spike veto: worst-case candidate past SL but authoritative live feed
+  // is not. Do NOT fall back to pxNow here — that breaks NVDA-class cases
+  // where the headline lags and only PnL-implied / true tape is past the stop.
+  if (
+    Number.isFinite(authFeedPx) && authFeedPx > 0
+    && !isStopLossBreached(dir, authFeedPx, sl)
+    && priceDivergencePct(checkPx, authFeedPx) >= 1.0
+  ) {
+    out.tickerData = {
+      ...tickerData,
+      __sl_spike_deferred: {
+        checkPx,
+        feedPx: authFeedPx,
+        sl,
+        divergence_pct: Number(priceDivergencePct(checkPx, authFeedPx).toFixed(3)),
+        reason: "check_past_sl_feed_not",
+      },
+    };
+    return out;
+  }
+
   const defer = shouldDeferFeedSlOutsideRth({
     marketOpen,
     direction: dir,

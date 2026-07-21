@@ -66,6 +66,7 @@ export async function forwardOrderToBridge(env, order) {
     side: order.side,
     qty: order.qty,
     trade_id: order.trade_id,
+    client_order_id: order.client_order_id || null,
   };
   try {
     const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}/bridge/order`, {
