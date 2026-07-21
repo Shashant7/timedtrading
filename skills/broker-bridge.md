@@ -299,6 +299,83 @@ Vars: `WEBULL_AUTH_MODE` (`personal`|`connect`), `WEBULL_ENVIRONMENT` (`uat`|`pr
 
 ---
 
+## Robinhood Agentic MCP (2026-07-21 — API published, integration pending)
+
+Robinhood shipped the official **Agentic Trading MCP** (launched May 2026) at
+`https://agent.robinhood.com/mcp/trading` — the exact tools we scaffolded:
+`review_equity_order` / `place_equity_order` / `cancel_equity_order`, reads
+(`get_accounts`, `get_portfolio`, `get_equity_positions`, `get_equity_orders`,
+`get_equity_quotes`, `get_equity_tradability` with fractional flag, `search`),
+watchlists. Options tools are **rolling out** (not GA). So the old blocker
+("wire format unpublished") is gone.
+
+**What's wired now** (`bridge-robinhood.js`): a spec-correct MCP **Streamable
+HTTP** client — `initialize` handshake + `Mcp-Session-Id` (2025-11-25 spec) or
+stateless routing headers + `_meta` (2026-07-28 spec), selectable via
+`RH_MCP_PROTOCOL_VERSION` (default `2025-11-25`); parses both JSON and SSE
+responses; `listOrders` + `getEquityTradability` added. Capability registry
+updated (native: limit + fractional + fills; adapter: market-only until the
+`place_equity_order` limit/fractional arg schema is verified live).
+
+**Headless OAuth (2026-07-21 — WIRED, `bridge-robinhood-auth.js`):**
+Full MCP OAuth 2.1: PRM discovery (RFC 9728) → AS metadata (RFC 8414) → client
+(pre-registered env, else DCR RFC 7591) → PKCE S256 → authorization code →
+token with the RFC 8707 `resource` indicator → **headless refresh** (resource
+on refresh too; token rotation). Runs server-side; the operator only approves
+consent once in a browser. Refresh runs on the `*/5` bridge cron.
+
+Connect flow:
+```bash
+BRIDGE=https://tt-broker-bridge.shashant.workers.dev
+OP="Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY"
+# 1. Start — returns an authorize_url (open it, log into RH, approve consent).
+curl -s -X POST "$BRIDGE/bridge/oauth/start" -H "$OP" -H "Content-Type: application/json" \
+  -d '{"user_id":"op@email.com"}' | python3 -m json.tool
+# 2. RH redirects to /bridge/oauth/callback?code=...&state=... → token stored.
+# 3. Verify connected:
+curl -s "$BRIDGE/bridge/status/user?user_id=op@email.com" -H "$OP" | python3 -m json.tool
+```
+Env: `RH_MCP_RESOURCE` (default the agentic MCP URL), optional discovery
+overrides `RH_OAUTH_AUTHORIZE_URL`/`RH_OAUTH_TOKEN_URL`/`RH_OAUTH_REGISTRATION_URL`/
+`RH_OAUTH_SCOPE`, optional pre-registered `ROBINHOOD_OAUTH_CLIENT_ID`/`_SECRET`.
+
+**Verified live (2026-07-21)** via `GET /bridge/test/rh-oauth-discovery` (and
+direct probe) — RH's discovery is standard and our flow matches:
+- 401 → `WWW-Authenticate: … resource_metadata=".../.well-known/oauth-protected-resource/mcp/trading"` (RFC 9728).
+- PRM → `authorization_servers: ["https://agent.robinhood.com/mcp/trading"]`, `scopes_supported: ["internal"]`.
+- AS metadata (at the **path-based** well-known `…/.well-known/oauth-authorization-server/mcp/trading`):
+  authorize `https://robinhood.com/oauth`, token `https://api.robinhood.com/oauth2/token/`,
+  **DCR** `https://agent.robinhood.com/oauth/trading/register`, PKCE **S256**,
+  grants `authorization_code`+`refresh_token`, **public client** (`token_endpoint_auth_method: none` → no secret).
+No env overrides needed — discovery + DCR work out of the box.
+
+**How our bridge fits the RH "connect an AI agent" steps:** the support article
+lists Claude/ChatGPT/Cursor/etc., but also "other platforms that support MCP
+connections." Our bridge IS such a platform — `POST /bridge/oauth/start` is our
+equivalent of "add the MCP link + authenticate." Opening the returned
+`authorize_url` on desktop runs RH login → **Agentic account onboarding**
+(auto-opens on first auth) → consent → redirect to our callback. Prereq: a
+primary RH individual account in good standing. Trades are restricted to the
+Agentic account, so after connect resolve the agentic account number via
+`get_accounts` and store it as `rh_account_number` (probe: `POST /bridge/test/rh-call {tool:"get_accounts"}`).
+
+**Still required before RH orders flow (operator):**
+1. **Create + fund a dedicated Robinhood *Agentic* account** (desktop-only;
+   trading is restricted to it — your main account stays read-only).
+2. **Run the connect flow above** (one interactive consent), then flip
+   `broker_integration_enabled` for the RH user.
+3. **Verify** the live `place_equity_order` arg schema (order_type/limit/
+   fractional field names) with a $1 review→place, then flip the RH adapter caps
+   (`bridge-brokers.js`) from market-only to match.
+
+**Spec caveat:** MCP had a large breaking change on **2026-07-28** (stateless —
+`initialize`/`Mcp-Session-Id` removed; routing headers + `_meta` + `server/discover`).
+RH launched under 2025-11-25; when it migrates, set `RH_MCP_PROTOCOL_VERSION=2026-07-28`.
+
+**Bottom line:** we're unblocked at the API level and the transport is wired,
+but "support" is not a flag flip — it needs the funded Agentic account + a
+working OAuth token + one round of live arg-schema verification.
+
 ## Repo layout
 
 | Path | Purpose |

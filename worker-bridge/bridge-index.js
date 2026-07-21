@@ -52,6 +52,7 @@ import {
   handleWebullOauthDisconnect,
 } from "./bridge-webull-auth.js";
 import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
+import { refreshRhTokensIfNeeded } from "./bridge-robinhood-auth.js";
 import { listBrokers, resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
 import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
@@ -981,6 +982,40 @@ export default {
         return json({ ok: true, tool, ...result });
       }
 
+      // 2026-07-21 — Probe RH's MCP OAuth discovery + client registration
+      // BEFORE attempting a real connect. Confirms the auth-server endpoints,
+      // PKCE support, and whether DCR works — so we know our headless OAuth
+      // will succeed (or which env overrides to set) ahead of time. Read-only.
+      if (method === "GET" && path === "/bridge/test/rh-oauth-discovery") {
+        if (operatorFail) return operatorFail;
+        const { discoverRhAuth, ensureRhClient, mcpResource } = await import("./bridge-robinhood-auth.js");
+        const disc = await discoverRhAuth(env);
+        let client = { ok: false, skipped: "discovery_failed" };
+        if (disc.ok) {
+          const redirectUri = env?.OAUTH_REDIRECT_URI || `${url.origin}/bridge/oauth/callback`;
+          client = await ensureRhClient(env, disc.asMeta, redirectUri).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 160) }));
+          // Don't leak a client secret in the probe response.
+          if (client?.client_secret) client = { ...client, client_secret: "[present]" };
+        }
+        return json({
+          ok: disc.ok,
+          resource: mcpResource(env),
+          discovery: disc.ok
+            ? {
+                source: disc.source, cached: !!disc.cached, scope: disc.scope,
+                authorization_endpoint: disc.asMeta?.authorization_endpoint,
+                token_endpoint: disc.asMeta?.token_endpoint,
+                registration_endpoint: disc.asMeta?.registration_endpoint,
+                pkce_s256: (disc.asMeta?.code_challenge_methods_supported || []).includes("S256"),
+              }
+            : { error: disc.error },
+          client: client.ok
+            ? { ok: true, source: client.source, client_id: client.client_id, has_secret: client.client_secret === "[present]" }
+            : client,
+          redirect_uri: env?.OAUTH_REDIRECT_URI || `${url.origin}/bridge/oauth/callback`,
+        });
+      }
+
       if (method === "POST" && path === "/bridge/test/webull-call") {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
@@ -1084,6 +1119,15 @@ export default {
       });
       if (refreshSummary && refreshSummary.refreshed > 0) {
         console.log(`[WEBULL/REFRESH] refreshed=${refreshSummary.refreshed} failed=${refreshSummary.failed}`);
+      }
+
+      // Robinhood MCP OAuth token refresh (headless).
+      const rhRefresh = await refreshRhTokensIfNeeded(env).catch((e) => {
+        console.warn("[RH/REFRESH] cron failed:", String(e?.message || e).slice(0, 200));
+        return null;
+      });
+      if (rhRefresh && rhRefresh.refreshed > 0) {
+        console.log(`[RH/REFRESH] refreshed=${rhRefresh.refreshed} failed=${rhRefresh.failed}`);
       }
 
       // Operating-hours gate: skip when NY market is closed (we don't
