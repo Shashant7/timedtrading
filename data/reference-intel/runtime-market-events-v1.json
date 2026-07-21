@@ -37509,7 +37509,7 @@
         "event_type": "earnings",
         "event_name": "NOC Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 11.49,
         "spy_reaction_pct": -0.15,
         "sector_reaction_pct": null
       },
@@ -37518,7 +37518,7 @@
         "event_type": "earnings",
         "event_name": "ALLY Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -3.25,
         "spy_reaction_pct": -0.15,
         "sector_reaction_pct": null
       },
@@ -37527,7 +37527,7 @@
         "event_type": "earnings",
         "event_name": "VMI Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 4.81,
         "spy_reaction_pct": -0.15,
         "sector_reaction_pct": null
       },
@@ -37739,6 +37739,15 @@
         "sector_reaction_pct": null
       },
       {
+        "date": "2026-07-29",
+        "event_type": "macro",
+        "event_name": "Jul FOMC Rate Decision",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": -0.16,
+        "sector_reaction_pct": null
+      },
+      {
         "date": "2026-08-21",
         "event_type": "macro",
         "event_name": "Monthly Options Expiration (OpEx)",
@@ -37773,14 +37782,14 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 42.8441
+        "sql_duration_ms": 48.1635
       },
-      "duration": 42.8441,
+      "duration": 48.1635,
       "changes": 0,
-      "last_row_id": 31953,
+      "last_row_id": 71773755,
       "changed_db": false,
-      "size_after": 4031553536,
-      "rows_read": 4196,
+      "size_after": 4165910528,
+      "rows_read": 4197,
       "rows_written": 0,
       "total_attempts": 1
     }
