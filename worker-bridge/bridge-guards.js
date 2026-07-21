@@ -322,6 +322,88 @@ export function evaluateReducerAgainstPositions({ ticker, requestedQty, position
   return { action: "proceed", heldQty: held };
 }
 
+/**
+ * 2026-07-21 — Reconcile a reducer's qty against the MODEL's tracked portion
+ * and the account's LIVE holding, so we (a) only ever reduce what the model
+ * opened on this account (never the user's own shares), (b) never sell more
+ * than is held, and (c) surface any discrepancy for log/notify.
+ *
+ * We trim in percentages: a `reducePct` applies to the model's tracked portion
+ * (or the held qty if the model portion is unknown). A full exit flattens the
+ * model portion. Everything is clamped to the live held qty.
+ *
+ * @returns {{qty, isFull, adjusted, discrepancy:Array|null, reasons:Array,
+ *            modelRemainingQty, heldQty}}
+ */
+export function reconcileReducerQty({
+  side,
+  requestedQty,
+  reducePct = null,
+  modelRemainingQty = null,
+  heldQty,
+  tolerance = 1e-6,
+} = {}) {
+  const lc = String(side || "").toLowerCase();
+  const isFull = lc === "exit" || lc === "close" || lc === "sell";
+  const held = Number(heldQty) || 0;
+  const model = modelRemainingQty == null ? null : Number(modelRemainingQty);
+  const reqQty = Number(requestedQty) || 0;
+  const reasons = [];
+  const discrepancy = [];
+
+  const pctRaw = reducePct == null ? null : Number(reducePct);
+  const pct = pctRaw != null && Number.isFinite(pctRaw) && pctRaw > 0
+    ? (pctRaw > 1 ? pctRaw / 100 : pctRaw)
+    : null;
+
+  let intended;
+  if (pct != null) {
+    const basis = model != null && model > 0 ? model : held;
+    intended = basis * pct;
+    reasons.push(`pct_${(pct * 100).toFixed(1)}_of_${model != null ? "model" : "held"}`);
+  } else if (isFull) {
+    intended = model != null && model > 0 ? model : held;
+    reasons.push(model != null ? "full_model_portion" : "full_held");
+  } else {
+    intended = reqQty;
+    reasons.push("explicit_qty");
+  }
+
+  // Never reduce more than the model's tracked portion (protect user shares).
+  if (model != null && intended > model + tolerance) {
+    intended = model;
+    reasons.push("capped_to_model_portion");
+  }
+
+  // Discrepancy detection vs live holding.
+  if (model != null) {
+    if (held + tolerance < model) {
+      discrepancy.push({ kind: "held_lt_model", held, model, note: "account holds less than model tracked (user may have trimmed/sold)" });
+    } else if (held > model + tolerance) {
+      discrepancy.push({ kind: "held_gt_model", held, model, note: "account holds more than model tracked (user may have added); reducing only the model portion" });
+    }
+  }
+
+  // Never sell more than is actually held (no naked/short).
+  let qty = intended;
+  if (qty > held + tolerance) {
+    discrepancy.push({ kind: "clamped_to_held", requested: intended, held });
+    qty = held;
+    reasons.push("clamped_to_held");
+  }
+  qty = Math.max(0, qty);
+
+  return {
+    qty,
+    isFull,
+    adjusted: Math.abs(qty - reqQty) > tolerance,
+    discrepancy: discrepancy.length ? discrepancy : null,
+    reasons,
+    modelRemainingQty: model,
+    heldQty: held,
+  };
+}
+
 // Pure validator. Does not mutate KV.
 export function validateOrderShape(payload, env) {
   if (!payload || typeof payload !== "object") {

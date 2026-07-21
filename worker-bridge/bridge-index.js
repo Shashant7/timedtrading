@@ -28,7 +28,7 @@ import {
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
   claimOrderIdempotency, resolveBridgeAccounts,
 } from "./bridge-storage.js";
-import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions } from "./bridge-guards.js";
+import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
 import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow,
@@ -40,6 +40,7 @@ import {
 import { orchestrateOcoForReducer } from "./bridge-oco.js";
 import {
   drainNotifyQueue, buildDailyOwnerDigest, renderDailyOwnerDigestEmail,
+  emitDriftNotification,
 } from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
@@ -90,6 +91,85 @@ const placePlannedOrder = (env, user, order, plan) => {
   return adapter.placeOrder(env, user, order);
 };
 
+// Cancel the pending OCO children (SL + TP) for a trade on an account. They
+// reserve the shares, so a trim/flatten must cancel them first or the broker
+// rejects the reducer ("qty locked up by open orders"). Children use the
+// deterministic `tt-oco-<trade>-<acct>-sl/-tp` client_order_ids (Webull cancels
+// by client_order_id). Records each cancel to the per-account ledger.
+async function cancelOcoChildren(env, user, tradeId, acctId, brokerId) {
+  const adapter = brokerAdapterFor(user);
+  if (typeof adapter.cancelOrder !== "function") return { cancelled: 0, legs: [] };
+  // Active child ids from the ledger (placed, not yet cancelled) + the
+  // deterministic base ids as a fallback for pre-ledger placements.
+  const ids = new Set(await activeOcoChildIds(env, acctId, tradeId));
+  ids.add(`tt-oco-${tradeId}-${acctId}-sl`);
+  ids.add(`tt-oco-${tradeId}-${acctId}-tp`);
+  const legs = [];
+  let cancelled = 0;
+  for (const coid of ids) {
+    let ok = false;
+    try {
+      const r = await adapter.cancelOrder(env, user, coid);
+      ok = !!(r && r.ok !== false);
+    } catch (_) { ok = false; }
+    if (ok) cancelled++;
+    legs.push({ client_order_id: coid, ok });
+    await recordAccountFill(env, {
+      ts: Date.now(),
+      owner_id: user?.owner_email || user?.user_id || null,
+      user_id: user?.user_id || null,
+      broker: brokerId || null,
+      broker_account_id: acctId,
+      model_trade_id: tradeId,
+      client_order_id: coid,
+      event_type: "OCO_CANCEL",
+      status: ok ? "ok" : "error",
+      meta: { reason: "reducer_cancel_before_place" },
+    }).catch(() => {});
+  }
+  return { cancelled, legs };
+}
+
+// Client_order_ids of OCO children placed for a trade that have not since been
+// cancelled — read from the per-account ledger so re-placed (generation-
+// stamped) children are still found and cancelled on the next reducer.
+async function activeOcoChildIds(env, acctId, tradeId) {
+  const active = new Set();
+  const cancelled = new Set();
+  try {
+    const rows = await readAccountLedger(env, { broker_account_id: acctId, limit: 300 });
+    // rows are newest-first; walk oldest-first so cancels applied after places win.
+    for (const r of [...rows].reverse()) {
+      if (String(r.model_trade_id) !== String(tradeId)) continue;
+      const coid = r.client_order_id;
+      if (!coid) continue;
+      if (r.event_type === "OCO_STOP_LOSS" || r.event_type === "OCO_TAKE_PROFIT") {
+        if (r.status === "ok") active.add(coid);
+      } else if (r.event_type === "OCO_CANCEL") {
+        cancelled.add(coid);
+      }
+    }
+  } catch (_) { /* best-effort */ }
+  for (const c of cancelled) active.delete(c);
+  return [...active];
+}
+
+// Recover the SL/TP prices for a trade's OCO children from the per-account
+// ledger so a trim can re-establish protection for the remaining qty.
+async function recoverOcoPrices(env, acctId, tradeId) {
+  const out = { sl: null, tp: null };
+  try {
+    const rows = await readAccountLedger(env, { broker_account_id: acctId, limit: 200 });
+    for (const r of rows) {
+      if (String(r.model_trade_id) !== String(tradeId)) continue;
+      if (out.sl == null && r.event_type === "OCO_STOP_LOSS" && Number(r.price) > 0) out.sl = Number(r.price);
+      if (out.tp == null && r.event_type === "OCO_TAKE_PROFIT" && Number(r.price) > 0) out.tp = Number(r.price);
+      if (out.sl != null && out.tp != null) break;
+    }
+  } catch (_) { /* best-effort */ }
+  return out;
+}
+
 // Confirm an account holds the position before a SELL/EXIT/TRIM. Uses live
 // broker positions (ground truth), so it protects even when the manifest is in
 // shadow mode or drifted. Fails SAFE for a confirmed no-position; on an
@@ -135,7 +215,10 @@ async function placeOcoChildren(env, user, sanitized, plan, ctx = {}) {
   const acctId = ctx.brokerAccountId || resolveBrokerAccountId(user);
   const qty = Number(ctx.filledQty) > 0 ? Number(ctx.filledQty) : Number(sanitized.qty);
   const exitSide = String(sanitized.side || "buy").toLowerCase() === "buy" ? "sell" : "buy";
-  const base = `tt-oco-${sanitized.trade_id || "na"}-${acctId}`;
+  // A generation suffix keeps re-placed children (after a trim) from reusing a
+  // cancelled client_order_id, which brokers reject. cancelOcoChildren finds
+  // active children from the ledger, so any suffix is cancellable later.
+  const base = `tt-oco-${sanitized.trade_id || "na"}-${acctId}${ctx.idSuffix ? `-${ctx.idSuffix}` : ""}`;
   const sl = Number(plan?.protection?.stop_loss);
   const tp = Number(plan?.protection?.take_profit);
   const children = [];
@@ -1292,6 +1375,7 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   // sell more than is held. Skips mock mode (no real positions to check).
   const reducerLifecycle = classifyOrderLifecycle(sanitized.side);
   if (reducerLifecycle === "reduce" || reducerLifecycle === "close") {
+    // (a) Live position — ground truth; reject if the account holds nothing.
     const posGuard = await verifyReducerHoldsPosition(env, user, sanitized);
     if (!posGuard.ok) {
       await writeAudit(env, {
@@ -1305,9 +1389,83 @@ async function handleSingleAccountOrder(env, ctx, payload) {
         held_qty: posGuard.heldQty ?? null, requested_qty: sanitized.qty,
       }, 200);
     }
-    if (posGuard.clampQty != null && posGuard.clampQty < Number(sanitized.qty)) {
-      console.warn(`[REDUCER_CLAMP] ${sanitized.user_id}/${sanitized.ticker}: sell ${sanitized.qty}→${posGuard.clampQty} (held=${posGuard.heldQty})`);
-      sanitized.qty = posGuard.clampQty;
+    const heldQty = Number(posGuard.heldQty) || 0;
+
+    // (b) Model's tracked portion on THIS account (link via trade_id +
+    // account). We only ever reduce the model's shares, never the user's.
+    let modelRow = null;
+    let modelRemaining = null;
+    try {
+      if (sanitized.trade_id && posGuard.skip !== "mock_mode") {
+        modelRow = await readManifestRow(env, sanitized.user_id, sanitized.trade_id, brokerAccountId);
+        if (modelRow) {
+          const rem = Number(modelRow.broker_remaining_qty);
+          const filled = Number(modelRow.broker_filled_qty);
+          modelRemaining = rem > 0 ? rem : (filled > 0 ? filled : null);
+        }
+      }
+    } catch (_) { /* manifest read best-effort */ }
+
+    // (c) Reconcile: percentage of the model portion, capped to model shares,
+    // clamped to live holding. Never oversell, never touch user shares.
+    const recon = reconcileReducerQty({
+      side: sanitized.side,
+      requestedQty: sanitized.qty,
+      reducePct: sanitized.reduce_pct ?? sanitized.trim_pct ?? null,
+      modelRemainingQty: modelRemaining,
+      heldQty,
+    });
+
+    // (d) Always log the reconcile; log + notify on a discrepancy.
+    await writeAudit(env, {
+      ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+      ticker: sanitized.ticker, action: "reducer_reconcile", side: sanitized.side,
+      qty: recon.qty, status: recon.discrepancy ? "warn" : "ok",
+      request_json: {
+        requested_qty: sanitized.qty, resolved_qty: recon.qty,
+        model_remaining: modelRemaining, held_qty: heldQty,
+        reasons: recon.reasons, broker_account_id: brokerAccountId,
+      },
+    });
+    if (recon.discrepancy) {
+      console.warn(`[REDUCER_DISCREPANCY] ${sanitized.user_id}/${sanitized.ticker} trade=${sanitized.trade_id}: ${JSON.stringify(recon.discrepancy)}`);
+      await writeAudit(env, {
+        ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+        ticker: sanitized.ticker, action: "reducer_discrepancy", side: sanitized.side,
+        qty: recon.qty, status: "warn",
+        reject_reason: recon.discrepancy.map((d) => d.kind).join(","),
+        request_json: { discrepancy: recon.discrepancy, model_remaining: modelRemaining, held_qty: heldQty },
+      });
+      if (modelRow) {
+        try {
+          await emitDriftNotification(env, {
+            ...modelRow, sync_state: "reconcile_error",
+            sync_note: `reducer discrepancy: ${recon.discrepancy.map((d) => d.note || d.kind).join("; ")}`,
+          }, "warn");
+        } catch (_) { /* notify best-effort */ }
+      }
+    }
+
+    if (!(recon.qty > 0)) {
+      return json({
+        ok: false, rejected: true, reject_reason: "nothing_to_reduce",
+        held_qty: heldQty, model_remaining: modelRemaining, requested_qty: sanitized.qty,
+      }, 200);
+    }
+    sanitized.qty = recon.qty;
+    sanitized._reducer = { isFull: recon.isFull, heldQty, modelRemaining };
+
+    // (e) Cancel pending OCO children — they reserve the shares, so a trim /
+    // flatten would otherwise be rejected by the broker ("qty locked up").
+    if (ocoEnabled && sanitized.trade_id) {
+      const cancelRes = await cancelOcoChildren(env, user, sanitized.trade_id, brokerAccountId, brokerId);
+      if (cancelRes.cancelled > 0) {
+        await writeAudit(env, {
+          ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+          ticker: sanitized.ticker, action: "oco_cancel_for_reducer", side: sanitized.side,
+          status: "ok", request_json: { cancelled: cancelRes.cancelled, legs: cancelRes.legs },
+        });
+      }
     }
   }
 
@@ -1409,6 +1567,40 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       markManifestModelClosed(env, sanitized.user_id, sanitized.trade_id, accountId, {
         exitReason, exitTs: Date.now(),
       }).catch(e => console.warn("[MANIFEST] markClosed failed:", String(e?.message || e).slice(0, 160)));
+    }
+
+    // On a partial TRIM, re-establish OCO protection for the REMAINING qty
+    // (we cancelled the old children before placing the trim). Full closes
+    // don't re-place (position flat). SL/TP recovered from the ledger, or
+    // taken from the payload if the model sent them.
+    if (lifecycle === "reduce" && sanitized.trade_id && ocoEnabled) {
+      try {
+        const soldQty = Number(place?.response?.filled_qty ?? place?.response?.cumulative_quantity ?? sanitized.qty) || 0;
+        const heldBefore = Number(sanitized?._reducer?.heldQty) || 0;
+        const remaining = Math.max(0, heldBefore - soldQty);
+        if (remaining > 0) {
+          const recovered = await recoverOcoPrices(env, brokerAccountId, sanitized.trade_id);
+          const sl = Number(sanitized.sl) > 0 ? Number(sanitized.sl) : recovered.sl;
+          const tp = Number(sanitized.tp) > 0 ? Number(sanitized.tp) : recovered.tp;
+          if ((Number(sl) > 0) || (Number(tp) > 0)) {
+            const rplan = { protection: { mode: "oco_children", stop_loss: sl || null, take_profit: tp || null } };
+            const oco = await placeOcoChildren(env, user, sanitized, rplan, {
+              brokerId, brokerAccountId, filledQty: remaining,
+              idSuffix: `r${Date.now().toString(36)}`,
+            });
+            await writeAudit(env, {
+              ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+              ticker: sanitized.ticker, action: "oco_replace_after_trim",
+              status: oco.some((c) => c.ok) ? "ok" : "error",
+              request_json: { remaining_qty: remaining, sl, tp, children: oco },
+            });
+          } else {
+            console.warn(`[OCO] trim on ${sanitized.ticker}/${sanitized.trade_id}: no SL/TP to re-establish for remaining ${remaining} — protection not re-placed`);
+          }
+        }
+      } catch (e) {
+        console.warn(`[OCO] re-place after trim failed for ${sanitized.trade_id}:`, String(e?.message || e).slice(0, 160));
+      }
     }
   }
 

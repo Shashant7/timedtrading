@@ -113,23 +113,36 @@ fraction of capital**:
   (default on), `BROKER_FRACTIONAL_ENABLED`, `MODEL_BOOK_BASE_USD`,
   `BROKER_FRACTIONAL_MIN_USD`.
 
-### Reducer safety — never sell what the account doesn't hold (2026-07-21)
+### Reducer safety — model vs user shares, qty reconcile, OCO cancel (2026-07-21)
 
-A SELL/EXIT/TRIM the account doesn't have a position for would be a naked/short
-order — forbidden on a cash/IRA. Before placing any reducer the bridge checks
-**live broker positions** (`evaluateReducerAgainstPositions`, ground truth,
-independent of the manifest / `BROKER_MANIFEST_ENFORCE` mode):
-- **No position / flat / short** → **reject** (`no_broker_position` /
-  `position_flat`), audited as `reducer_rejected`. Nothing is sent to the broker.
-- **Requested > held** → **clamp** to the held qty (never oversell).
-- **Positions API unavailable** → allow through (broker is the final backstop),
-  unless `BROKER_REDUCER_REQUIRE_POSITION=true` (stricter).
-- Mock mode is skipped (no real positions).
+A reducer (SELL/EXIT/TRIM) runs a full pipeline before it can place:
 
-Also: `manifestAwareReducerCheck` now uses the agnostic account id (was dropping
-Webull to `"default"`), so manifest lookups match `writeEntryManifest`. Note the
-deployed `BROKER_MANIFEST_ENFORCE=log` only *logs* would-rejects — the live
-position guard is the real block, so a naked sell is stopped even in shadow mode.
+1. **Live position guard** (`evaluateReducerAgainstPositions`, ground truth):
+   no position / flat / short → **reject** (`no_broker_position` /
+   `position_flat`); mock skipped; positions API down → allow (broker backstop)
+   unless `BROKER_REDUCER_REQUIRE_POSITION=true`.
+2. **Model-vs-user linkage** — the manifest is keyed by `trade_id + account`, so
+   `broker_filled_qty` / `broker_remaining_qty` is the **model's** portion on
+   that account. The reducer is capped to the model portion — it never sells the
+   user's own shares — and untagged reducers (no `trade_id`) are rejected.
+3. **Qty reconciliation** (`reconcileReducerQty`): we trim in **percentages** —
+   `reduce_pct` applies to the model portion; a full exit flattens the model
+   portion; everything is clamped to live held qty. Discrepancies (account holds
+   less than model tracked = user trimmed more; or more = user added) are
+   **always logged** (`reducer_reconcile` audit) and **notified** on mismatch
+   (`reducer_discrepancy` audit + drift notification).
+4. **OCO cancel before place** — pending SL/TP children reserve the shares, so a
+   trim/flatten would be rejected ("qty locked up"). `cancelOcoChildren` cancels
+   the active children (found via the per-account ledger, so generation-stamped
+   re-placements are cancellable) before the reducer.
+5. **OCO re-place after a partial trim** — for the REMAINING qty, using SL/TP
+   recovered from the ledger (or the payload), with a fresh generation-stamped
+   id so a cancelled `client_order_id` is never reused. Full closes don't re-place.
+
+Also: `manifestAwareReducerCheck` uses the agnostic account id (was dropping
+Webull to `"default"`). `BROKER_MANIFEST_ENFORCE=log` only *logs* would-rejects —
+the live position guard is the real block, so a naked sell is stopped even in
+shadow mode.
 
 ### Enabling a specific Webull sub-account (e.g. Roth IRA)
 
