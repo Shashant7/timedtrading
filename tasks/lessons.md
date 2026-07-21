@@ -6,6 +6,14 @@
 
 ---
 
+## OpEx is a session event — use close timestamp + longer RTH window [2026-07-19]
+
+Monthly options expiration is not an 8:30 print. Stamp `scheduled_ts` at
+**4:00 PM ET** and use an **8h** pre-event window (≈8:00 AM → close) so
+entry blocks and `PRE_OPEX_RISK_REDUCTION` cover OpEx-day RTH. Generate
+3rd Fridays (`worker/opex-calendar.js`); sync into `market_events` so
+gates do not wait on Daily Brief persist. Triple witching = Mar/Jun/Sep/Dec.
+
 ## Bubble map fills should use restrained DS tones, not neon chips [2026-07-17]
 
 Alignment fills at full neon (`#22c55e` / `#b91c1c` / `#eab308`) + ~0.92

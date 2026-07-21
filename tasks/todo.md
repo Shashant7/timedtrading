@@ -22,6 +22,13 @@
 
 ### Active
 
+- [x] **OpEx on macro calendar + entry/exit risk (2026-07-19).**
+      Market-wide monthly options expiration (3rd Friday / triple witching)
+      was missing from the curated macro calendar and pre-event gates.
+      Generate OpEx into Today/Brief calendar; sync `market_events`; add
+      `OPEX` to PRE_EVENT_RISK (8h window into 4 PM ET) for entry block +
+      PRE_OPEX_RISK_REDUCTION trims. Branch: `cursor/opex-macro-risk-df0c`.
+
 - [ ] **Confirm-stack EMA21 thin slice — build the instrument (2026-07-19).**
       Not "flip flags after n≥30". One family end-to-end under unified
       lifecycle + play UI. Plan:
