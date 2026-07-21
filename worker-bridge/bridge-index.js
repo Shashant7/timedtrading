@@ -334,6 +334,8 @@ export default {
           webull_connect_configured: webullConnectConfigured(env),
           webull_environment: env?.WEBULL_ENVIRONMENT || "uat",
           fanout_enabled: String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true",
+          manifest_enforce: String(env?.BROKER_MANIFEST_ENFORCE || "on").toLowerCase(),
+          oco_enabled: String(env?.BROKER_OCO_ENABLED || "").toLowerCase() === "true",
           supported_brokers: listBrokers().map((b) => {
             const a = b.capabilities?.adapter || {};
             return {

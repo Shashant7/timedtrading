@@ -47,9 +47,11 @@ REJECT_SHORT_SIDES = "true"
 #   "on"  — reject TRIM/EXIT per §4.1 (manifest required)
 #   "log" — shadow mode: log "would_reject" but allow the order
 #   "off" — skip manifest check entirely (back-compat / emergency rollback)
-# Default to "log" for the first week of production so the operator
-# can review the warn-logs before flipping to "on".
-BROKER_MANIFEST_ENFORCE = "log"
+# 2026-07-21 — Flipped to "on" now that the reducer account-id lookup uses the
+# agnostic id (Webull no longer collapses to "default") so it matches the
+# manifest writer, and the live-position guard is the primary block. Enforce
+# now rejects a TRIM/EXIT with no matching manifest row for the trade+account.
+BROKER_MANIFEST_ENFORCE = "on"
 
 # 2026-06-01 — Phase C reconciler config.
 # When "true" the cron runs 24/7 (useful for Investor mode); otherwise

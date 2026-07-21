@@ -140,9 +140,11 @@ A reducer (SELL/EXIT/TRIM) runs a full pipeline before it can place:
    id so a cancelled `client_order_id` is never reused. Full closes don't re-place.
 
 Also: `manifestAwareReducerCheck` uses the agnostic account id (was dropping
-Webull to `"default"`). `BROKER_MANIFEST_ENFORCE=log` only *logs* would-rejects —
-the live position guard is the real block, so a naked sell is stopped even in
-shadow mode.
+Webull to `"default"`). **`BROKER_MANIFEST_ENFORCE=on`** (flipped 2026-07-21):
+a TRIM/EXIT with no matching manifest row for the trade+account is now
+**rejected** (was shadow "log"). The live-position guard remains the primary
+block; enforce is the second gate. Verify via `/bridge/health.manifest_enforce`.
+Emergency rollback: set it back to `"log"` (allow + warn) or `"off"`.
 
 ### Enabling a specific Webull sub-account (e.g. Roth IRA)
 
