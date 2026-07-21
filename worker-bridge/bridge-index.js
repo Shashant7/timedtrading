@@ -229,6 +229,7 @@ export default {
                 bracket: !!a.bracket,
                 oco: !!a.oco,
                 options: !!(a.options?.limit || a.options?.market),
+                fractional: !!a.fractional,
                 reads_fills: !!a.read_fills,
                 multi_account: !!b.multiAccount,
               },

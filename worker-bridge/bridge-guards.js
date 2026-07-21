@@ -7,6 +7,8 @@
 
 import { getKillSwitch, readUser, writeUser, resolveBridgeUser } from "./bridge-storage.js";
 import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
+import { brokerCapabilities, resolveBrokerId } from "./bridge-brokers.js";
+import { computeRelationalQty } from "./bridge-sizing.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
 // env var. The previous behavior accepted `REJECT_SHORT_SIDES=false`
@@ -371,43 +373,58 @@ export async function preflightOrder(env, payload) {
   const vehicleCheck = validateVehiclePrefs(payload, user);
   if (!vehicleCheck.ok) return vehicleCheck;
 
-  // 2026-06-01 — Account-size scaling for INVESTOR mode.
-  // The model sizes positions against $INVESTOR_CAPITAL ($100k notional
-  // in worker/index.js auto-rebalance). Real users have whatever the
-  // broker reports. Scale qty by user_equity / model_capital BEFORE the
-  // per-order / cash / concentration caps below (those then act as a
-  // safety floor — if even the scaled qty exceeds a cap, scale-to-fit
-  // rounds it down further).
+  // 2026-07-21 — Relational position sizing (BOTH modes).
+  // The model sizes against its $100k book; a real account (e.g. a Webull
+  // Roth IRA ~$16.5k) must deploy the SAME fraction of capital, not the raw
+  // model share count. Scale qty by the account/book ratio (or the model's
+  // own "% of account" when supplied) BEFORE the per-order / cash /
+  // concentration caps below (those remain a safety ceiling). Keeps
+  // fractional shares when the broker supports them (Webull); else whole.
   //
-  // Trader mode is NOT mode-scaled here: the model sizes Trader trades
-  // per-trade against a configured risk budget (varies by setup), so
-  // the absolute share count is already an honest single-trade size.
-  // Trader still goes through the per-order / cash / concentration
-  // caps below, which together act as the account-fit guardrails.
-  if (String(payload?.mode || "").toLowerCase() === "investor") {
-    const modelCapital = Number(payload?.model_capital_usd) || 100000;
-    const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd);
-    if (Number.isFinite(liveEquity) && liveEquity > 0 && modelCapital > 0 && liveEquity < modelCapital) {
-      const ratio = liveEquity / modelCapital;
-      const modelQty = Number(payload?.qty) || 0;
-      // Fractional shares are common on Robinhood + IBKR Fractional, so
-      // we preserve up to 4dp. Round-half-down to avoid over-allocation.
-      const scaledQty = Math.max(0, Math.floor(modelQty * ratio * 10000) / 10000);
-      if (scaledQty > 0 && scaledQty < modelQty) {
-        console.log(`[BRIDGE_SCALE] ${userId}/${payload.ticker} investor: equity-scaled qty ${modelQty}→${scaledQty} (ratio=${ratio.toFixed(3)} = $${liveEquity.toFixed(0)} / $${modelCapital.toFixed(0)})`);
-        payload.qty = scaledQty;
-      } else if (scaledQty === 0) {
-        // User equity is so small that 1 share of the model's allocation
-        // works out to literally zero. Reject with a clear message rather
-        // than silently no-op'ing.
+  // Applies to ENTRIES / ADDS only — reducers (trim/exit) close what's
+  // actually held, so they must not be re-scaled here.
+  const relationalOn = String(env?.BROKER_RELATIONAL_SIZING || "true").toLowerCase() !== "false";
+  const sizingLifecycle = classifyOrderLifecycle(payload?.side);
+  if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
+    const modelBook = Number(payload?.model_capital_usd)
+      || Number(env?.MODEL_BOOK_BASE_USD)
+      || 100000;
+    const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd || user?.buying_power_usd || user?.cash_usd);
+    const entryPx = Number(payload?.entry || payload?.price_target || 0);
+    const brokerId = resolveBrokerId(user) || user?.broker || null;
+    const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
+    const fractionalOn = fractionalCap
+      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false";
+
+    if (Number.isFinite(liveEquity) && liveEquity > 0 && liveEquity < modelBook) {
+      const sized = computeRelationalQty({
+        modelQty: Number(payload?.qty) || 0,
+        entryPrice: entryPx,
+        accountEquity: liveEquity,
+        modelBookUsd: modelBook,
+        modelAccountPct: payload?.model_account_pct ?? null,
+        fractional: fractionalOn,
+        minNotionalUsd: Number(env?.BROKER_FRACTIONAL_MIN_USD) || 1,
+      });
+      if (sized.ok && sized.qty < (Number(payload?.qty) || 0)) {
+        console.log(`[BRIDGE_SCALE] ${userId}/${payload.ticker} ${payload?.mode || "trader"}: relational qty ${payload.qty}→${sized.qty} (ratio=${sized.ratio.toFixed(3)} = $${liveEquity.toFixed(0)}/$${modelBook.toFixed(0)}, fractional=${sized.fractional_used})`);
+        payload.qty = sized.qty;
+        payload._sizing = {
+          model_qty: sized.model_qty, scaled_qty: sized.qty, ratio: sized.ratio,
+          account_equity_usd: liveEquity, model_book_usd: modelBook,
+          fractional_used: sized.fractional_used, basis: payload?.model_account_pct != null ? "model_account_pct" : "equity_ratio",
+        };
+      } else if (!sized.ok && (sized.reason === "account_too_small_for_one_share" || sized.reason === "below_min_notional")) {
         return {
           ok: false,
-          reject_reason: `account_too_small_for_investor_mirror_${liveEquity.toFixed(0)}_lt_${(modelCapital / Math.max(1, modelQty)).toFixed(0)}`,
+          reject_reason: `account_too_small_to_mirror_${liveEquity.toFixed(0)}_${sized.reason}`,
           equity_usd: liveEquity,
-          model_capital_usd: modelCapital,
-          model_qty: modelQty,
+          model_book_usd: modelBook,
+          model_qty: Number(payload?.qty) || 0,
+          entry: entryPx,
         };
       }
+      // sized.fallback (missing price/equity) → leave payload.qty, caps below apply.
     }
   }
 

@@ -73,6 +73,21 @@ BROKER_OCO_ENABLED = "false"
 # explicit broker_account_id on the order always targets one account.
 BROKER_FANOUT_ENABLED = "false"
 
+# 2026-07-21 — Relational position sizing. When "true" (default) an entry's
+# qty is scaled to the real account: model deploys X% of its book, so the
+# account deploys X% of ITS equity (e.g. a $16.5k Roth mirrors a $100k model
+# at ~0.165x). "false" restores raw model qty (caps still apply).
+BROKER_RELATIONAL_SIZING = "true"
+# The model's book size used as the sizing reference (its starting/nominal
+# port balance). Override per deploy; the main worker may also send
+# model_capital_usd / model_account_pct per order for higher fidelity.
+MODEL_BOOK_BASE_USD = "100000"
+# Fractional shares: when "true" (default) relational sizing keeps a decimal
+# qty for brokers that support it (Webull); else it floors to whole shares.
+BROKER_FRACTIONAL_ENABLED = "true"
+# Minimum notional for a fractional order (skip dust). Webull ~$5.
+BROKER_FRACTIONAL_MIN_USD = "5"
+
 # 2026-06-01 — Phase E daily owner digest dry-run flag.
 # When "true" the 21:30 UTC cron BUILDS digests but does NOT enqueue
 # them for the main-worker SendGrid send. Useful for first-day rollout

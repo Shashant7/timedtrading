@@ -132,6 +132,8 @@ export const BROKER_REGISTRY = {
       },
       // 2026-07-20: equity limit + stop wired; OCO via emulated SL/TP children
       // (place-after-entry + cancel-sibling-on-fill), gated by BROKER_OCO_ENABLED.
+      // 2026-07-21: fractional shares wired (decimal QTY) for small-account
+      // relational sizing (e.g. Roth IRA ~$16.5k vs $100k model book).
       adapter: {
         equity: orderKinds({ market: true, limit: true, stop: true, stop_limit: true }),
         options: orderKinds({ limit: true }),
@@ -139,7 +141,7 @@ export const BROKER_REGISTRY = {
         bracket: false,
         oco: true,
         replace: false,
-        fractional: false,
+        fractional: true,
         list_accounts: true,
         read_positions: true,
         read_fills: true,
