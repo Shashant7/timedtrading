@@ -8,12 +8,14 @@
 //  scrape) frequently surface NOTHING, so big prints like Non-Farm Payrolls
 //  never showed. This module provides a CURATED, reliable schedule of the
 //  high-impact US releases (NFP, CPI, PPI, FOMC, PCE, JOLTS, Retail Sales,
-//  sentiment/ISM) and merges in any live actuals/estimates we do manage to
+//  sentiment/ISM) plus monthly Options Expiration (3rd Friday / triple
+//  witching) and merges in any live actuals/estimates we do manage to
 //  fetch. Curated entries carry the scheduled date + ET time; `actual` fills
 //  in from the live feed (or stays null until the print lands).
 //
 //  Maintenance: extend CURATED_UPCOMING each quarter. The schedule is sourced
 //  from the FSD "First Word" incoming-data block + the published FOMC calendar.
+//  OpEx is generated (see opex-calendar.js) — no hand curation needed.
 //  TODO(roadmap): auto-extract this from ingested FSD notes so it self-updates.
 
 import {
@@ -21,6 +23,7 @@ import {
   macroEventCanonicalKey,
   mergeMacroEventRow,
 } from "./macro-event-canonical.js";
+import { listOpexMacroEvents, syncOpexIntoMarketEvents } from "./opex-calendar.js";
 
 // Each entry: { date: "YYYY-MM-DD", time_et: "8:30 AM", name, impact, kind, estimate? }
 export const CURATED_UPCOMING_MACRO = [
@@ -88,6 +91,20 @@ export async function getUpcomingMacroEvents(env, { days = 14, includeLowImpact 
       kind: e.kind || "macro", estimate: e.estimate || null, actual: null, source: "curated",
     });
   }
+
+  // Monthly OpEx / triple witching — generated 3rd Fridays (not hand-curated).
+  for (const e of listOpexMacroEvents({ fromDate: today, toDate: horizon, months: 8 })) {
+    byKey.set(normKey(e.date, e.name), {
+      date: e.date, time_et: e.time_et || null, name: e.name, impact: e.impact,
+      kind: e.kind || "opex", estimate: null, actual: null, source: "opex_calendar",
+    });
+  }
+
+  // Keep market_events in sync so entry/exit risk gates see OpEx without
+  // waiting on the next Daily Brief persist.
+  try {
+    await syncOpexIntoMarketEvents(env, { months: 4 });
+  } catch (_) { /* best-effort */ }
 
   // 2026-06-05 — FSD-extracted events (self-updating from ingested notes).
   let fsdCount = 0;
