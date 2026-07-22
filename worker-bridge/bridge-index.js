@@ -1404,6 +1404,20 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   const review = await reviewOrder(env, user, sanitized);
   const reviewWarnings = review?.response?.warnings || review?.response?.review?.warnings || [];
   const reviewOk = review.ok && (!Array.isArray(reviewWarnings) || reviewWarnings.length === 0);
+  // 2026-07-22 — Reject reason now surfaces the ACTUAL broker error when the
+  // review call itself failed (previously we always templated
+  // `review_warnings:[]` even when review.ok was false with a real error
+  // like INVALID_PARAMETER, hiding the true cause in the audit list).
+  let reviewRejectReason = null;
+  if (!reviewOk) {
+    if (Array.isArray(reviewWarnings) && reviewWarnings.length > 0) {
+      reviewRejectReason = `review_warnings:${JSON.stringify(reviewWarnings).slice(0, 200)}`;
+    } else {
+      const errCode = review?.response?.error_code || review?.response?.code || review?.error_code || null;
+      const errMsg = review?.response?.message || review?.response?.msg || review?.error || review?.message || "unknown_review_error";
+      reviewRejectReason = `review_error:${errCode ? errCode + ":" : ""}${String(errMsg).slice(0, 180)}`;
+    }
+  }
   await writeAudit(env, {
     ts: Date.now(),
     user_id: sanitized.user_id,
@@ -1415,12 +1429,12 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     price_target: sanitized.entry,
     estimated_value: estValue,
     status: reviewOk ? "ok" : "rejected",
-    reject_reason: reviewOk ? null : `review_warnings:${JSON.stringify(reviewWarnings).slice(0, 200)}`,
+    reject_reason: reviewRejectReason,
     response_json: review.response || review,
     latency_ms: review.latency_ms,
   });
   if (!reviewOk) {
-    return json({ ok: false, rejected: true, reject_reason: "review_failed", review_response: review.response || review }, 200);
+    return json({ ok: false, rejected: true, reject_reason: reviewRejectReason || "review_failed", review_response: review.response || review }, 200);
   }
 
   // 3.5 — Ground-truth reducer guard. Before selling, confirm the account
