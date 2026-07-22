@@ -115,9 +115,9 @@ describe("Ready Setups zone-bar cards", () => {
     expect(container.textContent).toMatch(/Inv\s+\$/);
     expect(container.textContent).toMatch(/PB\s+\$/);
     expect(container.textContent).toMatch(/Tgt\s+\$/);
-    // Both lane badges present.
-    expect(container.textContent).toMatch(/TRADER/);
-    expect(container.textContent).toMatch(/INVESTOR/);
+    // Both lane badges present (model-first labels: Short / Long Term).
+    expect(container.textContent).toMatch(/SHORT\s*TERM/);
+    expect(container.textContent).toMatch(/LONG\s*TERM/);
     // Save star (unfilled).
     expect(container.textContent).toContain("\u2606");
     act(() => { root.unmount(); });
