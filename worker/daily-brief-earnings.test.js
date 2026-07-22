@@ -4,6 +4,9 @@ import {
   summarizeEarningsWeek,
   buildEarningsCalendarDigest,
   BANK_EARNINGS_TICKERS,
+  normalizeTdEarningsHour,
+  flattenTdEarningsCalendar,
+  mergeEarningsEventLists,
 } from "./daily-brief.js";
 
 describe("prioritizeWeekEarnings", () => {
@@ -50,10 +53,73 @@ describe("summarizeEarningsWeek", () => {
     expect(s.label).toMatch(/bank/i);
   });
 
-  it("does not claim light week when empty", () => {
+  it("does not claim light week when empty, and label stays user-safe", () => {
     const s = summarizeEarningsWeek([]);
     expect(s.intensity).toBe("unknown");
     expect(s.label).not.toMatch(/light earnings week/i);
+    expect(s.label).not.toMatch(/omit|do not say|do not claim/i);
+    expect(s.label).toBe("Earnings calendar unavailable");
+  });
+});
+
+describe("normalizeTdEarningsHour", () => {
+  it("maps TwelveData and Finnhub time strings", () => {
+    expect(normalizeTdEarningsHour("Pre Market")).toBe("bmo");
+    expect(normalizeTdEarningsHour("Before Market Open")).toBe("bmo");
+    expect(normalizeTdEarningsHour("After Hours")).toBe("amc");
+    expect(normalizeTdEarningsHour("After Market Close")).toBe("amc");
+    expect(normalizeTdEarningsHour("bmo")).toBe("bmo");
+    expect(normalizeTdEarningsHour("Time Not Supplied")).toBe("");
+  });
+});
+
+describe("flattenTdEarningsCalendar", () => {
+  it("flattens US rows and skips non-US without US MIC", () => {
+    const flat = flattenTdEarningsCalendar({
+      earnings: {
+        "2026-07-22": [
+          {
+            symbol: "NFLX",
+            country: "United States",
+            mic_code: "XNAS",
+            time: "After Hours",
+            eps_estimate: 5.1,
+          },
+          {
+            symbol: "SAP",
+            country: "Germany",
+            mic_code: "XETR",
+            time: "Pre Market",
+            eps_estimate: 1.2,
+          },
+        ],
+      },
+    });
+    expect(flat).toHaveLength(1);
+    expect(flat[0]).toMatchObject({
+      symbol: "NFLX",
+      date: "2026-07-22",
+      hour: "amc",
+      epsEstimate: 5.1,
+      _source: "twelvedata",
+    });
+  });
+});
+
+describe("mergeEarningsEventLists", () => {
+  it("unions by symbol|date and fills missing fields", () => {
+    const merged = mergeEarningsEventLists(
+      [{ symbol: "jpm", date: "2026-07-14", hour: "bmo", epsEstimate: 4.5, _source: "finnhub" }],
+      [{ symbol: "JPM", date: "2026-07-14", revenueEstimate: 49e9, _source: "twelvedata" }],
+      [{ symbol: "BAC", date: "2026-07-14", hour: "bmo", _source: "kv_cache" }],
+    );
+    expect(merged).toHaveLength(2);
+    const jpm = merged.find((e) => e.symbol === "JPM");
+    expect(jpm.hour).toBe("bmo");
+    expect(jpm.epsEstimate).toBe(4.5);
+    expect(jpm.revenueEstimate).toBe(49e9);
+    expect(jpm._source).toMatch(/finnhub/);
+    expect(jpm._source).toMatch(/twelvedata/);
   });
 });
 
@@ -74,5 +140,17 @@ describe("buildEarningsCalendarDigest", () => {
     expect(digest.weekBlock).toMatch(/JPM/);
     expect(digest.weekBlock).toMatch(/big bank day/i);
     expect(digest.promptBlock).toMatch(/WEEK INTENSITY/);
+  });
+
+  it("keeps empty-calendar guardrails out of UI summary line", () => {
+    const digest = buildEarningsCalendarDigest({
+      today: "2026-07-22",
+      todayEarnings: [],
+      weekEarnings: [],
+    });
+    expect(digest.weekSummaryLine).toBeNull();
+    expect(digest.promptBlock).toMatch(/WEEK INTENSITY: unavailable/);
+    expect(digest.promptBlock).not.toMatch(/omit week-intensity claims; do not say light or heavy/);
+    expect(digest.weekBlock).toBe("(no calendar rows)");
   });
 });
