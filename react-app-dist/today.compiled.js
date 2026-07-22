@@ -6025,7 +6025,7 @@ function EndCTA() {
   }, h("a", {
     href: "/active-trader.html",
     className: "primary"
-  }, "Open Active Trader", h("svg", {
+  }, "Open Model board", h("svg", {
     width: 14,
     height: 14,
     viewBox: "0 0 24 24",
@@ -6042,8 +6042,6 @@ function EndCTA() {
   }), h("polyline", {
     points: "12 5 19 12 12 19"
   }))), h("a", {
-    href: "/investor.html"
-  }, "Open Investor"), h("a", {
     href: "/portfolio.html"
   }, "Open Portfolio"));
 }
@@ -6924,6 +6922,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784750967645:348930418
+// cache-bust:1784754391593:986595268
 
-// cache-bust:1784750967645:348930418
+// cache-bust:1784754391593:986595268

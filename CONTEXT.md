@@ -423,6 +423,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - **80M rows-written billing alert (2026-06-22):** monthly cumulative, not incident — Jun 18 mining/replay burst + normal RTH crons; live prices = KV `timed:prices`, chart candle sync can lag ~5m; see `docs/d1-billing-investigation-2026-06-22.md`
 
 **Price / Frontend**
+- **Short Term rail (SETUP)**: Timing → Plan → Reference Levels only — never re-add Profile / Sector & Market / Sequence unless the operator explicitly asks (2026-07-22 misread restored them; corrected).
 - `getDailyChange(t)` from shared-price-utils.js — never inline daily change
 - TwelveData native fields over manual `price - prevClose`
 - `timed:prices` keys: `p`, `pc`, `dc`, `dp`, `ahp`, `ahdc`, `ahdp`

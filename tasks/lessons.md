@@ -6,6 +6,17 @@
 
 ---
 
+## Short Term rail: Profile / Sector / Sequence stay OFF [2026-07-22]
+
+Model-first Short Term tab is **Timing → Plan → Reference Levels only**.
+An operator message was misread as "should still show Profile, Sector &
+Market and Sequence" and those panels were wrongly restored in r2 — the
+intent was the opposite (they should **not** show). Do not re-add them
+unless explicitly asked. Behavior Profile / Sequence helpers may remain
+on Technicals / Context, not on SETUP/Short Term.
+
+---
+
 ## Ghost/stale price closed AMZN 3x — every live close needs a price-sanity gate [2026-07-20]
 
 AMZN LONG entered `$251.71`, then `sl_breached` closed at **`$236.02`**

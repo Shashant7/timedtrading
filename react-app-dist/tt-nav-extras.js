@@ -385,10 +385,11 @@
   // without falling into the legacy /index-react.html.
   // Admin-only links (System Intelligence, Screener, …) stay where
   // they were — we just prepend the journey row.
+  // 2026-07-22 model-first: Active Trader + Investor merged into "Model"
+  // (the unified board). /investor.html redirects there.
   const JOURNEY_LINKS = [
     { href: "/today.html",         label: "Today",         match: ["/today"] },
-    { href: "/active-trader.html", label: "Active Trader", match: ["/active-trader"] },
-    { href: "/investor.html",      label: "Investor",      match: ["/investor"] },
+    { href: "/active-trader.html", label: "Model",         match: ["/active-trader", "/investor"] },
     { href: "/portfolio.html",     label: "Portfolio",     match: ["/portfolio"] },
     { href: "/insights.html",      label: "Insights",      match: ["/insights"] },
     { href: "/learn.html",         label: "Learn",         match: ["/learn"], extraCls: "learn" },
@@ -633,8 +634,10 @@
   // Fetch both nav counts and apply them. Safe to call repeatedly.
   function refreshBadges() {
     Promise.all([fetchOpenTradeCount(), fetchInvestorActionableCount()]).then(([traderN, investorN]) => {
-      setBadge("Active Trader", traderN, "up");
-      setBadge("Investor", investorN, "up");
+      // 2026-07-22 model-first: one Model badge — open trades + actionable
+      // long-term names (the unified board carries both books).
+      const total = (Number(traderN) || 0) + (Number(investorN) || 0);
+      setBadge("Model", total > 0 ? total : null, "up");
       try {
         window.dispatchEvent(new CustomEvent("tt-nav-badges-updated", {
           detail: { trader: traderN, investor: investorN },
@@ -727,7 +730,6 @@
       const pages = [
         "/today.html",
         "/active-trader.html",
-        "/investor.html",
         "/portfolio.html",
         "/insights.html",
       ].filter((p) => p !== here);
@@ -742,4 +744,4 @@
   })();
 })();
 
-// cache-bust:1784750967645:348930418
+// cache-bust:1784754391593:986595268
