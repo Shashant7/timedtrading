@@ -88,28 +88,87 @@ export function validateVehiclePrefs(payload, user) {
     return { ok: false, reject_reason: `unknown_vehicle:${vehicle}` };
   }
   const prefsVehicles = user?.options_prefs?.vehicles || {};
-  // Conservative defaults when no prefs exist: every option vehicle is
-  // OFF; equity_long is ON. Mirrors VEHICLE_DEFAULTS in the engine.
   const defaultEnabled = vehicle === "equity_long";
   const row = prefsVehicles[vehicle];
   const enabled = row ? !!row.enabled : defaultEnabled;
   if (!enabled) {
     return { ok: false, reject_reason: `vehicle_${vehicle}_disabled_by_user` };
   }
-  // Per-vehicle notional cap (when a price is supplied).
+  return { ok: true, vehicle, vehicle_row: row };
+}
+
+/**
+ * 2026-07-22 — Per-vehicle notional cap, split out of validateVehiclePrefs
+ * so it can run AFTER relational sizing in preflightOrder. Previously the
+ * cap was checked against the model's un-scaled qty (a $100k paper book
+ * says "buy 59 SPHB @ $145 = $8640"), which rejected every real order for
+ * a small IRA whose per-vehicle cap was set to a testing default like $300.
+ *
+ * For `equity_long`: SCALE-TO-FIT (mirrors the global per-order cap at the
+ * bottom of preflightOrder). Small fractional stock orders always execute
+ * something instead of nothing — the operator's explicit ask (see comments
+ * at line 585). Fractional support required; falls back to reject when
+ * disabled + one whole share doesn't fit under the cap.
+ *
+ * For option vehicles: HARD REJECT. Options are integer-contract counts
+ * with asymmetric payoff; silently shrinking a size does not preserve
+ * intent (one fewer contract can flip a spread's risk profile). The
+ * operator opts into option orders via explicit vehicle prefs and the
+ * cap is a hard safety ceiling.
+ *
+ * @param {object} payload  post-sizing (qty already scaled if applicable)
+ * @param {object} user     bridge user row
+ * @param {object} [opts]
+ * @param {boolean} [opts.allowScaleToFit=true]  scale equity_long to fit
+ * @param {number}  [opts.minEquityOrderUsd=1]   don't place a zero-share order
+ */
+export function applyVehicleNotionalCap(payload, user, opts = {}) {
+  const vehicle = payload?.vehicle ? String(payload.vehicle).trim().toLowerCase() : null;
+  if (!vehicle || !RECOGNIZED_VEHICLES.has(vehicle)) return { ok: true };
+  const row = user?.options_prefs?.vehicles?.[vehicle];
+  const cap = Number(row?.max_per_order_usd) || 0;
+  if (cap <= 0) return { ok: true, vehicle };
+
   const entry = Number(payload.entry || payload.price_target || 0);
   const qty = Number(payload.qty || 0);
-  if (entry > 0 && qty > 0 && row && Number(row.max_per_order_usd) > 0) {
-    const estValue = entry * qty;
-    if (estValue > Number(row.max_per_order_usd)) {
-      return {
-        ok: false,
-        reject_reason: `vehicle_${vehicle}_notional_${estValue.toFixed(0)}_exceeds_cap_${row.max_per_order_usd}`,
-        vehicle, estimated_value: estValue, vehicle_cap: row.max_per_order_usd,
-      };
-    }
+  if (!(entry > 0) || !(qty > 0)) return { ok: true, vehicle };
+  const estValue = entry * qty;
+  if (estValue <= cap) return { ok: true, vehicle, estimated_value: estValue, vehicle_cap: cap };
+
+  const allowScale = opts.allowScaleToFit !== false && vehicle === "equity_long";
+  if (!allowScale) {
+    return {
+      ok: false,
+      reject_reason: `vehicle_${vehicle}_notional_${estValue.toFixed(0)}_exceeds_cap_${cap}`,
+      vehicle, estimated_value: estValue, vehicle_cap: cap,
+    };
   }
-  return { ok: true, vehicle, vehicle_row: row };
+
+  const minUsd = Number(opts.minEquityOrderUsd) || 1;
+  // Prefer fractional so the trimmed order still meaningfully scales; if a
+  // whole share won't fit under the cap we reject so we don't place a
+  // 0-share order silently.
+  let scaledQty = cap / entry;
+  if (!opts.fractional) {
+    scaledQty = Math.floor(scaledQty);
+  } else {
+    // Round to 4 decimals — matches roundQtyForBroker's Webull precision.
+    scaledQty = Math.floor(scaledQty * 10000) / 10000;
+  }
+  const scaledValue = scaledQty * entry;
+  if (!(scaledQty > 0) || scaledValue < minUsd) {
+    return {
+      ok: false,
+      reject_reason: `vehicle_${vehicle}_cap_${cap}_below_min_share_price_${entry.toFixed(2)}`,
+      vehicle, estimated_value: estValue, vehicle_cap: cap,
+    };
+  }
+  return {
+    ok: true, vehicle, scaled: true,
+    original_qty: qty, scaled_qty: scaledQty,
+    original_value: estValue, scaled_value: scaledValue,
+    vehicle_cap: cap,
+  };
 }
 
 // 2026-06-01 — Phase B: manifest-aware reducer.
@@ -480,6 +539,14 @@ export async function preflightOrder(env, payload) {
   // 2026-06-01 — Per-vehicle prefs gate (PR #412 — option archetypes
   // only). Equity orders without a `vehicle` field bypass this and use
   // the global caps below.
+  // 2026-07-22 — Only the ENABLE gate runs here (fast reject if the user
+  // disabled the vehicle). The per-vehicle NOTIONAL cap check moved BELOW
+  // the relational-sizing block so the cap applies to the actual broker
+  // qty, not the model's paper-book qty. SPHB/XLK on the Roth IRA were
+  // being rejected by validateVehiclePrefs against the model's $8640/$9504
+  // notional against a $300 cap, before relational sizing had a chance to
+  // scale them down to ~$1.4k each (which would still exceed a $300 cap,
+  // but that's what scale-to-fit is for).
   const vehicleCheck = validateVehiclePrefs(payload, user);
   if (!vehicleCheck.ok) return vehicleCheck;
 
@@ -546,6 +613,37 @@ export async function preflightOrder(env, payload) {
         };
       }
       // sized.fallback (missing price/equity) → leave payload.qty, caps below apply.
+    }
+  }
+
+  // 2026-07-22 — Per-vehicle notional cap check, POST-sizing. Rejects any
+  // option order whose (post-sizing) notional exceeds its per-vehicle cap
+  // and scale-to-fits equity_long orders so a stored small-account safety
+  // cap ($300) no longer nukes the whole mirror — the user gets a smaller
+  // but real order instead of nothing (parity with the global per-order
+  // cap logic below). Only runs for entries/adds because the sizing block
+  // itself is scoped that way; reducers close what's actually held.
+  if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
+    const brokerId = resolveBrokerId(user) || user?.broker || null;
+    const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
+    const fractionalOn = fractionalCap
+      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false";
+    const vehCap = applyVehicleNotionalCap(payload, user, {
+      fractional: fractionalOn,
+      minEquityOrderUsd: Number(env?.BROKER_FRACTIONAL_MIN_USD) || 1,
+    });
+    if (!vehCap.ok) return vehCap;
+    if (vehCap.scaled) {
+      console.log(`[BRIDGE_VCAP_SCALE] ${userId}/${payload.ticker} ${vehCap.vehicle}: notional-cap trim ${vehCap.original_qty}→${vehCap.scaled_qty} ($${vehCap.original_value.toFixed(0)}→$${vehCap.scaled_value.toFixed(0)} cap $${vehCap.vehicle_cap})`);
+      payload.qty = vehCap.scaled_qty;
+      payload._vehicle_cap_scaling = {
+        vehicle: vehCap.vehicle,
+        original_qty: vehCap.original_qty,
+        scaled_qty: vehCap.scaled_qty,
+        original_value: vehCap.original_value,
+        scaled_value: vehCap.scaled_value,
+        vehicle_cap: vehCap.vehicle_cap,
+      };
     }
   }
 

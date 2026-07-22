@@ -711,8 +711,17 @@ export default {
           "equity_long", "long_call", "long_put", "vertical_spread",
           "leaps", "straddle", "moonshot",
         ]);
+        // 2026-07-22 — equity_long bumped from a 3/day + $300 preset that
+        // was clearly copy-pasted from the options-moonshot rows below.
+        // A real small IRA (e.g. Roth $16.5k) can't mirror trader entries
+        // at $300 — SPHB 9.7 shares × $145 = $1,420 alone exceeds it and
+        // was hard-rejected pre-fix. New default: $5,000/order (matches
+        // DEFAULT_MAX_ORDER_USD, which is the global governing cap
+        // anyway) + 10 orders/day. Post-sizing scale-to-fit in
+        // applyVehicleNotionalCap now guarantees an order still lands
+        // even if a user leaves the cap low intentionally.
         const SMALL_ACCOUNT_DEFAULTS = {
-          equity_long:     { enabled: true,  daily_cap: 3, max_per_order_usd: 300 },
+          equity_long:     { enabled: true,  daily_cap: 10, max_per_order_usd: 5000 },
           long_call:       { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
           long_put:        { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
           vertical_spread: { enabled: false, daily_cap: 2, max_per_order_usd: 200, max_loss_per_order_usd: 75 },
