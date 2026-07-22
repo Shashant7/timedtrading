@@ -889,7 +889,16 @@ function ATCard({
         fontFamily: "var(--tt-font-mono)"
       },
       title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
-    }, cardBiasLabel), stageChip && h("span", {
+    }, cardBiasLabel), t?._model_path === "long_term" && h("span", {
+      className: "ds-chip ds-chip--sm",
+      title: "Long-term holding — the model is using its long-horizon path for this position",
+      style: {
+        fontFamily: "var(--tt-font-mono)",
+        background: "rgba(192,132,252,0.12)",
+        border: "1px solid rgba(192,132,252,0.30)",
+        color: "#c084fc"
+      }
+    }, "LT"), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`,
       title: stageChip.title || undefined
     }, stageChip.label), ...patternChips.map(p => h("span", {
@@ -979,7 +988,7 @@ function KanbanLane({
     isSaved: savedSet.has(String(t.ticker).toUpperCase()),
     onToggleSaved,
     onOpen,
-    openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || null),
+    openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || t?._openTrade || null),
     tradesLoaded
   })))));
 }
@@ -1234,7 +1243,7 @@ function ATBubbleMap({
     if (!lanes) return [];
     const seen = new Set();
     const out = [];
-    for (const arr of [lanes.setup, lanes.enter, lanes.new, lanes.hold, lanes.defend, lanes.trim, lanes.exit]) {
+    for (const arr of Object.values(lanes || {})) {
       if (!Array.isArray(arr)) continue;
       for (const t of arr) {
         const sym = String(t?.ticker || "").toUpperCase();
@@ -1500,6 +1509,59 @@ function ActiveTraderApp() {
     cache: sparkCache,
     ensure: ensureSpark
   } = useSparklineCache();
+  const [investorBook, setInvestorBook] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [scoresResp, posResp] = await Promise.all([fetch(`${API_BASE}/timed/investor/scores`, {
+          credentials: "include"
+        }).then(r => r.json()).catch(() => null), fetch(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`, {
+          credentials: "include"
+        }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+        if (!alive) return;
+        const rows = Array.isArray(scoresResp?.tickers) ? scoresResp.tickers : [];
+        const posBySym = new Map();
+        for (const p of posResp?.positions || []) {
+          if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+          if (!(Number(p?.total_shares) > 0)) continue;
+          posBySym.set(String(p?.ticker || "").toUpperCase(), p);
+        }
+        setInvestorBook({
+          rows,
+          posBySym
+        });
+      } catch (_) {
+        if (alive) setInvestorBook({
+          rows: [],
+          posBySym: new Map()
+        });
+      }
+    })();
+    const iv = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/timed/investor/positions?status=OPEN&compact=true`, {
+          credentials: "include"
+        });
+        if (!r.ok || !alive) return;
+        const j = await r.json();
+        const posBySym = new Map();
+        for (const p of j?.positions || []) {
+          if (String(p?.status || "").toUpperCase() !== "OPEN") continue;
+          if (!(Number(p?.total_shares) > 0)) continue;
+          posBySym.set(String(p?.ticker || "").toUpperCase(), p);
+        }
+        setInvestorBook(prev => ({
+          rows: prev?.rows || [],
+          posBySym
+        }));
+      } catch (_) {}
+    }, 120000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
   const allTickers = useMemo(() => {
     if (!data) return [];
     const raw = Object.entries(data).filter(([k, v]) => !!k && v && typeof v === "object").map(([k, v]) => v && v.ticker ? v : {
@@ -1639,14 +1701,87 @@ function ActiveTraderApp() {
     return injected.length ? mapped.concat(injected) : mapped;
   }, [data, tradeByTicker, closedByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
+  const modelLanes = useMemo(() => {
+    const onBoard = new Set();
+    for (const key of ["setup", "enter", "new", "hold", "defend", "trim", "exit"]) {
+      for (const t of lanes[key] || []) {
+        const s = String(t?.ticker || "").toUpperCase();
+        if (s) onBoard.add(s);
+      }
+    }
+    const bySym = new Map();
+    for (const t of allTickers) {
+      const s = String(t?.ticker || "").toUpperCase();
+      if (s && !bySym.has(s)) bySym.set(s, t);
+    }
+    const invQueue = [];
+    const invBought = [];
+    const invTrim = [];
+    const invExit = [];
+    const rows = investorBook?.rows || [];
+    const posBySym = investorBook?.posBySym || new Map();
+    for (const row of rows) {
+      const sym = String(row?.ticker || "").toUpperCase();
+      if (!sym || onBoard.has(sym)) continue;
+      const pos = posBySym.get(sym) || null;
+      const owned = !!pos || !!row?.position?.owned;
+      const stage = String(row?.stage || "").toLowerCase();
+      const base = bySym.get(sym) || {
+        ticker: sym,
+        price: Number(row?._live_price ?? row?.price) || null
+      };
+      const invPos = pos || row?.position || null;
+      const avgEntry = Number(invPos?.avg_entry) || 0;
+      const shares = Number(invPos?.total_shares ?? invPos?.shares) || 0;
+      const invTrade = owned && avgEntry > 0 ? {
+        ticker: sym,
+        direction: "LONG",
+        status: "OPEN",
+        entry_price: avgEntry,
+        entryPrice: avgEntry,
+        shares,
+        _source_mode: "investor"
+      } : null;
+      const enriched = {
+        ...base,
+        ticker: sym,
+        _model_path: "long_term",
+        _investorStage: stage,
+        _openTrade: invTrade || base?._openTrade || null,
+        has_open_position: owned || !!base?.has_open_position,
+        position_direction: owned ? "LONG" : base?.position_direction || null
+      };
+      const recentlyExited = stage === "exited" || row?.recentlyExited && typeof row.recentlyExited === "object";
+      if (recentlyExited) {
+        invExit.push(enriched);
+        continue;
+      }
+      if (owned) {
+        if (stage === "reduce") invTrim.push(enriched);else invBought.push(enriched);
+        continue;
+      }
+      if (stage === "accumulate" || stage === "accumulate_queued" || stage === "research_on_watch") {
+        invQueue.push(enriched);
+      }
+    }
+    const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+    invBought.sort(byAlpha);
+    invTrim.sort(byAlpha);
+    return {
+      queue: [...lanes.enter, ...lanes.setup, ...invQueue],
+      bought: [...lanes.new, ...lanes.hold, ...invBought].sort(byAlpha),
+      defend: lanes.defend,
+      trim: [...lanes.trim, ...invTrim].sort(byAlpha),
+      exit: [...lanes.exit, ...invExit]
+    };
+  }, [lanes, allTickers, investorBook]);
   const laneCounts = useMemo(() => ({
-    setup: lanes.setup.length,
-    review: lanes.enter.length,
-    hold: lanes.hold.length,
-    defend: lanes.defend.length,
-    trim: lanes.trim.length,
-    exit: lanes.exit.length
-  }), [lanes]);
+    queue: modelLanes.queue.length,
+    bought: modelLanes.bought.length,
+    defend: modelLanes.defend.length,
+    trim: modelLanes.trim.length,
+    exit: modelLanes.exit.length
+  }), [modelLanes]);
   const displayLanes = useMemo(() => {
     const q = searchQuery.trim().toUpperCase();
     const match = list => {
@@ -1654,50 +1789,28 @@ function ActiveTraderApp() {
       return list.filter(t => String(t?.ticker || "").toUpperCase().includes(q));
     };
     const base = {
-      setup: match(lanes.setup),
-      enter: match(lanes.enter),
-      new: match(lanes.new),
-      hold: match(lanes.hold),
-      defend: match(lanes.defend),
-      trim: match(lanes.trim),
-      exit: match(lanes.exit)
+      queue: match(modelLanes.queue),
+      bought: match(modelLanes.bought),
+      defend: match(modelLanes.defend),
+      trim: match(modelLanes.trim),
+      exit: match(modelLanes.exit)
     };
     if (!filterLane) return base;
     const empty = {
-      setup: [],
-      enter: [],
-      new: [],
-      hold: [],
+      queue: [],
+      bought: [],
       defend: [],
       trim: [],
       exit: []
     };
-    if (filterLane === "setup") return {
-      ...empty,
-      setup: base.setup
-    };
-    if (filterLane === "review") return {
-      ...empty,
-      enter: base.enter
-    };
-    if (filterLane === "hold") return {
-      ...empty,
-      hold: base.hold
-    };
-    if (filterLane === "defend") return {
-      ...empty,
-      defend: base.defend
-    };
-    if (filterLane === "trim") return {
-      ...empty,
-      trim: base.trim
-    };
-    if (filterLane === "exit") return {
-      ...empty,
-      exit: base.exit
-    };
+    if (Object.prototype.hasOwnProperty.call(base, filterLane)) {
+      return {
+        ...empty,
+        [filterLane]: base[filterLane]
+      };
+    }
     return base;
-  }, [lanes, searchQuery, filterLane]);
+  }, [modelLanes, searchQuery, filterLane]);
   useEffect(() => {
     if (!ensureSpark) return;
     const syms = new Set();
@@ -1823,9 +1936,9 @@ function ActiveTraderApp() {
     className: "at-hero"
   }, h("div", null, h("div", {
     className: "label"
-  }, "ACTIVE TRADER"), h("h1", null, "What the model is trading"), h("div", {
+  }, "MODEL"), h("h1", null, "What the model is doing"), h("div", {
     className: "sub"
-  }, "Swing trades — typically 1–10 day holds. Click any card to deep-dive in the full chart + right rail.")), loading ? h("div", {
+  }, "One board for every model position — short-term swings and long-term holdings. Queuing Up → Bought → Defending → Trimming → Exited. Click any card to deep-dive.")), loading ? h("div", {
     className: "pills"
   }, h("span", {
     className: "sk",
@@ -1915,36 +2028,31 @@ function ActiveTraderApp() {
     onClick: () => setFilterLane(null),
     title: "Show all lanes"
   }, "All"), h("button", {
-    className: "at-chip" + (filterLane === "setup" ? " active" : ""),
-    onClick: () => setFilterLane(filterLane === "setup" ? null : "setup"),
-    disabled: laneCounts.setup === 0,
-    title: "Tickers forming a setup but not yet triggered"
-  }, `Setup${laneCounts.setup > 0 ? ` (${laneCounts.setup})` : ""}`), h("button", {
-    className: "at-chip" + (filterLane === "review" ? " active" : ""),
-    onClick: () => setFilterLane(filterLane === "review" ? null : "review"),
-    disabled: laneCounts.review === 0,
-    title: "Tickers signaling entry — under operator review"
-  }, `Trigger Ready${laneCounts.review > 0 ? ` (${laneCounts.review})` : ""}`), h("button", {
-    className: "at-chip" + (filterLane === "hold" ? " active" : ""),
-    onClick: () => setFilterLane(filterLane === "hold" ? null : "hold"),
-    disabled: laneCounts.hold === 0,
-    title: "Open positions that the model is holding"
-  }, `Hold${laneCounts.hold > 0 ? ` (${laneCounts.hold})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "queue" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "queue" ? null : "queue"),
+    disabled: laneCounts.queue === 0,
+    title: "Setups forming or triggered — the model is queuing an entry"
+  }, `Queuing Up${laneCounts.queue > 0 ? ` (${laneCounts.queue})` : ""}`), h("button", {
+    className: "at-chip" + (filterLane === "bought" ? " active" : ""),
+    onClick: () => setFilterLane(filterLane === "bought" ? null : "bought"),
+    disabled: laneCounts.bought === 0,
+    title: "Open positions the model holds (short-term and long-term)"
+  }, `Bought${laneCounts.bought > 0 ? ` (${laneCounts.bought})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "defend" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "defend" ? null : "defend"),
     disabled: laneCounts.defend === 0,
     title: "Open positions where the model wants the stop tightened"
-  }, `Defend${laneCounts.defend > 0 ? ` (${laneCounts.defend})` : ""}`), h("button", {
+  }, `Defending${laneCounts.defend > 0 ? ` (${laneCounts.defend})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "trim" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "trim" ? null : "trim"),
     disabled: laneCounts.trim === 0,
-    title: "Positions with a partial trim executed today (not trim signals awaiting execution)"
-  }, `Trim${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
+    title: "Positions the model is taking profits on"
+  }, `Trimming${laneCounts.trim > 0 ? ` (${laneCounts.trim})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "exit" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "exit" ? null : "exit"),
     disabled: laneCounts.exit === 0,
-    title: "Recently closed model trades (visible 24h)"
-  }, `Closed${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
+    title: "Recently closed model positions (visible 24h)"
+  }, `Exited${laneCounts.exit > 0 ? ` (${laneCounts.exit})` : ""}`))), loading ? [0, 1, 2, 3, 4, 5, 6].map(i => h("div", {
     key: i,
     className: "lane"
   }, h("div", {
@@ -1972,46 +2080,12 @@ function ActiveTraderApp() {
     style: {
       width: 280
     }
-  })))))) : [h(KanbanBandHeader, {
-    key: "band-w",
-    band: "watching",
-    label: "WATCHING",
-    hint: "Monitoring — no action expected yet"
-  }), h(KanbanLane, {
-    key: "setup",
-    id: "setup",
-    title: "Watchlist",
-    accentClass: "setup",
-    tickers: displayLanes.setup,
-    sparkCache,
-    savedSet: saved,
-    onToggleSaved: toggleSaved,
-    onOpen,
-    tradeByTicker,
-    tradesLoaded
-  }), h(KanbanLane, {
-    key: "review",
-    id: "review",
-    title: "Trigger Ready",
+  })))))) : [h(KanbanLane, {
+    key: "queue",
+    id: "queue",
+    title: "Queuing Up",
     accentClass: "review",
-    tickers: displayLanes.enter,
-    sparkCache,
-    savedSet: saved,
-    onToggleSaved: toggleSaved,
-    onOpen,
-    tradeByTicker,
-    tradesLoaded
-  }), h(KanbanBandHeader, {
-    key: "band-d",
-    band: "doing",
-    label: "DOING",
-    hint: "Hold · Defend · Trim · Closed — what the model is doing with open or recent trades"
-  }), h(KanbanLane, {
-    key: "initiated",
-    id: "initiated",
-    title: "Just Entered",
-    accentClass: "initiated",
-    tickers: displayLanes.new,
+    tickers: displayLanes.queue,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -2019,11 +2093,11 @@ function ActiveTraderApp() {
     tradeByTicker,
     tradesLoaded
   }), h(KanbanLane, {
-    key: "hold",
-    id: "hold",
-    title: "Holding",
+    key: "bought",
+    id: "bought",
+    title: "Bought",
     accentClass: "hold",
-    tickers: displayLanes.hold,
+    tickers: displayLanes.bought,
     sparkCache,
     savedSet: saved,
     onToggleSaved: toggleSaved,
@@ -2057,7 +2131,7 @@ function ActiveTraderApp() {
   }), h(KanbanLane, {
     key: "exit",
     id: "exit",
-    title: "Closed",
+    title: "Exited",
     accentClass: "exit",
     tickers: displayLanes.exit,
     sparkCache,
@@ -2089,6 +2163,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784727997867:657772085
+// cache-bust:1784750967645:348930418
 
-// cache-bust:1784727997867:657772085
+// cache-bust:1784750967645:348930418

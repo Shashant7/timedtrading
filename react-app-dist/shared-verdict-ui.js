@@ -281,8 +281,11 @@
       ".tt-vb__levels b{color:var(--ds-text-body,#e5e7eb);font-weight:600;font-family:var(--tt-font-mono,ui-monospace,monospace)}",
       ".tt-vb__journey{display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:8px;font-size:11px;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-vb__proof{border-top:1px solid rgba(255,255,255,.05);padding:9px 16px;font-size:11px;color:var(--ds-text-faint,#6b7280);display:flex;justify-content:space-between;align-items:center}",
-      ".tt-vb--guide .tt-vb__inner{padding:14px 16px 12px}",
-      ".tt-vb__guide-head{font-size:13px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);margin-bottom:6px;line-height:1.35}",
+      ".tt-vb--guide .tt-vb__inner{padding:16px 16px 14px}",
+      /* 2026-07-22 model-first design uplevel: headline reads as the page
+         lede; horizons render as distinct sub-cards with an accent spine so
+         Short term vs Long term scan instantly. */
+      ".tt-vb__guide-head{font-size:14.5px;font-weight:800;color:var(--ds-text-headline,#f4f5f7);margin-bottom:12px;line-height:1.4;letter-spacing:-.01em}",
       ".tt-vb__guide-narrative{font-size:12px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin:0 0 10px}",
       ".tt-vb__callout{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:11.5px;line-height:1.45;color:var(--ds-text-muted,#9ca3af)}",
       ".tt-vb__callout strong{color:var(--ds-text-body,#e5e7eb);font-weight:700}",
@@ -301,12 +304,13 @@
       ".tt-vb__kl-price--accent{color:var(--ds-accent,#38f2a1)}",
       ".tt-vb__kl-price--warn{color:#fbbf24}",
       ".tt-vb__kl-dist{font-size:10px;color:var(--ds-text-faint,#6b7280);font-family:var(--tt-font-mono,ui-monospace,monospace);margin-left:8px;white-space:nowrap;font-weight:500}",
-      ".tt-vb__horizon{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-top:1px solid rgba(255,255,255,.05)}",
-      ".tt-vb__horizon:first-of-type{border-top:none;padding-top:2px}",
-      ".tt-vb__htag{flex:0 0 46px;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-text-faint,#6b7280);line-height:1.25;padding-top:4px}",
+      ".tt-vb__horizon{display:flex;gap:12px;align-items:flex-start;padding:11px 12px;border:1px solid rgba(255,255,255,.05);border-radius:10px;background:rgba(255,255,255,.02);margin-top:8px;border-left:3px solid rgba(96,165,250,.55)}",
+      ".tt-vb__horizon:first-of-type{margin-top:0}",
+      ".tt-vb__horizon--long{border-left-color:rgba(192,132,252,.55)}",
+      ".tt-vb__htag{flex:0 0 46px;font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ds-text-muted,#9ca3af);line-height:1.25;padding-top:4px}",
       ".tt-vb__hbody{flex:1;min-width:0}",
       ".tt-vb__hhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
-      ".tt-vb__hline{font-size:12px;color:var(--ds-text-muted,#9ca3af);line-height:1.45;margin-top:5px}",
+      ".tt-vb__hline{font-size:12px;color:var(--ds-text-muted,#9ca3af);line-height:1.5;margin-top:6px}",
       ".tt-vb__stage-word{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-size:13px;letter-spacing:.02em;padding:3px 10px;border-radius:8px;background:rgba(167,139,250,.14);color:#c084fc}",
       ".tt-lane-badge{display:inline-flex;align-items:center;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:2px 7px;border-radius:4px;margin-left:8px}",
       ".tt-lane-badge--trader{background:rgba(96,165,250,.15);color:#60a5fa}",
@@ -1000,6 +1004,13 @@
         seen[key] = 1;
         rows.push({ label: label, price: p, tone: tone });
       }
+      // OPEN-POSITION stop — the committed risk line of the live trade
+      // (payload.position_sl, stamped by the worker while a trader position
+      // is open). 2026-07-22 operator ask: "The Key Levels should also
+      // include the Trader Stop Loss." Added FIRST so if the verdict stop
+      // matches the same price, the dedupe keeps this clearer label. No side
+      // gate — an already-breached stop is still critical context.
+      add("Position stop (active trade)", payload.position_sl, "dn", null);
       // Short-term (trader) plan — only when a setup is active + direction-consistent.
       var tv = String((trader && trader.verdict) || "").toUpperCase();
       var tActive = ["BUY", "HOLD", "TIGHTEN", "SELL"].indexOf(tv) >= 0;
@@ -1154,26 +1165,27 @@
         h("div", { className: "tt-vb__inner" },
           h("div", { className: "tt-vb__guide-head" }, guide.headline),
 
+          /* 2026-07-22 model-first: lane badges (TRADER / INVESTOR) removed —
+             the horizon tag already says Short term / Long term and the
+             operator wants the trader-vs-investor split under the surface. */
           data.trader && h("div", { className: "tt-vb__horizon" },
             h("div", { className: "tt-vb__htag" }, "Short", h("br"), "term"),
             h("div", { className: "tt-vb__hbody" },
               h("div", { className: "tt-vb__hhead" },
                 h(VerdictWord, { verdict: tv, short: true }),
-                h(LaneBadge, { lane: "trader" }),
                 data.trader.timing && h("span", { className: "tt-vb__timing" }, fmtTiming(data.trader.timing)),
               ),
               h("div", { className: "tt-vb__hline" }, shortLine),
             ),
           ),
 
-          (play || data.investor) && h("div", { className: "tt-vb__horizon" },
+          (play || data.investor) && h("div", { className: "tt-vb__horizon tt-vb__horizon--long" },
             h("div", { className: "tt-vb__htag" }, "Long", h("br"), "term"),
             h("div", { className: "tt-vb__hbody" },
               h("div", { className: "tt-vb__hhead" },
                 play
                   ? h("span", { className: "tt-vb__stage-word", style: { background: play.color + "22", color: play.color } }, play.label)
                   : h(VerdictWord, { verdict: iv, short: true }),
-                h(LaneBadge, { lane: "investor" }),
                 invScore !== null && h("span", { className: "tt-vb__timing", style: { color: "var(--ds-text-faint)" } }, "score " + invScore),
               ),
               longLine && h("div", { className: "tt-vb__hline" }, longLine),
@@ -1551,4 +1563,4 @@
   };
 })();
 
-// cache-bust:1784727997867:657772085
+// cache-bust:1784750967645:348930418
