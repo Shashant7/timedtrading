@@ -993,7 +993,8 @@ function KanbanLane({
   })))));
 }
 function AccountStrip({
-  mode
+  mode,
+  label
 }) {
   const [acc, setAcc] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -1043,13 +1044,14 @@ function AccountStrip({
   const exits = Number(totals.closedTrades);
   const winRate = Number(totals.winRate);
   const profitFactor = Number(totals.profitFactor);
+  const headLabel = label || (mode === "investor" ? "Long Term trades" : "Short Term Trades");
   return h("section", {
     className: "at-account-strip"
   }, h("div", {
     className: "at-account-strip__head"
   }, h("div", {
     className: "at-account-strip__label"
-  }, mode === "investor" ? "Investor account" : "Active Trader account"), h("a", {
+  }, headLabel), h("a", {
     href: "/portfolio.html",
     className: "at-account-strip__link",
     title: "View full portfolio"
@@ -1357,7 +1359,7 @@ function ATBubbleMap({
   }))));
 }
 function HowToReadCard() {
-  const KEY = "tt_at_guide_open_v2";
+  const KEY = "tt_at_guide_open_v3";
   const [open, setOpen] = useState(() => {
     try {
       return localStorage.getItem(KEY) === "1";
@@ -1382,7 +1384,7 @@ function HowToReadCard() {
     }
   }, h("strong", {
     style: {
-      minWidth: 124,
+      minWidth: 110,
       color: "var(--tt-text)"
     }
   }, name), h("span", {
@@ -1437,7 +1439,18 @@ function HowToReadCard() {
       color: "var(--tt-text-muted)",
       margin: 0
     }
-  }, "These are the model's swing trades (typically 1–10 day holds), traded in a simulated account — not personal advice. ", "Use it to see what the model is doing and learn how it reasons. ", "Each lane shows where a name is in its trade lifecycle; the card shows the live levels."), h("div", {
+  }, "One Model board for every position the system is managing in a simulated account — not personal advice. ", "Short Term trades are swing holds (typically 1–10 days). Long Term trades are multi-week to multi-month holdings. ", "Both share the same lifecycle lanes; cards with an LT chip are the longer-horizon book."), h("div", {
+    className: "tt-sec-title",
+    style: {
+      margin: "12px 0 6px"
+    }
+  }, "TWO BOOKS"), h("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, el("Short Term Trades", "swing book summary above the board (account, open P&L, realized, entries/exits)."), el("Long Term trades", "investor-portfolio summary in the row beneath — same layout, longer horizon.")), h("div", {
     className: "tt-sec-title",
     style: {
       margin: "12px 0 6px"
@@ -1448,12 +1461,12 @@ function HowToReadCard() {
       flexDirection: "column",
       gap: 6
     }
-  }, el("E (Entry)", "where the model entered the trade."), el("SL (Stop Loss)", "the protective exit if it goes wrong."), el("T1 / T2 / T3", "profit targets the model is trimming into."), el("P&L %", "current unrealized gain/loss on the open position."), el("Chips", "Bias, stage, and pattern labels describe posture and setup."))), h("div", null, h("div", {
+  }, el("E (Entry)", "where the model entered the trade."), el("SL / Invalidation", "protective exit if the thesis breaks (stop on Short Term; invalidation on Long Term)."), el("T1 / T2 / T3", "profit targets the model is trimming into (or fair-value / structural targets on LT)."), el("P&L %", "current unrealized gain/loss on the open position."), el("Chips", "Bias, stage, LT, and pattern labels describe posture and which book it belongs to."))), h("div", null, h("div", {
     className: "tt-sec-title",
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Setup", "watching for a trigger. No action yet."), lane("In Review", "the CIO is evaluating an entry."), lane("Position Initiated", "a trade was just opened."), lane("Hold", "thesis intact — let it work. Trim-signal cards stay here until a trim executes."), lane("Defend", "under pressure — tighten risk. Exit-signal / stop-breached cards stay here until the book closes."), lane("Trim", "partial profit taken today. Trim-signal (pending) cards stay in Hold until execution."), lane("Exit", "the model is closing or has closed it."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Queuing Up", "on the radar or waiting for a trigger. No action yet."), lane("Bought", "position is open — thesis intact; let it work."), lane("Defending", "under pressure — tighten risk until the book closes or recovers."), lane("Trimming", "partial profit taken or reduce signal active."), lane("Exited", "the model closed it (recent exits stay visible briefly)."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1464,7 +1477,7 @@ function HowToReadCard() {
     style: {
       color: "var(--tt-text)"
     }
-  }, "Tip: "), "click any card to open the full chart and a detailed per-ticker guide in the right rail."))));
+  }, "Tip: "), "click any card to open the full chart and a detailed per-ticker guide in the right rail (Short Term / Long Term / Options tabs)."))));
 }
 function ActiveTraderApp() {
   const [data, setData] = useState(null);
@@ -1996,7 +2009,11 @@ function ActiveTraderApp() {
       borderRadius: 6
     }
   })))) : h(React.Fragment, null, h(AccountStrip, {
-    mode: "trader"
+    mode: "trader",
+    label: "Short Term Trades"
+  }), h(AccountStrip, {
+    mode: "investor",
+    label: "Long Term trades"
   }), h(ATBrief, {
     allTickers,
     lanes,
@@ -2178,6 +2195,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784755270434:208012977
+// cache-bust:1784755887242:628129399
 
-// cache-bust:1784755270434:208012977
+// cache-bust:1784755887242:628129399

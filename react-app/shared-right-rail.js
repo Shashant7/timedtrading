@@ -2557,28 +2557,142 @@
 
         _dayTradePanel,
 
-        // Strategy Ladder — open (not collapsed). Alternates after Primary Play.
-        ladder.length > 1 && h(Panel, { title: `Strategy Ladder (${ladder.length} plays)` },
-          h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
-            ladder.slice(1).map((play, i) => h("div", {
-              key: play.archetype + i,
-              style: {
-                padding: 10, background: "rgba(255,255,255,0.02)", border: "1px solid var(--ds-stroke)", borderRadius: 8,
-              },
+        // Strategy Ladder — open alternates after Primary Play.
+        // 2026-07-22: break each play into plain-English blocks so a new
+        // options user can follow What / Why / Structure / Numbers.
+        ladder.length > 1 && (() => {
+          const explainArchetype = (play) => {
+            const arch = String(play?.archetype || "").toLowerCase();
+            if (arch.includes("vertical") && arch.includes("put")) {
+              return "Buy a put closer to today's price and sell a cheaper put further down. Defined risk; profits if price falls.";
+            }
+            if (arch.includes("vertical") && arch.includes("call")) {
+              return "Buy a call closer to today's price and sell a cheaper call further up. Defined risk; profits if price rises.";
+            }
+            if (arch.includes("vertical")) {
+              return "Buy one option and sell another at a different strike. Caps both risk and upside.";
+            }
+            if (arch.includes("long_put") || (arch.includes("put") && arch.includes("long"))) {
+              return "Buy a put — profits if price falls. Max loss is the premium paid.";
+            }
+            if (arch.includes("long_call") || (arch.includes("call") && arch.includes("long"))) {
+              return "Buy a call — profits if price rises. Max loss is the premium paid.";
+            }
+            if (arch.includes("straddle")) {
+              return "Buy a call and a put at the same strike — profits on a big move either way; loses if price stays flat.";
+            }
+            if (arch.includes("cash_secured_put") || arch.includes("csp")) {
+              return "Sell a put and hold cash as collateral — keep the premium if price stays above the strike; may be assigned shares if it falls.";
+            }
+            if (arch.includes("covered_call")) {
+              return "Own shares and sell a call against them — collect premium; shares may be called away above the strike.";
+            }
+            if (arch.includes("moonshot")) {
+              return "Small, short-dated directional option sized for a fast move. High risk of total premium loss.";
+            }
+            if (arch.includes("leap")) {
+              return "Long-dated deep option (LEAP) — expresses a multi-month thesis with defined premium risk.";
+            }
+            if (arch.includes("letf") || arch.includes("leveraged")) {
+              return "Buy shares of a leveraged ETF instead of options — no expiry, but daily reset risk.";
+            }
+            return "Alternate expression of the same bias — different risk / reward trade-off than the Primary Play.";
+          };
+          const structureLine = (play) => {
+            const parts = [];
+            const strike = play?.strikes?.primary ?? play?.strikes?.long;
+            const shortStrike = play?.strikes?.short;
+            if (Number.isFinite(Number(strike)) && Number.isFinite(Number(shortStrike))) {
+              parts.push(`Strikes $${Number(strike).toFixed(2)} / $${Number(shortStrike).toFixed(2)}`);
+            } else if (Number.isFinite(Number(strike))) {
+              parts.push(`Strike $${Number(strike).toFixed(2)}`);
+            }
+            const exp = play?.expiration?.label || play?.expiration?.iso;
+            if (exp) parts.push(`Expires ${exp}`);
+            if (play?.contracts) parts.push(`${play.contracts} contract${Number(play.contracts) === 1 ? "" : "s"}`);
+            if (play?.premium?.mid != null && Number.isFinite(Number(play.premium.mid))) {
+              parts.push(`Premium $${Number(play.premium.mid).toFixed(2)}`);
+            }
+            return parts.length ? parts.join(" · ") : null;
+          };
+          const metric = (label, value, color) => h("div", {
+            style: {
+              flex: "1 1 90px", minWidth: 88, padding: "8px 10px",
+              background: "rgba(255,255,255,0.03)", borderRadius: 6,
+              border: "1px solid var(--ds-stroke)",
             },
-              h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 } },
-                h("strong", { style: { fontSize: 13, color: "var(--ds-text-body)" } }, play.label),
-                play._confluence_boost && h("span", { style: { fontSize: 9, color: "#34d399", fontWeight: 700 } }, "⚡ BOOSTED"),
-              ),
-              h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", lineHeight: 1.4, marginBottom: 4 } }, String(play.rationale || "").slice(0, 200)),
-              h("div", { style: { display: "flex", gap: 12, fontSize: 10, color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)" } },
-                play.max_loss_usd != null && h("span", null, "Risk: ", h("strong", { style: { color: "#f87171" } }, fmtUsd(play.max_loss_usd))),
-                play.max_gain_usd != null && h("span", null, "Gain: ", h("strong", { style: { color: "#34d399" } }, fmtUsd(play.max_gain_usd))),
-                play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)),
-              ),
-            )),
-          ),
-        ),
+          },
+            h("div", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "var(--ds-text-faint)", marginBottom: 3 } }, label),
+            h("div", { style: { fontFamily: "var(--tt-font-mono)", fontSize: 13, fontWeight: 700, color: color || "var(--ds-text-display)" } }, value),
+          );
+          const alts = ladder.slice(1);
+          return h(Panel, { title: `Strategy Ladder (${ladder.length} plays)` },
+            h("p", { style: { margin: "0 0 10px", fontSize: 11.5, lineHeight: 1.5, color: "var(--ds-text-muted)" } },
+              "Other ways to express the same bias. The Primary Play above is the model's first choice; ",
+              "these are ranked backups with different risk, cost, and payoff shapes.",
+            ),
+            h("div", { style: { display: "flex", flexDirection: "column", gap: 10 } },
+              alts.map((play, i) => {
+                const rank = i + 2; // primary is #1
+                const why = String(play.rationale || "").trim();
+                const structure = structureLine(play);
+                const be = play.breakeven != null
+                  ? `$${Number(play.breakeven).toFixed(2)}`
+                  : (play.breakeven_up != null && play.breakeven_down != null
+                    ? `$${Number(play.breakeven_down).toFixed(2)} / $${Number(play.breakeven_up).toFixed(2)}`
+                    : null);
+                const rr = (Number.isFinite(Number(play.max_gain_usd)) && Number.isFinite(Number(play.max_loss_usd)) && Number(play.max_loss_usd) > 0)
+                  ? `${(Number(play.max_gain_usd) / Number(play.max_loss_usd)).toFixed(1)}×`
+                  : null;
+                return h("div", {
+                  key: (play.archetype || play.label || "alt") + i,
+                  style: {
+                    padding: 12, background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--ds-stroke)", borderRadius: 10,
+                    borderLeft: "3px solid rgba(96,165,250,0.45)",
+                  },
+                },
+                  h("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" } },
+                    h("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 } },
+                      h("span", {
+                        style: {
+                          fontSize: 10, fontWeight: 800, fontFamily: "var(--tt-font-mono)",
+                          color: "#60a5fa", letterSpacing: "0.06em",
+                          padding: "2px 7px", borderRadius: 999,
+                          background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.35)",
+                        },
+                      }, `#${rank}`),
+                      h("strong", { style: { fontSize: 14, color: "var(--ds-text-display)" } }, play.label || "Alternate play"),
+                    ),
+                    play._confluence_boost && h("span", {
+                      style: { fontSize: 9, fontWeight: 700, color: "#34d399", padding: "2px 8px", borderRadius: 999, background: "rgba(52,211,153,0.10)", border: "1px solid rgba(52,211,153,0.30)" },
+                    }, "FUSION BOOSTED"),
+                  ),
+                  h("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 } },
+                    h("div", { style: { fontSize: 11, lineHeight: 1.45 } },
+                      h("span", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "var(--ds-text-faint)", marginRight: 6 } }, "WHAT"),
+                      h("span", { style: { color: "var(--ds-text-body)" } }, explainArchetype(play)),
+                    ),
+                    why && h("div", { style: { fontSize: 11, lineHeight: 1.45 } },
+                      h("span", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "var(--ds-text-faint)", marginRight: 6 } }, "WHY"),
+                      h("span", { style: { color: "var(--ds-text-muted)" } }, why.length > 220 ? why.slice(0, 220) + "…" : why),
+                    ),
+                    structure && h("div", { style: { fontSize: 11, lineHeight: 1.45, fontFamily: "var(--tt-font-mono)" } },
+                      h("span", { style: { fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "var(--ds-text-faint)", marginRight: 6, fontFamily: "inherit" } }, "STRUCTURE"),
+                      h("span", { style: { color: "var(--ds-text-body)" } }, structure),
+                    ),
+                  ),
+                  h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6 } },
+                    play.max_loss_usd != null && metric("MAX LOSS", fmtUsd(play.max_loss_usd), "#f87171"),
+                    play.max_gain_usd != null && metric("MAX GAIN", play.max_gain_label || fmtUsd(play.max_gain_usd), "#34d399"),
+                    be && metric("BREAKEVEN", be, "var(--ds-text-display)"),
+                    rr && metric("R:R", rr, rr.startsWith("0") ? "var(--ds-text-muted)" : "#60a5fa"),
+                  ),
+                );
+              }),
+            ),
+          );
+        })(),
 
         // Chain status footer
         h("div", { style: { fontSize: 10, color: "var(--ds-text-faint)", textAlign: "center", padding: 4 } },
