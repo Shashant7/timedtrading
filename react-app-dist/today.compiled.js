@@ -1394,7 +1394,6 @@ function OpenPositionsPreview({
   };
   const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlDesc);
   const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlDesc);
-  const sorted = [...traderSorted, ...investorSorted];
   const sliceMode = (arr, expanded) => !isNarrow || expanded || arr.length <= MOBILE_PREVIEW_N ? arr : arr.slice(0, MOBILE_PREVIEW_N);
   const traderVisible = sliceMode(traderSorted, expandTrader);
   const investorVisible = sliceMode(investorSorted, expandInvestor);
@@ -1411,33 +1410,44 @@ function OpenPositionsPreview({
       }
     }, expanded ? `Show fewer ${mode} positions` : `Show all ${total} ${mode} · +${hidden} more`);
   };
+  const modelLaneFromStage = (rawStage, mode) => {
+    const stage = String(rawStage || "OPEN").toUpperCase().replace(/\s+/g, "_");
+    if (stage === "EXIT" || stage === "EXITED" || stage === "CLOSED") {
+      return {
+        label: "EXITED",
+        color: "var(--tt-dn)",
+        bg: "rgba(248,113,113,0.10)"
+      };
+    }
+    if (stage === "DEFEND" || stage === "DEFENDING") {
+      return {
+        label: "DEFENDING",
+        color: "var(--tt-accent, #f5c25c)",
+        bg: "rgba(245,194,92,0.10)"
+      };
+    }
+    if (stage === "TRIM" || stage === "TRIMMING" || stage === "REDUCE" || stage === "TP_HIT_TRIM") {
+      return {
+        label: "TRIMMING",
+        color: "var(--tt-accent, #f5c25c)",
+        bg: "rgba(245,194,92,0.10)"
+      };
+    }
+    return {
+      label: "BOUGHT",
+      color: "var(--tt-up)",
+      bg: "rgba(52,211,153,0.10)"
+    };
+  };
   const renderOpenPosChip = t => {
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
     const pnlPct = Number(t?.pnl_pct);
     const pnlColor = !Number.isFinite(pnlPct) ? "var(--tt-text-muted)" : pnlPct >= 0 ? "var(--tt-up)" : "var(--tt-dn)";
     const stage = String(t?.kanban_stage || t?.status || "OPEN").toUpperCase();
-    const stageDisplay = stage === "CORE_HOLD" ? "HOLD" : stage === "ACCUMULATE" ? "ACCUMULATE" : stage === "REDUCE" ? "REDUCE" : stage === "WATCH" ? "WATCH" : stage.replace(/_/g, " ");
-    const stageMeta = stage === "DEFEND" || stage === "REDUCE" ? {
-      color: "var(--tt-accent, #f5c25c)",
-      bg: "rgba(245,194,92,0.10)"
-    } : stage === "TRIM" ? {
-      color: "var(--tt-accent, #f5c25c)",
-      bg: "rgba(245,194,92,0.10)"
-    } : stage === "EXIT" ? {
-      color: "var(--tt-dn)",
-      bg: "rgba(248,113,113,0.10)"
-    } : stage === "WATCH" ? {
-      color: "var(--tt-text-muted)",
-      bg: "rgba(156,163,175,0.10)"
-    } : stage === "ACCUMULATE" ? {
-      color: "var(--tt-up)",
-      bg: "rgba(52,211,153,0.15)"
-    } : {
-      color: "var(--tt-up)",
-      bg: "rgba(52,211,153,0.10)"
-    };
+    const lane = modelLaneFromStage(stage, t?._mode);
     const dirColor = dir === "LONG" ? "var(--tt-up)" : dir === "SHORT" ? "var(--tt-dn)" : "var(--tt-text-muted)";
+    const bookLabel = t?._mode === "investor" ? "LONG TERM" : "SHORT TERM";
     const onClick = e => {
       e.preventDefault();
       if (typeof onSelectTicker === "function") onSelectTicker(sym);else window.location.href = `/active-trader.html?ticker=${encodeURIComponent(sym)}`;
@@ -1466,7 +1476,7 @@ function OpenPositionsPreview({
         e.currentTarget.style.borderColor = "var(--tt-border, rgba(255,255,255,0.06))";
         e.currentTarget.style.background = "var(--tt-bg-elev, rgba(255,255,255,0.03))";
       },
-      title: `${sym} ${dir} · ${stageDisplay} · open in detail`
+      title: `${sym} ${bookLabel} ${dir} · ${lane.label} · open in Model detail`
     }, h("div", {
       style: {
         display: "flex",
@@ -1487,21 +1497,14 @@ function OpenPositionsPreview({
         alignItems: "center",
         gap: 5
       }
-    }, t?._mode === "trader" && h("span", {
+    }, h("span", {
       className: "tt-open-pos-chip__mode",
       style: {
         fontSize: 8,
         color: "var(--tt-text-faint)",
         letterSpacing: "0.1em"
       }
-    }, "TRADER"), t?._mode === "investor" && h("span", {
-      className: "tt-open-pos-chip__mode",
-      style: {
-        fontSize: 8,
-        color: "var(--tt-text-faint)",
-        letterSpacing: "0.1em"
-      }
-    }, "INVESTOR"), h("span", {
+    }, bookLabel), h("span", {
       style: {
         fontSize: 9,
         fontWeight: 700,
@@ -1529,39 +1532,39 @@ function OpenPositionsPreview({
         fontSize: 9,
         fontWeight: 700,
         letterSpacing: "0.06em",
-        color: stageMeta.color,
-        background: stageMeta.bg,
-        border: `1px solid ${stageMeta.color}40`,
+        color: lane.color,
+        background: lane.bg,
+        border: `1px solid ${lane.color}40`,
         marginLeft: "auto"
       }
-    }, stageDisplay)));
+    }, lane.label)));
   };
-  const positionsBody = hero ? h("div", {
-    className: "tt-open-pos-split"
-  }, h("div", {
-    className: "tt-open-pos-col tt-open-pos-col--trader"
+  const renderBookBlock = (label, items, visible, expanded, setExpanded, colClass) => h("div", {
+    className: colClass || "tt-open-pos-book"
   }, h("div", {
     className: "tt-open-pos-col__label"
-  }, h("span", null, "Trader"), traderSorted.length > 0 && h("span", {
+  }, h("span", null, label), items.length > 0 && h("span", {
     className: "tt-open-pos-col__count"
-  }, String(traderSorted.length))), traderSorted.length ? traderVisible.map(renderOpenPosChip) : h("div", {
-    className: "tt-open-pos-col__empty"
-  }, "None"), renderModeMore("Trader", traderSorted.length, expandTrader, setExpandTrader)), h("div", {
-    className: "tt-open-pos-col tt-open-pos-col--investor"
-  }, h("div", {
-    className: "tt-open-pos-col__label"
-  }, h("span", null, "Investor"), investorSorted.length > 0 && h("span", {
-    className: "tt-open-pos-col__count"
-  }, String(investorSorted.length))), investorSorted.length ? investorVisible.map(renderOpenPosChip) : h("div", {
-    className: "tt-open-pos-col__empty"
-  }, "None"), renderModeMore("Investor", investorSorted.length, expandInvestor, setExpandInvestor))) : h("div", {
-    className: "tt-open-pos-grid",
-    style: {
+  }, String(items.length))), items.length ? h("div", {
+    className: hero ? null : "tt-open-pos-grid",
+    style: hero ? null : {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
       gap: 8
     }
-  }, sorted.map(renderOpenPosChip));
+  }, visible.map(renderOpenPosChip)) : h("div", {
+    className: "tt-open-pos-col__empty"
+  }, "None"), renderModeMore(label, items.length, expanded, setExpanded));
+  const positionsBody = hero ? h("div", {
+    className: "tt-open-pos-split"
+  }, renderBookBlock("Short Term", traderSorted, traderVisible, expandTrader, setExpandTrader, "tt-open-pos-col tt-open-pos-col--trader"), renderBookBlock("Long Term", investorSorted, investorVisible, expandInvestor, setExpandInvestor, "tt-open-pos-col tt-open-pos-col--investor")) : h("div", {
+    className: "tt-open-pos-books",
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 14
+    }
+  }, renderBookBlock("Short Term", traderSorted, traderVisible, expandTrader, setExpandTrader), renderBookBlock("Long Term", investorSorted, investorVisible, expandInvestor, setExpandInvestor));
   return h("section", {
     className: hero ? "tt-card tt-card-pad tt-open-pos-hero" : "tt-card tt-card-pad tt-row",
     style: hero ? {
@@ -1578,7 +1581,7 @@ function OpenPositionsPreview({
       fontSize: hero ? 14 : 16,
       marginBottom: 6
     }
-  }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — what the model is managing today`), positionsBody);
+  }, `${trades.length} open position${trades.length === 1 ? "" : "s"} — Short Term swings and Long Term holdings the model is managing today`), positionsBody);
 }
 function ResearchDeskPanel({
   onSelectTicker
@@ -6922,6 +6925,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784755887242:628129399
+// cache-bust:1784756219063:529085402
 
-// cache-bust:1784755887242:628129399
+// cache-bust:1784756219063:529085402
