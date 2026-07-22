@@ -26,8 +26,13 @@
 
   var LINKS = [
     { href: "/today.html", label: "Today", accent: "today", accentOnSelfOnly: true },
-    { href: "/active-trader.html", label: "Active Trader" },
-    { href: "/investor.html", label: "Investor" },
+    // 2026-07-22 model-first: Active Trader + Investor → one Model board.
+    // /investor.html redirects to active-trader; keep those paths active.
+    {
+      href: "/active-trader.html",
+      label: "Model",
+      match: ["/active-trader", "/investor", "/investor-dashboard", "/index-react"],
+    },
     { href: "/portfolio.html", label: "Portfolio" },
     { href: "/insights.html", label: "Insights" },
     { href: "/daily-brief.html", label: "Daily Brief", accent: "brief", accentOnSelfOnly: true },
@@ -41,6 +46,15 @@
     return p;
   }
 
+  function pathMatches(link, path) {
+    if (path === link.href) return true;
+    var stems = link.match || [];
+    for (var i = 0; i < stems.length; i++) {
+      if (path.indexOf(stems[i]) !== -1) return true;
+    }
+    return false;
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -50,7 +64,7 @@
   function buildNavHtml() {
     var path = currentPath();
     var links = LINKS.map(function (l) {
-      var isCurrent = path === l.href;
+      var isCurrent = pathMatches(l, path);
       var classes = ["nav-link"];
       if (l.accent && (!l.accentOnSelfOnly || isCurrent)) classes.push(l.accent);
       // The Today page's accent class IS its active treatment; everywhere
@@ -88,4 +102,4 @@
   mount();
 })();
 
-// cache-bust:1784754391593:986595268
+// cache-bust:1784755270434:208012977

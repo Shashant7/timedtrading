@@ -408,7 +408,7 @@
         sym, rawStage, displayStage, displayGuide, actionTier, executeReady,
         laneMeta, tierMeta, signalNote, statusLine, inBuyZone, owned, laneLabel,
         displayLabel: laneLabel,
-        headerChipText: `Investor – ${laneLabel}`,
+        headerChipText: `Long Term · ${laneLabel}`,
       };
     }
 
@@ -1235,7 +1235,7 @@
         exited:     { label: "Exited",     color: "#8AA39A", bg: "rgba(156,163,175,0.08)", border: "rgba(156,163,175,0.20)", action: "Closed", desc: "Position closed. Monitor for re-entry signals if thesis returns." },
       };
       const stageInfo = STAGE_LABEL[displayStage] || STAGE_LABEL[stage] || STAGE_LABEL.watch;
-      const laneHeaderText = invCtx?.headerChipText || `Investor – ${stageInfo.label}`;
+      const laneHeaderText = invCtx?.headerChipText || `Long Term · ${stageInfo.label}`;
 
       const REASON_TRANSLATIONS = {
         score_declining:           "Score has trended down over recent weeks — the underlying setup is weakening.",
@@ -2021,13 +2021,61 @@
         );
       })();
 
+      // Preferences panel — lead content for Options (2026-07-22 correction).
+      // Operator: do not collapse/suppress Preferences / Primary Play /
+      // Strategy Ladder — Preferences first, then the play and ladder.
+      const _preferencesPanel = h(Panel, { title: "Options Preferences" },
+        h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
+        h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
+          PROFILE_CHIPS.map((p) => h("button", {
+            key: p.key,
+            onClick: () => updateProfile(p.key),
+            style: {
+              padding: "5px 10px", fontSize: 11, fontWeight: 600,
+              borderRadius: 999,
+              background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
+              color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
+              border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
+              cursor: "pointer",
+            },
+          }, p.label)),
+        ),
+        data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic", marginBottom: 10 } },
+          data.profile_meta.one_liner,
+        ),
+        h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "HORIZON"),
+        h("div", { style: { display: "flex", gap: 6, marginBottom: 6 } },
+          [
+            { key: "trader", label: "Short Term · weeks", emoji: "⚡" },
+            { key: "investor", label: "Long Term · LEAP", emoji: "🪜" },
+          ].map((opt) => h("button", {
+            key: opt.key,
+            onClick: () => setHorizon(opt.key),
+            style: {
+              flex: 1,
+              padding: "6px 10px", fontSize: 11, fontWeight: 600,
+              borderRadius: 8,
+              background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
+              color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
+              border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
+              cursor: "pointer",
+            },
+          }, `${opt.emoji} ${opt.label}`)),
+        ),
+        h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
+          horizon === "investor"
+            ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days."
+            : "Swing / intraday — the primary play matches the selected risk profile. Switch to Long Term for the LEAP expression.",
+        ),
+      );
+
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", position: "relative" } },
         _loadingOverlay,
 
-        // 1. Verdict strip — 2026-07-22 design uplevel. One clean line:
-        // verdict chip + plain-english action. Fusion internals (score /
-        // layer split / direction) move to a hover tooltip — expert detail,
-        // not first-read content.
+        // Lead: Preferences (open) → Primary Play → Strategy Ladder.
+        _preferencesPanel,
+
+        // Verdict strip — compact setup guidance after preferences.
         h("div", {
           title: `Fusion ${Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—"}/100 · layers ${_layerSplitLabel} · ${_effDir || "—"}`,
           style: {
@@ -2042,10 +2090,7 @@
           h("span", { style: { fontSize: 11.5, color: "var(--ds-text-body)", flex: "1 1 200px", lineHeight: 1.45 } }, setupGuidance.action || setupGuidance.headline || "—"),
         ),
 
-        // Model levels + bias reconciliation — 2026-07-22 design uplevel:
-        // collapsed by default. The Short Term tab's Plan panel is the
-        // canonical home for these levels; here they're reference context
-        // for the options play, not first-read content.
+        // Model levels + bias — reference only; Short Term Plan is canonical.
         (() => {
           const recon = data?.model_reconciliation || null;
           const levels = recon?.model_levels || {};
@@ -2512,10 +2557,8 @@
 
         _dayTradePanel,
 
-        // 4. Ladder of alternatives — collapsed when multiple plays exist.
-        ladder.length > 1 && h("details", { style: { marginTop: 4 } },
-          h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, `Strategy ladder (${ladder.length - 1} alternates)`),
-          h(Panel, { title: `Strategy Ladder (${ladder.length} plays)` },
+        // Strategy Ladder — open (not collapsed). Alternates after Primary Play.
+        ladder.length > 1 && h(Panel, { title: `Strategy Ladder (${ladder.length} plays)` },
           h("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
             ladder.slice(1).map((play, i) => h("div", {
               key: play.archetype + i,
@@ -2534,60 +2577,6 @@
                 play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)),
               ),
             )),
-          ),
-          ),
-        ),
-
-        // Preferences — 2026-07-22 design uplevel: moved to the BOTTOM and
-        // collapsed. These are settings, not content — the play comes first.
-        h("details", { style: { marginBottom: 4 } },
-          h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Preferences · profile & horizon"),
-          h(Panel, { title: "Options Preferences" },
-          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
-          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
-            PROFILE_CHIPS.map((p) => h("button", {
-              key: p.key,
-              onClick: () => updateProfile(p.key),
-              style: {
-                padding: "5px 10px", fontSize: 11, fontWeight: 600,
-                borderRadius: 999,
-                background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
-                color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
-                border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
-                cursor: "pointer",
-              },
-            }, p.label)),
-          ),
-          data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic", marginBottom: 10 } },
-            data.profile_meta.one_liner,
-          ),
-          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "HORIZON"),
-          /* 2026-07-22 model-first relabel: Trader/Investor → Short Term /
-             Long Term (matches the renamed rail tabs; the model path is an
-             implementation detail under the surface). */
-          h("div", { style: { display: "flex", gap: 6, marginBottom: 6 } },
-            [
-              { key: "trader", label: "Short Term · weeks", emoji: "⚡" },
-              { key: "investor", label: "Long Term · LEAP", emoji: "🪜" },
-            ].map((opt) => h("button", {
-              key: opt.key,
-              onClick: () => setHorizon(opt.key),
-              style: {
-                flex: 1,
-                padding: "6px 10px", fontSize: 11, fontWeight: 600,
-                borderRadius: 8,
-                background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
-                color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
-                border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
-                cursor: "pointer",
-              },
-            }, `${opt.emoji} ${opt.label}`)),
-          ),
-          h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
-            horizon === "investor"
-              ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days."
-              : "Swing / intraday — the primary play matches the selected risk profile. Switch to Long Term for the LEAP expression.",
-          ),
           ),
         ),
 
@@ -8146,14 +8135,14 @@
                         <span
                           className={`ds-chip ds-chip--sm ${_hdrTradeIsOpen ? _hdrPosChipCls : v2TraderChipCls}`}
                           title={_hdrTradeIsOpen
-                            ? `Active ${_hdrPosDir || "trader"} position — ledger truth (Active Trader mode)`
+                            ? `Active ${_hdrPosDir || "short-term"} position — ledger truth (Short Term horizon)`
                             : v2TraderPosture?.strength === "lean"
-                              ? `Active Trader posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.`
+                              ? `Short Term posture: ${v2TraderPosture.label}. Directional lean only; wait for the trade gate.`
                               : v2TraderPosture?.posture === "NEUTRAL"
-                                ? "Active Trader posture: Neutral. No clean long/short edge yet."
-                                : `Active Trader posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`}
+                                ? "Short Term posture: Neutral. No clean long/short edge yet."
+                                : `Short Term posture: ${v2TraderPosture.label || v2Dir}. Intraday-to-multi-day call.`}
                         >
-                          TRADER · {_hdrTradeIsOpen
+                          SHORT TERM · {_hdrTradeIsOpen
                             ? _hdrPosLabel
                             : (v2TraderPosture?.label || v2Dir)}
                         </span>
@@ -8175,16 +8164,9 @@
                           CONFLICT · Model {v2PositionConflict.modelLabel}
                         </span>
                       )}
-                      {/* 2026-05-29 — Investor mode bias chip alongside
-                          the Trader chip. Different horizon (weekly /
-                          monthly), different language (lanes: ACCUMULATE,
-                          CORE HOLD, WATCH, REDUCE, RESEARCH, AVOID).
-                          Always rendered when ticker has an
-                          investor_stage so the operator can see at a
-                          glance when the two horizons disagree (e.g.
-                          SOFI TRADER:SHORT, INV:AVOID is aligned;
-                          SOFI TRADER:SHORT, INV:LONG is the divergence
-                          we want to surface). */}
+                      {/* 2026-07-22 model-first: Long Term chip (was Investor).
+                          Weekly/monthly horizon; lane language unchanged
+                          (ACCUMULATE / CORE HOLD / WATCH / REDUCE / …). */}
                       {(() => {
                         const invSym = String(tickerSymbol || "").trim().toUpperCase();
                         const ctx = buildInvestorDisplayContext({
@@ -8209,7 +8191,7 @@
                             style={ctx.laneMeta.style}
                             title={chipTitle}
                           >
-                            {ctx.headerChipText || `Investor – ${ctx.laneLabel}`}
+                            {ctx.headerChipText || `Long Term · ${ctx.laneLabel}`}
                           </span>
                         );
                       })()}
@@ -8602,8 +8584,8 @@
                       const RAIL_GROUPS = [
                         { key: "NOW", label: "Now", tabs: [["SNAPSHOT", "Snapshot"]] },
                         { key: "TRADE", label: "Short Term", tabs: [["SETUP", "Short Term"]] },
-                        { key: "OPTIONS", label: "Options", tabs: [["OPTIONS", "Options"]] },
                         { key: "INVEST", label: "Long Term", tabs: [["INVESTOR", "Long Term"]] },
+                        { key: "OPTIONS", label: "Options", tabs: [["OPTIONS", "Options"]] },
                         { key: "CONTEXT", label: "Context", tabs: [["TECHNICALS", "Technicals"], ["FUNDAMENTALS", "Fundamentals"], ["CATALYSTS", "Catalysts"], ["HISTORY", "History"]] },
                       ];
                       const activeGroupKey = RAIL_TAB_GROUP_OF[v2RailTab] || (v2RailTab === "CHART" ? "CHART" : "NOW");
