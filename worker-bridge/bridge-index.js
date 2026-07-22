@@ -56,6 +56,7 @@ import { refreshRhTokensIfNeeded } from "./bridge-robinhood-auth.js";
 import { listBrokers, resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
 import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
+import { classifyWebullFractError, roundToWholeShares } from "./bridge-webull-fract.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
 // field (`"robinhood"` | `"ibkr"` | `"webull"`); the router picks the right
@@ -1539,7 +1540,67 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   }
 
   // 4. Place (native bracket when planned + supported, else market/limit)
-  const place = await placePlannedOrder(env, user, sanitized, orderPlan);
+  let place = await placePlannedOrder(env, user, sanitized, orderPlan);
+
+  // 2026-07-22 — Webull fractional-agreement auto-fallback. Webull rejects
+  // fractional orders when the account holder has not signed the "Fractional
+  // Trading Agreement v2" for third-party API (error code
+  // OAUTH_OPENAPI_OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE). HALO/RPG/RTX
+  // orders today all preview-passed then place-failed with this error on the
+  // Roth. Auto-retry rounded to whole shares (never over-buy) so the order
+  // still lands; persist the flag on the user so future preflights skip the
+  // wasted fractional round-trip. The operator still needs to visit the
+  // agreementUrl to enable fractional going forward.
+  let _fractFallback = null;
+  if (!place.ok) {
+    const _fract = classifyWebullFractError(place);
+    if (_fract.isFractAgreementError) {
+      const _wholeQty = roundToWholeShares(sanitized.qty);
+      if (_wholeQty > 0 && _wholeQty < Number(sanitized.qty)) {
+        console.warn(`[WEBULL_FRACT] ${sanitized.user_id}/${sanitized.ticker} fractional agreement not signed — retrying whole shares ${sanitized.qty}→${_wholeQty} (${_fract.agreementUrl || "no_url"})`);
+        const _retryPayload = { ...sanitized, qty: _wholeQty };
+        place = await placePlannedOrder(env, user, _retryPayload, orderPlan);
+        // If the retry succeeded, mutate sanitized so downstream audit /
+        // ledger / manifest write reflect the actual broker qty.
+        if (place.ok) {
+          sanitized.qty = _wholeQty;
+          _fractFallback = {
+            reason: "webull_fractional_agreement_missing",
+            original_qty: _retryPayload.qty === _wholeQty ? undefined : Number(_retryPayload.qty),
+            requested_qty: Number(sanitized.qty),
+            whole_qty: _wholeQty,
+            agreement_url: _fract.agreementUrl,
+          };
+        }
+      } else {
+        // Already whole shares, or would round to 0 — clean reject.
+        place = {
+          ok: false,
+          error: "webull_fractional_agreement_required",
+          response: {
+            error_code: _fract.errorCode,
+            agreement_url: _fract.agreementUrl,
+            message: _fract.agreementUrl || "operator must sign Webull TRADE_FRACT_PRO agreement to enable fractional orders",
+            requested_qty: Number(sanitized.qty),
+            whole_qty: _wholeQty,
+          },
+          latency_ms: place.latency_ms,
+        };
+      }
+      // Best-effort: persist the flag on the user record so future preflights
+      // pre-round to whole shares (avoid the wasted preview+place round-trip).
+      try {
+        const _u = await readUser(env, sanitized.user_id);
+        if (_u && !_u.fractional_agreement_missing) {
+          _u.fractional_agreement_missing = true;
+          _u.fractional_agreement_url = _fract.agreementUrl || _u.fractional_agreement_url || null;
+          _u.fractional_agreement_flagged_at = Date.now();
+          await writeUser(env, sanitized.user_id, _u);
+        }
+      } catch (_flagErr) { /* flagging is best-effort — never block a placed order */ }
+    }
+  }
+
   // IBKR returns an array (parent + bracket legs); others a single object.
   const _placeResp = place?.response;
   const rhOrderId = Array.isArray(_placeResp)
@@ -1559,8 +1620,8 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     estimated_value: estValue,
     rh_order_id: rhOrderId,
     status: place.ok ? "ok" : "error",
-    reject_reason: place.ok ? null : (place.error || "place_failed"),
-    response_json: place.response || place,
+    reject_reason: place.ok ? (_fractFallback ? "fract_agreement_missing_retried_whole_shares" : null) : (place.error || "place_failed"),
+    response_json: _fractFallback ? { ...place.response, _fract_fallback: _fractFallback } : (place.response || place),
     latency_ms: place.latency_ms,
   });
   // ── Per-account ledger: record every real fill/reject against the
