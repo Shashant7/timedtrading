@@ -22,6 +22,28 @@
 
 ### Active
 
+- [ ] **Model-first UX consolidation (2026-07-22).** Operator: "merge trader
+      and investor … one section, model, with its own lanes … users complain
+      it is hard to follow." Stages:
+      1. Rail tabs: Trade→"Short Term", Invest→"Long Term" (labels only;
+         internal keys unchanged).
+      2. Now tab: slim to VerdictGuide (Short term + Long term + Key levels
+         · live) — remove POV toggle, hero verdict cards, portfolio strip,
+         "More detail" accordion. Key Levels ladder must include the OPEN
+         POSITION trader SL (position_sl), not just the verdict stop.
+      3. Short Term tab: keep Entry Decision (open position), Timing,
+         Trade/Position/Model Plan, Reference Levels. Remove Setup, Profile,
+         Sector & Market, Sequence panels (+ dead panels).
+      4. Long Term tab: stop rendering VerdictGuideBlock on INVESTOR tab
+         (it stays on Now only). Keep InvestorTabPanel body.
+      5. Active Trader page lanes → Model lanes: Queuing Up / Bought /
+         Defending / Trimming / Exited; fold investor holdings into the same
+         lanes (stage mapping research_on_watch+accumulate_queued→Queuing Up,
+         accumulate_entered+core_hold+watch→Bought, reduce→Trimming,
+         exited→Exited) rendered with the ATCard shell.
+      6. Options tab: light design uplevel (spacing/hierarchy only).
+      Branch: `cursor/model-first-ux-df0c`.
+
 - [x] **OpEx on macro calendar + entry/exit risk (2026-07-19).**
       Market-wide monthly options expiration (3rd Friday / triple witching)
       was missing from the curated macro calendar and pre-event gates.
