@@ -1627,34 +1627,50 @@
         .today-hero-pos-col .tt-open-pos-split {
           flex: none;
           min-height: 0;
-          max-height: none;
-          overflow-y: visible;
+          /* Cap the list so expanding "Show all 22" doesn't own the viewport */
+          max-height: min(420px, 55vh);
+          overflow-y: auto;
           padding-bottom: 0;
+          -webkit-overflow-scrolling: touch;
         }
       }
       @media (max-width: 720px) {
         .tt-open-pos-split {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
+          grid-template-columns: 1fr;
+          gap: 14px;
           align-items: start;
         }
         .tt-open-pos-col {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 4px;
           min-width: 0;
         }
         .tt-open-pos-col__label {
-          font-size: 9px;
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 8px;
+          font-size: 10px;
           font-weight: 800;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: var(--tt-text-dim);
-          margin-bottom: 2px;
+          margin-bottom: 4px;
+          padding-bottom: 4px;
+          border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
         }
         .tt-open-pos-col--trader .tt-open-pos-col__label { color: #67e8f9; }
         .tt-open-pos-col--investor .tt-open-pos-col__label { color: #c4b5fd; }
+        .tt-open-pos-col__count {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: none;
+          color: var(--tt-text-muted);
+          font-family: var(--tt-font-mono);
+        }
         .tt-open-pos-col__empty {
           font-size: 10px;
           color: var(--tt-text-faint);
@@ -1662,15 +1678,56 @@
           padding: 6px 0;
         }
         .tt-open-pos-split .tt-open-pos-chip__mode { display: none; }
+        /* Dense single-row chips — 22 investor rows must not dominate the page.
+           Layout: [logo SYM] ………… [±PnL% · STAGE] */
         .tt-open-pos-chip {
-          padding: 10px 11px !important;
-          min-height: 72px;
+          flex-direction: row !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          gap: 8px !important;
+          padding: 7px 9px !important;
+          min-height: 0 !important;
+        }
+        .tt-open-pos-chip > div:first-child {
+          flex: 1;
+          min-width: 0;
+        }
+        /* Hide LONG/SHORT on the dense row — stage + PnL carry the signal */
+        .tt-open-pos-chip > div:first-child > span:last-child { display: none; }
+        .tt-open-pos-chip > div:last-child {
+          flex-shrink: 0;
+          margin-left: auto;
+          flex-wrap: nowrap !important;
+          gap: 8px !important;
         }
         .tt-open-pos-chip__sym {
-          font-size: 14px;
+          font-size: 12px;
+        }
+        .tt-open-pos-more {
+          display: block;
+          width: 100%;
+          margin-top: 4px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          border: 1px dashed var(--tt-border, rgba(255,255,255,0.12));
+          background: transparent;
+          color: var(--tt-text-muted);
+          font-family: var(--tt-font);
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          text-align: center;
+        }
+        .tt-open-pos-more:hover {
+          border-color: var(--tt-border-hi, rgba(255,255,255,0.22));
+          color: var(--tt-text);
+          background: rgba(255,255,255,0.03);
         }
       }
       @media (min-width: 721px) {
+        .tt-open-pos-more { display: none; }
+        .tt-open-pos-col__count { display: none; }
         .tt-open-pos-split {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
@@ -3429,6 +3486,24 @@
         const hero = variant === "hero";
         const [trades, setTrades] = useState([]);
         const [loading, setLoading] = useState(true);
+        // Mobile (<720px): collapse each mode to the top N by PnL% so
+        // Investor's ~20+ holdings don't become a giant scroll wall.
+        const MOBILE_PREVIEW_N = 6;
+        const [isNarrow, setIsNarrow] = useState(false);
+        const [expandTrader, setExpandTrader] = useState(false);
+        const [expandInvestor, setExpandInvestor] = useState(false);
+        useEffect(() => {
+          if (typeof window === "undefined" || !window.matchMedia) return undefined;
+          const mq = window.matchMedia("(max-width: 720px)");
+          const apply = () => setIsNarrow(!!mq.matches);
+          apply();
+          if (typeof mq.addEventListener === "function") {
+            mq.addEventListener("change", apply);
+            return () => mq.removeEventListener("change", apply);
+          }
+          mq.addListener(apply);
+          return () => mq.removeListener(apply);
+        }, []);
         useEffect(() => {
           let cancelled = false;
           (async () => {
@@ -3562,12 +3637,42 @@
           };
         });
 
-        // Sort trader positions first (by |pnl|), then investor — keeps GS
-        // with MU instead of trailing at the end when investor PnL is larger.
-        const byPnlMag = (a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0);
-        const traderSorted = enriched.filter((t) => t._mode === "trader").sort(byPnlMag);
-        const investorSorted = enriched.filter((t) => t._mode === "investor").sort(byPnlMag);
+        // Sort: Mode (Trader → Investor), then PnL % return most → least.
+        // Signed percent (not |mag|) so winners lead and losers trail within
+        // each mode. Missing PnL sorts last within the mode.
+        const byPnlDesc = (a, b) => {
+          const aHas = Number.isFinite(Number(a?.pnl_pct));
+          const bHas = Number.isFinite(Number(b?.pnl_pct));
+          if (aHas && bHas) return Number(b.pnl_pct) - Number(a.pnl_pct);
+          if (aHas) return -1;
+          if (bHas) return 1;
+          return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+        };
+        const traderSorted = enriched.filter((t) => t._mode === "trader").sort(byPnlDesc);
+        const investorSorted = enriched.filter((t) => t._mode === "investor").sort(byPnlDesc);
         const sorted = [...traderSorted, ...investorSorted];
+        const sliceMode = (arr, expanded) => (
+          (!isNarrow || expanded || arr.length <= MOBILE_PREVIEW_N)
+            ? arr
+            : arr.slice(0, MOBILE_PREVIEW_N)
+        );
+        const traderVisible = sliceMode(traderSorted, expandTrader);
+        const investorVisible = sliceMode(investorSorted, expandInvestor);
+        const renderModeMore = (mode, total, expanded, setExpanded) => {
+          if (!isNarrow || total <= MOBILE_PREVIEW_N) return null;
+          const hidden = total - MOBILE_PREVIEW_N;
+          return h("button", {
+            type: "button",
+            className: "tt-open-pos-more",
+            onClick: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setExpanded((v) => !v);
+            },
+          }, expanded
+            ? `Show fewer ${mode} positions`
+            : `Show all ${total} ${mode} · +${hidden} more`);
+        };
 
         const renderOpenPosChip = (t) => {
           const sym = String(t?.ticker || "").toUpperCase();
@@ -3655,16 +3760,24 @@
         const positionsBody = hero
           ? h("div", { className: "tt-open-pos-split" },
               h("div", { className: "tt-open-pos-col tt-open-pos-col--trader" },
-                h("div", { className: "tt-open-pos-col__label" }, "Trader"),
+                h("div", { className: "tt-open-pos-col__label" },
+                  h("span", null, "Trader"),
+                  traderSorted.length > 0 && h("span", { className: "tt-open-pos-col__count" }, String(traderSorted.length)),
+                ),
                 traderSorted.length
-                  ? traderSorted.map(renderOpenPosChip)
+                  ? traderVisible.map(renderOpenPosChip)
                   : h("div", { className: "tt-open-pos-col__empty" }, "None"),
+                renderModeMore("Trader", traderSorted.length, expandTrader, setExpandTrader),
               ),
               h("div", { className: "tt-open-pos-col tt-open-pos-col--investor" },
-                h("div", { className: "tt-open-pos-col__label" }, "Investor"),
+                h("div", { className: "tt-open-pos-col__label" },
+                  h("span", null, "Investor"),
+                  investorSorted.length > 0 && h("span", { className: "tt-open-pos-col__count" }, String(investorSorted.length)),
+                ),
                 investorSorted.length
-                  ? investorSorted.map(renderOpenPosChip)
+                  ? investorVisible.map(renderOpenPosChip)
                   : h("div", { className: "tt-open-pos-col__empty" }, "None"),
+                renderModeMore("Investor", investorSorted.length, expandInvestor, setExpandInvestor),
               ),
             )
           : h("div", {

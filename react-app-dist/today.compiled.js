@@ -1223,6 +1223,22 @@ function OpenPositionsPreview({
   const hero = variant === "hero";
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
+  const MOBILE_PREVIEW_N = 6;
+  const [isNarrow, setIsNarrow] = useState(false);
+  const [expandTrader, setExpandTrader] = useState(false);
+  const [expandInvestor, setExpandInvestor] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+    const mq = window.matchMedia("(max-width: 720px)");
+    const apply = () => setIsNarrow(!!mq.matches);
+    apply();
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+    mq.addListener(apply);
+    return () => mq.removeListener(apply);
+  }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1368,10 +1384,33 @@ function OpenPositionsPreview({
       pnl_pct: computeOpenPositionPnlPct(t, livePx)
     };
   });
-  const byPnlMag = (a, b) => Math.abs(Number(b?.pnl_pct) || 0) - Math.abs(Number(a?.pnl_pct) || 0);
-  const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlMag);
-  const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlMag);
+  const byPnlDesc = (a, b) => {
+    const aHas = Number.isFinite(Number(a?.pnl_pct));
+    const bHas = Number.isFinite(Number(b?.pnl_pct));
+    if (aHas && bHas) return Number(b.pnl_pct) - Number(a.pnl_pct);
+    if (aHas) return -1;
+    if (bHas) return 1;
+    return String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+  };
+  const traderSorted = enriched.filter(t => t._mode === "trader").sort(byPnlDesc);
+  const investorSorted = enriched.filter(t => t._mode === "investor").sort(byPnlDesc);
   const sorted = [...traderSorted, ...investorSorted];
+  const sliceMode = (arr, expanded) => !isNarrow || expanded || arr.length <= MOBILE_PREVIEW_N ? arr : arr.slice(0, MOBILE_PREVIEW_N);
+  const traderVisible = sliceMode(traderSorted, expandTrader);
+  const investorVisible = sliceMode(investorSorted, expandInvestor);
+  const renderModeMore = (mode, total, expanded, setExpanded) => {
+    if (!isNarrow || total <= MOBILE_PREVIEW_N) return null;
+    const hidden = total - MOBILE_PREVIEW_N;
+    return h("button", {
+      type: "button",
+      className: "tt-open-pos-more",
+      onClick: e => {
+        e.preventDefault();
+        e.stopPropagation();
+        setExpanded(v => !v);
+      }
+    }, expanded ? `Show fewer ${mode} positions` : `Show all ${total} ${mode} · +${hidden} more`);
+  };
   const renderOpenPosChip = t => {
     const sym = String(t?.ticker || "").toUpperCase();
     const dir = String(t?.direction || "").toUpperCase();
@@ -1503,15 +1542,19 @@ function OpenPositionsPreview({
     className: "tt-open-pos-col tt-open-pos-col--trader"
   }, h("div", {
     className: "tt-open-pos-col__label"
-  }, "Trader"), traderSorted.length ? traderSorted.map(renderOpenPosChip) : h("div", {
+  }, h("span", null, "Trader"), traderSorted.length > 0 && h("span", {
+    className: "tt-open-pos-col__count"
+  }, String(traderSorted.length))), traderSorted.length ? traderVisible.map(renderOpenPosChip) : h("div", {
     className: "tt-open-pos-col__empty"
-  }, "None")), h("div", {
+  }, "None"), renderModeMore("Trader", traderSorted.length, expandTrader, setExpandTrader)), h("div", {
     className: "tt-open-pos-col tt-open-pos-col--investor"
   }, h("div", {
     className: "tt-open-pos-col__label"
-  }, "Investor"), investorSorted.length ? investorSorted.map(renderOpenPosChip) : h("div", {
+  }, h("span", null, "Investor"), investorSorted.length > 0 && h("span", {
+    className: "tt-open-pos-col__count"
+  }, String(investorSorted.length))), investorSorted.length ? investorVisible.map(renderOpenPosChip) : h("div", {
     className: "tt-open-pos-col__empty"
-  }, "None"))) : h("div", {
+  }, "None"), renderModeMore("Investor", investorSorted.length, expandInvestor, setExpandInvestor))) : h("div", {
     className: "tt-open-pos-grid",
     style: {
       display: "grid",
@@ -6881,6 +6924,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784470579633:737001427
+// cache-bust:1784727997867:657772085
 
-// cache-bust:1784470579633:737001427
+// cache-bust:1784727997867:657772085
