@@ -17,37 +17,37 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1784470579633" />
-    <script defer src="/vendor/react.production.min.js?v=1784470579633"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1784470579633"></script>
-    <script defer src="shared-rail-helpers.js?v=1784470579633"></script>
-    <script defer src="shared-verdict-ui.js?v=1784470579633"></script>
-<link rel="stylesheet" href="tailwind.generated.css?v=1784470579633" />
-<script defer src="/vendor/marked.min.js?v=1784470579633"></script>
-    <script defer src="auth-gate.js?v=1784470579633"></script>
-    <script defer src="tt-fetch-cache.js?v=1784470579633"></script>
-    <script defer src="tt-live-data.js?v=1784470579633"></script>
-    <script src="tt-bottom-nav.js?v=1784470579633" defer></script>
-    <script defer src="investor-nav-badge.js?v=1784470579633"></script>
-    <script src="tt-nav-extras.js?v=1784470579633" defer></script>
-    <script src="tt-global-search.js?v=1784470579633" defer></script>
-    <script src="tt-rail-bridge.js?v=1784470579633" defer></script>
-    <script src="tt-activity-strip.js?v=1784470579633" defer></script>
-    <script defer src="shared-price-utils.js?v=1784470579633"></script>
-    <script defer src="tt-cycle-intel.js?v=1784470579633"></script>
-    <script defer src="tt-harmonic-chart.js?v=1784470579633"></script>
-    <script defer src="tt-sparkline-config.js?v=1784470579633"></script>
-    <script defer src="tt-pattern-detect.js?v=1784470579633"></script>
-    <script defer src="shared-lane-card.js?v=1784470579633"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1784727997867" />
+    <script defer src="/vendor/react.production.min.js?v=1784727997867"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1784727997867"></script>
+    <script defer src="shared-rail-helpers.js?v=1784727997867"></script>
+    <script defer src="shared-verdict-ui.js?v=1784727997867"></script>
+<link rel="stylesheet" href="tailwind.generated.css?v=1784727997867" />
+<script defer src="/vendor/marked.min.js?v=1784727997867"></script>
+    <script defer src="auth-gate.js?v=1784727997867"></script>
+    <script defer src="tt-fetch-cache.js?v=1784727997867"></script>
+    <script defer src="tt-live-data.js?v=1784727997867"></script>
+    <script src="tt-bottom-nav.js?v=1784727997867" defer></script>
+    <script defer src="investor-nav-badge.js?v=1784727997867"></script>
+    <script src="tt-nav-extras.js?v=1784727997867" defer></script>
+    <script src="tt-global-search.js?v=1784727997867" defer></script>
+    <script src="tt-rail-bridge.js?v=1784727997867" defer></script>
+    <script src="tt-activity-strip.js?v=1784727997867" defer></script>
+    <script defer src="shared-price-utils.js?v=1784727997867"></script>
+    <script defer src="tt-cycle-intel.js?v=1784727997867"></script>
+    <script defer src="tt-harmonic-chart.js?v=1784727997867"></script>
+    <script defer src="tt-sparkline-config.js?v=1784727997867"></script>
+    <script defer src="tt-pattern-detect.js?v=1784727997867"></script>
+    <script defer src="shared-lane-card.js?v=1784727997867"></script>
     <!-- DS — design-system primitives (ticker logos + sparkline SVG generator).
          Required for the Viewport cards to match Active Trader's DsCompactCard. -->
-    <script defer src="ds-components.js?v=1784470579633"></script>
+    <script defer src="ds-components.js?v=1784727997867"></script>
     <!-- BubbleChart component (extracted from index-react.source.html). Uses
          native-SVG rendering (FORCE_NATIVE_SVG=true) so Recharts is NOT loaded. -->
-    <script defer src="tt-bubble-search-utils.js?v=1784470579633"></script>
-    <script defer src="tt-bubble-map-0714m.compiled.js?v=1784470579633"></script>
+    <script defer src="tt-bubble-search-utils.js?v=1784727997867"></script>
+    <script defer src="tt-bubble-map-0714m.compiled.js?v=1784727997867"></script>
     <!-- Right rail (~880KB) lazy-loads on first card click or idle prefetch. -->
-    <script defer src="tt-rail-lazy-load.js?v=1784470579633"></script>
+    <script defer src="tt-rail-lazy-load.js?v=1784727997867"></script>
     <style>
       /* 2026-06-05 — Compact horizontal category strips (Top Movers / Earnings).
          One scrolling row of chips so a category stays short vertically. */
@@ -1633,34 +1633,50 @@
         .today-hero-pos-col .tt-open-pos-split {
           flex: none;
           min-height: 0;
-          max-height: none;
-          overflow-y: visible;
+          /* Cap the list so expanding "Show all 22" doesn't own the viewport */
+          max-height: min(420px, 55vh);
+          overflow-y: auto;
           padding-bottom: 0;
+          -webkit-overflow-scrolling: touch;
         }
       }
       @media (max-width: 720px) {
         .tt-open-pos-split {
           display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
+          grid-template-columns: 1fr;
+          gap: 14px;
           align-items: start;
         }
         .tt-open-pos-col {
           display: flex;
           flex-direction: column;
-          gap: 8px;
+          gap: 4px;
           min-width: 0;
         }
         .tt-open-pos-col__label {
-          font-size: 9px;
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 8px;
+          font-size: 10px;
           font-weight: 800;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           color: var(--tt-text-dim);
-          margin-bottom: 2px;
+          margin-bottom: 4px;
+          padding-bottom: 4px;
+          border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.06));
         }
         .tt-open-pos-col--trader .tt-open-pos-col__label { color: #67e8f9; }
         .tt-open-pos-col--investor .tt-open-pos-col__label { color: #c4b5fd; }
+        .tt-open-pos-col__count {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          text-transform: none;
+          color: var(--tt-text-muted);
+          font-family: var(--tt-font-mono);
+        }
         .tt-open-pos-col__empty {
           font-size: 10px;
           color: var(--tt-text-faint);
@@ -1668,15 +1684,56 @@
           padding: 6px 0;
         }
         .tt-open-pos-split .tt-open-pos-chip__mode { display: none; }
+        /* Dense single-row chips — 22 investor rows must not dominate the page.
+           Layout: [logo SYM] ………… [±PnL% · STAGE] */
         .tt-open-pos-chip {
-          padding: 10px 11px !important;
-          min-height: 72px;
+          flex-direction: row !important;
+          align-items: center !important;
+          justify-content: space-between !important;
+          gap: 8px !important;
+          padding: 7px 9px !important;
+          min-height: 0 !important;
+        }
+        .tt-open-pos-chip > div:first-child {
+          flex: 1;
+          min-width: 0;
+        }
+        /* Hide LONG/SHORT on the dense row — stage + PnL carry the signal */
+        .tt-open-pos-chip > div:first-child > span:last-child { display: none; }
+        .tt-open-pos-chip > div:last-child {
+          flex-shrink: 0;
+          margin-left: auto;
+          flex-wrap: nowrap !important;
+          gap: 8px !important;
         }
         .tt-open-pos-chip__sym {
-          font-size: 14px;
+          font-size: 12px;
+        }
+        .tt-open-pos-more {
+          display: block;
+          width: 100%;
+          margin-top: 4px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          border: 1px dashed var(--tt-border, rgba(255,255,255,0.12));
+          background: transparent;
+          color: var(--tt-text-muted);
+          font-family: var(--tt-font);
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+          cursor: pointer;
+          text-align: center;
+        }
+        .tt-open-pos-more:hover {
+          border-color: var(--tt-border-hi, rgba(255,255,255,0.22));
+          color: var(--tt-text);
+          background: rgba(255,255,255,0.03);
         }
       }
       @media (min-width: 721px) {
+        .tt-open-pos-more { display: none; }
+        .tt-open-pos-col__count { display: none; }
         .tt-open-pos-split {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
@@ -2404,7 +2461,7 @@
   <body>
 
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1784470579633"></script>
+    <script defer src="shared-nav.js?v=1784727997867"></script>
 
     <!-- Explicit mount target for tt-activity-strip.js. Was previously
          auto-mounted via document.querySelector("nav.topnav") +
@@ -2420,7 +2477,7 @@
       </main>
     </div>
 
-    <script defer src="today.compiled.js?v=1784470579633"></script>
+    <script defer src="today.compiled.js?v=1784727997867"></script>
 
     <footer id="legal-footer">
       For informational and educational purposes only. Not investment advice. Past performance does not guarantee future results. All trading involves risk of loss. <a href="/terms.html" style="color:#6b7280;text-decoration:underline;">Full Terms</a> &middot; Market data powered by <a href="https://twelvedata.com" target="_blank" rel="noopener" style="color:#6b7280;text-decoration:underline;">Twelve Data</a>
@@ -2429,4 +2486,4 @@
   </body>
 </html>
 
-<!-- cache-bust:1784470579633:737001427 -->
+<!-- cache-bust:1784727997867:657772085 -->

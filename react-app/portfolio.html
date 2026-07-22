@@ -993,10 +993,11 @@
             status: s || "OPEN",
           });
         }
+        // Within mode: PnL % return most → least (signed). Missing PnL last.
         out.sort((a, b) => {
-          const aHas = Number.isFinite(a.plDollar);
-          const bHas = Number.isFinite(b.plDollar);
-          if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+          const aHas = Number.isFinite(a.plPct);
+          const bHas = Number.isFinite(b.plPct);
+          if (aHas && bHas) return b.plPct - a.plPct;
           if (aHas) return -1;
           if (bHas) return 1;
           return b.entryTs - a.entryTs;
@@ -1025,10 +1026,11 @@
             status: String(p?.investor_stage || p?.status || "OPEN").toUpperCase(),
           });
         }
+        // Within mode: PnL % return most → least (signed). Missing PnL last.
         out.sort((a, b) => {
-          const aHas = Number.isFinite(a.plDollar);
-          const bHas = Number.isFinite(b.plDollar);
-          if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+          const aHas = Number.isFinite(a.plPct);
+          const bHas = Number.isFinite(b.plPct);
+          if (aHas && bHas) return b.plPct - a.plPct;
           if (aHas) return -1;
           if (bHas) return 1;
           return b.entryTs - a.entryTs;

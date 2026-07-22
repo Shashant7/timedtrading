@@ -727,9 +727,9 @@ function buildTraderRows(trades, priceMap, onSelect) {
     });
   }
   out.sort((a, b) => {
-    const aHas = Number.isFinite(a.plDollar);
-    const bHas = Number.isFinite(b.plDollar);
-    if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+    const aHas = Number.isFinite(a.plPct);
+    const bHas = Number.isFinite(b.plPct);
+    if (aHas && bHas) return b.plPct - a.plPct;
     if (aHas) return -1;
     if (bHas) return 1;
     return b.entryTs - a.entryTs;
@@ -760,9 +760,9 @@ function buildInvestorRows(investorPositions, priceMap, onSelect) {
     });
   }
   out.sort((a, b) => {
-    const aHas = Number.isFinite(a.plDollar);
-    const bHas = Number.isFinite(b.plDollar);
-    if (aHas && bHas) return Math.abs(b.plDollar) - Math.abs(a.plDollar);
+    const aHas = Number.isFinite(a.plPct);
+    const bHas = Number.isFinite(b.plPct);
+    if (aHas && bHas) return b.plPct - a.plPct;
     if (aHas) return -1;
     if (bHas) return 1;
     return b.entryTs - a.entryTs;
@@ -1101,6 +1101,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784470579633:737001427
+// cache-bust:1784727997867:657772085
 
-// cache-bust:1784470579633:737001427
+// cache-bust:1784727997867:657772085
