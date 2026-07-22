@@ -663,7 +663,7 @@ function ATCard({
       const single = Number(resolvedOpen.tp) || Number(resolvedOpen.take_profit) || (tickerAgrees ? Number(t?.tp) || Number(t?.tp_target_price) : null) || null;
       return single ? [single] : [];
     })();
-    const slValid = sl == null || (isLong ? sl < ep : sl > ep);
+    const slValid = sl == null || (isLong ? sl < price : sl > price);
     const slToUse = slValid ? sl : null;
     const tpsValid = tps.filter(tp => isLong ? tp > ep : tp < ep);
     const allPx = [ep, price, slToUse, ...tpsValid].filter(p => Number.isFinite(p) && p > 0);
@@ -1733,6 +1733,17 @@ function ActiveTraderApp() {
       const invPos = pos || row?.position || null;
       const avgEntry = Number(invPos?.avg_entry) || 0;
       const shares = Number(invPos?.total_shares ?? invPos?.shares) || 0;
+      const invalidation = Number(row?.primaryInvalidation?.price ?? row?.thesisInvalidationPrice) || null;
+      const fv = Number(row?.fairValue?.fair_value ?? row?.fairValue) || null;
+      const livePx = Number(base?.price ?? base?.close ?? row?._live_price) || null;
+      const ltTarget = (() => {
+        if (fv && livePx && fv > livePx) return fv;
+        const structural = Number(base?.tp_runner ?? base?.tp_max ?? base?.tp_exit ?? base?.tp) || null;
+        if (structural && (!livePx || structural > livePx)) return structural;
+        const yearHigh = Number(base?.year_high ?? base?.yearHigh) || null;
+        if (yearHigh && (!livePx || yearHigh > livePx)) return yearHigh;
+        return null;
+      })();
       const invTrade = owned && avgEntry > 0 ? {
         ticker: sym,
         direction: "LONG",
@@ -1740,6 +1751,10 @@ function ActiveTraderApp() {
         entry_price: avgEntry,
         entryPrice: avgEntry,
         shares,
+        sl: invalidation,
+        stop_loss: invalidation,
+        tp: ltTarget,
+        take_profit: ltTarget,
         _source_mode: "investor"
       } : null;
       const enriched = {
@@ -2163,6 +2178,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926
 
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926

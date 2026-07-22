@@ -177,10 +177,13 @@
   };
 
   // ── Items definition ───────────────────────────────────────
+  // 2026-07-22 — model-first consolidation: the Trader and Investor nav
+  // items merged into one "Model" destination (the unified board). The
+  // retired /investor.html redirects there, so its match keys stay on the
+  // Model item to keep the active state correct during the redirect.
   const items = [
     { id: "today",     href: "/today.html",          label: "Today" },
-    { id: "trader",    href: "/active-trader.html",  label: "Trader",    matches: ["active-trader", "index-react"] },
-    { id: "investor",  href: "/investor.html",       label: "Investor",  matches: ["investor", "investor-dashboard"] },
+    { id: "trader",    href: "/active-trader.html",  label: "Model",     matches: ["active-trader", "index-react", "investor", "investor-dashboard"] },
     { id: "portfolio", href: "/portfolio.html",      label: "Portfolio" },
     { id: "insights",  href: "/insights.html",       label: "Insights" },
     { id: "learn",     href: "/learn.html",          label: "Learn" },
@@ -236,7 +239,7 @@
     // (open-trade count) and Investor (actionable count). Mobile bottom
     // nav previously had no badge DOM at all. Stub badges for trader /
     // investor here; populated by the helpers below on mount + every 60s.
-    if (item.id === "trader" || item.id === "investor") {
+    if (item.id === "trader") {
       const badge = document.createElement("span");
       badge.className = "tt-bn-badge";
       badge.dataset.for = item.id;
@@ -339,20 +342,22 @@
   }
 
   async function applyBadges() {
+    // 2026-07-22 model-first: single Model badge = open trades + actionable
+    // long-term names (both books live on the unified board now).
     const [trader, investor] = await Promise.all([
       fetchOpenTradeCount(),
       fetchInvestorActionableCount(),
     ]);
-    setBottomBadge("trader", trader);
-    setBottomBadge("investor", investor);
+    const total = (Number(trader) || 0) + (Number(investor) || 0);
+    setBottomBadge("trader", total > 0 ? total : null);
   }
   applyBadges();
   setInterval(applyBadges, 60 * 1000);
   window.addEventListener("tt-nav-badges-updated", (ev) => {
     const d = ev && ev.detail;
     if (!d || typeof d !== "object") return;
-    setBottomBadge("trader", d.trader);
-    setBottomBadge("investor", d.investor);
+    const total = (Number(d.trader) || 0) + (Number(d.investor) || 0);
+    setBottomBadge("trader", total > 0 ? total : null);
   });
 
   // ── iOS Safari compact URL bar — keep nav above it ──────────

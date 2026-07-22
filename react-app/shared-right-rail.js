@@ -2024,29 +2024,37 @@
       return h("div", { style: { display: "flex", flexDirection: "column", gap: "var(--ds-space-3)", position: "relative" } },
         _loadingOverlay,
 
-        // 1. Verdict chip row — compact; Snapshot/Setup carry the full hero.
+        // 1. Verdict strip — 2026-07-22 design uplevel. One clean line:
+        // verdict chip + plain-english action. Fusion internals (score /
+        // layer split / direction) move to a hover tooltip — expert detail,
+        // not first-read content.
         h("div", {
+          title: `Fusion ${Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—"}/100 · layers ${_layerSplitLabel} · ${_effDir || "—"}`,
           style: {
             display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center",
-            padding: "10px 12px", borderRadius: 8,
+            padding: "10px 12px", borderRadius: 10,
             background: _gBg, border: `1px solid ${_gBorder}`,
+            borderLeft: `3px solid ${_gColor}`,
           },
         },
-          h("span", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.06em" } }, "OPTIONS VERDICT"),
-          h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: _gColor, background: _gBg, border: `1px solid ${_gBorder}` } }, setupGuidance.label || "SETUP"),
+          h("span", { style: { fontSize: 10, fontWeight: 800, padding: "2px 9px", borderRadius: 999, color: _gColor, background: _gBg, border: `1px solid ${_gBorder}`, letterSpacing: "0.05em" } }, setupGuidance.label || "SETUP"),
           h("span", { style: { fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: modeMeta.color, background: modeMeta.bg, border: `1px solid ${modeMeta.color}66` } }, modeMeta.label),
-          h("span", { style: { fontSize: 10, fontFamily: "var(--tt-font-mono)", color: "var(--ds-text-muted)" } }, "Fusion ", Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—", "/100 · ", _layerSplitLabel, " · ", _effDir || "—"),
-          h("span", { style: { fontSize: 11, color: "var(--ds-text-body)", flex: "1 1 200px" } }, setupGuidance.action || setupGuidance.headline || "—"),
+          h("span", { style: { fontSize: 11.5, color: "var(--ds-text-body)", flex: "1 1 200px", lineHeight: 1.45 } }, setupGuidance.action || setupGuidance.headline || "—"),
         ),
 
-        // Model levels + bias reconciliation — aligns Options tab with Model card geometry.
+        // Model levels + bias reconciliation — 2026-07-22 design uplevel:
+        // collapsed by default. The Short Term tab's Plan panel is the
+        // canonical home for these levels; here they're reference context
+        // for the options play, not first-read content.
         (() => {
           const recon = data?.model_reconciliation || null;
           const levels = recon?.model_levels || {};
           const hasLevels = [levels.stop, levels.trim, levels.exit, levels.runner].some((v) => Number.isFinite(v) && v > 0);
           if (!hasLevels && !(recon?.lines || []).length && !_callVsLeanConflict && !_dirFlipped) return null;
           const fmtPx = (n) => Number.isFinite(n) ? "$" + Number(n).toFixed(2) : "—";
-          return h(Panel, { title: "Model Levels & Bias", color: "#60a5fa" },
+          return h("details", { style: { marginBottom: 4 } },
+            h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Model levels & bias · reference"),
+            h(Panel, { title: "Model Levels & Bias", color: "#60a5fa" },
             h("div", { style: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 8 } },
               h("div", { style: { padding: 8, background: "rgba(248,113,113,0.05)", border: "1px solid rgba(248,113,113,0.20)", borderRadius: 6 } },
                 h("div", { style: { fontSize: 9, fontWeight: 700, color: "#f87171", letterSpacing: "0.05em" } }, "STOP / INVALIDATION"),
@@ -2081,60 +2089,10 @@
             Array.isArray(contract?.invalidation) && contract.invalidation.length > 0 && h("div", { style: { marginTop: 8, fontSize: 11, color: "var(--ds-text-faint)", lineHeight: 1.45 } },
               "Invalidation: ", contract.invalidation.slice(0, 2).join(" · "),
             ),
+            ),
           );
         })(),
 
-        // 2. Options Preferences — expanded by default.
-        h("details", { open: true, style: { marginBottom: 4 } },
-          h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Preferences · profile & horizon"),
-          h(Panel, { title: "Options Preferences" },
-          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
-          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
-            PROFILE_CHIPS.map((p) => h("button", {
-              key: p.key,
-              onClick: () => updateProfile(p.key),
-              style: {
-                padding: "5px 10px", fontSize: 11, fontWeight: 600,
-                borderRadius: 999,
-                background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
-                color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
-                border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
-                cursor: "pointer",
-              },
-            }, p.label)),
-          ),
-          data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic", marginBottom: 10 } },
-            data.profile_meta.one_liner,
-          ),
-          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "HORIZON"),
-          /* 2026-07-22 model-first relabel: Trader/Investor → Short Term /
-             Long Term (matches the renamed rail tabs; the model path is an
-             implementation detail under the surface). */
-          h("div", { style: { display: "flex", gap: 6, marginBottom: 6 } },
-            [
-              { key: "trader", label: "Short Term · weeks", emoji: "⚡" },
-              { key: "investor", label: "Long Term · LEAP", emoji: "🪜" },
-            ].map((opt) => h("button", {
-              key: opt.key,
-              onClick: () => setHorizon(opt.key),
-              style: {
-                flex: 1,
-                padding: "6px 10px", fontSize: 11, fontWeight: 600,
-                borderRadius: 8,
-                background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
-                color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
-                border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
-                cursor: "pointer",
-              },
-            }, `${opt.emoji} ${opt.label}`)),
-          ),
-          h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
-            horizon === "investor"
-              ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days."
-              : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative.",
-          ),
-          ),
-        ),
 
         _emptyPlaysNote,
 
@@ -2399,17 +2357,21 @@
 
             if (legObjects.length === 0 && !scenarios) return null;
 
-            return h("div", {
+            // 2026-07-22 design uplevel: the leg-by-leg education block is a
+            // wall of text for experienced users — collapse it behind a
+            // summary so the play card stays scannable. New/curious users
+            // still get the full plain-english walkthrough one tap away.
+            return h("details", {
               style: {
                 marginTop: 10,
-                padding: 10,
+                padding: "8px 10px",
                 background: "rgba(59, 130, 246, 0.05)",
                 border: "1px solid rgba(59, 130, 246, 0.20)",
                 borderRadius: 8,
               },
             },
-              h("div", { style: { fontSize: 10, fontWeight: 700, color: "#60a5fa", letterSpacing: "0.06em", marginBottom: 6 } },
-                "📚 HOW THIS WORKS",
+              h("summary", { style: { fontSize: 10, fontWeight: 700, color: "#60a5fa", letterSpacing: "0.06em", cursor: "pointer" } },
+                "📚 How this works — legs, math & expiry scenarios",
               ),
               // Per-leg breakdown with per-leg premiums
               legObjects.length > 0 && h("div", { style: { marginBottom: 8 } },
@@ -2572,6 +2534,59 @@
                 play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)),
               ),
             )),
+          ),
+          ),
+        ),
+
+        // Preferences — 2026-07-22 design uplevel: moved to the BOTTOM and
+        // collapsed. These are settings, not content — the play comes first.
+        h("details", { style: { marginBottom: 4 } },
+          h("summary", { style: { fontSize: 10, fontWeight: 700, color: "var(--ds-text-muted)", letterSpacing: "0.06em", cursor: "pointer", padding: "4px 0" } }, "Preferences · profile & horizon"),
+          h(Panel, { title: "Options Preferences" },
+          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "RISK PROFILE"),
+          h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 } },
+            PROFILE_CHIPS.map((p) => h("button", {
+              key: p.key,
+              onClick: () => updateProfile(p.key),
+              style: {
+                padding: "5px 10px", fontSize: 11, fontWeight: 600,
+                borderRadius: 999,
+                background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
+                color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
+                border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
+                cursor: "pointer",
+              },
+            }, p.label)),
+          ),
+          data?.profile_meta?.one_liner && h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic", marginBottom: 10 } },
+            data.profile_meta.one_liner,
+          ),
+          h("div", { style: { fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em", marginBottom: 6 } }, "HORIZON"),
+          /* 2026-07-22 model-first relabel: Trader/Investor → Short Term /
+             Long Term (matches the renamed rail tabs; the model path is an
+             implementation detail under the surface). */
+          h("div", { style: { display: "flex", gap: 6, marginBottom: 6 } },
+            [
+              { key: "trader", label: "Short Term · weeks", emoji: "⚡" },
+              { key: "investor", label: "Long Term · LEAP", emoji: "🪜" },
+            ].map((opt) => h("button", {
+              key: opt.key,
+              onClick: () => setHorizon(opt.key),
+              style: {
+                flex: 1,
+                padding: "6px 10px", fontSize: 11, fontWeight: 600,
+                borderRadius: 8,
+                background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
+                color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
+                border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
+                cursor: "pointer",
+              },
+            }, `${opt.emoji} ${opt.label}`)),
+          ),
+          h("div", { style: { fontSize: 11, color: "var(--ds-text-muted)", fontStyle: "italic" } },
+            horizon === "investor"
+              ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days."
+              : "Swing / intraday — the primary play matches the selected risk profile. Switch to Long Term for the LEAP expression.",
           ),
           ),
         ),
@@ -9779,7 +9794,87 @@
                         );
                       })()}
 
+                      {/* 2026-07-22 model-first r2 — Profile, Sector & Market and
+                          Sequence RESTORED per operator: "the Short Term Tab should
+                          still show Profile, Sector & Market and Sequence Sections." */}
+                      {/* Profile — V2.2 (2026-05-12) — extended to include the
+                          freshly-rebuilt learning_json fields (personality, dominant
+                          archetypes, typical pullback, ATR-multiple SL/TP guidance)
+                          alongside the column-based behavior/persistence chips.
+                          Only renders when at least one field is present. */}
+                      {ticker?._ticker_profile && (() => {
+                        const tp = ticker._ticker_profile;
+                        const learn = tp.learning || null;
+                        const labelArchetype = (a) => {
+                          if (!a) return null;
+                          const map = {
+                            trend_continuation_runner: "Trend Runner",
+                            pullback_reclaim: "Pullback Reclaim",
+                            fast_impulse_fragile: "Fast Impulse",
+                            exhaustion_reversal: "Exhaustion Reversal",
+                            liquidity_sweep_reclaim: "Sweep Reclaim",
+                            orb_expansion: "Opening Range Break",
+                          };
+                          return map[String(a)] || String(a).replace(/_/g, " ");
+                        };
+                        const personalityLearn = learn?.personality || null;
+                        const longArch = learn?.archetypes?.long?.dominant || learn?.entry_params?.long_dominant_archetype || null;
+                        const shortArch = learn?.archetypes?.short?.dominant || learn?.entry_params?.short_dominant_archetype || null;
+                        const pullback = Number(learn?.entry_params?.typical_pullback_pct);
+                        const slAtr = Number(learn?.entry_params?.sl_atr_mult);
+                        const tpAtr = Number(learn?.entry_params?.tp_atr_mult);
+                        const totalMoves = Number(learn?.total_moves);
+                        const upMoves = Number(learn?.up_moves);
+                        const dnMoves = Number(learn?.dn_moves);
+                        const hasAnything = !!(tp.behavior_type || tp.atr_pct_p50 != null || tp.trend_persistence != null
+                          || personalityLearn || longArch || shortArch || Number.isFinite(pullback) || Number.isFinite(slAtr) || Number.isFinite(tpAtr));
+                        if (!hasAnything) return null;
+                        return (
+                          <Panel title="Profile" action={Number.isFinite(totalMoves) && totalMoves > 0
+                            ? <span className="ds-chip ds-chip--sm" style={{ fontFamily: "var(--tt-font-mono)" }}>{totalMoves} moves{Number.isFinite(upMoves) && Number.isFinite(dnMoves) ? ` · ${upMoves}↑/${dnMoves}↓` : ""}</span>
+                            : null
+                          }>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ds-space-1)" }}>
+                              {personalityLearn && <span className="ds-chip ds-chip--sm ds-chip--accent" title="Engine-learned personality classification (from per-ticker move history)">{String(personalityLearn).replace(/_/g, " ")}</span>}
+                              {tp.behavior_type && tp.behavior_type !== personalityLearn && <span className="ds-chip ds-chip--sm ds-chip--solid" title="Legacy behavior classification (column-based)">{String(tp.behavior_type).replace(/_/g, " ")}</span>}
+                              {longArch && <span className="ds-chip ds-chip--sm ds-chip--up" title="Dominant move archetype on UP moves">L: {labelArchetype(longArch)}</span>}
+                              {shortArch && <span className="ds-chip ds-chip--sm ds-chip--dn" title="Dominant move archetype on DOWN moves">S: {labelArchetype(shortArch)}</span>}
+                              {tp.atr_pct_p50 != null && <span className="ds-chip ds-chip--sm" title="Median daily ATR as % of price">ATR p50: {Number(tp.atr_pct_p50).toFixed(2)}%</span>}
+                              {tp.trend_persistence != null && <span className="ds-chip ds-chip--sm" title="0–1 score; higher = trends persist longer">Persistence: {Number(tp.trend_persistence).toFixed(2)}</span>}
+                              {Number.isFinite(pullback) && pullback > 0 && <span className="ds-chip ds-chip--sm" title="Typical pullback inside an established move">Pullback: {pullback.toFixed(1)}%</span>}
+                              {Number.isFinite(slAtr) && slAtr > 0 && <span className="ds-chip ds-chip--sm" title="Suggested SL distance in ATRs (from this ticker's history)">SL: {slAtr.toFixed(1)}× ATR</span>}
+                              {Number.isFinite(tpAtr) && tpAtr > 0 && <span className="ds-chip ds-chip--sm" title="Suggested TP distance in ATRs (from this ticker's history)">TP: {tpAtr.toFixed(1)}× ATR</span>}
+                            </div>
+                          </Panel>
+                        );
+                      })()}
 
+                      {/* Sector & Market context */}
+                      {(modelSignal?.sector || modelSignal?.market) && (
+                        <Panel title="Sector & Market">
+                          <div style={{ display: "flex", flexDirection: "column", gap: "var(--ds-space-2)" }}>
+                            {modelSignal?.sector && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                <span className="ds-caption">Sector</span>
+                                <span className={`ds-chip ds-chip--sm ${(modelSignal.sector.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.sector.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`}>
+                                  {modelSignal.sector.label || modelSignal.sector.sector || "—"}
+                                </span>
+                              </div>
+                            )}
+                            {modelSignal?.market && (
+                              <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                <span className="ds-caption">Market</span>
+                                <span className={`ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`}>
+                                  {modelSignal.market.label || "—"}
+                                </span>
+                                {modelSignal.market.riskFlag && <span className="ds-chip ds-chip--sm ds-chip--dn">RISK</span>}
+                              </div>
+                            )}
+                          </div>
+                        </Panel>
+                      )}
+
+                      {renderSequenceShadowPanel({ compact: true })}
 
                     </div>
                   )}

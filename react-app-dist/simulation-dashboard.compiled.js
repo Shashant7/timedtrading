@@ -7143,10 +7143,7 @@ function App() {
   }, "Today"), React.createElement("a", {
     href: "/active-trader.html",
     className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Active Trader"), React.createElement("a", {
-    href: "investor-dashboard.html",
-    className: "px-3 py-1 rounded-md text-[13px] text-[#6b7280] hover:text-white hover:bg-white/[0.04] transition-all"
-  }, "Investor"), React.createElement("a", {
+  }, "Model"), React.createElement("a", {
     href: "/portfolio.html",
     className: "px-3 py-1 rounded-md text-[13px] text-white bg-white/[0.07] font-medium"
   }, "Trades"), React.createElement("a", {
@@ -7256,11 +7253,7 @@ function App() {
     href: "/active-trader.html",
     className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
     onClick: () => setMobileMenuOpen(false)
-  }, "Active Trader"), React.createElement("a", {
-    href: "investor-dashboard.html",
-    className: "px-3 py-2 rounded-md text-[13px] text-[#9ca3af] hover:text-white hover:bg-white/[0.04] transition-all",
-    onClick: () => setMobileMenuOpen(false)
-  }, "Investor"), React.createElement("a", {
+  }, "Model"), React.createElement("a", {
     href: "/portfolio.html",
     className: "px-3 py-2 rounded-md text-[13px] text-white bg-white/[0.07] font-medium",
     onClick: () => setMobileMenuOpen(false)
@@ -7882,6 +7875,6 @@ try {
           </div>`;
   }
 }
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926
 
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926

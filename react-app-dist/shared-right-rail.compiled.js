@@ -2931,32 +2931,28 @@
           position: "relative"
         }
       }, _loadingOverlay, h("div", {
+        title: `Fusion ${Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—"}/100 · layers ${_layerSplitLabel} · ${_effDir || "—"}`,
         style: {
           display: "flex",
           flexWrap: "wrap",
           gap: 8,
           alignItems: "center",
           padding: "10px 12px",
-          borderRadius: 8,
+          borderRadius: 10,
           background: _gBg,
-          border: `1px solid ${_gBorder}`
+          border: `1px solid ${_gBorder}`,
+          borderLeft: `3px solid ${_gColor}`
         }
       }, h("span", {
         style: {
           fontSize: 10,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.06em"
-        }
-      }, "OPTIONS VERDICT"), h("span", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          padding: "2px 8px",
+          fontWeight: 800,
+          padding: "2px 9px",
           borderRadius: 999,
           color: _gColor,
           background: _gBg,
-          border: `1px solid ${_gBorder}`
+          border: `1px solid ${_gBorder}`,
+          letterSpacing: "0.05em"
         }
       }, setupGuidance.label || "SETUP"), h("span", {
         style: {
@@ -2970,15 +2966,10 @@
         }
       }, modeMeta.label), h("span", {
         style: {
-          fontSize: 10,
-          fontFamily: "var(--tt-font-mono)",
-          color: "var(--ds-text-muted)"
-        }
-      }, "Fusion ", Number.isFinite(_scoreNum) ? _scoreNum.toFixed(0) : "—", "/100 · ", _layerSplitLabel, " · ", _effDir || "—"), h("span", {
-        style: {
-          fontSize: 11,
+          fontSize: 11.5,
           color: "var(--ds-text-body)",
-          flex: "1 1 200px"
+          flex: "1 1 200px",
+          lineHeight: 1.45
         }
       }, setupGuidance.action || setupGuidance.headline || "—")), (() => {
         const recon = data?.model_reconciliation || null;
@@ -2986,7 +2977,20 @@
         const hasLevels = [levels.stop, levels.trim, levels.exit, levels.runner].some(v => Number.isFinite(v) && v > 0);
         if (!hasLevels && !(recon?.lines || []).length && !_callVsLeanConflict && !_dirFlipped) return null;
         const fmtPx = n => Number.isFinite(n) ? "$" + Number(n).toFixed(2) : "—";
-        return h(Panel, {
+        return h("details", {
+          style: {
+            marginBottom: 4
+          }
+        }, h("summary", {
+          style: {
+            fontSize: 10,
+            fontWeight: 700,
+            color: "var(--ds-text-muted)",
+            letterSpacing: "0.06em",
+            cursor: "pointer",
+            padding: "4px 0"
+          }
+        }, "Model levels & bias · reference"), h(Panel, {
           title: "Model Levels & Bias",
           color: "#60a5fa"
         }, h("div", {
@@ -3150,101 +3154,8 @@
             color: "var(--ds-text-faint)",
             lineHeight: 1.45
           }
-        }, "Invalidation: ", contract.invalidation.slice(0, 2).join(" · ")));
-      })(), h("details", {
-        open: true,
-        style: {
-          marginBottom: 4
-        }
-      }, h("summary", {
-        style: {
-          fontSize: 10,
-          fontWeight: 700,
-          color: "var(--ds-text-muted)",
-          letterSpacing: "0.06em",
-          cursor: "pointer",
-          padding: "4px 0"
-        }
-      }, "Preferences · profile & horizon"), h(Panel, {
-        title: "Options Preferences"
-      }, h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em",
-          marginBottom: 6
-        }
-      }, "RISK PROFILE"), h("div", {
-        style: {
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-          marginBottom: 10
-        }
-      }, PROFILE_CHIPS.map(p => h("button", {
-        key: p.key,
-        onClick: () => updateProfile(p.key),
-        style: {
-          padding: "5px 10px",
-          fontSize: 11,
-          fontWeight: 600,
-          borderRadius: 999,
-          background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
-          color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
-          border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
-          cursor: "pointer"
-        }
-      }, p.label))), data?.profile_meta?.one_liner && h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          fontStyle: "italic",
-          marginBottom: 10
-        }
-      }, data.profile_meta.one_liner), h("div", {
-        style: {
-          fontSize: 9,
-          fontWeight: 700,
-          color: "var(--ds-text-faint)",
-          letterSpacing: "0.05em",
-          marginBottom: 6
-        }
-      }, "HORIZON"), h("div", {
-        style: {
-          display: "flex",
-          gap: 6,
-          marginBottom: 6
-        }
-      }, [{
-        key: "trader",
-        label: "Short Term · weeks",
-        emoji: "⚡"
-      }, {
-        key: "investor",
-        label: "Long Term · LEAP",
-        emoji: "🪜"
-      }].map(opt => h("button", {
-        key: opt.key,
-        onClick: () => setHorizon(opt.key),
-        style: {
-          flex: 1,
-          padding: "6px 10px",
-          fontSize: 11,
-          fontWeight: 600,
-          borderRadius: 8,
-          background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
-          color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
-          border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
-          cursor: "pointer"
-        }
-      }, `${opt.emoji} ${opt.label}`))), h("div", {
-        style: {
-          fontSize: 11,
-          color: "var(--ds-text-muted)",
-          fontStyle: "italic"
-        }
-      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days." : "Swing / intraday — primary play matches risk profile. LEAP appears below as a long-term alternative."))), _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
+        }, "Invalidation: ", contract.invalidation.slice(0, 2).join(" · "))));
+      })(), _emptyPlaysNote, primary && primary._moonshot_active && h("div", {
         style: {
           background: "linear-gradient(135deg, rgba(167,139,250,0.18), rgba(56,242,161,0.12))",
           border: "2px solid rgba(56,242,161,0.50)",
@@ -3636,23 +3547,23 @@
           return null;
         })();
         if (legObjects.length === 0 && !scenarios) return null;
-        return h("div", {
+        return h("details", {
           style: {
             marginTop: 10,
-            padding: 10,
+            padding: "8px 10px",
             background: "rgba(59, 130, 246, 0.05)",
             border: "1px solid rgba(59, 130, 246, 0.20)",
             borderRadius: 8
           }
-        }, h("div", {
+        }, h("summary", {
           style: {
             fontSize: 10,
             fontWeight: 700,
             color: "#60a5fa",
             letterSpacing: "0.06em",
-            marginBottom: 6
+            cursor: "pointer"
           }
-        }, "📚 HOW THIS WORKS"), legObjects.length > 0 && h("div", {
+        }, "📚 How this works — legs, math & expiry scenarios"), legObjects.length > 0 && h("div", {
           style: {
             marginBottom: 8
           }
@@ -3955,7 +3866,99 @@
         style: {
           color: "#34d399"
         }
-      }, fmtUsd(play.max_gain_usd))), play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)))))))), h("div", {
+      }, fmtUsd(play.max_gain_usd))), play.breakeven != null && h("span", null, "BE: $", play.breakeven.toFixed(2)))))))), h("details", {
+        style: {
+          marginBottom: 4
+        }
+      }, h("summary", {
+        style: {
+          fontSize: 10,
+          fontWeight: 700,
+          color: "var(--ds-text-muted)",
+          letterSpacing: "0.06em",
+          cursor: "pointer",
+          padding: "4px 0"
+        }
+      }, "Preferences · profile & horizon"), h(Panel, {
+        title: "Options Preferences"
+      }, h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em",
+          marginBottom: 6
+        }
+      }, "RISK PROFILE"), h("div", {
+        style: {
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+          marginBottom: 10
+        }
+      }, PROFILE_CHIPS.map(p => h("button", {
+        key: p.key,
+        onClick: () => updateProfile(p.key),
+        style: {
+          padding: "5px 10px",
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: 999,
+          background: profile === p.key ? "rgba(52,211,153,0.15)" : "rgba(255,255,255,0.03)",
+          color: profile === p.key ? "#34d399" : "var(--ds-text-muted)",
+          border: profile === p.key ? "1px solid rgba(52,211,153,0.40)" : "1px solid var(--ds-stroke)",
+          cursor: "pointer"
+        }
+      }, p.label))), data?.profile_meta?.one_liner && h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          fontStyle: "italic",
+          marginBottom: 10
+        }
+      }, data.profile_meta.one_liner), h("div", {
+        style: {
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--ds-text-faint)",
+          letterSpacing: "0.05em",
+          marginBottom: 6
+        }
+      }, "HORIZON"), h("div", {
+        style: {
+          display: "flex",
+          gap: 6,
+          marginBottom: 6
+        }
+      }, [{
+        key: "trader",
+        label: "Short Term · weeks",
+        emoji: "⚡"
+      }, {
+        key: "investor",
+        label: "Long Term · LEAP",
+        emoji: "🪜"
+      }].map(opt => h("button", {
+        key: opt.key,
+        onClick: () => setHorizon(opt.key),
+        style: {
+          flex: 1,
+          padding: "6px 10px",
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: 8,
+          background: horizon === opt.key ? "rgba(96,165,250,0.15)" : "rgba(255,255,255,0.03)",
+          color: horizon === opt.key ? "#60a5fa" : "var(--ds-text-muted)",
+          border: horizon === opt.key ? "1px solid rgba(96,165,250,0.40)" : "1px solid var(--ds-stroke)",
+          cursor: "pointer"
+        }
+      }, `${opt.emoji} ${opt.label}`))), h("div", {
+        style: {
+          fontSize: 11,
+          color: "var(--ds-text-muted)",
+          fontStyle: "italic"
+        }
+      }, horizon === "investor" ? "Long-term thesis — primary play is a deep-ITM LEAP (≥1 year DTE). Roll at T-180 days." : "Swing / intraday — the primary play matches the selected risk profile. Switch to Long Term for the LEAP expression."))), h("div", {
         style: {
           fontSize: 10,
           color: "var(--ds-text-faint)",
@@ -11166,7 +11169,107 @@
             l: l,
             side: "sup"
           }))));
-        })()), v2RailTab === "TECHNICALS" && React.createElement("div", {
+        })(), ticker?._ticker_profile && (() => {
+          const tp = ticker._ticker_profile;
+          const learn = tp.learning || null;
+          const labelArchetype = a => {
+            if (!a) return null;
+            const map = {
+              trend_continuation_runner: "Trend Runner",
+              pullback_reclaim: "Pullback Reclaim",
+              fast_impulse_fragile: "Fast Impulse",
+              exhaustion_reversal: "Exhaustion Reversal",
+              liquidity_sweep_reclaim: "Sweep Reclaim",
+              orb_expansion: "Opening Range Break"
+            };
+            return map[String(a)] || String(a).replace(/_/g, " ");
+          };
+          const personalityLearn = learn?.personality || null;
+          const longArch = learn?.archetypes?.long?.dominant || learn?.entry_params?.long_dominant_archetype || null;
+          const shortArch = learn?.archetypes?.short?.dominant || learn?.entry_params?.short_dominant_archetype || null;
+          const pullback = Number(learn?.entry_params?.typical_pullback_pct);
+          const slAtr = Number(learn?.entry_params?.sl_atr_mult);
+          const tpAtr = Number(learn?.entry_params?.tp_atr_mult);
+          const totalMoves = Number(learn?.total_moves);
+          const upMoves = Number(learn?.up_moves);
+          const dnMoves = Number(learn?.dn_moves);
+          const hasAnything = !!(tp.behavior_type || tp.atr_pct_p50 != null || tp.trend_persistence != null || personalityLearn || longArch || shortArch || Number.isFinite(pullback) || Number.isFinite(slAtr) || Number.isFinite(tpAtr));
+          if (!hasAnything) return null;
+          return React.createElement(Panel, {
+            title: "Profile",
+            action: Number.isFinite(totalMoves) && totalMoves > 0 ? React.createElement("span", {
+              className: "ds-chip ds-chip--sm",
+              style: {
+                fontFamily: "var(--tt-font-mono)"
+              }
+            }, totalMoves, " moves", Number.isFinite(upMoves) && Number.isFinite(dnMoves) ? ` · ${upMoves}↑/${dnMoves}↓` : "") : null
+          }, React.createElement("div", {
+            style: {
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "var(--ds-space-1)"
+            }
+          }, personalityLearn && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--accent",
+            title: "Engine-learned personality classification (from per-ticker move history)"
+          }, String(personalityLearn).replace(/_/g, " ")), tp.behavior_type && tp.behavior_type !== personalityLearn && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--solid",
+            title: "Legacy behavior classification (column-based)"
+          }, String(tp.behavior_type).replace(/_/g, " ")), longArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--up",
+            title: "Dominant move archetype on UP moves"
+          }, "L: ", labelArchetype(longArch)), shortArch && React.createElement("span", {
+            className: "ds-chip ds-chip--sm ds-chip--dn",
+            title: "Dominant move archetype on DOWN moves"
+          }, "S: ", labelArchetype(shortArch)), tp.atr_pct_p50 != null && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Median daily ATR as % of price"
+          }, "ATR p50: ", Number(tp.atr_pct_p50).toFixed(2), "%"), tp.trend_persistence != null && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "0\u20131 score; higher = trends persist longer"
+          }, "Persistence: ", Number(tp.trend_persistence).toFixed(2)), Number.isFinite(pullback) && pullback > 0 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Typical pullback inside an established move"
+          }, "Pullback: ", pullback.toFixed(1), "%"), Number.isFinite(slAtr) && slAtr > 0 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Suggested SL distance in ATRs (from this ticker's history)"
+          }, "SL: ", slAtr.toFixed(1), "\xD7 ATR"), Number.isFinite(tpAtr) && tpAtr > 0 && React.createElement("span", {
+            className: "ds-chip ds-chip--sm",
+            title: "Suggested TP distance in ATRs (from this ticker's history)"
+          }, "TP: ", tpAtr.toFixed(1), "\xD7 ATR")));
+        })(), (modelSignal?.sector || modelSignal?.market) && React.createElement(Panel, {
+          title: "Sector & Market"
+        }, React.createElement("div", {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--ds-space-2)"
+          }
+        }, modelSignal?.sector && React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ds-space-2)"
+          }
+        }, React.createElement("span", {
+          className: "ds-caption"
+        }, "Sector"), React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${(modelSignal.sector.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.sector.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
+        }, modelSignal.sector.label || modelSignal.sector.sector || "—")), modelSignal?.market && React.createElement("div", {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ds-space-2)"
+          }
+        }, React.createElement("span", {
+          className: "ds-caption"
+        }, "Market"), React.createElement("span", {
+          className: `ds-chip ds-chip--sm ${(modelSignal.market.netSignal || 0) > 0 ? "ds-chip--up" : (modelSignal.market.netSignal || 0) < 0 ? "ds-chip--dn" : "ds-chip--solid"}`
+        }, modelSignal.market.label || "—"), modelSignal.market.riskFlag && React.createElement("span", {
+          className: "ds-chip ds-chip--sm ds-chip--dn"
+        }, "RISK")))), renderSequenceShadowPanel({
+          compact: true
+        })), v2RailTab === "TECHNICALS" && React.createElement("div", {
           style: railTabBodyWrapStyle
         }, (() => {
           const tfm = ticker?.tf_tech || {};
@@ -19565,4 +19668,4 @@
   };
 })();
 
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926

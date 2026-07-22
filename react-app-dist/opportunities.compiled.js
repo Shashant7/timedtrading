@@ -191,8 +191,8 @@ function OpportunitiesApp({
     href: "/today.html#opportunities"
   }, "Today strip"), " · ", h("a", {
     className: "hb-link",
-    href: "/investor.html"
-  }, "Investor"), "."));
+    href: "/active-trader.html"
+  }, "Model"), "."));
   let body;
   if (err && !data?.count) {
     body = h("div", {
@@ -250,6 +250,6 @@ const app = AuthGate ? h(AuthGate, {
 });
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(app);
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926
 
-// cache-bust:1784750967645:348930418
+// cache-bust:1784753136177:241306926

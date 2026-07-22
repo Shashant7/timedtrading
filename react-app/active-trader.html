@@ -1389,7 +1389,14 @@
                         || null;
             return single ? [single] : [];
           })();
-          const slValid = sl == null || (isLong ? sl < ep : sl > ep);
+          // 2026-07-22 (model-first r2) — SL validity vs CURRENT price, not
+          // entry. A ratcheted/breakeven-locked trader stop or a long-term
+          // trailing invalidation legitimately sits ABOVE entry on a LONG
+          // that has run (e.g. CRS: avg entry $471, weekly-EMA invalidation
+          // $525). The old `sl < entry` gate dropped those stops from the
+          // bar entirely, which is why LT cards showed INV/no-target
+          // geometry that didn't match trader cards.
+          const slValid = sl == null || (isLong ? sl < price : sl > price);
           const slToUse = slValid ? sl : null;
           const tpsValid = tps.filter((tp) => isLong ? tp > ep : tp < ep);
           const allPx = [ep, price, slToUse, ...tpsValid].filter(p => Number.isFinite(p) && p > 0);
@@ -2301,9 +2308,28 @@
             const base = bySym.get(sym) || { ticker: sym, price: Number(row?._live_price ?? row?.price) || null };
             // Investor position → open-trade-like object so the ATCard
             // position strip renders entry/P&L for LT holdings too.
+            // 2026-07-22 (follow-up) — NORMALIZED SL + TARGET so LT cards
+            // show the same SL / E / T progress geometry as trader cards:
+            //   stop   = the investor invalidation (the model's actual LT
+            //            exit line — often ABOVE entry once a position has
+            //            run, i.e. a trailing lock)
+            //   target = fair value when price still trades below it
+            //            (undervalued → fair value IS the target), else the
+            //            model's structural runner target, else 52W high.
             const invPos = pos || row?.position || null;
             const avgEntry = Number(invPos?.avg_entry) || 0;
             const shares = Number(invPos?.total_shares ?? invPos?.shares) || 0;
+            const invalidation = Number(row?.primaryInvalidation?.price ?? row?.thesisInvalidationPrice) || null;
+            const fv = Number(row?.fairValue?.fair_value ?? row?.fairValue) || null;
+            const livePx = Number(base?.price ?? base?.close ?? row?._live_price) || null;
+            const ltTarget = (() => {
+              if (fv && livePx && fv > livePx) return fv;
+              const structural = Number(base?.tp_runner ?? base?.tp_max ?? base?.tp_exit ?? base?.tp) || null;
+              if (structural && (!livePx || structural > livePx)) return structural;
+              const yearHigh = Number(base?.year_high ?? base?.yearHigh) || null;
+              if (yearHigh && (!livePx || yearHigh > livePx)) return yearHigh;
+              return null;
+            })();
             const invTrade = (owned && avgEntry > 0) ? {
               ticker: sym,
               direction: "LONG",
@@ -2311,6 +2337,10 @@
               entry_price: avgEntry,
               entryPrice: avgEntry,
               shares,
+              sl: invalidation,
+              stop_loss: invalidation,
+              tp: ltTarget,
+              take_profit: ltTarget,
               _source_mode: "investor",
             } : null;
             const enriched = {
