@@ -570,8 +570,15 @@ export async function preflightOrder(env, payload) {
     const entryPx = Number(payload?.entry || payload?.price_target || 0);
     const brokerId = resolveBrokerId(user) || user?.broker || null;
     const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
+    // 2026-07-22 — Skip fractional up-front when the user record shows the
+    // Webull fractional-trading agreement isn't signed. The bridge auto-
+    // retries with whole shares on the first offense (bridge-index.js
+    // fract-fallback block) and persists this flag; subsequent orders then
+    // pre-round here to avoid a wasted preview + place round-trip.
+    const fractionalAgreementBlocked = !!user?.fractional_agreement_missing;
     const fractionalOn = fractionalCap
-      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false";
+      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false"
+      && !fractionalAgreementBlocked;
 
     // Fail-safe: never mirror an entry to an account whose size we don't know
     // — that would risk over-allocating a small account (the exact hazard for
@@ -626,8 +633,15 @@ export async function preflightOrder(env, payload) {
   if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
     const brokerId = resolveBrokerId(user) || user?.broker || null;
     const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
+    // 2026-07-22 — Skip fractional up-front when the user record shows the
+    // Webull fractional-trading agreement isn't signed. The bridge auto-
+    // retries with whole shares on the first offense (bridge-index.js
+    // fract-fallback block) and persists this flag; subsequent orders then
+    // pre-round here to avoid a wasted preview + place round-trip.
+    const fractionalAgreementBlocked = !!user?.fractional_agreement_missing;
     const fractionalOn = fractionalCap
-      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false";
+      && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false"
+      && !fractionalAgreementBlocked;
     const vehCap = applyVehicleNotionalCap(payload, user, {
       fractional: fractionalOn,
       minEquityOrderUsd: Number(env?.BROKER_FRACTIONAL_MIN_USD) || 1,
