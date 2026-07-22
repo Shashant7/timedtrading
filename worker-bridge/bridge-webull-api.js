@@ -48,39 +48,50 @@ export function buildOrderBody(user, order, { preview = false } = {}) {
   if (!accountId) throw new Error("webull_account_id_missing");
   const qty = Number(order?.qty);
   if (!Number.isFinite(qty) || qty <= 0) throw new Error("invalid_qty");
-  // Order type: MARKET (default), LIMIT, STOP, or STOP_LIMIT. The agnostic
-  // planner / OCO orchestrator sets order_type. A LIMIT/STOP with no valid
-  // price falls back to MARKET so a bad plan can never place a $0 order.
+  // Order type mapping to Webull spec:
+  //   MARKET (default), LIMIT, STOP_LOSS (was "STOP"), STOP_LOSS_LIMIT (was
+  //   "STOP_LIMIT"). The agnostic planner / OCO orchestrator sets order_type
+  //   using the generic names; we translate here. A LIMIT/STOP with no valid
+  //   price falls back to MARKET so a bad plan can never place a $0 order.
+  //   Spec: https://developer.webull.com/apis/docs/reference/common-order-preview/
   const kind = String(order?.order_type || "market").toLowerCase();
   const limitPrice = Number(order?.limit_price);
   const stopPrice = Number(order?.stop_price);
   const hasLimit = Number.isFinite(limitPrice) && limitPrice > 0;
   const hasStop = Number.isFinite(stopPrice) && stopPrice > 0;
   let orderType = "MARKET";
-  if ((kind === "stop_limit") && hasStop && hasLimit) orderType = "STOP_LIMIT";
-  else if (kind === "stop" && hasStop) orderType = "STOP";
+  if ((kind === "stop_limit" || kind === "stop_loss_limit") && hasStop && hasLimit) orderType = "STOP_LOSS_LIMIT";
+  else if ((kind === "stop" || kind === "stop_loss") && hasStop) orderType = "STOP_LOSS";
   else if (kind === "limit" && hasLimit) orderType = "LIMIT";
-  const body = {
-    account_id: accountId,
-    // Prefer the caller's stable client_order_id (per-account idempotency for
-    // fan-out); fall back to a generated one for previews / ad-hoc orders.
+  // 2026-07-22 — Webull requires orders under a `new_orders` array with
+  // instrument_type + market on each order. Previously we spread the order
+  // fields at the top level, which the API rejected with
+  //   INVALID_PARAMETER: Orders can not be empty
+  // for every preview/place — no real Webull order had ever landed.
+  // Spec: https://developer.webull.hk/apis/docs/trade-api/stock.md
+  const orderRow = {
     client_order_id: preview
       ? `tt-preview-${crypto.randomUUID().slice(0, 12)}`
       : (order?.client_order_id
         ? String(order.client_order_id)
         : `tt-${order?.trade_id || "na"}-${crypto.randomUUID().slice(0, 8)}`),
+    combo_type: "NORMAL",
     symbol: String(order?.ticker || "").toUpperCase(),
-    side: sideToWebull(order?.side),
+    instrument_type: "EQUITY",
+    market: String(order?.market || "US").toUpperCase(),
     order_type: orderType,
-    entrust_type: "QTY",
+    side: sideToWebull(order?.side),
     quantity: String(qty),
+    entrust_type: "QTY",
     time_in_force: String(order?.tif || "DAY").toUpperCase(),
     support_trading_session: "CORE",
-    combo_type: "NORMAL",
   };
-  if (orderType === "LIMIT" || orderType === "STOP_LIMIT") body.limit_price = String(limitPrice);
-  if (orderType === "STOP" || orderType === "STOP_LIMIT") body.stop_price = String(stopPrice);
-  return body;
+  if (orderType === "LIMIT" || orderType === "STOP_LOSS_LIMIT") orderRow.limit_price = String(limitPrice);
+  if (orderType === "STOP_LOSS" || orderType === "STOP_LOSS_LIMIT") orderRow.stop_price = String(stopPrice);
+  return {
+    account_id: accountId,
+    new_orders: [orderRow],
+  };
 }
 
 async function signedFetch(env, {

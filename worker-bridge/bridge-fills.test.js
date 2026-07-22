@@ -126,29 +126,62 @@ describe("reconcileAccountFills", () => {
   });
 });
 
-describe("Webull buildOrderBody — order types", () => {
+describe("Webull buildOrderBody — Connect API schema (new_orders array)", () => {
   const user = { webull_account_id: "WB1" };
+  // Regression test for ETN 2026-07-22: every Webull order was silently
+  // rejected with `INVALID_PARAMETER: Orders can not be empty` because the
+  // body spread order fields at the top level instead of wrapping them in
+  // a `new_orders` array with per-order instrument_type + market. Spec:
+  // https://developer.webull.hk/apis/docs/trade-api/stock.md
+  it("wraps the order in new_orders[] with account_id at the top", () => {
+    const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10 });
+    expect(b.account_id).toBe("WB1");
+    expect(Array.isArray(b.new_orders)).toBe(true);
+    expect(b.new_orders.length).toBe(1);
+  });
+  it("stamps instrument_type=EQUITY and market=US on each order (Webull mandatory)", () => {
+    const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10 });
+    expect(b.new_orders[0].instrument_type).toBe("EQUITY");
+    expect(b.new_orders[0].market).toBe("US");
+  });
   it("defaults to MARKET", () => {
     const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10 });
-    expect(b.order_type).toBe("MARKET");
-    expect(b.limit_price).toBeUndefined();
+    expect(b.new_orders[0].order_type).toBe("MARKET");
+    expect(b.new_orders[0].limit_price).toBeUndefined();
   });
   it("builds a LIMIT with limit_price", () => {
     const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10, order_type: "limit", limit_price: 250 });
-    expect(b.order_type).toBe("LIMIT");
-    expect(b.limit_price).toBe("250");
+    expect(b.new_orders[0].order_type).toBe("LIMIT");
+    expect(b.new_orders[0].limit_price).toBe("250");
   });
-  it("builds a STOP with stop_price", () => {
+  it("maps generic 'stop' → STOP_LOSS (Webull's spec name)", () => {
     const b = buildOrderBody(user, { ticker: "AMZN", side: "sell", qty: 10, order_type: "stop", stop_price: 240 });
-    expect(b.order_type).toBe("STOP");
-    expect(b.stop_price).toBe("240");
+    expect(b.new_orders[0].order_type).toBe("STOP_LOSS");
+    expect(b.new_orders[0].stop_price).toBe("240");
+  });
+  it("maps generic 'stop_limit' → STOP_LOSS_LIMIT (Webull's spec name)", () => {
+    const b = buildOrderBody(user, { ticker: "AMZN", side: "sell", qty: 10, order_type: "stop_limit", stop_price: 240, limit_price: 235 });
+    expect(b.new_orders[0].order_type).toBe("STOP_LOSS_LIMIT");
+    expect(b.new_orders[0].stop_price).toBe("240");
+    expect(b.new_orders[0].limit_price).toBe("235");
   });
   it("honors a passed client_order_id (fan-out idempotency)", () => {
     const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10, client_order_id: "tt-oco-AMZN-1-WB1-sl" });
-    expect(b.client_order_id).toBe("tt-oco-AMZN-1-WB1-sl");
+    expect(b.new_orders[0].client_order_id).toBe("tt-oco-AMZN-1-WB1-sl");
   });
-  it("degrades a STOP with no price to MARKET", () => {
+  it("preview flag generates a unique client_order_id (not conflict with real order id)", () => {
+    const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10 }, { preview: true });
+    expect(b.new_orders[0].client_order_id).toMatch(/^tt-preview-/);
+  });
+  it("degrades a STOP with no price to MARKET so no $0 order is ever placed", () => {
     const b = buildOrderBody(user, { ticker: "AMZN", side: "sell", qty: 10, order_type: "stop", stop_price: 0 });
-    expect(b.order_type).toBe("MARKET");
+    expect(b.new_orders[0].order_type).toBe("MARKET");
+  });
+  it("carries entrust_type QTY + time_in_force DAY + core session", () => {
+    const b = buildOrderBody(user, { ticker: "AMZN", side: "buy", qty: 10 });
+    expect(b.new_orders[0].entrust_type).toBe("QTY");
+    expect(b.new_orders[0].time_in_force).toBe("DAY");
+    expect(b.new_orders[0].support_trading_session).toBe("CORE");
+    expect(b.new_orders[0].combo_type).toBe("NORMAL");
   });
 });

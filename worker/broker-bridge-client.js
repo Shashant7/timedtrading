@@ -68,7 +68,16 @@ export async function forwardOrderToBridge(env, order) {
 
   const t0 = Date.now();
   const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 4000);
+  // 2026-07-22 — bumped 4s → 15s. Live Webull orders on a real Roth IRA
+  // legitimately take ~2.5-3s (token refresh + preview + place), and any
+  // rate-limit backoff (Webull's 2 req / 2s throttle in bridge-webull-api.js
+  // adds 1.1s min gap between calls) can push past 4s. A premature abort
+  // here shows up in the client ring as `status: fetch_error` while the
+  // bridge is mid-place — the main worker then re-fires the entry on the
+  // next scoring tick with a new trade_id, causing duplicate orders once
+  // the Webull side succeeds. 15s is well under the 30s Worker CPU budget
+  // and covers OAuth refresh + preview + place with plenty of headroom.
+  const tid = setTimeout(() => controller.abort(), 15000);
   const ringEntry = {
     ts: Date.now(),
     user_id: order.user_id,
