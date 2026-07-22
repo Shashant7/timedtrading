@@ -6,6 +6,19 @@
 
 ---
 
+## Ledger summary must filter by mode [2026-07-22]
+
+Model page Short Term / Long Term account strips showed identical
+Entries / Exits / Profit Factor while Account / Open P&L / Realized
+differed. Frontend correctly called `/timed/ledger/summary?mode=…`, but
+the handler ignored `mode` and always aggregated the trader `trades`
+table. Investor stats belong in `investor_positions` +
+`account_ledger` (mode=investor) — same split as `/timed/ledger/trades`
+and `/timed/account-summary`. Any new portfolio KPI endpoint must take
+`?mode=` seriously.
+
+---
+
 ## Pretty URL HTML was cached 1h — UI deploys looked missing [2026-07-22]
 
 After #1134 merged, Pages had the new Model UX but the operator still
