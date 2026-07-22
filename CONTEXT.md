@@ -217,6 +217,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Ledger summary is mode-aware (2026-07-22)**
+- `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.
+  Trader → `trades`; investor → `investor_positions` + `account_ledger`.
+  Otherwise Model account strips share Entries/Exits/PF across books.
+
 **No live close on a price no live source supports (2026-07-20)**
 - AMZN false `sl_breached` at a ghost `$236` (real ~`$252`) fired 3x. Every
   LIVE close now funnels through `evaluateClosePriceSanity` in
