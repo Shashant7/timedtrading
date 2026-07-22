@@ -852,7 +852,8 @@
 
     function LaneBadge(props) {
       var lane = String(props.lane || "trader").toLowerCase();
-      var label = lane === "investor" ? "INVESTOR" : "TRADER";
+      // 2026-07-22 model-first: Trader/Investor → Short Term / Long Term.
+      var label = lane === "investor" ? "LONG TERM" : "SHORT TERM";
       return h("span", {
         className: "tt-lane-badge tt-lane-badge--" + lane,
       }, label);
