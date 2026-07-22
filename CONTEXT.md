@@ -424,6 +424,7 @@ playbook in `skills/security-auth-patterns.md`)**
 
 **Price / Frontend**
 - **Short Term rail (SETUP)**: Timing → Plan → Reference Levels only — never re-add Profile / Sector & Market / Sequence unless the operator explicitly asks (2026-07-22 misread restored them; corrected).
+- **Pages pretty URLs must be `no-cache` HTML**: `/active-trader` (no `.html`) is still `text/html`. If `_worker.js` only treats `*.html` / `/` as HTML, those routes get `max-age=3600` and hide fresh deploys for up to an hour. Gate on `Content-Type: text/html`.
 - `getDailyChange(t)` from shared-price-utils.js — never inline daily change
 - TwelveData native fields over manual `price - prevClose`
 - `timed:prices` keys: `p`, `pc`, `dc`, `dp`, `ahp`, `ahdc`, `ahdp`

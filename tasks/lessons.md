@@ -6,6 +6,19 @@
 
 ---
 
+## Pretty URL HTML was cached 1h — UI deploys looked missing [2026-07-22]
+
+After #1134 merged, Pages had the new Model UX but the operator still
+saw the old board. Root cause: `_worker.js` only marked paths ending in
+`.html` or `/` as `Cache-Control: no-cache`. Pretty routes like
+`/active-trader` and `/today` (which redirect from `*.html`) were treated
+as generic assets → `max-age=3600`. The browser kept the old HTML shell
+and its old immutable `?v=` script URLs. Fix: treat
+`Content-Type: text/html` as HTML for cache policy. Immediate workaround:
+hard reload / Incognito.
+
+---
+
 ## Short Term rail: Profile / Sector / Sequence stay OFF [2026-07-22]
 
 Model-first Short Term tab is **Timing → Plan → Reference Levels only**.

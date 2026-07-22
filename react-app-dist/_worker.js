@@ -289,8 +289,16 @@ export default {
 
     const isVersioned =
       url.searchParams.has("v") || url.pathname.startsWith("/vendor/");
+    // Pretty URLs (/active-trader, /today, …) serve HTML without a .html
+    // suffix. Path-only checks miss those and used to stamp max-age=3600,
+    // so browsers kept an old document (and its old ?v= script URLs) for
+    // up to an hour after a Pages deploy — classic "I merged but don't
+    // see the UI" report. Prefer Content-Type; keep path fallbacks.
+    const contentType = String(assetResponse.headers.get("Content-Type") || "").toLowerCase();
     const isHtml =
-      url.pathname.endsWith(".html") || url.pathname.endsWith("/");
+      contentType.includes("text/html") ||
+      url.pathname.endsWith(".html") ||
+      url.pathname.endsWith("/");
     const isServiceWorker = url.pathname === "/service-worker.js";
 
     const cached = new Response(assetResponse.body, assetResponse);
