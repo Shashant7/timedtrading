@@ -1272,7 +1272,7 @@
         owned,
         laneLabel,
         displayLabel: laneLabel,
-        headerChipText: `Investor – ${laneLabel}`,
+        headerChipText: `Long Term · ${laneLabel}`,
       };
     },
     buildTraderLaneCardProps(ticker, opts) {
