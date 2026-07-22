@@ -4,7 +4,7 @@
 import { kvGetJSON, kvPutJSON } from "./storage.js";
 import { loadCalendar, isEquityHoliday, isEquityEarlyClose, isNyRegularMarketOpen } from "./market-calendar.js";
 import { sendDailyBriefEmail, getEmailOptedInUsers } from "./email.js";
-import { tdFetchQuote } from "./twelvedata.js";
+import { tdFetchQuote, tdFetchEarningsCalendar } from "./twelvedata.js";
 import { getStrategyBrief, getStrategyBriefAsync, STRATEGY_VINTAGE, STRATEGY_TITLE } from "./strategy-context.js";
 import {
   getCROBriefAddendum,
@@ -860,6 +860,172 @@ export async function fetchFinnhubSymbolEarnings(env, symbol, fromDate, toDate) 
   }
 }
 
+/** Map TwelveData /earnings* time strings (and Finnhub hour codes) to bmo/amc. */
+export function normalizeTdEarningsHour(time) {
+  const t = String(time || "").trim().toLowerCase();
+  if (!t || t.includes("not supplied") || t === "tbd" || t === "unknown") return "";
+  if (t === "bmo" || t.includes("before") || t.includes("pre")) return "bmo";
+  if (t === "amc" || t.includes("after")) return "amc";
+  return "";
+}
+
+/** Flatten TwelveData `/earnings_calendar` map into Finnhub-shaped rows. */
+export function flattenTdEarningsCalendar(tdRes) {
+  if (!tdRes || tdRes._error || !tdRes.earnings || typeof tdRes.earnings !== "object") return [];
+  const out = [];
+  for (const [date, arr] of Object.entries(tdRes.earnings)) {
+    if (!Array.isArray(arr)) continue;
+    const dateKey = String(date || "").slice(0, 10);
+    for (const e of arr) {
+      const symbol = String(e.symbol || e.ticker || "").toUpperCase().trim();
+      if (!symbol || !dateKey) continue;
+      const country = String(e.country || "").toLowerCase();
+      const mic = String(e.mic_code || e.exchange || "").toUpperCase();
+      const isUsMic = /^(XNAS|XNYS|ARCX|BATS|NYSE|NASDAQ|AMEX)/.test(mic);
+      if (country && !/united states|usa|^us$/.test(country) && !isUsMic) continue;
+      out.push({
+        symbol,
+        date: dateKey,
+        hour: normalizeTdEarningsHour(e.time || e.hour),
+        epsEstimate: e.eps_estimate ?? e.epsEstimate ?? null,
+        epsActual: e.eps_actual ?? e.epsActual ?? null,
+        revenueEstimate: e.revenue_estimate ?? e.revenueEstimate ?? null,
+        revenueActual: e.revenue_actual ?? e.revenueActual ?? null,
+        _source: "twelvedata",
+      });
+    }
+  }
+  return out;
+}
+
+/** Union earnings rows by symbol|date, preferring non-null estimates/hour. */
+export function mergeEarningsEventLists(...lists) {
+  const byKey = new Map();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const e of list) {
+      const symbol = String(e?.symbol || "").toUpperCase().trim();
+      const date = String(e?.date || "").slice(0, 10);
+      if (!symbol || !date) continue;
+      const key = `${symbol}|${date}`;
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, { ...e, symbol, date });
+        continue;
+      }
+      const sources = [...new Set(
+        `${prev._source || ""},${e._source || ""}`.split(",").map((s) => s.trim()).filter(Boolean),
+      )];
+      byKey.set(key, {
+        ...prev,
+        ...e,
+        symbol,
+        date,
+        hour: e.hour || prev.hour || "",
+        epsEstimate: e.epsEstimate ?? prev.epsEstimate ?? null,
+        epsActual: e.epsActual ?? prev.epsActual ?? null,
+        revenueEstimate: e.revenueEstimate ?? prev.revenueEstimate ?? null,
+        revenueActual: e.revenueActual ?? prev.revenueActual ?? null,
+        _source: sources.join("+") || undefined,
+      });
+    }
+  }
+  return [...byKey.values()];
+}
+
+async function fetchEarningsFromKvCache(env, fromDate, toDate) {
+  try {
+    const cached = await kvGetJSON(env?.KV_TIMED, "timed:earnings:upcoming");
+    const events = Array.isArray(cached?.events) ? cached.events : [];
+    return events
+      .filter((e) => {
+        const d = String(e.date || "").slice(0, 10);
+        return d >= fromDate && d <= toDate;
+      })
+      .map((e) => ({
+        ...e,
+        symbol: String(e.symbol || "").toUpperCase(),
+        date: String(e.date || "").slice(0, 10),
+        _source: e._source || "kv_cache",
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchEarningsFromD1(env, fromDate, toDate) {
+  const db = env?.DB;
+  if (!db) return [];
+  try {
+    const rows = await db.prepare(
+      `SELECT date, ticker, session, scheduled_time_et, estimate, actual
+         FROM market_events
+        WHERE event_type='earnings'
+          AND date >= ?1 AND date <= ?2
+          AND ticker IS NOT NULL`,
+    ).bind(fromDate, toDate).all();
+    return (rows?.results || []).map((r) => {
+      const sym = String(r.ticker || "").toUpperCase().trim();
+      let epsEst = null;
+      if (r.estimate != null) {
+        const n = Number(r.estimate);
+        if (Number.isFinite(n)) epsEst = n;
+        else {
+          const m = String(r.estimate).match(/(-?\d+(?:\.\d+)?)/);
+          if (m) epsEst = Number(m[1]);
+        }
+      }
+      let epsAct = null;
+      if (r.actual != null) {
+        const n = Number(r.actual);
+        if (Number.isFinite(n)) epsAct = n;
+      }
+      return {
+        symbol: sym,
+        date: String(r.date || "").slice(0, 10),
+        hour: normalizeTdEarningsHour(r.session || ""),
+        epsEstimate: epsEst,
+        epsActual: epsAct,
+        revenueEstimate: null,
+        revenueActual: null,
+        _source: "d1_market_events",
+      };
+    }).filter((e) => e.symbol && e.date);
+  } catch (e) {
+    console.warn("[BRIEF] D1 earnings fallback failed:", String(e?.message || e).slice(0, 150));
+    return [];
+  }
+}
+
+/**
+ * Brief earnings calendar: Finnhub + TwelveData + KV cache + D1 market_events.
+ * Daily Brief historically called Finnhub only; when that returned [] the LLM
+ * pasted prompt-guardrail text ("omit week-intensity claims") into the email/UI.
+ */
+export async function fetchEarningsCalendarForBrief(env, fromDate, toDate) {
+  const [finnhub, tdRes, kvEvents, d1Events] = await Promise.all([
+    fetchFinnhubEarnings(env, fromDate, toDate).catch(() => []),
+    tdFetchEarningsCalendar(env, fromDate, toDate).catch((e) => ({ _error: String(e?.message || e) })),
+    fetchEarningsFromKvCache(env, fromDate, toDate),
+    fetchEarningsFromD1(env, fromDate, toDate),
+  ]);
+  const tdEvents = flattenTdEarningsCalendar(tdRes);
+  const fhEvents = (Array.isArray(finnhub) ? finnhub : []).map((e) => ({
+    ...e,
+    symbol: String(e.symbol || "").toUpperCase(),
+    date: String(e.date || "").slice(0, 10),
+    _source: "finnhub",
+  }));
+  const merged = mergeEarningsEventLists(fhEvents, tdEvents, kvEvents, d1Events);
+  console.log(
+    `[BRIEF] Earnings calendar: finnhub=${fhEvents.length} td=${tdEvents.length}`
+    + ` kv=${kvEvents.length} d1=${d1Events.length} merged=${merged.length}`
+    + ` (${fromDate}→${toDate})`
+    + (tdRes?._error ? ` td_err=${String(tdRes._error).slice(0, 80)}` : ""),
+  );
+  return merged;
+}
+
 /** Megacaps + money-center banks — must survive week caps (KO-class bank week). */
 export const PRIORITY_EARNINGS_TICKERS = new Set([
   "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX", "AMD",
@@ -951,9 +1117,11 @@ export function prioritizeWeekEarnings(events, opts = {}) {
 export function summarizeEarningsWeek(weekEarnings = []) {
   const list = Array.isArray(weekEarnings) ? weekEarnings : [];
   if (list.length === 0) {
+    // label is user-facing (UI ribbon / email). Keep it short — never put
+    // LLM guardrail instructions here (those leaked into Daily Brief copy).
     return {
       intensity: "unknown",
-      label: "Earnings calendar unavailable — omit week-intensity claims; do not say light or heavy.",
+      label: "Earnings calendar unavailable",
     };
   }
   const banks = list.filter((e) => BANK_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase()));
@@ -988,6 +1156,7 @@ export function buildEarningsCalendarDigest({ today, todayEarnings = [], weekEar
   const todayList = Array.isArray(todayEarnings) ? todayEarnings : [];
   const weekList = Array.isArray(weekEarnings) ? weekEarnings : [];
   const summary = summarizeEarningsWeek(weekList);
+  const calendarMissing = summary.intensity === "unknown";
 
   const todayBlock = todayList.length > 0
     ? todayList.slice(0, 8).map(formatEarningsLine).join("\n")
@@ -1024,15 +1193,23 @@ export function buildEarningsCalendarDigest({ today, todayEarnings = [], weekEar
     ? dayLines.join("\n")
     : (weekList.length > 0
       ? weekList.slice(0, 12).map((e) => `${e.symbol} (${String(e.date).slice(0, 10)}, ${earningsHourLabel(e.hour)})`).join(", ")
-      : "Earnings calendar unavailable — do not claim a light week.");
+      : (calendarMissing
+        ? "(no calendar rows)"
+        : "No additional notable earnings later this week."));
+
+  // Guardrail text stays OUT of weekSummaryLine (rendered in UI/email).
+  const intensityPromptLine = calendarMissing
+    ? 'WEEK INTENSITY: unavailable — omit the "This week:" intensity line entirely; do not say light, heavy, busy, or moderate.'
+    : `WEEK INTENSITY (use this line for "This week:" — never contradict it): ${summary.label}`;
 
   return {
     summary,
     todayBlock,
     weekBlock,
-    weekSummaryLine: summary.label,
+    // Hide unavailable label from catalysts ribbon / email hero.
+    weekSummaryLine: calendarMissing ? null : summary.label,
     promptBlock: [
-      `WEEK INTENSITY (use this line for "This week:" — never contradict it): ${summary.label}`,
+      intensityPromptLine,
       "",
       "TODAY:",
       todayBlock,
@@ -2111,7 +2288,7 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
       return { sym, data: d };
     })),
     kvGetJSON(KV, "timed:trades:all").catch(() => []),
-    fetchFinnhubEarnings(env, weekStart, weekEnd),
+    fetchEarningsCalendarForBrief(env, weekStart, weekEnd),
     fetchFinnhubEconomicCalendar(env, weekStart, weekEnd),
     db
       ? db.prepare("SELECT es_prediction, content FROM daily_briefs WHERE id = ?1")
@@ -2307,15 +2484,24 @@ export async function gatherDailyBriefData(env, type, opts = {}) {
     };
   }).sort((a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct));
 
-  // Filter earnings to our universe or major S&P 500 names
+  // Prefer universe / megacap / bank / large-revenue names. TwelveData calendar
+  // often omits revenueEstimate — keep TD/KV/D1 rows with an EPS print too so
+  // a Finnhub outage does not empty the week list.
   const sectorMap = opts.SECTOR_MAP || {};
-  const ourTickers = new Set(Object.keys(sectorMap));
-  const todayEarningsRaw = earningsWeek.filter(e => (e.date || "").slice(0, 10) === today);
-  const weekEarningsFiltered = earningsWeek.filter(e =>
-    ourTickers.has(e.symbol) ||
-    PRIORITY_EARNINGS_TICKERS.has(String(e.symbol || "").toUpperCase()) ||
-    (e.revenueEstimate && e.revenueEstimate > 1e9) // large-cap fallback
-  );
+  const ourTickers = new Set(Object.keys(sectorMap).map((s) => String(s).toUpperCase()));
+  const earningsWeekList = Array.isArray(earningsWeek) ? earningsWeek : [];
+  const todayEarningsRaw = earningsWeekList.filter(e => (e.date || "").slice(0, 10) === today);
+  const weekEarningsFiltered = earningsWeekList.filter((e) => {
+    const sym = String(e.symbol || "").toUpperCase();
+    if (!sym) return false;
+    if (ourTickers.has(sym)) return true;
+    if (PRIORITY_EARNINGS_TICKERS.has(sym) || BANK_EARNINGS_TICKERS.has(sym)) return true;
+    if (Number(e.revenueEstimate) > 1e9) return true;
+    if (e.epsEstimate != null && Number.isFinite(Number(e.epsEstimate)) && /^[A-Z]{1,5}$/.test(sym)) {
+      return true;
+    }
+    return false;
+  });
   const weekEarnings = prioritizeWeekEarnings(weekEarningsFiltered, { ourTickers, max: 30 });
 
   // Enrich today's earnings tickers with current price, daily change, and chart setup.
@@ -4580,10 +4766,10 @@ function buildRetailFriendlyOutputSpec(type) {
 3. **The Market Read** (~220 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
 4. **Earnings Watch & Macro News** (~120 words — structured bullets, not a wall of text)
    - **Earnings today:** one line from Earnings Calendar Digest (TODAY block). If none, say "No major earnings today."
-   - **This week:** MUST use the WEEK INTENSITY line from Earnings Calendar Digest verbatim — never "light earnings week" when digest says heavy/busy/moderate. Then 1-2 bullets naming the biggest days (e.g. Tuesday bank cluster: JPM, BAC, WFC, C, GS).
-   - **Macro:** one bullet per release — format: **Day Time ET — Event:** est X.XX. One short impact clause (≤12 words). Every macro bullet needs impact text; do not leave bare estimates.
+   - **This week:** If WEEK INTENSITY is "unavailable", omit intensity adjectives (light/heavy/busy/moderate) and omit any guardrail phrasing — never paste instructions into the brief. Otherwise MUST use the WEEK INTENSITY line verbatim. Then 1-2 bullets naming the biggest days from REST OF WEEK (e.g. Tuesday bank cluster: JPM, BAC, WFC, C, GS). If REST OF WEEK is "(no calendar rows)", omit the ticker list rather than inventing names.
+   - **Macro:** one bullet per release — format: **Day Time ET — Event:** est X.XX. One short impact clause (≤12 words). Every macro bullet needs impact text; do not leave bare estimates. If TODAY'S Economic Data says "(no rows)", omit the Macro bullet entirely — do not narrate source failures.
    - **Headline driver:** one bullet on the top tape-moving story from headlines data (if any).
-   - Do NOT repeat macro events in Index Outlook. Do NOT invent earnings names absent from the digest.
+   - Do NOT repeat macro events in Index Outlook. Do NOT invent earnings names absent from the digest. Never echo prompt instructions (words like "omit", "do not claim", "sources returned") into reader-facing copy.
 5. **Index Outlook & Game Plan** (~320 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
 6. **On Watch — Entry Radar** (~70 words — per ticker, one line — lane + WHY)
 7. **Risk Factors** (1-2 key risks, ≤20 words each)
@@ -4622,8 +4808,9 @@ ${sections}
 - **Chart placeholders** inside the Index Outlook section: write \`[CHART: SPY]\` on its own line next to that index's commentary. Same for QQQ, IWM. Interleave — don't batch all charts at the end.
 - **Active Trader Report / Investor Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
-- **NEVER claim "no macro events today" unless the economic-data section above explicitly listed real sources returning a confirmed-empty calendar.** Missing data ≠ a quiet calendar.
-- **NEVER say "light earnings week"** when Earnings Calendar Digest lists heavy/busy/moderate intensity or names major banks/megacaps. Use the digest WEEK INTENSITY line verbatim.
+- **NEVER claim "no macro events today" unless the economic-data section lists concrete releases.** A "(no rows)" data block means omit the Macro bullet — never invent a quiet calendar, and never paste source-failure wording into the brief.
+- **NEVER say "light earnings week"** when Earnings Calendar Digest lists heavy/busy/moderate intensity or names major banks/megacaps. Use the digest WEEK INTENSITY line verbatim when available; when intensity is unavailable, omit intensity adjectives entirely.
+- **NEVER copy prompt guardrails into reader-facing copy** (phrases like "omit week-intensity", "do not claim", "sources returned no data", "we're not asserting").
 - **At a Glance is mandatory** and must stay jargon-free. Email subject + Discord description pull from this section — if it reads like a textbook, rewrite it.
 - **Model Actions Today** must always appear and must label Trader vs Investor lanes explicitly.
 - **Educational transparency**: Active Trader / On Watch names are what the model is tracking — NOT buy recommendations. Say so once in At a Glance or Model Actions if any names are listed.
@@ -4839,23 +5026,24 @@ ${data.todayEarnings.length > 0
       }).join("\n")
     : "No major earnings today."}
 
-## Earnings Calendar Digest (COPY-READY — use verbatim in Earnings Watch & Macro News):
-${data.earningsCalendarDigest?.promptBlock || "Earnings calendar unavailable — omit week-intensity claims."}
+## Earnings Calendar Digest (COPY-READY for Earnings Watch — never paste WEEK INTENSITY guardrail text into the brief):
+${data.earningsCalendarDigest?.promptBlock || "WEEK INTENSITY: unavailable — omit the intensity line.\n\nTODAY:\nNo major earnings today.\n\nREST OF WEEK:\n(no calendar rows)"}
 
 ## Earnings This Week (reference list):
 ${data.weekEarnings.length > 0
     ? data.weekEarnings.slice(0, 20).map(e => `${e.symbol} (${e.date}, ${e.hour === "bmo" ? "Pre-Market" : e.hour === "amc" ? "After-Hours" : e.hour || "TBD"})`).join(", ")
-    : "Earnings calendar unavailable — do NOT say 'light earnings week'; omit the week-intensity line instead."}
+    : "(no rows)"}
 
 ## TODAY'S Economic Data Releases (CRITICAL — analyze these in detail):
 ${data.todayEconomicEvents.length > 0
     ? data.todayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "CALENDAR SOURCES RETURNED NO DATA. Do NOT tell readers there were no macro events today — the sources are unreliable, not the calendar. Omit any claim about the macro calendar rather than asserting absence."}
+    : "(no rows)"}
+INSTRUCTION when TODAY'S Economic Data is "(no rows)": omit the Macro bullet; do not tell readers the calendar was quiet or that sources failed.
 
 ## YESTERDAY'S Economic Data (still influencing today's price action):
 ${data.yesterdayEconomicEvents.length > 0
     ? data.yesterdayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "Calendar sources returned no data for yesterday — omit rather than asserting nothing happened."}
+    : "(no rows)"}
 
 ## Other Economic Events This Week (US, Medium-High Impact):
 ${data.economicEvents.length > 0
@@ -5062,12 +5250,13 @@ ${data.morningContent ? data.morningContent.slice(0, 1000) : "Morning brief not 
 ## Today's Economic Data Releases:
 ${data.todayEconomicEvents.length > 0
     ? data.todayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "CALENDAR SOURCES RETURNED NO DATA. Do NOT tell readers there were no macro events today — the sources are unreliable, not the calendar. Omit any claim about the macro calendar rather than asserting absence."}
+    : "(no rows)"}
+INSTRUCTION when Today's Economic Data is "(no rows)": omit quiet-calendar claims; do not narrate source failures.
 
 ## Yesterday's Economic Data:
 ${data.yesterdayEconomicEvents.length > 0
     ? data.yesterdayEconomicEvents.map(fmtEconEvent).join("\n")
-    : "Calendar sources returned no data for yesterday — omit rather than asserting nothing happened."}
+    : "(no rows)"}
 
 ## Market-Moving News Headlines:
 ${(data.econNews || []).length > 0
@@ -5084,8 +5273,8 @@ ${data.todayEarnings.filter(e => e.hour === "amc").length > 0
     ? data.todayEarnings.filter(e => e.hour === "amc").map(e => `${e.symbol}: EPS Est: ${e.epsEstimate ?? "N/A"}${e.epsActual != null ? `, EPS Actual: ${e.epsActual}` : ", Results pending"}, Rev Est: ${e.revenueEstimate ? "$" + (e.revenueEstimate / 1e9).toFixed(1) + "B" : "N/A"}${e.revenueActual ? `, Rev Actual: $${(e.revenueActual / 1e9).toFixed(1)}B` : ""}`).join("\n")
     : "No major after-hours earnings today."}
 
-## Earnings Calendar Digest (COPY-READY — use in Looking Ahead):
-${data.earningsCalendarDigest?.promptBlock || "Earnings calendar unavailable — omit week-intensity claims."}
+## Earnings Calendar Digest (COPY-READY for Looking Ahead — never paste WEEK INTENSITY guardrail text into the brief):
+${data.earningsCalendarDigest?.promptBlock || "WEEK INTENSITY: unavailable — omit the intensity line.\n\nTODAY:\nNo major earnings today.\n\nREST OF WEEK:\n(no calendar rows)"}
 
 ## On Watch — the model's live entry candidates (Setup / In-Review lanes):
 ${(data.onWatch || []).length > 0
