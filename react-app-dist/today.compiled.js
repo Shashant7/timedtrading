@@ -3539,6 +3539,7 @@ function CompactMoverChip({
   const dc = getDailyChange(t);
   const extDisp = mode === "ext" ? getExtMoverDisplay(t) : null;
   const pct = mode === "ext" ? Number(extDisp?.pct) : Number(dc?.dayPct);
+  const px = mode === "ext" ? Number(extDisp?.price) : Number(t?.price);
   const sym = String(t?.ticker || "").toUpperCase();
   const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
   return h("button", {
@@ -3548,13 +3549,21 @@ function CompactMoverChip({
       e.preventDefault();
       if (typeof onSelectTicker === "function") onSelectTicker(sym);
     },
-    title: `Open ${sym}`
+    title: Number.isFinite(px) ? `${sym} ${fmtUsd(px)}` : `Open ${sym}`
   }, h(TickerLogo, {
     sym,
     size: 16
   }), h("span", {
     className: "tt-mover-compact__sym"
-  }, sym), h("span", {
+  }, sym), mode === "ext" && Number.isFinite(px) && h("span", {
+    className: "tt-mover-compact__px",
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 10,
+      color: "var(--tt-text-dim)",
+      marginRight: 4
+    }
+  }, fmtUsd(px)), h("span", {
     className: `tt-mover-compact__pct ${dir}`
   }, Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—", mode === "ext" && h("span", {
     className: "tt-mover-compact__ext"
@@ -6993,6 +7002,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784784151228:436091754
+// cache-bust:1784784214258:605301959
 
-// cache-bust:1784784151228:436091754
+// cache-bust:1784784214258:605301959
