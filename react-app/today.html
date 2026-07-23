@@ -5862,7 +5862,22 @@
       }
 
       function EarningsStrip({ earnings, universe, data, onSelectTicker, strip }) {
-        const events = safeArr(earnings?.events).slice();
+        // Upcoming chips only: drop already-reported rows (epsActual set) and
+        // past dates. Stops poisoned KV junk like AAPL 07-23 BMO (already
+        // "reported" with wrong hour default) from cluttering Today.
+        const todayNy = (() => {
+          try {
+            return new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          } catch (_) {
+            return new Date().toISOString().slice(0, 10);
+          }
+        })();
+        const events = safeArr(earnings?.events).filter((ev) => {
+          const d = String(ev?.date || "").slice(0, 10);
+          if (!d || d < todayNy) return false;
+          if (ev?.epsActual != null && Number.isFinite(Number(ev.epsActual))) return false;
+          return true;
+        });
         if (events.length === 0) return null;
         const HOUR_ORDER = (h) => {
           const hl = String(h || "").toLowerCase();
@@ -5930,7 +5945,11 @@
                 },
                   h(TickerLogo, { sym, size: 18 }),
                   h("span", { style: { fontWeight: 700, fontSize: 12, fontFamily: "var(--tt-font-mono)" } }, sym),
-                  h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)" } }, `${String(ev?.date || "").slice(5)} ${hourClass(ev?.hour).toUpperCase()}`),
+                  h("span", { style: { fontSize: 10, color: "var(--tt-text-dim)" } }, (() => {
+                    const day = String(ev?.date || "").slice(5);
+                    const hc = hourClass(ev?.hour);
+                    return hc === "unk" ? day : `${day} ${hc.toUpperCase()}`;
+                  })()),
                 );
               }),
             ),

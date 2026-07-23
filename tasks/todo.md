@@ -22,6 +22,14 @@
 
 ### Active
 
+- [x] **Nav / brief terms / AAPL BMO (2026-07-23).** (1) Tab Nav still
+      scrolls mid-page on iOS — drop transform/backdrop-filter on
+      `.tt-bn` and re-pin on scroll. (2) Daily Brief prompts still say
+      Trader/Investor — switch to Short Term / Long Term. (3) AAPL
+      07-23 BMO is wrong (real print ~07-30 AMC); stop defaulting hour
+      to bmo; hide already-reported rows from upcoming chips.
+      Branch: `cursor/nav-brief-earnings-df0c`.
+
 - [x] **Mobile Tab Nav floating mid-page (2026-07-23).** After #1155 the
       bar reappeared but sits above a large gap — visualViewport URL-bar
       translate (22% cap) still pushes it up. Pin to bottom:0 + safe-area

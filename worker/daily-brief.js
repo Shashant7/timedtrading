@@ -1766,7 +1766,7 @@ export function formatBriefInvestorLotLine(lot) {
 /** Prompt block for investor Model Actions Today. */
 export function formatBriefInvestorActionsBlock(lots) {
   const rows = Array.isArray(lots) ? lots : [];
-  if (!rows.length) return "No investor lot actions today.";
+  if (!rows.length) return "No Long Term lot actions today.";
   return rows.map(formatBriefInvestorLotLine).join("\n");
 }
 
@@ -4757,11 +4757,11 @@ function buildBeginnerAlignmentSpec(type) {
 
 The brief serves TWO readers on every send:
 1. **Newer market participants** — need plain English, cause-and-effect, and clear "what to do" without jargon walls.
-2. **Active traders** — need levels, triggers, and model state after the plain-English layer.
+2. **Short Term readers** — need levels, triggers, and model state after the plain-English layer.
 
 Product objectives to weave in (do not paste this block verbatim):
 - **Playbook continuity**: tie today's tape to the active strategy vintage (sector tilts, phase, tactical overlay) in one plain sentence.
-- **Two lanes**: separate **Trader** (days–weeks, setups/entries) from **Investor** (weeks–months, accumulation/hold/trim). Never blend them in one paragraph.
+- **Two lanes**: separate **Short Term** (days–weeks, setups/entries) from **Long Term** (weeks–months, accumulation/hold/trim). Never blend them in one paragraph.
 - **Model transparency**: state what the model DID (entries/exits/trims/holds) and what it did NOT do (patient / no lane action) — with WHY from the data.
 - **Act vs wait**: end the At a Glance section with one line on when action is justified vs when patience is correct.
 
@@ -4795,7 +4795,7 @@ function buildRetailFriendlyOutputSpec(type) {
   // site and trust the model."
   const sections = isEvening
     ? `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) how the session went in one sentence, (b) playbook tie-in — one sentence linking today's tape to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model acted or stayed patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
-2. **Model Actions Today** (~70 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** cite EVERY name from the "Investor Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no investor actions" ONLY when that block is empty. One clause each on WHY from the data.)
+2. **Model Actions Today** (~70 words — two labeled lines: **Short Term model:** entries/exits/trims/holds by name OR "no new Short Term actions — waiting for setup." **Long Term model:** cite EVERY name from the "Long Term Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no Long Term actions" ONLY when that block is empty. One clause each on WHY from the data.)
 3. **The Market Read** (~200 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
 4. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing EVERY name shown in that block with its % move. Do not omit or substitute tickers. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
 5. **Short Term Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
@@ -4803,7 +4803,7 @@ function buildRetailFriendlyOutputSpec(type) {
 7. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. Use Earnings Calendar Digest WEEK INTENSITY line — never "light earnings week" when banks/megacaps are listed. What catalysts to watch.)
 8. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) today's market mood in one sentence, (b) playbook tie-in — one sentence linking the setup to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model is entering or staying patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
-2. **Model Actions Today** (~60 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** cite EVERY name from the "Investor Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no investor actions" ONLY when that block is empty; then note open holdings status. Separate lanes — do not merge.)
+2. **Model Actions Today** (~60 words — two labeled lines: **Short Term model:** entries/exits/trims/holds by name OR "no new Short Term actions — waiting for setup." **Long Term model:** cite EVERY name from the "Long Term Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no Long Term actions" ONLY when that block is empty; then note open holdings status. Separate lanes — do not merge.)
 3. **The Market Read** (~220 words — ONE section only. Merge the desk read, macro context, and sector themes into a single causal narrative for the day ahead: CRO note + macro/calendar + rotation + breadth + leading/lagging sectors with WHY. Do NOT add separate "Desk's Read", "Market Context", or "Sector Themes" headings.)
 4. **Earnings Watch & Macro News** (~120 words — structured bullets, not a wall of text)
    - **Earnings today:** one line from Earnings Calendar Digest (TODAY block). If none, say "No major earnings today."
@@ -4847,7 +4847,7 @@ ${sections}
   - Range today: $LOW – $HIGH
   - For EVENING: also include "Result: [HIT / MISS / WORKING / NEITHER]" so the scorecard is honest about what happened.
 - **Chart placeholders** inside the Index Outlook section: write \`[CHART: SPY]\` on its own line next to that index's commentary. Same for QQQ, IWM. Interleave — don't batch all charts at the end.
-- **Short Term Report / Long Term Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
+- **Short Term Report / Long Term Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for Short Term; accumulate/add/reduce/exit for Long Term) BY NAME with reason, then the open positions/holdings status. Long Term holdings: one bullet per holding, never a paragraph.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
 - **NEVER claim "no macro events today" unless the economic-data section lists concrete releases.** A "(no rows)" data block means omit the Macro bullet — never invent a quiet calendar, and never paste source-failure wording into the brief.
 - **NEVER say "light earnings week"** when Earnings Calendar Digest lists heavy/busy/moderate intensity or names major banks/megacaps. Use the digest WEEK INTENSITY line verbatim when available; when intensity is unavailable, omit intensity adjectives entirely.
@@ -5164,7 +5164,7 @@ ${(data.todayTrimsDefends || []).length > 0
     ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total trimmed: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
     : "No trims or defends today."}
 
-## Investor Model — Actions Today (MUST cite in Model Actions Today — do not say "no investor actions" when this block lists fills):
+## Long Term Model — Actions Today (MUST cite in Model Actions Today — do not say "no Long Term actions" when this block lists fills):
 ${formatBriefInvestorActionsBlock(data.todayInvestorActions)}
 
 ## Long Term Portfolio — Current Holdings:
@@ -5177,7 +5177,7 @@ ${(data.investorPositions || []).length > 0
         const _unrealPct = (_price > 0 && p.avgEntry > 0) ? ((_price - p.avgEntry) / p.avgEntry * 100).toFixed(1) : null;
         return `- **${p.ticker}** · ${p.shares} sh @ $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} avg · today ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"} · return ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"} · ${p.stage || "N/A"}${p.thesis ? ` · ${p.thesis.slice(0, 60)}` : ""}`;
       }).join("\n")
-    : "No investor positions."}
+    : "No open Long Term positions."}
 
 STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~800 words total.
 
@@ -5365,7 +5365,7 @@ ${(data.todayTrimsDefends || []).length > 0
     ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
     : "No trims or defends today."}
 
-## Investor Model — Actions Today (MUST cite in Model Actions Today — do not say "no investor actions" when this block lists fills):
+## Long Term Model — Actions Today (MUST cite in Model Actions Today — do not say "no Long Term actions" when this block lists fills):
 ${formatBriefInvestorActionsBlock(data.todayInvestorActions)}
 
 ## Long Term Portfolio — Current Holdings:
@@ -5378,7 +5378,7 @@ ${(data.investorPositions || []).length > 0
         const _unrealPct = (_price > 0 && p.avgEntry > 0) ? ((_price - p.avgEntry) / p.avgEntry * 100).toFixed(1) : null;
         return `- **${p.ticker}** · ${p.shares} sh @ $${p.avgEntry != null ? p.avgEntry.toFixed(2) : "N/A"} avg · today ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"} · return ${_unrealPct ? (_unrealPct >= 0 ? "+" : "") + _unrealPct + "%" : "N/A"} · ${p.stage || "N/A"}${p.thesis ? ` · ${p.thesis.slice(0, 60)}` : ""}`;
       }).join("\n")
-    : "No investor positions."}
+    : "No open Long Term positions."}
 
 STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~750 words total. This brief is read top-to-bottom as ONE coherent piece — each section flows into the next, no repetition across sections.
 
@@ -7082,7 +7082,7 @@ export async function handleGetArchiveBrief(env, briefId) {
 // INTRADAY FLASH BRIEF — real-time market insights in a technician's voice
 // ═══════════════════════════════════════════════════════════════════════
 
-const INTRADAY_SYSTEM_PROMPT = `You are the Timed Trading market desk writing a mid-session pulse for subscribers who check in between the morning and evening briefs. You write for TWO audiences: newer investors who need plain English first, and active traders who need levels after the plain layer.
+const INTRADAY_SYSTEM_PROMPT = `You are the Timed Trading market desk writing a mid-session pulse for subscribers who check in between the morning and evening briefs. You write for TWO audiences: newer market participants who need plain English first, and Short Term readers who need levels after the plain layer.
 
 Your voice matches the morning and evening briefs — same editorial desk, not a different author. NEVER cite continuous futures symbols (ES1!, NQ1!, SPX index levels without SPY ETF context, etc.) — use SPY, QQQ, IWM only.
 
@@ -7126,7 +7126,7 @@ Write 2-4 tight paragraphs (300-500 words total):
 - Do NOT use emojis. Markdown headers sparingly (one ## at most for a section break).
 - Keep under 450 words — this is a flash, not a full brief.
 - Be concise, be specific, be readable for someone new to markets after the TLDR.
-- Separate **Trader** vs **Investor** takeaways in one line each when relevant.`;
+- Separate **Short Term** vs **Long Term** takeaways in one line each when relevant.`;
 
 
 async function buildIntradayPrompt(data, env) {
@@ -7290,7 +7290,7 @@ CRITICAL OUTPUT FORMAT (2026-07-05 — aligned with morning/evening briefs):
 Three bullets max (plain English, no jargon): mood · playbook tie-in · act vs wait.
 
 ## Model Pulse
-**Trader model:** one line (acting / waiting + why). **Investor model:** one line (holding / monitoring + why).
+**Short Term model:** one line (acting / waiting + why). **Long Term model:** one line (holding / monitoring + why).
 
 3. Then the flash body (~250 words): cross-asset story → SPY/QQQ/IWM levels → 1-3 session outlook.
 

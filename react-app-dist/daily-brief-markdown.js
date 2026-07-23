@@ -112,8 +112,10 @@
       let key = null;
       if (lower.includes("model actions")) key = "modelActions";
       else if (lower.includes("top movers")) key = "topMovers";
-      else if (lower.includes("active trader")) key = "activeTrader";
-      else if (lower.includes("investor portfolio")) key = "investorPortfolio";
+      else if (lower.includes("short term") || lower.includes("active trader")) key = "activeTrader";
+      else if (lower.includes("long term portfolio") || lower.includes("investor portfolio")) {
+        key = "investorPortfolio";
+      }
       return { title, body, key };
     });
   }
@@ -122,8 +124,10 @@
     const lower = String(title || "").toLowerCase();
     if (lower.includes("model actions")) return "modelActions";
     if (lower.includes("top movers")) return "topMovers";
-    if (lower.includes("active trader")) return "activeTrader";
-    if (lower.includes("investor portfolio")) return "investorPortfolio";
+    if (lower.includes("short term") || lower.includes("active trader")) return "activeTrader";
+    if (lower.includes("long term portfolio") || lower.includes("investor portfolio")) {
+      return "investorPortfolio";
+    }
     return null;
   }
 
@@ -182,4 +186,4 @@
   };
 })();
 
-// cache-bust:1784812032392:179916728
+// cache-bust:1784813620591:186453980
