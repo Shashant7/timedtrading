@@ -3581,3 +3581,20 @@ Production emits `HTF_BEAR_LTF_PULLBACK` for the bounce cell (HTF bear, LTF reco
 
 ## 2026-07-14 — LEAP cards priced off the wrong expiration
 `/timed/options/ticker` fetched the profile/swing chain (often ~60–90 DTE) and passed it into `buildOptionsLadder`. `buildLeapCall` then overrode the **label** to a Jan LEAP (~540 DTE) but still took bid/ask from the short chain — AEHR $55C showed ~$24 (Sep) while Webull Jan LEAP was ~$45. Always fetch + bind the LEAP cycle separately (`leap_chain`), re-lookup the leg after strike refine, and reject mids below ITM intrinsic.
+
+## 2026-07-23 — TRADE_TRIM email showed Trimmed 1% / Remaining 100% (RTX)
+
+Live `dispatchTradeAlertEmails` passes `newTrimmedPct` as a **0–1 fraction**
+(e.g. `0.5` for a half trim). The email Trim Status block treated that value
+as already-percent points:
+
+```
+Math.round(0.5) === 1          → "Trimmed: 1%"
+Math.round(100 - 0.5) === 100  → "Remaining: 100%"
+```
+
+Discord `createTradeTrimmedEmbed` already did `trimmedPct * 100`. Fix:
+`toTrimPctPoints()` in `worker/trade-trim-display.js` (fraction ≤1 → ×100;
+legacy samples that pass `50` stay `50`). In-app trim notification body must
+also `Math.round(tgt * 100)`, never interpolate the raw fraction into `%`.
+

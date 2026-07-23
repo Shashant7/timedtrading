@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **RTX trim email/signal % (2026-07-23).** TRADE_TRIM email Trim Status
+      treated `newTrimmedPct` fraction (0.5) as percent → "Trimmed 1% /
+      Remaining 100%". Normalize via `toTrimPctPoints`; fix in-app notif
+      body. Branch: `cursor/rtx-trim-pct-email-df0c`.
+
+
 - [x] **Nav / brief terms / AAPL BMO (2026-07-23).** (1) Tab Nav still
       scrolls mid-page on iOS — drop transform/backdrop-filter on
       `.tt-bn` and re-pin on scroll. (2) Daily Brief prompts still say
