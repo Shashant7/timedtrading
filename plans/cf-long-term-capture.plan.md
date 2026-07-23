@@ -17,3 +17,9 @@
 3. **Persist thesis on auto-open** — write `thesis` / `thesis_invalidation` / stageReason notes from score row (manual BUY path already does).
 4. **Pullback DCA** — for FSD / compounder / FV-discount holds, allow opportunistic DCA on confirmed dips (min 5d gap), not only calendar `dca_next_ts`.
 5. **Thesis heal** — auto-rebalance backfills null thesis on open rows from live scores.
+6. **Short Term parity** — same quality-dip shape softens trader pullback
+   RSI-exhaust + non-prime rank floors so multi-day rips (CF +10%) can
+   print on the Short Term book too (`isQualityCompounderDip`).
+7. **Model open-lane bars** — defend/trim/hold cards without a live book
+   row are ghost stages; drop them (or sticky-exit) so POSITION bars
+   always pair with Open Long/Short.

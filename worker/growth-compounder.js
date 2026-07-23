@@ -416,6 +416,37 @@ export function detectCompounderDipBuy(tickerData, timing = null, accumZone = nu
   };
 }
 
+/**
+ * Short Term + Long Term shared gate: quality name on a confirmed multi-signal
+ * dip (CF shape). Used by investor accumulate and trader pullback rank relief.
+ */
+export function isQualityCompounderDip(tickerData, timing = null, accumZone = null) {
+  const dip = detectCompounderDipBuy(
+    tickerData,
+    timing || tickerData?.timing_overlay || null,
+    accumZone || tickerData?.accumZone || tickerData?.accum_zone || null,
+  );
+  if (!dip?.isDip) return { ok: false, dip, reason: "no_confirmed_dip" };
+  const compounder = tickerData?._compounder || tickerData?.compounder || null;
+  const tier = String(compounder?.tier || "");
+  const compounderOk = (compounder?.eligible === true || tier === "growth_elite" || tier === "growth_strong")
+    && (tier === "growth_elite" || tier === "growth_strong");
+  const fvClass = tickerData?._fair_value?.fv_class
+    ?? tickerData?.fairValue?.fv_class
+    ?? tickerData?.fair_value?.fv_class
+    ?? null;
+  const fsdOk = tickerData?.fsd?.isPick === true || tickerData?._fsd?.isPick === true;
+  const ok = !!(compounderOk || fvClass === "discount" || fsdOk);
+  return {
+    ok,
+    dip,
+    compounderOk,
+    fsdOk,
+    fvClass,
+    reason: ok ? "quality_compounder_dip" : "dip_without_quality",
+  };
+}
+
 /** FSD / growth compounder / FV-discount holds — CF-style add candidates. */
 export function isPullbackDcaCandidate(scoreRow = {}) {
   const fsd = scoreRow?.fsd?.isPick === true;

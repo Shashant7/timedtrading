@@ -225,6 +225,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   may override on confirmed dips.
 - Auto-open persists thesis; auto-rebalance heals null thesis from scores;
   DCA execute allows opportunistic pullback adds for FSD/compounder/FV-discount.
+- Short Term parity: `isQualityCompounderDip` softens pullback RSI-exhaust +
+  non-prime rank floor so multi-day compounder rips can print on ST too.
+- Model open lanes: no defend/trim/hold card without a live book row
+  (ghost stages showed Bullish + no POSITION bar); server clears `defend`
+  when D1 has no open position.
 
 **Dual horizon cards + Short/Long Term copy (2026-07-23)**
 - Same ticker with Short Term + Long Term signals → **two cards**

@@ -436,6 +436,16 @@ function categorizeKanbanLanes(tickers, tradeByTicker, closedByTicker) {
     if (trade && isOpen || snapshotOpen) {
       if (stage === "exit") stage = "defend";else if (stage === "defend") {} else if (stage === "exiting") stage = "defend";else if (tradeTrimmedToday(trade)) stage = "trim";else if (stage === "trim") stage = "hold";else if (stage !== "hold" && stage !== "active" && stage !== "just_entered") stage = "hold";
     }
+    const _mgmtGhost = ["hold", "active", "just_entered", "defend", "trim", "exiting"].includes(stage) && !isOpen && !snapshotOpen;
+    if (_mgmtGhost) {
+      const closed = closedByTicker?.get?.(sym) || t?._closedTrade || null;
+      const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
+      if (exitMs > 0 && Date.now() - exitMs < RECENT_EXIT_WINDOW_MS) {
+        stage = "exit";
+      } else {
+        continue;
+      }
+    }
     if (!isOpen && closedByTicker?.get) {
       const closed = closedByTicker.get(sym) || t?._closedTrade || null;
       const exitMs = Number(closed?.exit_ts ?? closed?.exitTs ?? 0);
@@ -2219,6 +2229,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784779576207:539495545
+// cache-bust:1784781251547:639393288
 
-// cache-bust:1784779576207:539495545
+// cache-bust:1784781251547:639393288

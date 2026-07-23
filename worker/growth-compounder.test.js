@@ -10,6 +10,7 @@ import {
   computeCompounderScoreBoost,
   shouldExecutePullbackDca,
   isPullbackDcaCandidate,
+  isQualityCompounderDip,
   extractGrowthCompounderSignal,
   buildInvestorHoldbook,
   buildInvestorHoldbookCache,
@@ -315,6 +316,22 @@ describe("isPullbackDcaCandidate", () => {
   it("accepts FV discount quality names", () => {
     expect(isPullbackDcaCandidate({ fairValue: { fv_class: "discount" } })).toBe(true);
     expect(isPullbackDcaCandidate({ score: 60 })).toBe(false);
+  });
+});
+
+describe("isQualityCompounderDip", () => {
+  it("flags CF-shaped quality dips for Short Term relief", () => {
+    const q = isQualityCompounderDip({
+      price: 116,
+      dailyChgPct: -2.4,
+      tf_tech: { W: { rsi: { r5: 48 } } },
+      monthly_bundle: { rsi: 55 },
+      _compounder: { eligible: true, tier: "growth_strong" },
+      _fair_value: { fv_class: "discount" },
+      accumZone: { zoneType: "momentum_runner_exhausted" },
+    });
+    expect(q.ok).toBe(true);
+    expect(q.dip.isDip).toBe(true);
   });
 });
 
