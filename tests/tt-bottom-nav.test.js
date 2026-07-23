@@ -5,7 +5,6 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 function loadBottomNav() {
-  // Reset idempotent guards between tests.
   document.getElementById("tt-bottom-nav")?.remove();
   document.getElementById("tt-bottom-nav-style")?.remove();
   const src = readFileSync(join(process.cwd(), "react-app/tt-bottom-nav.js"), "utf8");
@@ -14,10 +13,9 @@ function loadBottomNav() {
   return document.getElementById("tt-bottom-nav");
 }
 
-describe("tt-bottom-nav visualViewport sync", () => {
+describe("tt-bottom-nav pin-to-bottom", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
-    // jsdom default pathname is "/" — force a journey page.
     window.history.replaceState({}, "", "/today.html");
   });
 
@@ -30,14 +28,12 @@ describe("tt-bottom-nav visualViewport sync", () => {
   it("mounts five journey tabs including Model", () => {
     const nav = loadBottomNav();
     expect(nav).toBeTruthy();
-    expect(nav.dataset.ttBnBuiltAt).toBe("2026-07-23-v4");
+    expect(nav.dataset.ttBnBuiltAt).toBe("2026-07-23-v5");
     const labels = [...nav.querySelectorAll(".tt-bn-label")].map((el) => el.textContent);
     expect(labels).toEqual(["Today", "Model", "Portfolio", "Insights", "Learn"]);
   });
 
-  it("does not hide for expanded Safari chrome without a focused input", () => {
-    // Pro-sized layout with chrome-shrunk visual viewport — previously
-    // tripped vvH < innerH * 0.65 and hid the nav as "keyboard".
+  it("stays pinned at bottom even when visualViewport shrinks (no URL-bar push)", () => {
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 852 });
     window.visualViewport = {
       height: 520,
@@ -47,21 +43,11 @@ describe("tt-bottom-nav visualViewport sync", () => {
     };
 
     const nav = loadBottomNav();
-    // Allow the 0/150/400 sync timers — only the sync0 runs sync immediately.
-    expect(nav.dataset.ttBnState).not.toBe("keyboard");
-    expect(nav.style.transform).not.toContain("200%");
-    // Should push up by capped URL-bar delta, not vanish.
-    expect(nav.style.transform).toMatch(/translate3d\(0,\s*-\d+px,\s*0\)/);
+    expect(nav.dataset.ttBnState).toBe("pinned");
+    expect(nav.style.transform).toBe("translate3d(0, 0, 0)");
   });
 
-  it("hides only when a text input is focused and viewport shrinks", () => {
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 852 });
-    window.visualViewport = {
-      height: 400,
-      offsetTop: 0,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    };
+  it("hides only when a text input is focused", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();

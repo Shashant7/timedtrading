@@ -12,8 +12,15 @@
 translated the bar to `200%` (off-screen). On iPhone with Safari chrome
 expanded at the top of Today, visualViewport routinely drops below that
 ratio with no keyboard — Tab Nav vanishes. Gate keyboard-hide on a
-focused text input; cap URL-bar push; bump `SHELL_VERSION` so SW clients
-pick up the script.
+focused text input; bump `SHELL_VERSION` so SW clients pick up the script.
+
+## Mobile Tab Nav must not translate for URL-bar delta [2026-07-23]
+
+After the keyboard false-positive fix, the remaining
+`translateY(-(innerHeight - vv.height))` “URL bar push” (even capped at
+22%) left the Tab Nav floating mid-page with a large gap above the home
+indicator. Modern iOS already positions `position:fixed; bottom:0`
+against the visual viewport — drop the chrome translate entirely.
 
 ---
 
