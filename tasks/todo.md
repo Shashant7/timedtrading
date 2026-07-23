@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Email setup TT brand (2026-07-23).** Setup line title-cased
+      `tt_n_test_support` → "Tt N Test Support". Use formatEmailSetupName
+      so it shows "TT Support Bounce" / never "Tt". Branch:
+      `cursor/email-setup-tt-brand-df0c`.
+
+
 - [x] **RTX trim email/signal % (2026-07-23).** TRADE_TRIM email Trim Status
       treated `newTrimmedPct` fraction (0.5) as percent → "Trimmed 1% /
       Remaining 100%". Normalize via `toTrimPctPoints`; fix in-app notif

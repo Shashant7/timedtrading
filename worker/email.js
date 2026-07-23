@@ -1206,7 +1206,8 @@ const EMAIL_EXIT_MAP = {
 function humanizeEmailExitReason(raw) {
   if (!raw) return null;
   const s = String(raw).trim();
-  return EMAIL_EXIT_MAP[s] || s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return EMAIL_EXIT_MAP[s]
+    || fixTtBrandAcronym(s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()));
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -1257,7 +1258,77 @@ function humanizeEmailTrimReason(raw) {
   if (!raw) return null;
   const s = String(raw).trim();
   if (EMAIL_TRIM_MAP[s]) return EMAIL_TRIM_MAP[s];
-  return _scrubEmailJargon(s).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
+  return fixTtBrandAcronym(
+    _scrubEmailJargon(s).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim(),
+  );
+}
+
+// Title-case turns "tt_…" / "tt …" into "Tt …". Brand acronym is always TT.
+function fixTtBrandAcronym(s) {
+  return String(s || "").replace(/\bTt\b/g, "TT");
+}
+
+/* Setup labels for trade emails. Prefer the canonical engine-key map
+   (keeps "tt_n_test_support" as "TT Support Bounce" instead of the
+   title-case artifact "Tt N Test Support"). Fallback keeps a leading
+   TT brand prefix and never emits "Tt". */
+const EMAIL_SETUP_DISPLAY = {
+  tt_n_test_support: "TT Support Bounce",
+  tt_n_test_resistance: "TT Resistance Fade",
+  tt_ath_breakout: "TT ATH Breakout",
+  tt_atl_breakdown: "TT ATL Breakdown",
+  tt_pullback: "TT Pullback Reclaim",
+  tt_reclaim: "TT Reclaim Long",
+  tt_momentum: "TT Momentum Push",
+  tt_mean_revert: "TT Mean Reversion",
+  tt_range_reversal_long: "TT Range Reversal (Long)",
+  tt_range_reversal_short: "TT Range Reversal (Short)",
+  tt_gap_reversal_long: "TT Gap Reversal (Long)",
+  tt_gap_reversal_short: "TT Gap Reversal (Short)",
+  tt_index_etf_swing: "TT Index Swing",
+  momentum_score: "TT Momentum",
+  squeeze_setup: "TT Squeeze",
+  breakout: "TT Breakout",
+  mean_reversion_pdz: "TT Mean Reversion",
+  elite: "TT Elite",
+  ema_regime_confirmed_long: "TT Confirmed Long",
+  ema_regime_confirmed_short: "TT Confirmed Short",
+  ema_regime_early_long: "TT Early Long",
+  ema_regime_early_short: "TT Early Short",
+  gold_long: "TT Breakout Long",
+  gold_short: "TT Reversal Short",
+  ripster_momentum: "TT Momentum",
+  ripster_pullback: "TT Pullback",
+  ripster_reclaim: "TT Reclaim",
+};
+
+export function formatEmailSetupName(setup_name) {
+  const raw = String(setup_name || "").trim();
+  if (!raw) return "";
+  const snake = raw
+    .toLowerCase()
+    .replace(/^tt\s+/i, "tt_")
+    .replace(/[\s-]+/g, "_")
+    .replace(/^tt_tt_/, "tt_")
+    .replace(/_+/g, "_");
+  if (EMAIL_SETUP_DISPLAY[snake]) return EMAIL_SETUP_DISPLAY[snake];
+  if (!snake.startsWith("tt_") && EMAIL_SETUP_DISPLAY[`tt_${snake}`]) {
+    return EMAIL_SETUP_DISPLAY[`tt_${snake}`];
+  }
+  // Already-pretty / legacy ("TT Support Bounce", "Tt N Test Support", …)
+  let s = raw
+    .replace(/^TT\s+/i, "")
+    .replace(/^Tt[\s_]+/i, "")
+    .replace(/^tt_/i, "")
+    .replace(/^ripster_?/i, "")
+    .replace(/^saty_?/i, "")
+    .replace(/_/g, " ")
+    .trim();
+  s = s.replace(/\b\w/g, (c) => c.toUpperCase());
+  s = fixTtBrandAcronym(s);
+  if (!s) return "TT Setup";
+  if (!/^TT\b/i.test(s)) s = `TT ${s}`;
+  return fixTtBrandAcronym(s.replace(/^TT\s+TT\b/i, "TT"));
 }
 
 function _fmtCurrency(v) {
@@ -1534,7 +1605,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   const setupLines = [];
   if (setup_name) {
     const _grade = setup_grade ? ` <span style="color:${BRAND.textMuted}">(${setup_grade})</span>` : "";
-    const _name = String(setup_name).replace(/^TT[\s_]+/i, "").replace(/^tt_/i, "").replace(/^ripster_?/i, "").replace(/^saty_?/i, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const _name = formatEmailSetupName(setup_name);
     setupLines.push(`<strong style="color:white">${_name}</strong>${_grade}`);
   }
   if (risk_budget != null && Number(risk_budget) > 0) {
