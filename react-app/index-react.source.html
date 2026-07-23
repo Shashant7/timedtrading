@@ -3693,7 +3693,9 @@
             .map((t) => {
               const sym = normTicker(t?.ticker || t?.symbol || "");
               if (!sym || CRYPTO_24H.has(sym)) return null;
-              const pct = Number(t?._ah_change_pct);
+              // Prefer getExtChange so TT-selected EXT names match card/rail display.
+              const ext = window.TimedPriceUtils?.getExtChange?.(t);
+              const pct = ext && Number.isFinite(ext.pct) ? ext.pct : Number(t?._ah_change_pct);
               if (!Number.isFinite(pct) || pct === 0) return null;
               return { ticker: sym, pct };
             })
@@ -12680,12 +12682,13 @@
               ? "0 0 10px rgba(16,185,129,0.20), 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)"
               : "0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 2px rgba(0,0,0,0.3)";
 
-          // Extended hours change (AH/Pre-market) — only show when market is closed, skip crypto (24/7)
+          // Extended hours (AH/Pre) — single source: getExtChange (price + pct).
+          // Skip crypto (24/7). Cards must show EXT when movers do (TSLA/GOOGL).
           const _isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
           const _mktOpen = isNyRegularMarketOpen();
-          const ahPct = (_isCrypto || _mktOpen) ? null : Number(t?._ah_change_pct);
-          const ahChg = (_isCrypto || _mktOpen) ? null : Number(t?._ah_change);
-          const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+          const _extLine = (!_isCrypto && !_mktOpen && window.TimedPriceUtils?.getExtChange)
+            ? window.TimedPriceUtils.getExtChange(t)
+            : null;
 
           // Lane reason text
           const laneReason = (() => {
@@ -12830,6 +12833,16 @@
                         }}>
                         {dayPct >= 0 ? "+" : ""}{dayPct.toFixed(2)}%
                         {Number.isFinite(dayChg) ? ` (${dayChg >= 0 ? "+" : "-"}$${Math.abs(dayChg).toFixed(2)})` : ""}
+                      </span>
+                    )}
+                    {_extLine && (
+                      <span
+                        className={`text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${_extLine.pct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}
+                        title="Extended-hours quote (pre-market / after-hours)"
+                      >
+                        <span className="text-[9px] text-gray-400 mr-0.5">EXT</span>
+                        {_extLine.price != null ? `$${_extLine.price.toFixed(2)} ` : ""}
+                        {_extLine.pct >= 0 ? "+" : ""}{_extLine.pct.toFixed(2)}%
                       </span>
                     )}
                   </div>

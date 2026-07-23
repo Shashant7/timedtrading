@@ -15217,8 +15217,7 @@
         const chgColor = chgVal >= 0 ? Math.abs(dayPct || 0) >= 3 ? "#4ade80" : "#00e676" : Math.abs(dayPct || 0) >= 3 ? "#fb7185" : "#f87171";
         const chgSign = chgVal >= 0 ? "+" : "";
         const _rrMktOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-        const ahPct = _rrMktOpen ? null : Number(src?._ah_change_pct);
-        const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+        const ext = !_rrMktOpen && window.TimedPriceUtils?.getExtChange ? window.TimedPriceUtils.getExtChange(src) : null;
         return React.createElement("div", {
           className: "flex items-end justify-between mt-1.5"
         }, React.createElement("div", {
@@ -15239,11 +15238,12 @@
             color: chgColor,
             textShadow: "0 1px 4px rgba(0,0,0,0.7)"
           }
-        }, chgSign, dayPct.toFixed(2), "%", Number.isFinite(dayChg) ? ` (${chgSign}$${Math.abs(dayChg).toFixed(2)})` : ""), hasAH && React.createElement("span", {
-          className: `text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`
+        }, chgSign, dayPct.toFixed(2), "%", Number.isFinite(dayChg) ? ` (${chgSign}$${Math.abs(dayChg).toFixed(2)})` : ""), ext && React.createElement("span", {
+          className: `text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ext.pct >= 0 ? "text-[#00e676]" : "text-rose-400"}`,
+          title: "Extended-hours quote (pre-market / after-hours)"
         }, React.createElement("span", {
           className: "text-[9px] text-gray-400 mr-0.5"
-        }, "EXT"), ahPct >= 0 ? "+" : "", ahPct.toFixed(2), "%")));
+        }, "EXT"), ext.price != null ? `$${ext.price.toFixed(2)} ` : "", ext.pct >= 0 ? "+" : "", ext.pct.toFixed(2), "%")));
       })(), (() => {
         const stage = String(ticker?.kanban_stage || "");
         const showEntryStats = ["enter_now", "hold", "just_entered", "trim", "exit", "tp_hit_trim"].includes(stage);
@@ -19708,4 +19708,4 @@
   };
 })();
 
-// cache-bust:1784781251547:639393288
+// cache-bust:1784784214258:605301959
