@@ -22,6 +22,13 @@
 
 ### Active
 
+- [x] **Webull Roth next ST/LT order must place (2026-07-23).** Live
+      entries reached Roth review then failed on TRADE_FRACT_PRO. Fix:
+      whole-share retry with fresh `client_order_id`, stamp
+      `fractional_agreement_missing` on resolved Roth user (not owner
+      email), `WEBULL_DEFAULT_ACCOUNT_CLASS=ROTH_IRA`. Branch:
+      `cursor/webull-roth-order-fire-df0c`.
+
 - [x] **CF long-term capture replication (2026-07-23).** Forensic: CF
       compounder_dip_buy @ $115.90 → ~+10%; thesis null; monthly DCA only.
       Tighten confirmed dips; exhaustion-order + growth_strong override;

@@ -163,8 +163,11 @@ curl -s "$BRIDGE/bridge/status/user?user_id=op@email.com" -H "$OP" | python3 -m 
 curl -s "$BRIDGE/bridge/portfolio" -H "$OP" | python3 -m json.tool
 
 # 3. Enable ONLY the Roth sub-account (per-account flag).
+#    If Webull TRADE_FRACT_PRO is not signed yet, also stamp
+#    fractional_agreement_missing so preflight sends WHOLE shares
+#    (fractional place fails with the agreement URL otherwise).
 curl -s -X POST "$BRIDGE/bridge/enable" -H "$OP" -H "Content-Type: application/json" \
-  -d '{"user_id":"op@email.com#webull#roth-ira","enable":true}' | python3 -m json.tool
+  -d '{"user_id":"op@email.com#webull#roth-ira","enable":true,"fractional_agreement_missing":true}' | python3 -m json.tool
 
 # 4. Verify sizing on the next mirrored entry via the per-account ledger.
 curl -s "$BRIDGE/bridge/account-ledger?broker_account_id=<WEBULL_ROTH_ACCT_ID>" -H "$OP" | python3 -m json.tool
@@ -172,6 +175,14 @@ curl -s "$BRIDGE/bridge/account-ledger?broker_account_id=<WEBULL_ROTH_ACCT_ID>" 
 
 Keep `BROKER_FANOUT_ENABLED=false` if you only want the Roth (one account)
 mirrored; leave other sub-accounts' `broker_integration_enabled=false`.
+`WEBULL_DEFAULT_ACCOUNT_CLASS=ROTH_IRA` makes owner-email orders resolve to
+Roth when multiple subs are connected.
+
+**Go-live blocker seen 2026-07-22:** XLRE/HALO/RTX place failed with
+`bizTypes=TRADE_FRACT_PRO` (fractional agreement). Bridge auto-retries whole
+shares + persists `fractional_agreement_missing` on the **resolved Roth user
+id** (not the owner email). Until the operator signs the Webull agreement URL,
+orders must be whole-share.
 
 ### Multi-account fan-out (2026-07-20 — wired, flag-gated)
 `BROKER_FANOUT_ENABLED` (default `"false"`). When `"true"`, one model signal

@@ -81,7 +81,11 @@ export function buildOrderBody(user, order, { preview = false } = {}) {
     market: String(order?.market || "US").toUpperCase(),
     order_type: orderType,
     side: sideToWebull(order?.side),
-    quantity: String(qty),
+    // Whole shares as integer strings ("13") — some Webull paths treat
+    // "13.0" as fractional and trip TRADE_FRACT_PRO even for whole qty.
+    quantity: (Number.isInteger(qty) || Math.abs(qty - Math.round(qty)) < 1e-9)
+      ? String(Math.round(qty))
+      : String(qty),
     entrust_type: "QTY",
     time_in_force: String(order?.tif || "DAY").toUpperCase(),
     support_trading_session: "CORE",

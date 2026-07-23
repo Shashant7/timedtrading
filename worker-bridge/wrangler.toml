@@ -117,6 +117,9 @@ OPERATOR_EMAIL = "shashant@gmail.com"
 WEBULL_AUTH_MODE = "personal"
 # prod for live personal keys; uat for sandbox keys from Webull test env.
 WEBULL_ENVIRONMENT = "prod"
+# Owner email resolves to this Webull sub-account class when multiple are
+# connected (dogfood: Roth IRA is the only enabled live mirror).
+WEBULL_DEFAULT_ACCOUNT_CLASS = "ROTH_IRA"
 WEBULL_CONNECT_SCOPE = "user:trade:wr"
 # Refresh access tokens this many ms before expiry (Connect mode only; default 5 min).
 WEBULL_TOKEN_REFRESH_SKEW_MS = "300000"

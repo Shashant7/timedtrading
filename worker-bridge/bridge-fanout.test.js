@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveBridgeAccounts } from "./bridge-storage.js";
+import { resolveBridgeAccounts, resolveBridgeUser } from "./bridge-storage.js";
 
 // In-memory BRIDGE_KV stub with the subset resolveBridgeAccounts needs.
 function makeKv(rows) {
@@ -54,5 +54,20 @@ describe("resolveBridgeAccounts — multi-account fan-out set", () => {
     const accounts = await resolveBridgeAccounts(env, owner);
     expect(accounts).toHaveLength(1);
     expect(accounts[0].webull_account_id).toBe("WB-1");
+  });
+});
+
+describe("resolveBridgeUser — Roth default for owner email", () => {
+  it("resolves owner email to the enabled Roth IRA sub-account", async () => {
+    const rows = [
+      { user_id: owner, broker: "webull", status: "disconnected", broker_integration_enabled: false, webull_account_id: "WB-LEGACY" },
+      { user_id: `${owner}#webull#individual-margin`, owner_email: owner, broker: "webull", status: "connected", broker_integration_enabled: false, webull_account_id: "WB-1", webull_account_class: "INDIVIDUAL_MARGIN" },
+      { user_id: `${owner}#webull#roth-ira`, owner_email: owner, broker: "webull", status: "connected", broker_integration_enabled: true, webull_account_id: "WB-ROTH", webull_account_class: "ROTH_IRA", equity_usd: 16403 },
+    ];
+    const env = { BRIDGE_KV: makeKv(rows), WEBULL_DEFAULT_ACCOUNT_CLASS: "ROTH_IRA" };
+    const u = await resolveBridgeUser(env, owner);
+    expect(u.user_id).toBe(`${owner}#webull#roth-ira`);
+    expect(u.webull_account_id).toBe("WB-ROTH");
+    expect(u.broker_integration_enabled).toBe(true);
   });
 });

@@ -966,17 +966,38 @@ export default {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
         const userId = String(body?.user_id || "").trim().toLowerCase();
-        const enable = body?.enable === true;
         if (!userId) return json({ ok: false, error: "user_id_required" }, 400);
         const user = await readUser(env, userId);
         if (!user) return json({ ok: false, error: "user_not_found" }, 404);
         if (user.status !== "connected") {
           return json({ ok: false, error: `user_status_${user.status}_must_be_connected` }, 400);
         }
-        user.broker_integration_enabled = enable;
-        user.enable_changed_at = Date.now();
+        // enable may be omitted when only stamping fractional_agreement_missing
+        if (typeof body?.enable === "boolean") {
+          user.broker_integration_enabled = body.enable === true;
+          user.enable_changed_at = Date.now();
+        }
+        // 2026-07-23 — Operator stamp: force whole-share preflight on a
+        // Webull account that has not signed TRADE_FRACT_PRO (Roth IRA).
+        if (body?.fractional_agreement_missing === true) {
+          user.fractional_agreement_missing = true;
+          if (body?.fractional_agreement_url) {
+            user.fractional_agreement_url = String(body.fractional_agreement_url).slice(0, 500);
+          }
+          user.fractional_agreement_flagged_at = Date.now();
+        } else if (body?.fractional_agreement_missing === false) {
+          user.fractional_agreement_missing = false;
+          user.fractional_agreement_url = null;
+          user.fractional_agreement_flagged_at = null;
+        }
         await writeUser(env, userId, user);
-        return json({ ok: true, user_id: userId, broker_integration_enabled: enable });
+        return json({
+          ok: true,
+          user_id: userId,
+          broker_integration_enabled: !!user.broker_integration_enabled,
+          fractional_agreement_missing: !!user.fractional_agreement_missing,
+          fractional_agreement_url: user.fractional_agreement_url || null,
+        });
       }
 
       if (method === "POST" && path === "/bridge/test/rh-call") {
@@ -1548,28 +1569,54 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   // OAUTH_OPENAPI_OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE). HALO/RPG/RTX
   // orders today all preview-passed then place-failed with this error on the
   // Roth. Auto-retry rounded to whole shares (never over-buy) so the order
-  // still lands; persist the flag on the user so future preflights skip the
-  // wasted fractional round-trip. The operator still needs to visit the
-  // agreementUrl to enable fractional going forward.
+  // still lands; persist the flag on the RESOLVED account user (Roth sub-id,
+  // not the owner email) so future preflights skip the wasted fractional
+  // round-trip. Retry uses a fresh client_order_id (`…-w`) — Webull can
+  // reject a reuse of the failed fractional id even for the whole-share
+  // retry. Operator can still sign the agreementUrl to re-enable fractional.
   let _fractFallback = null;
   if (!place.ok) {
     const _fract = classifyWebullFractError(place);
     if (_fract.isFractAgreementError) {
-      const _wholeQty = roundToWholeShares(sanitized.qty);
-      if (_wholeQty > 0 && _wholeQty < Number(sanitized.qty)) {
-        console.warn(`[WEBULL_FRACT] ${sanitized.user_id}/${sanitized.ticker} fractional agreement not signed — retrying whole shares ${sanitized.qty}→${_wholeQty} (${_fract.agreementUrl || "no_url"})`);
-        const _retryPayload = { ...sanitized, qty: _wholeQty };
+      const _origQty = Number(sanitized.qty);
+      const _wholeQty = roundToWholeShares(_origQty);
+      if (_wholeQty > 0 && _wholeQty < _origQty) {
+        const _retryCoid = sanitized.client_order_id
+          ? `${String(sanitized.client_order_id).slice(0, 48)}-w`
+          : `tt-whole-${sanitized.trade_id || sanitized.ticker}-${Date.now().toString(36)}`;
+        console.warn(`[WEBULL_FRACT] ${(user?.user_id || sanitized.user_id)}/${sanitized.ticker} fractional agreement not signed — retrying whole shares ${_origQty}→${_wholeQty} coid=${_retryCoid} (${_fract.agreementUrl || "no_url"})`);
+        const _retryPayload = {
+          ...sanitized,
+          qty: _wholeQty,
+          client_order_id: _retryCoid,
+        };
         place = await placePlannedOrder(env, user, _retryPayload, orderPlan);
-        // If the retry succeeded, mutate sanitized so downstream audit /
-        // ledger / manifest write reflect the actual broker qty.
         if (place.ok) {
           sanitized.qty = _wholeQty;
+          sanitized.client_order_id = _retryCoid;
           _fractFallback = {
             reason: "webull_fractional_agreement_missing",
-            original_qty: _retryPayload.qty === _wholeQty ? undefined : Number(_retryPayload.qty),
-            requested_qty: Number(sanitized.qty),
+            original_qty: _origQty,
             whole_qty: _wholeQty,
+            retry_client_order_id: _retryCoid,
             agreement_url: _fract.agreementUrl,
+          };
+        } else {
+          // Keep the fract classification visible when the whole-share retry
+          // also fails (rate-limit / hours / buying power).
+          place = {
+            ...place,
+            error: place.error || "webull_fractional_agreement_whole_retry_failed",
+            response: {
+              ...(place.response || {}),
+              _fract_retry: {
+                original_qty: _origQty,
+                whole_qty: _wholeQty,
+                retry_client_order_id: _retryCoid,
+                agreement_url: _fract.agreementUrl,
+                first_error: _fract.errorCode,
+              },
+            },
           };
         }
       } else {
@@ -1581,21 +1628,29 @@ async function handleSingleAccountOrder(env, ctx, payload) {
             error_code: _fract.errorCode,
             agreement_url: _fract.agreementUrl,
             message: _fract.agreementUrl || "operator must sign Webull TRADE_FRACT_PRO agreement to enable fractional orders",
-            requested_qty: Number(sanitized.qty),
+            requested_qty: _origQty,
             whole_qty: _wholeQty,
           },
           latency_ms: place.latency_ms,
         };
       }
-      // Best-effort: persist the flag on the user record so future preflights
-      // pre-round to whole shares (avoid the wasted preview+place round-trip).
+      // Persist on the RESOLVED broker account (e.g. …#webull#roth-ira), not
+      // the owner email the main worker forwards. Preflight reads this flag
+      // from the resolved user — writing the owner row was a silent no-op.
       try {
-        const _u = await readUser(env, sanitized.user_id);
-        if (_u && !_u.fractional_agreement_missing) {
-          _u.fractional_agreement_missing = true;
-          _u.fractional_agreement_url = _fract.agreementUrl || _u.fractional_agreement_url || null;
-          _u.fractional_agreement_flagged_at = Date.now();
-          await writeUser(env, sanitized.user_id, _u);
+        const _flagUid = String(user?.user_id || sanitized.user_id || "").toLowerCase();
+        if (_flagUid) {
+          const _u = await readUser(env, _flagUid);
+          if (_u) {
+            _u.fractional_agreement_missing = true;
+            _u.fractional_agreement_url = _fract.agreementUrl || _u.fractional_agreement_url || null;
+            _u.fractional_agreement_flagged_at = Date.now();
+            await writeUser(env, _flagUid, _u);
+          }
+          if (user) {
+            user.fractional_agreement_missing = true;
+            user.fractional_agreement_url = _fract.agreementUrl || null;
+          }
         }
       } catch (_flagErr) { /* flagging is best-effort — never block a placed order */ }
     }
