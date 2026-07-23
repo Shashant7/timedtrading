@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Investor DCA double ledger cash (2026-07-23).** Sanity
+- [x] **Investor DCA double ledger cash (2026-07-23).** Sanity
       portfolio_reconcile −18.9%: ledger repair matched DCA_BUY lots only
       to ENTRY and back-filled duplicates beside real DCA_BUY rows
       (−$16k cash); KO/TWLO/PLTR positions also missed a concurrent DCA
