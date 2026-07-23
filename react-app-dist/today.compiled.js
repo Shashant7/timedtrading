@@ -887,18 +887,14 @@ function ConfirmStackRunnersStrip({
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
-    (async () => {
+    const url = `${API_BASE}/timed/plays/today?limit=24`;
+    const load = async () => {
+      if (!window._ttIsPro) {
+        if (alive) setLoading(true);
+        return;
+      }
       try {
-        if (!window._ttIsPro) {
-          if (alive) {
-            setSlice({
-              plays: []
-            });
-            setLoading(false);
-          }
-          return;
-        }
-        const url = `${API_BASE}/timed/plays/today?limit=24`;
+        if (alive) setLoading(true);
         const j = window.TTFetchCache ? await window.TTFetchCache.get(url, {
           ttlMs: 45000,
           maxAgeMs: 180000,
@@ -906,9 +902,10 @@ function ConfirmStackRunnersStrip({
             credentials: "include"
           }
         }) : await fetchJsonRetry(url);
-        if (alive && j?.ok) setSlice(j.slice || {
+        if (!alive) return;
+        if (j?.ok) setSlice(j.slice || {
           plays: (j.plays || []).filter(p => p.slice_family === "confirm_stack_ema21")
-        });else if (alive) setSlice({
+        });else setSlice({
           plays: []
         });
       } catch (_) {
@@ -918,9 +915,20 @@ function ConfirmStackRunnersStrip({
       } finally {
         if (alive) setLoading(false);
       }
-    })();
+    };
+    load();
+    const onAuth = e => {
+      if (e?.detail?.isPro) load();else if (alive) {
+        setSlice({
+          plays: []
+        });
+        setLoading(false);
+      }
+    };
+    window.addEventListener("tt-auth-bootstrap-updated", onAuth);
     return () => {
       alive = false;
+      window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
     };
   }, []);
   const wrap = children => {
@@ -1030,32 +1038,53 @@ function ConvexityPlaysStrip({
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
-    (async () => {
+    const url = `${API_BASE}/timed/options/convexity?limit=10`;
+    const load = async () => {
+      if (!window._ttIsPro) {
+        if (alive) setLoading(true);
+        return;
+      }
       try {
-        if (!window._ttIsPro) {
-          if (alive) {
-            setPlays([]);
-            setLoading(false);
+        if (alive) setLoading(true);
+        try {
+          window.TTFetchCache?.invalidate?.(url);
+        } catch (_) {}
+        let j = null;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          j = await fetchJsonRetry(url);
+          if (!alive) return;
+          if (j?.error_kind === "tier_required" && attempt < 3) {
+            await new Promise(r => setTimeout(r, 600 * (attempt + 1)));
+            continue;
           }
-          return;
+          break;
         }
-        const url = `${API_BASE}/timed/options/convexity?limit=10`;
-        const j = window.TTFetchCache ? await window.TTFetchCache.get(url, {
-          ttlMs: 60000,
-          maxAgeMs: 300000,
-          fetchOpts: {
-            credentials: "include"
-          }
-        }) : await fetchJsonRetry(url);
-        if (alive && j?.ok && Array.isArray(j.plays)) setPlays(j.plays);else if (alive) setPlays([]);
+        if (!alive) return;
+        if (j?.ok && Array.isArray(j.plays)) {
+          setPlays(j.plays);
+          try {
+            window.TTFetchCache?.put?.(url, j);
+          } catch (_) {}
+        } else {
+          setPlays([]);
+        }
       } catch (_) {
         if (alive) setPlays([]);
       } finally {
         if (alive) setLoading(false);
       }
-    })();
+    };
+    load();
+    const onAuth = e => {
+      if (e?.detail?.isPro) load();else if (alive) {
+        setPlays([]);
+        setLoading(false);
+      }
+    };
+    window.addEventListener("tt-auth-bootstrap-updated", onAuth);
     return () => {
       alive = false;
+      window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
     };
   }, []);
   const wrap = children => {
@@ -7002,6 +7031,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784784214258:605301959
+// cache-bust:1784785130846:939199401
 
-// cache-bust:1784784214258:605301959
+// cache-bust:1784785130846:939199401
