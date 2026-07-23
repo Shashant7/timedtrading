@@ -1646,16 +1646,14 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
   // ── Without position ──
 
-  // Growth compounder dip-buy lane — quality compounders (Tenet-style
-  // revenue trajectory) can initiate on pullbacks despite extension.
-  if (!existingPosition && compounder?.eligible && dipBuy?.isDip
+  // Quality compounder + confirmed multi-signal dip (CF playbook).
+  // growth_elite / growth_strong only — radar tier watches, does not initiate.
+  const _compounderDipOk = !existingPosition
+    && compounder?.eligible
+    && dipBuy?.isDip
+    && (compounder.tier === "growth_elite" || compounder.tier === "growth_strong")
     && investorScore >= cfg.watch_promising_score_min
-    && marketHealth >= cfg.accumulate_inzone_market_health_min) {
-    return finalize({
-      stage: "accumulate",
-      reason: `compounder_dip_buy:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
-    });
-  }
+    && marketHealth >= cfg.accumulate_inzone_market_health_min;
 
   // 2026-06-01 — Exhausted momentum-runner short-circuit.
   // detectAccumulationZone() flags `momentum_runner_exhausted` when 2+
@@ -1669,20 +1667,29 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // stageReason so the operator + thesis email can show WHY this isn't
   // an accumulate.
   //
-  // Exception: growth_elite compounders on a confirmed dip — buy the
-  // pullback, don't chase extension (Tenet "why we hold" playbook).
+  // Exception (2026-07-23): growth_elite OR growth_strong on a confirmed
+  // structural dip — CF entered this way (+10% in a week). Exhaustion is
+  // evaluated BEFORE the broad compounder lane so a weak single-signal
+  // dip cannot bypass the gate.
   if (accumZone?.zoneType === "momentum_runner_exhausted") {
-    if (compounder?.tier === "growth_elite" && dipBuy?.isDip
-      && investorScore >= cfg.watch_promising_score_min
-      && marketHealth >= cfg.accumulate_inzone_market_health_min) {
+    if (_compounderDipOk && dipBuy?.hasStructural !== false) {
       return finalize({
         stage: "accumulate",
-        reason: `compounder_dip_override_exhaustion:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
+        reason: `compounder_dip_override_exhaustion:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
       });
     }
     return finalize({
       stage: "watch",
       reason: `exhaustion_detected:${(accumZone.exhaustionWarnings || []).slice(0, 4).join("|")}`,
+    });
+  }
+
+  // Growth compounder dip-buy lane — quality compounders (Tenet-style
+  // revenue trajectory) can initiate on pullbacks despite extension.
+  if (_compounderDipOk) {
+    return finalize({
+      stage: "accumulate",
+      reason: `compounder_dip_buy:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
     });
   }
 

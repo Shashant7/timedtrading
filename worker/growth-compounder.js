@@ -337,11 +337,28 @@ export function buildWhyWeHoldBullets(snapshot, fvSignal, trajectory, tier) {
   return buildHoldThesisBullets(snapshot, fvSignal, trajectory, tier);
 }
 
-export function detectCompounderDipBuy(tickerData, timing = null, accumZone = null) {
+/** Structural dip signals — not lone intraday noise. */
+export const COMPOUNDER_STRUCTURAL_DIP_SIGNALS = Object.freeze([
+  "timing_bottom",
+  "weekly_pullback_monthly_intact",
+  "near_weekly_ema21",
+  "daily_mean_reversion_sequence",
+]);
+
+const _STRUCTURAL_DIP_SET = new Set(COMPOUNDER_STRUCTURAL_DIP_SIGNALS);
+
+/**
+ * Detect a compounder pullback worth initiating / adding on.
+ * Confirmed dips need ≥2 signals. Exhausted momentum-runner zones also
+ * require at least one structural signal so a single −2% day cannot open
+ * (CF-style entries used weekly_pullback + intraday_pullback together).
+ */
+export function detectCompounderDipBuy(tickerData, timing = null, accumZone = null, opts = {}) {
   const signals = [];
   const price = num(tickerData?._live_price || tickerData?.price);
   const tfW = tickerData?.tf_tech?.W;
   const mb = tickerData?.monthly_bundle;
+  const minSignals = Number(opts.minSignals) > 0 ? Number(opts.minSignals) : 2;
 
   if (timing?.timing_primary === "BOTTOM" || timing?.add_on_dips) {
     signals.push("timing_bottom");
@@ -384,10 +401,58 @@ export function detectCompounderDipBuy(tickerData, timing = null, accumZone = nu
     signals.push("intraday_pullback");
   }
 
+  const exhausted = String(accumZone?.zoneType || "").includes("exhausted");
+  const hasStructural = signals.some((s) =>
+    _STRUCTURAL_DIP_SET.has(s) || String(s).startsWith("zone_"));
+  const isDip = exhausted
+    ? signals.length >= Math.max(2, minSignals) && hasStructural
+    : signals.length >= minSignals;
+
   return {
-    isDip: signals.length > 0,
+    isDip,
     signals,
+    hasStructural,
+    exhausted,
   };
+}
+
+/** FSD / growth compounder / FV-discount holds — CF-style add candidates. */
+export function isPullbackDcaCandidate(scoreRow = {}) {
+  const fsd = scoreRow?.fsd?.isPick === true;
+  const tier = String(scoreRow?.compounder?.tier || "");
+  const compounder = scoreRow?.compounder?.eligible === true
+    && (tier === "growth_elite" || tier === "growth_strong");
+  const fvClass = scoreRow?.fairValue?.fv_class ?? scoreRow?.fair_value?.fv_class;
+  const fvDiscount = fvClass === "discount";
+  return !!(fsd || compounder || fvDiscount);
+}
+
+/**
+ * Calendar DCA stays on schedule; quality names may also add early on a
+ * confirmed compounder dip (min gap since last entry — default 5 days).
+ */
+export function shouldExecutePullbackDca({
+  due = false,
+  dipBuy = null,
+  scoreRow = null,
+  lastEntryTs = null,
+  now = Date.now(),
+  minGapMs = 5 * 24 * 60 * 60 * 1000,
+} = {}) {
+  const last = Number(lastEntryTs);
+  if (Number.isFinite(last) && last > 0 && (Number(now) - last) < Number(minGapMs)) {
+    return { execute: false, reason: "min_gap" };
+  }
+  if (due) {
+    return {
+      execute: true,
+      reason: dipBuy?.isDip ? "calendar_on_dip" : "calendar_due",
+    };
+  }
+  if (isPullbackDcaCandidate(scoreRow) && dipBuy?.isDip) {
+    return { execute: true, reason: "pullback_opportunistic" };
+  }
+  return { execute: false, reason: "not_due" };
 }
 
 export function computeCompounderScoreBoost(compounder, dipBuy, cfg = {}) {

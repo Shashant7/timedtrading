@@ -217,6 +217,15 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**CF long-term capture — compounder dip + pullback DCA (2026-07-23)**
+- CF auto-open (growth_strong + weekly_pullback + intraday) worked; D1 left
+  `thesis`/`thesis_invalidation` null and DCA was calendar-only.
+- Confirmed dips need ≥2 signals; exhausted zones also need a structural
+  signal. Exhaustion gate runs before the broad compounder lane; elite+strong
+  may override on confirmed dips.
+- Auto-open persists thesis; auto-rebalance heals null thesis from scores;
+  DCA execute allows opportunistic pullback adds for FSD/compounder/FV-discount.
+
 **Dual horizon cards + Short/Long Term copy (2026-07-23)**
 - Same ticker with Short Term + Long Term signals → **two cards**
   (`ticker:short_term` / `ticker:long_term`) on Model board + Viewport.

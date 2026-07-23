@@ -22,6 +22,14 @@
 
 ### Active
 
+- [x] **CF long-term capture replication (2026-07-23).** Forensic: CF
+      compounder_dip_buy @ $115.90 → ~+10%; thesis null; monthly DCA only.
+      Tighten confirmed dips; exhaustion-order + growth_strong override;
+      persist/heal thesis on auto-open; pullback-opportunistic DCA for
+      FSD/compounder/FV-discount. Plan:
+      [`plans/cf-long-term-capture.plan.md`](../plans/cf-long-term-capture.plan.md).
+      Branch: `cursor/cf-long-term-capture-df0c`.
+
 - [ ] **Model-first UX consolidation (2026-07-22).** Operator: "merge trader
       and investor … one section, model, with its own lanes … users complain
       it is hard to follow." Stages:
