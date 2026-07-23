@@ -882,24 +882,24 @@ function MarketPulseTile({
 function confirmStackActionHint(p) {
   const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
   if (p?.sequence_entry_ready) {
-    return "Entry window is open — check the plan levels, then size in.";
+    return "This card shows Entry ready on its plan — size at the add zone. That chip is not a move into Ready Setups above.";
   }
   if (state === "queued") {
-    return "Queued to buy — confirm size, then let the model work the entry.";
+    return "In this setup family's queue — confirm size, then work the entry from the plan levels.";
   }
   if (state === "bought" || state === "held") {
-    return "Already in — manage with the stop, trim, and target on the plan.";
+    return "Position open — manage with the stop, trim, and target on the plan.";
   }
   if (state === "trimming") {
     return "Trimming — take partial profits per the plan; keep a runner if levels hold.";
   }
   if (String(p?.confluence_mode || "").toUpperCase() === "READY") {
-    return "Setup confirmed — stalk the add zone; do not chase above the plan.";
+    return "Structure aligned on this family — stalk the add zone on the plan. Ready Setups above is a separate capital shortlist.";
   }
   if (state === "watching" || state === "watch") {
-    return "On the watchlist — wait for a pullback into the add zone before buying.";
+    return "Watching this structure family — wait for a pullback into the add zone on the plan.";
   }
-  return p?.lifecycle?.why || "Trend and structure just aligned — open the plan for next steps.";
+  return p?.lifecycle?.why || "Trend flip + squeeze + reclaim just lined up — open the plan for next steps.";
 }
 function ConfirmStackRunnersStrip({
   onSelectTicker,
@@ -974,16 +974,16 @@ function ConfirmStackRunnersStrip({
     className: "tt-sec-title"
   }, "MODEL PROCESS"), h("h2", {
     className: "tt-ready__title"
-  }, "Confirmed setups — watch, then act"), h("p", {
+  }, "Structure runners — stalk the add zone"), h("p", {
     className: "tt-ready__sub"
-  }, "Names where the trend just flipped with structure in place. Stalk the add zone; buy when the plan says ready — not on a chase."));
+  }, "Compiled when trend flip, squeeze release, and reclaim fire together on one setup family. A process board (watching → queued → bought) — not a feeder into Ready Setups above. When a card shows Entry ready, that means this ticker's plan chip, not a promotion to the shortlist."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
       style: {
         marginTop: 8
       }
-    }, "Upgrade to Pro to see confirmed setups.")));
+    }, "Upgrade to Pro to see structure runners.")));
   }
   if (loading) {
     return wrap(h(React.Fragment, null, head, h("div", {
@@ -992,7 +992,7 @@ function ConfirmStackRunnersStrip({
         color: "var(--tt-text-muted)",
         marginTop: 8
       }
-    }, "Loading confirmed setups…")));
+    }, "Loading structure runners…")));
   }
   const plays = Array.isArray(slice?.plays) ? slice.plays : [];
   if (!plays.length) {
@@ -1001,7 +1001,7 @@ function ConfirmStackRunnersStrip({
       style: {
         marginTop: 8
       }
-    }, "No confirmed setups right now. When trend, squeeze, and reclaim line up, they land here.")));
+    }, "No structure runners right now. When trend flip, squeeze, and reclaim line up on this family, they land here.")));
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
@@ -1057,14 +1057,14 @@ function ConfirmStackRunnersStrip({
       chipRow.push(h("span", {
         key: "entry",
         className: "ds-chip ds-chip--sm ds-chip--up",
-        title: "Entry window open"
+        title: "Entry window on this ticker's plan — not a promotion into Ready Setups"
       }, "Entry ready"));
     } else if (p.confirm_stack === true) {
       chipRow.push(h("span", {
         key: "confirm",
         className: "ds-chip ds-chip--sm ds-chip--accent",
-        title: "Trend flip + squeeze + reclaim aligned"
-      }, "Confirmed"));
+        title: "Structure stack aligned (trend flip + squeeze + reclaim) on this family"
+      }, "Structure on"));
     }
     if (p.runway_full === true) {
       chipRow.push(h("span", {
@@ -1218,16 +1218,16 @@ function ConvexityPlaysStrip({
     className: "tt-sec-title"
   }, "CONVEXITY"), h("h2", {
     className: "tt-ready__title"
-  }, "Lotto & moonshot ideas"), h("p", {
+  }, "Options lotto & moonshots"), h("p", {
     className: "tt-ready__sub"
-  }, "Short-dated OTM plays when direction, floor, and timing align. Sized for asymmetric payoff — not share entries."));
+  }, "Compiled when direction, stop floor, and timing align for short-dated OTM options (scanned from high entry-quality names). Asymmetric premium risk — not share entries, and not the Queuing Up lane on Model."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
       style: {
         marginTop: 8
       }
-    }, "Upgrade to Pro to see convexity plays.")));
+    }, "Upgrade to Pro to see options lotto & moonshots.")));
   }
   if (loading) {
     return wrap(h(React.Fragment, null, head, h("div", {
@@ -1236,7 +1236,7 @@ function ConvexityPlaysStrip({
         color: "var(--tt-text-muted)",
         marginTop: 8
       }
-    }, "Loading convexity plays…")));
+    }, "Loading options lotto & moonshots…")));
   }
   if (!plays || plays.length === 0) {
     return wrap(h(React.Fragment, null, head, h("div", {
@@ -1244,7 +1244,7 @@ function ConvexityPlaysStrip({
       style: {
         marginTop: 8
       }
-    }, "No convexity plays aligned right now.")));
+    }, "No options lotto/moonshot alignments right now — the strip stays empty until direction, floor, and timing clear together.")));
   }
   const fmtAsOf = ms => {
     const n = Number(ms);
@@ -3345,14 +3345,14 @@ function GrowthIdeasStrip({
       className: "tt-sec-title"
     }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
-    }, "Loading growth watchlist…")));
+    }, "Loading compounder watchlist…")));
   }
   if (!rows.length) {
     return wrap(h(React.Fragment, null, h("div", {
       className: "tt-sec-title"
     }, "GROWTH IDEAS"), h("div", {
       className: "tt-sec-h"
-    }, loadErr || "No growth ideas matched the current compounder filters.")));
+    }, loadErr || "No compounder names cleared the growth filters right now.")));
   }
   const fmtPctOpp = n => {
     if (!Number.isFinite(Number(n))) return null;
@@ -3372,7 +3372,7 @@ function GrowthIdeasStrip({
     className: "tt-sec-title"
   }, "GROWTH IDEAS"), h("div", {
     className: "tt-sec-h"
-  }, "Fundamentally growing names — watch for pullbacks to add")), h("a", {
+  }, "Compiled from the compounder holdbook (fundamentals + Long Term stages). Watch for pullbacks into the add zone — Long Term path, not the Short Term Queuing Up lane unless also accumulate-queued.")), h("a", {
     href: "/opportunities.html",
     style: {
       fontSize: 11,
@@ -5503,7 +5503,7 @@ function TickerLaneSection({
     className: "tt-sec-title"
   }, "TECHNICAL SETUPS"), h("div", {
     className: "tt-sec-h"
-  }, "Every ticker with a live technical setup — chart pattern, entry zone, momentum shift. Filter with the lane chips.")), h(LaneControls, {
+  }, "Full scored universe — browse by chip. Default Entry Zone is the closest Today view of Model → Queuing Up (waiting for a trigger). Not a ranked capital shortlist like Ready Setups.")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -7151,6 +7151,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784786034602:370006447
+// cache-bust:1784786950542:501292473
 
-// cache-bust:1784786034602:370006447
+// cache-bust:1784786950542:501292473
