@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Webull Roth next ST/LT order must place (2026-07-23).** Live
+- [x] **Webull Roth next ST/LT order must place (2026-07-23).** Live
       entries reached Roth review then failed on TRADE_FRACT_PRO. Fix:
       whole-share retry with fresh `client_order_id`, stamp
       `fractional_agreement_missing` on resolved Roth user (not owner
