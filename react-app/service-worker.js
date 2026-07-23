@@ -1,7 +1,7 @@
 // Timed Trading — Service Worker (push notifications + offline app shell)
 // Bump SHELL_VERSION when precache list or routing logic changes.
 
-const SHELL_VERSION = "tt-shell-v2";
+const SHELL_VERSION = "tt-shell-v3";
 const SHELL_CACHE = `${SHELL_VERSION}-precache`;
 const RUNTIME_CACHE = `${SHELL_VERSION}-runtime`;
 const CDN_CACHE = `${SHELL_VERSION}-cdn`;
