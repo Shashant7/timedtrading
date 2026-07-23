@@ -25,15 +25,15 @@
     .tt-bn {
       display: none;
       position: fixed !important;
-      /* top is set in JS from visualViewport (v7). bottom stays auto so
-         iOS Safari 26 cannot leave a bottom:0 bar mid-viewport when the
-         chrome collapses on scroll. */
       left: 0 !important;
       right: 0 !important;
+      bottom: 0 !important;
+      top: auto !important;
       width: 100% !important;
-      bottom: auto !important;
-      /* 2026-07-23 (v6/v7) — never put transform / backdrop-filter on this
-         bar; iOS promotes a compositor layer that detaches mid-scroll. */
+      /* 2026-07-23 — never use transform or backdrop filter (iOS detaches
+         the compositor layer). v7 tried per-frame visualViewport top
+         writes; that fought Safari chrome and caused jump-then-snap.
+         v8 stays on CSS bottom:0 and only re-settles after scroll ends. */
       z-index: 2147483000;
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
       background: rgba(11,20,16,0.97);
@@ -155,7 +155,7 @@
   // Diagnostic: document.getElementById("tt-bottom-nav").dataset
   //   ttBnState: "pinned" | "keyboard"
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-07-23-v7";
+  nav.dataset.ttBnBuiltAt = "2026-07-23-v8";
   nav.dataset.ttBnState = "pinned";
 
   const row = document.createElement("div");
@@ -197,18 +197,15 @@
     }
   }
 
-  let _pinRaf = 0;
+  let _settleTimer = 0;
 
   /**
-   * Pin the bar to the bottom edge of the *visual* viewport.
+   * Keep the bar a direct body child on CSS bottom:0.
    *
-   * v6 used position:fixed; bottom:0 with no transform — still floats mid-
-   * page on iOS Safari 26 when the address bar collapses during scroll
-   * (fixed/sticky elements shift vertically; WebKit).
-   *
-   * v7: set `top = visualViewport.offsetTop + height - navH` and
-   * `bottom: auto`. No transform (that was the mid-page gap bug from the
-   * earlier URL-bar translate). Re-run on vv scroll/resize + window scroll.
+   * v7 wrote `top` from visualViewport on every scroll/rAF. Safari also
+   * moves fixed bars while the URL chrome animates, so our correction
+   * looked like jump-up-then-snap-back. v8 does not touch geometry during
+   * an active scroll — only re-assert bottom:0 after the gesture settles.
    */
   function pinNavToViewport() {
     const navEl = document.getElementById("tt-bottom-nav");
@@ -216,35 +213,25 @@
     if (navEl.parentNode !== document.body) {
       document.body.appendChild(navEl);
     }
-
-    const h = navEl.offsetHeight || 72;
-    const vv = window.visualViewport;
-    let topPx;
-    if (vv && Number.isFinite(vv.height) && vv.height > 0) {
-      topPx = vv.offsetTop + vv.height - h;
-    } else {
-      topPx = Math.max(0, (window.innerHeight || 0) - h);
-    }
-    // Clamp: never place the bar above the visible top.
-    if (!Number.isFinite(topPx) || topPx < 0) topPx = 0;
-
     navEl.style.setProperty("position", "fixed", "important");
     navEl.style.setProperty("left", "0px", "important");
     navEl.style.setProperty("right", "0px", "important");
     navEl.style.setProperty("width", "100%", "important");
-    navEl.style.setProperty("bottom", "auto", "important");
-    navEl.style.setProperty("top", `${Math.round(topPx)}px`, "important");
+    navEl.style.setProperty("bottom", "0px", "important");
+    navEl.style.setProperty("top", "auto", "important");
     navEl.style.removeProperty("transform");
     navEl.style.removeProperty("-webkit-transform");
-    navEl.dataset.ttBnTop = String(Math.round(topPx));
+    delete navEl.dataset.ttBnTop;
   }
 
-  function schedulePin() {
-    if (_pinRaf) return;
-    _pinRaf = window.requestAnimationFrame(() => {
-      _pinRaf = 0;
+  /** Debounced settle — runs after scroll/chrome animation finishes. */
+  function scheduleSettle(delayMs) {
+    const ms = Number.isFinite(delayMs) ? delayMs : 140;
+    if (_settleTimer) clearTimeout(_settleTimer);
+    _settleTimer = setTimeout(() => {
+      _settleTimer = 0;
       pinNavToViewport();
-    });
+    }, ms);
   }
 
   if (document.body) {
@@ -358,12 +345,16 @@
 
   window.addEventListener("focusin", syncNavKeyboardState, true);
   window.addEventListener("focusout", () => setTimeout(syncNavKeyboardState, 50), true);
-  window.addEventListener("scroll", schedulePin, { passive: true, capture: true });
-  window.addEventListener("resize", schedulePin, { passive: true });
-  window.addEventListener("orientationchange", () => setTimeout(pinNavToViewport, 250), { passive: true });
+  // Do NOT pin on every scroll tick — that caused jump/snap with v7.
+  // scrollend (where supported) + debounced fallback after scroll.
+  window.addEventListener("scrollend", () => pinNavToViewport(), { passive: true });
+  window.addEventListener("scroll", () => scheduleSettle(160), { passive: true, capture: true });
+  window.addEventListener("resize", () => scheduleSettle(100), { passive: true });
+  window.addEventListener("orientationchange", () => scheduleSettle(280), { passive: true });
+  // visualViewport resize = chrome finished changing. Skip vv *scroll*
+  // (fires continuously while the URL bar animates → jitter).
   if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", schedulePin, { passive: true });
-    window.visualViewport.addEventListener("scroll", schedulePin, { passive: true });
+    window.visualViewport.addEventListener("resize", () => scheduleSettle(120), { passive: true });
   }
   syncNavKeyboardState();
   setTimeout(pinNavToViewport, 150);
