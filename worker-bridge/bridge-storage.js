@@ -118,9 +118,15 @@ export async function resolveBridgeUser(env, userId, opts = {}) {
 
   const enabled = subs.filter((u) => u.broker_integration_enabled);
   const pool = enabled.length ? enabled : subs;
-  const preferClass = opts.preferClass || env?.WEBULL_DEFAULT_ACCOUNT_CLASS || "INDIVIDUAL_MARGIN";
-  return pool.find((u) => u.webull_account_class === preferClass)
+  // Prefer the operator's configured default (Roth IRA for the live dogfood
+  // account), then cash/margin. When only one sub is enabled (typical),
+  // pool[0] is that account regardless of class.
+  const preferClass = String(
+    opts.preferClass || env?.WEBULL_DEFAULT_ACCOUNT_CLASS || "ROTH_IRA",
+  ).toUpperCase();
+  return pool.find((u) => String(u.webull_account_class || "").toUpperCase() === preferClass)
     || pool.find((u) => u.webull_account_class === "INDIVIDUAL_CASH")
+    || pool.find((u) => u.webull_account_class === "INDIVIDUAL_MARGIN")
     || pool[0];
 }
 
