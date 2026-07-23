@@ -7,6 +7,8 @@ import {
   buildFreshTickerContext,
   rewriteMetaNeedsRefresh,
   summarizeTickerForPrompt,
+  stripUncitedModelLevels,
+  filterKeyPointsLevels,
   LEVEL_DIVERGE_PCT,
 } from "./fsd-rewrite-context.js";
 
@@ -124,5 +126,33 @@ describe("fsd-rewrite-context freshness", () => {
   it("payloadTimestampMs normalizes seconds vs ms", () => {
     expect(payloadTimestampMs({ ts: 1_700_000_000 })).toBe(1_700_000_000_000);
     expect(payloadTimestampMs({ ingest_ts: 1_700_000_000_000 })).toBe(1_700_000_000_000);
+  });
+
+  it("strips hallucinated TT stop/target dollars not in fresh context", () => {
+    const body = "TSLA is testing support. The model's stop is set at $373.15, while the source anticipates a brief decline. The desk should stay cautious.";
+    const cleaned = stripUncitedModelLevels(body, {
+      TSLA: { px: 319.46, sl: 335.43, tp: 296.74 },
+    }, "TSLA gapped down; possible pullback below $300");
+    expect(cleaned).not.toContain("373.15");
+    expect(cleaned).toContain("TSLA is testing support");
+    expect(cleaned.toLowerCase()).toContain("cautious");
+  });
+
+  it("keeps fresh TT levels from meta", () => {
+    const body = "The TT model indicates a bearish regime with a stop at $335.43 and a target at $296.74.";
+    const cleaned = stripUncitedModelLevels(body, {
+      TSLA: { px: 319.46, sl: 335.43, tp: 296.74 },
+    }, "");
+    expect(cleaned).toContain("335.43");
+    expect(cleaned).toContain("296.74");
+  });
+
+  it("filters key_points with invented levels", () => {
+    const kept = filterKeyPointsLevels([
+      { ticker: "TSLA", kind: "stop", level: "373.15" },
+      { ticker: "TSLA", kind: "target", level: "296.74" },
+      { ticker: "TSLA", kind: "note", note: "watch" },
+    ], { TSLA: { px: 319.46, sl: 335.43, tp: 296.74 } }, "");
+    expect(kept.map((k) => k.level || k.note)).toEqual(["296.74", "watch"]);
   });
 });

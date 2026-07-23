@@ -278,3 +278,94 @@ export function rewriteMetaNeedsRefresh(metaTicker, livePx, {
   if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(live) || live <= 0) return false;
   return Math.abs(live - base) / base >= driftPct;
 }
+
+/** Collect numeric levels the LLM is allowed to cite as TT model levels. */
+export function collectAllowedModelLevels(metaByTicker = {}, sourceText = "") {
+  const allowed = new Set();
+  const add = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return;
+    allowed.add(Number(n.toFixed(2)));
+    allowed.add(Number(n.toFixed(0)));
+  };
+  for (const t of Object.values(metaByTicker || {})) {
+    add(t?.px);
+    add(t?.sl);
+    add(t?.tp);
+    add(t?.trigger);
+  }
+  // Source-cited dollars remain fair game (paraphrase of the desk note).
+  const src = String(sourceText || "");
+  for (const m of src.matchAll(/\$?\b(\d{2,5}(?:\.\d{1,4})?)\b/g)) add(m[1]);
+  return allowed;
+}
+
+function levelIsAllowed(num, allowed, { tolPct = 0.002 } = {}) {
+  const n = Number(num);
+  if (!Number.isFinite(n)) return false;
+  if (allowed.has(Number(n.toFixed(2))) || allowed.has(Number(n.toFixed(0)))) return true;
+  for (const a of allowed) {
+    if (!Number.isFinite(a) || a <= 0) continue;
+    if (Math.abs(a - n) / a <= tolPct) return true;
+  }
+  return false;
+}
+
+/** Split on sentence enders that are NOT decimal points inside prices. */
+function splitProseSentences(text) {
+  const s = String(text || "").trim();
+  if (!s) return [];
+  // Split on ". " / "? " / "! " (or end), but not on "335.43".
+  const parts = s.split(/(?<=[.!?])\s+(?=[A-Z("])|(?<=[.!?])$/);
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
+
+/**
+ * Strip TT-model stop/target/trigger phrases whose dollar level was not in
+ * the fresh context (or source). Prevents LLM recycling of stale plan books.
+ */
+export function stripUncitedModelLevels(text, metaByTicker = {}, sourceText = "") {
+  const raw = String(text || "");
+  if (!raw) return raw;
+  const allowed = collectAllowedModelLevels(metaByTicker, sourceText);
+
+  // Sentence-level gate: any sentence that mentions the TT/model plan book
+  // with a dollar (or bare) level must only use allowed numbers.
+  const sentences = splitProseSentences(raw);
+  const kept = [];
+  for (const sentence of sentences.length ? sentences : [raw]) {
+    const mentionsModelPlan = /\b(?:TT\s+)?model(?:'s)?\b/i.test(sentence)
+      && /\b(?:stop|target|entry[- ]?trigger|trigger|tp|sl)\b/i.test(sentence);
+    if (!mentionsModelPlan) {
+      kept.push(sentence.trim());
+      continue;
+    }
+    const nums = [...sentence.matchAll(/\$(\d{2,5}(?:\.\d{1,4})?)/g)].map((m) => m[1]);
+    // Also catch "stop at 373.15" without a dollar sign.
+    for (const m of sentence.matchAll(/\b(?:stop|target|entry[- ]?trigger|trigger)\s+(?:is\s+)?(?:set\s+)?(?:at\s+)?(\d{2,5}(?:\.\d{1,4})?)/gi)) {
+      nums.push(m[1]);
+    }
+    const bad = nums.some((n) => !levelIsAllowed(n, allowed));
+    if (!bad) kept.push(sentence.trim());
+  }
+
+  return kept
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+/** Sanitize key_points levels against allowed model/source numbers. */
+export function filterKeyPointsLevels(keyPoints, metaByTicker = {}, sourceText = "") {
+  if (!Array.isArray(keyPoints)) return [];
+  const allowed = collectAllowedModelLevels(metaByTicker, sourceText);
+  return keyPoints.filter((kp) => {
+    const level = kp?.level;
+    if (level == null || level === "") return true;
+    const n = Number(String(level).replace(/[$,]/g, ""));
+    if (!Number.isFinite(n)) return true;
+    // Source-derived levels are in allowed via sourceText scan.
+    return levelIsAllowed(n, allowed);
+  });
+}
