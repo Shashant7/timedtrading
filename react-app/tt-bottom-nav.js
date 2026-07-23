@@ -30,10 +30,10 @@
       bottom: 0 !important;
       top: auto !important;
       width: 100% !important;
-      /* 2026-07-23 — never transform / backdrop-filter: iOS detaches the
-         compositor layer. v7 tried per-frame visualViewport top writes;
-         that fought Safari chrome and caused jump-then-snap. v8 stays on
-         CSS bottom:0 and only re-settles after scroll/resize ends. */
+      /* 2026-07-23 — never use transform or backdrop filter (iOS detaches
+         the compositor layer). v7 tried per-frame visualViewport top
+         writes; that fought Safari chrome and caused jump-then-snap.
+         v8 stays on CSS bottom:0 and only re-settles after scroll ends. */
       z-index: 2147483000;
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
       background: rgba(11,20,16,0.97);
