@@ -731,18 +731,10 @@
       }
     }
 
-    // Cross-session stale guard (e.g. CRDO extended_price lagging RTH).
-    // Suppress only when the extended print disagrees with today's session
-    // direction — large same-direction AH pops (earnings AMC) must pass.
-    if (headline > 0) {
-      var driftPct = ((px - headline) / headline) * 100;
-      var absDrift = Math.abs(driftPct);
-      var dayPct = Number(getDailyChange(t)?.dayPct);
-      var dirDisagree = Number.isFinite(dayPct)
-        && Math.abs(dayPct) > 1.5
-        && Math.sign(dayPct) !== Math.sign(driftPct);
-      if (absDrift > 4 && dirDisagree) return null;
-    }
+    // Premarket reversals are real (NOW: RTH −6% then premkt bounce). Do not
+    // suppress opposite-direction EXT vs RTH day change — GS zombies are
+    // already caught above (ahp≈prev_close, vendor ahdp disagreement,
+    // ahdp mirroring RTH).
 
     return {
       pct: pct,

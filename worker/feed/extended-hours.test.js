@@ -29,8 +29,13 @@ describe("reconcileExtendedPrice", () => {
 });
 
 describe("extendedQuoteLooksStale", () => {
-  it("rejects AH drift that disagrees with RTH day change", () => {
-    expect(extendedQuoteLooksStale(214.56, -7.66, 226.30)).toBe(true);
+  it("rejects missing or non-positive prints only", () => {
+    expect(extendedQuoteLooksStale(0, -7.66, 226.30)).toBe(true);
+    expect(extendedQuoteLooksStale(214.56, -7.66, 0)).toBe(true);
+  });
+
+  it("accepts premarket reversal after a large RTH loss (NOW bounce)", () => {
+    expect(extendedQuoteLooksStale(214.56, -7.66, 226.30)).toBe(false);
   });
 
   it("accepts modest AH move in same direction as RTH", () => {
@@ -63,6 +68,18 @@ describe("buildExtendedHoursFields", () => {
       false,
     );
     expect(r).toEqual({ extP: 105, extDc: 2, extDp: 1.94 });
+  });
+
+  it("publishes premarket reverse bounce after a large RTH loss", () => {
+    const r = buildExtendedHoursFields(
+      { extendedPrice: 102.5, extendedChange: 7.04, extendedPercentChange: 7.37 },
+      95.46,
+      -6.47,
+      true,
+      false,
+    );
+    expect(r.extP).toBe(102.5);
+    expect(r.extDp).toBeCloseTo(7.37, 2);
   });
 
   it("fixes KLAC split-scale extended_price before publishing ahp", () => {
@@ -126,7 +143,20 @@ describe("resolveAhPersistence", () => {
     expect(out).toEqual({ ahp: 602, ahdc: 2, ahdp: 0.33 });
   });
 
-  it("drops cached ahp when it drifts >1.5% from today's close even if p unchanged", () => {
+  it("preserves large reverse EXT when p is unchanged and vendor is quiet", () => {
+    const prev = { p: 95.46, ahp: 102.5, ahdc: 7.04, ahdp: 7.37 };
+    const out = resolveAhPersistence(
+      prev,
+      { extP: 0, extDc: 0, extDp: 0 },
+      95.46,
+      true,
+      false,
+    );
+    expect(out.ahp).toBe(102.5);
+    expect(out.ahdp).toBe(7.37);
+  });
+
+  it("cachedAhpLooksStale helper still measures >1.5% drift (unused by persistence)", () => {
     expect(cachedAhpLooksStale(1076.17, 1090.67)).toBe(false);
     expect(cachedAhpLooksStale(1076.17, 1093)).toBe(true);
   });

@@ -5536,6 +5536,9 @@
         const dc = getDailyChange(t);
         const extDisp = mode === "ext" ? getExtMoverDisplay(t) : null;
         const pct = mode === "ext" ? Number(extDisp?.pct) : Number(dc?.dayPct);
+        // Compact chips stay logo + symbol + % only — dollar prices overflow
+        // the narrow EXT columns (NOW/TSLA/GOOGL overlap). Full mover rows
+        // and the right-rail header still show EXT $.
         const px = mode === "ext" ? Number(extDisp?.price) : Number(t?.price);
         const sym = String(t?.ticker || "").toUpperCase();
         const dir = !Number.isFinite(pct) ? "mut" : pct >= 0 ? "up" : "dn";
@@ -5550,10 +5553,6 @@
         },
           h(TickerLogo, { sym, size: 16 }),
           h("span", { className: "tt-mover-compact__sym" }, sym),
-          mode === "ext" && Number.isFinite(px) && h("span", {
-            className: "tt-mover-compact__px",
-            style: { fontFamily: "var(--tt-font-mono)", fontSize: 10, color: "var(--tt-text-dim)", marginRight: 4 },
-          }, fmtUsd(px)),
           h("span", { className: `tt-mover-compact__pct ${dir}` },
             Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—",
             mode === "ext" && h("span", { className: "tt-mover-compact__ext" }, " EXT"),
