@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **Sector Flow mobile h-scroll (2026-07-23).** Leader chips were
+      full-width vertical stacks on mobile. Horizontal rails + denser
+      cards; offense/defense meter; vs-sector on names; Wave restyle.
+      Branch: `cursor/sector-flow-hscroll-df0c`.
+
 - [x] **Mobile Tab Nav jump/snap on scroll (2026-07-23).** v7
       visualViewport top writes every frame fought Safari chrome →
       jump up then snap back. v8: CSS `bottom:0` only; settle after

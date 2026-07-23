@@ -2755,59 +2755,103 @@ function SectorFlowBand({
   const sectorWatch = Array.isArray(composite.sector_watch) ? composite.sector_watch : [];
   const spotlights = sectorWatch.length === 0 && Array.isArray(composite.spotlights) ? composite.spotlights : [];
   const sectorRotation = composite.sector_rotation || null;
-  function renderWatchTicker(sp) {
-    const col = CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text)";
-    const dayRow = data && sp.symbol ? data[String(sp.symbol).toUpperCase()] : null;
-    const sym = String(sp.symbol || "").toUpperCase();
-    const isWave = waveTicker === sym;
-    let dayPct = null;
+  function dayPctForSymbol(sym, fallbackPct) {
+    const dayRow = data && sym ? data[String(sym).toUpperCase()] : null;
     try {
       const utils = window.TimedPriceUtils;
       if (dayRow && utils && typeof utils.getDailyChange === "function") {
         const dc = utils.getDailyChange(dayRow);
-        if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
+        if (Number.isFinite(Number(dc && dc.dayPct))) return Number(dc.dayPct);
       }
     } catch (_) {}
+    const fromComposite = Number(fallbackPct);
+    return Number.isFinite(fromComposite) ? fromComposite : null;
+  }
+  function renderLeaderCard(sp, opts) {
+    opts = opts || {};
+    const sym = String(sp.symbol || "").toUpperCase();
+    const isWave = waveTicker === sym;
+    const dayPct = dayPctForSymbol(sym, sp.day_change_pct);
+    const cycleTxt = CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle || "—";
+    const sectorPct = Number.isFinite(Number(opts.sectorPct)) ? Number(opts.sectorPct) : null;
+    const vsSector = Number.isFinite(dayPct) && Number.isFinite(sectorPct) ? dayPct - sectorPct : null;
     const harmTip = sp.harmonic && CI.formatHarmonicLabel ? CI.formatHarmonicLabel(sp.harmonic) : null;
-    return h("span", {
-      key: sp.symbol,
-      style: {
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 4
-      }
+    const title = [CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sym, Number.isFinite(dayPct) ? "Day " + (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%" : null, Number.isFinite(vsSector) ? "vs sector " + (vsSector >= 0 ? "+" : "") + vsSector.toFixed(2) + "pp" : null, harmTip].filter(Boolean).join(" · ");
+    const tone = opts.tone === "lag" ? " is-lag" : opts.tone === "lead" ? " is-lead" : "";
+    return h("div", {
+      key: sym,
+      className: "tt-sf-card" + tone + (isWave ? " is-wave-selected" : ""),
+      title: title
     }, h("button", {
       type: "button",
-      className: "tt-dcc-pill" + (isWave ? " is-wave-selected" : ""),
-      style: {
-        color: col,
-        cursor: "pointer"
-      },
-      title: (CI.formatSpotlightLabel ? CI.formatSpotlightLabel(sp) : sp.symbol) + (harmTip ? " · " + harmTip : ""),
+      className: "tt-sf-card-main",
+      "aria-label": "Open " + sym,
       onClick: function () {
-        if (onSelectTicker) onSelectTicker(sp.symbol);
+        if (onSelectTicker) onSelectTicker(sym);
       }
-    }, sp.symbol, Number.isFinite(dayPct) && h("span", {
+    }, h("div", {
+      className: "tt-sf-card-top"
+    }, h("span", {
+      className: "tt-sf-card-sym"
+    }, sym)), Number.isFinite(dayPct) ? h("span", {
+      className: "tt-sf-card-pct",
       style: {
-        color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)",
-        marginLeft: 4
+        color: dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
       }
-    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"), h("span", {
+    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%") : h("span", {
+      className: "tt-sf-card-pct",
       style: {
-        color: "var(--tt-text-muted)",
-        fontWeight: 600,
-        marginLeft: 4
+        color: "var(--tt-text-faint)"
       }
-    }, CI.cycleLabel ? CI.cycleLabel(sp.computed_cycle) : sp.computed_cycle)), h("button", {
+    }, "—"), h("div", {
+      className: "tt-sf-card-meta"
+    }, h("span", {
+      style: {
+        color: CI.cycleColor ? CI.cycleColor(sp.computed_cycle) : "var(--tt-text-muted)"
+      }
+    }, cycleTxt), Number.isFinite(vsSector) && h("span", {
+      className: "tt-sf-card-vs",
+      style: {
+        color: vsSector >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)"
+      },
+      title: "Day % vs sector ETF"
+    }, (vsSector >= 0 ? "+" : "") + vsSector.toFixed(1) + " vs sect"))), h("button", {
       type: "button",
       className: "tt-dcc-wave-btn" + (isWave ? " is-active" : ""),
       title: isWave ? "Hide composite wave chart" : "Show composite wave chart",
       "aria-label": isWave ? "Hide composite wave chart for " + sym : "Show composite wave chart for " + sym,
-      onClick: function (e) {
-        e.stopPropagation();
+      onClick: function () {
         setWaveTicker(isWave ? null : sym);
       }
     }, "~"));
+  }
+  function renderRotationChip(row, kind) {
+    const etf = String(row.etf || "").toUpperCase();
+    const pct = Number(row.day_pct);
+    const col = Number.isFinite(pct) ? pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-muted)";
+    const sectorName = CI.sectorShort ? CI.sectorShort(row.sector) : row.sector;
+    return h("button", {
+      key: kind + "-" + etf,
+      type: "button",
+      className: "tt-sf-card " + (kind === "lead" ? "is-lead" : "is-lag"),
+      title: (sectorName || etf) + " " + (kind === "lead" ? "leading" : "lagging") + " today",
+      onClick: function () {
+        if (onSelectTicker) onSelectTicker(etf);
+      }
+    }, h("div", {
+      className: "tt-sf-card-top"
+    }, h("span", {
+      className: "tt-sf-card-sym"
+    }, etf), h("span", {
+      className: "tt-sf-count"
+    }, kind === "lead" ? "LEAD" : "LAG")), Number.isFinite(pct) ? h("span", {
+      className: "tt-sf-card-pct",
+      style: {
+        color: col
+      }
+    }, (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%") : null, h("div", {
+      className: "tt-sf-card-meta"
+    }, h("span", null, sectorName || (kind === "lead" ? "Leading" : "Lagging"))));
   }
   const waveMeta = wavePayload && HC.formatMeta ? HC.formatMeta(wavePayload) : null;
   const waveSvg = wavePayload && HC.renderSvg ? HC.renderSvg(wavePayload, {
@@ -2853,130 +2897,142 @@ function SectorFlowBand({
       color: "#ff00ff"
     }
   }), "Projection")));
+  const offensePct = Number(sectorRotation && sectorRotation.offense_avg_pct);
+  const defensePct = Number(sectorRotation && sectorRotation.defense_avg_pct);
+  const rotSpread = Number.isFinite(offensePct) && Number.isFinite(defensePct) ? offensePct - defensePct : null;
+  const rotMeterMax = 3;
+  const rotMeterPct = Number.isFinite(rotSpread) ? Math.max(-100, Math.min(100, rotSpread / rotMeterMax * 100)) : 0;
   return h(React.Fragment, null, sectorRotation && (sectorRotation.gainers?.length || sectorRotation.losers?.length) && h("div", {
     className: "tt-mp-sector-block"
   }, h("div", {
     className: "tt-dcc-rotation-row"
-  }, h("span", {
+  }, h("div", {
     className: "tt-dcc-row-title"
   }, "Sector rotation", h("span", {
     className: "tt-dcc-row-title-sub"
-  }, CI.formatRotationState ? CI.formatRotationState(sectorRotation.state) : sectorRotation.state, Number.isFinite(sectorRotation.offense_avg_pct) && Number.isFinite(sectorRotation.defense_avg_pct) ? " · offense " + (sectorRotation.offense_avg_pct >= 0 ? "+" : "") + sectorRotation.offense_avg_pct.toFixed(2) + "% vs defense " + (sectorRotation.defense_avg_pct >= 0 ? "+" : "") + sectorRotation.defense_avg_pct.toFixed(2) + "%" : "")), h("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8,
-      width: "100%"
+  }, CI.formatRotationState ? CI.formatRotationState(sectorRotation.state) : sectorRotation.state, Number.isFinite(rotSpread) ? " · offense " + (offensePct >= 0 ? "+" : "") + offensePct.toFixed(2) + "% vs defense " + (defensePct >= 0 ? "+" : "") + defensePct.toFixed(2) + "%" : "")), Number.isFinite(rotSpread) && h("div", {
+    className: "tt-sf-rot-meter",
+    "aria-hidden": "true"
+  }, h("span", {
+    className: "tt-sf-rot-meter-label is-off"
+  }, "Offense"), h("span", {
+    className: "tt-sf-count"
+  }, (rotSpread >= 0 ? "+" : "") + rotSpread.toFixed(2) + "pp"), h("span", {
+    className: "tt-sf-rot-meter-label is-def"
+  }, "Defense"), h("div", {
+    className: "tt-sf-rot-meter-track"
+  }, h("div", {
+    className: "tt-sf-rot-meter-fill" + (rotSpread < 0 ? " is-def" : ""),
+    style: rotSpread >= 0 ? {
+      left: "50%",
+      width: Math.abs(rotMeterPct) / 2 + "%",
+      transform: "none"
+    } : {
+      left: "auto",
+      right: "50%",
+      width: Math.abs(rotMeterPct) / 2 + "%",
+      transform: "none"
     }
-  }, sectorRotation.gainers.map(function (g) {
-    const col = g.day_pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)";
-    return h("button", {
-      key: "gain-" + g.etf,
-      type: "button",
-      className: "tt-dcc-pill",
-      style: {
-        cursor: "pointer"
-      },
-      title: (CI.sectorShort ? CI.sectorShort(g.sector) : g.sector) + " leading today",
-      onClick: function () {
-        if (onSelectTicker) onSelectTicker(g.etf);
-      }
-    }, g.etf, h("span", {
-      style: {
-        color: col,
-        marginLeft: 4
-      }
-    }, "+" + g.day_pct.toFixed(2) + "%"), h("span", {
-      style: {
-        color: "var(--tt-text-muted)",
-        marginLeft: 4
-      }
-    }, "leading"));
-  }), sectorRotation.losers.map(function (l) {
-    const col = l.day_pct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)";
-    return h("button", {
-      key: "lose-" + l.etf,
-      type: "button",
-      className: "tt-dcc-pill",
-      style: {
-        cursor: "pointer"
-      },
-      title: (CI.sectorShort ? CI.sectorShort(l.sector) : l.sector) + " lagging today",
-      onClick: function () {
-        if (onSelectTicker) onSelectTicker(l.etf);
-      }
-    }, l.etf, h("span", {
-      style: {
-        color: col,
-        marginLeft: 4
-      }
-    }, l.day_pct.toFixed(2) + "%"), h("span", {
-      style: {
-        color: "var(--tt-text-muted)",
-        marginLeft: 4
-      }
-    }, "lagging"));
-  })))), (sectorWatch.length > 0 || spotlights.length > 0) && h("div", {
+  }))), h("div", {
+    className: "tt-sf-rail-wrap"
+  }, h("div", {
+    className: "tt-sf-rail",
+    role: "list",
+    "aria-label": "Leading and lagging sector ETFs"
+  }, (sectorRotation.gainers || []).map(function (g) {
+    return renderRotationChip(g, "lead");
+  }), (sectorRotation.losers || []).map(function (l) {
+    return renderRotationChip(l, "lag");
+  }))))), (sectorWatch.length > 0 || spotlights.length > 0) && h("div", {
     className: "tt-mp-sector-block"
   }, sectorWatch.map(function (grp) {
     const reasonLabel = CI.formatSectorWatchReason ? CI.formatSectorWatchReason(grp.reason) : grp.reason;
+    const tone = String(grp.reason || "").indexOf("lag") >= 0 ? "lag" : "lead";
+    const sectorPct = Number(grp.rotation_day_pct);
+    const tickers = (grp.tickers || []).slice().sort(function (a, b) {
+      const ap = dayPctForSymbol(a.symbol, a.day_change_pct);
+      const bp = dayPctForSymbol(b.symbol, b.day_change_pct);
+      const av = Number.isFinite(ap) ? ap : -999;
+      const bv = Number.isFinite(bp) ? bp : -999;
+      return tone === "lag" ? av - bv : bv - av;
+    });
     return h("div", {
       key: grp.etf || grp.sector,
       className: "tt-dcc-spotlight-row"
-    }, h("span", {
+    }, h("div", {
       className: "tt-dcc-row-title"
     }, grp.label || (CI.sectorShort ? CI.sectorShort(grp.sector) + " leaders" : "Sector leaders"), h("span", {
       className: "tt-dcc-row-title-sub"
-    }, reasonLabel, Number.isFinite(grp.rotation_day_pct) ? " · " + (grp.rotation_day_pct >= 0 ? "+" : "") + grp.rotation_day_pct.toFixed(2) + "%" : "", grp.sector_cycle ? " · sector " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : "")), h("div", {
+    }, reasonLabel, Number.isFinite(sectorPct) ? " · " + (sectorPct >= 0 ? "+" : "") + sectorPct.toFixed(2) + "%" : "", grp.sector_cycle ? " · sector " + (CI.cycleLabel ? CI.cycleLabel(grp.sector_cycle) : grp.sector_cycle) : ""), h("span", {
+      className: "tt-sf-count",
       style: {
-        display: "flex",
-        flexWrap: "wrap",
-        gap: 8,
-        width: "100%"
+        marginLeft: 8
       }
-    }, (grp.tickers || []).map(renderWatchTicker)));
+    }, tickers.length + (tickers.length === 1 ? " name" : " names"))), h("div", {
+      className: "tt-sf-rail-wrap"
+    }, h("div", {
+      className: "tt-sf-rail",
+      role: "list",
+      "aria-label": (grp.label || "Sector leaders") + " — swipe for more"
+    }, tickers.map(function (t) {
+      return renderLeaderCard(t, {
+        tone: tone,
+        sectorPct: sectorPct
+      });
+    }))));
   }), spotlights.length > 0 && sectorWatch.length === 0 && h("div", {
     className: "tt-dcc-spotlight-row"
-  }, h("span", {
+  }, h("div", {
     className: "tt-dcc-row-title"
   }, "Sector leaders", h("span", {
     className: "tt-dcc-row-title-sub"
   }, "each name's own HTF trend")), h("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8,
-      width: "100%"
-    }
-  }, spotlights.map(renderWatchTicker))), harmonicPanel), transitions.length > 0 && h("div", {
+    className: "tt-sf-rail-wrap"
+  }, h("div", {
+    className: "tt-sf-rail",
+    role: "list",
+    "aria-label": "Sector leaders"
+  }, spotlights.map(function (t) {
+    return renderLeaderCard(t, {});
+  })))), harmonicPanel), transitions.length > 0 && h("div", {
     className: "tt-mp-sector-block tt-mp-sector-block--detail"
   }, h("div", {
     className: "tt-dcc-shifts-row"
-  }, h("span", {
+  }, h("div", {
     className: "tt-dcc-row-title"
   }, "Recent cycle shifts", h("span", {
     className: "tt-dcc-row-title-sub"
-  }, "since the last scoring refresh — potential trend-change alert")), h("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 8,
-      width: "100%"
-    }
+  }, "since the last scoring refresh")), h("div", {
+    className: "tt-sf-rail-wrap"
+  }, h("div", {
+    className: "tt-sf-rail",
+    role: "list",
+    "aria-label": "Recent cycle shifts"
   }, transitions.map(function (tr, i) {
-    return h("span", {
+    return h("div", {
       key: tr.symbol + "-" + i,
-      className: "tt-dcc-trans",
+      className: "tt-sf-card",
+      style: {
+        cursor: "default",
+        minWidth: 150,
+        padding: "10px 12px 9px"
+      },
       title: "Cycle transition since last scoring refresh"
-    }, CI.formatTransition ? CI.formatTransition(tr) : tr.symbol + " " + tr.from + " → " + tr.to);
-  })))), h("div", {
+    }, h("span", {
+      className: "tt-sf-card-sym"
+    }, tr.symbol), h("span", {
+      className: "tt-dcc-trans"
+    }, CI.formatTransition ? CI.formatTransition(tr).replace(tr.symbol + ": ", "") : tr.from + " → " + tr.to));
+  }))))), h("div", {
     className: "tt-mp-sector-block tt-mp-sector-block--detail"
   }, h("div", {
     className: "tt-dcc-row-title"
   }, "Sector trends", h("span", {
     className: "tt-dcc-row-title-sub"
-  }, "each sector ETF trend and day % — sorted by strongest divergence first")), h("div", {
-    className: "tt-strip-scroll",
+  }, "ETF day % · HTF trend — swipe")), h("div", {
+    className: "tt-sf-rail-wrap"
+  }, h("div", {
+    className: "tt-sf-rail",
     role: "list",
     "aria-label": "Sector cycle alignment"
   }, sectors.map(function (s) {
@@ -2985,50 +3041,43 @@ function SectorFlowBand({
     const label = CI.formatCycleChip ? CI.formatCycleChip(s.computed_cycle, s.alignment, {
       short: true
     }) : s.computed_cycle || "—";
-    const tickerRow = data && etf ? data[String(etf).toUpperCase()] : null;
-    let dayPct = null;
-    try {
-      const utils = window.TimedPriceUtils;
-      if (tickerRow && utils && typeof utils.getDailyChange === "function") {
-        const dc = utils.getDailyChange(tickerRow);
-        if (Number.isFinite(Number(dc && dc.dayPct))) dayPct = Number(dc.dayPct);
-      }
-    } catch (_) {}
+    const dayPct = dayPctForSymbol(etf, s.day_change_pct);
     const chgCol = Number.isFinite(dayPct) ? dayPct >= 0 ? "var(--tt-up-soft)" : "var(--tt-dn-soft)" : "var(--tt-text-dim)";
-    const title = [s.sector, "ETF " + etf, Number.isFinite(dayPct) ? "Day " + (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%" : null, "HTF cycle: " + (s.computed_cycle || "n/a"), s.own_cycle && s.own_cycle !== s.computed_cycle ? "Own regime: " + s.own_cycle : null, s.cycle_source ? "Source: " + s.cycle_source : null, s.fsd_phase ? "Research desk phase: " + s.fsd_phase : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
+    const title = [s.sector, "ETF " + etf, Number.isFinite(dayPct) ? "Day " + (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%" : null, "HTF cycle: " + (s.computed_cycle || "n/a"), s.own_cycle && s.own_cycle !== s.computed_cycle ? "Own regime: " + s.own_cycle : null, "Alignment: " + (s.alignment || "n/a")].filter(Boolean).join(" · ");
     return h("button", {
       key: etf,
       type: "button",
-      className: "tt-strip-chip",
+      className: "tt-sf-card",
       title: title,
       onClick: function () {
         if (etf && onSelectTicker) onSelectTicker(etf);
       }
+    }, h("div", {
+      className: "tt-sf-card-top"
+    }, h("span", {
+      className: "tt-sf-card-sym"
     }, h("span", {
       className: "tt-dcc-chip-dot",
       style: {
-        background: alignCol
+        background: alignCol,
+        marginRight: 6,
+        display: "inline-block",
+        verticalAlign: "middle"
       }
-    }), h("span", {
+    }), etf)), Number.isFinite(dayPct) ? h("span", {
+      className: "tt-sf-card-pct",
       style: {
-        fontFamily: "var(--tt-font-mono)",
-        fontWeight: 700,
-        fontSize: 11
-      }
-    }, etf), Number.isFinite(dayPct) && h("span", {
-      style: {
-        fontSize: 11,
-        fontWeight: 700,
-        fontFamily: "var(--tt-font-mono)",
         color: chgCol
       }
-    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%"), h("span", {
+    }, (dayPct >= 0 ? "+" : "") + dayPct.toFixed(2) + "%") : h("span", {
+      className: "tt-sf-card-pct",
       style: {
-        fontSize: 10.5,
-        color: "var(--tt-text-muted)"
+        color: "var(--tt-text-faint)"
       }
-    }, label));
-  }))));
+    }, "—"), h("div", {
+      className: "tt-sf-card-meta"
+    }, h("span", null, CI.sectorShort ? CI.sectorShort(s.sector) : s.sector), h("span", null, label)));
+  })))));
 }
 function MarketPulseWithMovers({
   data,
@@ -7182,6 +7231,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784828966647:250833413
+// cache-bust:1784833731865:164047930
 
-// cache-bust:1784828966647:250833413
+// cache-bust:1784833731865:164047930
