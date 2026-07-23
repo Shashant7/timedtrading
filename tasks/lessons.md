@@ -6,6 +6,17 @@
 
 ---
 
+## Mobile Tab Nav must not hide on viewport ratio alone [2026-07-23]
+
+`tt-bottom-nav.js` used `vvH < innerH * 0.65` as "keyboard open" and
+translated the bar to `200%` (off-screen). On iPhone with Safari chrome
+expanded at the top of Today, visualViewport routinely drops below that
+ratio with no keyboard — Tab Nav vanishes. Gate keyboard-hide on a
+focused text input; cap URL-bar push; bump `SHELL_VERSION` so SW clients
+pick up the script.
+
+---
+
 ## Ledger summary must filter by mode [2026-07-22]
 
 Model page Short Term / Long Term account strips showed identical
