@@ -882,10 +882,10 @@ function MarketPulseTile({
 function setupFamilyActionHint(p) {
   const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
   if (p?.sequence_entry_ready) {
-    return "This card shows Entry ready on its plan — size at the add zone. That chip is not a move into Ready Setups above.";
+    return "Entry ready on the plan — size at the add zone.";
   }
   if (state === "queued") {
-    return "Queued inside this setup family — confirm size, then work the entry from the plan levels. Separate from Model → Queuing Up.";
+    return "Queued in this family — confirm size, then work the plan levels.";
   }
   if (state === "bought" || state === "held") {
     return "Position open — manage with the stop, trim, and target on the plan.";
@@ -894,10 +894,10 @@ function setupFamilyActionHint(p) {
     return "Trimming — take partial profits per the plan; keep a runner if levels hold.";
   }
   if (String(p?.confluence_mode || "").toUpperCase() === "READY") {
-    return "Structure aligned on this family — stalk the add zone on the plan. Ready Setups above is a separate capital shortlist.";
+    return "Structure aligned — stalk the add zone on the plan.";
   }
   if (state === "watching" || state === "watch") {
-    return "Watching this setup family — wait for a pullback into the add zone on the plan.";
+    return "Watching — wait for a pullback into the add zone.";
   }
   return p?.lifecycle?.why || "Family admission just fired — open the plan for next steps.";
 }
@@ -974,18 +974,18 @@ function SetupFamiliesStrip({
     className: "tt-ready__head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "SETUP FAMILIES"), h("h2", {
+  }, "FAMILIES"), h("h2", {
     className: "tt-ready__title"
-  }, "Tracked families — stalk the add zone"), h("p", {
+  }, "Tracked structure families"), h("p", {
     className: "tt-ready__sub"
-  }, "Board for named setup families the model is working end-to-end (watching → queued → bought). First family: confirm-stack structure (trend flip + squeeze + reclaim). More families can land here later. Separate from Model → Queuing Up (stage lane) and from Ready Setups above (capital shortlist). Entry ready on a card means that ticker's plan chip."));
+  }, "Confirm-stack first (trend flip + squeeze + reclaim). Stalk the add zone."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
       style: {
         marginTop: 8
       }
-    }, "Upgrade to Pro to see setup families.")));
+    }, "Upgrade to Pro to see families.")));
   }
   if (loading) {
     return wrap(h(React.Fragment, null, head, h("div", {
@@ -994,7 +994,7 @@ function SetupFamiliesStrip({
         color: "var(--tt-text-muted)",
         marginTop: 8
       }
-    }, "Loading setup families…")));
+    }, "Loading families…")));
   }
   const plays = Array.isArray(slice?.plays) ? slice.plays : [];
   if (!plays.length) {
@@ -1003,7 +1003,7 @@ function SetupFamiliesStrip({
       style: {
         marginTop: 8
       }
-    }, "No setup-family runners right now. When a tracked family admits a name (confirm-stack first), it lands here.")));
+    }, "No family runners right now.")));
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
@@ -1042,7 +1042,7 @@ function SetupFamiliesStrip({
     chipRow.push(h("span", {
       key: "family",
       className: "ds-chip ds-chip--sm",
-      title: "Setup family admission rule for this card",
+      title: "Family admission rule for this card",
       style: {
         fontFamily: "var(--tt-font-mono)"
       }
@@ -1051,7 +1051,7 @@ function SetupFamiliesStrip({
       chipRow.push(h("span", {
         key: "life",
         className: "ds-chip ds-chip--sm ds-chip--solid",
-        title: p.lifecycle?.why || "Where this name sits inside the setup family",
+        title: p.lifecycle?.why || "Where this name sits inside the family",
         style: {
           fontFamily: "var(--tt-font-mono)"
         }
@@ -1069,7 +1069,7 @@ function SetupFamiliesStrip({
       chipRow.push(h("span", {
         key: "entry",
         className: "ds-chip ds-chip--sm ds-chip--up",
-        title: "Entry window on this ticker's plan — not a promotion into Ready Setups"
+        title: "Entry window on this ticker's plan"
       }, "Entry ready"));
     } else if (p.confirm_stack === true) {
       chipRow.push(h("span", {
@@ -1232,7 +1232,7 @@ function ConvexityPlaysStrip({
     className: "tt-ready__title"
   }, "Options lotto & moonshots"), h("p", {
     className: "tt-ready__sub"
-  }, "Compiled when direction, stop floor, and timing align for short-dated OTM options (scanned from high entry-quality names). Asymmetric premium risk — not share entries, and not the Queuing Up lane on Model."));
+  }, "Short-dated OTM when direction, floor, and timing align. Premium risk — not share entries."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -3352,18 +3352,47 @@ function GrowthIdeasStrip({
       className: "tt-row"
     }, children);
   };
+  const growthHead = h("div", {
+    className: "tt-ready__head",
+    style: {
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "space-between",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, h("div", null, h("div", {
+    className: "tt-sec-title"
+  }, "GROWTH IDEAS"), h("h2", {
+    className: "tt-ready__title"
+  }, "Compounders"), h("p", {
+    className: "tt-ready__sub"
+  }, "Longer-horizon names. Watch pullbacks to add.")), h("a", {
+    href: "/opportunities.html",
+    style: {
+      fontSize: 11,
+      fontWeight: 600,
+      color: "var(--tt-accent)",
+      textDecoration: "none",
+      fontFamily: "var(--tt-font-mono)",
+      marginTop: 4
+    }
+  }, "See all →"));
   if (rows === null) {
-    return wrap(h(React.Fragment, null, h("div", {
-      className: "tt-sec-title"
-    }, "GROWTH IDEAS"), h("div", {
-      className: "tt-sec-h"
+    return wrap(h(React.Fragment, null, growthHead, h("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--tt-text-muted)",
+        marginTop: 8
+      }
     }, "Loading compounder watchlist…")));
   }
   if (!rows.length) {
-    return wrap(h(React.Fragment, null, h("div", {
-      className: "tt-sec-title"
-    }, "GROWTH IDEAS"), h("div", {
-      className: "tt-sec-h"
+    return wrap(h(React.Fragment, null, growthHead, h("div", {
+      className: "tt-ready__empty",
+      style: {
+        marginTop: 8
+      }
     }, loadErr || "No compounder names cleared the growth filters right now.")));
   }
   const fmtPctOpp = n => {
@@ -3371,29 +3400,7 @@ function GrowthIdeasStrip({
     const v = Number(n);
     return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
   };
-  return wrap(h(React.Fragment, null, h("div", {
-    style: {
-      display: "flex",
-      alignItems: "baseline",
-      justifyContent: "space-between",
-      gap: 12,
-      flexWrap: "wrap",
-      marginBottom: 4
-    }
-  }, h("div", null, h("div", {
-    className: "tt-sec-title"
-  }, "GROWTH IDEAS"), h("div", {
-    className: "tt-sec-h"
-  }, "Compiled from the compounder holdbook (fundamentals + Long Term stages). Watch for pullbacks into the add zone — Long Term path, not the Short Term Queuing Up lane unless also accumulate-queued.")), h("a", {
-    href: "/opportunities.html",
-    style: {
-      fontSize: 11,
-      fontWeight: 600,
-      color: "var(--tt-accent)",
-      textDecoration: "none",
-      fontFamily: "var(--tt-font-mono)"
-    }
-  }, "See all →")), loadErr && h("div", {
+  return wrap(h(React.Fragment, null, growthHead, loadErr && h("div", {
     style: {
       fontSize: 11,
       color: "var(--tt-text-dim)",
@@ -5510,12 +5517,14 @@ function TickerLaneSection({
   embedded
 }) {
   const body = h(React.Fragment, null, h("div", {
-    className: "tt-viewport-map-head"
+    className: "tt-viewport-map-head tt-ready__head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "TECHNICAL SETUPS"), h("div", {
-    className: "tt-sec-h"
-  }, "Full scored universe — browse by chip. Default Entry Zone is the closest Today view of Model → Queuing Up (waiting for a trigger). Not a ranked capital shortlist like Ready Setups.")), h(LaneControls, {
+  }, "TECHNICALS"), h("h2", {
+    className: "tt-ready__title"
+  }, "Scored universe"), h("p", {
+    className: "tt-ready__sub"
+  }, "Full board — filter by zone.")), h(LaneControls, {
     chips,
     totalCount: scoredCount,
     visibleCount: visible.length,
@@ -7163,6 +7172,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784787270513:955251575
+// cache-bust:1784787903090:944111639
 
-// cache-bust:1784787270513:955251575
+// cache-bust:1784787903090:944111639

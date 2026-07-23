@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Today strip copy simplify (2026-07-23).** Shorten Ready / Families /
+      Growth / Technicals / Convexity blurbs; drop Model Queue comparisons;
+      cut "Setup" overuse (READY, FAMILIES, TECHNICALS); align Growth +
+      Technicals heads to `tt-ready__head`. Branch:
+      `cursor/strip-copy-simplify-df0c`.
+
 - [x] **Webull Roth next ST/LT order must place (2026-07-23).** Live
       entries reached Roth review then failed on TRADE_FRACT_PRO. Fix:
       whole-share retry with fresh `client_order_id`, stamp
