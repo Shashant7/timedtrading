@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Mobile Tab Nav jump/snap on scroll (2026-07-23).** v7
+      visualViewport top writes every frame fought Safari chrome →
+      jump up then snap back. v8: CSS `bottom:0` only; settle after
+      scrollend/debounce; no vv scroll listener. SW `tt-shell-v8`.
+      Branch: `cursor/tab-nav-no-jitter-df0c`.
+
 - [x] **Mobile Tab Nav still floats on scroll (2026-07-23).** v6
       `bottom:0` still shifts mid-page on iOS Safari 26 chrome collapse.
       Pin with visualViewport `top` (no transform); SW `tt-shell-v7`.

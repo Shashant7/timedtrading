@@ -3629,3 +3629,12 @@ auto` (no transform — the earlier URL-bar `translateY` caused the gap
 bug). Listen to `visualViewport` scroll/resize + rAF-throttle. Bump
 `SHELL_VERSION` to `tt-shell-v7`.
 
+## Mobile Tab Nav: no per-frame visualViewport top (jump/snap) [2026-07-23]
+
+v7 set `top = vv.offsetTop + vv.height - navH` on every scroll/rAF.
+Safari also moves fixed bars while the URL chrome animates, so our
+correction read as jump-up-then-snap-back. v8 keeps CSS
+`position:fixed; bottom:0` and only re-settles after `scrollend` /
+debounced scroll + `visualViewport` *resize* (not vv scroll). Bump
+`SHELL_VERSION` to `tt-shell-v8`.
+

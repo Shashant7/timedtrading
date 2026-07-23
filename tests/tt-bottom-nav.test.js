@@ -13,11 +13,10 @@ function loadBottomNav() {
   return document.getElementById("tt-bottom-nav");
 }
 
-describe("tt-bottom-nav pin-to-bottom v7", () => {
+describe("tt-bottom-nav pin-to-bottom v8", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
     window.history.replaceState({}, "", "/today.html");
-    // jsdom often lacks visualViewport — stub a layout-sized one.
     Object.defineProperty(window, "visualViewport", {
       configurable: true,
       value: {
@@ -30,7 +29,6 @@ describe("tt-bottom-nav pin-to-bottom v7", () => {
         removeEventListener: vi.fn(),
       },
     });
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 700 });
   });
 
   afterEach(() => {
@@ -39,48 +37,40 @@ describe("tt-bottom-nav pin-to-bottom v7", () => {
     document.getElementById("tt-bottom-nav-style")?.remove();
   });
 
-  it("mounts five journey tabs and v7 vintage", () => {
+  it("mounts five journey tabs and v8 vintage", () => {
     const nav = loadBottomNav();
     expect(nav).toBeTruthy();
-    expect(nav.dataset.ttBnBuiltAt).toBe("2026-07-23-v7");
+    expect(nav.dataset.ttBnBuiltAt).toBe("2026-07-23-v8");
     expect(nav.parentNode).toBe(document.body);
     const labels = [...nav.querySelectorAll(".tt-bn-label")].map((el) => el.textContent);
     expect(labels).toEqual(["Today", "Model", "Portfolio", "Insights", "Learn"]);
   });
 
-  it("CSS does not use transform or backdrop-filter on .tt-bn", () => {
+  it("CSS pins with bottom:0 and no transform/backdrop-filter", () => {
     loadBottomNav();
     const css = document.getElementById("tt-bottom-nav-style").textContent;
     expect(css).not.toMatch(/\.tt-bn\s*\{[^}]*\btransform\s*:/);
     expect(css).not.toMatch(/(?:^|[^-])backdrop-filter\s*:/);
     expect(css).toMatch(/position:\s*fixed\s*!important/);
-    expect(css).toMatch(/bottom:\s*auto\s*!important/);
+    expect(css).toMatch(/bottom:\s*0\s*!important/);
+    expect(css).toMatch(/top:\s*auto\s*!important/);
   });
 
-  it("pins with top from visualViewport (not bottom:0 / transform)", () => {
+  it("inline style uses bottom:0 / top:auto (no per-frame top)", () => {
     const nav = loadBottomNav();
-    // offsetHeight is 0 in jsdom — pin uses 72px fallback
-    expect(nav.style.top).toBe("628px"); // 700 - 72
-    expect(nav.style.bottom).toBe("auto");
+    expect(nav.style.bottom).toBe("0px");
+    expect(nav.style.top).toBe("auto");
     expect(nav.style.transform || "").toBe("");
-    expect(nav.dataset.ttBnTop).toBe("628");
+    expect(nav.dataset.ttBnTop).toBeUndefined();
   });
 
-  it("tracks visualViewport.offsetTop so chrome collapse cannot float the bar", () => {
+  it("does not rewrite top on scroll events (jitter guard)", () => {
     const nav = loadBottomNav();
-    window.visualViewport.offsetTop = 40;
-    window.visualViewport.height = 660;
-    // Re-eval pin by dispatching vv resize if listener wired, else reload logic:
-    // call via scroll schedule — flush rAF
+    nav.style.setProperty("top", "auto", "important");
     window.dispatchEvent(new Event("scroll"));
-    return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        // top = 40 + 660 - 72 = 628
-        expect(nav.style.top).toBe("628px");
-        expect(nav.style.bottom).toBe("auto");
-        resolve();
-      });
-    });
+    // Immediate (non-debounced) scroll must not invent a top px
+    expect(nav.style.top).toBe("auto");
+    expect(nav.style.bottom).toBe("0px");
   });
 
   it("hides via class when a text input is focused (no transform)", () => {
