@@ -134,6 +134,9 @@ COO_SCREENER_AUTO_PROMOTE = "true"
 COO_SCREENER_AUTO_SCORE = "70"
 COO_SCREENER_DAILY_MAX = "3"
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# 2026-07-23 — Long Term mirror ON (research hosts investor cron arms that
+# may self-dispatch or run auto-rebalance paths in-process).
+BROKER_INVESTOR_MIRROR_ENABLED = "true"
 
 [[services]]
 binding = "BROKER_BRIDGE"

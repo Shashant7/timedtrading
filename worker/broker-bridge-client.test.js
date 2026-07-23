@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { forwardOrderToBridge, readClientRing } from "./broker-bridge-client.js";
+import {
+  forwardOrderToBridge,
+  readClientRing,
+  isEquityMirrorVehicle,
+  recordBridgeMirrorSkip,
+} from "./broker-bridge-client.js";
+import { readSilentFailures, SILENT_FAILURE_RING_KEY } from "./silent-failure-log.js";
 
 // In-memory KV stub (the client ring writes to env.KV_TIMED).
 function makeKv() {
@@ -22,6 +28,39 @@ const ORDER = {
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
+
+describe("isEquityMirrorVehicle", () => {
+  it("treats shares / equity_long / empty as equity mirrors", () => {
+    expect(isEquityMirrorVehicle("shares")).toBe(true);
+    expect(isEquityMirrorVehicle("equity_long")).toBe(true);
+    expect(isEquityMirrorVehicle("")).toBe(true);
+    expect(isEquityMirrorVehicle(null)).toBe(true);
+  });
+  it("rejects options / LETF model-play vehicles", () => {
+    expect(isEquityMirrorVehicle("options")).toBe(false);
+    expect(isEquityMirrorVehicle("letf")).toBe(false);
+    expect(isEquityMirrorVehicle("long_call")).toBe(false);
+  });
+});
+
+describe("recordBridgeMirrorSkip", () => {
+  it("writes skipped status to the client ring + silent-failure breadcrumb", async () => {
+    const env = { KV_TIMED: makeKv(), ADMIN_EMAIL: "op@x.com" };
+    await recordBridgeMirrorSkip(env, {
+      ticker: "DIA",
+      side: "buy",
+      reason: "vehicle_options_not_mirrored_as_equity",
+      trade_id: "t1",
+      qty: 10,
+    });
+    const ring = await readClientRing(env);
+    expect(ring[0].status).toBe("skipped");
+    expect(ring[0].skip_reason).toContain("options");
+    const fails = await readSilentFailures(env, { stage: "bridge_mirror.skip" });
+    expect(fails.length).toBeGreaterThan(0);
+    expect(fails[0].ticker).toBe("DIA");
+  });
+});
 
 describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
   it("prefers the BROKER_BRIDGE service binding, POSTs /bridge/order with an HMAC signature", async () => {
@@ -75,18 +114,38 @@ describe("forwardOrderToBridge — transport (CF 1042 / 404 fix)", () => {
     expect(httpUrl.endsWith("/bridge/order")).toBe(true);
   });
 
-  it("surfaces a non-ok upstream status instead of silently dropping", async () => {
+  it("surfaces a non-ok upstream status and records a silent-failure breadcrumb", async () => {
     const env = {
       BROKER_BRIDGE_HMAC_KEY: "secret",
       KV_TIMED: makeKv(),
-      BROKER_BRIDGE: { fetch: async () => new Response("not found", { status: 404 }) },
+      BROKER_BRIDGE: {
+        fetch: async () => new Response(JSON.stringify({ ok: false, reject_reason: "kill_switch" }), { status: 200 }),
+      },
     };
     const r = await forwardOrderToBridge(env, ORDER);
     expect(r.ok).toBe(false);
-    expect(r.http_status).toBe(404);
     const ring = await readClientRing(env);
     expect(ring[0].status).toBe("error");
-    expect(ring[0].http_status).toBe(404);
+    expect(ring[0].reject_reason).toBe("kill_switch");
+    const fails = await readSilentFailures(env, { stage: "bridge_mirror.reject" });
+    expect(fails.some((f) => String(f.error || "").includes("kill_switch"))).toBe(true);
+    expect(env.KV_TIMED).toBeTruthy();
+    expect(SILENT_FAILURE_RING_KEY).toBeTruthy();
+  });
+
+  it("records fetch_error to the silent-failure ring", async () => {
+    const env = {
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      KV_TIMED: makeKv(),
+      BROKER_BRIDGE: {
+        fetch: async () => { throw new Error("aborted"); },
+      },
+    };
+    const r = await forwardOrderToBridge(env, ORDER);
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("aborted");
+    const fails = await readSilentFailures(env, { stage: "bridge_mirror.fetch_error" });
+    expect(fails.length).toBeGreaterThan(0);
   });
 
   it("skips cleanly when neither a service binding nor a URL is configured", async () => {
