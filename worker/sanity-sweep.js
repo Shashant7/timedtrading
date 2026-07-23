@@ -19,6 +19,8 @@
 //   8. bridge_mirror_coverage      BROKER_INVESTOR_MIRROR_ENABLED on AND last call >24h
 //   9. loop2_breaker_stale         Loop 2 paused for >48h with no operator action
 //  10. nav_script_coverage         user-facing html missing tt-bottom-nav.js
+//  15. broker_bridge_bindings      URL set but HMAC/service-binding missing
+//  16. worker_role_split           dual scoring heartbeats / RESEARCH_EXTERNAL typo
 //
 // SEVERITY:
 //   fail  — caller should treat as outage. Page on-call. Discord ⛔.
@@ -656,6 +658,107 @@ const checkAlertDelivery = timed(async function checkAlertDelivery(env, ctx) {
   );
 });
 
+// ── Check 15: broker_bridge_bindings ────────────────────────────────────
+
+const checkBrokerBridgeBindings = timed(async function checkBrokerBridgeBindings(env, ctx) {
+  const anomalies = [];
+  try {
+    const url = env?.BROKER_BRIDGE_URL;
+    if (url) {
+      if (!env?.BROKER_BRIDGE_HMAC_KEY) {
+        anomalies.push({
+          detail: "BROKER_BRIDGE_URL is set but BROKER_BRIDGE_HMAC_KEY is missing — entry/exit/trim forwards will no-op",
+          severity: "fail",
+        });
+      }
+      const hasSvc = !!(env?.BROKER_BRIDGE && typeof env.BROKER_BRIDGE.fetch === "function");
+      if (!hasSvc) {
+        anomalies.push({
+          detail: "BROKER_BRIDGE service binding missing while URL is set — HTTP worker-to-worker can 404 (CF 1042)",
+          severity: "warn",
+        });
+      }
+    }
+
+    // Recent reject / fetch_error density in the client ring.
+    const ringRaw = await env.KV_TIMED.get("bridge:client:recent");
+    const ring = ringRaw ? JSON.parse(ringRaw) : [];
+    const recent = (Array.isArray(ring) ? ring : []).filter((r) => (Date.now() - Number(r?.ts || 0)) < 6 * 3600000);
+    const bad = recent.filter((r) => r?.status === "error" || r?.status === "fetch_error");
+    if (bad.length >= 3) {
+      const sample = bad.slice(0, 3).map((r) => `${r.ticker}/${r.side}:${r.reject_reason || r.error || r.http_status}`).join("; ");
+      anomalies.push({
+        detail: `${bad.length} bridge mirror failures in last 6h (of ${recent.length} dispatches) — e.g. ${sample}`,
+        severity: bad.length >= 8 ? "fail" : "warn",
+      });
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "broker_bridge_bindings",
+    "Broker bridge binding + reject health",
+    anomalies,
+    "Ensure BROKER_BRIDGE service binding + BROKER_BRIDGE_HMAC_KEY on monolith and tt-engine. Inspect bridge:client:recent + timed:debug:silent-failures for reject_reason.",
+    "would have caught: CF 1042 HTTP 404 on every entry/exit when service binding was missing; silent trim non-mirror leaving broker full-size",
+  );
+});
+
+// ── Check 16: worker_role_split ─────────────────────────────────────────
+
+const checkWorkerRoleSplit = timed(async function checkWorkerRoleSplit(env, ctx) {
+  const anomalies = [];
+  try {
+    // Footgun: comments/old plans say RESEARCH_EXTERNAL; cutover flag is RESEARCH_SLOTS_EXTERNAL.
+    if (env?.RESEARCH_EXTERNAL != null && String(env.RESEARCH_EXTERNAL) !== "") {
+      const slots = String(env.RESEARCH_SLOTS_EXTERNAL || "false").toLowerCase() === "true";
+      if (!slots) {
+        anomalies.push({
+          detail: "RESEARCH_EXTERNAL is set but RESEARCH_SLOTS_EXTERNAL is not true — wrong flag name; research may dual-exec or never externalize",
+          severity: "fail",
+        });
+      }
+    }
+
+    const role = String(env.WORKER_ROLE || "monolith").toLowerCase();
+    if (role === "engine" && String(env.ENGINE_ENABLED || "false").toLowerCase() !== "true") {
+      anomalies.push({
+        detail: "WORKER_ROLE=engine but ENGINE_ENABLED is not true — tt-engine cron is a no-op",
+        severity: "warn",
+      });
+    }
+    if (role === "research" && String(env.RESEARCH_ENABLED || "false").toLowerCase() !== "true") {
+      anomalies.push({
+        detail: "WORKER_ROLE=research but RESEARCH_ENABLED is not true — tt-research cron is a no-op",
+        severity: "warn",
+      });
+    }
+
+    // Dual scoring: both monolith and engine heartbeats fresh within 12 min.
+    const monoRaw = await env.KV_TIMED.get("timed:scoring:heartbeat:monolith");
+    const engRaw = await env.KV_TIMED.get("timed:scoring:heartbeat:engine");
+    const mono = monoRaw ? JSON.parse(monoRaw) : null;
+    const eng = engRaw ? JSON.parse(engRaw) : null;
+    const monoAge = mono?.ts ? (Date.now() - Number(mono.ts)) / 60000 : Infinity;
+    const engAge = eng?.ts ? (Date.now() - Number(eng.ts)) / 60000 : Infinity;
+    if (monoAge < 12 && engAge < 12) {
+      anomalies.push({
+        detail: `DUAL SCORING: monolith heartbeat ${monoAge.toFixed(1)}m ago AND engine heartbeat ${engAge.toFixed(1)}m ago — set ENGINE_EXTERNAL=true on monolith (or disable ENGINE_ENABLED on tt-engine)`,
+        severity: "fail",
+      });
+    }
+  } catch (e) {
+    anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
+  }
+  return envelope(
+    "worker_role_split",
+    "Worker role-split / dual-exec guard",
+    anomalies,
+    "Cutover order: set monolith *_EXTERNAL first, then dedicated *_ENABLED. Research flag is RESEARCH_SLOTS_EXTERNAL (not RESEARCH_EXTERNAL).",
+    "would have caught: dual */5 scoring causing kanban oscillation; RESEARCH_EXTERNAL typo leaving research on monolith",
+  );
+});
+
 // ── Check 14: broker_reconciler_freshness ───────────────────────────────
 
 const checkBrokerReconcilerFreshness = timed(async function checkBrokerReconcilerFreshness(env, ctx) {
@@ -719,6 +822,8 @@ const CHECKS = [
   checkPortfolioReconcile,
   checkAlertDelivery,
   checkBrokerReconcilerFreshness,
+  checkBrokerBridgeBindings,
+  checkWorkerRoleSplit,
 ];
 
 // Critical-path subset that runs every 15min instead of hourly. These
@@ -732,6 +837,8 @@ const FAST_CHECKS = [
   checkCandleFreshnessOpen,
   checkAlertDelivery,
   checkBrokerReconcilerFreshness,
+  checkBrokerBridgeBindings,
+  checkWorkerRoleSplit,
 ];
 
 /**

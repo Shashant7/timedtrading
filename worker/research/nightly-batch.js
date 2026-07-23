@@ -9,10 +9,11 @@
 // function:
 //
 //   - the MONOLITH keeps calling it from the 22:00 gate while
-//     RESEARCH_EXTERNAL is unset/false (zero behavior change), and
+//     RESEARCH_SLOTS_EXTERNAL is unset/false (zero behavior change), and
 //   - the standalone `tt-research` worker (worker-research/) runs it on its
 //     own `0 22 * * *` cron + CPU budget once the operator cuts over
-//     (RESEARCH_ENABLED=true there, RESEARCH_EXTERNAL=true here).
+//     (RESEARCH_ENABLED=true there, RESEARCH_SLOTS_EXTERNAL=true here).
+//     NOTE: the cutover flag is RESEARCH_SLOTS_EXTERNAL — not RESEARCH_EXTERNAL.
 //
 // These lanes are exactly the CPU bombs the decomposition exists for: the
 // CRO full cycle alone is ~30-40 CPU-seconds, and the calibration cron was

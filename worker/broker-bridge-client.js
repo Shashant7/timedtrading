@@ -5,7 +5,7 @@
 // `tt-broker-bridge` worker. Fire-and-forget; never blocks the
 // decision loop on bridge availability.
 //
-// Wire in by calling `forwardOrderToBridge(env, ctx, order)` from
+// Wire in by calling `forwardOrderToBridge(env, order)` from
 // the spot in processTradeSimulation where ENTRY / TRIM / EXIT
 // is finalized. The bridge URL + HMAC key are env vars set per-
 // deployment.
@@ -39,10 +39,64 @@ async function pushRing(env, entry) {
   } catch (_) { /* best-effort */ }
 }
 
+async function recordBridgeFailure(env, { stage, ticker, error, meta } = {}) {
+  try {
+    const { recordSilentFailure } = await import("./silent-failure-log.js");
+    await recordSilentFailure(env, {
+      stage: String(stage || "bridge_mirror").slice(0, 100),
+      ticker: ticker || null,
+      error: error || null,
+      meta: meta || null,
+    });
+  } catch (_) { /* observability must never throw */ }
+}
+
 export async function readClientRing(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return [];
   try { return JSON.parse((await KV.get(RING_KEY)) || "[]"); } catch (_) { return []; }
+}
+
+/** True when a model fill should be mirrored as equity shares on the bridge. */
+export function isEquityMirrorVehicle(vehicle) {
+  const v = String(vehicle || "shares").toLowerCase();
+  return v === "shares" || v === "equity" || v === "equity_long" || v === "";
+}
+
+/**
+ * Record an intentional skip (vehicle gating, missing env, etc.) so operators
+ * can see why a model fill did NOT hit the broker — without treating it as a
+ * hard reject. Writes the client ring + silent-failure breadcrumb.
+ */
+export async function recordBridgeMirrorSkip(env, {
+  ticker,
+  side = "buy",
+  reason,
+  trade_id = null,
+  client_order_id = null,
+  qty = null,
+  meta = null,
+} = {}) {
+  const ringEntry = {
+    ts: Date.now(),
+    user_id: env?.ADMIN_EMAIL || "operator",
+    ticker: ticker ? String(ticker).toUpperCase() : null,
+    side,
+    qty,
+    trade_id,
+    client_order_id,
+    transport: "skip",
+    status: "skipped",
+    skip_reason: String(reason || "skipped").slice(0, 120),
+  };
+  await pushRing(env, ringEntry);
+  await recordBridgeFailure(env, {
+    stage: `bridge_mirror.skip.${String(reason || "unknown").slice(0, 40)}`,
+    ticker,
+    error: reason || "skipped",
+    meta: { side, trade_id, client_order_id, qty, ...(meta || {}) },
+  });
+  return { ok: false, skip: reason || "skipped" };
 }
 
 // Fire-and-forget dispatch. Caller should wrap in ctx.waitUntil().
@@ -59,8 +113,11 @@ export async function forwardOrderToBridge(env, order) {
   // Falls back to HTTP fetch when the binding is absent (e.g. local dev).
   const svc = env?.BROKER_BRIDGE;
   const hasSvc = !!(svc && typeof svc.fetch === "function");
+  // Config skips are quiet here — callers that expect a live bridge should
+  // guard on URL+HMAC (or call recordBridgeMirrorSkip). Rejects / fetch
+  // errors below are the async-mirror observability surface.
   if (!hasSvc && !bridgeUrl) return { ok: false, skip: "no_bridge_url" };
-  if (!hmacKey)  return { ok: false, skip: "no_hmac_key" };
+  if (!hmacKey) return { ok: false, skip: "no_hmac_key" };
 
   const body = JSON.stringify(order);
   const sig = await hmacSign(hmacKey, body).catch(() => null);
@@ -86,6 +143,8 @@ export async function forwardOrderToBridge(env, order) {
     qty: order.qty,
     trade_id: order.trade_id,
     client_order_id: order.client_order_id || null,
+    mode: order.mode || null,
+    vehicle: order.vehicle || null,
     transport: hasSvc ? "service-binding" : "http",
   };
   try {
@@ -115,12 +174,39 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.reject_reason = parsed?.reject_reason || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);
+    if (!ok) {
+      await recordBridgeFailure(env, {
+        stage: `bridge_mirror.reject.${String(order?.side || "order").slice(0, 20)}`,
+        ticker: order?.ticker,
+        error: parsed?.reject_reason || `http_${r.status}`,
+        meta: {
+          side: order?.side,
+          trade_id: order?.trade_id,
+          client_order_id: order?.client_order_id || null,
+          http_status: r.status,
+          qty: order?.qty,
+          mode: order?.mode || null,
+          transport: ringEntry.transport,
+        },
+      });
+    }
     return { ok, http_status: r.status, response: parsed, latency_ms: ringEntry.latency_ms, transport: ringEntry.transport };
   } catch (e) {
     ringEntry.status = "fetch_error";
     ringEntry.error = String(e?.message || e).slice(0, 200);
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);
+    await recordBridgeFailure(env, {
+      stage: `bridge_mirror.fetch_error.${String(order?.side || "order").slice(0, 20)}`,
+      ticker: order?.ticker,
+      error: ringEntry.error,
+      meta: {
+        side: order?.side,
+        trade_id: order?.trade_id,
+        client_order_id: order?.client_order_id || null,
+        transport: ringEntry.transport,
+      },
+    });
     return { ok: false, error: ringEntry.error, transport: ringEntry.transport };
   } finally {
     clearTimeout(tid);

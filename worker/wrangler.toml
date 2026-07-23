@@ -158,6 +158,9 @@ COO_SCREENER_DAILY_MAX = "3"           # max universe adds per cycle (safety cap
 # for full notes. The matching secret BROKER_BRIDGE_OPERATOR_KEY must be
 # set via `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY`.
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# 2026-07-23 — Long Term (investor) auto-rebalance → broker mirror ON.
+# Set "false" to pause LT forwards without touching Short Term (trader).
+BROKER_INVESTOR_MIRROR_ENABLED = "true"
 # 2026-06-01 — Service Binding for direct worker-to-worker dispatch.
 # Replaces HTTP fetch to the workers.dev URL above, which was hitting
 # Cloudflare's worker-to-worker loop detection and returning a generic
@@ -379,6 +382,8 @@ SETUP_SHADOW_STAMP = "1"
 # BROKER_BRIDGE_OPERATOR_KEY must be set separately via
 # `wrangler secret put BROKER_BRIDGE_OPERATOR_KEY --env production`.
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# 2026-07-23 — Long Term (investor) auto-rebalance → broker mirror ON.
+BROKER_INVESTOR_MIRROR_ENABLED = "true"
 # ── Options shadow calibration (2026-07-08) — ranked long call/put on entry alerts ──
 OPTIONS_SHADOW_MODE = "1"
 OPTIONS_SHADOW_FETCH_CHAIN = "1"

@@ -153,6 +153,9 @@ COO_SCREENER_AUTO_PROMOTE = "true"
 COO_SCREENER_AUTO_SCORE = "70"
 COO_SCREENER_DAILY_MAX = "3"
 BROKER_BRIDGE_URL = "https://tt-broker-bridge.shashant.workers.dev"
+# 2026-07-23 — parity with monolith (engine rarely hosts investor rebalance,
+# but binding/env parity avoids silent disable if a lane moves).
+BROKER_INVESTOR_MIRROR_ENABLED = "true"
 # Options shadow calibration — ranked long call/put on entry alerts (tt-engine
 # owns the */5 trade path; vars must be here, not only on the monolith).
 OPTIONS_SHADOW_MODE = "1"
