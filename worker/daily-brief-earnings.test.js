@@ -7,6 +7,8 @@ import {
   normalizeTdEarningsHour,
   flattenTdEarningsCalendar,
   mergeEarningsEventLists,
+  isEarningsUpcomingCacheSparse,
+  preferRicherEarningsUpcomingCache,
 } from "./daily-brief.js";
 
 describe("prioritizeWeekEarnings", () => {
@@ -120,6 +122,64 @@ describe("mergeEarningsEventLists", () => {
     expect(jpm.revenueEstimate).toBe(49e9);
     expect(jpm._source).toMatch(/finnhub/);
     expect(jpm._source).toMatch(/twelvedata/);
+  });
+});
+
+describe("isEarningsUpcomingCacheSparse", () => {
+  it("treats empty and 1–2 row caches as sparse", () => {
+    expect(isEarningsUpcomingCacheSparse(null)).toBe(true);
+    expect(isEarningsUpcomingCacheSparse({ events: [] })).toBe(true);
+    expect(isEarningsUpcomingCacheSparse({ events: [{ symbol: "SANM", date: "2026-07-27" }] })).toBe(true);
+    expect(isEarningsUpcomingCacheSparse({
+      events: [
+        { symbol: "INTC", date: "2026-07-23" },
+        { symbol: "RTX", date: "2026-07-23" },
+        { symbol: "UNP", date: "2026-07-23" },
+      ],
+    })).toBe(false);
+  });
+});
+
+describe("preferRicherEarningsUpcomingCache", () => {
+  it("does not let a sparse Finnhub blip clobber a healthy cache", () => {
+    const prev = {
+      events: [
+        { symbol: "INTC", date: "2026-07-23", hour: "amc", epsEstimate: 0.1 },
+        { symbol: "RTX", date: "2026-07-23", hour: "bmo", epsEstimate: 1.2 },
+        { symbol: "UNP", date: "2026-07-23", hour: "bmo", epsEstimate: 2.8 },
+        { symbol: "FIX", date: "2026-07-23", hour: "amc", epsEstimate: 3.1 },
+      ],
+      updated_at: 1,
+      range: { from: "2026-07-23", to: "2026-07-28" },
+    };
+    const next = {
+      events: [{ symbol: "SANM", date: "2026-07-27", hour: "amc" }],
+      range: { from: "2026-07-23", to: "2026-07-28" },
+    };
+    const out = preferRicherEarningsUpcomingCache(prev, next, {
+      fromDate: "2026-07-23",
+      toDate: "2026-07-28",
+    });
+    expect(out._preserved_prev).toBe(true);
+    expect(out.events.map((e) => e.symbol).sort()).toEqual(["FIX", "INTC", "RTX", "SANM", "UNP"]);
+  });
+
+  it("accepts a richer refresh", () => {
+    const prev = { events: [{ symbol: "SANM", date: "2026-07-27" }] };
+    const next = {
+      events: [
+        { symbol: "INTC", date: "2026-07-23" },
+        { symbol: "RTX", date: "2026-07-23" },
+        { symbol: "SANM", date: "2026-07-27", epsEstimate: 2.8 },
+      ],
+    };
+    const out = preferRicherEarningsUpcomingCache(prev, next, {
+      fromDate: "2026-07-23",
+      toDate: "2026-07-28",
+    });
+    expect(out._preserved_prev).toBe(false);
+    expect(out.events.length).toBe(3);
+    expect(out.events.find((e) => e.symbol === "SANM").epsEstimate).toBe(2.8);
   });
 });
 
