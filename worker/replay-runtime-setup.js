@@ -97,6 +97,13 @@ export const REPLAY_DA_KEYS = [
   // Setup demotion + earnings cluster + tape capitulation tuning
   "deep_audit_setup_demotion_enforce_paths",
   "deep_audit_setup_demotion_index_only",
+  // WoW adaptive governor (2026-07-23)
+  "deep_audit_weekly_governor_enabled",
+  "deep_audit_weekly_governor_auto_demote",
+  "deep_audit_weekly_governor_heal_demotions",
+  "deep_audit_weekly_governor_severe_min_n",
+  "deep_audit_weekly_governor_severe_max_pf",
+  "deep_audit_weekly_governor_block_widen",
   "deep_audit_earnings_cluster_gate_enabled",
   "deep_audit_earnings_cluster_min_tickers",
   "deep_audit_earnings_cluster_rank_bypass",

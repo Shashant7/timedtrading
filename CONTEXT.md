@@ -217,6 +217,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**WoW PnL adaptive governor (2026-07-23)**
+- Plan: `plans/wow-pnl-adaptive-governor.plan.md`. Demotion keys must load
+  dynamically (`deep_audit_setup_demotion_*`); blocked ⇒ all tickers (not
+  index-only). Nightly governor heals mangled keys, auto-demotes PF<0.5
+  bleeders, enables bleeder shield, writes `timed:weekly-governor:latest`.
+  Family attribution: `GET /timed/admin/trust-spine/family-attribution`.
+
 **Ledger summary is mode-aware (2026-07-22)**
 - `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.
   Trader → `trades`; investor → `investor_positions` + `account_ledger`.
