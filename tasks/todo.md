@@ -22,6 +22,13 @@
 
 ### Active
 
+- [ ] **FSD rewrite stale model levels (2026-07-23).** Research notes
+      cited TSLA stop $373 / tp $338 from stale `timed:all:snapshot`
+      while live was ~$320. Prefer freshest payload + live price overlay;
+      omit divergent plan levels; auto-refresh rewrites when px drifts;
+      force-rewrite pubs 1544806/1544826. Branch:
+      `cursor/fsd-rewrite-fresh-levels-df0c`.
+
 - [x] **Sector Flow mobile h-scroll (2026-07-23).** Leader chips were
       full-width vertical stacks on mobile. Horizontal rails + denser
       cards; offense/defense meter; vs-sector on names; Wave restyle.
