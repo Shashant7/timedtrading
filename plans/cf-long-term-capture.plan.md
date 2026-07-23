@@ -16,7 +16,10 @@
 2. **Exhaustion order** — evaluate `momentum_runner_exhausted` before the broad compounder lane; allow `growth_elite` **and** `growth_strong` override on confirmed structural dips (CF shape).
 3. **Persist thesis on auto-open** — write `thesis` / `thesis_invalidation` / stageReason notes from score row (manual BUY path already does).
 4. **Pullback DCA** — for FSD / compounder / FV-discount holds, allow opportunistic DCA on confirmed dips (min 5d gap), not only calendar `dca_next_ts`.
-5. **Thesis heal** — auto-rebalance backfills null thesis on open rows from live scores.
+5. **Convenience heal** — `healInvestorPositionConvenience` on compute +
+   auto-rebalance fills blank thesis / invalidation / stage / notes / DCA
+   from scores (idempotent). Auto-open uses the same
+   `convenienceFieldsFromInvestorScore` helper so new rows never ship null.
 6. **Short Term parity** — same quality-dip shape softens trader pullback
    RSI-exhaust + non-prime rank floors so multi-day rips (CF +10%) can
    print on the Short Term book too (`isQualityCompounderDip`).

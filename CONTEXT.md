@@ -223,7 +223,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 - Confirmed dips need ≥2 signals; exhausted zones also need a structural
   signal. Exhaustion gate runs before the broad compounder lane; elite+strong
   may override on confirmed dips.
-- Auto-open persists thesis; auto-rebalance heals null thesis from scores;
+- Auto-open persists thesis via `convenienceFieldsFromInvestorScore`;
+  `healInvestorPositionConvenience` runs on compute + auto-rebalance
+  (thesis / invalidation / stage / notes / DCA blanks only).
   DCA execute allows opportunistic pullback adds for FSD/compounder/FV-discount.
 - Short Term parity: `isQualityCompounderDip` softens pullback RSI-exhaust +
   non-prime rank floor so multi-day compounder rips can print on ST too.

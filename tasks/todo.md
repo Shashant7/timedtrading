@@ -31,7 +31,9 @@
       Branch: `cursor/cf-long-term-capture-df0c`.
       Follow-ups: Short Term pullback rank relief on quality dips; Model
       open-lane cards must not show ghost defend/trim without a live book
-      row (missing POSITION bars).
+      row (missing POSITION bars). Convenience heal
+      (`healInvestorPositionConvenience`) on compute + rebalance so D1
+      thesis/invalidation/DCA never stay null.
 
 - [ ] **Model-first UX consolidation (2026-07-22).** Operator: "merge trader
       and investor … one section, model, with its own lanes … users complain
