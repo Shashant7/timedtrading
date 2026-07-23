@@ -37,16 +37,21 @@ import {
   publicationMentionsSpx,
   tickersIncludeMemoryTheme,
 } from "./fsd-model-context.js";
+import {
+  buildFreshTickerContext,
+  filterKeyPointsLevels,
+  resolveTimedKv,
+  rewriteMetaNeedsRefresh,
+  stripUncitedModelLevels,
+  REWRITE_PX_DRIFT_PCT,
+} from "./fsd-rewrite-context.js";
 
 const REWRITES_TABLE = "cro_publication_rewrites";
 const PUBLICATION_TICKERS_TABLE = "cro_publication_tickers";
 
 // ── Model-context loader for BLENDED rewrites ────────────────────────────────
-// Operator: "Don't we already have so much data from the Technicals Tab and
-// HTF scoring info? Is there any reusability?" — yes. The right rail's
-// Technicals tab + Snapshot tab consume the per-ticker payload that the
-// scoring path bakes into `timed:all:snapshot.data[SYM]`. We read the same
-// blob, no new KV layout, no parallel fetch.
+// Prefer the freshest of snapshot / ticker_latest / timed:latest, overlay
+// live timed:prices, and omit divergent plan levels before the LLM can cite them.
 async function loadTickersForPub(env, pubId) {
   try {
     const rows = await env.DB.prepare(
@@ -57,13 +62,14 @@ async function loadTickersForPub(env, pubId) {
 }
 
 let _snapCache = { ts: 0, blob: null };
+let _pricesCache = { ts: 0, blob: null };
+
 async function loadAllSnapshot(env) {
-  // 60s in-process cache so a multi-ticker rewrite batch doesn't re-fetch
-  // the (large) snapshot blob per call.
   const now = Date.now();
   if (_snapCache.blob && (now - _snapCache.ts) < 60000) return _snapCache.blob;
   try {
-    const raw = await env?.KV?.get("timed:all:snapshot");
+    const kv = resolveTimedKv(env);
+    const raw = await kv?.get("timed:all:snapshot");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     _snapCache = { ts: now, blob: parsed };
@@ -71,82 +77,68 @@ async function loadAllSnapshot(env) {
   } catch (_) { return null; }
 }
 
-function summarizeTickerForPrompt(sym, t) {
-  // Pull the same fields the Technicals tab + HTF scoring tile + Snapshot
-  // hero card render — keep the prompt-context dense but compact.
-  if (!t) return null;
-  const parts = [`${sym}:`];
-  const _num = (v, fix = 2) => Number.isFinite(Number(v)) ? Number(v).toFixed(fix) : null;
-  if (_num(t.price ?? t._live_price)) parts.push(`px=$${_num(t.price ?? t._live_price)}`);
-  if (_num(t.day_change_pct ?? t.dailyChgPct)) parts.push(`day=${_num(t.day_change_pct ?? t.dailyChgPct)}%`);
-  if (t.regime_class) parts.push(`regime=${String(t.regime_class).replace(/_/g, " ")}`);
-  if (t.kanban_stage) parts.push(`stage=${String(t.kanban_stage)}`);
-  if (t.state) parts.push(`htf=${String(t.state).replace(/_/g, " ")}`);
-  if (_num(t.score, 0)) parts.push(`score=${_num(t.score, 0)}`);
-  if (_num(t.conviction, 0)) parts.push(`conv=${_num(t.conviction, 0)}`);
-  if (_num(t.rank_position, 0)) parts.push(`R${_num(t.rank_position, 0)}`);
-  if (_num(t.rr)) parts.push(`rr=${_num(t.rr)}`);
-  if (_num(t.trigger_price)) parts.push(`trigger=${_num(t.trigger_price)}`);
-  if (_num(t.sl)) parts.push(`stop=${_num(t.sl)}`);
-  if (_num(t.tp)) parts.push(`tp=${_num(t.tp)}`);
-  if (t._ticker_profile?.behavior_type) parts.push(`profile=${t._ticker_profile.behavior_type}`);
-  if (t.latent_regime?.state) parts.push(`hmm=${String(t.latent_regime.state).replace(/_/g, " ")}`);
-  if (Array.isArray(t.flags) && t.flags.length > 0) parts.push(`flags=${t.flags.slice(0, 3).join(",")}`);
-  return parts.length > 1 ? parts.join(" ") : null;
+async function loadTimedPricesMap(env) {
+  const now = Date.now();
+  if (_pricesCache.blob && (now - _pricesCache.ts) < 15000) return _pricesCache.blob;
+  try {
+    const kv = resolveTimedKv(env);
+    const raw = await kv?.get("timed:prices");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    _pricesCache = { ts: now, blob: parsed };
+    return parsed;
+  } catch (_) { return null; }
 }
 
-async function loadTickerModelContext(env, sym, snap) {
+async function loadTickerLatestRow(env, sym) {
+  try {
+    if (!env?.DB) return null;
+    const row = await env.DB.prepare(
+      `SELECT payload_json, updated_at FROM ticker_latest WHERE ticker = ?1`,
+    ).bind(sym).first();
+    if (!row?.payload_json) return null;
+    return {
+      payload: JSON.parse(String(row.payload_json)),
+      ts: row.updated_at,
+    };
+  } catch (_) { return null; }
+}
+
+async function loadTimedLatestPayload(env, sym) {
+  try {
+    const kv = resolveTimedKv(env);
+    const raw = await kv?.get(`timed:latest:${sym}`);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) { return null; }
+}
+
+/**
+ * @returns {{ line: string|null, meta: object|null }}
+ */
+async function loadTickerModelContext(env, sym, snap, pricesMap) {
   const S = String(sym || "").toUpperCase();
-  if (!S) return null;
-  let t = snap?.data?.[S] || null;
-  let summary = null;
-  if (t) summary = summarizeTickerForPrompt(S, t);
-  // Fallback: ticker_latest / timed:latest (same payload the right rail uses).
-  if (!summary) {
-    try {
-      if (env?.DB) {
-        const row = await env.DB.prepare(
-          `SELECT payload_json FROM ticker_latest WHERE ticker = ?1`,
-        ).bind(S).first();
-        if (row?.payload_json) {
-          t = JSON.parse(String(row.payload_json));
-          summary = summarizeTickerForPrompt(S, t);
-        }
-      }
-    } catch (_) {}
-  }
-  if (!summary) {
-    try {
-      const raw = await env?.KV?.get(`timed:latest:${S}`);
-      if (raw) {
-        t = JSON.parse(raw);
-        summary = summarizeTickerForPrompt(S, t);
-      }
-    } catch (_) {}
-  }
-  if (!summary) {
-    try {
-      const pricesRaw = await env?.KV?.get("timed:prices");
-      if (pricesRaw) {
-        const prices = JSON.parse(pricesRaw);
-        const p = prices?.[S];
-        if (p && Number.isFinite(Number(p.p ?? p.price))) {
-          const px = Number(p.p ?? p.price);
-          const dc = Number(p.dc ?? p.day_change);
-          const dp = Number(p.dp ?? p.day_change_pct);
-          const parts = [`${S}:`, `px=$${px.toFixed(2)}`];
-          if (Number.isFinite(dp)) parts.push(`day=${dp.toFixed(2)}%`);
-          else if (Number.isFinite(dc) && px > 0) parts.push(`day=${((dc / px) * 100).toFixed(2)}%`);
-          parts.push("(live price — full desk snapshot syncing)");
-          summary = parts.join(" ");
-        }
-      }
-    } catch (_) {}
-  }
+  if (!S) return { line: null, meta: null };
+
+  const latestRow = await loadTickerLatestRow(env, S);
+  const timedLatest = await loadTimedLatestPayload(env, S);
+  const priceRow = pricesMap?.[S] || pricesMap?.prices?.[S] || null;
+
+  const built = buildFreshTickerContext(S, {
+    snapshotPayload: snap?.data?.[S] || null,
+    snapshotTs: snap?.ts || snap?.generated_at || snap?.updated_at || null,
+    latestPayload: latestRow?.payload || null,
+    latestTs: latestRow?.ts || null,
+    timedLatestPayload: timedLatest,
+    timedLatestTs: timedLatest?.ingest_ts || timedLatest?.ts || null,
+    priceRow,
+  });
+
   const ctoLine = await loadCTOLineForTicker(env, S);
-  if (summary && ctoLine) return `${summary}\n  ${ctoLine}`;
-  if (ctoLine) return ctoLine;
-  return summary;
+  let line = built.summary;
+  if (line && ctoLine) line = `${line}\n  ${ctoLine}`;
+  else if (ctoLine) line = ctoLine;
+  return { line, meta: built.meta };
 }
 
 async function loadModelContextForTickers(env, tickers, { focusTicker = null, sourceText = null } = {}) {
@@ -179,29 +171,35 @@ async function loadModelContextForTickers(env, tickers, { focusTicker = null, so
     ordered.unshift("SPY");
   }
 
-  if (ordered.length === 0 && !mentionsSpx) return "(no tickers extracted from publication)";
+  if (ordered.length === 0 && !mentionsSpx) {
+    return { text: "(no tickers extracted from publication)", metaByTicker: {} };
+  }
 
   const snap = await loadAllSnapshot(env);
+  const pricesMap = await loadTimedPricesMap(env);
   const lines = [];
+  const metaByTicker = {};
 
   if (wantsMemory) lines.push(memoryThemeHeaderLine());
 
   if (mentionsSpx) {
-    const spyLine = await loadTickerModelContext(env, "SPY", snap);
+    const spyCtx = await loadTickerModelContext(env, "SPY", snap, pricesMap);
+    if (spyCtx.meta) metaByTicker.SPY = spyCtx.meta;
     const spyCto = await loadCTOLineForTicker(env, "SPY");
     lines.push(await buildSpxIndexContextBlock(env, {
-      spyScoringLine: spyLine,
+      spyScoringLine: spyCtx.line,
       spyCtoLine: spyCto,
     }));
   }
 
   for (const sym of ordered.slice(0, 6)) {
     if (mentionsSpx && sym === "SPY" && lines.some((l) => l.includes("SPY (tradeable proxy)"))) continue;
-    const summary = await loadTickerModelContext(env, sym, snap);
-    if (summary) lines.push(summary);
+    const ctx = await loadTickerModelContext(env, sym, snap, pricesMap);
+    if (ctx.meta) metaByTicker[sym] = ctx.meta;
+    if (ctx.line) lines.push(ctx.line);
     else lines.push(`${sym}: (limited model data — treat source levels as primary until desk snapshot refreshes)`);
   }
-  return lines.join("\n");
+  return { text: lines.join("\n"), metaByTicker };
 }
 const REWRITE_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -225,12 +223,19 @@ export async function ensureRewriteSchema(env) {
         prompt_tokens       INTEGER,
         completion_tokens   INTEGER,
         rewritten_at        INTEGER NOT NULL,
-        error               TEXT
+        error               TEXT,
+        model_context_meta_json TEXT
       )
     `).run();
   } catch (e) {
     console.warn("[CRO_REWRITER] schema ensure failed:", String(e?.message || e).slice(0, 200));
   }
+  // Existing DBs created before 2026-07-23 lack the meta column.
+  try {
+    await db.prepare(
+      `ALTER TABLE ${REWRITES_TABLE} ADD COLUMN model_context_meta_json TEXT`,
+    ).run();
+  } catch (_) { /* already present */ }
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
@@ -242,10 +247,12 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext
       "",
       "BLEND INSTRUCTIONS:",
       "• START from the source's read. Capture the price levels, direction, time horizon, and reasoning it gives.",
-      "• OVERLAY the TT MODEL CONTEXT below — current price, regime, HTF state, score/conviction, kanban stage, and our own trigger/stop/TP levels (if any).",
-      "• When the model AGREES with the source, say so explicitly and reinforce: 'The setup aligns with our regime read and the entry-trigger at <price>'.",
-      "• When the model DISAGREES (e.g. source long but our regime BEAR_TREND, or source level below our stop), surface the conflict honestly: 'Source sees support at X; our model has us watching <our trigger> instead — the two disagree by Y%.'",
+      "• OVERLAY the TT MODEL CONTEXT below — current LIVE price, regime, HTF state, score/conviction, kanban stage, and our own trigger/stop/TP levels ONLY when the context line includes them.",
+      "• When the model AGREES with the source and the context includes a trigger/stop/TP, say so explicitly and reinforce with those numbers.",
+      "• When the model DISAGREES (e.g. source long but our regime BEAR_TREND), surface the conflict honestly using levels from the TT MODEL CONTEXT only.",
       "• When TT MODEL CONTEXT includes price/regime/score for a ticker, that ticker IS on the desk — blend source + model. Never claim a ticker is 'not in our active universe' when context lines exist for it.",
+      "• If a ticker line says 'model levels omitted — stale vs live price', cite regime/stage/live price ONLY. Do NOT invent, recycle, or guess trigger/stop/TP for that ticker.",
+      "• Never cite TT model stop/target/entry numbers that are not present in the TT MODEL CONTEXT block for that ticker.",
       "• Only when context explicitly says 'limited model data' for a ticker, present the source view and note the desk snapshot is still syncing.",
       "• MEMORY STOCKS (MU, WDC, STX, SNDK, HIMX): the desk tracks these under ai_infra_memory with scoring + CTO magnets. When CTO or price lines exist, cite them as actionable levels. Never write that the model lacks memory-stock levels.",
       "• SPX / US500 (cash index): TT has no SPX feed — desk tracks SPY (+ ES). When the SPX/SPY block shows a live ratio, convert source ^SPX levels to SPY in tt_key_points (SPY ≈ SPX ÷ ratio). Never use fixed 10:1 math; ratio drifts with dividends/expense. Blend against SPY model context.",
@@ -255,7 +262,7 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext
       "• Output ONLY valid JSON in the schema at the end of the user message — no prose outside.",
       "• PARAPHRASE the source — never quote more than 5 consecutive words. We do not republish copyrighted research verbatim.",
       "• Voice: concise (3-5 sentences MAX in tt_summary_body), present tense, technical, action-oriented. Lead with the price level or trigger. End with the implication for the desk.",
-      "• Preserve PRECISE PRICE LEVELS, technical setups (TD Buy Setup, golden gate, support/resistance), and time horizons exactly as cited.",
+      "• Preserve PRECISE PRICE LEVELS from the SOURCE when citing the source's call. TT model levels must come only from TT MODEL CONTEXT.",
       "• No second-person (\'you\'). Use \'this account\', \'the desk\', or third-person.",
       "• Mention tickers as bare uppercase symbols (NVDA, GOOGL) — NOT cashtags or company names.",
       "• Do NOT mention \'Fundstrat\' or the source brand in the title/body/cta — attribution renders separately. The title should sound like TT wrote it.",
@@ -266,7 +273,7 @@ function buildRewritePrompt(text, sourceTitle, sourceUrl, postType, modelContext
       `Source title: ${sourceTitle || "(untitled)"}`,
       `Source URL: ${sourceUrl || "(none)"}`,
       "",
-      "── TT MODEL CONTEXT (your own data for the tickers mentioned) ──",
+      "── TT MODEL CONTEXT (live-overlaid desk data — cite stop/tp/trigger ONLY if present) ──",
       modelContext || "(no model context)",
       "",
       "── SOURCE BODY (paraphrase, do not quote verbatim) ──",
@@ -370,15 +377,18 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
   if (/^\d+$/.test(pubId)) postType = "post";
   if (meta?.source_url?.includes("flash") || meta?.source_url?.includes("alert")) postType = "fsi-alert";
 
-  // 2026-06-03 — Build the BLENDED model-context block from the same
-  // per-ticker snapshot the Technicals tab + HTF scoring tile consume
-  // (no parallel KV layout, no duplicate fetches). Reads
-  // `timed:all:snapshot.data[SYM]` for each tagged ticker on the pub.
+  // 2026-07-23 — Freshest of snapshot/ticker_latest/timed:latest + live
+  // timed:prices overlay; divergent plan levels omitted from the prompt.
   const taggedTickers = await loadTickersForPub(env, pubId);
-  const modelContext = await loadModelContextForTickers(env, taggedTickers, {
+  const modelCtx = await loadModelContextForTickers(env, taggedTickers, {
     focusTicker,
     sourceText: text.text_full,
   });
+  const modelContext = modelCtx?.text || "";
+  const modelContextMeta = {
+    built_at: Date.now(),
+    tickers: modelCtx?.metaByTicker || {},
+  };
   const { system, user } = buildRewritePrompt(
     text.text_full,
     meta?.title || "",
@@ -410,13 +420,29 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
 
   const attribution = `Source: Fundstrat Direct — ${meta?.title ? `"${meta.title.slice(0, 100)}"` : "research"}${meta?.source_url ? ` (read original)` : ""}`;
   const { sanitizeFsdCopy, sanitizeFsdTitle } = await import("./fsd-sanitize.js");
+  const metaTickers = modelContextMeta?.tickers || {};
+  const sourceBody = String(text.text_full || "");
+  // Post-process: LLM sometimes leaves author bylines / source brand in the
+  // headline even with the prompt instruction. Strip them defensively.
+  // Also strip TT stop/target/trigger dollars the model invented outside
+  // the fresh context (2026-07-23 TSLA $373 hallucination).
   const payload = {
-    // Post-process: LLM sometimes leaves author bylines / source brand in the
-    // headline even with the prompt instruction. Strip them defensively.
     tt_summary_title: sanitizeFsdTitle(String(parsed.tt_summary_title || "").slice(0, 300), "Market Intel update"),
-    tt_summary_body: sanitizeFsdCopy(String(parsed.tt_summary_body || "").slice(0, 2000)),
-    tt_key_points: Array.isArray(parsed.tt_key_points) ? parsed.tt_key_points.slice(0, 8) : [],
-    tt_cta: sanitizeFsdCopy(String(parsed.tt_cta || "").slice(0, 400)),
+    tt_summary_body: stripUncitedModelLevels(
+      sanitizeFsdCopy(String(parsed.tt_summary_body || "").slice(0, 2000)),
+      metaTickers,
+      sourceBody,
+    ),
+    tt_key_points: filterKeyPointsLevels(
+      Array.isArray(parsed.tt_key_points) ? parsed.tt_key_points.slice(0, 8) : [],
+      metaTickers,
+      sourceBody,
+    ),
+    tt_cta: stripUncitedModelLevels(
+      sanitizeFsdCopy(String(parsed.tt_cta || "").slice(0, 400)),
+      metaTickers,
+      sourceBody,
+    ),
     attribution,
     model_used: llm.model,
     prompt_tokens: llm.prompt_tokens || null,
@@ -428,8 +454,8 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
       INSERT OR REPLACE INTO ${REWRITES_TABLE}
         (pub_id, tt_summary_title, tt_summary_body, tt_key_points_json,
          tt_cta, attribution, model_used, prompt_tokens, completion_tokens,
-         rewritten_at, error)
-      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10, NULL)
+         rewritten_at, error, model_context_meta_json)
+      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10, NULL, ?11)
     `).bind(
       pubId,
       payload.tt_summary_title,
@@ -441,20 +467,106 @@ export async function rewriteFSDPublication(env, pubId, { force = false, model =
       payload.prompt_tokens,
       payload.completion_tokens,
       Date.now(),
+      JSON.stringify(modelContextMeta),
     ).run();
   } catch (e) {
-    console.warn("[CRO_REWRITER] persist failed:", String(e?.message || e).slice(0, 200));
+    // Fallback without meta column if ALTER hasn't landed yet.
+    try {
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO ${REWRITES_TABLE}
+          (pub_id, tt_summary_title, tt_summary_body, tt_key_points_json,
+           tt_cta, attribution, model_used, prompt_tokens, completion_tokens,
+           rewritten_at, error)
+        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10, NULL)
+      `).bind(
+        pubId,
+        payload.tt_summary_title,
+        payload.tt_summary_body,
+        JSON.stringify(payload.tt_key_points),
+        payload.tt_cta,
+        payload.attribution,
+        payload.model_used,
+        payload.prompt_tokens,
+        payload.completion_tokens,
+        Date.now(),
+      ).run();
+    } catch (e2) {
+      console.warn("[CRO_REWRITER] persist failed:", String(e2?.message || e2).slice(0, 200));
+    }
   }
 
-  return { ok: true, pub_id: pubId, ...payload };
+  return { ok: true, pub_id: pubId, ...payload, model_context_meta: modelContextMeta };
+}
+
+/**
+ * Force-rewrite recent notes whose rewrite-time model px drifted vs live.
+ * Prevents frozen stale stop/tp prose after gaps / big moves.
+ */
+export async function refreshStaleRewrites(env, {
+  limit = 5,
+  lookbackMs = 7 * 24 * 3600 * 1000,
+  driftPct = REWRITE_PX_DRIFT_PCT,
+  model = null,
+} = {}) {
+  await ensureRewriteSchema(env);
+  const db = env?.DB;
+  if (!db) return { ok: false, error_kind: "no_db", refreshed: [] };
+  const since = Date.now() - lookbackMs;
+  let rows = [];
+  try {
+    const q = await db.prepare(`
+      SELECT pub_id, model_context_meta_json, rewritten_at
+        FROM ${REWRITES_TABLE}
+       WHERE tt_summary_body IS NOT NULL
+         AND rewritten_at >= ?
+         AND model_context_meta_json IS NOT NULL
+       ORDER BY rewritten_at DESC
+       LIMIT 80
+    `).bind(since).all();
+    rows = q?.results || [];
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200), refreshed: [] };
+  }
+
+  const pricesMap = await loadTimedPricesMap(env);
+  const staleIds = [];
+  for (const r of rows) {
+    let meta = null;
+    try { meta = JSON.parse(String(r.model_context_meta_json || "")); } catch (_) { continue; }
+    const tickers = meta?.tickers || {};
+    let needs = false;
+    for (const [sym, tMeta] of Object.entries(tickers)) {
+      const row = pricesMap?.[sym] || pricesMap?.prices?.[sym];
+      const livePx = Number(row?.p ?? row?.price);
+      if (rewriteMetaNeedsRefresh(tMeta, livePx, { driftPct })) {
+        needs = true;
+        break;
+      }
+    }
+    if (needs) staleIds.push(r.pub_id);
+    if (staleIds.length >= limit) break;
+  }
+
+  const refreshed = [];
+  for (const pubId of staleIds) {
+    const out = await rewriteFSDPublication(env, pubId, { force: true, model });
+    refreshed.push({
+      pub_id: pubId,
+      ok: !!out.ok,
+      error_kind: out.error_kind || null,
+      reason: "px_drift",
+    });
+  }
+  return { ok: true, considered: rows.length, stale: staleIds.length, refreshed };
 }
 
 // ── Bulk path used by the orchestrator to rewrite a batch ────────────────────
 /**
  * Rewrite up to N publications that don't yet have a rewrite. Used by the
  * orchestrator's per-cycle hook and the admin backfill endpoint.
+ * Also force-refreshes a small set of recent rewrites whose live px drifted.
  */
-export async function rewritePendingPublications(env, { limit = 10, model = null } = {}) {
+export async function rewritePendingPublications(env, { limit = 10, model = null, refreshStale = true } = {}) {
   await ensureRewriteSchema(env);
   const db = env?.DB;
   if (!db) return { ok: false, error_kind: "no_db" };
@@ -473,12 +585,19 @@ export async function rewritePendingPublications(env, { limit = 10, model = null
       const r = await rewriteFSDPublication(env, c.pub_id, { model });
       results.push({ pub_id: c.pub_id, ok: !!r.ok, error_kind: r.error_kind || null });
     }
+    let staleRefresh = { ok: true, refreshed: [] };
+    if (refreshStale) {
+      // Cap refresh budget so a gap day cannot burn the whole LLM quota.
+      const refreshLimit = Math.min(5, Math.max(1, Math.floor(limit / 2)));
+      staleRefresh = await refreshStaleRewrites(env, { limit: refreshLimit, model });
+    }
     return {
       ok: true,
       considered: candidates.length,
       rewrote_ok: results.filter((r) => r.ok && !r.skipped).length,
       errors: results.filter((r) => !r.ok).length,
       results,
+      stale_refresh: staleRefresh,
     };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };

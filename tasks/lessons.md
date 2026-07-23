@@ -18,6 +18,22 @@ Fix: match DCA lots to `DCA_BUY|ENTRY` (prefer `DCA_BUY`), delete unclaimed
 buy twins at the same `position_id|ts`, atomic `total_shares/cost_basis +=`,
 and run positions/repair after ledger repair in COO heal.
 
+## FSD rewrite must not cite stale TT plan levels [2026-07-23]
+
+Research Desk notes for TSLA cited stop `$373.15` / target `$338.33` /
+entry-trigger `$373.50` while live was ~`$320`. Those numbers were **not**
+in the Fundstrat source — `fsd-rewriter` injected them from a stale
+`timed:all:snapshot` and frozen the prose (`already_rewritten` skip).
+
+Rules:
+1. Prefer freshest of snapshot / `ticker_latest` / `timed:latest` (`KV_TIMED||KV`).
+2. Overlay live `timed:prices` before summarizing.
+3. Omit the whole trigger/stop/tp book if any level is >12% from live px
+   or geometry is not a valid long/short.
+4. Persist `model_context_meta_json`; auto force-refresh when live px
+   drifts ≥8% from rewrite-time px.
+5. Prompt: never invent TT levels absent from the context block.
+
 ## Mobile Tab Nav must not hide on viewport ratio alone [2026-07-23]
 
 `tt-bottom-nav.js` used `vvH < innerH * 0.65` as "keyboard open" and
