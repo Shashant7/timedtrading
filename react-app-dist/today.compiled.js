@@ -4154,7 +4154,21 @@ function EarningsStrip({
   onSelectTicker,
   strip
 }) {
-  const events = safeArr(earnings?.events).slice();
+  const todayNy = (() => {
+    try {
+      return new Date().toLocaleDateString("en-CA", {
+        timeZone: "America/New_York"
+      });
+    } catch (_) {
+      return new Date().toISOString().slice(0, 10);
+    }
+  })();
+  const events = safeArr(earnings?.events).filter(ev => {
+    const d = String(ev?.date || "").slice(0, 10);
+    if (!d || d < todayNy) return false;
+    if (ev?.epsActual != null && Number.isFinite(Number(ev.epsActual))) return false;
+    return true;
+  });
   if (events.length === 0) return null;
   const HOUR_ORDER = h => {
     const hl = String(h || "").toLowerCase();
@@ -4230,7 +4244,11 @@ function EarningsStrip({
           fontSize: 10,
           color: "var(--tt-text-dim)"
         }
-      }, `${String(ev?.date || "").slice(5)} ${hourClass(ev?.hour).toUpperCase()}`));
+      }, (() => {
+        const day = String(ev?.date || "").slice(5);
+        const hc = hourClass(ev?.hour);
+        return hc === "unk" ? day : `${day} ${hc.toUpperCase()}`;
+      })()));
     })));
   }
   return h("section", {
@@ -7164,6 +7182,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784812032392:179916728
+// cache-bust:1784813620591:186453980
 
-// cache-bust:1784812032392:179916728
+// cache-bust:1784813620591:186453980

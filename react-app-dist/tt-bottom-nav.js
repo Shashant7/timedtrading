@@ -5,9 +5,9 @@
 // no matter where they are on the page (especially important on long
 // scrolling pages like /portfolio + /insights).
 //
-// Hidden on screens ≥ 720px (desktop has the sticky top nav already).
+// Hidden on screens ≥ 768px (desktop has the sticky top nav already).
 //
-// Usage: <script src="tt-bottom-nav.js?v=20260517a"></script> after body
+// Usage: <script src="tt-bottom-nav.js?v=…"></script> after body
 // content. The script auto-injects markup + styles, detects current page
 // from window.location.pathname, and highlights the matching tab.
 
@@ -24,57 +24,26 @@
   style.textContent = `
     .tt-bn {
       display: none;
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      /* 2026-05-31 — User report: bottom nav was appearing mid-page on
-         iOS Safari instead of pinned to the viewport. Root cause was
-         the PaywallScreen wrapper using transform translate3d (and
-         some legacy callers using transform translateZ(0) to force
-         GPU layers) — when ANY ancestor of a position:fixed element
-         has a transform, filter, or perspective, the fixed element's
-         containing block becomes that ancestor instead of the
-         viewport. So the nav appeared at the bottom of the paywall
-         card, not the bottom of the screen.
-
-         Re-parent the nav DIRECTLY under body via document.body
-         .appendChild() (already in code below) AND bump z-index so
-         it always wins. The translate3d inside the nav itself is
-         fine (it doesn't affect its own positioning context) — it's
-         ancestor transforms that break fixed positioning.
-
-         2026-06-01 (v3) — CRITICAL: removed inline backticks around
-         transform keywords (was 'transform: translate3d' etc with
-         backticks). Those backticks were INSIDE the outer JS template
-         literal that defines this CSS, so they terminated the literal
-         early and the entire script body after this point was parsed
-         as bare JavaScript identifiers — guaranteed SyntaxError on
-         every load. The script silently never ran in any browser for
-         ~2 weeks. Never use backticks inside a template literal's CSS
-         body, even in comments. */
+      position: fixed !important;
+      bottom: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      top: auto !important;
+      /* 2026-07-23 (v6) — iOS Safari: GPU transform / blur filters on a
+         position:fixed bar can detach it from the viewport during scroll
+         so it rides mid-page with content. Keep this rule filter-free. */
       z-index: 2147483000;
-      /* 2026-07-23 (v5) — Pin with bottom:0 + safe-area only. The old
-         visualViewport translateY "URL bar push" left the bar floating
-         mid-page on iPhone (delta often equals expanded chrome, not a
-         bottom toolbar). Modern iOS already lays out position:fixed
-         against the visual viewport; chasing innerHeight-vv.height made
-         it worse. */
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
-      background: rgba(11,20,16,0.94);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
+      background: rgba(11,20,16,0.97);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
-      /* GPU layer for iOS momentum-scroll; do NOT translate for chrome. */
-      transform: translate3d(0, 0, 0);
-      -webkit-transform: translate3d(0, 0, 0);
-      -webkit-backface-visibility: hidden;
-      backface-visibility: hidden;
+    }
+    .tt-bn.is-keyboard-hidden {
+      visibility: hidden;
+      pointer-events: none;
     }
     .tt-bn-row {
       display: grid;
-      /* 5 journey tabs after model-first merge (Trader+Investor → Model). */
       grid-template-columns: repeat(5, 1fr);
       gap: 4px;
       max-width: 720px;
@@ -103,8 +72,6 @@
       display: flex; align-items: center; justify-content: center;
       position: relative;
     }
-    /* Bug 2 — bottom-nav badge (mirrors the desktop top-nav .nav-badge
-       styling used by tt-nav-extras.js). Hidden until populated. */
     .tt-bn-badge {
       position: absolute;
       top: -6px;
@@ -143,14 +110,12 @@
     }
     @media (max-width: 768px) {
       .tt-bn { display: block; }
-      /* Push the legal footer up out of the bottom-nav's way so they don't overlap. */
       #legal-footer { bottom: 56px !important; }
       body { padding-bottom: 64px; }
     }
   `;
   document.head.appendChild(style);
 
-  // ── SVG icon registry (minimal, currentColor) ───────────────
   const icons = {
     today: '<svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="M12 6v6l4 2"/></svg>',
     trader: '<svg viewBox="0 0 24 24"><path d="M3 18l5-6 4 3 5-7 4 5"/><path d="M3 21h18"/></svg>',
@@ -160,11 +125,7 @@
     learn: '<svg viewBox="0 0 24 24"><path d="M4 6h13a3 3 0 0 1 3 3v11H7a3 3 0 0 1-3-3z"/><path d="M4 6a2 2 0 0 1 2-2h11"/></svg>',
   };
 
-  // ── Items definition ───────────────────────────────────────
-  // 2026-07-22 — model-first consolidation: the Trader and Investor nav
-  // items merged into one "Model" destination (the unified board). The
-  // retired /investor.html redirects there, so its match keys stay on the
-  // Model item to keep the active state correct during the redirect.
+  // 2026-07-22 — model-first: Trader + Investor → one Model tab.
   const items = [
     { id: "today",     href: "/today.html",          label: "Today" },
     { id: "trader",    href: "/active-trader.html",  label: "Model",     matches: ["active-trader", "index-react", "investor", "investor-dashboard"] },
@@ -173,7 +134,6 @@
     { id: "learn",     href: "/learn.html",          label: "Learn" },
   ];
 
-  // ── Determine active item from URL ─────────────────────────
   const currentPath = (window.location.pathname || "")
     .replace(/^\//, "")
     .replace(/\.html$/, "")
@@ -185,18 +145,14 @@
     return false;
   }
 
-  // ── Build nav element ──────────────────────────────────────
   const nav = document.createElement("nav");
   nav.id = "tt-bottom-nav";
   nav.className = "tt-bn";
   nav.setAttribute("aria-label", "Primary mobile navigation");
-  // Diagnostic attributes for Mobile Safari Inspector:
-  //   data-tt-bn-mounted   — script ran + appendChild fired
-  //   data-tt-bn-built-at  — script vintage (lines up with cache-bust)
-  //   data-tt-bn-state     — "pinned" | "keyboard"
-  //   document.getElementById("tt-bottom-nav").dataset
+  // Diagnostic: document.getElementById("tt-bottom-nav").dataset
+  //   ttBnState: "pinned" | "keyboard"
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-07-23-v5";
+  nav.dataset.ttBnBuiltAt = "2026-07-23-v6";
   nav.dataset.ttBnState = "pinned";
 
   const row = document.createElement("div");
@@ -212,11 +168,6 @@
     iconWrap.className = "tt-bn-icon";
     iconWrap.innerHTML = icons[item.id] || "";
 
-    // Bug 2 (2026-05-19) — badge support on bottom nav. Desktop top
-    // nav already shows badges via tt-nav-extras.js for Active Trader
-    // (open-trade count) and Investor (actionable count). Mobile bottom
-    // nav previously had no badge DOM at all. Stub badges for trader /
-    // investor here; populated by the helpers below on mount + every 60s.
     if (item.id === "trader") {
       const badge = document.createElement("span");
       badge.className = "tt-bn-badge";
@@ -236,21 +187,39 @@
 
   nav.appendChild(row);
 
-  // ── Inject when DOM ready ──────────────────────────────────
-  if (document.body) {
-    document.body.appendChild(nav);
-  } else {
-    document.addEventListener("DOMContentLoaded", () => {
-      if (!document.getElementById("tt-bottom-nav")) {
-        document.body.appendChild(nav);
-      }
-    });
+  function mountNav() {
+    if (!document.body) return;
+    if (nav.parentNode !== document.body) {
+      document.body.appendChild(nav);
+    }
   }
 
-  // ── Bug 2: bottom-nav badges ────────────────────────────────
-  // Mirror of tt-nav-extras.js setBadge() but targets the mobile
-  // bottom nav's .tt-bn-badge slots. Same data sources (open trade
-  // count + investor actionable count) so the two navs stay in sync.
+  /** Keep the bar a direct body child + truly viewport-fixed (iOS scroll). */
+  function pinNavToViewport() {
+    const navEl = document.getElementById("tt-bottom-nav");
+    if (!navEl || !document.body) return;
+    if (navEl.parentNode !== document.body) {
+      document.body.appendChild(navEl);
+    }
+    navEl.style.setProperty("position", "fixed", "important");
+    navEl.style.setProperty("bottom", "0px", "important");
+    navEl.style.setProperty("left", "0px", "important");
+    navEl.style.setProperty("right", "0px", "important");
+    navEl.style.setProperty("top", "auto", "important");
+    navEl.style.removeProperty("transform");
+    navEl.style.removeProperty("-webkit-transform");
+  }
+
+  if (document.body) {
+    mountNav();
+  } else {
+    document.addEventListener("DOMContentLoaded", () => {
+      mountNav();
+      pinNavToViewport();
+    });
+  }
+  pinNavToViewport();
+
   function setBottomBadge(id, value) {
     const el = nav.querySelector(`.tt-bn-badge[data-for="${id}"]`);
     if (!el) return;
@@ -292,14 +261,6 @@
       });
       if (!r.ok) return null;
       const j = await r.json();
-      // 2026-05-21 — Bug: /timed/investor/scores returns
-      //   { ok, count, computedAt, tickers: [...] }
-      // The original code read `j.scores` (never present) so the list was
-      // always empty and the Investor badge never lit up. The endpoint
-      // accepts an optional ?stage= filter — pass `accumulate` first to
-      // count the "BUY NOW" lane, then a second call for `reduce`. Two
-      // tiny GETs (KV-backed, cached) and the badge total matches the
-      // count chips on the Investor page.
       const arr = Array.isArray(j?.tickers) ? j.tickers
                 : Array.isArray(j?.scores)  ? j.scores
                 : Array.isArray(j)          ? j
@@ -320,8 +281,6 @@
   }
 
   async function applyBadges() {
-    // 2026-07-22 model-first: single Model badge = open trades + actionable
-    // long-term names (both books live on the unified board now).
     const [trader, investor] = await Promise.all([
       fetchOpenTradeCount(),
       fetchInvestorActionableCount(),
@@ -338,10 +297,6 @@
     setBottomBadge("trader", total > 0 ? total : null);
   });
 
-  // ── Keyboard hide only (no URL-bar translate) ───────────────
-  // 2026-07-23 (v5) — Dropped visualViewport URL-bar push. It left the
-  // nav floating mid-page on iPhone after v4. Keep a simple hide while
-  // a text field is focused so the bar does not cover the keyboard.
   function isTextInputFocused() {
     const ae = document.activeElement;
     if (!ae) return false;
@@ -354,17 +309,25 @@
   function syncNavKeyboardState() {
     const navEl = document.getElementById("tt-bottom-nav");
     if (!navEl) return;
+    pinNavToViewport();
     if (isTextInputFocused()) {
-      navEl.style.transform = "translate3d(0, 200%, 0)";
+      navEl.classList.add("is-keyboard-hidden");
       navEl.dataset.ttBnState = "keyboard";
     } else {
-      navEl.style.transform = "translate3d(0, 0, 0)";
+      navEl.classList.remove("is-keyboard-hidden");
       navEl.dataset.ttBnState = "pinned";
     }
   }
+
   window.addEventListener("focusin", syncNavKeyboardState, true);
   window.addEventListener("focusout", () => setTimeout(syncNavKeyboardState, 50), true);
+  // Capture scroll so iOS momentum cannot leave a detached compositor layer.
+  window.addEventListener("scroll", pinNavToViewport, { passive: true, capture: true });
+  window.addEventListener("resize", pinNavToViewport, { passive: true });
+  window.addEventListener("orientationchange", () => setTimeout(pinNavToViewport, 250), { passive: true });
   syncNavKeyboardState();
+  setTimeout(pinNavToViewport, 150);
+  setTimeout(pinNavToViewport, 400);
 })();
 
-// cache-bust:1784812032392:179916728
+// cache-bust:1784813620591:186453980

@@ -122,8 +122,11 @@ export function briefSectionChipKey(title) {
   const lower = String(title || "").toLowerCase();
   if (lower.includes("model actions")) return "modelActions";
   if (lower.includes("top movers")) return "topMovers";
-  if (lower.includes("active trader")) return "activeTrader";
-  if (lower.includes("investor portfolio")) return "investorPortfolio";
+  // Model-first headings + legacy aliases (Active Trader / Investor Portfolio).
+  if (lower.includes("short term") || lower.includes("active trader")) return "activeTrader";
+  if (lower.includes("long term portfolio") || lower.includes("investor portfolio")) {
+    return "investorPortfolio";
+  }
   return null;
 }
 
@@ -135,7 +138,8 @@ export function stripBriefInvestorPortfolioBody(body, hasHoldings = false) {
     .filter((line) => {
       const t = line.trim().replace(/^[-*•]\s+/, "");
       if (!t) return true;
-      if (hasHoldings && /^no investor positions?\.?$/i.test(t)) return false;
+      if (hasHoldings && /^no (open )?investor positions?\.?$/i.test(t)) return false;
+      if (hasHoldings && /^no open long term positions?\.?$/i.test(t)) return false;
       if (hasHoldings && /^no (open )?holdings\.?$/i.test(t)) return false;
       // Stat-only rows the LLM emits when holdings exist — duplicated by position chips.
       if (/^\*\*[A-Z][A-Z0-9.-]{0,9}\*\*\s*·\s*(?:today|return|\d+\s*sh)/i.test(t)) return false;

@@ -97,6 +97,8 @@ describe("daily-brief open positions", () => {
   it("stripBriefInvestorPortfolioBody hides empty state when holdings exist", () => {
     const out = stripBriefInvestorPortfolioBody("• No investor positions.", true);
     expect(out).toBe("");
+    const outLt = stripBriefInvestorPortfolioBody("• No open Long Term positions.", true);
+    expect(outLt).toBe("");
     const kept = stripBriefInvestorPortfolioBody("- **NVDA**: thesis intact · hold", true);
     expect(kept).toContain("thesis intact");
   });

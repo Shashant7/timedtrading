@@ -22,6 +22,22 @@ After the keyboard false-positive fix, the remaining
 indicator. Modern iOS already positions `position:fixed; bottom:0`
 against the visual viewport — drop the chrome translate entirely.
 
+## Mobile Tab Nav: no transform/backdrop-filter on fixed bar [2026-07-23]
+
+Even after dropping URL-bar translate, iOS Safari still scrolled the Tab
+Nav mid-page when `.tt-bn` used `transform: translate3d(0,0,0)` +
+`backdrop-filter`. Those promote a compositor layer that detaches from
+the viewport during momentum scroll. Use plain `position:fixed; bottom:0`
+(no transform/filter); hide keyboard via `visibility` class; re-append
+to `body` on scroll.
+
+## Earnings upcoming must not invent BMO [2026-07-23]
+
+Hourly earnings cron used `hour || "bmo"`, so blank vendor/session became
+BMO on Today chips (AAPL 07-23 BMO while the real print is ~07-30 AMC).
+Default unknown hour to `""`; filter already-reported (`epsActual`) rows
+out of upcoming chips.
+
 ---
 
 ## Ledger summary must filter by mode [2026-07-22]

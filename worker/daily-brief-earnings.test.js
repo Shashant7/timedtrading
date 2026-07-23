@@ -73,6 +73,12 @@ describe("normalizeTdEarningsHour", () => {
     expect(normalizeTdEarningsHour("bmo")).toBe("bmo");
     expect(normalizeTdEarningsHour("Time Not Supplied")).toBe("");
   });
+
+  it("leaves blank / unknown empty (never invent bmo)", () => {
+    expect(normalizeTdEarningsHour("")).toBe("");
+    expect(normalizeTdEarningsHour("unknown")).toBe("");
+    expect(normalizeTdEarningsHour(null)).toBe("");
+  });
 });
 
 describe("flattenTdEarningsCalendar", () => {
