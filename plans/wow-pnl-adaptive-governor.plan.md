@@ -9,22 +9,34 @@ todos:
     content: >-
       Load dynamic demotion_* keys into daCfg; honor blocked for all tickers;
       heal mangled TT Tt keys; expand enforce_paths for ATH/Support/Range.
-    status: in_progress
+    status: completed
   - id: bleeder-shield-on
     content: Enable deep_audit_bleeder_shield so soft fast-cuts stop manufacturing losses when HTF structure holds.
-    status: pending
+    status: completed
   - id: family-attribution
     content: GET /timed/admin/trust-spine/family-attribution — confirm-stack capture + MFE keep vs 4.8% baseline.
-    status: pending
+    status: completed
   - id: weekly-governor
     content: Nightly/weekly governor artifact + auto-demote severe bleeders (PF<0.5, n>=10); tier2 proposals otherwise.
-    status: pending
+    status: completed
   - id: slice-stamp
     content: Stamp slice_family=confirm_stack_ema21 on ENTRY decision_records when stack_full_confirm fires.
-    status: pending
+    status: completed
   - id: wow-guard
     content: Governor flags WoW PnL regression vs prior week and emits learning proposals (no silent widen).
-    status: pending
+    status: completed
+  - id: next-sequence-queued
+    content: Sequence entry_ready may propose Queued (tiny/paper) for confirm-stack family only.
+    status: completed
+  - id: next-move-ending
+    content: Flag-gated move-ending enforce after family keep-rate clears floor.
+    status: completed
+  - id: next-conviction-flip
+    content: Flip conviction fusion only after forward n>=30 with positive OOS keep-rate.
+    status: completed
+  - id: next-options-first
+    content: Tier-A RIDE on confirm-stack stamps options play_vehicle (intent; sim fill gated).
+    status: completed
 isProject: true
 ---
 
@@ -76,12 +88,15 @@ decision_records (slice_family stamped) → next week's scorecard
 4. **Stamp `slice_family`** on ENTRY provenance when confirm-stack fires.
 5. Tests + deploy smoke.
 
-## Explicitly later (next PRs)
+## Thin-slice capital path (r2 — 2026-07-23)
 
-- Sequence `entry_ready` → Queued (tiny/paper) for confirm-stack only
-- Move-ending enforce flag (advisory → trim/exit after ledger n≥30)
-- Conviction fusion flip after forward n≥30 with positive OOS keep-rate
-- Options-first expression stamp for Tier-A RIDE
+- Sequence `entry_ready` + `stack_full_confirm` → `_sequence_queue_proposal`
+  (Queued, paper, size_mult 0.1). Lifecycle shows Queued; does **not** set
+  kanban `in_review`. If a normal entry still fires, size is capped.
+- Options-first: Tier-A RIDE stamps `_model_play.play_vehicle=options`.
+- Move-ending enforce + conviction fusion: code wired; weekly governor
+  auto-enables only when family `closed≥30` and `avg_mfe_keep_rate≥0.35`
+  and WoW not regressing / block_widen off.
 
 ## Guardrails
 

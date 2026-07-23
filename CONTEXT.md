@@ -223,6 +223,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   index-only). Nightly governor heals mangled keys, auto-demotes PF<0.5
   bleeders, enables bleeder shield, writes `timed:weekly-governor:latest`.
   Family attribution: `GET /timed/admin/trust-spine/family-attribution`.
+  Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
+  move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
 
 **Ledger summary is mode-aware (2026-07-22)**
 - `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.

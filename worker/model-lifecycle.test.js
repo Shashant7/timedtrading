@@ -102,4 +102,19 @@ describe("resolveModelLifecycle", () => {
     expect(r.play.label).toMatch(/Call/);
     expect(formatLifecycleHeadline(r)).toMatch(/options/);
   });
+
+  it("sequence paper queue elevates watching → queued without open position", () => {
+    const r = resolveModelLifecycle({
+      ticker: "MU",
+      kanban_stage: "setup_watch",
+      sequence_queue_proposal: {
+        state: "queued",
+        paper: true,
+        size_mult: 0.1,
+        reason: "sequence_entry_ready+stack_full_confirm",
+      },
+    });
+    expect(r.state).toBe(LIFECYCLE_STATES.QUEUED);
+    expect(r.why).toMatch(/sequence_entry_ready/);
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compareWowPnl, planSevereDemotions, loadWeeklyGovernorConfig } from "./weekly-governor.js";
+import { compareWowPnl, planSevereDemotions, loadWeeklyGovernorConfig, canPromoteWidenLevers } from "./weekly-governor.js";
 import { buildFamilyAttributionReport, mfeKeepRate, isConfirmStackDecision } from "./family-attribution.js";
 
 describe("weekly governor pure helpers", () => {
@@ -26,6 +26,14 @@ describe("weekly governor pure helpers", () => {
     expect(cfg.enabled).toBe(true);
     expect(cfg.autoDemote).toBe(true);
     expect(cfg.healDemotions).toBe(true);
+  });
+
+  it("promotes widen levers only when n/keep clear and WoW not regressing", () => {
+    const family = { ok: true, closed: 32, avg_mfe_keep_rate: 0.42 };
+    expect(canPromoteWidenLevers(family, { regressing: false }, {}).ok).toBe(true);
+    expect(canPromoteWidenLevers({ ok: true, closed: 10, avg_mfe_keep_rate: 0.5 }, { regressing: false }, {}).ok).toBe(false);
+    expect(canPromoteWidenLevers(family, { regressing: true }, {}).ok).toBe(false);
+    expect(canPromoteWidenLevers(family, { regressing: false }, { blockWiden: true }).ok).toBe(false);
   });
 });
 

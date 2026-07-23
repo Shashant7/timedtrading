@@ -39,7 +39,30 @@ export function loadWeeklyGovernorConfig(daCfg = {}) {
     healDemotions,
     severeMinN: Number(daCfg.deep_audit_weekly_governor_severe_min_n) || 10,
     severeMaxPf: Number(daCfg.deep_audit_weekly_governor_severe_max_pf) || 0.5,
+    blockWiden: String(daCfg.deep_audit_weekly_governor_block_widen ?? "false") === "true",
+    convictionMinClosed: Number(daCfg.deep_audit_weekly_governor_conviction_min_closed) || 30,
+    convictionKeepFloor: Number(daCfg.deep_audit_weekly_governor_conviction_keep_floor) || 0.35,
+    moveEndingMinClosed: Number(daCfg.deep_audit_move_ending_min_closed_n) || 30,
+    moveEndingKeepFloor: Number(daCfg.deep_audit_move_ending_keep_rate_floor) || 0.35,
+    autoPromoteConviction: String(daCfg.deep_audit_weekly_governor_auto_promote_conviction ?? "true") === "true",
+    autoPromoteMoveEnding: String(daCfg.deep_audit_weekly_governor_auto_promote_move_ending ?? "true") === "true",
   };
+}
+
+/** Pure gate: may we widen conviction fusion / move-ending enforce? */
+export function canPromoteWidenLevers(family, wow, cfg = {}) {
+  const closed = Number(family?.closed) || 0;
+  const keep = Number(family?.avg_mfe_keep_rate);
+  const minClosed = Number(cfg.convictionMinClosed) || 30;
+  const keepFloor = Number(cfg.convictionKeepFloor) || 0.35;
+  if (cfg.blockWiden) return { ok: false, reason: "block_widen_enabled" };
+  if (wow?.regressing === true) return { ok: false, reason: "wow_regressing" };
+  if (!family || family.ok === false) return { ok: false, reason: "no_family_attribution" };
+  if (closed < minClosed) return { ok: false, reason: "insufficient_closed_n", closed, need: minClosed };
+  if (!Number.isFinite(keep) || keep < keepFloor) {
+    return { ok: false, reason: "keep_rate_below_floor", keep, floor: keepFloor };
+  }
+  return { ok: true, reason: "cleared", closed, keep };
 }
 
 /** Pure WoW comparison from two window stats. */
@@ -289,7 +312,64 @@ export async function runWeeklyGovernor(env, opts = {}) {
     }
   }
 
-  // 4) Learning-bus proposals for mild candidates (operator review).
+  // 4) Auto-promote conviction fusion + move-ending enforce when the
+  //    confirm-stack family clears n/keep floors and WoW is not regressing.
+  const promoteGate = canPromoteWidenLevers(family, wow, cfg);
+  actions.push({ type: "promote_gate", ...promoteGate });
+  if (db && promoteGate.ok && !opts.dryRun) {
+    if (cfg.autoPromoteConviction) {
+      try {
+        const cur = await db.prepare(
+          `SELECT config_value FROM model_config WHERE config_key = 'deep_audit_conviction_fusion_enabled'`,
+        ).first();
+        const curVal = cur?.config_value != null
+          ? String((() => { try { return JSON.parse(cur.config_value); } catch { return cur.config_value; } })()).toLowerCase()
+          : "";
+        if (curVal !== "true") {
+          await upsertModelConfig(db, {
+            config_key: "deep_audit_conviction_fusion_enabled",
+            config_value: JSON.stringify("true"),
+            description: `Weekly governor promote: family n=${promoteGate.closed} keep=${promoteGate.keep}`,
+            updated_at: now,
+            updated_by: "weekly_governor_auto_promote",
+          });
+          applied.push({ type: "promote_conviction_fusion", ...promoteGate });
+        }
+      } catch (e) {
+        actions.push({ type: "promote_conviction_error", error: String(e?.message || e) });
+      }
+    }
+    if (cfg.autoPromoteMoveEnding) {
+      try {
+        const closedOk = Number(family?.closed) >= cfg.moveEndingMinClosed;
+        const keepOk = Number(family?.avg_mfe_keep_rate) >= cfg.moveEndingKeepFloor;
+        if (closedOk && keepOk) {
+          const cur = await db.prepare(
+            `SELECT config_value FROM model_config WHERE config_key = 'deep_audit_move_ending_enforce_enabled'`,
+          ).first();
+          const curVal = cur?.config_value != null
+            ? String((() => { try { return JSON.parse(cur.config_value); } catch { return cur.config_value; } })()).toLowerCase()
+            : "";
+          if (curVal !== "true") {
+            await upsertModelConfig(db, {
+              config_key: "deep_audit_move_ending_enforce_enabled",
+              config_value: JSON.stringify("true"),
+              description: `Weekly governor promote move-ending: n=${family.closed} keep=${family.avg_mfe_keep_rate}`,
+              updated_at: now,
+              updated_by: "weekly_governor_auto_promote",
+            });
+            applied.push({ type: "promote_move_ending_enforce", closed: family.closed, keep: family.avg_mfe_keep_rate });
+          }
+        }
+      } catch (e) {
+        actions.push({ type: "promote_move_ending_error", error: String(e?.message || e) });
+      }
+    }
+  } else if (!promoteGate.ok) {
+    actions.push({ type: "promote_blocked", reason: promoteGate.reason });
+  }
+
+  // 5) Learning-bus proposals for mild candidates (operator review).
   const proposals = [];
   if (typeof opts.submitProposal === "function") {
     for (const cand of mildCandidates.slice(0, 8)) {

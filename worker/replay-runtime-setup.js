@@ -104,6 +104,18 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_weekly_governor_severe_min_n",
   "deep_audit_weekly_governor_severe_max_pf",
   "deep_audit_weekly_governor_block_widen",
+  "deep_audit_weekly_governor_auto_promote_conviction",
+  "deep_audit_weekly_governor_auto_promote_move_ending",
+  "deep_audit_weekly_governor_conviction_min_closed",
+  "deep_audit_weekly_governor_conviction_keep_floor",
+  // Confirm-stack thin slice — sequence paper Queued + options-first
+  "deep_audit_confirm_stack_sequence_paper_queue_enabled",
+  "deep_audit_confirm_stack_sequence_paper_size_mult",
+  "deep_audit_confirm_stack_options_first_enabled",
+  // Move-ending enforce (cleared by weekly governor keep-rate gate)
+  "deep_audit_move_ending_enforce_enabled",
+  "deep_audit_move_ending_keep_rate_floor",
+  "deep_audit_move_ending_min_closed_n",
   "deep_audit_earnings_cluster_gate_enabled",
   "deep_audit_earnings_cluster_min_tickers",
   "deep_audit_earnings_cluster_rank_bypass",
