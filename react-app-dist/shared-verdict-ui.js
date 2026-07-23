@@ -1278,12 +1278,12 @@
       var loading = !hasTickerData && !apiTried;
 
       var headCopy = h("div", { className: "tt-ready__head" },
-        h("div", { className: "tt-sec-title" }, "READY SETUPS"),
-        h("h2", { className: "tt-ready__title" }, "Capital shortlist — act on these first"),
+        h("div", { className: "tt-sec-title" }, "READY"),
+        h("h2", { className: "tt-ready__title" }, "Capital shortlist"),
         h("p", { className: "tt-ready__sub" },
           embedded
-            ? "Compiled from names already in enter or accumulate, then ranked by confluence (trigger + sector + fundamentals + momentum). Same stage family as Queuing Up on Model — this strip is only the top 10. Zone labels guide positioning, not market orders."
-            : "Compiled from names already in enter or accumulate, then ranked by confluence. Same stage family as Queuing Up on Model — this page shows only the top 10. Labels: BUY NOW (Short Term entry), BUY (live buy zone), SCALE IN / ACCUMULATE (Long Term — add on dips, not chase).",
+            ? "Top enter / accumulate names by confluence. Zone labels guide positioning."
+            : "Top enter / accumulate names by confluence. Labels: BUY NOW, BUY, SCALE IN / ACCUMULATE.",
         ),
       );
 
@@ -1304,7 +1304,7 @@
       if (candidates.length === 0) {
         return wrap(h(React.Fragment, null,
           headCopy,
-          h("div", { className: "tt-ready__empty" }, "No enter/accumulate names cleared the confluence cut — the strip stays empty rather than forcing picks. Browse Technical Setups (Entry Zone) below, or Queuing Up on Model."),
+          h("div", { className: "tt-ready__empty" }, "Nothing cleared the confluence cut right now."),
         ));
       }
       var savedSet = props.savedSet;
@@ -1566,4 +1566,4 @@
   };
 })();
 
-// cache-bust:1784787270513:955251575
+// cache-bust:1784787903090:944111639
