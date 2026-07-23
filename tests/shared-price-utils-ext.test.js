@@ -197,6 +197,39 @@ describe("getExtChange", () => {
     }));
     expect(ext).toBeNull();
   });
+
+  it("shows large after-hours dump with price + pct (TSLA / GOOGL parity with EXT movers)", () => {
+    mockMarketClosed();
+    const tsla = utils.getExtChange(withFreshPrice({
+      ticker: "TSLA",
+      price: 374.01,
+      close: 374.01,
+      _live_price: 374.01,
+      prev_close: 378.93,
+      day_change_pct: -1.3,
+      _ah_price: 358.4,
+      _ah_change: -15.61,
+      _ah_change_pct: -4.17,
+    }));
+    expect(tsla).not.toBeNull();
+    expect(tsla.price).toBe(358.4);
+    expect(tsla.pct).toBeCloseTo(-4.17, 1);
+
+    const googl = utils.getExtChange(withFreshPrice({
+      ticker: "GOOGL",
+      price: 342.09,
+      close: 342.09,
+      _live_price: 342.09,
+      prev_close: 347.15,
+      day_change_pct: -1.46,
+      _ah_price: 330.75,
+      _ah_change: -11.34,
+      _ah_change_pct: -3.31,
+    }));
+    expect(googl).not.toBeNull();
+    expect(googl.price).toBe(330.75);
+    expect(googl.pct).toBeCloseTo(-3.31, 1);
+  });
 });
 
 describe("getHeadlinePrice RTH flap guard", () => {

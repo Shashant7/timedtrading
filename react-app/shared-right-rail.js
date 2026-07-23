@@ -12518,8 +12518,9 @@
                       : (Math.abs(dayPct || 0) >= 3 ? "#fb7185" : "#f87171");
                     const chgSign = chgVal >= 0 ? "+" : "";
                     const _rrMktOpen = typeof isNyRegularMarketOpen === "function" ? isNyRegularMarketOpen() : false;
-                    const ahPct = _rrMktOpen ? null : Number(src?._ah_change_pct);
-                    const hasAH = Number.isFinite(ahPct) && ahPct !== 0;
+                    const ext = (!_rrMktOpen && window.TimedPriceUtils?.getExtChange)
+                      ? window.TimedPriceUtils.getExtChange(src)
+                      : null;
                     return (
                       <div className="flex items-end justify-between mt-1.5">
                         <div className="flex items-center gap-1.5">
@@ -12535,10 +12536,14 @@
                               {Number.isFinite(dayChg) ? ` (${chgSign}$${Math.abs(dayChg).toFixed(2)})` : ""}
                             </span>
                           )}
-                          {hasAH && (
-                            <span className={`text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ahPct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}>
+                          {ext && (
+                            <span
+                              className={`text-[10px] font-medium tabular-nums leading-tight mt-0.5 ${ext.pct >= 0 ? "text-[#00e676]" : "text-rose-400"}`}
+                              title="Extended-hours quote (pre-market / after-hours)"
+                            >
                               <span className="text-[9px] text-gray-400 mr-0.5">EXT</span>
-                              {ahPct >= 0 ? "+" : ""}{ahPct.toFixed(2)}%
+                              {ext.price != null ? `$${ext.price.toFixed(2)} ` : ""}
+                              {ext.pct >= 0 ? "+" : ""}{ext.pct.toFixed(2)}%
                             </span>
                           )}
                         </div>
