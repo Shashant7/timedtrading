@@ -1026,6 +1026,47 @@ export async function fetchEarningsCalendarForBrief(env, fromDate, toDate) {
   return merged;
 }
 
+/**
+ * True when `timed:earnings:upcoming` looks like a failed Finnhub-only write
+ * (empty, or 1–2 leftover enrichment rows) and should be rebuilt.
+ */
+export function isEarningsUpcomingCacheSparse(cached, opts = {}) {
+  const events = Array.isArray(cached?.events) ? cached.events : [];
+  if (events.length === 0) return true;
+  const maxSparse = Number.isFinite(Number(opts.maxSparse)) ? Number(opts.maxSparse) : 2;
+  return events.length <= maxSparse;
+}
+
+/**
+ * Never let an empty/sparse refresh clobber a healthier in-window cache.
+ * Hourly Finnhub blips previously overwrote ~27 universe rows with SANM-only.
+ */
+export function preferRicherEarningsUpcomingCache(prev, next, opts = {}) {
+  const fromDate = opts.fromDate || null;
+  const toDate = opts.toDate || null;
+  const inWindow = (e) => {
+    const d = String(e?.date || "").slice(0, 10);
+    if (!d) return false;
+    if (fromDate && d < fromDate) return false;
+    if (toDate && d > toDate) return false;
+    return true;
+  };
+  const prevEvents = (Array.isArray(prev?.events) ? prev.events : []).filter(inWindow);
+  const nextEvents = (Array.isArray(next?.events) ? next.events : []).filter(inWindow);
+  const merged = mergeEarningsEventLists(prevEvents, nextEvents);
+  const nextIsRegression = nextEvents.length === 0
+    || (prevEvents.length > nextEvents.length && nextEvents.length <= 2);
+  const events = nextIsRegression && merged.length > nextEvents.length
+    ? merged
+    : (merged.length >= nextEvents.length ? merged : nextEvents);
+  return {
+    events,
+    updated_at: Date.now(),
+    range: next?.range || prev?.range || (fromDate && toDate ? { from: fromDate, to: toDate } : undefined),
+    _preserved_prev: Boolean(nextIsRegression && prevEvents.length > nextEvents.length),
+  };
+}
+
 /** Megacaps + money-center banks — must survive week caps (KO-class bank week). */
 export const PRIORITY_EARNINGS_TICKERS = new Set([
   "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "NVDA", "TSLA", "NFLX", "AMD",
