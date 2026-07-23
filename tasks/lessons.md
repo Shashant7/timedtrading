@@ -3619,3 +3619,13 @@ internal min-ms-since-trim, hydrate `trim_price`/`trim_ts` from last TRIM
 action, set `lastPeakTrimPx` on every trim exec update, clear peak keys
 on ENTRY, gate ladder on `trimCooldownOk`.
 
+## Mobile Tab Nav: pin with visualViewport top, not bottom:0 [2026-07-23]
+
+v6 removed transform/backdrop-filter and used `position:fixed; bottom:0`,
+but iOS Safari 26 still shifts fixed/sticky bars vertically when the
+address bar collapses on scroll — Tab Nav floated mid-page. Fix (v7):
+set `top = visualViewport.offsetTop + vv.height - navH` with `bottom:
+auto` (no transform — the earlier URL-bar `translateY` caused the gap
+bug). Listen to `visualViewport` scroll/resize + rAF-throttle. Bump
+`SHELL_VERSION` to `tt-shell-v7`.
+
