@@ -22,6 +22,11 @@
 
 ### Active
 
+- [ ] **Universe orphans → hard gaps only (2026-07-23).** Watchdog paged
+      at 5:29am ET on 18 soft orphans (quality/profile). Treat missing TF /
+      unscored as hard; thin ETFs (SPCX/GRNI) stay soft. Fix htf_score===0
+      false unscored. Branch: `cursor/orphan-hard-gaps-df0c`.
+
 - [x] **Today strip copy simplify (2026-07-23).** Shorten Ready / Families /
       Growth / Technicals / Convexity blurbs; drop Model Queue comparisons;
       cut "Setup" overuse (READY, FAMILIES, TECHNICALS); align Growth +
