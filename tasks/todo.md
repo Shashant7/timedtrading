@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Mobile Tab Nav missing (2026-07-23).** Bottom nav gone on Today
+      (iPhone). Likely false-positive keyboard hide in
+      `syncNavToVisualViewport` when Safari chrome expands (vvH &lt; 65%
+      innerH). Gate hide on focused input; fix 5-col grid; bump SW.
+      Branch: `cursor/mobile-tab-nav-df0c`.
+
 - [x] **Rail EXT + compact movers chips (2026-07-23).** Some tickers
       (NOW reverse premkt) hide EXT on right-rail header because
       `getExtChange` still kills opposite-direction >4% AH vs RTH.

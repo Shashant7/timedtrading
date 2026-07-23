@@ -91,7 +91,8 @@
     }
     .tt-bn-row {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      /* 5 journey tabs after model-first merge (Trader+Investor → Model). */
+      grid-template-columns: repeat(5, 1fr);
       gap: 4px;
       max-width: 720px;
       margin: 0 auto;
@@ -218,7 +219,7 @@
   // Devtools (Mobile Safari Inspector):
   //   document.getElementById("tt-bottom-nav").dataset
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-06-01-v3";
+  nav.dataset.ttBnBuiltAt = "2026-07-23-v4";
   nav.dataset.ttBnState = "init";
 
   const row = document.createElement("div");
@@ -378,12 +379,22 @@
   //
   // Browsers without visualViewport (older Android Firefox / Safari 12-)
   // just see the CSS padding and live with the 24px floor.
+  function isTextInputFocused() {
+    const ae = document.activeElement;
+    if (!ae) return false;
+    const tag = String(ae.tagName || "").toUpperCase();
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (ae.isContentEditable) return true;
+    return false;
+  }
+
   function syncNavToVisualViewport() {
     const navEl = document.getElementById("tt-bottom-nav");
     if (!navEl) return;
     const vv = window.visualViewport;
     if (!vv) {
       navEl.style.transform = "translate3d(0, 0, 0)";
+      navEl.dataset.ttBnState = "settled";
       return;
     }
     // visualViewport.height < window.innerHeight when iOS Safari
@@ -395,26 +406,26 @@
     const vvOffsetTop = vv.offsetTop || 0;
     const delta = Math.max(0, Math.round(innerH - vvH - vvOffsetTop));
 
-    // 2026-06-01 (v3) — User report: nav still hidden on today.html with
-    // iOS Safari URL bar EXPANDED. Root cause: the previous "delta > 120
-    // = keyboard" sanity floor was too aggressive. On iPhone Pro Max
-    // with the fully-expanded bottom URL bar (refresh / back / forward
-    // visible), delta = ~175px — well past the 120 threshold, so the
-    // nav was getting hidden as a false-positive "keyboard open".
-    //
-    // New keyboard detection: keyboards take 35%+ of the screen height
-    // (typical iOS keyboard ≈ 340px / 932px = 36%). URL bars never take
-    // more than ~15% (88px / 932px). Use a height-ratio check that's
-    // much harder to misfire on URL-bar transitions.
-    const isKeyboardOpen = vvH > 0 && vvH < innerH * 0.65;
+    // 2026-07-23 (v4) — User report: Tab Nav gone on Today (iPhone) with
+    // Safari chrome expanded at top of page. The v3 ratio check
+    // (vvH < innerH * 0.65) false-positives as "keyboard" when the
+    // expanded top+bottom chrome shrinks the visual viewport on Pro /
+    // Pro Max — e.g. 550 < 852*0.65. Never hide from viewport geometry
+    // alone; only hide when a text field is actually focused.
+    const isKeyboardOpen = isTextInputFocused()
+      && vvH > 0
+      && vvH < innerH * 0.75;
     if (isKeyboardOpen) {
       // Hide the nav while the keyboard is up — pushing it would land
       // mid-page and overlap content the user is typing into.
       navEl.style.transform = "translate3d(0, 200%, 0)";
       navEl.dataset.ttBnState = "keyboard";
     } else {
-      navEl.style.transform = `translate3d(0, -${delta}px, 0)`;
-      navEl.dataset.ttBnState = delta > 0 ? `url-bar-${delta}px` : "settled";
+      // Cap the URL-bar push so a pathological delta cannot yeet the
+      // nav off-screen even if innerHeight/visualViewport disagree.
+      const push = Math.min(delta, Math.round(innerH * 0.22));
+      navEl.style.transform = `translate3d(0, -${push}px, 0)`;
+      navEl.dataset.ttBnState = push > 0 ? `url-bar-${push}px` : "settled";
     }
   }
   // Initial pass + listen to every viewport change (resize, scroll, and
@@ -425,6 +436,9 @@
     window.visualViewport.addEventListener("scroll", syncNavToVisualViewport, { passive: true });
   }
   window.addEventListener("orientationchange", () => setTimeout(syncNavToVisualViewport, 250), { passive: true });
+  // Re-sync when focus enters/leaves inputs so keyboard hide is accurate.
+  window.addEventListener("focusin", syncNavToVisualViewport, true);
+  window.addEventListener("focusout", () => setTimeout(syncNavToVisualViewport, 50), true);
   // First sync after layout settles. iOS Safari's URL bar typically
   // animates in over ~300ms; sync at 0/150/400 so we catch every
   // intermediate state.
@@ -433,4 +447,4 @@
   setTimeout(syncNavToVisualViewport, 400);
 })();
 
-// cache-bust:1784805926823:750824547
+// cache-bust:1784809539793:997838906
