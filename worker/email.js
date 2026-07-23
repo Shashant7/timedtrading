@@ -9,6 +9,7 @@ import {
   buildTrimEconomicsSummary,
   formatTrimDeltaPct,
   formatTrimTotalPct,
+  toTrimPctPoints,
 } from "./trade-trim-display.js";
 import {
   parseBriefMarkdownSections,
@@ -1502,18 +1503,31 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   }
 
   // TRIM STATUS (trimmed % + shares) — TRIMs only
+  // newTrimmedPct / trimmedPct are 0–1 fractions from the live engine
+  // (e.g. RTX 0.5 → 50%), not 0–100 points. Use toTrimPctPoints so we
+  // never Math.round(0.5) into "Trimmed 1% / Remaining 100%".
   let trimSection = "";
+  let trimStatusPlain = "";
   if (isTrim) {
     const lines = [];
-    if (newTrimmedPct != null || trimmedPct != null) {
-      const totalP = Number.isFinite(Number(newTrimmedPct)) ? Number(newTrimmedPct) : Number(trimmedPct);
-      const remaining = Number.isFinite(totalP) ? Math.max(0, 100 - totalP) : null;
-      lines.push(`Trimmed: <strong style="color:white">${Math.round(Number(totalP))}%</strong>${remaining != null ? ` &nbsp;|&nbsp; Remaining: <strong style="color:white">${Math.round(remaining)}%</strong>` : ""}`);
+    const plainLines = [];
+    const rawTotal = newTrimmedPct != null ? newTrimmedPct : trimmedPct;
+    const totalPts = toTrimPctPoints(rawTotal);
+    if (totalPts != null) {
+      const remainingPts = Math.max(0, 100 - totalPts);
+      lines.push(`Trimmed: <strong style="color:white">${totalPts}%</strong> &nbsp;|&nbsp; Remaining: <strong style="color:white">${remainingPts}%</strong>`);
+      plainLines.push(`Trimmed: ${totalPts}% | Remaining: ${remainingPts}%`);
     }
     if (shares_trimmed != null && shares_remaining != null) {
-      lines.push(`Shares trimmed: <strong style="color:white">${Number(shares_trimmed).toFixed(2).replace(/\.?0+$/, "")}</strong> &nbsp;|&nbsp; Remaining: <strong style="color:white">${Number(shares_remaining).toFixed(2).replace(/\.?0+$/, "")}</strong>`);
+      const st = Number(shares_trimmed).toFixed(2).replace(/\.?0+$/, "");
+      const sr = Number(shares_remaining).toFixed(2).replace(/\.?0+$/, "");
+      lines.push(`Shares trimmed: <strong style="color:white">${st}</strong> &nbsp;|&nbsp; Remaining: <strong style="color:white">${sr}</strong>`);
+      plainLines.push(`Shares trimmed: ${st} | Remaining: ${sr}`);
     }
-    if (lines.length > 0) trimSection = _section("Trim Status", lines.join("<br>"));
+    if (lines.length > 0) {
+      trimSection = _section("Trim Status", lines.join("<br>"));
+      trimStatusPlain = plainLines.join("\n");
+    }
   }
 
   // SETUP (name + grade + risk %)
@@ -1791,6 +1805,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       _txtParts.push(`  Trims captured ${exitTrimData.totalRealized >= 0 ? "+" : "-"}$${Math.abs(exitTrimData.totalRealized).toFixed(2)} (included in P&L above).`);
     }
   }
+  if (isTrim && trimStatusPlain) _txtParts.push("", "Trim Status:", ...trimStatusPlain.split("\n").map((l) => "  " + l));
   if (isExit && exitReason) _txtParts.push("", "Why: " + humanizeEmailExitReason(exitReason));
   if (isTrim && trim_reason) _txtParts.push("", "Why: " + humanizeEmailTrimReason(trim_reason));
   if (isEntry && why_entered) _txtParts.push("", "Why we entered: " + why_entered);

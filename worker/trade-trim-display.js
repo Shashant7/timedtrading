@@ -7,21 +7,35 @@
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-/** Display a trim step size stored as a 0–1 fraction. */
+/**
+ * Normalize a trim size to whole percentage points for display.
+ *
+ * Live TRADE_TRIM alerts pass 0–1 fractions (`0.5` = 50%). Some samples /
+ * legacy callers already pass 0–100 points (`50`). Treating a fraction as
+ * points produced the RTX bug: Math.round(0.5) → "Trimmed 1%" and
+ * Math.round(100 - 0.5) → "Remaining 100%".
+ *
+ * Convention: values in [0, 1] are fractions; values > 1 are already points.
+ * Exactly `1` means fully trimmed (100%), not "1%".
+ */
+export function toTrimPctPoints(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v) || v < 0) return null;
+  if (v <= 1) return Math.round(v * 100);
+  return Math.round(v);
+}
+
+/** Display a trim step size stored as a 0–1 fraction (or legacy points). */
 export function formatTrimDeltaPct(fraction) {
-  const v = Number(fraction);
-  if (!Number.isFinite(v)) return null;
-  const pct = Math.round(v * 100);
-  if (pct <= 0) return null;
+  const pct = toTrimPctPoints(fraction);
+  if (pct == null || pct <= 0) return null;
   return `${pct}%`;
 }
 
 /** Display cumulative trimmed fraction ("to 50%"). */
 export function formatTrimTotalPct(fraction) {
-  const v = Number(fraction);
-  if (!Number.isFinite(v)) return null;
-  const pct = Math.round(v * 100);
-  if (pct <= 0) return null;
+  const pct = toTrimPctPoints(fraction);
+  if (pct == null || pct <= 0) return null;
   return `to ${pct}%`;
 }
 

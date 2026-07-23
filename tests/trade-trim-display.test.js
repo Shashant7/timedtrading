@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatTrimDeltaPct,
   formatTrimTotalPct,
+  toTrimPctPoints,
   computeTrimRealized,
   isPhantomTrimRealized,
   buildTrimEconomicsSummary,
@@ -17,6 +18,23 @@ describe("trade-trim-display", () => {
 
   it("formats cumulative trim total", () => {
     expect(formatTrimTotalPct(0.5)).toBe("to 50%");
+  });
+
+  it("toTrimPctPoints accepts fractions and legacy percent points (RTX email bug)", () => {
+    // Live TRADE_TRIM payload: cumulative trim as 0–1 fraction
+    expect(toTrimPctPoints(0.5)).toBe(50);
+    expect(toTrimPctPoints(0.01)).toBe(1);
+    expect(toTrimPctPoints(1)).toBe(100);
+    expect(toTrimPctPoints(0)).toBe(0);
+    // Legacy / sample emails already pass 0–100 points
+    expect(toTrimPctPoints(50)).toBe(50);
+    expect(toTrimPctPoints(1.5)).toBe(2);
+    // Remaining display: 100 - points (never 100 - fraction)
+    const trimmed = toTrimPctPoints(0.5);
+    expect(100 - trimmed).toBe(50);
+    // The bug: Math.round(0.5) === 1 and Math.round(100 - 0.5) === 100
+    expect(Math.round(0.5)).toBe(1);
+    expect(Math.round(100 - 0.5)).toBe(100);
   });
 
   it("computes SNDK-like trim economics", () => {
