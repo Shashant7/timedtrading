@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Sector Flow mobile h-scroll (2026-07-23).** Leader chips were
+- [x] **Sector Flow mobile h-scroll (2026-07-23).** Leader chips were
       full-width vertical stacks on mobile. Horizontal rails + denser
       cards; offense/defense meter; vs-sector on names; Wave restyle.
       Branch: `cursor/sector-flow-hscroll-df0c`.
