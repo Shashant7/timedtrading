@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Universe orphans → hard gaps only (2026-07-23).** Watchdog paged
+- [x] **Universe orphans → hard gaps only (2026-07-23).** Watchdog paged
       at 5:29am ET on 18 soft orphans (quality/profile). Treat missing TF /
       unscored as hard; thin ETFs (SPCX/GRNI) stay soft. Fix htf_score===0
       false unscored. Branch: `cursor/orphan-hard-gaps-df0c`.
