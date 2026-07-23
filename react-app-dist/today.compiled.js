@@ -800,7 +800,7 @@ function MarketPulseTile({
       textAlign: "left",
       padding: "var(--ds-space-3)"
     },
-    title: `Open ${SYM} in Active Trader detail`
+    title: `Open ${SYM} in Model detail`
   }, h("div", {
     className: "ds-tickercard__head"
   }, h("div", {
@@ -3084,8 +3084,8 @@ function GrowthZoneBar({
   }
   return LaneCard.zoneBarTrack(zm, {
     compact: true,
-    planLabel: "Investor plan",
-    trackTitle: "Investor lane — invalidation floor, add-on-pullback zone, and target."
+    planLabel: "Long Term plan",
+    trackTitle: "Long Term lane — invalidation floor, add-on-pullback zone, and target."
   });
 }
 function GrowthIdeasStrip({
@@ -3302,8 +3302,8 @@ function GrowthIdeasStrip({
     const zm = buildGrowthZoneModel(row, ctoBySym[sym], livePrice, liveT);
     const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
       compact: true,
-      planLabel: "Investor plan",
-      trackTitle: "Investor lane — invalidation floor, add-on-pullback zone, and target."
+      planLabel: "Long Term plan",
+      trackTitle: "Long Term lane — invalidation floor, add-on-pullback zone, and target."
     }) : null;
     const footEls = [h("p", {
       key: "why",
@@ -4254,20 +4254,20 @@ function viewportActionChips(t) {
     chips.push({
       label: "Queued",
       cls: "ds-chip--accent",
-      title: "Investor lane — queued for next rebalance."
+      title: "Long Term — queued for next rebalance."
     });
   }
   if (isTraderTriggerReady(t)) {
     chips.push({
       label: "Trigger Ready",
       cls: "ds-chip--accent",
-      title: "Active Trader — trigger ready for review or entry."
+      title: "Short Term — trigger ready for review or entry."
     });
   } else if (isTraderWatchlist(t)) {
     chips.push({
       label: "Setup",
       cls: "",
-      title: "Active Trader watchlist — setup forming, no action yet."
+      title: "Short Term watchlist — setup forming, no action yet."
     });
   }
   return chips;
@@ -4337,7 +4337,7 @@ function computeInsightChips(allTickers, opts) {
     count: entryZone.length,
     tickers: entryZone.map(t => t.ticker),
     row: "focus",
-    tooltip: "Investor Queued or Active Trader Watchlist / Trigger Ready — primed for entry before the model acts. Queued sorts first."
+    tooltip: "Long Term Queued or Short Term Watchlist / Trigger Ready — primed for entry before the model acts. Queued sorts first."
   });
   const openPositions = allTickers.filter(t => {
     if (t?._openTrade || t?._openInvestor || t?.has_open_position) return true;
@@ -4350,7 +4350,7 @@ function computeInsightChips(allTickers, opts) {
     count: openPositions.length,
     tickers: openPositions.map(t => t.ticker),
     row: "focus",
-    tooltip: "Tickers with an open Active Trader or Investor position."
+    tooltip: "Tickers with an open Short Term or Long Term position."
   });
   chips.push({
     id: "all",
@@ -4931,9 +4931,31 @@ function ViewportCard({
   })();
   const tradeDir = openTrade ? String(openTrade.direction || "").toUpperCase() : "";
   const investorOpen = !!(!openTrade && t?._openInvestor);
-  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : investorOpen ? "Investor Open" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
+  const biasLabel = tradeDir === "LONG" ? "Open Long" : tradeDir === "SHORT" ? "Open Short" : investorOpen ? "Long Term Open" : _posture?.label ? _posture.label : _modelDir === "LONG" ? "Bullish" : _modelDir === "SHORT" ? "Bearish" : "Neutral";
   const biasLabelLc = String(biasLabel).toLowerCase();
-  const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") || biasLabelLc.includes("investor") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") ? "ds-chip--dn" : "ds-chip--solid";
+  const biasChipCls = biasLabelLc.includes("bullish") || biasLabelLc.includes("long") || biasLabelLc.includes("investor") ? "ds-chip--up" : biasLabelLc.includes("bearish") || biasLabelLc.includes("short") && !biasLabelLc.includes("short term") ? "ds-chip--dn" : "ds-chip--solid";
+  const horizonPath = t?._model_path || (investorOpen ? "long_term" : "short_term");
+  const horizonChip = horizonPath === "long_term" ? {
+    label: "LONG TERM",
+    title: "Long Term path — multi-month / LEAP horizon",
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      letterSpacing: "0.04em",
+      background: "rgba(192,132,252,0.12)",
+      border: "1px solid rgba(192,132,252,0.30)",
+      color: "#c084fc"
+    }
+  } : {
+    label: "SHORT TERM",
+    title: "Short Term path — swing / weeks horizon",
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      letterSpacing: "0.04em",
+      background: "rgba(56,242,161,0.10)",
+      border: "1px solid rgba(56,242,161,0.28)",
+      color: "var(--tt-up-soft, #38f2a1)"
+    }
+  };
   const stage = String(t?.kanban_stage || "").toLowerCase();
   const stageChip = (() => {
     if (stage === "trim") return {
@@ -4967,7 +4989,7 @@ function ViewportCard({
         cls: "ds-chip--accent"
       };
       return {
-        label: "Investor",
+        label: "Long Term",
         cls: "ds-chip--up"
       };
     }
@@ -5018,9 +5040,9 @@ function ViewportCard({
   return window.TTLaneCard.create({
     sym,
     button: {
-      onClick: () => onOpen(sym),
+      onClick: () => onOpen(sym, horizonPath === "long_term" ? "INVESTOR" : null),
       style: cardStyle,
-      title: `Open ${sym} in Active Trader`
+      title: `Open ${sym} · ${horizonPath === "long_term" ? "Long Term" : "Short Term"}`
     },
     isTTSel,
     chipRow: [h("span", {
@@ -5029,7 +5051,11 @@ function ViewportCard({
         fontFamily: "var(--tt-font-mono)"
       },
       title: openTrade ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Model bias"
-    }, cardBiasLabel), ...actionChips.map((chip, i) => h("span", {
+    }, cardBiasLabel), h("span", {
+      className: "ds-chip ds-chip--sm",
+      title: horizonChip.title,
+      style: horizonChip.style
+    }, horizonChip.label), ...actionChips.map((chip, i) => h("span", {
       key: `${chip.label}-${i}`,
       className: `ds-chip ds-chip--sm ${chip.cls}`,
       title: chip.title
@@ -5156,13 +5182,55 @@ function Viewport({
     if (!ensureSpark) return;
     ranked.slice(0, 60).forEach(t => ensureSpark(t.ticker));
   }, [ranked, ensureSpark]);
-  const onOpen = sym => {
+  const onOpen = (sym, initialTab = null) => {
     if (typeof onSelectTicker === "function") {
-      onSelectTicker(sym);
+      onSelectTicker(sym, initialTab);
       return;
     }
-    window.location.href = `/index-react.html?ticker=${encodeURIComponent(sym)}`;
+    if (typeof window.ttOpenTickerInRail === "function") {
+      window.ttOpenTickerInRail({
+        ticker: String(sym).toUpperCase(),
+        initialRailTab: initialTab || null,
+        source: "today-viewport"
+      });
+      return;
+    }
+    window.location.href = `/today.html?ticker=${encodeURIComponent(sym)}`;
   };
+  const rankedHorizon = useMemo(() => {
+    const out = [];
+    for (const t of ranked) {
+      const sym = String(t?.ticker || "").toUpperCase();
+      const hasST = !!(t?._openTrade && window.TimedPriceUtils?.isTradeOpen?.(t._openTrade));
+      const hasLT = !!t?._openInvestor;
+      if (hasST && hasLT) {
+        out.push({
+          ...t,
+          _model_path: "short_term",
+          _card_key: `${sym}:short_term`,
+          _openInvestor: undefined,
+          _investorAction: undefined
+        });
+        const invAct = typeof investorActionFromPosition === "function" ? investorActionFromPosition(t._openInvestor) : "HOLD";
+        out.push({
+          ...t,
+          _model_path: "long_term",
+          _card_key: `${sym}:long_term`,
+          _openTrade: null,
+          has_open_position: true,
+          position_direction: "LONG",
+          _investorAction: invAct
+        });
+      } else {
+        out.push({
+          ...t,
+          _model_path: hasLT && !hasST ? "long_term" : t?._model_path || "short_term",
+          _card_key: `${sym}:${hasLT && !hasST ? "long_term" : "short_term"}`
+        });
+      }
+    }
+    return out;
+  }, [ranked]);
   return h("aside", {
     className: lane ? "vp-lane-wrap" : "vp-card",
     "aria-label": "Ticker viewport"
@@ -5172,17 +5240,17 @@ function Viewport({
     className: "vp-title"
   }, "VIEWPORT"), h("div", {
     className: "vp-count"
-  }, `${ranked.length} tickers`)), h("div", {
+  }, `${rankedHorizon.length} tickers`)), h("div", {
     className: lane ? "vp-lane" : "vp-list"
-  }, ranked.length === 0 ? h("div", {
+  }, rankedHorizon.length === 0 ? h("div", {
     className: "vp-empty",
     style: lane ? {
       minWidth: 280
     } : undefined
-  }, "No tickers match. Try a different filter or clear the search.") : ranked.slice(0, lane ? 40 : 60).map(t => {
+  }, "No tickers match. Try a different filter or clear the search.") : rankedHorizon.slice(0, lane ? 40 : 60).map(t => {
     const SYM = String(t.ticker || "").toUpperCase();
     return h(ViewportCard, {
-      key: t.ticker,
+      key: t._card_key || t.ticker,
       t,
       rankPosition: rankedTickerPositions?.get?.(t.ticker),
       sparkSrc: sparkCache[SYM] || null,
@@ -6925,6 +6993,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545
 
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545

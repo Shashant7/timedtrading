@@ -203,7 +203,7 @@
   }
 
   function scopeDisplayLabel(scope) {
-    return scope === "investor" ? "INVESTOR" : "TRADER";
+    return scope === "investor" ? "LONG TERM" : "SHORT TERM";
   }
 
   // Brand logo (monogram fallback → async real logo swap). Mirrors the

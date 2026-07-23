@@ -640,9 +640,9 @@ function OpenPositionsTable({
     }
   }, h("div", {
     className: "tt-sec-title"
-  }, mode === "investor" ? "INVESTOR · OPEN POSITIONS" : "ACTIVE TRADER · OPEN POSITIONS"), h("h2", {
+  }, mode === "investor" ? "LONG TERM · OPEN POSITIONS" : "SHORT TERM · OPEN POSITIONS"), h("h2", {
     className: "tt-sec-h2"
-  }, `Currently held — ${mode === "investor" ? "Investor mode" : "Active Trader mode"}`), h("p", {
+  }, `Currently held — ${mode === "investor" ? "Long Term book" : "Short Term book"}`), h("p", {
     className: "tt-sec-sub"
   }, `${rows.length} position${rows.length === 1 ? "" : "s"}`)), rows.length > 0 && h("div", {
     className: "op-total"
@@ -988,7 +988,7 @@ function PortfolioApp() {
     className: "tt-sec-title"
   }, "EQUITY CURVES"), h("div", {
     className: "tt-sec-h"
-  }, "Active Trader vs Investor mode"), loading ? h("div", {
+  }, "Short Term vs Long Term"), loading ? h("div", {
     className: "eq-grid"
   }, [0, 1].map(i => h("div", {
     key: i,
@@ -1000,14 +1000,14 @@ function PortfolioApp() {
   }))) : h("div", {
     className: "eq-grid"
   }, h(EquityCurveCard, {
-    title: "Active Trader",
+    title: "Short Term",
     sub: "Swing — 1 to 10 day holds",
     color: "#34d399",
     payload: traderPayload,
     history: traderHistory,
     openPnlOverride: traderOpenPl
   }), h(EquityCurveCard, {
-    title: "Investor",
+    title: "Long Term",
     sub: "Long-horizon — weeks to months",
     color: "#a78bfa",
     payload: investorPayload,
@@ -1055,15 +1055,15 @@ function PortfolioApp() {
     style: {
       margin: 0
     }
-  }, monthlyMode === "trader" ? "Active Trader" : "Investor", " — calendar, monthly P&L, setup breakdown")), h("div", {
+  }, monthlyMode === "trader" ? "Short Term" : "Long Term", " — calendar, monthly P&L, setup breakdown")), h("div", {
     className: "mode-toggle"
   }, h("button", {
     className: monthlyMode === "trader" ? "active" : "",
     onClick: () => setMonthlyMode("trader")
-  }, "Active Trader"), h("button", {
+  }, "Short Term"), h("button", {
     className: monthlyMode === "investor" ? "active" : "",
     onClick: () => setMonthlyMode("investor")
-  }, "Investor"))), h(PerformanceSection, {
+  }, "Long Term"))), h(PerformanceSection, {
     traderTrades: traderHistory,
     investorTrades: investorHistory,
     mode: monthlyMode,
@@ -1101,6 +1101,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(PortfolioApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545
 
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545

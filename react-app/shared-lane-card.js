@@ -126,7 +126,7 @@
     const tgtPct = zm.pct(zm.tgt);
     const pbMid = (Number(pbLo) + Number(pbHi)) / 2;
     const pbMidPct = zm.pct(pbMid);
-    const laneLabel = zm.lane === "investor" ? "INVESTOR" : zm.lane === "trader" ? "TRADER" : null;
+    const laneLabel = zm.lane === "investor" ? "LONG TERM" : zm.lane === "trader" ? "SHORT TERM" : null;
 
     const ticks = [
       { pct: invPct, label: "INV", color: "var(--ds-dn)", px: zm.inv },
@@ -147,7 +147,7 @@
         h("span", {
           className: "tt-zone-bar__lane tt-zone-bar__lane--" + (zm.lane === "investor" ? "investor" : "trader"),
         }, laneLabel),
-        h("span", null, opts.planLabel || (zm.lane === "investor" ? "Buy zone plan" : "Trader plan")),
+        h("span", null, opts.planLabel || (zm.lane === "investor" ? "Long Term buy zone" : "Short Term plan")),
       ),
       h("div", { className: "tt-lane-card__position tt-zone-plan__bar" },
         h("div", { className: "tt-lane-card__pos-track" },

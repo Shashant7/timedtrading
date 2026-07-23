@@ -203,7 +203,7 @@
   }
 
   function scopeDisplayLabel(scope) {
-    return scope === "investor" ? "INVESTOR" : "TRADER";
+    return scope === "investor" ? "LONG TERM" : "SHORT TERM";
   }
 
   // Brand logo (monogram fallback → async real logo swap). Mirrors the
@@ -797,4 +797,4 @@
   else mount();
 })();
 
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545
