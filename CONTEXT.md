@@ -228,6 +228,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   full score row into `decision_records` for the calibration loop.
   Heal fills blank thesis/provenance/DCA from scores on compute+rebalance.
   DCA execute allows opportunistic pullback adds for FSD/compounder/FV-discount.
+- Short Term lifecycle (`d1InsertTradeEvent` + DEFEND + execution adapter)
+  stamps `buildTraderActionProvenance` into `decision_records.inputs_json`
+  (`why` + `technical` + `research`) — same calibration attribution as LT.
+  See `worker/action-provenance.js`.
 - Short Term parity: `isQualityCompounderDip` softens pullback RSI-exhaust +
   non-prime rank floor so multi-day compounder rips can print on ST too.
 - Model open lanes: no defend/trim/hold card without a live book row

@@ -35,6 +35,13 @@
       (`healInvestorPositionConvenience`) on compute + rebalance so D1
       thesis/invalidation/DCA never stay null.
 
+- [x] **Action provenance for Short Term + every lifecycle event (2026-07-23).**
+      Operator: provenance for the self-calibrating loop — "short term trades
+      as well." Every ENTRY/TRIM/DEFEND/EXIT/SCALE_IN stamps referenceable
+      technical + research inputs into `decision_records.inputs_json` via
+      `worker/action-provenance.js` (`d1InsertTradeEvent` + DEFEND + execution
+      adapter). Branch: `cursor/cf-long-term-capture-df0c`.
+
 - [ ] **Model-first UX consolidation (2026-07-22).** Operator: "merge trader
       and investor … one section, model, with its own lanes … users complain
       it is hard to follow." Stages:
