@@ -42,6 +42,7 @@ export function extractSliceFields(t = {}) {
   const entryReady = sequences.some((s) => String(s?.status || "").toLowerCase() === "entry_ready");
   const posture = t.setup_shadow_posture?.posture || t.setup_shadow_posture || null;
   const confluenceMode = t.confluence_mode || t._confluence?.mode || t.confluence?.mode || null;
+  const paperQ = t._sequence_queue_proposal || null;
 
   return {
     lifecycle: life ? {
@@ -64,6 +65,12 @@ export function extractSliceFields(t = {}) {
     sequence_entry_ready: entryReady,
     sequence_posture: typeof posture === "string" ? posture : null,
     confluence_mode: confluenceMode,
+    sequence_paper_queue: paperQ ? {
+      state: paperQ.state || "queued",
+      paper: paperQ.paper !== false,
+      size_mult: paperQ.size_mult ?? 0.1,
+      reason: paperQ.reason || null,
+    } : null,
   };
 }
 
@@ -173,6 +180,7 @@ export function buildTodayPlaysQueue({
       business_character: slice.business_character,
       sequence_entry_ready: slice.sequence_entry_ready,
       sequence_posture: slice.sequence_posture,
+      sequence_paper_queue: slice.sequence_paper_queue,
       priority: 0,
       source: "confirm_stack_scan",
     });

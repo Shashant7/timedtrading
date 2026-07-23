@@ -33,6 +33,23 @@ describe("loadDeepAuditConfigFromDb", () => {
     expect(await loadDeepAuditConfigFromDb(null, ["a"])).toEqual({ config: {}, configHash: "" });
     expect(await loadDeepAuditConfigFromDb({}, [])).toEqual({ config: {}, configHash: "" });
   });
+
+  it("loads dynamic deep_audit_setup_demotion_* keys even when not in allowlist", async () => {
+    const rows = [
+      { config_key: "deep_audit_setup_demotion_TT ATH Breakout_long", config_value: '"blocked"' },
+      { config_key: "deep_audit_max_loss_pct", config_value: "-4.5" },
+      { config_key: "unrelated_dynamic", config_value: "1" },
+    ];
+    const db = {
+      prepare: () => ({
+        all: async () => ({ results: rows }),
+      }),
+    };
+    const { config } = await loadDeepAuditConfigFromDb(db, ["deep_audit_max_loss_pct"]);
+    expect(config["deep_audit_setup_demotion_TT ATH Breakout_long"]).toBe("blocked");
+    expect(config.deep_audit_max_loss_pct).toBe(-4.5);
+    expect(config.unrelated_dynamic).toBeUndefined();
+  });
 });
 
 describe("computeConfigHash", () => {

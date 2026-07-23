@@ -6,6 +6,8 @@ import { attachCalibratedEdge } from "./calibrated-edge.js";
 import { buildTodayPlaysQueue } from "./plays-today.js";
 import { mergeWhyFeed, formatDecisionWhyRow } from "./why-feed.js";
 import { scoreEpochMetrics } from "./scorecard.js";
+import { loadFamilyAttribution } from "./family-attribution.js";
+import { runWeeklyGovernor, KV_KEY as WEEKLY_GOVERNOR_KV } from "./weekly-governor.js";
 
 export async function handleTrustSpineRoutes(routeKey, ctx) {
   const { env, req, url, corsHeaders, requireKeyOrAdmin, requireAdminSession, kvGetJSON, KV } = ctx;
@@ -162,6 +164,39 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
 
     const scorecard = scoreEpochMetrics(epochs, trades);
     return sendJSON({ ok: true, days, ...scorecard }, 200, corsHeaders(env, req));
+  }
+
+  if (routeKey === "GET /timed/admin/trust-spine/family-attribution") {
+    const authFail = await requireKeyOrAdmin(req, env);
+    if (authFail) return authFail;
+    const days = Math.min(Number(url.searchParams.get("days")) || 7, 90);
+    const family = String(url.searchParams.get("family") || "confirm_stack_ema21");
+    const report = await loadFamilyAttribution(env, { days, family });
+    return sendJSON(report, report?.ok ? 200 : 500, corsHeaders(env, req));
+  }
+
+  if (routeKey === "GET /timed/admin/trust-spine/weekly-governor") {
+    const authFail = await requireKeyOrAdmin(req, env);
+    if (authFail) return authFail;
+    try {
+      const cached = KV ? await kvGetJSON(KV, WEEKLY_GOVERNOR_KV) : null;
+      if (cached) return sendJSON({ ok: true, cached: true, ...cached }, 200, corsHeaders(env, req));
+      return sendJSON({ ok: true, cached: false, note: "no_governor_artifact_yet" }, 200, corsHeaders(env, req));
+    } catch (e) {
+      return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+    }
+  }
+
+  if (routeKey === "POST /timed/admin/trust-spine/weekly-governor/run") {
+    const authFail = await requireKeyOrAdmin(req, env);
+    if (authFail) return authFail;
+    const dryRun = String(url.searchParams.get("dryRun") || "false") === "true";
+    try {
+      const report = await runWeeklyGovernor(env, { force: true, dryRun });
+      return sendJSON(report, 200, corsHeaders(env, req));
+    } catch (e) {
+      return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+    }
   }
 
   return null;

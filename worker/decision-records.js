@@ -25,6 +25,20 @@ export function canonicalJson(v) {
  * (REPLAY_DA_KEYS exceeds D1 bind-param cap). Returns the same hash whether
  * the caller is the five-minute cron or the processTradeSimulation lazy loader.
  */
+/** Dynamic demotion markers are written by the edge-scorecard learning bus
+ *  (`deep_audit_setup_demotion_<Display>_<dir>=blocked`) and are NOT listed in
+ *  REPLAY_DA_KEYS (bind-param cap). Without this prefix pass-through they sit
+ *  inert in model_config while checkSetupDemotion always sees undefined. */
+const DYNAMIC_DA_PREFIXES = [
+  "deep_audit_setup_demotion_",
+];
+
+function isAllowedDaKey(key, allowed) {
+  if (!key) return false;
+  if (allowed.has(key)) return true;
+  return DYNAMIC_DA_PREFIXES.some((p) => key.startsWith(p));
+}
+
 export async function loadDeepAuditConfigFromDb(db, allowedKeys) {
   const cfg = {};
   if (!db) return { config: cfg, configHash: "" };
@@ -33,7 +47,7 @@ export async function loadDeepAuditConfigFromDb(db, allowedKeys) {
   try {
     const rows = (await db.prepare(`SELECT config_key, config_value FROM model_config`).all())?.results || [];
     for (const r of rows) {
-      if (!r?.config_key || !allowed.has(r.config_key)) continue;
+      if (!r?.config_key || !isAllowedDaKey(r.config_key, allowed)) continue;
       try {
         cfg[r.config_key] = JSON.parse(r.config_value);
       } catch {
