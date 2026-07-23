@@ -879,9 +879,36 @@ function MarketPulseTile({
     }
   }));
 }
+function confirmStackActionHint(p) {
+  const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
+  if (p?.sequence_entry_ready) {
+    return "Entry window is open — check the plan levels, then size in.";
+  }
+  if (state === "queued") {
+    return "Queued to buy — confirm size, then let the model work the entry.";
+  }
+  if (state === "bought" || state === "held") {
+    return "Already in — manage with the stop, trim, and target on the plan.";
+  }
+  if (state === "trimming") {
+    return "Trimming — take partial profits per the plan; keep a runner if levels hold.";
+  }
+  if (String(p?.confluence_mode || "").toUpperCase() === "READY") {
+    return "Setup confirmed — stalk the add zone; do not chase above the plan.";
+  }
+  if (state === "watching" || state === "watch") {
+    return "On the watchlist — wait for a pullback into the add zone before buying.";
+  }
+  return p?.lifecycle?.why || "Trend and structure just aligned — open the plan for next steps.";
+}
 function ConfirmStackRunnersStrip({
   onSelectTicker,
-  embedded
+  embedded,
+  data,
+  savedSet,
+  onToggleSaved,
+  sparkCache,
+  ensureSpark
 }) {
   const [slice, setSlice] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -947,16 +974,16 @@ function ConfirmStackRunnersStrip({
     className: "tt-sec-title"
   }, "MODEL PROCESS"), h("h2", {
     className: "tt-ready__title"
-  }, "Confirm-stack EMA21 runners"), h("p", {
+  }, "Confirmed setups — watch, then act"), h("p", {
     className: "tt-ready__sub"
-  }, "One setup family end-to-end: confirm stack + structure. Lifecycle and play are the surface — sequence, character, and conviction are chips, not modes."));
+  }, "Names where the trend just flipped with structure in place. Stalk the add zone; buy when the plan says ready — not on a chase."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
       style: {
         marginTop: 8
       }
-    }, "Upgrade to Pro to see model process runners.")));
+    }, "Upgrade to Pro to see confirmed setups.")));
   }
   if (loading) {
     return wrap(h(React.Fragment, null, head, h("div", {
@@ -965,7 +992,7 @@ function ConfirmStackRunnersStrip({
         color: "var(--tt-text-muted)",
         marginTop: 8
       }
-    }, "Loading confirm-stack runners…")));
+    }, "Loading confirmed setups…")));
   }
   const plays = Array.isArray(slice?.plays) ? slice.plays : [];
   if (!plays.length) {
@@ -974,15 +1001,10 @@ function ConfirmStackRunnersStrip({
       style: {
         marginTop: 8
       }
-    }, "No confirm-stack runners stamped right now. When SuperTrend flip + squeeze + EMA21 reclaim align, they land here.")));
+    }, "No confirmed setups right now. When trend, squeeze, and reclaim line up, they land here.")));
   }
-  const chip = (label, title, accent) => h("span", {
-    className: `ds-chip ds-chip--sm ${accent ? "ds-chip--accent" : "ds-chip--solid"}`,
-    title: title || label,
-    style: {
-      fontSize: 9
-    }
-  }, label);
+  const LaneCard = window.TTLaneCard;
+  const VU = window.TimedVerdictUI;
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
     role: "list",
@@ -990,44 +1012,137 @@ function ConfirmStackRunnersStrip({
       marginTop: 8
     }
   }, plays.map(p => {
-    const dir = String(p.direction || "").toUpperCase();
-    const dirColor = dir === "SHORT" ? "#f87171" : "#34d399";
-    const lifeLabel = p.lifecycle?.label || p.lifecycle?.state || p.mode || null;
-    return h("div", {
-      key: p.ticker + (p.kind || ""),
-      role: "listitem",
-      className: "tt-strip-card",
-      onClick: () => onSelectTicker && onSelectTicker(p.ticker, "SNAPSHOT"),
+    const sym = String(p.ticker || "").toUpperCase();
+    const liveT = data && data[sym] ? data[sym] : {};
+    let livePrice = null;
+    try {
+      const hp = window.TimedPriceUtils?.getHeadlinePrice?.(liveT);
+      if (Number.isFinite(Number(hp)) && Number(hp) > 0) livePrice = Number(hp);
+    } catch (_) {}
+    if (livePrice == null && Number.isFinite(Number(liveT?._live_price))) livePrice = Number(liveT._live_price);
+    if (livePrice == null && Number.isFinite(Number(liveT?.price))) livePrice = Number(liveT.price);
+    let dayPct = null;
+    let dayChg = null;
+    try {
+      const dc = typeof getDailyChange === "function" ? getDailyChange(liveT) : null;
+      if (Number.isFinite(Number(dc?.dayPct))) dayPct = Number(dc.dayPct);
+      if (Number.isFinite(Number(dc?.dayChg))) dayChg = Number(dc.dayChg);
+    } catch (_) {}
+    const quoteDir = dayPct == null || Math.abs(dayPct) < 0.05 ? "flat" : dayPct > 0 ? "up" : "dn";
+    const modelDir = String(p.direction || "").toUpperCase() || window.TimedPriceUtils?.inferModelDirection?.(liveT) || "";
+    const lifeState = String(p.lifecycle?.state || p.mode || "").toLowerCase();
+    const lifeLabel = p.lifecycle?.label || (lifeState === "watching" || lifeState === "watch" ? "Watching" : lifeState === "queued" ? "Queued" : lifeState === "bought" ? "Bought" : lifeState === "held" ? "Held" : lifeState ? lifeState.replace(/_/g, " ") : null);
+    const biasCls = modelDir === "SHORT" ? "ds-chip--dn" : modelDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
+    const biasLabel = modelDir === "SHORT" ? "Bearish" : modelDir === "LONG" ? "Bullish" : "Neutral";
+    const chipRow = [];
+    if (lifeLabel) {
+      chipRow.push(h("span", {
+        key: "life",
+        className: "ds-chip ds-chip--sm ds-chip--solid",
+        title: p.lifecycle?.why || "Where this name sits in the model process",
+        style: {
+          fontFamily: "var(--tt-font-mono)"
+        }
+      }, lifeLabel));
+    }
+    chipRow.push(h("span", {
+      key: "bias",
+      className: `ds-chip ds-chip--sm ${biasCls}`,
       style: {
-        cursor: "pointer",
-        border: "1px solid rgba(52,211,153,0.28)",
-        background: "linear-gradient(135deg, rgba(52,211,153,0.08), rgba(59,130,246,0.04))"
-      }
-    }, h("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        flexWrap: "wrap",
-        marginBottom: 6
-      }
-    }, h("strong", {
-      style: {
-        fontSize: 15
-      }
-    }, p.ticker), dir && h("span", {
-      style: {
-        fontSize: 10,
-        fontWeight: 700,
-        color: dirColor
-      }
-    }, dir), lifeLabel && chip(String(lifeLabel).replace(/_/g, " "), p.lifecycle?.why || "Unified model lifecycle"), p.play_label && chip(`Play · ${p.play_label}`, p.play_why || "Model play vehicle"), p.confirm_stack === true && chip("Confirm ON", "stack_full_confirm", true), p.confirm_stack === false && chip("Confirm off", "stack_full_confirm"), p.runway_full === true && chip("Runway ON", "gate_runway_full", true), p.confluence_mode && chip(String(p.confluence_mode), "Confluence mode"), p.conviction_tier && chip(`Tier ${p.conviction_tier}`, "Conviction tier"), p.business_character && chip(String(p.business_character).replace(/_/g, " "), p.character_lens || "Business character"), p.sequence_entry_ready && chip("Seq ready", "Sequence entry_ready (context)", true)), h("div", {
-      style: {
-        fontSize: 11,
-        color: "var(--tt-text-muted)",
-        lineHeight: 1.4
-      }
-    }, p.lifecycle?.why || p.headline || p.play_why || "Confirm-stack EMA21 runner"));
+        fontFamily: "var(--tt-font-mono)"
+      },
+      title: "Model direction"
+    }, biasLabel));
+    if (p.sequence_entry_ready) {
+      chipRow.push(h("span", {
+        key: "entry",
+        className: "ds-chip ds-chip--sm ds-chip--up",
+        title: "Entry window open"
+      }, "Entry ready"));
+    } else if (p.confirm_stack === true) {
+      chipRow.push(h("span", {
+        key: "confirm",
+        className: "ds-chip ds-chip--sm ds-chip--accent",
+        title: "Trend flip + squeeze + reclaim aligned"
+      }, "Confirmed"));
+    }
+    if (p.runway_full === true) {
+      chipRow.push(h("span", {
+        key: "runway",
+        className: "ds-chip ds-chip--sm ds-chip--up",
+        title: "Room left to the target"
+      }, "Room to run"));
+    }
+    if (p.play_label) {
+      chipRow.push(h("span", {
+        key: "play",
+        className: "ds-chip ds-chip--sm",
+        title: p.play_why || "How the model would express the trade"
+      }, p.play_label));
+    }
+    const extLine = LaneCard?.extLineFromTicker ? LaneCard.extLineFromTicker(liveT) : null;
+    const sparkSvg = LaneCard?.sparkSvgFromCache ? LaneCard.sparkSvgFromCache(sym, livePrice, quoteDir, sparkCache, ensureSpark) : "";
+    const rank = Number(liveT?.rank_position ?? liveT?.rank ?? p?.confluence_score) || null;
+    const score = Number(liveT?.score ?? p?.confluence_score) || null;
+    const metrics = LaneCard?.rankScoreMetricChips ? LaneCard.rankScoreMetricChips({
+      rank,
+      score
+    }) : [];
+    const zm = VU?.buildTraderZoneModel?.(liveT, livePrice) || VU?.buildInvestorZoneModel?.(liveT, livePrice) || null;
+    const midBody = zm && LaneCard?.zoneBarTrack ? LaneCard.zoneBarTrack(zm, {
+      compact: true,
+      planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
+      trackTitle: zm.lane === "investor" ? "Long Term lane — invalidation floor, add-on-pullback zone, and target." : "Short Term plan — stop, add zone, and first target."
+    }) : null;
+    const hint = confirmStackActionHint(p);
+    const footEls = [h("p", {
+      key: "why",
+      className: "tt-strip-card__hint"
+    }, hint)];
+    if (zm && LaneCard?.zoneBarMeta) {
+      footEls.push(LaneCard.zoneBarMeta(zm, {}));
+    }
+    const isSaved = savedSet instanceof Set ? savedSet.has(sym) : false;
+    if (LaneCard?.create) {
+      return h("div", {
+        key: sym + (p.kind || ""),
+        className: "tt-strip-card",
+        role: "listitem"
+      }, LaneCard.create({
+        sym,
+        button: {
+          onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT"),
+          title: `${sym} — open plan`,
+          style: {
+            textAlign: "left",
+            padding: "var(--ds-space-3)"
+          }
+        },
+        chipRow,
+        quote: {
+          price: livePrice,
+          dayPct,
+          dayChg,
+          dir: quoteDir,
+          extLine
+        },
+        sparkSvg,
+        midBody,
+        metrics,
+        isSaved,
+        onToggleSaved
+      }), h("div", {
+        className: "tt-strip-card__foot"
+      }, footEls));
+    }
+    return h("button", {
+      key: sym,
+      type: "button",
+      className: "tt-opp-card",
+      onClick: () => onSelectTicker && onSelectTicker(sym, "SNAPSHOT")
+    }, h("div", null, sym), h("p", {
+      className: "tt-strip-card__hint"
+    }, hint));
   }))));
 }
 function ConvexityPlaysStrip({
@@ -6562,7 +6677,12 @@ function TodayApp({
     className: "tt-universe-panel__divider"
   }), h(ConfirmStackRunnersStrip, {
     onSelectTicker,
-    embedded: true
+    embedded: true,
+    data,
+    savedSet,
+    onToggleSaved: toggleSaved,
+    sparkCache,
+    ensureSpark
   }), h("div", {
     className: "tt-universe-panel__divider"
   }), h(ConvexityPlaysStrip, {
@@ -7031,6 +7151,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784785130846:939199401
+// cache-bust:1784786034602:370006447
 
-// cache-bust:1784785130846:939199401
+// cache-bust:1784786034602:370006447

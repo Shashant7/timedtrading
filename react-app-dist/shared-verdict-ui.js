@@ -1513,6 +1513,7 @@
       rankReadySetupsFromData: rankReadySetupsFromData,
       resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
       attachCtoProbToZone: attachCtoProbToZone,
+      buildTraderZoneModel: buildTraderZoneModel,
       buildInvestorZoneModel: buildInvestorZoneModel,
       fetchCtoMapForSymbols: fetchCtoMapForSymbols,
       normalizeCtoFeedItem: normalizeCtoFeedItem,
@@ -1557,6 +1558,7 @@
     buildVerdictGuide: buildVerdictGuide,
     rankReadySetupsFromData: rankReadySetupsFromData,
     resolveReadySetupCardDisplay: resolveReadySetupCardDisplay,
+    buildTraderZoneModel: buildTraderZoneModel,
     buildInvestorZoneModel: buildInvestorZoneModel,
     attachCtoProbToZone: attachCtoProbToZone,
     LIFECYCLE_STEPS: LIFECYCLE_STEPS,
@@ -1564,4 +1566,4 @@
   };
 })();
 
-// cache-bust:1784785130846:939199401
+// cache-bust:1784786034602:370006447
