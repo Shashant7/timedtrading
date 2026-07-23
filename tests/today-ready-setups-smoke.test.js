@@ -50,7 +50,8 @@ describe("Today ReadySetupsBoard smoke", () => {
         }));
       });
     }).not.toThrow();
-    expect(container.textContent).toMatch(/READY SETUPS/);
+    expect(container.textContent).toMatch(/READY/);
+    expect(container.textContent).toMatch(/Capital shortlist/);
     act(() => { root.unmount(); });
   });
 
