@@ -81,10 +81,23 @@ export function resolveModelLifecycle(input = {}) {
       && hasOpenInvestor,
   });
 
-  const state = pickDominantState(traderState, investorState, {
+  let state = pickDominantState(traderState, investorState, {
     hasOpenTrader,
     hasOpenInvestor,
   });
+
+  // Confirm-stack thin slice: sequence entry_ready may propose Queued
+  // (paper) without promoting kanban to in_review / capital entry.
+  const paperQ = input.sequence_queue_proposal || input._sequence_queue_proposal;
+  if (
+    paperQ
+    && String(paperQ.state || "").toLowerCase() === "queued"
+    && (state === LIFECYCLE_STATES.WATCHING || !state)
+    && !hasOpenTrader
+    && !hasOpenInvestor
+  ) {
+    state = LIFECYCLE_STATES.QUEUED;
+  }
 
   const horizon = resolveHorizon(input, state, traderState, investorState);
   const book = resolveBook({
@@ -95,7 +108,9 @@ export function resolveModelLifecycle(input = {}) {
     preferred: input.book,
   });
 
-  const why = input.why || input.reason || input.stageReason || input.stage_reason || null;
+  const why = (paperQ && state === LIFECYCLE_STATES.QUEUED)
+    ? (paperQ.reason || "sequence_paper_queue")
+    : (input.why || input.reason || input.stageReason || input.stage_reason || null);
   const intent = input.intent || defaultIntent(state, horizon, book);
   const levels = normalizeLevels(input.levels || input);
   const play = normalizePlay(input.play || input.model_play || input.__model_play);

@@ -226,6 +226,17 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `__stale_hard_exit_only` (soft trim/exit still suppressed).
 - Sanity: `broker_bridge_bindings` + `worker_role_split` (dual scoring
   heartbeats; `RESEARCH_SLOTS_EXTERNAL` not `RESEARCH_EXTERNAL`).
+- Long Term (investor) mirror: `BROKER_INVESTOR_MIRROR_ENABLED=true` on
+  monolith (+ research if it hosts auto-rebalance).
+
+**WoW PnL adaptive governor (2026-07-23)**
+- Plan: `plans/wow-pnl-adaptive-governor.plan.md`. Demotion keys must load
+  dynamically (`deep_audit_setup_demotion_*`); blocked ⇒ all tickers (not
+  index-only). Nightly governor heals mangled keys, auto-demotes PF<0.5
+  bleeders, enables bleeder shield, writes `timed:weekly-governor:latest`.
+  Family attribution: `GET /timed/admin/trust-spine/family-attribution`.
+  Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
+  move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
 
 **Ledger summary is mode-aware (2026-07-22)**
 - `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.
