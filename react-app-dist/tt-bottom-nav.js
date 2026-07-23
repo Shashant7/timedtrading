@@ -25,18 +25,21 @@
     .tt-bn {
       display: none;
       position: fixed !important;
-      bottom: 0 !important;
+      /* top is set in JS from visualViewport (v7). bottom stays auto so
+         iOS Safari 26 cannot leave a bottom:0 bar mid-viewport when the
+         chrome collapses on scroll. */
       left: 0 !important;
       right: 0 !important;
-      top: auto !important;
-      /* 2026-07-23 (v6) — iOS Safari: GPU transform / blur filters on a
-         position:fixed bar can detach it from the viewport during scroll
-         so it rides mid-page with content. Keep this rule filter-free. */
+      width: 100% !important;
+      bottom: auto !important;
+      /* 2026-07-23 (v6/v7) — never put transform / backdrop-filter on this
+         bar; iOS promotes a compositor layer that detaches mid-scroll. */
       z-index: 2147483000;
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
       background: rgba(11,20,16,0.97);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
+      box-sizing: border-box;
     }
     .tt-bn.is-keyboard-hidden {
       visibility: hidden;
@@ -152,7 +155,7 @@
   // Diagnostic: document.getElementById("tt-bottom-nav").dataset
   //   ttBnState: "pinned" | "keyboard"
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-07-23-v6";
+  nav.dataset.ttBnBuiltAt = "2026-07-23-v7";
   nav.dataset.ttBnState = "pinned";
 
   const row = document.createElement("div");
@@ -194,20 +197,54 @@
     }
   }
 
-  /** Keep the bar a direct body child + truly viewport-fixed (iOS scroll). */
+  let _pinRaf = 0;
+
+  /**
+   * Pin the bar to the bottom edge of the *visual* viewport.
+   *
+   * v6 used position:fixed; bottom:0 with no transform — still floats mid-
+   * page on iOS Safari 26 when the address bar collapses during scroll
+   * (fixed/sticky elements shift vertically; WebKit).
+   *
+   * v7: set `top = visualViewport.offsetTop + height - navH` and
+   * `bottom: auto`. No transform (that was the mid-page gap bug from the
+   * earlier URL-bar translate). Re-run on vv scroll/resize + window scroll.
+   */
   function pinNavToViewport() {
     const navEl = document.getElementById("tt-bottom-nav");
     if (!navEl || !document.body) return;
     if (navEl.parentNode !== document.body) {
       document.body.appendChild(navEl);
     }
+
+    const h = navEl.offsetHeight || 72;
+    const vv = window.visualViewport;
+    let topPx;
+    if (vv && Number.isFinite(vv.height) && vv.height > 0) {
+      topPx = vv.offsetTop + vv.height - h;
+    } else {
+      topPx = Math.max(0, (window.innerHeight || 0) - h);
+    }
+    // Clamp: never place the bar above the visible top.
+    if (!Number.isFinite(topPx) || topPx < 0) topPx = 0;
+
     navEl.style.setProperty("position", "fixed", "important");
-    navEl.style.setProperty("bottom", "0px", "important");
     navEl.style.setProperty("left", "0px", "important");
     navEl.style.setProperty("right", "0px", "important");
-    navEl.style.setProperty("top", "auto", "important");
+    navEl.style.setProperty("width", "100%", "important");
+    navEl.style.setProperty("bottom", "auto", "important");
+    navEl.style.setProperty("top", `${Math.round(topPx)}px`, "important");
     navEl.style.removeProperty("transform");
     navEl.style.removeProperty("-webkit-transform");
+    navEl.dataset.ttBnTop = String(Math.round(topPx));
+  }
+
+  function schedulePin() {
+    if (_pinRaf) return;
+    _pinRaf = window.requestAnimationFrame(() => {
+      _pinRaf = 0;
+      pinNavToViewport();
+    });
   }
 
   if (document.body) {
@@ -321,13 +358,16 @@
 
   window.addEventListener("focusin", syncNavKeyboardState, true);
   window.addEventListener("focusout", () => setTimeout(syncNavKeyboardState, 50), true);
-  // Capture scroll so iOS momentum cannot leave a detached compositor layer.
-  window.addEventListener("scroll", pinNavToViewport, { passive: true, capture: true });
-  window.addEventListener("resize", pinNavToViewport, { passive: true });
+  window.addEventListener("scroll", schedulePin, { passive: true, capture: true });
+  window.addEventListener("resize", schedulePin, { passive: true });
   window.addEventListener("orientationchange", () => setTimeout(pinNavToViewport, 250), { passive: true });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", schedulePin, { passive: true });
+    window.visualViewport.addEventListener("scroll", schedulePin, { passive: true });
+  }
   syncNavKeyboardState();
   setTimeout(pinNavToViewport, 150);
   setTimeout(pinNavToViewport, 400);
 })();
 
-// cache-bust:1784813620591:186453980
+// cache-bust:1784827519194:866016840

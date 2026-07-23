@@ -484,7 +484,7 @@ playbook in `skills/security-auth-patterns.md`)**
 - TwelveData native fields over manual `price - prevClose`
 - `timed:prices` keys: `p`, `pc`, `dc`, `dp`, `ahp`, `ahdc`, `ahdp`
 - **EXT premarket reversals (NOW)**: do not suppress opposite-direction AH vs RTH in `getExtChange` / `extendedQuoteLooksStale`; preserve large `ahp` when `p` unchanged. Compact EXT movers chips are logo+sym+% only (no $ — overflows).
-- **Mobile Tab Nav missing / floating**: never translate Tab Nav for “URL bar” via `innerHeight - visualViewport`. Also never put `transform` / `backdrop-filter` on `.tt-bn` — iOS detaches fixed bars mid-scroll. Pin `bottom:0` + safe-area; bump `SHELL_VERSION` when shipping.
+- **Mobile Tab Nav missing / floating**: never `translateY` for URL-bar delta; never `transform`/`backdrop-filter` on `.tt-bn`. On iOS Safari 26, `bottom:0` still shifts mid-scroll — pin with `top = visualViewport.offsetTop + height - navH` (`tt-shell-v7`).
 - **Earnings chips**: never default missing `hour` to `bmo` (AAPL 07-23 false BMO). Hide rows with `epsActual` from upcoming chips. Brief prompts use Short Term / Long Term (not Trader/Investor).
 - **Babel-standalone pages MUST render nav as static HTML** outside `<div id="root">` — JSX compile is 1-3s cold-load → blank-page bug otherwise. See `today.html` / `active-trader.html` for the pattern. (PR #304)
 - **New pages using `.nav-links` markup MUST be added to `JOURNEY_PATHS`** in `tt-nav-extras.js` (line ~370). Otherwise the script prepends a duplicate journey-link strip. (PR #304)

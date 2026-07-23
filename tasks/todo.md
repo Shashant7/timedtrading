@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **Mobile Tab Nav still floats on scroll (2026-07-23).** v6
+      `bottom:0` still shifts mid-page on iOS Safari 26 chrome collapse.
+      Pin with visualViewport `top` (no transform); SW `tt-shell-v7`.
+      Branch: `cursor/tab-nav-vv-pin-df0c`.
+
 - [x] **Email setup TT brand (2026-07-23).** Setup line title-cased
       `tt_n_test_support` → "Tt N Test Support". Use formatEmailSetupName
       so it shows "TT Support Bounce" / never "Tt". Branch:
