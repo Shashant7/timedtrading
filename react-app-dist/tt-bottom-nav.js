@@ -54,40 +54,23 @@
          ~2 weeks. Never use backticks inside a template literal's CSS
          body, even in comments. */
       z-index: 2147483000;
-      /* 2026-06-01 (v2) — Bumped floor 14px → 24px AND added a
-         visualViewport-driven translateY adjustment (see JS at the
-         bottom of this file). On iOS Safari (which is the primary
-         victim of this class of bug), env(safe-area-inset-bottom)
-         covers ONLY the Home Indicator (~34px on Face ID phones).
-         It does NOT include the compact bottom URL bar that Safari
-         renders below the page content — that bar is ~50-60px tall
-         and the only way to detect it is via visualViewport.height
-         being less than window.innerHeight. The JS adds an inline
-         transform on the nav element when that delta is non-zero so
-         the nav floats above the URL bar instead of disappearing
-         behind it. The 24px CSS floor below stops the nav being
-         flush with the screen edge on Android / desktop where the
-         visualViewport delta is always 0. */
+      /* 2026-07-23 (v5) — Pin with bottom:0 + safe-area only. The old
+         visualViewport translateY "URL bar push" left the bar floating
+         mid-page on iPhone (delta often equals expanded chrome, not a
+         bottom toolbar). Modern iOS already lays out position:fixed
+         against the visual viewport; chasing innerHeight-vv.height made
+         it worse. */
       padding: 8px 8px max(24px, env(safe-area-inset-bottom));
       background: rgba(11,20,16,0.94);
       backdrop-filter: blur(14px);
       -webkit-backdrop-filter: blur(14px);
       border-top: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 -2px 16px rgba(0,0,0,0.45);
-      /* Bug 2026-05-20: iOS Safari momentum-scroll fixed-position quirk.
-         Force GPU compositing so the nav stays in its own layer.
-         The visualViewport JS below mutates this transform property at
-         runtime — preserve translate3d(0,0,0) as the resting state. */
+      /* GPU layer for iOS momentum-scroll; do NOT translate for chrome. */
       transform: translate3d(0, 0, 0);
       -webkit-transform: translate3d(0, 0, 0);
-      will-change: transform;
       -webkit-backface-visibility: hidden;
       backface-visibility: hidden;
-      /* Smooth out the URL-bar push when iOS Safari toggles the
-         compact bar (typical case: user scrolls up and bar appears,
-         scrolls down and bar collapses). 120ms feels native, longer
-         feels laggy. */
-      transition: transform 120ms ease-out;
     }
     .tt-bn-row {
       display: grid;
@@ -207,20 +190,14 @@
   nav.id = "tt-bottom-nav";
   nav.className = "tt-bn";
   nav.setAttribute("aria-label", "Primary mobile navigation");
-  // 2026-06-01 (v3) — Diagnostic attributes so the next "where's the
-  // nav?" report can be triaged in 5 seconds via DevTools instead of a
-  // round-trip:
-  //   data-tt-bn-mounted   — proves the script ran + appendChild fired
+  // Diagnostic attributes for Mobile Safari Inspector:
+  //   data-tt-bn-mounted   — script ran + appendChild fired
   //   data-tt-bn-built-at  — script vintage (lines up with cache-bust)
-  //   data-tt-bn-state     — updated by syncNavToVisualViewport:
-  //                          "settled"            no URL bar push
-  //                          "url-bar-<N>px"      pushed N px up
-  //                          "keyboard"           hidden (keyboard open)
-  // Devtools (Mobile Safari Inspector):
+  //   data-tt-bn-state     — "pinned" | "keyboard"
   //   document.getElementById("tt-bottom-nav").dataset
   nav.dataset.ttBnMounted = "1";
-  nav.dataset.ttBnBuiltAt = "2026-07-23-v4";
-  nav.dataset.ttBnState = "init";
+  nav.dataset.ttBnBuiltAt = "2026-07-23-v5";
+  nav.dataset.ttBnState = "pinned";
 
   const row = document.createElement("div");
   row.className = "tt-bn-row";
@@ -361,24 +338,10 @@
     setBottomBadge("trader", total > 0 ? total : null);
   });
 
-  // ── iOS Safari compact URL bar — keep nav above it ──────────
-  // 2026-06-01 (v2) — Root cause of "bottom nav missing on mobile":
-  // iOS Safari's compact (collapsed) bottom URL bar is ~50-60px tall
-  // and renders BELOW the layout viewport. env(safe-area-inset-bottom)
-  // does NOT include it (that constant only covers the Home Indicator,
-  // typically ~34px). So a `position: fixed; bottom: 0;` element with
-  // only safe-area padding renders behind the URL bar and is invisible.
-  //
-  // visualViewport.height shrinks when the URL bar shows; the delta vs
-  // window.innerHeight equals the URL-bar height. We push the nav up by
-  // that delta via inline transform (the CSS keeps translate3d for GPU
-  // compositing — JS overrides it with translate3d(0, -Npx, 0) so the
-  // GPU layer is preserved). When the user scrolls down and Safari
-  // collapses the URL bar, delta returns to 0 and the nav settles back
-  // to bottom: 0. The CSS transition makes the move smooth.
-  //
-  // Browsers without visualViewport (older Android Firefox / Safari 12-)
-  // just see the CSS padding and live with the 24px floor.
+  // ── Keyboard hide only (no URL-bar translate) ───────────────
+  // 2026-07-23 (v5) — Dropped visualViewport URL-bar push. It left the
+  // nav floating mid-page on iPhone after v4. Keep a simple hide while
+  // a text field is focused so the bar does not cover the keyboard.
   function isTextInputFocused() {
     const ae = document.activeElement;
     if (!ae) return false;
@@ -388,63 +351,20 @@
     return false;
   }
 
-  function syncNavToVisualViewport() {
+  function syncNavKeyboardState() {
     const navEl = document.getElementById("tt-bottom-nav");
     if (!navEl) return;
-    const vv = window.visualViewport;
-    if (!vv) {
-      navEl.style.transform = "translate3d(0, 0, 0)";
-      navEl.dataset.ttBnState = "settled";
-      return;
-    }
-    // visualViewport.height < window.innerHeight when iOS Safari
-    // shows its bottom URL bar; offsetTop accounts for any keyboard
-    // push (we want to subtract that too — a focused input shifts
-    // the visual viewport up).
-    const innerH = window.innerHeight;
-    const vvH = vv.height;
-    const vvOffsetTop = vv.offsetTop || 0;
-    const delta = Math.max(0, Math.round(innerH - vvH - vvOffsetTop));
-
-    // 2026-07-23 (v4) — User report: Tab Nav gone on Today (iPhone) with
-    // Safari chrome expanded at top of page. The v3 ratio check
-    // (vvH < innerH * 0.65) false-positives as "keyboard" when the
-    // expanded top+bottom chrome shrinks the visual viewport on Pro /
-    // Pro Max — e.g. 550 < 852*0.65. Never hide from viewport geometry
-    // alone; only hide when a text field is actually focused.
-    const isKeyboardOpen = isTextInputFocused()
-      && vvH > 0
-      && vvH < innerH * 0.75;
-    if (isKeyboardOpen) {
-      // Hide the nav while the keyboard is up — pushing it would land
-      // mid-page and overlap content the user is typing into.
+    if (isTextInputFocused()) {
       navEl.style.transform = "translate3d(0, 200%, 0)";
       navEl.dataset.ttBnState = "keyboard";
     } else {
-      // Cap the URL-bar push so a pathological delta cannot yeet the
-      // nav off-screen even if innerHeight/visualViewport disagree.
-      const push = Math.min(delta, Math.round(innerH * 0.22));
-      navEl.style.transform = `translate3d(0, -${push}px, 0)`;
-      navEl.dataset.ttBnState = push > 0 ? `url-bar-${push}px` : "settled";
+      navEl.style.transform = "translate3d(0, 0, 0)";
+      navEl.dataset.ttBnState = "pinned";
     }
   }
-  // Initial pass + listen to every viewport change (resize, scroll, and
-  // also a one-shot after the DOM is fully wired so we catch the
-  // post-paint viewport settle on iOS).
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener("resize", syncNavToVisualViewport, { passive: true });
-    window.visualViewport.addEventListener("scroll", syncNavToVisualViewport, { passive: true });
-  }
-  window.addEventListener("orientationchange", () => setTimeout(syncNavToVisualViewport, 250), { passive: true });
-  // Re-sync when focus enters/leaves inputs so keyboard hide is accurate.
-  window.addEventListener("focusin", syncNavToVisualViewport, true);
-  window.addEventListener("focusout", () => setTimeout(syncNavToVisualViewport, 50), true);
-  // First sync after layout settles. iOS Safari's URL bar typically
-  // animates in over ~300ms; sync at 0/150/400 so we catch every
-  // intermediate state.
-  syncNavToVisualViewport();
-  setTimeout(syncNavToVisualViewport, 150);
-  setTimeout(syncNavToVisualViewport, 400);
+  window.addEventListener("focusin", syncNavKeyboardState, true);
+  window.addEventListener("focusout", () => setTimeout(syncNavKeyboardState, 50), true);
+  syncNavKeyboardState();
 })();
 
-// cache-bust:1784809539793:997838906
+// cache-bust:1784812032392:179916728

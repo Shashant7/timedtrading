@@ -22,6 +22,11 @@
 
 ### Active
 
+- [x] **Mobile Tab Nav floating mid-page (2026-07-23).** After #1155 the
+      bar reappeared but sits above a large gap — visualViewport URL-bar
+      translate (22% cap) still pushes it up. Pin to bottom:0 + safe-area
+      only; drop URL-bar transform. Branch: `cursor/mobile-tab-nav-pin-df0c`.
+
 - [x] **Mobile Tab Nav missing (2026-07-23).** Bottom nav gone on Today
       (iPhone). Likely false-positive keyboard hide in
       `syncNavToVisualViewport` when Safari chrome expands (vvH &lt; 65%
