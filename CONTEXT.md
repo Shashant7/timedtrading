@@ -722,6 +722,8 @@ The system's editorial playbook lives at `worker/strategy-context.js` and feeds:
 
 Two vintages run in parallel: `STRATEGY_VINTAGE` (structural — sector/theme/SMID tilts, rolls forward on each Year-Ahead deck) and `STRATEGY_TACTICAL_VINTAGE` (refreshes per Daily Technical Strategy publication). When FSD publishes a new Daily Technical Strategy note, edit `TACTICAL_SIGNALS[]`, bump `STRATEGY_TACTICAL_VINTAGE`, refresh affected theme playbook strings, add any new `ACTIVE_RISKS` entries, and add `EDUCATION_SNIPPETS` for any new technical vocabulary (TD Buy Setup, RSP/SPY, MAGS, etc.). The header-comment vintage-history block in `strategy-context.js` is the canonical changelog. Source PDFs live in `docs/reference-pdfs/` for inventory parity.
 
+- **FSD research-note levels must be live-fresh (2026-07-23)**: `fsd-rewriter` picks freshest of snapshot/`ticker_latest`/`timed:latest`, overlays `timed:prices`, omits divergent trigger/stop/tp (>12% or broken geometry), persists `model_context_meta_json`, and auto-refreshes rewrites when live px drifts ≥8%. Never cite TT plan levels absent from the prompt context.
+
 Structural vintage bumped to **2026-07-07** (July Sector Allocation): Industrials +2.7% to 10.0% (overweight), Financials +2.4% to 12.3%, Discretionary +1.9% to 8.5%; Utilities cut to 1.8%, Real Estate to 2.0%, Comm Services to 6.7%; Tech neutral at 31.0%. Theme sleeve adds JETS/IBB/SPHB; drops IHF/DRIV/IYT (keeps CIBR/ARKG). CRO auto-ingested pub `1541315` but a later daily note overwrote the KV stance merge — `cro-apply` now preserves structural sector changes across tactical applies. `/timed/strategy` surfaces the live CRO KV override when active (`tactical.override_applied`).
 
 ## Full Lessons
