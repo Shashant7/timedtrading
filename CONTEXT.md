@@ -217,6 +217,16 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Broker mirror: TRIM + reject visibility + stale SL (2026-07-23)**
+- Trader `trimTradeToPct` must call `forwardOrderToBridge` (`side=trim` /
+  trim-to-full `exit`); otherwise the broker stays full-size until EXIT.
+- Bridge rejects/`fetch_error` → `timed:debug:silent-failures` + client ring;
+  vehicle skips use `recordBridgeMirrorSkip` (not a silent no-op).
+- `__candle_data_stale` must NOT block feed SL hard-close — allow through with
+  `__stale_hard_exit_only` (soft trim/exit still suppressed).
+- Sanity: `broker_bridge_bindings` + `worker_role_split` (dual scoring
+  heartbeats; `RESEARCH_SLOTS_EXTERNAL` not `RESEARCH_EXTERNAL`).
+
 **Ledger summary is mode-aware (2026-07-22)**
 - `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.
   Trader → `trades`; investor → `investor_positions` + `account_ledger`.
