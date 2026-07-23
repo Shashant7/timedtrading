@@ -3598,3 +3598,24 @@ Discord `createTradeTrimmedEmbed` already did `trimmedPct * 100`. Fix:
 legacy samples that pass `50` stay `50`). In-app trim notification body must
 also `Math.round(tgt * 100)`, never interpolate the raw fraction into `%`.
 
+## 2026-07-23 — RTX stacked 50% + 15% trim at the same print
+
+Not a duplicate fill of the same trim: two reasons, ~8.5s apart, same
+`$207.98`:
+
+1. `ripster_pdz_mfe_trim` → 50% (16.81sh)
+2. `RUNNER_PEAK_TRIM_LADDER` → +15% to 65% (5.04sh)
+
+`RUNNER_PEAK_TRIM_LADDER` is supposed to fire only on a **new high ≥5%
+above the last trim/peak**. It fired at the same price because:
+
+- Anchor resolution preferred a stale lower `execState.runnerPeakPrice`
+  (prior trade on the symbol) / fell back to **entry** when
+  `getOpenPositionAsTrade` omitted `trim_price`.
+- Ladder ignored the 5m `trimCooldownOk` used by the kanban trim path.
+
+Fix: `resolveRunnerPeakTrimAnchor` (max of trim+peak, no entry fallback),
+internal min-ms-since-trim, hydrate `trim_price`/`trim_ts` from last TRIM
+action, set `lastPeakTrimPx` on every trim exec update, clear peak keys
+on ENTRY, gate ladder on `trimCooldownOk`.
+
