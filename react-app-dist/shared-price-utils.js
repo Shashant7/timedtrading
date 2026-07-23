@@ -675,13 +675,20 @@
       if (extDerivedFromStaleRthBaseline(t, headline, pct) || extPctMirrorsRthSession(pct, t)) {
         return null;
       }
-      // GS @ 1090: cached ahp can be last session's RTH close while headline
-      // moved; stale ahdp still carries +6.84% RTH move. Suppress when the
-      // cached pct disagrees materially with the price-derived EXT move.
+      // GS zombies: cached ahp can be last session's RTH close while headline
+      // moved; stale ahdp may still carry RTH move or noise. Suppress when
+      // vendor ahdp disagrees with the price-derived EXT move (sign flip or
+      // large gap). Real large AH dumps (TSLA/GOOGL) keep vendor ahdp in
+      // agreement with (ahp - RTH close) / RTH close.
       var cachedAhdp = Number(t._ah_change_pct ?? t.extended_percent_change);
-      if (Number.isFinite(cachedAhdp) && Math.abs(cachedAhdp) > 3
-          && Math.abs(cachedAhdp - pct) > Math.max(2, Math.abs(pct) * 2)) {
-        return null;
+      if (Number.isFinite(cachedAhdp)) {
+        var ahdpGap = Math.abs(cachedAhdp - pct);
+        var signsDisagree = Math.sign(cachedAhdp) !== Math.sign(pct)
+          && Math.abs(cachedAhdp) >= 0.05 && Math.abs(pct) >= 0.05;
+        if (ahdpGap > Math.max(2, Math.abs(pct) * 0.5)
+            && (signsDisagree || ahdpGap > 3 || Math.abs(cachedAhdp) > 3)) {
+          return null;
+        }
       }
     } else if (headline > 0 && Number.isFinite(pct) && Math.abs(pct) >= 0.05 && !(px > 0)) {
       // Reject ahdp that mirrors RTH day change (GS +6.84% EXT bleed when AH flat).
@@ -701,10 +708,27 @@
     if (!hasDistinctExtPx) return null;
     if (!(px > 0)) return null;
 
-    // GS zombie: stale snapshot _ah_price (old RTH close) vs fresh headline.
+    // Large EXT moves are real (TSLA/GOOGL after-hours dumps, earnings AMC).
+    // The old >4% vs livePx guard treated every big AH move as a GS zombie
+    // because livePx IS the RTH headline outside RTH — so EXT movers showed
+    // the name while cards/rail hid the price. Only suppress when the
+    // extended print looks stale vs vendor ahdp/ahdc (disagreement already
+    // handled above) OR when ahp ≈ prev_close while headline has moved
+    // (classic GS: ahp stuck at an old close).
     if (headline > 0 && Math.abs(px - headline) / headline > 0.04) {
-      var livePx = Number(t._live_price ?? t.price ?? t.close);
-      if (livePx > 0 && Math.abs(px - livePx) / livePx > 0.04) return null;
+      var prevClose = Number(
+        t.prev_close ?? t.previous_close ?? t.pc ?? t._live_prev_close
+      );
+      var ahpLooksLikePrev = prevClose > 0
+        && Math.abs(px - prevClose) / prevClose < 0.004;
+      var headlineMovedFromPrev = prevClose > 0
+        && Math.abs(headline - prevClose) / prevClose > 0.01;
+      if (ahpLooksLikePrev && headlineMovedFromPrev) return null;
+      var vendorAhdp = Number(t._ah_change_pct ?? t.extended_percent_change);
+      if (Number.isFinite(vendorAhdp)
+          && Math.abs(vendorAhdp - pct) > Math.max(2, Math.abs(pct) * 2)) {
+        return null;
+      }
     }
 
     // Cross-session stale guard (e.g. CRDO extended_price lagging RTH).
@@ -1067,6 +1091,12 @@
   function applyPriceFeedOverlay(existing, p, marketOpen) {
     var feedP = Number(p && p.p);
     if (!(feedP > 0)) return null;
+    // Stamp vendor receipt clocks so getExtChange/isPriceFeedFresh work even
+    // when the overlay path is used without a separate tt-live-data merge.
+    var receiptTs = Math.max(Number(p.q_ts) || 0, Number(p.p_ts) || 0, Number(p.t) || 0);
+    var receiptStamp = receiptTs > 0
+      ? { _quote_receipt_ts: receiptTs, _price_value_ts: receiptTs, _price_updated_at: receiptTs }
+      : null;
 
     if (marketOpen) {
       var openOverlay = { price: feedP, _live_price: feedP };
@@ -1078,7 +1108,7 @@
         if (Number.isFinite(openAhdc)) openOverlay._ah_change = openAhdc;
         if (Number.isFinite(openAhdp)) openOverlay._ah_change_pct = openAhdp;
       }
-      return openOverlay;
+      return receiptStamp ? Object.assign(openOverlay, receiptStamp) : openOverlay;
     }
 
     var ahp = Number(p.ahp);
@@ -1098,7 +1128,7 @@
       var ahdp = Number(p.ahdp);
       if (Number.isFinite(ahdc)) kvOverlay._ah_change = ahdc;
       if (Number.isFinite(ahdp)) kvOverlay._ah_change_pct = ahdp;
-      return kvOverlay;
+      return receiptStamp ? Object.assign(kvOverlay, receiptStamp) : kvOverlay;
     }
 
     if (isAuthoritativeRthPoll(p)) {
@@ -1173,4 +1203,4 @@
   };
 })();
 
-// cache-bust:1784781251547:639393288
+// cache-bust:1784784151228:436091754

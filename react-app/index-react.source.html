@@ -3693,7 +3693,9 @@
             .map((t) => {
               const sym = normTicker(t?.ticker || t?.symbol || "");
               if (!sym || CRYPTO_24H.has(sym)) return null;
-              const pct = Number(t?._ah_change_pct);
+              // Prefer getExtChange so TT-selected EXT names match card/rail display.
+              const ext = window.TimedPriceUtils?.getExtChange?.(t);
+              const pct = ext && Number.isFinite(ext.pct) ? ext.pct : Number(t?._ah_change_pct);
               if (!Number.isFinite(pct) || pct === 0) return null;
               return { ticker: sym, pct };
             })
