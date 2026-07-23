@@ -879,13 +879,13 @@ function MarketPulseTile({
     }
   }));
 }
-function confirmStackActionHint(p) {
+function setupFamilyActionHint(p) {
   const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
   if (p?.sequence_entry_ready) {
     return "This card shows Entry ready on its plan — size at the add zone. That chip is not a move into Ready Setups above.";
   }
   if (state === "queued") {
-    return "In this setup family's queue — confirm size, then work the entry from the plan levels.";
+    return "Queued inside this setup family — confirm size, then work the entry from the plan levels. Separate from Model → Queuing Up.";
   }
   if (state === "bought" || state === "held") {
     return "Position open — manage with the stop, trim, and target on the plan.";
@@ -897,11 +897,11 @@ function confirmStackActionHint(p) {
     return "Structure aligned on this family — stalk the add zone on the plan. Ready Setups above is a separate capital shortlist.";
   }
   if (state === "watching" || state === "watch") {
-    return "Watching this structure family — wait for a pullback into the add zone on the plan.";
+    return "Watching this setup family — wait for a pullback into the add zone on the plan.";
   }
-  return p?.lifecycle?.why || "Trend flip + squeeze + reclaim just lined up — open the plan for next steps.";
+  return p?.lifecycle?.why || "Family admission just fired — open the plan for next steps.";
 }
-function ConfirmStackRunnersStrip({
+function SetupFamiliesStrip({
   onSelectTicker,
   embedded,
   data,
@@ -959,12 +959,14 @@ function ConfirmStackRunnersStrip({
     };
   }, []);
   const wrap = children => {
-    if (embedded) return h("div", {
-      className: "tt-universe-panel__confirm-stack",
-      id: "confirm-stack-runners"
-    }, children);
+    if (embedded) {
+      return h("div", {
+        className: "tt-universe-panel__setup-families tt-universe-panel__confirm-stack",
+        id: "setup-families"
+      }, children);
+    }
     return h("section", {
-      id: "confirm-stack-runners",
+      id: "setup-families",
       className: "tt-row"
     }, children);
   };
@@ -972,18 +974,18 @@ function ConfirmStackRunnersStrip({
     className: "tt-ready__head"
   }, h("div", {
     className: "tt-sec-title"
-  }, "MODEL PROCESS"), h("h2", {
+  }, "SETUP FAMILIES"), h("h2", {
     className: "tt-ready__title"
-  }, "Structure runners — stalk the add zone"), h("p", {
+  }, "Tracked families — stalk the add zone"), h("p", {
     className: "tt-ready__sub"
-  }, "Compiled when trend flip, squeeze release, and reclaim fire together on one setup family. A process board (watching → queued → bought) — not a feeder into Ready Setups above. When a card shows Entry ready, that means this ticker's plan chip, not a promotion to the shortlist."));
+  }, "Board for named setup families the model is working end-to-end (watching → queued → bought). First family: confirm-stack structure (trend flip + squeeze + reclaim). More families can land here later. Separate from Model → Queuing Up (stage lane) and from Ready Setups above (capital shortlist). Entry ready on a card means that ticker's plan chip."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
       style: {
         marginTop: 8
       }
-    }, "Upgrade to Pro to see structure runners.")));
+    }, "Upgrade to Pro to see setup families.")));
   }
   if (loading) {
     return wrap(h(React.Fragment, null, head, h("div", {
@@ -992,7 +994,7 @@ function ConfirmStackRunnersStrip({
         color: "var(--tt-text-muted)",
         marginTop: 8
       }
-    }, "Loading structure runners…")));
+    }, "Loading setup families…")));
   }
   const plays = Array.isArray(slice?.plays) ? slice.plays : [];
   if (!plays.length) {
@@ -1001,7 +1003,7 @@ function ConfirmStackRunnersStrip({
       style: {
         marginTop: 8
       }
-    }, "No structure runners right now. When trend flip, squeeze, and reclaim line up on this family, they land here.")));
+    }, "No setup-family runners right now. When a tracked family admits a name (confirm-stack first), it lands here.")));
   }
   const LaneCard = window.TTLaneCard;
   const VU = window.TimedVerdictUI;
@@ -1035,11 +1037,21 @@ function ConfirmStackRunnersStrip({
     const biasCls = modelDir === "SHORT" ? "ds-chip--dn" : modelDir === "LONG" ? "ds-chip--up" : "ds-chip--solid";
     const biasLabel = modelDir === "SHORT" ? "Bearish" : modelDir === "LONG" ? "Bullish" : "Neutral";
     const chipRow = [];
+    const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
+    const familyLabel = familyKey === "confirm_stack_ema21" || familyKey === "confirm_stack" ? "Confirm-stack" : familyKey.replace(/_/g, " ");
+    chipRow.push(h("span", {
+      key: "family",
+      className: "ds-chip ds-chip--sm",
+      title: "Setup family admission rule for this card",
+      style: {
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, familyLabel));
     if (lifeLabel) {
       chipRow.push(h("span", {
         key: "life",
         className: "ds-chip ds-chip--sm ds-chip--solid",
-        title: p.lifecycle?.why || "Where this name sits in the model process",
+        title: p.lifecycle?.why || "Where this name sits inside the setup family",
         style: {
           fontFamily: "var(--tt-font-mono)"
         }
@@ -1094,7 +1106,7 @@ function ConfirmStackRunnersStrip({
       planLabel: zm.lane === "investor" ? "Long Term plan" : "Short Term plan",
       trackTitle: zm.lane === "investor" ? "Long Term lane — invalidation floor, add-on-pullback zone, and target." : "Short Term plan — stop, add zone, and first target."
     }) : null;
-    const hint = confirmStackActionHint(p);
+    const hint = setupFamilyActionHint(p);
     const footEls = [h("p", {
       key: "why",
       className: "tt-strip-card__hint"
@@ -6675,7 +6687,7 @@ function TodayApp({
     ensureSpark
   }), h("div", {
     className: "tt-universe-panel__divider"
-  }), h(ConfirmStackRunnersStrip, {
+  }), h(SetupFamiliesStrip, {
     onSelectTicker,
     embedded: true,
     data,
@@ -7151,6 +7163,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784786950542:501292473
+// cache-bust:1784787270513:955251575
 
-// cache-bust:1784786950542:501292473
+// cache-bust:1784787270513:955251575
