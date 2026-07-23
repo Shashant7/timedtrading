@@ -121,9 +121,35 @@ describe("planInvestorConvenienceHeal", () => {
         notes: "x",
         dca_enabled: 1,
         total_shares: 10,
+        entry_provenance_json: "{\"stage\":\"accumulate\"}",
       },
       { stage: "accumulate", thesis: "other" },
     );
     expect(patch).toBeNull();
+  });
+
+  it("backfills entry_provenance_json from scores when missing", () => {
+    const patch = planInvestorConvenienceHeal(
+      {
+        thesis: "have it",
+        thesis_invalidation: "[]",
+        investor_stage: "accumulate",
+        notes: "x",
+        dca_enabled: 1,
+        total_shares: 10,
+        entry_provenance_json: null,
+      },
+      {
+        stage: "accumulate",
+        score: 64,
+        stageReason: "compounder_dip_buy:growth_strong",
+        compounder: { tier: "growth_strong", eligible: true, dip_buy: true, dip_signals: ["intraday_pullback"] },
+        thesis: "CF thesis",
+      },
+    );
+    expect(patch.entry_provenance_json).toBeTruthy();
+    const parsed = JSON.parse(patch.entry_provenance_json);
+    expect(parsed.compounder.tier).toBe("growth_strong");
+    expect(parsed.provenance_source).toBe("heal_from_scores");
   });
 });

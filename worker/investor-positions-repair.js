@@ -8,6 +8,7 @@
 // so auto-opened rows never stay null after scores exist (CF 2026-07-15).
 
 import { replayInvestorLots } from "./investor-lot-ledger.js";
+import { compactInvestorScoreProvenance } from "./investor.js";
 
 const COST_TOLERANCE = 1;
 const SHARE_TOLERANCE = 0.01;
@@ -210,6 +211,21 @@ export function planInvestorConvenienceHeal(pos = {}, scoreRow = null, opts = {}
   }
   if (_blank(pos.notes) && derived.notes) patch.notes = derived.notes;
 
+  // Calibration-loop provenance — stamp once from live scores when missing
+  // so older auto-opens (CF) become attributable without a re-entry.
+  if (_blank(pos.entry_provenance_json) && scoreRow) {
+    try {
+      const prov = compactInvestorScoreProvenance(scoreRow, {
+        stage: pos.investor_stage || scoreRow.stage,
+        score: scoreRow.score,
+        healed: true,
+      });
+      // Mark heal so calibration can distinguish live entry stamps vs backfill.
+      prov.provenance_source = "heal_from_scores";
+      patch.entry_provenance_json = JSON.stringify(prov).slice(0, 16000);
+    } catch (_) { /* ignore */ }
+  }
+
   const autoDca = opts.autoDcaOnAccumulate !== false;
   const stage = String(pos.investor_stage || derived.investor_stage || scoreRow.stage || "").toLowerCase();
   const dcaOff = !(Number(pos.dca_enabled) > 0);
@@ -243,7 +259,7 @@ export async function healInvestorPositionConvenience(db, scores = {}, opts = {}
   const now = Number(opts.now) || Date.now();
   const posRes = await db.prepare(
     `SELECT id, ticker, total_shares, thesis, thesis_invalidation, investor_stage, notes,
-            dca_enabled, dca_amount, dca_frequency, dca_next_ts
+            dca_enabled, dca_amount, dca_frequency, dca_next_ts, entry_provenance_json
        FROM investor_positions
       WHERE status = 'OPEN' AND total_shares > 0`,
   ).all().catch(() => ({ results: [] }));
