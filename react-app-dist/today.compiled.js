@@ -3718,15 +3718,7 @@ function CompactMoverChip({
     size: 16
   }), h("span", {
     className: "tt-mover-compact__sym"
-  }, sym), mode === "ext" && Number.isFinite(px) && h("span", {
-    className: "tt-mover-compact__px",
-    style: {
-      fontFamily: "var(--tt-font-mono)",
-      fontSize: 10,
-      color: "var(--tt-text-dim)",
-      marginRight: 4
-    }
-  }, fmtUsd(px)), h("span", {
+  }, sym), h("span", {
     className: `tt-mover-compact__pct ${dir}`
   }, Number.isFinite(pct) ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : "—", mode === "ext" && h("span", {
     className: "tt-mover-compact__ext"
@@ -7172,6 +7164,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784788645284:28596325
+// cache-bust:1784805926823:750824547
 
-// cache-bust:1784788645284:28596325
+// cache-bust:1784805926823:750824547

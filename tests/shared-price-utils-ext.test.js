@@ -230,6 +230,26 @@ describe("getExtChange", () => {
     expect(googl.price).toBe(330.75);
     expect(googl.pct).toBeCloseTo(-3.31, 1);
   });
+
+  it("shows premarket reversal after a large RTH loss (NOW bounce)", () => {
+    mockMarketClosed();
+    const ext = utils.getExtChange(withFreshPrice({
+      ticker: "NOW",
+      price: 95.46,
+      close: 95.46,
+      _live_price: 95.46,
+      prev_close: 102.06,
+      _live_prev_close: 102.06,
+      day_change_pct: -6.47,
+      day_change: -6.6,
+      _ah_price: 102.5,
+      _ah_change: 7.04,
+      _ah_change_pct: 7.37,
+    }));
+    expect(ext).not.toBeNull();
+    expect(ext.price).toBe(102.5);
+    expect(ext.pct).toBeGreaterThan(6);
+  });
 });
 
 describe("getHeadlinePrice RTH flap guard", () => {

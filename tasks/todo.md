@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **Rail EXT + compact movers chips (2026-07-23).** Some tickers
+      (NOW reverse premkt) hide EXT on right-rail header because
+      `getExtChange` still kills opposite-direction >4% AH vs RTH.
+      Compact EXT movers chips also render dollar price and overflow.
+      Branch: `cursor/ext-price-rail-movers-df0c`.
+
 - [ ] **Universe orphans → hard gaps only (2026-07-23).** Watchdog paged
       at 5:29am ET on 18 soft orphans (quality/profile). Treat missing TF /
       unscored as hard; thin ETFs (SPCX/GRNI) stay soft. Fix htf_score===0

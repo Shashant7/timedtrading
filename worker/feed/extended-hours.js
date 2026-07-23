@@ -27,17 +27,16 @@ export function reconcileExtendedPrice(displayPrice, nativeExtP) {
   return ext;
 }
 
-/** Reject cached extended_price that disagrees with today's RTH move. */
+/**
+ * Reject obviously unusable extended prints (missing / non-positive).
+ * Premarket reversals vs RTH (NOW bounce after a red day) are valid — do not
+ * treat opposite-direction AH as stale. Split-scale mismatches are handled by
+ * reconcileExtendedPrice(); GS zombies by resolveAhPersistence(pChanged).
+ */
 export function extendedQuoteLooksStale(displayPrice, useDp, nativeExtP) {
+  void useDp;
   if (!(displayPrice > 0) || !(nativeExtP > 0)) return true;
-  const driftPct = ((nativeExtP - displayPrice) / displayPrice) * 100;
-  const absDrift = Math.abs(driftPct);
-  const dirDisagree = Math.abs(useDp) > 1.5
-    && Math.sign(useDp) !== Math.sign(driftPct);
-  // Match frontend getExtChange(): only suppress when direction disagrees with
-  // RTH day change. Large same-direction (or flat-RTH) AH moves are valid —
-  // e.g. SOXL AMC pop after a flat RTH session, MU earnings after-hours.
-  return absDrift > 4 && dirDisagree;
+  return false;
 }
 
 /**
@@ -99,15 +98,17 @@ export function cachedAhpLooksStale(displayPrice, prevAhp) {
  * Decide whether to publish, preserve, or drop ahp/ahdc/ahdp on a KV row.
  * GS @ 1090: when RTH close rolls forward but TwelveData sends no fresh
  * extended tick, blindly keeping prev.ahp leaves last session's close on the
- * EXT line. Drop cached AH whenever `p` moved or the cache fails the 1.5%
- * drift check; preserve only when the session close is unchanged overnight.
+ * EXT line — drop cached AH when `p` moved. When the session close is
+ * unchanged, preserve prior AH (including large reverse premkt moves) so a
+ * quiet vendor poll does not wipe a live stream print.
  */
 export function resolveAhPersistence(prev, ext, displayPrice, marketClosed, pChanged) {
+  void displayPrice;
   const { extP = 0, extDc = 0, extDp = 0 } = ext || {};
   if (extDc !== 0 && extP > 0) {
     return { ahp: extP, ahdc: extDc, ahdp: extDp };
   }
-  if (!marketClosed || pChanged || cachedAhpLooksStale(displayPrice, prev?.ahp)) {
+  if (!marketClosed || pChanged) {
     return {};
   }
   const out = {};
