@@ -22,6 +22,12 @@
 
 ### Active
 
+- [x] **RTX double trim (2026-07-23).** Same minute: ripster_pdz_mfe_trim
+      50% then RUNNER_PEAK_TRIM_LADDER +15% at same $207.98. Ladder used
+      entry/stale peak as anchor. Fix: no entry fallback, max-anchor,
+      5m cooldown, hydrate trim_price on getOpenPositionAsTrade, clear
+      peak on entry. Branch: `cursor/rtx-trim-pct-email-df0c`.
+
 - [x] **RTX trim email/signal % (2026-07-23).** TRADE_TRIM email Trim Status
       treated `newTrimmedPct` fraction (0.5) as percent → "Trimmed 1% /
       Remaining 100%". Normalize via `toTrimPctPoints`; fix in-app notif
