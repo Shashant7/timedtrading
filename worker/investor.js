@@ -499,10 +499,90 @@ export function applyInvestor4hStageGate(stageResult, tickerData, ctx = {}) {
 }
 
 /**
+ * Compact score→provenance snapshot for the self-calibrating loop.
+ * Captures the signals/scores/thesis that led to an ENTRY/ADD so later
+ * calibration can attribute outcomes without replaying the full book.
+ */
+export function compactInvestorScoreProvenance(scoreRow = {}, extras = {}) {
+  const row = scoreRow && typeof scoreRow === "object" ? scoreRow : {};
+  const compounder = row.compounder || extras.compounder || null;
+  const fv = row.fairValue || row.fair_value || extras.fairValue || null;
+  return {
+    stage: row.stage ?? extras.stage ?? null,
+    stage_reason: row.stageReason ?? row.stage_reason ?? extras.stageReason ?? null,
+    score: row.score != null ? Number(row.score) : (extras.score != null ? Number(extras.score) : null),
+    components: row.components || extras.components || null,
+    accum_zone: row.accumZone || row.accum_zone || extras.accumZone || null,
+    fsd: row.fsd || extras.fsd || null,
+    compounder: compounder
+      ? {
+          tier: compounder.tier ?? null,
+          tier_label: compounder.tier_label ?? null,
+          eligible: compounder.eligible === true,
+          dip_buy: compounder.dip_buy === true,
+          dip_signals: Array.isArray(compounder.dip_signals) ? compounder.dip_signals.slice(0, 8) : [],
+          why_hold: (compounder.why_hold || compounder.hold_thesis || []).slice(0, 5),
+          boost: compounder.boost ?? null,
+        }
+      : null,
+    fair_value: fv
+      ? {
+          fair_value: fv.fair_value ?? null,
+          fv_premium_pct: fv.fv_premium_pct ?? null,
+          fv_class: fv.fv_class ?? null,
+          quality_grade: fv.quality_grade ?? null,
+          growth_detected: fv.growth_detected ?? null,
+          boost: fv.boost ?? null,
+        }
+      : null,
+    thesis: row.thesis ? String(row.thesis).slice(0, 500) : null,
+    thesis_invalidation: Array.isArray(row.thesisInvalidation)
+      ? row.thesisInvalidation.slice(0, 6)
+      : (row.thesis_invalidation || null),
+    primary_invalidation: row.primaryInvalidation || extras.primaryInvalidation || null,
+    thesis_invalidation_price: row.thesisInvalidationPrice
+      ?? row.thesis_invalidation_price
+      ?? extras.thesisInvalidationPrice
+      ?? null,
+    rs_rank: row.rsRank ?? row.rs_rank ?? extras.rsRank ?? null,
+    rs: row.rs || extras.rs || null,
+    sector: row.sector || extras.sector || null,
+    signals: row.signals || extras.signals || null,
+    timing_primary: row.timing_primary
+      ?? row.timing_overlay?.timing_primary
+      ?? extras.timing_primary
+      ?? null,
+    timing_playbook: row.timing_playbook ?? extras.timing_playbook ?? null,
+    h4_timing: row.h4_timing || extras.h4_timing || null,
+    action_tier: row.actionTier || row.action_tier || extras.actionTier || null,
+    sim_eligible: row.simEligible ?? row.sim_eligible ?? extras.simEligible ?? null,
+    kanban_lane: row.kanbanLane || row.kanban_lane || null,
+    cio_reasoning: extras.cioReasoning ? String(extras.cioReasoning).slice(0, 600) : null,
+  };
+}
+
+/**
  * Rich provenance payload for investor decision_records (parity with trader meta_json).
+ * Pass `scoreRow` (timed:investor:scores[T]) to auto-fill compounder / FV / thesis /
+ * dip signals / RS — the fields the calibration loop needs to attribute outcomes.
  */
 export function buildInvestorDecisionInputs(opts = {}) {
-  const h4 = opts.h4 || (opts.tickerData ? resolveInvestor4hTiming(opts.tickerData) : null);
+  const scoreProv = opts.scoreRow
+    ? compactInvestorScoreProvenance(opts.scoreRow, {
+        fsd: opts.fsd,
+        actionTier: opts.actionTier ?? opts.action_tier,
+        simEligible: opts.simEligible ?? opts.sim_eligible,
+        cioReasoning: opts.cioReasoning ?? opts.cio_reasoning,
+        stage: opts.stage,
+        stageReason: opts.stageReason ?? opts.stage_reason,
+        score: opts.score,
+        components: opts.components,
+        accumZone: opts.accumZone ?? opts.accum_zone,
+      })
+    : null;
+  const h4 = opts.h4
+    || scoreProv?.h4_timing
+    || (opts.tickerData ? resolveInvestor4hTiming(opts.tickerData) : null);
   return {
     engine: "investor",
     action: opts.action || null,
@@ -515,17 +595,36 @@ export function buildInvestorDecisionInputs(opts = {}) {
     lot_id: opts.lotId || null,
     position_id: opts.positionId || null,
     reason: opts.reason || null,
-    stage: opts.stage || null,
-    stage_reason: opts.stageReason || opts.stage_reason || null,
-    score: opts.score != null ? Number(opts.score) : null,
-    components: opts.components || null,
-    accum_zone: opts.accumZone || opts.accum_zone || null,
-    fsd: opts.fsd || null,
+    stage: opts.stage ?? scoreProv?.stage ?? null,
+    stage_reason: opts.stageReason ?? opts.stage_reason ?? scoreProv?.stage_reason ?? null,
+    score: opts.score != null ? Number(opts.score) : (scoreProv?.score ?? null),
+    components: opts.components ?? scoreProv?.components ?? null,
+    accum_zone: opts.accumZone ?? opts.accum_zone ?? scoreProv?.accum_zone ?? null,
+    fsd: opts.fsd ?? scoreProv?.fsd ?? null,
+    compounder: opts.compounder ?? scoreProv?.compounder ?? null,
+    fair_value: opts.fairValue ?? opts.fair_value ?? scoreProv?.fair_value ?? null,
+    thesis: opts.thesis ?? scoreProv?.thesis ?? null,
+    thesis_invalidation: opts.thesisInvalidation ?? opts.thesis_invalidation ?? scoreProv?.thesis_invalidation ?? null,
+    primary_invalidation: opts.primaryInvalidation ?? opts.primary_invalidation ?? scoreProv?.primary_invalidation ?? null,
+    thesis_invalidation_price: opts.thesisInvalidationPrice
+      ?? opts.thesis_invalidation_price
+      ?? scoreProv?.thesis_invalidation_price
+      ?? null,
+    rs_rank: opts.rsRank ?? opts.rs_rank ?? scoreProv?.rs_rank ?? null,
+    rs: opts.rs ?? scoreProv?.rs ?? null,
+    sector: opts.sector ?? scoreProv?.sector ?? null,
+    signals: opts.signals ?? scoreProv?.signals ?? null,
+    dip_buy: opts.dipBuy ?? opts.dip_buy ?? scoreProv?.compounder?.dip_buy ?? null,
+    dip_signals: opts.dipSignals ?? opts.dip_signals ?? scoreProv?.compounder?.dip_signals ?? null,
     entry_floor: opts.floorInfo || opts.entry_floor || null,
-    action_tier: opts.actionTier || opts.action_tier || null,
-    sim_eligible: opts.simEligible ?? opts.sim_eligible ?? null,
+    action_tier: opts.actionTier ?? opts.action_tier ?? scoreProv?.action_tier ?? null,
+    sim_eligible: opts.simEligible ?? opts.sim_eligible ?? scoreProv?.sim_eligible ?? null,
+    timing_primary: opts.timing_primary ?? scoreProv?.timing_primary ?? null,
+    timing_playbook: opts.timing_playbook ?? scoreProv?.timing_playbook ?? null,
     timing_overlay: opts.timing || opts.timing_overlay || null,
     h4_timing: h4,
+    kanban_lane: opts.kanbanLane ?? opts.kanban_lane ?? scoreProv?.kanban_lane ?? null,
+    cio_reasoning: opts.cioReasoning ?? opts.cio_reasoning ?? scoreProv?.cio_reasoning ?? null,
     market_health: opts.marketHealth ?? opts.market_health ?? null,
     auto_rebalance: opts.autoRebalance || opts.auto_rebalance || null,
     gate_trace: Array.isArray(opts.gateTrace) ? opts.gateTrace : (opts.gate_trace || null),
@@ -1646,16 +1745,14 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
 
   // ── Without position ──
 
-  // Growth compounder dip-buy lane — quality compounders (Tenet-style
-  // revenue trajectory) can initiate on pullbacks despite extension.
-  if (!existingPosition && compounder?.eligible && dipBuy?.isDip
+  // Quality compounder + confirmed multi-signal dip (CF playbook).
+  // growth_elite / growth_strong only — radar tier watches, does not initiate.
+  const _compounderDipOk = !existingPosition
+    && compounder?.eligible
+    && dipBuy?.isDip
+    && (compounder.tier === "growth_elite" || compounder.tier === "growth_strong")
     && investorScore >= cfg.watch_promising_score_min
-    && marketHealth >= cfg.accumulate_inzone_market_health_min) {
-    return finalize({
-      stage: "accumulate",
-      reason: `compounder_dip_buy:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
-    });
-  }
+    && marketHealth >= cfg.accumulate_inzone_market_health_min;
 
   // 2026-06-01 — Exhausted momentum-runner short-circuit.
   // detectAccumulationZone() flags `momentum_runner_exhausted` when 2+
@@ -1669,20 +1766,29 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // stageReason so the operator + thesis email can show WHY this isn't
   // an accumulate.
   //
-  // Exception: growth_elite compounders on a confirmed dip — buy the
-  // pullback, don't chase extension (Tenet "why we hold" playbook).
+  // Exception (2026-07-23): growth_elite OR growth_strong on a confirmed
+  // structural dip — CF entered this way (+10% in a week). Exhaustion is
+  // evaluated BEFORE the broad compounder lane so a weak single-signal
+  // dip cannot bypass the gate.
   if (accumZone?.zoneType === "momentum_runner_exhausted") {
-    if (compounder?.tier === "growth_elite" && dipBuy?.isDip
-      && investorScore >= cfg.watch_promising_score_min
-      && marketHealth >= cfg.accumulate_inzone_market_health_min) {
+    if (_compounderDipOk && dipBuy?.hasStructural !== false) {
       return finalize({
         stage: "accumulate",
-        reason: `compounder_dip_override_exhaustion:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
+        reason: `compounder_dip_override_exhaustion:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
       });
     }
     return finalize({
       stage: "watch",
       reason: `exhaustion_detected:${(accumZone.exhaustionWarnings || []).slice(0, 4).join("|")}`,
+    });
+  }
+
+  // Growth compounder dip-buy lane — quality compounders (Tenet-style
+  // revenue trajectory) can initiate on pullbacks despite extension.
+  if (_compounderDipOk) {
+    return finalize({
+      stage: "accumulate",
+      reason: `compounder_dip_buy:${compounder.tier}:${(dipBuy.signals || []).slice(0, 4).join("|")}`,
     });
   }
 

@@ -184,4 +184,33 @@ describe("classifyInvestorStage + timing overlay", () => {
     expect(stage.stage).toBe("watch");
     expect(stage.reason).toMatch(/timing_top_block_new_entry/);
   });
+
+  it("allows growth_strong compounder dip override on exhausted momentum runner (CF)", () => {
+    const td = {
+      ticker: "CF",
+      price: 116,
+      dailyChgPct: -2.4,
+      monthly_bundle: { supertrend_dir: -1, ema_structure: 1, rsi: 58 },
+      tf_tech: { W: { atr: { xs: 1 }, rsi: { r5: 48 } }, D: {} },
+    };
+    const dipBuy = {
+      isDip: true,
+      hasStructural: true,
+      signals: ["weekly_pullback_monthly_intact", "intraday_pullback"],
+    };
+    const stage = classifyInvestorStage(td, 64, null, {
+      rsRank: 64,
+      marketHealth: 55,
+      accumZone: {
+        inZone: true,
+        zoneType: "momentum_runner_exhausted",
+        exhaustionWarnings: ["daily_td9_at_22"],
+      },
+      compounder: { eligible: true, tier: "growth_strong" },
+      dipBuy,
+      cfg: DEFAULT_INVESTOR_CONFIG,
+    });
+    expect(stage.stage).toBe("accumulate");
+    expect(stage.reason).toMatch(/compounder_dip_override_exhaustion:growth_strong/);
+  });
 });

@@ -179,12 +179,16 @@ class SimulationBackend extends ExecutionAdapter {
       console.error("[EXEC SIM] d1UpsertTrade failed:", e);
     }
 
-    // Persist entry event
+    // Persist entry event (rich Short Term provenance when tickerData present)
     if (trade.id && trade.history?.length > 0) {
       const entryEvent = trade.history.find(ev => ev.type === "ENTRY");
       if (entryEvent) {
         try {
-          await this.d1InsertTradeEvent(this.env, trade.id, entryEvent);
+          const tickerData = params._meta?.tickerData || params._tickerData || null;
+          await this.d1InsertTradeEvent(this.env, trade.id, entryEvent, {
+            tickerData,
+            trade,
+          });
         } catch (e) {
           console.error("[EXEC SIM] d1InsertTradeEvent failed:", e);
         }
@@ -299,9 +303,13 @@ class SimulationBackend extends ExecutionAdapter {
       }
 
       // 2. Persist TRIM event
+      const _provCtx = {
+        tickerData: params._tickerData || params._meta?.tickerData || null,
+        trade,
+      };
       if (event) {
         try {
-          await this.d1InsertTradeEvent(this.env, trade.id, event);
+          await this.d1InsertTradeEvent(this.env, trade.id, event, _provCtx);
         } catch (e) {
           console.error("[EXEC SIM] closePosition TRIM event failed:", e);
         }
@@ -310,7 +318,7 @@ class SimulationBackend extends ExecutionAdapter {
       // 3. Persist EXIT event if this trim completes the position
       if (isFullClose && exitEvent) {
         try {
-          await this.d1InsertTradeEvent(this.env, trade.id, exitEvent);
+          await this.d1InsertTradeEvent(this.env, trade.id, exitEvent, _provCtx);
         } catch (e) {
           console.error("[EXEC SIM] closePosition TRIM EXIT event failed:", e);
         }
@@ -359,7 +367,10 @@ class SimulationBackend extends ExecutionAdapter {
       // 2. Persist EXIT event
       if (event) {
         try {
-          await this.d1InsertTradeEvent(this.env, trade.id, event);
+          await this.d1InsertTradeEvent(this.env, trade.id, event, {
+            tickerData: params._tickerData || params._meta?.tickerData || null,
+            trade,
+          });
         } catch (e) {
           console.error("[EXEC SIM] closePosition EXIT event failed:", e);
         }
@@ -434,7 +445,10 @@ class SimulationBackend extends ExecutionAdapter {
     const event = params._event;
     if (event) {
       try {
-        await this.d1InsertTradeEvent(this.env, trade.id, event);
+        await this.d1InsertTradeEvent(this.env, trade.id, event, {
+          tickerData: params._tickerData || params._meta?.tickerData || null,
+          trade,
+        });
       } catch (e) {
         console.error("[EXEC SIM] replaceOrder d1InsertTradeEvent failed:", e);
       }

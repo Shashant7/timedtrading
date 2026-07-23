@@ -3,11 +3,16 @@
 // The ledger repair endpoint back-fills account_ledger from lots; this is the
 // companion for the positions table when trims updated lots + ledger but left
 // cost_basis / total_shares stale on investor_positions.
+//
+// Also: convenience-field heal (thesis / invalidation / stage / notes / DCA)
+// so auto-opened rows never stay null after scores exist (CF 2026-07-15).
 
 import { replayInvestorLots } from "./investor-lot-ledger.js";
+import { compactInvestorScoreProvenance } from "./investor.js";
 
 const COST_TOLERANCE = 1;
 const SHARE_TOLERANCE = 0.01;
+const INVESTOR_CAPITAL_DEFAULT = 100000;
 
 function round2(n) {
   return Math.round(Number(n) * 100) / 100;
@@ -141,5 +146,163 @@ export async function repairInvestorPositionsFromLots(db, { dryRun = true } = {}
     total_cost_drift,
     repairs,
     skipped,
+  };
+}
+
+function _blank(v) {
+  return v == null || String(v).trim() === "";
+}
+
+/** Serialize thesis_invalidation for D1 TEXT column. */
+export function serializeInvestorThesisInvalidation(raw) {
+  if (raw == null) return null;
+  if (Array.isArray(raw)) {
+    if (!raw.length) return null;
+    return JSON.stringify(raw).slice(0, 4000);
+  }
+  const s = String(raw).trim();
+  return s ? s.slice(0, 4000) : null;
+}
+
+/**
+ * Derive convenience fields from a live investor score row.
+ * Used by auto-open INSERT and by heal of existing OPEN rows.
+ */
+export function convenienceFieldsFromInvestorScore(scoreRow = {}, opts = {}) {
+  const stage = scoreRow?.stage ? String(scoreRow.stage) : null;
+  const score = Number(scoreRow?.score);
+  const thesis = (() => {
+    if (scoreRow?.thesis) return String(scoreRow.thesis).slice(0, 2000);
+    const why = scoreRow?.compounder?.why_hold || scoreRow?.compounder?.hold_thesis;
+    if (Array.isArray(why) && why.length) return why.filter(Boolean).join(". ").slice(0, 2000);
+    return null;
+  })();
+  const thesisInvalidation = serializeInvestorThesisInvalidation(
+    scoreRow?.thesisInvalidation ?? scoreRow?.thesis_invalidation,
+  );
+  const stageReason = scoreRow?.stageReason || scoreRow?.stage_reason || null;
+  const notes = [
+    opts.notesPrefix || (stage ? `Auto-initiated: ${stage}${Number.isFinite(score) ? ` (score ${score})` : ""}` : null),
+    stageReason ? `reason=${stageReason}` : null,
+  ].filter(Boolean).join(" | ").slice(0, 500) || null;
+  return {
+    thesis,
+    thesis_invalidation: thesisInvalidation,
+    investor_stage: stage,
+    notes,
+    stageReason,
+  };
+}
+
+/**
+ * Pure patch planner — which convenience columns are missing on `pos`
+ * and can be filled from `scoreRow`.
+ */
+export function planInvestorConvenienceHeal(pos = {}, scoreRow = null, opts = {}) {
+  if (!scoreRow || typeof scoreRow !== "object") return null;
+  const derived = convenienceFieldsFromInvestorScore(scoreRow, opts);
+  const patch = {};
+  if (_blank(pos.thesis) && derived.thesis) patch.thesis = derived.thesis;
+  if (_blank(pos.thesis_invalidation) && derived.thesis_invalidation) {
+    patch.thesis_invalidation = derived.thesis_invalidation;
+  }
+  if (_blank(pos.investor_stage) && derived.investor_stage) {
+    patch.investor_stage = derived.investor_stage;
+  }
+  if (_blank(pos.notes) && derived.notes) patch.notes = derived.notes;
+
+  // Calibration-loop provenance — stamp once from live scores when missing
+  // so older auto-opens (CF) become attributable without a re-entry.
+  if (_blank(pos.entry_provenance_json) && scoreRow) {
+    try {
+      const prov = compactInvestorScoreProvenance(scoreRow, {
+        stage: pos.investor_stage || scoreRow.stage,
+        score: scoreRow.score,
+        healed: true,
+      });
+      // Mark heal so calibration can distinguish live entry stamps vs backfill.
+      prov.provenance_source = "heal_from_scores";
+      patch.entry_provenance_json = JSON.stringify(prov).slice(0, 16000);
+    } catch (_) { /* ignore */ }
+  }
+
+  const autoDca = opts.autoDcaOnAccumulate !== false;
+  const stage = String(pos.investor_stage || derived.investor_stage || scoreRow.stage || "").toLowerCase();
+  const dcaOff = !(Number(pos.dca_enabled) > 0);
+  const ownedShares = Number(pos.total_shares) > 0;
+  if (autoDca && dcaOff && ownedShares && (stage === "accumulate" || stage === "core_hold")) {
+    const capital = Number(opts.investorCapital) > 0 ? Number(opts.investorCapital) : INVESTOR_CAPITAL_DEFAULT;
+    const pct = Number(opts.autoDcaAmountPct);
+    const amount = Number.isFinite(pct) && pct > 0
+      ? Math.round(capital * pct)
+      : Math.round(capital * 0.02);
+    const freq = ["weekly", "biweekly", "monthly"].includes(String(opts.autoDcaFrequency || ""))
+      ? String(opts.autoDcaFrequency)
+      : "monthly";
+    const freqMs = freq === "weekly" ? 7 : freq === "biweekly" ? 14 : 30;
+    const now = Number(opts.now) || Date.now();
+    patch.dca_enabled = 1;
+    patch.dca_amount = amount;
+    patch.dca_frequency = freq;
+    patch.dca_next_ts = now + freqMs * 24 * 60 * 60 * 1000;
+  }
+
+  return Object.keys(patch).length ? patch : null;
+}
+
+/**
+ * Backfill missing thesis / invalidation / stage / notes / DCA on OPEN rows
+ * from timed:investor:scores. Idempotent — only fills blanks.
+ */
+export async function healInvestorPositionConvenience(db, scores = {}, opts = {}) {
+  const dryRun = opts.dryRun === true;
+  const now = Number(opts.now) || Date.now();
+  const posRes = await db.prepare(
+    `SELECT id, ticker, total_shares, thesis, thesis_invalidation, investor_stage, notes,
+            dca_enabled, dca_amount, dca_frequency, dca_next_ts, entry_provenance_json
+       FROM investor_positions
+      WHERE status = 'OPEN' AND total_shares > 0`,
+  ).all().catch(() => ({ results: [] }));
+  const positions = posRes?.results || [];
+  const healed = [];
+  const skipped = [];
+
+  for (const pos of positions) {
+    const sym = String(pos.ticker || "").toUpperCase();
+    const scoreRow = scores[sym] || scores[pos.ticker] || null;
+    if (!scoreRow) {
+      skipped.push({ id: pos.id, ticker: sym, reason: "no_score_row" });
+      continue;
+    }
+    const patch = planInvestorConvenienceHeal(pos, scoreRow, { ...opts, now });
+    if (!patch) {
+      skipped.push({ id: pos.id, ticker: sym, reason: "already_complete" });
+      continue;
+    }
+    healed.push({ id: pos.id, ticker: sym, fields: Object.keys(patch) });
+    if (dryRun) continue;
+
+    const sets = [];
+    const vals = [];
+    let idx = 1;
+    for (const [col, val] of Object.entries(patch)) {
+      sets.push(`${col} = ?${idx++}`);
+      vals.push(val);
+    }
+    sets.push(`updated_at = ?${idx++}`);
+    vals.push(now);
+    vals.push(pos.id);
+    await db.prepare(
+      `UPDATE investor_positions SET ${sets.join(", ")} WHERE id = ?${idx}`,
+    ).bind(...vals).run();
+  }
+
+  return {
+    dryRun,
+    open_count: positions.length,
+    healed_count: healed.length,
+    skipped_count: skipped.length,
+    healed,
+    skipped: skipped.filter((s) => s.reason !== "already_complete"),
   };
 }

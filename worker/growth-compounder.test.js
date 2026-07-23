@@ -8,6 +8,9 @@ import {
   buildHoldThesisBullets,
   detectCompounderDipBuy,
   computeCompounderScoreBoost,
+  shouldExecutePullbackDca,
+  isPullbackDcaCandidate,
+  isQualityCompounderDip,
   extractGrowthCompounderSignal,
   buildInvestorHoldbook,
   buildInvestorHoldbookCache,
@@ -248,13 +251,87 @@ describe("attachCompounderFromSnapshot", () => {
 });
 
 describe("detectCompounderDipBuy", () => {
-  it("detects timing bottom as dip", () => {
+  it("requires ≥2 signals for a confirmed dip (CF shape)", () => {
+    const lone = detectCompounderDipBuy(
+      { price: 100, dailyChgPct: -2.5 },
+      null,
+      null,
+    );
+    expect(lone.isDip).toBe(false);
+
+    const cfShape = detectCompounderDipBuy(
+      {
+        price: 116,
+        dailyChgPct: -2.4,
+        tf_tech: { W: { rsi: { r5: 48 } } },
+        monthly_bundle: { rsi: 55 },
+      },
+      null,
+      { zoneType: "momentum_runner_exhausted", exhaustionWarnings: ["daily_td9_at_22"] },
+    );
+    expect(cfShape.isDip).toBe(true);
+    expect(cfShape.hasStructural).toBe(true);
+    expect(cfShape.signals).toContain("weekly_pullback_monthly_intact");
+    expect(cfShape.signals).toContain("intraday_pullback");
+  });
+
+  it("detects timing bottom + weekly pullback as dip", () => {
     const dip = detectCompounderDipBuy(
       { price: 100, tf_tech: { W: { rsi: { r5: 48 } } }, monthly_bundle: { rsi: 55 } },
       { timing_primary: "BOTTOM", add_on_dips: true },
       null,
     );
     expect(dip.isDip).toBe(true);
+    expect(dip.signals.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("shouldExecutePullbackDca", () => {
+  it("fires opportunistic DCA on confirmed dip for FSD/compounder/FV names", () => {
+    const gate = shouldExecutePullbackDca({
+      due: false,
+      dipBuy: { isDip: true, signals: ["weekly_pullback_monthly_intact", "intraday_pullback"] },
+      scoreRow: { fsd: { isPick: true }, compounder: { eligible: true, tier: "growth_strong" } },
+      lastEntryTs: Date.now() - 6 * 86400000,
+      now: Date.now(),
+    });
+    expect(gate.execute).toBe(true);
+    expect(gate.reason).toBe("pullback_opportunistic");
+  });
+
+  it("respects min gap since last entry", () => {
+    const gate = shouldExecutePullbackDca({
+      due: true,
+      dipBuy: { isDip: true },
+      scoreRow: { fsd: { isPick: true } },
+      lastEntryTs: Date.now() - 1 * 86400000,
+      now: Date.now(),
+    });
+    expect(gate.execute).toBe(false);
+    expect(gate.reason).toBe("min_gap");
+  });
+});
+
+describe("isPullbackDcaCandidate", () => {
+  it("accepts FV discount quality names", () => {
+    expect(isPullbackDcaCandidate({ fairValue: { fv_class: "discount" } })).toBe(true);
+    expect(isPullbackDcaCandidate({ score: 60 })).toBe(false);
+  });
+});
+
+describe("isQualityCompounderDip", () => {
+  it("flags CF-shaped quality dips for Short Term relief", () => {
+    const q = isQualityCompounderDip({
+      price: 116,
+      dailyChgPct: -2.4,
+      tf_tech: { W: { rsi: { r5: 48 } } },
+      monthly_bundle: { rsi: 55 },
+      _compounder: { eligible: true, tier: "growth_strong" },
+      _fair_value: { fv_class: "discount" },
+      accumZone: { zoneType: "momentum_runner_exhausted" },
+    });
+    expect(q.ok).toBe(true);
+    expect(q.dip.isDip).toBe(true);
   });
 });
 

@@ -22,6 +22,26 @@
 
 ### Active
 
+- [x] **CF long-term capture replication (2026-07-23).** Forensic: CF
+      compounder_dip_buy @ $115.90 → ~+10%; thesis null; monthly DCA only.
+      Tighten confirmed dips; exhaustion-order + growth_strong override;
+      persist/heal thesis on auto-open; pullback-opportunistic DCA for
+      FSD/compounder/FV-discount. Plan:
+      [`plans/cf-long-term-capture.plan.md`](../plans/cf-long-term-capture.plan.md).
+      Branch: `cursor/cf-long-term-capture-df0c`.
+      Follow-ups: Short Term pullback rank relief on quality dips; Model
+      open-lane cards must not show ghost defend/trim without a live book
+      row (missing POSITION bars). Convenience heal
+      (`healInvestorPositionConvenience`) on compute + rebalance so D1
+      thesis/invalidation/DCA never stay null.
+
+- [x] **Action provenance for Short Term + every lifecycle event (2026-07-23).**
+      Operator: provenance for the self-calibrating loop — "short term trades
+      as well." Every ENTRY/TRIM/DEFEND/EXIT/SCALE_IN stamps referenceable
+      technical + research inputs into `decision_records.inputs_json` via
+      `worker/action-provenance.js` (`d1InsertTradeEvent` + DEFEND + execution
+      adapter). Branch: `cursor/cf-long-term-capture-df0c`.
+
 - [ ] **Model-first UX consolidation (2026-07-22).** Operator: "merge trader
       and investor … one section, model, with its own lanes … users complain
       it is hard to follow." Stages:

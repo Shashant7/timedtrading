@@ -217,6 +217,27 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**CF long-term capture — compounder dip + pullback DCA (2026-07-23)**
+- CF auto-open (growth_strong + weekly_pullback + intraday) worked; D1 left
+  `thesis`/`thesis_invalidation` null and DCA was calendar-only.
+- Confirmed dips need ≥2 signals; exhausted zones also need a structural
+  signal. Exhaustion gate runs before the broad compounder lane; elite+strong
+  may override on confirmed dips.
+- Auto-open persists thesis + `entry_provenance_json` (scores/compounder/
+  dip/FV/thesis/RS at deploy). `buildInvestorDecisionInputs` pulls the
+  full score row into `decision_records` for the calibration loop.
+  Heal fills blank thesis/provenance/DCA from scores on compute+rebalance.
+  DCA execute allows opportunistic pullback adds for FSD/compounder/FV-discount.
+- Short Term lifecycle (`d1InsertTradeEvent` + DEFEND + execution adapter)
+  stamps `buildTraderActionProvenance` into `decision_records.inputs_json`
+  (`why` + `technical` + `research`) — same calibration attribution as LT.
+  See `worker/action-provenance.js`.
+- Short Term parity: `isQualityCompounderDip` softens pullback RSI-exhaust +
+  non-prime rank floor so multi-day compounder rips can print on ST too.
+- Model open lanes: no defend/trim/hold card without a live book row
+  (ghost stages showed Bullish + no POSITION bar); server clears `defend`
+  when D1 has no open position.
+
 **Dual horizon cards + Short/Long Term copy (2026-07-23)**
 - Same ticker with Short Term + Long Term signals → **two cards**
   (`ticker:short_term` / `ticker:long_term`) on Model board + Viewport.

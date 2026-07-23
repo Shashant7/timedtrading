@@ -26,6 +26,7 @@ import {
   applyMomentumBreakoutConvictionCarveout,
   stampMomentumBreakoutEarly,
 } from "../lib/smart-gates.js";
+import { isQualityCompounderDip } from "../growth-compounder.js";
 
 const FRESHNESS_MIN = 0.3;
 
@@ -3184,8 +3185,13 @@ export function evaluateEntry(ctx) {
     });
   }
 
+  // CF-style (2026-07-23): growth compounder / FV-discount / FSD names on a
+  // confirmed multi-signal dip may still enter on pullbacks even when daily
+  // RSI looks extended — the LT book already bought those dips.
+  const _qualityDip = isQualityCompounderDip(d);
   if (config.ripsterTuneV2 && pullbackTrigger && !reclaimTrigger
-    && side === "LONG" && rsiD >= 85 && rsi4h >= 75 && !hasEmaCrossBull) {
+    && side === "LONG" && rsiD >= 85 && rsi4h >= 75 && !hasEmaCrossBull
+    && !_qualityDip.ok) {
     return rejectEntry("tt_pullback_daily_rsi_exhausted", { rsi4h, rsiD });
   }
 
@@ -3220,14 +3226,19 @@ export function evaluateEntry(ctx) {
     )
       ? nonPrimeEtfOverride
       : baseNonPrimeMinRank;
-    const requiredRank = isPrimeGrade ? selectivePrimeMinRank : selectiveNonPrimeMinRank;
+    let requiredRank = isPrimeGrade ? selectivePrimeMinRank : selectiveNonPrimeMinRank;
+    // Quality compounder dip relief — same CF shape as Long Term dip-buy:
+    // lower the non-prime floor so Short Term can take the multi-day rip.
+    if (!isPrimeGrade && _qualityDip.ok && requiredRank > 0) {
+      requiredRank = Math.max(80, requiredRank - 10);
+    }
     // PHASE-E (2026-04-19): bypass rank-selective gate for index-ETF swing
     // trigger (rankScore is already required >= 92 in the trigger itself).
     if (!confirmedBullContinuationLong && !indexEtfSwingTrigger
       && selectivePullbackEnabled && requiredRank > 0 && rankScore < requiredRank) {
       return rejectEntry(
         isPrimeGrade ? "tt_pullback_prime_rank_selective" : "tt_pullback_non_prime_rank_selective",
-        { setupGrade, rank: rankScore, requiredRank },
+        { setupGrade, rank: rankScore, requiredRank, qualityDip: _qualityDip.ok || undefined },
       );
     }
   }
