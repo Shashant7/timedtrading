@@ -1804,6 +1804,7 @@
       .tt-universe-panel__ready,
       .tt-universe-panel__growth,
       .tt-universe-panel__confirm-stack,
+      .tt-universe-panel__setup-families,
       .tt-universe-panel__convexity { margin: 0; }
       .tt-universe-panel .tt-ready-scroll,
       .tt-universe-panel .tt-opp-scroll { gap: 10px; }
@@ -3295,17 +3296,19 @@
       // Lazy-fetched on mount, cached 60s. Hidden when no open trades.
       // ─────────────────────────────────────────────────────────────
       // ─────────────────────────────────────────────────────────────
-      // ConfirmStackRunnersStrip — model process row (2026-07-19)
-      // GET /timed/plays/today → slice.confirm_stack_ema21
+      // SetupFamiliesStrip — Today board for setup families (2026-07-19)
+      // First family: confirm-stack EMA21 via /timed/plays/today slice.
+      // Named separately from Model → Queuing Up (stage lane) so more
+      // families can land here without implying they are the Queue.
       // Cards match Ready Setups / Growth Ideas (TTLaneCard + zone bar).
       // ─────────────────────────────────────────────────────────────
-      function confirmStackActionHint(p) {
+      function setupFamilyActionHint(p) {
         const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
         if (p?.sequence_entry_ready) {
           return "This card shows Entry ready on its plan — size at the add zone. That chip is not a move into Ready Setups above.";
         }
         if (state === "queued") {
-          return "In this setup family's queue — confirm size, then work the entry from the plan levels.";
+          return "Queued inside this setup family — confirm size, then work the entry from the plan levels. Separate from Model → Queuing Up.";
         }
         if (state === "bought" || state === "held") {
           return "Position open — manage with the stop, trim, and target on the plan.";
@@ -3317,12 +3320,12 @@
           return "Structure aligned on this family — stalk the add zone on the plan. Ready Setups above is a separate capital shortlist.";
         }
         if (state === "watching" || state === "watch") {
-          return "Watching this structure family — wait for a pullback into the add zone on the plan.";
+          return "Watching this setup family — wait for a pullback into the add zone on the plan.";
         }
-        return p?.lifecycle?.why || "Trend flip + squeeze + reclaim just lined up — open the plan for next steps.";
+        return p?.lifecycle?.why || "Family admission just fired — open the plan for next steps.";
       }
 
-      function ConfirmStackRunnersStrip({
+      function SetupFamiliesStrip({
         onSelectTicker, embedded, data, savedSet, onToggleSaved, sparkCache, ensureSpark,
       }) {
         const [slice, setSlice] = useState(null);
@@ -3362,33 +3365,38 @@
         }, []);
 
         const wrap = (children) => {
-          if (embedded) return h("div", { className: "tt-universe-panel__confirm-stack", id: "confirm-stack-runners" }, children);
-          return h("section", { id: "confirm-stack-runners", className: "tt-row" }, children);
+          if (embedded) {
+            return h("div", {
+              className: "tt-universe-panel__setup-families tt-universe-panel__confirm-stack",
+              id: "setup-families",
+            }, children);
+          }
+          return h("section", { id: "setup-families", className: "tt-row" }, children);
         };
 
         const head = h("div", { className: "tt-ready__head" },
-          h("div", { className: "tt-sec-title" }, "MODEL PROCESS"),
-          h("h2", { className: "tt-ready__title" }, "Structure runners — stalk the add zone"),
+          h("div", { className: "tt-sec-title" }, "SETUP FAMILIES"),
+          h("h2", { className: "tt-ready__title" }, "Tracked families — stalk the add zone"),
           h("p", { className: "tt-ready__sub" },
-            "Compiled when trend flip, squeeze release, and reclaim fire together on one setup family. A process board (watching → queued → bought) — not a feeder into Ready Setups above. When a card shows Entry ready, that means this ticker's plan chip, not a promotion to the shortlist.",
+            "Board for named setup families the model is working end-to-end (watching → queued → bought). First family: confirm-stack structure (trend flip + squeeze + reclaim). More families can land here later. Separate from Model → Queuing Up (stage lane) and from Ready Setups above (capital shortlist). Entry ready on a card means that ticker's plan chip.",
           ),
         );
 
         if (!window._ttIsPro) {
           return wrap(h(React.Fragment, null, head,
-            h("div", { className: "tt-ready__locked", style: { marginTop: 8 } }, "Upgrade to Pro to see structure runners."),
+            h("div", { className: "tt-ready__locked", style: { marginTop: 8 } }, "Upgrade to Pro to see setup families."),
           ));
         }
         if (loading) {
           return wrap(h(React.Fragment, null, head,
-            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading structure runners…"),
+            h("div", { style: { fontSize: 12, color: "var(--tt-text-muted)", marginTop: 8 } }, "Loading setup families…"),
           ));
         }
         const plays = Array.isArray(slice?.plays) ? slice.plays : [];
         if (!plays.length) {
           return wrap(h(React.Fragment, null, head,
             h("div", { className: "tt-ready__empty", style: { marginTop: 8 } },
-              "No structure runners right now. When trend flip, squeeze, and reclaim line up on this family, they land here."),
+              "No setup-family runners right now. When a tracked family admits a name (confirm-stack first), it lands here."),
           ));
         }
 
@@ -3438,11 +3446,21 @@
                 : "Neutral";
 
               const chipRow = [];
+              const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
+              const familyLabel = familyKey === "confirm_stack_ema21" || familyKey === "confirm_stack"
+                ? "Confirm-stack"
+                : familyKey.replace(/_/g, " ");
+              chipRow.push(h("span", {
+                key: "family",
+                className: "ds-chip ds-chip--sm",
+                title: "Setup family admission rule for this card",
+                style: { fontFamily: "var(--tt-font-mono)" },
+              }, familyLabel));
               if (lifeLabel) {
                 chipRow.push(h("span", {
                   key: "life",
                   className: "ds-chip ds-chip--sm ds-chip--solid",
-                  title: p.lifecycle?.why || "Where this name sits in the model process",
+                  title: p.lifecycle?.why || "Where this name sits inside the setup family",
                   style: { fontFamily: "var(--tt-font-mono)" },
                 }, lifeLabel));
               }
@@ -3503,7 +3521,7 @@
                   })
                 : null;
 
-              const hint = confirmStackActionHint(p);
+              const hint = setupFamilyActionHint(p);
               const footEls = [
                 h("p", { key: "why", className: "tt-strip-card__hint" }, hint),
               ];
@@ -3561,7 +3579,7 @@
       function ConvexityPlaysStrip({ onSelectTicker, embedded }) {
         const [plays, setPlays] = useState(null);
         const [loading, setLoading] = useState(true);
-        // Same auth race as ConfirmStackRunnersStrip. Convexity is also
+        // Same auth race as SetupFamiliesStrip. Convexity is also
         // server Pro-gated (tier_required → plays:[]), so an early fetch
         // before the session cookie is ready caches empty for minutes.
         useEffect(() => {
@@ -8224,7 +8242,7 @@
                   ensureSpark,
                 }),
                 h("div", { className: "tt-universe-panel__divider" }),
-                h(ConfirmStackRunnersStrip, {
+                h(SetupFamiliesStrip, {
                   onSelectTicker,
                   embedded: true,
                   data,

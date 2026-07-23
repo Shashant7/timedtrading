@@ -1489,7 +1489,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Queuing Up", "on the radar or waiting for a trigger (Short Term setup/enter stages + Long Term accumulate / research). No action yet. Today → Ready Setups is a tighter top-10 cut of the enter/accumulate subset; Today → Technical Setups Entry Zone is the broader browse view."), lane("Bought", "position is open — thesis intact; let it work."), lane("Defending", "under pressure — tighten risk until the book closes or recovers."), lane("Trimming", "partial profit taken or reduce signal active."), lane("Exited", "the model closed it (recent exits stay visible briefly)."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Queuing Up", "on the radar or waiting for a trigger (Short Term setup/enter stages + Long Term accumulate / research). No action yet. Today → Ready Setups is a tighter top-10 cut of the enter/accumulate subset; Today → Technical Setups Entry Zone is the broader browse view. Today → Setup Families is a different board (named structure families), not this lane."), lane("Bought", "position is open — thesis intact; let it work."), lane("Defending", "under pressure — tighten risk until the book closes or recovers."), lane("Trimming", "partial profit taken or reduce signal active."), lane("Exited", "the model closed it (recent exits stay visible briefly)."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -2229,6 +2229,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784786950542:501292473
+// cache-bust:1784787270513:955251575
 
-// cache-bust:1784786950542:501292473
+// cache-bust:1784787270513:955251575
