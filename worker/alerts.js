@@ -1018,7 +1018,7 @@ export function createInvestorAlertEmbed(type, data) {
       color: 0xef4444,
       emoji: "⚠️",
       title: (d) => `${d.ticker}: Model Thesis Shift`,
-      description: (d) => `The TT Investor model no longer sees valid supporting conditions for **${d.ticker}**.`,
+      description: (d) => `The TT Long Term model no longer sees valid supporting conditions for **${d.ticker}**.`,
       fields: (d) => d.reasons.map(r => ({ name: "Model invalidation", value: r, inline: false }))
         .concat(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
     },
@@ -1031,7 +1031,7 @@ export function createInvestorAlertEmbed(type, data) {
       },
       description: (d) => deriveInvestorAccumulationAlertCopy(d, _action).ledePlain,
       fields: (d) => [
-        { name: "Investor Score", value: `${d.score || "—"} / 100`, inline: true },
+        { name: "Long Term Score", value: `${d.score || "—"} / 100`, inline: true },
         { name: "Confidence", value: `${d.confidence || "—"}%`, inline: true },
         { name: "RS Rank", value: `${d.rsRank || "—"}th percentile`, inline: true },
         { name: "Zone Type", value: String(d.zoneType || "—").replace(/_/g, " "), inline: true },
@@ -1049,7 +1049,7 @@ export function createInvestorAlertEmbed(type, data) {
       fields: (d) => [
         { name: "RS Rank", value: `${d.rsRank || "—"}th percentile`, inline: true },
         { name: "3M Return vs SPY", value: `${d.rs3m >= 0 ? "+" : ""}${(d.rs3m || 0).toFixed(1)}%`, inline: true },
-        { name: "Investor Score", value: `${d.score || "—"}`, inline: true },
+        { name: "Long Term Score", value: `${d.score || "—"}`, inline: true },
         ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
     },
@@ -1078,7 +1078,7 @@ export function createInvestorAlertEmbed(type, data) {
         { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
         { name: "Value", value: `$${Number(d.value || (Number(d.shares) * Number(d.price)) || 0).toFixed(2)}`, inline: true },
         { name: "Stage", value: String(d.stage || "—").replace(/_/g, " "), inline: true },
-        { name: "Investor Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
+        { name: "Long Term Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
         { name: "Note", value: "Executed rebalance — model simulation fill, not a manual order.", inline: false },
         ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
@@ -1087,13 +1087,13 @@ export function createInvestorAlertEmbed(type, data) {
       color: 0x10b981,
       emoji: "➕",
       title: (d) => `${d.ticker}: Position Added`,
-      description: (d) => `**${d.ticker}** — scale-in executed by the Investor auto-rebalance engine (${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}).`,
+      description: (d) => `**${d.ticker}** — scale-in executed by the Long Term auto-rebalance engine (${Number(d.shares || 0).toFixed(2)} sh @ $${Number(d.price || 0).toFixed(2)}).`,
       fields: (d) => [
         { name: "Shares Added", value: `${Number(d.shares || 0).toFixed(2)}`, inline: true },
         { name: "Price", value: `$${Number(d.price || 0).toFixed(2)}`, inline: true },
         { name: "Value", value: `$${Number(d.value || (Number(d.shares) * Number(d.price)) || 0).toFixed(2)}`, inline: true },
         { name: "Stage", value: String(d.stage || "—").replace(/_/g, " "), inline: true },
-        { name: "Investor Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
+        { name: "Long Term Score", value: d.score != null ? `${d.score}/100` : "—", inline: true },
         { name: "Note", value: "Executed rebalance — model simulation fill, not a manual order.", inline: false },
         ...(d.cio_reasoning ? [{ name: "AI CIO guidance", value: String(d.cio_reasoning).slice(0, 900), inline: false }] : []),
       ],
@@ -1146,7 +1146,7 @@ export function createInvestorAlertEmbed(type, data) {
   const sym = String(data?.ticker || "").toUpperCase();
   const _baseTitle = config.title(data);
   const _shortHeadline = _baseTitle.replace(new RegExp(`^${sym}:\\s*`, "i"), "").trim();
-  const _actionTitle = `${config.emoji} **${sym}** · INVESTOR · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
+  const _actionTitle = `${config.emoji} **${sym}** · LONG TERM · ${_action.verb.replace(/^MODEL ·\s*/, "")}`;
 
   // Insert an Action field at the very top so the reader sees it before
   // scrolling. Skip it when its one-liner just restates the description

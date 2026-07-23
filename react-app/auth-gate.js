@@ -1934,15 +1934,15 @@
       trade_entry: "Enter",
       trade_exit: "Exit",
       trade_trim: "Trim",
-      investor_signal: "Investor",
+      investor_signal: "Long Term",
       daily_brief: "Daily Brief",
       system: "System",
       kanban: "Update",
     };
 
     const cleanNotifTitle = (title) => String(title || "")
-      .replace(/^\[(?:TRADER|INVESTOR)\s*·\s*(?:DOING|WATCHING)(?:\s*·\s*\w+)?\]\s*/i, "")
-      .replace(/^\[(?:TRADER|INVESTOR)\s*·\s*\w+\]\s*/i, "")
+      .replace(/^\[(?:TRADER|INVESTOR|SHORT\s*TERM|LONG\s*TERM)\s*·\s*(?:DOING|WATCHING)(?:\s*·\s*\w+)?\]\s*/i, "")
+      .replace(/^\[(?:TRADER|INVESTOR|SHORT\s*TERM|LONG\s*TERM)\s*·\s*[\w\s]+\]\s*/i, "")
       .trim();
 
     const notifActionChip = (n) => {
@@ -1961,7 +1961,7 @@
         return { label: "ENTER", color: "#38F2A1", bg: "rgba(56,242,161,0.10)", border: "rgba(56,242,161,0.28)" };
       }
       if (t === "investor_signal") {
-        return { label: "INVESTOR", color: "#c4b5fd", bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.30)" };
+        return { label: "LONG TERM", color: "#c4b5fd", bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.30)" };
       }
       return { label: "UPDATE", color: "#8AA39A", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.10)" };
     };
@@ -2303,7 +2303,7 @@
                             background: scope === "investor" ? "rgba(167,139,250,0.12)" : "rgba(103,232,249,0.10)",
                             border: `1px solid ${scope === "investor" ? "rgba(167,139,250,0.30)" : "rgba(103,232,249,0.28)"}`,
                           },
-                        }, scope === "investor" ? "INVESTOR" : "TRADER"));
+                        }, scope === "investor" ? "LONG TERM" : "SHORT TERM"));
                       }
                       chips.push(h("span", {
                         key: "action",

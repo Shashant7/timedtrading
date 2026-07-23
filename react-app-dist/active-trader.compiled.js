@@ -877,10 +877,10 @@ function ATCard({
     sym,
     topBanner: null,
     button: {
-      onClick: () => onOpen(sym),
+      onClick: () => onOpen(sym, t?._model_path === "long_term" ? "INVESTOR" : null),
       style: cardStyle,
       className: closedMid ? "tt-lane-card--closed" : "",
-      title: `Open ${sym} in Active Trader detail`
+      title: `Open ${sym} · ${t?._model_path === "long_term" ? "Long Term" : "Short Term"} detail`
     },
     isTTSel,
     chipRow: [h("span", {
@@ -889,16 +889,23 @@ function ATCard({
         fontFamily: "var(--tt-font-mono)"
       },
       title: resolvedOpen ? "Trade direction" : biasLabel !== cardBiasLabel ? biasLabel : "Bias"
-    }, cardBiasLabel), t?._model_path === "long_term" && h("span", {
+    }, cardBiasLabel), h("span", {
       className: "ds-chip ds-chip--sm",
-      title: "Long-term holding — the model is using its long-horizon path for this position",
+      title: t?._model_path === "long_term" ? "Long Term path — multi-month / LEAP horizon" : "Short Term path — swing / weeks horizon",
       style: {
         fontFamily: "var(--tt-font-mono)",
-        background: "rgba(192,132,252,0.12)",
-        border: "1px solid rgba(192,132,252,0.30)",
-        color: "#c084fc"
+        letterSpacing: "0.04em",
+        ...(t?._model_path === "long_term" ? {
+          background: "rgba(192,132,252,0.12)",
+          border: "1px solid rgba(192,132,252,0.30)",
+          color: "#c084fc"
+        } : {
+          background: "rgba(56,242,161,0.10)",
+          border: "1px solid rgba(56,242,161,0.28)",
+          color: "var(--tt-up-soft, #38f2a1)"
+        })
       }
-    }, "LT"), stageChip && h("span", {
+    }, t?._model_path === "long_term" ? "LONG TERM" : "SHORT TERM"), stageChip && h("span", {
       className: `ds-chip ds-chip--sm ${stageChip.cls}`,
       title: stageChip.title || undefined
     }, stageChip.label), ...patternChips.map(p => h("span", {
@@ -981,16 +988,22 @@ function KanbanLane({
     className: "lane-empty"
   }, "No tickers in this lane right now.") : h("div", {
     className: "lane-cards"
-  }, tickers.map(t => h(ATCard, {
-    key: t.ticker,
-    t,
-    sparkSrc: sparkCache[String(t.ticker).toUpperCase()] || null,
-    isSaved: savedSet.has(String(t.ticker).toUpperCase()),
-    onToggleSaved,
-    onOpen,
-    openTrade: resolveOpenTrade(tradeByTicker?.get?.(String(t.ticker).toUpperCase()) || t?._openTrade || null),
-    tradesLoaded
-  })))));
+  }, tickers.map(t => {
+    const sym = String(t?.ticker || "").toUpperCase();
+    const isLt = t?._model_path === "long_term";
+    const cardKey = t?._card_key || window.TTHorizonLabels?.horizonCardKey?.(sym, isLt ? "long_term" : "short_term") || `${sym}:${isLt ? "long_term" : "short_term"}`;
+    const openRaw = isLt ? t?._openTrade || null : tradeByTicker?.get?.(sym) || t?._openTrade || null;
+    return h(ATCard, {
+      key: cardKey,
+      t,
+      sparkSrc: sparkCache[sym] || null,
+      isSaved: savedSet.has(sym),
+      onToggleSaved,
+      onOpen,
+      openTrade: resolveOpenTrade(openRaw),
+      tradesLoaded
+    });
+  }))));
 }
 function AccountStrip({
   mode,
@@ -1715,13 +1728,15 @@ function ActiveTraderApp() {
   }, [data, tradeByTicker, closedByTicker]);
   const lanes = useMemo(() => categorizeKanbanLanes(allTickers, tradeByTicker, closedByTicker), [allTickers, tradeByTicker, closedByTicker]);
   const modelLanes = useMemo(() => {
-    const onBoard = new Set();
-    for (const key of ["setup", "enter", "new", "hold", "defend", "trim", "exit"]) {
-      for (const t of lanes[key] || []) {
-        const s = String(t?.ticker || "").toUpperCase();
-        if (s) onBoard.add(s);
-      }
-    }
+    const tagShort = list => (list || []).map(t => {
+      const sym = String(t?.ticker || "").toUpperCase();
+      return {
+        ...t,
+        _model_path: "short_term",
+        _source_mode: t?._source_mode || "trader",
+        _card_key: `${sym}:short_term`
+      };
+    });
     const bySym = new Map();
     for (const t of allTickers) {
       const s = String(t?.ticker || "").toUpperCase();
@@ -1735,7 +1750,7 @@ function ActiveTraderApp() {
     const posBySym = investorBook?.posBySym || new Map();
     for (const row of rows) {
       const sym = String(row?.ticker || "").toUpperCase();
-      if (!sym || onBoard.has(sym)) continue;
+      if (!sym) continue;
       const pos = posBySym.get(sym) || null;
       const owned = !!pos || !!row?.position?.owned;
       const stage = String(row?.stage || "").toLowerCase();
@@ -1774,10 +1789,12 @@ function ActiveTraderApp() {
         ...base,
         ticker: sym,
         _model_path: "long_term",
+        _source_mode: "investor",
+        _card_key: `${sym}:long_term`,
         _investorStage: stage,
-        _openTrade: invTrade || base?._openTrade || null,
-        has_open_position: owned || !!base?.has_open_position,
-        position_direction: owned ? "LONG" : base?.position_direction || null
+        _openTrade: invTrade,
+        has_open_position: owned,
+        position_direction: owned ? "LONG" : null
       };
       const recentlyExited = stage === "exited" || row?.recentlyExited && typeof row.recentlyExited === "object";
       if (recentlyExited) {
@@ -1793,14 +1810,21 @@ function ActiveTraderApp() {
       }
     }
     const byAlpha = (a, b) => String(a?.ticker || "").localeCompare(String(b?.ticker || ""));
+    const byHorizonThenAlpha = (a, b) => {
+      const c = byAlpha(a, b);
+      if (c !== 0) return c;
+      const ah = a?._model_path === "long_term" ? 1 : 0;
+      const bh = b?._model_path === "long_term" ? 1 : 0;
+      return ah - bh;
+    };
     invBought.sort(byAlpha);
     invTrim.sort(byAlpha);
     return {
-      queue: [...lanes.enter, ...lanes.setup, ...invQueue],
-      bought: [...lanes.new, ...lanes.hold, ...invBought].sort(byAlpha),
-      defend: lanes.defend,
-      trim: [...lanes.trim, ...invTrim].sort(byAlpha),
-      exit: [...lanes.exit, ...invExit]
+      queue: [...tagShort(lanes.enter), ...tagShort(lanes.setup), ...invQueue].sort(byHorizonThenAlpha),
+      bought: [...tagShort(lanes.new), ...tagShort(lanes.hold), ...invBought].sort(byHorizonThenAlpha),
+      defend: tagShort(lanes.defend),
+      trim: [...tagShort(lanes.trim), ...invTrim].sort(byHorizonThenAlpha),
+      exit: [...tagShort(lanes.exit), ...invExit].sort(byHorizonThenAlpha)
     };
   }, [lanes, allTickers, investorBook]);
   const laneCounts = useMemo(() => ({
@@ -2195,6 +2219,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545
 
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545

@@ -4757,8 +4757,8 @@ function buildRetailFriendlyOutputSpec(type) {
 2. **Model Actions Today** (~70 words — two labeled lines: **Trader model:** entries/exits/trims/holds by name OR "no new trader actions — waiting for setup." **Investor model:** cite EVERY name from the "Investor Model — Actions Today" data block (BUY / DCA_BUY / SELL / TRIM) OR say "no investor actions" ONLY when that block is empty. One clause each on WHY from the data.)
 3. **The Market Read** (~200 words — ONE section. How did the market and sectors do, AND what is the Research Desk flagging — merged into one causal narrative. OPEN with how today's close validated or challenged the CRO Research Desk verdict (cite specific Desk observations). Then macro prints (actual vs estimate), rotation/flows, VIX close, cross-asset moves, and breadth/sector leaders & laggards WITH WHY. End with the 1-2 key risks into tomorrow in one short line (no separate "Risk Factors" heading). Do NOT add separate "Desk's Read", "CRO Desk Wrap", "Market Context", "Sector Themes", or "Risk Factors" headings.)
 4. **Today's Top Movers** (~60 words — from the RTH Top Movers data block. Two short lines: "Gainers:" and "Losers:" listing EVERY name shown in that block with its % move. Do not omit or substitute tickers. One sentence on what the leaders/laggards say about today's risk appetite. If the data says no standout movers, say so in one line.)
-5. **Active Trader Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
-6. **Investor Portfolio** (~80 words — open holdings only if not already covered in Model Actions: ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
+5. **Short Term Report** (~80 words — open positions only if not already covered in Model Actions: per position one line — ticker, today's chg%, open P&L, thesis status, next action.)
+6. **Long Term Portfolio** (~80 words — open holdings only if not already covered in Model Actions: ONE LINE PER HOLDING: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Never run holdings together in a paragraph. If no holdings, say so.)
 7. **Looking Ahead** (~70 words — tomorrow's (and this week's) macro calendar + notable earnings BY NAME with time + consensus where provided. Use Earnings Calendar Digest WEEK INTENSITY line — never "light earnings week" when banks/megacaps are listed. What catalysts to watch.)
 8. **On Watch — Entry Radar** (~60 words — from the On Watch data block: per ticker one line — lane + WHY it's on the radar (setup forming / theme running / catalyst). These are what the model is stalking, NOT buy recommendations.)`
     : `1. **At a Glance** (~90 words — PLAIN ENGLISH for someone new to markets. Three short bullets max: (a) today's market mood in one sentence, (b) playbook tie-in — one sentence linking the setup to the active strategy stance, (c) **Act vs wait** — one sentence on whether the model is entering or staying patient and why. No jargon in this section. This block is the email/Discord hero — make it scannable.)
@@ -4773,8 +4773,8 @@ function buildRetailFriendlyOutputSpec(type) {
 5. **Index Outlook & Game Plan** (~320 words — ONE section merging predictions + key levels + game plan. Use ### SPY, ### QQQ, ### IWM sub-headings only. Each sub-block: one narrative prediction sentence, bull/bear triggers + targets, Day Gate range, SMC levels, weekly GG undertone. Insert [CHART: SPY], [CHART: QQQ], [CHART: IWM] next to the matching index. Do NOT add separate per-index "Prediction" headings, standalone "Key Levels", or ### ES / ### NQ blocks.)
 6. **On Watch — Entry Radar** (~70 words — per ticker, one line — lane + WHY)
 7. **Risk Factors** (1-2 key risks, ≤20 words each)
-8. **Active Trader Report** (~70 words — per position: ticker, today's chg%, P&L, thesis status, action)
-9. **Investor Portfolio** — ONE LINE PER HOLDING (bullet list). Format each line: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Do not run holdings together in a paragraph.`;
+8. **Short Term Report** (~70 words — per position: ticker, today's chg%, P&L, thesis status, action)
+9. **Long Term Portfolio** — ONE LINE PER HOLDING (bullet list). Format each line: **TICKER** · today ±X% · total return ±X% · stage · thesis/DCA note. Do not run holdings together in a paragraph.`;
 
   return `
 
@@ -4806,14 +4806,14 @@ ${sections}
   - Range today: $LOW – $HIGH
   - For EVENING: also include "Result: [HIT / MISS / WORKING / NEITHER]" so the scorecard is honest about what happened.
 - **Chart placeholders** inside the Index Outlook section: write \`[CHART: SPY]\` on its own line next to that index's commentary. Same for QQQ, IWM. Interleave — don't batch all charts at the end.
-- **Active Trader Report / Investor Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
+- **Short Term Report / Long Term Portfolio** sections must reference the actual data: each opens with TODAY'S model actions (entries/exits/trims for trader; accumulate/add/reduce/exit for investor) BY NAME with reason, then the open positions/holdings status. Investor holdings: one bullet per holding, never a paragraph.
 - **EVERY major move needs a WHY, wired to the data provided.** Never write "tech sold off" without the causal chain from the inputs (macro print actual-vs-estimate, CRO Desk observations, rotation/flows, earnings). If the data doesn't explain a move, say "no clean catalyst in our data" — never invent one, and never paper over it with filler.
 - **NEVER claim "no macro events today" unless the economic-data section lists concrete releases.** A "(no rows)" data block means omit the Macro bullet — never invent a quiet calendar, and never paste source-failure wording into the brief.
 - **NEVER say "light earnings week"** when Earnings Calendar Digest lists heavy/busy/moderate intensity or names major banks/megacaps. Use the digest WEEK INTENSITY line verbatim when available; when intensity is unavailable, omit intensity adjectives entirely.
 - **NEVER copy prompt guardrails into reader-facing copy** (phrases like "omit week-intensity", "do not claim", "sources returned no data", "we're not asserting").
 - **At a Glance is mandatory** and must stay jargon-free. Email subject + Discord description pull from this section — if it reads like a textbook, rewrite it.
 - **Model Actions Today** must always appear and must label Trader vs Investor lanes explicitly.
-- **Educational transparency**: Active Trader / On Watch names are what the model is tracking — NOT buy recommendations. Say so once in At a Glance or Model Actions if any names are listed.
+- **Educational transparency**: Short Term / On Watch names are what the model is tracking — NOT buy recommendations. Say so once in At a Glance or Model Actions if any names are listed.
 
 ${buildBeginnerAlignmentSpec(type)}
 
@@ -5077,7 +5077,7 @@ ${(data.onWatch || []).length > 0
 ## CONTINUITY & ANTI-REPETITION (week journey + immediate prior):
 ${buildBriefContinuityBlock(data, "morning")}
 
-## Active Trader — Open Positions:
+## Short Term — Open Positions:
 ${data.openTrades.length > 0
     ? data.openTrades.map(t => {
         const _pf = data.priceFeedRaw || {};
@@ -5091,7 +5091,7 @@ ${data.openTrades.length > 0
         const _sl = Number(t.sl) || 0;
         const _tp = Number(t.tp) || 0;
         // D5 (2026-06-11) — append the engine's per-position PLAN (B4
-        // guidance lane) so the Active Trader Report can speak to where
+        // guidance lane) so the Short Term Report can speak to where
         // we are in the move + what changes the call, not just raw stats.
         const _g = data.positionGuidance?.[String(t.ticker || "").toUpperCase()] || null;
         const _gBits = [];
@@ -5105,20 +5105,20 @@ ${data.openTrades.length > 0
         const _gLine = _gBits.length > 0 ? `\n  PLAN → ${_gBits.join(" · ")}` : "";
         return `${t.ticker} (${t.direction}, Setup: ${_setup}, Grade: ${_grade}, Entry: $${t.entryPrice ?? "N/A"}, Current: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Shares: ${_shares > 0 ? Math.round(_shares) : "N/A"}${_trimPct > 0 ? `, Trimmed: ${Math.round(_trimPct * 100)}%` : ""}${_sl > 0 ? `, SL: $${_sl.toFixed(2)}` : ""}${_tp > 0 ? `, TP: $${_tp.toFixed(2)}` : ""})${_gLine}`;
       }).join("\n")
-    : "No open Active Trader positions."}
-> When a position carries a PLAN line, the Active Trader Report row MUST reflect it (the ladder level to act at, or the move-ending warning) — that is the engine's actual stance, not color.
+    : "No open Short Term positions."}
+> When a position carries a PLAN line, the Short Term Report row MUST reflect it (the ladder level to act at, or the move-ending warning) — that is the engine's actual stance, not color.
 
-## Active Trader — New Entries Today:
+## Short Term — New Entries Today:
 ${(data.todayEntries || []).length > 0
     ? data.todayEntries.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (Rank: ${e.rank ?? "N/A"}, R:R: ${e.rr != null ? e.rr.toFixed(1) : "N/A"}, Reason: ${e.reason || "Signal"})`).join("\n")
     : "No new entries today."}
 
-## Active Trader — Yesterday's Exits:
+## Short Term — Yesterday's Exits:
 ${(data.todayExits || []).length > 0
     ? data.todayExits.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (P&L: ${e.pnlPct != null ? e.pnlPct.toFixed(1) + "%" : "N/A"}, Reason: ${e.exitReason || "N/A"}, Result: ${e.tradeStatus})`).join("\n")
     : "No recent exits."}
 
-## Active Trader — Trims & Defends Today:
+## Short Term — Trims & Defends Today:
 ${(data.todayTrimsDefends || []).length > 0
     ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total trimmed: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
     : "No trims or defends today."}
@@ -5126,7 +5126,7 @@ ${(data.todayTrimsDefends || []).length > 0
 ## Investor Model — Actions Today (MUST cite in Model Actions Today — do not say "no investor actions" when this block lists fills):
 ${formatBriefInvestorActionsBlock(data.todayInvestorActions)}
 
-## Investor Portfolio — Current Holdings:
+## Long Term Portfolio — Current Holdings:
 ${(data.investorPositions || []).length > 0
     ? data.investorPositions.map(p => {
         const _pf = data.priceFeedRaw || {};
@@ -5292,7 +5292,7 @@ ${(data.onWatch || []).length > 0
 ## CONTINUITY & ANTI-REPETITION (week journey + immediate prior):
 ${buildBriefContinuityBlock(data, "evening")}
 
-## Active Trader — Open Positions (EOD):
+## Short Term — Open Positions (EOD):
 ${data.openTrades.length > 0
     ? data.openTrades.map(t => {
         const _pf = data.priceFeedRaw || {};
@@ -5307,19 +5307,19 @@ ${data.openTrades.length > 0
         const _tp = Number(t.tp) || 0;
         return `${t.ticker} (${t.direction}, Setup: ${_setup}, Grade: ${_grade}, Entry: $${t.entryPrice ?? "N/A"}, Close: $${_price > 0 ? _price.toFixed(2) : "N/A"}, Today: ${_dayPct !== 0 ? (_dayPct >= 0 ? "+" : "") + _dayPct.toFixed(2) + "%" : "N/A"}, P&L: ${t.pnlPct != null ? t.pnlPct.toFixed(1) + "%" : "N/A"}, Shares: ${_shares > 0 ? Math.round(_shares) : "N/A"}${_trimPct > 0 ? `, Trimmed: ${Math.round(_trimPct * 100)}%` : ""}${_sl > 0 ? `, SL: $${_sl.toFixed(2)}` : ""}${_tp > 0 ? `, TP: $${_tp.toFixed(2)}` : ""})`;
       }).join("\n")
-    : "No open Active Trader positions."}
+    : "No open Short Term positions."}
 
-## Active Trader — Entries Today:
+## Short Term — Entries Today:
 ${(data.todayEntries || []).length > 0
     ? data.todayEntries.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (Rank: ${e.rank ?? "N/A"}, R:R: ${e.rr != null ? e.rr.toFixed(1) : "N/A"}, Reason: ${e.reason || "Signal"})`).join("\n")
     : "No new entries today."}
 
-## Active Trader — Exits Today:
+## Short Term — Exits Today:
 ${(data.todayExits || []).length > 0
     ? data.todayExits.map(e => `${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (P&L: ${e.pnlPct != null ? e.pnlPct.toFixed(1) + "%" : "N/A"}, Reason: ${e.exitReason || "N/A"}, Result: ${e.tradeStatus})`).join("\n")
     : "No exits today."}
 
-## Active Trader — Trims & Defends Today:
+## Short Term — Trims & Defends Today:
 ${(data.todayTrimsDefends || []).length > 0
     ? data.todayTrimsDefends.map(e => `${e.type}: ${e.ticker} ${e.direction} @ $${e.price ?? "N/A"} (${e.type === "TRIM" ? `Trimmed ${e.qtyPctDelta ?? "?"}%, Total: ${e.qtyPctTotal ?? "?"}%` : `SL tightened`}, Reason: ${e.reason || "N/A"})`).join("\n")
     : "No trims or defends today."}
@@ -5327,7 +5327,7 @@ ${(data.todayTrimsDefends || []).length > 0
 ## Investor Model — Actions Today (MUST cite in Model Actions Today — do not say "no investor actions" when this block lists fills):
 ${formatBriefInvestorActionsBlock(data.todayInvestorActions)}
 
-## Investor Portfolio — Current Holdings:
+## Long Term Portfolio — Current Holdings:
 ${(data.investorPositions || []).length > 0
     ? data.investorPositions.map(p => {
         const _pf = data.priceFeedRaw || {};
@@ -5341,7 +5341,7 @@ ${(data.investorPositions || []).length > 0
 
 STYLE RULES: Be direct and actionable. No filler. Every sentence must inform a trading decision. Target ~750 words total. This brief is read top-to-bottom as ONE coherent piece — each section flows into the next, no repetition across sections.
 
-OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly, in this order: The Market Read → Today's Top Movers → Active Trader Report → Investor Portfolio → Looking Ahead → On Watch — Entry Radar. Do NOT emit Index Outlook, Session Recap, Sector Themes, per-index Scorecard, CRO Desk, or Key Levels headings — index recap belongs in The Market Read only.
+OUTPUT STRUCTURE: follow the Retail-Friendly output spec at the end of this prompt exactly, in this order: The Market Read → Today's Top Movers → Short Term Report → Long Term Portfolio → Looking Ahead → On Watch — Entry Radar. Do NOT emit Index Outlook, Session Recap, Sector Themes, per-index Scorecard, CRO Desk, or Key Levels headings — index recap belongs in The Market Read only.
 
 Inside each ### SPY / ### QQQ / ### IWM block: include **SPY Prediction**: (matching label) plus scorecard result (evening) and trigger levels.
 
@@ -6057,7 +6057,7 @@ function extractClosingLine(content) {
   if (!content || typeof content !== "string") return null;
   // Never scan Active Trader / Investor sections — action lines like
   // "**TRIM aggressively**" were leaking into the infographic quote.
-  const traderCut = content.search(/\n\s*#{1,3}\s+\*?\*?(?:Active Trader|Investor Portfolio)/i);
+  const traderCut = content.search(/\n\s*#{1,3}\s+\*?\*?(?:Active Trader|Short Term|Investor Portfolio|Long Term Portfolio)/i);
   const body = traderCut > 0 ? content.slice(0, traderCut) : content;
   const tail = body.slice(-1200);
   // Look for a line after a section 8 header or directly before P.S.

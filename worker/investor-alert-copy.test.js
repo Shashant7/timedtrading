@@ -50,7 +50,7 @@ describe("deriveInvestorAccumulationAlertCopy", () => {
 });
 
 describe("createInvestorAlertEmbed buy actions", () => {
-  it("uses INVESTOR · BOUGHT title without DOING prefix", () => {
+  it("uses LONG TERM · BOUGHT title without DOING prefix", () => {
     const embed = createInvestorAlertEmbed("position_open", {
       ticker: "FIX",
       shares: 3.58,
@@ -61,10 +61,11 @@ describe("createInvestorAlertEmbed buy actions", () => {
     });
     expect(embed.title).toContain("**FIX**");
     expect(embed.title).not.toContain("DOING");
+    expect(embed.title).toContain("LONG TERM");
     expect(embed.title).toContain("BOUGHT");
   });
 
-  it("uses INVESTOR · ADD title without DOING prefix", () => {
+  it("uses LONG TERM · ADD title without DOING prefix", () => {
     const embed = createInvestorAlertEmbed("position_add", {
       ticker: "CAT",
       shares: 7.09,
@@ -75,10 +76,11 @@ describe("createInvestorAlertEmbed buy actions", () => {
     });
     expect(embed.title).toContain("**CAT**");
     expect(embed.title).not.toContain("DOING");
+    expect(embed.title).toContain("LONG TERM");
     expect(embed.title).toContain("ADD");
   });
 
-  it("uses INVESTOR · QUEUE title without DOING prefix", () => {
+  it("uses LONG TERM · QUEUE title without DOING prefix", () => {
     const embed = createInvestorAlertEmbed("accumulation_zone", {
       ticker: "COST",
       score: 68,
@@ -91,6 +93,7 @@ describe("createInvestorAlertEmbed buy actions", () => {
     });
     expect(embed.title).toContain("**COST**");
     expect(embed.title).not.toContain("DOING");
+    expect(embed.title).toContain("LONG TERM");
     expect(embed.title).toContain("QUEUE");
   });
 });

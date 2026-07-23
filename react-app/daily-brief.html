@@ -25,7 +25,7 @@
          the brief. Reuses the shared SVG plot from the Today page. -->
     <script src="tt-bubble-map-0714m.compiled.js?v=20260714m"></script>
     <!-- 2026-05-26 — Nav parity with today/AT/investor pages: badges on
-         Active Trader + Investor links (open trade count / actionable
+         Short Term + Long Term links (open trade count / actionable
          count), bottom nav on mobile, global search overlay, activity
          strip pinned to the top. -->
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
@@ -552,8 +552,8 @@
         if (action === "ENTRY") return { label: "ENTRY", cls: "ds-chip--accent", title: "New entry" };
         if (action === "TRIM") return { label: "TRIM", cls: "ds-chip--solid", title: "Trim today" };
         if (action === "DEFEND") return { label: "DEFEND", cls: "ds-chip--solid", title: "Stop tightened" };
-        if (action === "BUY" || action === "DCA_BUY") return { label: action.replace("_", " "), cls: "ds-chip--up", title: "Investor action" };
-        if (action === "SELL" || action === "TRIM") return { label: action, cls: "ds-chip--dn", title: "Investor action" };
+        if (action === "BUY" || action === "DCA_BUY") return { label: action.replace("_", " "), cls: "ds-chip--up", title: "Long Term action" };
+        if (action === "SELL" || action === "TRIM") return { label: action, cls: "ds-chip--dn", title: "Long Term action" };
         return { label: action || "ACT", cls: "ds-chip--solid", title: "Model action" };
       }
 
@@ -931,7 +931,7 @@
               )}
               {hl.investorPositions != null && hl.investorPositions > 0 && (
                 <div className="ds-metric">
-                  <div className="ds-metric__label">Investor</div>
+                  <div className="ds-metric__label">Long Term</div>
                   <div className="ds-metric__row">
                     <div className="ds-metric__value">{hl.investorPositions}</div>
                   </div>
@@ -946,7 +946,7 @@
                 <div className="text-[10px] uppercase tracking-wider text-[#6E867D] mb-2 font-semibold">Open Positions</div>
                 {Array.isArray(data.traderPositions) && data.traderPositions.length > 0 && (
                   <div className="mb-2">
-                    <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Active Trader</div>
+                    <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Short Term</div>
                     <div className="flex flex-wrap gap-1.5">
                       {data.traderPositions.map((p) => {
                         const row = enrichBriefTraderRow(p, livePx);
@@ -967,7 +967,7 @@
                 )}
                 {Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0 && (
                   <div>
-                    <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Investor</div>
+                    <div className="text-[9px] uppercase tracking-wider text-[#6E867D] mb-1">Long Term</div>
                     <div className="flex flex-wrap gap-1.5">
                       {data.investorHoldings.map((p) => {
                         const row = enrichBriefInvestorRow(p, livePx);

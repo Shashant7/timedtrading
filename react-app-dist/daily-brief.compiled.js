@@ -298,12 +298,12 @@ function modelActionChipMeta(row) {
   if (action === "BUY" || action === "DCA_BUY") return {
     label: action.replace("_", " "),
     cls: "ds-chip--up",
-    title: "Investor action"
+    title: "Long Term action"
   };
   if (action === "SELL" || action === "TRIM") return {
     label: action,
     cls: "ds-chip--dn",
-    title: "Investor action"
+    title: "Long Term action"
   };
   return {
     label: action || "ACT",
@@ -680,7 +680,7 @@ function BriefInfographic({
     className: "ds-metric"
   }, React.createElement("div", {
     className: "ds-metric__label"
-  }, "Investor"), React.createElement("div", {
+  }, "Long Term"), React.createElement("div", {
     className: "ds-metric__row"
   }, React.createElement("div", {
     className: "ds-metric__value"
@@ -692,7 +692,7 @@ function BriefInfographic({
     className: "mb-2"
   }, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
-  }, "Active Trader"), React.createElement("div", {
+  }, "Short Term"), React.createElement("div", {
     className: "flex flex-wrap gap-1.5"
   }, data.traderPositions.map(p => {
     const row = enrichBriefTraderRow(p, livePx);
@@ -707,7 +707,7 @@ function BriefInfographic({
     });
   }))), Array.isArray(data.investorHoldings) && data.investorHoldings.length > 0 && React.createElement("div", null, React.createElement("div", {
     className: "text-[9px] uppercase tracking-wider text-[#6E867D] mb-1"
-  }, "Investor"), React.createElement("div", {
+  }, "Long Term"), React.createElement("div", {
     className: "flex flex-wrap gap-1.5"
   }, data.investorHoldings.map(p => {
     const row = enrichBriefInvestorRow(p, livePx);
@@ -3219,6 +3219,6 @@ const briefApp = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(briefApp);
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545
 
-// cache-bust:1784756219063:529085402
+// cache-bust:1784779576207:539495545

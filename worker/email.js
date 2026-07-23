@@ -20,7 +20,7 @@ import {
 // 2026-06-22 — Email-specific brief cleanup.
 //
 // The shared `stripBriefMarkdownForDisplay` (web) STRIPS Index Outlook,
-// CRO Desk, Investor Portfolio, and Key Levels out of the narrative because
+// CRO Desk, Long Term Portfolio, and Key Levels out of the narrative because
 // the WEB page re-renders those as separate structured cards. The email used
 // to do the same — narrative MINUS those sections, then re-add structured
 // cards — which both fragmented the read AND duplicated sectors/events/risks
@@ -602,7 +602,7 @@ export async function sendWelcomeEmail(env, user) {
     ${featureRow("&#x1F4CB;", "#a78bfa", "Right Rail Detail", "Select any ticker to see levels, regime, entry quality, rank, and the AI CIO's most recent review.")}
     ${featureRow("&#x1F916;", "#f59e0b", "AI CIO Gate", "Every trade candidate is reviewed by the AI before execution. It remembers past outcomes and adapts with each market cycle.")}
     ${featureRow("&#x1F4AC;", "#14b8a6", "Ask AI", "A personalized assistant with full context of your portfolio and market conditions. Ask about any ticker, setup, or regime.")}
-    ${featureRow("&#x1F4C8;", "#ef4444", "Investor Dashboard", "Portfolio health, sector heatmap, accumulation zones, and rebalance signals for long-term positions.")}
+    ${featureRow("&#x1F4C8;", "#ef4444", "Long Term book", "Portfolio health, sector heatmap, accumulation zones, and rebalance signals for long-term positions.")}
     ${featureRow("&#x1F4DD;", "#5865F2", "Daily Briefs &amp; Alerts", "Pre-market and post-market briefs, plus real-time notifications when the system enters, exits, or trims.")}
 
     <div style="height:1px;background:${BRAND.border};margin:20px 0"></div>
@@ -640,7 +640,7 @@ export async function sendWelcomeEmail(env, user) {
     </p>
   `, { preheader: "Your AI-powered trading intelligence platform is ready. Here is how to get started." });
 
-  const text = `Welcome to Timed Trading, ${name}!\n\nYou're in. The system is already watching 229 tickers across 8 timeframes.\n\nHow the model works:\nEvery 5 minutes, the system scores 229 tickers across 8 timeframes. Higher timeframes set the direction, lower timeframes find the entry. Before any position is opened, an AI Chief Investment Officer reviews the setup against a 7-layer memory system.\n\nWhat you get:\n- Bubble Map: See the entire universe at a glance\n- Trade Pipeline: Tickers flow through Setup, Enter, Hold, Trim, Exit\n- Right Rail Detail: Levels, regime, entry quality, AI CIO review\n- AI CIO Gate: Every trade reviewed before execution\n- Ask AI: Personalized assistant with full portfolio context\n- Investor Dashboard: Portfolio health and rebalance signals\n- Daily Briefs & Alerts: Pre/post-market briefs and real-time notifications\n\nQuick start:\n1. Explore the Bubble Map\n2. Check the Trade Pipeline\n3. Set your Saved Tickers (star icon on any ticker)\n4. Ask the AI for instant analysis\n\nVisit https://timed-trading.com to get started.\n\nQuestions? Reply or email support@timed-trading.com.`;
+  const text = `Welcome to Timed Trading, ${name}!\n\nYou're in. The system is already watching 229 tickers across 8 timeframes.\n\nHow the model works:\nEvery 5 minutes, the system scores 229 tickers across 8 timeframes. Higher timeframes set the direction, lower timeframes find the entry. Before any position is opened, an AI Chief Investment Officer reviews the setup against a 7-layer memory system.\n\nWhat you get:\n- Bubble Map: See the entire universe at a glance\n- Trade Pipeline: Tickers flow through Setup, Enter, Hold, Trim, Exit\n- Right Rail Detail: Levels, regime, entry quality, AI CIO review\n- AI CIO Gate: Every trade reviewed before execution\n- Ask AI: Personalized assistant with full portfolio context\n- Long Term book: Portfolio health and rebalance signals\n- Daily Briefs & Alerts: Pre/post-market briefs and real-time notifications\n\nQuick start:\n1. Explore the Bubble Map\n2. Check the Trade Pipeline\n3. Set your Saved Tickers (star icon on any ticker)\n4. Ask the AI for instant analysis\n\nVisit https://timed-trading.com to get started.\n\nQuestions? Reply or email support@timed-trading.com.`;
 
   return sendEmail(env, {
     to: user.email,
@@ -675,8 +675,8 @@ export async function sendSubscriptionEmail(env, email, isTrial) {
     <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">Full access includes</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
       ${featureItem("&#x1F4CA;", "Analysis Dashboard &mdash; multi-timeframe scoring &amp; sector rotation")}
-      ${featureItem("&#x26A1;", "Active Trader Board &mdash; tickers sorted by trade lane")}
-      ${featureItem("&#x1F4C8;", "Investor Dashboard &mdash; portfolio health &amp; market regime")}
+      ${featureItem("&#x26A1;", "Model board (Short Term) &mdash; tickers sorted by trade lane")}
+      ${featureItem("&#x1F4C8;", "Long Term book &mdash; portfolio health &amp; market regime")}
       ${featureItem("&#x1F4DD;", "Daily Brief &mdash; pre-market &amp; post-market reports")}
       ${featureItem("&#x1F4BC;", "Trades &amp; Portfolio &mdash; live positions &amp; P&amp;L tracking")}
       ${featureItem("&#x1F514;", "Trade Alerts &mdash; real-time entry, exit &amp; trim notifications")}
@@ -695,8 +695,8 @@ export async function sendSubscriptionEmail(env, email, isTrial) {
   `, { preheader: isTrial ? "Your 14-day free trial is active." : "Your Pro subscription is confirmed." });
 
   const text = isTrial
-    ? "Your 14-day free trial of Timed Trading Pro has started.\n\nFull access includes: Analysis Dashboard, Active Trader Board, Investor Dashboard, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nVisit https://timed-trading.com to get started."
-    : "Your Timed Trading Pro subscription is active.\n\nFull access includes: Analysis Dashboard, Active Trader Board, Investor Dashboard, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nVisit https://timed-trading.com to continue.";
+    ? "Your 14-day free trial of Timed Trading Pro has started.\n\nFull access includes: Analysis Dashboard, Model board (Short Term), Long Term book, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nVisit https://timed-trading.com to get started."
+    : "Your Timed Trading Pro subscription is active.\n\nFull access includes: Analysis Dashboard, Model board (Short Term), Long Term book, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nVisit https://timed-trading.com to continue.";
 
   return sendEmail(env, { to: email, subject: isTrial ? "Your Free Trial Has Started" : "Subscription Confirmed", html, text, category: "subscription" });
 }
@@ -731,8 +731,8 @@ export async function sendVipWelcomeEmail(env, email) {
     <p style="margin:0 0 10px;font-size:11px;font-weight:700;color:${BRAND.textMuted};text-transform:uppercase;letter-spacing:0.08em">VIP access includes</p>
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 0 20px">
       ${featureItem("&#x1F4CA;", "Analysis Dashboard &mdash; multi-timeframe scoring &amp; sector rotation")}
-      ${featureItem("&#x26A1;", "Active Trader Board &mdash; tickers sorted by trade lane")}
-      ${featureItem("&#x1F4C8;", "Investor Dashboard &mdash; portfolio health &amp; market regime")}
+      ${featureItem("&#x26A1;", "Model board (Short Term) &mdash; tickers sorted by trade lane")}
+      ${featureItem("&#x1F4C8;", "Long Term book &mdash; portfolio health &amp; market regime")}
       ${featureItem("&#x1F4DD;", "Daily Brief &mdash; pre-market &amp; post-market reports")}
       ${featureItem("&#x1F4BC;", "Trades &amp; Portfolio &mdash; live positions &amp; P&amp;L tracking")}
       ${featureItem("&#x1F514;", "Trade Alerts &mdash; real-time entry, exit &amp; trim notifications")}
@@ -750,7 +750,7 @@ export async function sendVipWelcomeEmail(env, email) {
     </table>
   `, { preheader: "This account has been upgraded to complimentary VIP access." });
 
-  const text = "Welcome to VIP.\n\nThis account has been upgraded to VIP — complimentary, full access to everything Timed Trading offers, with no billing and nothing to manage.\n\nVIP access includes: Analysis Dashboard, Active Trader Board, Investor Dashboard, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nIf a paid subscription was active, it has been canceled so there will be no further charges — VIP access stays on regardless.\n\nGo to the dashboard: https://timed-trading.com/today.html";
+  const text = "Welcome to VIP.\n\nThis account has been upgraded to VIP — complimentary, full access to everything Timed Trading offers, with no billing and nothing to manage.\n\nVIP access includes: Analysis Dashboard, Model board (Short Term), Long Term book, Daily Brief, Trades & Portfolio, Trade Alerts, and Discord Community.\n\nIf a paid subscription was active, it has been canceled so there will be no further charges — VIP access stays on regardless.\n\nGo to the dashboard: https://timed-trading.com/today.html";
 
   return sendEmail(env, { to: email, subject: "Welcome to VIP — Complimentary Access", html, text, category: "subscription" });
 }
@@ -925,7 +925,7 @@ export function buildEmailInvestorPortfolioBlock(holdings = []) {
     return `<tr><td style="padding:5px 0;font-size:13px;line-height:1.45;color:${BRAND.textSecondary};border-bottom:1px solid ${BRAND.border}">${bits}</td></tr>`;
   }).join("");
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
-    <tr><td style="padding:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Investor Portfolio</td></tr>
+    <tr><td style="padding:0 0 6px;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted}">Long Term Portfolio</td></tr>
     ${lis}
   </table>`;
 }
@@ -1399,7 +1399,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
   // can tell Active Trader vs Investor at a glance (matches the Discord
   // "ACTIVE TRADER ·" / "INVESTOR ·" embed prefix). Operator: the NVDA exit
   // email didn't say Active Trader.
-  const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Investor " : "Active Trader ";
+  const scopeLabel = String(mode || "").toLowerCase() === "investor" ? "Long Term " : "Short Term ";
   const typeIcon = isEntry ? (dir === "LONG" ? "🟢" : "🔴") : isExit ? (Number(pnlPct) >= 0 ? "🏆" : "🛑") : isExitSignal ? "🚪" : isCross ? "🎯" : "✂️";
   const typeLabel = `${scopeLabel}${isEntry ? "New Entry" : isExit ? "Position Closed" : isExitSignal ? "Exit Recommended (position open)" : isCross ? `Profit Target Reached${alert.tier_label ? ` — ${alert.tier_label}` : ""}` : "Position Trimmed"}`;
   const priceFmt = Number(price) > 0 ? `$${Number(price).toFixed(2)}` : "N/A";
@@ -1541,9 +1541,9 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
       : optionsPlayEmailHtml(options_play);
     if (_html) {
       const _label = options_play.shadow
-        ? `Options Play (SHADOW · ${options_play.shadow_desk === "investor" ? "Investor" : "Trader"})`
+        ? `Options Play (SHADOW · ${options_play.shadow_desk === "investor" ? "Long Term" : "Short Term"})`
         : (options_play.archetype === "leap_call" || options_play.archetype === "leap_put")
-          ? "Options Play — LEAP (Investor)"
+          ? "Options Play — LEAP (Long Term)"
           : "Options Play (Trader)";
       optionsPlaySection = _section(_label, _html);
     }
@@ -1765,7 +1765,7 @@ export async function sendTradeAlertEmail(env, userEmail, alert) {
     ${chartLinkHtml}
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
       <tr><td style="background:${BRAND.green};border-radius:8px;padding:10px 24px">
-        <a href="${ctaUrl}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">${isTrader ? "Open in Active Trader" : "View in Dashboard"}</a>
+        <a href="${ctaUrl}" style="color:white;font-size:13px;font-weight:600;text-decoration:none;display:inline-block">${isTrader ? "Open in Model (Short Term)" : "View in Dashboard"}</a>
       </td></tr>
     </table>
   `, { unsubscribeUrl, preheader: `${typeLabel}: ${ticker} ${dir} @ ${priceFmt}${cio ? ` — AI CIO ${cio.decision}` : ""}` });
@@ -1938,7 +1938,7 @@ export function unsubscribeConfirmationHtml(email, pref) {
     trade_alerts: "Trade Alert emails",
     re_engagement: "Re-engagement emails",
     weekly_digest: "Weekly Digest emails",
-    investor_alerts: "Investor Signal emails",
+    investor_alerts: "Long Term Signal emails",
     all: "all emails",
   }[pref] || pref;
 
@@ -2021,7 +2021,7 @@ export async function sendInvestorAlertEmails(env, alert) {
      does not include the chart."
 
      Three changes:
-       1. Subject + masthead now prefixed `[INVESTOR · ACTION]` so the
+       1. Subject + masthead now prefixed `[LONG TERM · ACTION]` so the
           system + intent are visible at-a-glance in the inbox list.
        2. Large action badge ("ACCUMULATE", "WATCH", "ADD ON PULLBACK",
           "REDUCE / EXIT") at the top of the body with the
@@ -2042,8 +2042,8 @@ export async function sendInvestorAlertEmails(env, alert) {
 
   const TYPE_META = {
     accumulation_zone: _accumCopy || {
-      subjectBase: `${data.ticker} — Investor Zone Signal`,
-      headline: "Investor Zone Signal",
+      subjectBase: `${data.ticker} — Long Term Zone Signal`,
+      headline: "Long Term Zone Signal",
       lede: `<strong>${data.ticker}</strong> logged an investor zone signal.`,
     },
     rs_breakout: {
@@ -2054,17 +2054,17 @@ export async function sendInvestorAlertEmails(env, alert) {
     thesis_invalidation: {
       subjectBase: `${data.ticker} — Model Thesis Shift`,
       headline: `Model Thesis Shift`,
-      lede: `The TT Investor model no longer sees valid supporting conditions for <strong>${data.ticker}</strong>: ${(data.reasons || []).join("; ")}.`,
+      lede: `The TT Long Term model no longer sees valid supporting conditions for <strong>${data.ticker}</strong>: ${(data.reasons || []).join("; ")}.`,
     },
     position_trim: {
-      subjectBase: `${data.ticker} — Investor TRIMMED (partial reduce)`,
-      headline: `Investor TRIMMED — partial reduce`,
-      lede: `The Investor portfolio <strong>trimmed</strong> <strong>${data.ticker}</strong> — sold ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}. The position remains open at reduced size.`,
+      subjectBase: `${data.ticker} — Long Term TRIMMED (partial reduce)`,
+      headline: `Long Term TRIMMED — partial reduce`,
+      lede: `The Long Term book <strong>trimmed</strong> <strong>${data.ticker}</strong> — sold ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}. The position remains open at reduced size.`,
     },
     position_close: {
-      subjectBase: `${data.ticker} — Investor EXITED (full close)`,
-      headline: `Investor EXITED — full close`,
-      lede: `The Investor portfolio <strong>exited</strong> <strong>${data.ticker}</strong> — sold ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}. The model no longer holds this name.`,
+      subjectBase: `${data.ticker} — Long Term EXITED (full close)`,
+      headline: `Long Term EXITED — full close`,
+      lede: `The Long Term book <strong>exited</strong> <strong>${data.ticker}</strong> — sold ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}. The model no longer holds this name.`,
     },
   };
   const meta = TYPE_META[type];
@@ -2073,7 +2073,7 @@ export async function sendInvestorAlertEmails(env, alert) {
 
   const factsHtml = (() => {
     const rows = [];
-    if (data.score != null) rows.push(["Investor Score", `${data.score} / 100`]);
+    if (data.score != null) rows.push(["Long Term Score", `${data.score} / 100`]);
     if (data.confidence != null) rows.push(["Confidence", `${data.confidence}%`]);
     if (data.rsRank != null) rows.push(["RS Rank", `${data.rsRank}th percentile`]);
     if (data.zoneType) rows.push(["Zone Type", String(data.zoneType).replace(/_/g, " ")]);
@@ -2104,14 +2104,14 @@ export async function sendInvestorAlertEmails(env, alert) {
 </div>`;
 
   const tickerUrl = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}`;
-  const subject = `[INVESTOR · ${action.verb}] ${meta.subjectBase} — Timed Trading`;
+  const subject = `[LONG TERM · ${action.verb}] ${meta.subjectBase} — Timed Trading`;
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${subject}</title></head>
 <body style="margin:0;background:#0a0a0f;color:#e5e7eb;font-family:'Inter',Helvetica,Arial,sans-serif">
 <table width="100%" cellspacing="0" cellpadding="0" style="background:#0a0a0f;padding:24px 16px">
 <tr><td align="center">
 <table width="560" cellspacing="0" cellpadding="0" style="max-width:560px;background:#141821;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px">
 <tr><td>
-<div style="font-size:10px;font-weight:700;letter-spacing:0.14em;color:#a78bfa;text-transform:uppercase;margin-bottom:6px">INVESTOR SIGNAL</div>
+<div style="font-size:10px;font-weight:700;letter-spacing:0.14em;color:#a78bfa;text-transform:uppercase;margin-bottom:6px">LONG TERM SIGNAL</div>
 <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:8px">${meta.headline}</div>
 <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#f0f6fc">${data.ticker}</h1>
 
@@ -2134,8 +2134,8 @@ ${data.cio_reasoning ? `
 </div>` : ""}
 <a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
 <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#6b7280;line-height:1.6">
-Informational model signal only — not investment advice. The TT Investor model portfolio tracks this in simulation; live broker mirroring requires the Phase 1 share-mirror config.<br>
-You're receiving this because Investor Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${tone};text-decoration:none">Manage preferences</a>.
+Informational model signal only — not investment advice. The TT Long Term model portfolio tracks this in simulation; live broker mirroring requires the Phase 1 share-mirror config.<br>
+You're receiving this because Long Term Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${tone};text-decoration:none">Manage preferences</a>.
 </div>
 </td></tr></table></td></tr></table></body></html>`;
   let sent = 0, failed = 0;
@@ -2145,7 +2145,7 @@ You're receiving this because Investor Signal emails are enabled. <a href="https
         to: u.email,
         subject,
         html,
-        text: `[INVESTOR · ${action.verb}] ${meta.headline}: ${data.ticker}\n\n` +
+        text: `[LONG TERM · ${action.verb}] ${meta.headline}: ${data.ticker}\n\n` +
               `TT Model signal — ${action.verb}\n${action.one_liner}\n\n` +
               `${meta.lede.replace(/<[^>]+>/g, "")}\n\n` +
               (data.cio_reasoning ? `AI CIO guidance:\n${String(data.cio_reasoning).trim()}\n\n` : "") +
@@ -2331,7 +2331,7 @@ export async function sendInvestorWeeklyDigest(env) {
       });
       const r = await sendEmail(env, {
         to: user.email,
-        subject: `[INVESTOR · WEEKLY] Week in Review — ${weekLabel}`,
+        subject: `[LONG TERM · WEEKLY] Week in Review — ${weekLabel}`,
         html,
         category: "investor_weekly_digest",
       });
@@ -2598,7 +2598,7 @@ export async function sendInvestorRebalanceDigest(env, summary) {
       });
       const r = await sendEmail(env, {
         to: user.email,
-        subject: `[INVESTOR] Rebalance — ${headlineBits.join(", ")}`,
+        subject: `[LONG TERM] Rebalance — ${headlineBits.join(", ")}`,
         html,
         category: "investor_rebalance_digest",
       });
@@ -2699,7 +2699,7 @@ export async function sendInvestorQueueDigest(env, alerts) {
       });
       const r = await sendEmail(env, {
         to: user.email,
-        subject: `[INVESTOR] Entered Queue — ${syms.join(", ")}`,
+        subject: `[LONG TERM] Entered Queue — ${syms.join(", ")}`,
         html,
         category: "investor_queue_digest",
       });
@@ -2733,7 +2733,7 @@ function _buildReduceTickerCard(alert, baseUrl) {
     <div style="margin:0 0 10px;padding:10px 12px;border-radius:8px;background:${danger}1A;border:1px solid ${danger}55">
       <div style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:${danger};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>
       <div style="font-size:14px;font-weight:700;color:${danger};margin-bottom:4px">MODEL · REDUCE</div>
-      <div style="font-size:12px;line-height:1.5;color:${BRAND.textSecondary}">The TT Investor model moved <strong>${_esc(sym)}</strong> to Reduce — one or more supporting conditions no longer hold. The model portfolio would trim or exit on the next rebalance cycle. Informational only; not investment advice.</div>
+      <div style="font-size:12px;line-height:1.5;color:${BRAND.textSecondary}">The TT Long Term model moved <strong>${_esc(sym)}</strong> to Reduce — one or more supporting conditions no longer hold. The model portfolio would trim or exit on the next rebalance cycle. Informational only; not investment advice.</div>
     </div>
     ${reasons.length ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:${BRAND.textMuted};font-weight:700">Why:</span> ${_esc(reasons.join("; "))}</div>` : ""}
     ${cio ? `<div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5;margin-bottom:10px"><span style="color:#a78bfa;font-weight:700">AI CIO:</span> ${_esc(cio)}</div>` : ""}
@@ -2784,7 +2784,7 @@ export async function sendInvestorReduceDigest(env, alerts) {
       });
       const r = await sendEmail(env, {
         to: user.email,
-        subject: `[INVESTOR] Model Thesis Shift — ${syms.join(", ")}`,
+        subject: `[LONG TERM] Model Thesis Shift — ${syms.join(", ")}`,
         html,
         category: "investor_reduce_digest",
       });
@@ -2855,7 +2855,7 @@ export function buildInvestorRebalanceDiscordEmbed(summary, opts = {}) {
   if (opened.length) _headline.push(`${opened.length} entered`);
 
   return {
-    title: `Investor Portfolio — ${_headline.join(" · ") || "cycle"}${cycleEt ? ` · ${cycleEt} ET` : ""}`,
+    title: `Long Term Portfolio — ${_headline.join(" · ") || "cycle"}${cycleEt ? ` · ${cycleEt} ET` : ""}`,
     description:
       "Model portfolio actions this cycle. **EXITED** = full close (no longer held). " +
       "**TRIMMED** = partial reduce (thesis still active). **ENTERED/ADDED** = new or increased exposure. " +

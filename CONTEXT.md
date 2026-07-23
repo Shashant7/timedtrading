@@ -217,6 +217,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Dual horizon cards + Short/Long Term copy (2026-07-23)**
+- Same ticker with Short Term + Long Term signals → **two cards**
+  (`ticker:short_term` / `ticker:long_term`) on Model board + Viewport.
+- Broker mirror: `mode=trader` + `horizon=short_term` vs `mode=investor` +
+  `horizon=long_term` with distinct `trade_id` / `client_order_id` (LT: `tt-lt-*`).
+- User-facing copy: Short Term / Long Term (not Trader / Investor) on Discord,
+  email, notifications, Daily Brief, Portfolio. Internal keys stay trader|investor.
+
 **Broker mirror: TRIM + reject visibility + stale SL (2026-07-23)**
 - Trader `trimTradeToPct` must call `forwardOrderToBridge` (`side=trim` /
   trim-to-full `exit`); otherwise the broker stays full-size until EXIT.
