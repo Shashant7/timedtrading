@@ -26362,6 +26362,12 @@ async function processTradeSimulation(
         const cfg = getSizingConfig(env);
         const isFuturesSym = FUTURES_SPECS[sym] || sym.endsWith("1!");
         let shares, pointValue, notional, sizingMeta;
+        // 2026-07-24 — Hoist for entry-finalize email/Discord parity.
+        // These were `const` inside nested sizing/CIO blocks but read later
+        // in the TRADE_ENTRY email pipeline → ReferenceError skipped every
+        // entry email (TT/NVDA/… silent-failures entry_finalize.*).
+        let accountValue = PORTFOLIO_START_CASH;
+        let _entryShadow = false;
 
         if (isFuturesSym && FUTURES_SPECS[sym]) {
           shares = 1;
@@ -26369,7 +26375,7 @@ async function processTradeSimulation(
           notional = entryPx;
           sizingMeta = { method: "futures_fixed", riskPct: 0, maxDollarRisk: 0, riskPerShare: 0, vixMultiplier: 1 };
         } else if (Number.isFinite(cash) && cash >= cfg.MIN_NOTIONAL) {
-          const accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
+          accountValue = Number(portfolio.startCash || PORTFOLIO_START_CASH) +
             (allTrades || []).filter(t => t.status === "WIN" || t.status === "LOSS").reduce((sum, t) => sum + (Number(t.realizedPnl) || 0), 0);
           // V15 P0.7.67 (2026-05-05) — TICK/ADD tape sizing modulator.
           // Aligned tape → 1.25× size. Disagreeing tape → 0.5-0.7× size.
@@ -26485,7 +26491,7 @@ async function processTradeSimulation(
                   applied: null,
                 };
 
-                const _entryShadow = _cioShadowMode(env);
+                _entryShadow = _cioShadowMode(env);
                 if (tickerData.__cio_entry_decision && typeof tickerData.__cio_entry_decision === "object") {
                   tickerData.__cio_entry_decision.shadow = _entryShadow;
                 }
