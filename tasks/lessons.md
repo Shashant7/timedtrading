@@ -6,6 +6,17 @@
 
 ---
 
+## Bridge sanitize must keep reduce_pct on TRIM [2026-07-24]
+
+Operator retry of NVDA 50% trim placed successfully but sold the **full**
+Webull lot (7.745) instead of ~3.87. `reconcileReducerQty` reads
+`sanitized.reduce_pct`, but `handleSingleAccountOrder` never copied
+`reduce_pct`/`trim_pct` into `sanitized` — so pct was null, the model-book
+trim qty (23.6) was treated as explicit, then capped to
+`broker_remaining`. Fix: forward those fields in sanitize. Add a unit
+test that 50% of model portion ≠ full remaining. Do not auto-rebuy the
+oversold half unless the operator asks.
+
 ## Webull TRIM blocked by pending manifest + reject JSON 500 [2026-07-24]
 
 Model NVDA 50% trim fired; Webull showed no sell. Ring had `side=trim`
