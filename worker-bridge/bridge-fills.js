@@ -36,7 +36,8 @@ export function normalizeBrokerOrder(broker, raw) {
   const brokerOrderId = raw.order_id ?? raw.orderId ?? raw.id ?? null;
   const status = normalizeOrderStatus(raw.status ?? raw.order_status ?? raw.orderStatus);
   const filledQty = num(raw.filled_quantity ?? raw.filledQuantity ?? raw.filled_qty ?? raw.cumulative_quantity ?? raw.cumQty);
-  const avgPrice = num(raw.avg_fill_price ?? raw.avgPrice ?? raw.avg_price ?? raw.average_price);
+  // Webull order history reports the average execution price as `filled_price`.
+  const avgPrice = num(raw.avg_fill_price ?? raw.filled_price ?? raw.avgPrice ?? raw.avg_price ?? raw.average_price);
   const totalQty = num(raw.quantity ?? raw.total_quantity ?? raw.qty);
   const remainingQty = num(raw.remaining_quantity ?? raw.remainingQuantity)
     ?? (totalQty != null && filledQty != null ? Math.max(0, totalQty - filledQty) : null);
@@ -54,14 +55,19 @@ export function normalizeBrokerOrder(broker, raw) {
   };
 }
 
-/** Pull the orders array out of an adapter listOrders() response. */
+/** Pull the orders array out of an adapter listOrders() response.
+ *  Webull's order history returns an array of combo groups, each with a
+ *  nested `orders` array ([{combo_type, orders:[...]}]) — flatten those
+ *  to the individual order rows. */
 export function extractOrders(res) {
   if (!res) return [];
-  if (Array.isArray(res.orders)) return res.orders;
+  const flatten = (arr) => arr.flatMap((x) =>
+    (x && typeof x === "object" && Array.isArray(x.orders)) ? x.orders : [x]);
+  if (Array.isArray(res.orders)) return flatten(res.orders);
   const r = res.response ?? res;
-  if (Array.isArray(r)) return r;
-  if (Array.isArray(r?.orders)) return r.orders;
-  if (Array.isArray(r?.data)) return r.data;
+  if (Array.isArray(r)) return flatten(r);
+  if (Array.isArray(r?.orders)) return flatten(r.orders);
+  if (Array.isArray(r?.data)) return flatten(r.data);
   return [];
 }
 
@@ -92,6 +98,14 @@ export async function reconcileAccountFills(env, user, adapter, opts = {}) {
     listRes = await adapter.listOrders(env, user, { limit: opts.limit || 50 });
   } catch (e) {
     return { ...stats, error: String(e?.message || e).slice(0, 160) };
+  }
+  // 2026-07-24 — surface a failed list call instead of treating it as
+  // "no orders" (a broken endpoint looked identical to a quiet day).
+  if (listRes && listRes.ok === false) {
+    return {
+      ...stats,
+      error: String(listRes.error || `list_orders_http_${listRes.http_status || "unknown"}`).slice(0, 160),
+    };
   }
   const orders = extractOrders(listRes);
   stats.scanned = orders.length;

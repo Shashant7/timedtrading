@@ -359,14 +359,20 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
   });
 }
 
-/** List recent orders for an account — used for fill reconciliation. */
-export async function webullListOrders(env, user, accessToken, { limit = 50 } = {}) {
+/** List recent orders (default: last 7 days) — used for fill reconciliation.
+ *  GET /openapi/trade/order/history with query params (max page_size 100).
+ *  `path` override (admin diagnostics only) is restricted to read-only
+ *  /openapi/trade/order* endpoints. */
+export async function webullListOrders(env, user, accessToken, { limit = 50, path = null } = {}) {
+  const safePath = (path && /^\/openapi\/trade\/order/.test(String(path)))
+    ? String(path)
+    : WEBULL_API_PATHS.ordersList;
   return signedFetch(env, {
-    path: WEBULL_API_PATHS.ordersList,
-    method: "POST",
-    body: {
+    path: safePath,
+    method: "GET",
+    query: {
       account_id: user.webull_account_id,
-      page_size: Number(limit) || 50,
+      page_size: String(Math.min(100, Number(limit) || 50)),
     },
     accessToken,
   });

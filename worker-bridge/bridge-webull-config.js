@@ -12,10 +12,14 @@ export const WEBULL_API_PATHS = {
   orderPreview: "/openapi/trade/order/preview",
   orderPlace: "/openapi/trade/order/place",
   orderCancel: "/openapi/trade/order/cancel",
-  // 2026-07-20 — order-status read for fill reconciliation. VERIFY exact path
-  // against Webull OpenAPI docs before live (endpoint naming varies by API
-  // version); mock mode exercises the full flow independent of the path.
-  ordersList: "/openapi/trade/orders/list",
+  // 2026-07-24 — verified against the official US Trading API reference
+  // (developer.webull.com/apis/docs/reference/order-history.md):
+  // GET /openapi/trade/order/history?account_id=...&page_size=...
+  // (default window: last 7 days). Response is an array of combo groups,
+  // each with a nested `orders` array — extractOrders() flattens them.
+  // The old unverified "POST /openapi/trade/orders/list" always 404'd,
+  // which fill reconciliation silently reported as scanned=0.
+  ordersList: "/openapi/trade/order/history",
 };
 
 export function webullAuthMode(env) {

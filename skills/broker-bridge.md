@@ -32,6 +32,23 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > `model_intended_qty` / entry order ids); live-position guard still clamps.
 > Never buy-side cash-scale a TRIM/EXIT. Never spread the full preflight
 > `user` into the HTTP reject body (can break `JSON.stringify` → bare 500).
+>
+> **Manifest + reconciler semantics (2026-07-24):**
+> - `broker_remaining_qty` = shares currently HELD at the broker for this
+>   trade. Entry fills ADD to it (`writeEntryManifest`); the 5-min
+>   reconciler converges it to live broker qty (minus user-added excess).
+>   It is NOT the unfilled remainder of an order.
+> - `broker_filled_qty` = CUMULATIVE entry fills. The reconciler only
+>   corrects it upward; it must not shrink after a trim.
+> - Manifest rows carry the mothership's base `user_id` (owner email),
+>   but reconcile iterates per-account users — row lookup must match
+>   `user_id OR broker_account_id` (`_readOpenRowsForUser`).
+> - Fill reconcile uses `GET /openapi/trade/order/history` (7-day window,
+>   array of combo groups with nested `orders`, avg price =
+>   `filled_price`). A failed list call must surface as `fills.error`,
+>   not `scanned=0`. Probe live with the admin webull test action
+>   `list_orders` (optional `args.path` restricted to
+>   `/openapi/trade/order*`).
 
 **Architecture:**
 
