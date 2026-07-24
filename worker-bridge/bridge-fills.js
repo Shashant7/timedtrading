@@ -36,7 +36,8 @@ export function normalizeBrokerOrder(broker, raw) {
   const brokerOrderId = raw.order_id ?? raw.orderId ?? raw.id ?? null;
   const status = normalizeOrderStatus(raw.status ?? raw.order_status ?? raw.orderStatus);
   const filledQty = num(raw.filled_quantity ?? raw.filledQuantity ?? raw.filled_qty ?? raw.cumulative_quantity ?? raw.cumQty);
-  const avgPrice = num(raw.avg_fill_price ?? raw.avgPrice ?? raw.avg_price ?? raw.average_price);
+  // Webull order history reports the average execution price as `filled_price`.
+  const avgPrice = num(raw.avg_fill_price ?? raw.filled_price ?? raw.avgPrice ?? raw.avg_price ?? raw.average_price);
   const totalQty = num(raw.quantity ?? raw.total_quantity ?? raw.qty);
   const remainingQty = num(raw.remaining_quantity ?? raw.remainingQuantity)
     ?? (totalQty != null && filledQty != null ? Math.max(0, totalQty - filledQty) : null);
