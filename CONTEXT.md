@@ -272,6 +272,22 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   *unresolved* 6h failures — skip rows superseded by a later `ok` for the
   same `trade_id`+side (and `inv-inv-*` → `inv-*`). Otherwise operator
   retries keep paging after NVDA/TT/ETN were fixed.
+- **`broker_remaining_qty` = shares HELD at broker (2026-07-24)**: entry
+  write was `intended - filled` (unfilled remainder) → fully-filled entries
+  got `remaining=0` and reducers clamp to it. Entry fills must ADD to
+  remaining; the reconciler converges it to live qty (minus user-added
+  excess) and only corrects `broker_filled_qty` upward.
+- **Reconciler scanned 0 rows (2026-07-24)**: manifest rows carry the
+  mothership's base user_id (owner email) but the reconciler iterates
+  per-account users (`owner#webull#roth-ira`) — `WHERE user_id=?` matched
+  nothing, so Phase C was a silent no-op. Row lookup must also match
+  `broker_account_id`.
+- **Webull orders list = GET `/openapi/trade/order/history` (2026-07-24)**:
+  the unverified `POST /openapi/trade/orders/list` always 404'd and fill
+  reconcile reported it as `scanned=0` (a broken endpoint looked like a
+  quiet day — always surface `listRes.ok=false` as an error). Response is
+  an array of combo groups with nested `orders`; avg exec price is
+  `filled_price`.
 
 **WoW PnL adaptive governor (2026-07-23)**
 - Plan: `plans/wow-pnl-adaptive-governor.plan.md`. Demotion keys must load

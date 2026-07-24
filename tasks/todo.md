@@ -22,6 +22,18 @@
 
 ### Active
 
+- [x] **Bridge full sweep — three silent bugs (2026-07-24).** Post
+      NVDA/TT-trim sweep found: (1) `writeEntryManifest` wrote
+      `broker_remaining_qty` as the unfilled remainder → fully-filled
+      entries got `remaining=0`; (2) reconciler scanned 0 rows every
+      cycle (manifest rows carry base user_id, reconcile iterates
+      per-account users) — Phase C had never run; (3) Webull fill
+      reconcile hit a nonexistent endpoint (`POST
+      /openapi/trade/orders/list` 404) and reported it as `scanned=0` —
+      verified `GET /openapi/trade/order/history`, flatten combo groups,
+      map `filled_price`. All 12 roth positions verified in-sync vs
+      live broker. Branch: `cursor/trim-reduce-pct-sanitize-df0c`.
+
 - [x] **Investor DCA double ledger cash (2026-07-23).** Sanity
       portfolio_reconcile −18.9%: ledger repair matched DCA_BUY lots only
       to ENTRY and back-filled duplicates beside real DCA_BUY rows

@@ -3702,3 +3702,49 @@ correction read as jump-up-then-snap-back. v8 keeps CSS
 debounced scroll + `visualViewport` *resize* (not vv scroll). Bump
 `SHELL_VERSION` to `tt-shell-v8`.
 
+
+## 2026-07-24 — Full sweep: three silent bridge bugs behind a green board
+
+After the NVDA/TT trim saga was fixed, a "full sweep" (sanity sweep +
+manual manifest/positions/ledger diff) found three bugs the sweep alone
+could not see because each failed *silently*:
+
+1. **`broker_remaining_qty` written as the unfilled remainder.**
+   `writeEntryManifest` set `remaining = model_intended_qty - filled` on
+   both INSERT and UPDATE, so every fully-filled entry landed with
+   `remaining=0`. Everything else (reducer guard, OCO re-place,
+   reconciler drift check) treats the column as "shares currently held
+   at the broker". Fix: INSERT writes `filledQty`; UPDATE adds the new
+   fill to the existing remaining. Trims are decremented by the
+   reconciler from live positions, not by the entry writer.
+
+2. **Reconciler scanned 0 rows every cycle.** Fan-out orders write
+   manifest rows with the mothership's base `user_id`
+   (`shashant@gmail.com`) while the reconciler iterates per-account
+   users (`shashant@gmail.com#webull#roth-ira`) and selected
+   `WHERE user_id = ?` — zero matches, so Phase C reconciliation had
+   NEVER run in production and reported success (`rows_scanned: 0` is
+   not an error). Fix: match `user_id OR broker_account_id`. Also:
+   `_persistRowUpdate` wrote `remaining` from `expected`, which is
+   derived from `remaining` itself — circular, never converges. Now it
+   writes live held qty (minus `user_added` excess) and only corrects
+   `broker_filled_qty` upward (cumulative entry fills must not shrink
+   after a trim).
+
+3. **Webull fill reconciliation hit a nonexistent endpoint.** The
+   config had `POST /openapi/trade/orders/list` with a "VERIFY exact
+   path" comment; it 404'd forever and `reconcileAccountFills` didn't
+   check `listRes.ok`, so a broken endpoint was indistinguishable from
+   a quiet day (`fills: {scanned: 0}`). Verified endpoint:
+   `GET /openapi/trade/order/history?account_id&page_size` (7-day
+   default window; `x-version: v2` header already sent by the signer).
+   Response is an array of combo groups each with a nested `orders`
+   array — `extractOrders` must flatten. Avg execution price is
+   `filled_price` (not `avg_fill_price`). Also added a
+   `list_orders` action to `callWebullAction` (admin diagnostics,
+   path-override restricted to read-only `/openapi/trade/order*`).
+
+Meta-lesson: "scanned 0 / no rows / no error" from a best-effort
+subsystem is not evidence of health. Verify each pipeline with one
+positive observation (a row actually scanned, a fill actually recorded)
+before trusting its silence.
