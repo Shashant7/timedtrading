@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
 
+describe("roundQtyForBroker — Webull 5dp fractional ceiling", () => {
+  it("floors TT 50% trim 1.199385 → 1.19938 (Webull max 5 decimals)", async () => {
+    const { roundQtyForBroker } = await import("./bridge-sizing.js");
+    expect(roundQtyForBroker(1.199385, { fractional: true, precision: 5 })).toBe(1.19938);
+  });
+});
+
 describe("reconcileReducerQty — TRIM uses reduce_pct of model portion", () => {
   it("NVDA 50% trim sells half the broker lot, not the full remaining", () => {
     // Model sent ~23.6 shares (50% of $100k book); broker holds ~7.75.

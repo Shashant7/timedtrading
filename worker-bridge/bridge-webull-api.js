@@ -46,7 +46,11 @@ function sideToWebull(side) {
 export function buildOrderBody(user, order, { preview = false } = {}) {
   const accountId = user?.webull_account_id;
   if (!accountId) throw new Error("webull_account_id_missing");
-  const qty = Number(order?.qty);
+  // Webull fractional precision is 5dp max; longer decimals → INVALID_PARAMETER.
+  const qtyRaw = Number(order?.qty);
+  const qty = Number.isFinite(qtyRaw) && qtyRaw > 0
+    ? Math.floor(qtyRaw * 1e5 + 1e-9) / 1e5
+    : NaN;
   if (!Number.isFinite(qty) || qty <= 0) throw new Error("invalid_qty");
   // Order type mapping to Webull spec:
   //   MARKET (default), LIMIT, STOP_LOSS (was "STOP"), STOP_LOSS_LIMIT (was
