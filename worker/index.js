@@ -2204,6 +2204,9 @@ const ROUTES = [
   // 2026-07-24 — Catch up Long Term lots that wrote D1 but never hit the
   // bridge (DCA execute had no mirror path; research missing HMAC).
   ["POST", "/timed/admin/broker-bridge/catchup-investor", "POST /timed/admin/broker-bridge/catchup-investor"],
+  // 2026-07-24 — Operator retry of a missed trader mirror (TRIM/EXIT/ENTRY)
+  // that hit the client ring as error/500 but never placed at the broker.
+  ["POST", "/timed/admin/broker-bridge/retry-order",      "POST /timed/admin/broker-bridge/retry-order"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
   ["POST", "/timed/admin/broker-bridge/notify/drain",     "POST /timed/admin/broker-bridge/notify/drain"],
   ["POST", "/timed/admin/broker-bridge/daily-digest",     "POST /timed/admin/broker-bridge/daily-digest"],
@@ -80950,6 +80953,102 @@ export default {
             note: dryRun
               ? "Pass {\"dry_run\":false} to forward these ops to the bridge (places real broker orders, relational-scaled)."
               : "Forwarded planned ops; inspect bridge:client:recent + broker fills.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-07-24 — Operator retry of a missed bridge mirror.
+      // Body: { trade_id, side?, dry_run? } looks up the latest matching
+      // client-ring row; or pass a full order payload (ticker/side/qty/…).
+      // Always issues a fresh client_order_id (`…-r<ts36>`) — the original
+      // id is burned by bridge idempotency even when place never ran
+      // (NVDA TRIM ReferenceError 500). Default dry_run=true.
+      if (routeKey === "POST /timed/admin/broker-bridge/retry-order") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const dryRun = body?.dry_run !== false;
+          const { forwardOrderToBridge, readClientRing } = await import("./broker-bridge-client.js");
+          let src = null;
+          const wantTrade = String(body?.trade_id || "").trim();
+          const wantSide = String(body?.side || "").trim().toLowerCase();
+          const wantCoid = String(body?.client_order_id || "").trim();
+          if (wantTrade || wantCoid) {
+            const ring = await readClientRing(env);
+            src = (ring || []).find((r) => {
+              if (wantCoid && String(r?.client_order_id || "") === wantCoid) return true;
+              if (!wantTrade) return false;
+              if (String(r?.trade_id || "") !== wantTrade) return false;
+              if (wantSide && String(r?.side || "").toLowerCase() !== wantSide) return false;
+              return String(r?.status || "") !== "ok";
+            }) || null;
+          }
+          const ticker = String(body?.ticker || src?.ticker || "").toUpperCase();
+          const side = String(body?.side || src?.side || "").toLowerCase();
+          const tradeId = String(body?.trade_id || src?.trade_id || "").trim();
+          const qty = Number(body?.qty ?? src?.qty);
+          if (!ticker || !side || !tradeId || !(qty > 0)) {
+            return sendJSON({
+              ok: false,
+              error: "ticker_side_trade_id_qty_required",
+              hint: "Pass trade_id (+ side) to reuse a failed ring row, or a full order payload.",
+              ring_match: src ? { trade_id: src.trade_id, side: src.side, status: src.status, http_status: src.http_status } : null,
+            }, 400, corsHeaders(env, req));
+          }
+          const baseCoid = String(body?.new_client_order_id || src?.client_order_id || body?.client_order_id || `tt-${side}-${tradeId}`).slice(0, 36);
+          const retryCoid = `${baseCoid}-r${Date.now().toString(36)}`.slice(0, 40);
+          const order = {
+            user_id: String(body?.user_id || src?.user_id || env?.ADMIN_EMAIL || "operator").toLowerCase(),
+            trade_id: tradeId,
+            client_order_id: retryCoid,
+            ticker,
+            side,
+            qty,
+            entry: body?.entry != null ? Number(body.entry) : null,
+            sl: body?.sl != null ? Number(body.sl) : null,
+            tp: body?.tp != null ? Number(body.tp) : null,
+            decision_reason: String(body?.decision_reason || "OPERATOR_RETRY_MISSED_MIRROR").slice(0, 120),
+            action_ts: Date.now(),
+            mode: body?.mode || src?.mode || "trader",
+            horizon: body?.horizon || (String(body?.mode || src?.mode || "trader") === "investor" ? "long_term" : "short_term"),
+            vehicle: body?.vehicle || src?.vehicle || "equity_long",
+            reduce_pct: body?.reduce_pct != null ? Number(body.reduce_pct)
+              : (body?.trim_pct != null ? Number(body.trim_pct) : null),
+          };
+          if (!(order.reduce_pct > 0) && (side === "trim" || side === "reduce")) {
+            // Ring client_order_id encodes …-<pct> (e.g. tt-trim-…-50).
+            const m = String(src?.client_order_id || "").match(/-(\d{1,3})$/);
+            if (m) order.reduce_pct = Number(m[1]) / 100;
+          }
+          if (dryRun) {
+            return sendJSON({
+              ok: true,
+              dry_run: true,
+              order,
+              ring_match: src ? {
+                ts: src.ts, status: src.status, http_status: src.http_status,
+                reject_reason: src.reject_reason || null, client_order_id: src.client_order_id,
+              } : null,
+              note: "Pass {\"dry_run\":false} to place this order at the broker (real fill).",
+            }, 200, corsHeaders(env, req));
+          }
+          const result = await forwardOrderToBridge(env, order);
+          return sendJSON({
+            ok: !!result?.ok,
+            dry_run: false,
+            order,
+            bridge: {
+              ok: !!result?.ok,
+              http_status: result?.http_status ?? null,
+              reject_reason: result?.response?.reject_reason || result?.error || null,
+              rh_order_id: result?.response?.rh_order_id || null,
+              latency_ms: result?.latency_ms ?? null,
+              transport: result?.transport || null,
+              response: result?.response || null,
+            },
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
