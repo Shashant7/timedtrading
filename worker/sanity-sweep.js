@@ -321,30 +321,75 @@ const checkPriceOutlier = timed(async function checkPriceOutlier(env, ctx) {
 });
 
 // ── Check 7: bridge_mirror_coverage ─────────────────────────────────────
+// Pure helper exported for unit tests. Warn only when investor_lots show
+// recent model activity without a matching inv-* ring dispatch — a quiet
+// Long Term book (no opens/DCA/trims) must not page ops just because the
+// Short Term ring is busy.
+export function evaluateBridgeMirrorCoverage({
+  mirrorEnabled,
+  ring = [],
+  recentLotCount = 0,
+  oldestRecentLotTs = 0,
+  newestRecentLotTs = 0,
+  nowMs = Date.now(),
+  windowHours = 48,
+} = {}) {
+  const anomalies = [];
+  if (!mirrorEnabled) return anomalies;
+  const investorCalls = (Array.isArray(ring) ? ring : [])
+    .filter((r) => String(r?.trade_id || "").startsWith("inv-"));
+  if (recentLotCount <= 0) return anomalies; // quiet book — ok
+  const windowStart = nowMs - windowHours * 3600000;
+  const lotFloor = Math.max(windowStart, Number(oldestRecentLotTs) || 0) - 5 * 60000;
+  const covered = investorCalls.filter((r) => Number(r?.ts || 0) >= lotFloor);
+  if (covered.length === 0) {
+    anomalies.push({
+      detail: `BROKER_INVESTOR_MIRROR_ENABLED=true but ${recentLotCount} investor lot(s) in last ${windowHours}h with ZERO inv-* bridge dispatches — DCA/auto-rebalance mirror path is silent (check HMAC on tt-research + dca/execute wiring)`,
+      severity: "warn",
+    });
+    return anomalies;
+  }
+  const lastCall = Math.max(...covered.map((r) => Number(r?.ts || 0)));
+  const hoursAgo = (nowMs - lastCall) / 3600000;
+  const newestLotTs = Number(newestRecentLotTs) || 0;
+  // Stale-warn only when a lot printed after the last mirror call.
+  if (hoursAgo > 24 && newestLotTs > lastCall) {
+    anomalies.push({
+      detail: `last investor mirror call ${hoursAgo.toFixed(1)}h ago but investor lots still printing — auto-rebalance/DCA may have stopped writing to the bridge`,
+      severity: "warn",
+    });
+  }
+  return anomalies;
+}
 
 const checkBridgeMirrorCoverage = timed(async function checkBridgeMirrorCoverage(env, ctx) {
   const anomalies = [];
   try {
-    // Investor mirror enabled but no calls in the last 24h = silent failure
     if (String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true") {
       const ringRaw = await env.KV_TIMED.get("bridge:client:recent");
       const ring = ringRaw ? JSON.parse(ringRaw) : [];
-      const investorCalls = ring.filter(r => String(r.trade_id || "").startsWith("inv-"));
-      if (investorCalls.length === 0) {
-        anomalies.push({
-          detail: "BROKER_INVESTOR_MIRROR_ENABLED=true but ZERO investor bridge calls in the last 50 dispatches — investor mirror path is silently not firing",
-          severity: "warn",
-        });
-      } else {
-        const lastCall = investorCalls[0]?.ts || 0;
-        const hoursAgo = (Date.now() - lastCall) / 3600000;
-        if (hoursAgo > 24) {
-          anomalies.push({
-            detail: `last investor mirror call ${hoursAgo.toFixed(1)}h ago (>24h) — auto-rebalance may have stopped writing investor positions`,
-            severity: "warn",
-          });
-        }
+      let recentLotCount = 0;
+      let oldestRecentLotTs = 0;
+      let newestRecentLotTs = 0;
+      const windowHours = 48;
+      const sinceMs = Date.now() - windowHours * 3600000;
+      if (env?.DB) {
+        const row = await env.DB.prepare(
+          `SELECT COUNT(*) AS n, MIN(ts) AS oldest_ts, MAX(ts) AS newest_ts FROM investor_lots
+           WHERE ts >= ?1 AND action IN ('BUY','SELL','DCA_BUY')`
+        ).bind(sinceMs).first().catch(() => null);
+        recentLotCount = Number(row?.n) || 0;
+        oldestRecentLotTs = Number(row?.oldest_ts) || 0;
+        newestRecentLotTs = Number(row?.newest_ts) || 0;
       }
+      anomalies.push(...evaluateBridgeMirrorCoverage({
+        mirrorEnabled: true,
+        ring,
+        recentLotCount,
+        oldestRecentLotTs,
+        newestRecentLotTs,
+        windowHours,
+      }));
     }
   } catch (e) {
     anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
@@ -353,8 +398,8 @@ const checkBridgeMirrorCoverage = timed(async function checkBridgeMirrorCoverage
     "bridge_mirror_coverage",
     "Bridge mirror activity",
     anomalies,
-    "If BROKER_INVESTOR_MIRROR_ENABLED=true but no calls firing, check: queueBackground in scope at the call site, _bridgeForwarder !== null, and the auto-rebalance cron is actually running.",
-    "would have caught: queueBackground ReferenceError silently killed every investor mirror call until SATS trim revealed it (2026-06-02)"
+    "If lots print without inv-* ring entries: ensure BROKER_BRIDGE_HMAC_KEY on tt-research, and that both auto-rebalance AND /timed/investor/dca/execute call forwardInvestorMirror.",
+    "would have caught: queueBackground ReferenceError silently killed every investor mirror call until SATS trim revealed it (2026-06-02); DCA execute never mirrored (2026-07-24)"
   );
 });
 
@@ -761,6 +806,53 @@ const checkWorkerRoleSplit = timed(async function checkWorkerRoleSplit(env, ctx)
 
 // ── Check 14: broker_reconciler_freshness ───────────────────────────────
 
+/** Pure helper — skip overnight stale last_run for the first ~45m of the RTH window. */
+export function evaluateBrokerReconcilerFreshness({
+  lastRunMs = 0,
+  lastTickMs = 0,
+  nowMs = Date.now(),
+  bridgeConfigured = false,
+} = {}) {
+  const anomalies = [];
+  const dt = new Date(nowMs);
+  const hourUtc = dt.getUTCHours();
+  const minuteUtc = dt.getUTCMinutes();
+  const isWeekday = ![0, 6].includes(dt.getUTCDay());
+  const isMarketHours = isWeekday && hourUtc >= 13 && hourUtc <= 22;
+  if (!isMarketHours) return anomalies;
+
+  // Cron alive? Prefer last_tick (written even on off-hours skip).
+  const tickAgeMin = lastTickMs > 0 ? (nowMs - lastTickMs) / 60000 : Infinity;
+  if (lastTickMs > 0 && tickAgeMin > 20) {
+    anomalies.push({
+      detail: `bridge reconciler cron last_tick ${Math.round(tickAgeMin)}min ago (>20min) — scheduled() may be stuck`,
+      severity: tickAgeMin > 60 ? "fail" : "warn",
+    });
+  }
+
+  if (!lastRunMs) {
+    if (bridgeConfigured) {
+      anomalies.push({
+        detail: "bridge:reconciler:last_run KV key missing — reconciler may never have run",
+        severity: "warn",
+      });
+    }
+    return anomalies;
+  }
+
+  const ageMin = (nowMs - lastRunMs) / 60000;
+  // Overnight last_run is expected until the first RTH */5 completes.
+  // Market-hours gate opens at 13:00 UTC; give 45m grace before paging.
+  const inOpenGrace = hourUtc === 13 && minuteUtc < 45;
+  if (!inOpenGrace && ageMin > 30) {
+    anomalies.push({
+      detail: `bridge reconciler last ran ${Math.round(ageMin)}min ago (>30min during market hours)`,
+      severity: ageMin > 60 ? "fail" : "warn",
+    });
+  }
+  return anomalies;
+}
+
 const checkBrokerReconcilerFreshness = timed(async function checkBrokerReconcilerFreshness(env, ctx) {
   const anomalies = [];
   try {
@@ -768,28 +860,12 @@ const checkBrokerReconcilerFreshness = timed(async function checkBrokerReconcile
     // during RTH (gate inside bridge-index.js scheduled handler). It
     // writes a heartbeat KV key when it runs.
     const lastReconRaw = await env.KV_TIMED.get("bridge:reconciler:last_run");
-    if (!lastReconRaw) {
-      // No record yet — check if the bridge is even configured.
-      if (env?.BROKER_BRIDGE_URL) {
-        anomalies.push({
-          detail: "bridge:reconciler:last_run KV key missing — reconciler may never have run",
-          severity: "warn",
-        });
-      }
-    } else {
-      const lastRun = Number(lastReconRaw) || 0;
-      const ageMin = (Date.now() - lastRun) / 60000;
-      const dt = new Date();
-      const hourUtc = dt.getUTCHours();
-      const isWeekday = ![0, 6].includes(dt.getUTCDay());
-      const isMarketHours = isWeekday && hourUtc >= 13 && hourUtc <= 22;
-      if (isMarketHours && ageMin > 30) {
-        anomalies.push({
-          detail: `bridge reconciler last ran ${Math.round(ageMin)}min ago (>30min during market hours)`,
-          severity: ageMin > 60 ? "fail" : "warn",
-        });
-      }
-    }
+    const lastTickRaw = await env.KV_TIMED.get("bridge:reconciler:last_tick");
+    anomalies.push(...evaluateBrokerReconcilerFreshness({
+      lastRunMs: Number(lastReconRaw) || 0,
+      lastTickMs: Number(lastTickRaw) || 0,
+      bridgeConfigured: !!env?.BROKER_BRIDGE_URL,
+    }));
   } catch (e) {
     anomalies.push({ detail: `read failed: ${String(e?.message || e).slice(0, 120)}`, severity: "fail" });
   }

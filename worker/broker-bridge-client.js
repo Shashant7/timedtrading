@@ -99,6 +99,87 @@ export async function recordBridgeMirrorSkip(env, {
   return { ok: false, skip: reason || "skipped" };
 }
 
+/**
+ * Long Term (investor) auto-rebalance / DCA → bridge mirror.
+ * Shared by /timed/investor/auto-rebalance and /timed/investor/dca/execute
+ * so calendar DCA cannot silently skip the broker path.
+ *
+ * op = { kind: "open"|"add"|"trim"|"dca", ticker, shares, price, reason,
+ *        position_id, score, stage }
+ */
+export async function forwardInvestorMirror(env, op = {}) {
+  const ticker = String(op?.ticker || "").toUpperCase();
+  const kind = String(op?.kind || "add");
+  const side = kind === "trim" ? "sell" : "buy";
+  const tradeId = op?.position_id
+    ? `inv-${op.position_id}`
+    : `inv-${ticker || "UNK"}-${kind}`;
+  const qty = Math.max(0, Number(op?.shares) || 0);
+  const investorMirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED ?? "true").toLowerCase() === "true";
+  if (!investorMirrorOn) {
+    return recordBridgeMirrorSkip(env, {
+      ticker, side, qty, trade_id: tradeId,
+      reason: "investor_mirror_disabled",
+      meta: { kind, source: op?.source || null },
+    });
+  }
+  const bridgeReady = !!(env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY);
+  if (!bridgeReady) {
+    return recordBridgeMirrorSkip(env, {
+      ticker, side, qty, trade_id: tradeId,
+      reason: "no_hmac_or_url",
+      meta: { kind, source: op?.source || null },
+    });
+  }
+  if (qty <= 0) {
+    return recordBridgeMirrorSkip(env, {
+      ticker, side, qty, trade_id: tradeId,
+      reason: "qty_zero",
+      meta: { kind, source: op?.source || null },
+    });
+  }
+
+  const modelCapital = Number(op?.model_capital_usd) > 0
+    ? Number(op.model_capital_usd)
+    : 100000;
+  const userEmail = env?.ADMIN_EMAIL || "operator";
+  const clientOrderId = `tt-lt-${kind}-${tradeId}`;
+  try {
+    const result = await forwardOrderToBridge(env, {
+      user_id: userEmail,
+      trade_id: tradeId,
+      client_order_id: clientOrderId,
+      ticker,
+      side,
+      qty,
+      entry: Number(op?.price) || null,
+      sl: null,
+      tp: null,
+      decision_reason: op?.reason || `long_term_${kind}`,
+      action_ts: Date.now(),
+      setup_name: `long_term_${op?.stage || kind}`,
+      rank: Number(op?.score) || null,
+      mode: "investor",
+      horizon: "long_term",
+      vehicle: "equity_long",
+      model_capital_usd: modelCapital,
+    });
+    return {
+      ok: !!result?.ok,
+      result,
+      trade_id: tradeId,
+      side,
+      qty,
+      bridge_reject_reason: result?.response?.reject_reason || null,
+      bridge_scaled_qty: result?.response?.scaling?.scaled_qty ?? null,
+      bridge_scale_reason: result?.response?.scaling?.reason || null,
+    };
+  } catch (e) {
+    console.warn(`[INVESTOR_MIRROR] ${ticker}/${kind} threw: ${String(e?.message || e).slice(0, 200)}`);
+    return { ok: false, error: String(e?.message || e).slice(0, 200), trade_id: tradeId, side, qty };
+  }
+}
+
 // Fire-and-forget dispatch. Caller should wrap in ctx.waitUntil().
 export async function forwardOrderToBridge(env, order) {
   const bridgeUrl = env?.BROKER_BRIDGE_URL;

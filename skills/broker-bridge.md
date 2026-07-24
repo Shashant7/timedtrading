@@ -409,6 +409,7 @@ working OAuth token + one round of live arg-schema verification.
 |---|---|---|
 | `BROKER_BRIDGE_URL` | `worker/wrangler.toml [vars]` and `[env.production.vars]` | Public URL of the bridge worker |
 | `BROKER_BRIDGE_OPERATOR_KEY` | `wrangler secret put` (both envs) | Shared secret; bridge accepts `Authorization: Bearer <this>` |
+| `BROKER_BRIDGE_HMAC_KEY` | `wrangler secret put` on **monolith + tt-engine + tt-research** (same value as bridge `BRIDGE_INTERNAL_HMAC_KEY`) | Signs `POST /bridge/order`. Research owns investor hourly — missing HMAC here silently skips Long Term mirrors. |
 | `IBKR_CONSUMER_KEY` | Bridge worker secret | OAuth 1.0a consumer key from IBKR |
 | `IBKR_DH_PRIME` | Bridge worker secret | **Hex prime ONLY** — NOT the full `openssl dhparam -text` output (see lessons) |
 | `IBKR_DH_GENERATOR` | Bridge worker var | Almost always `2` |
