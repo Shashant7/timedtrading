@@ -520,21 +520,30 @@ function _checkApproachingExpiration(row) {
  * Read OPEN (or never-checked) manifest rows for a user, ordered by
  * sync_last_checked_at ASC NULLS FIRST so we always make progress.
  */
-async function _readOpenRowsForUser(env, userId, limit) {
+async function _readOpenRowsForUser(env, userId, limit, brokerAccountId = null) {
   const db = env?.BRIDGE_DB;
   if (!db) return [];
   await ensureMirrorManifestSchema(env);
   try {
     // Skip expired + rejected + mirror_suppressed rows — those are
     // terminal states the reconciler doesn't transition out of.
+    // 2026-07-24 — ALSO match on broker_account_id: fan-out orders write
+    // manifest rows with the mothership's base user_id (owner email),
+    // while the reconciler iterates per-account users
+    // (owner#webull#roth-ira). Matching user_id alone scanned 0 rows,
+    // making the whole reconcile phase a silent no-op.
     const r = await db.prepare(`
       SELECT * FROM mirror_trade_manifest
-       WHERE user_id = ?1
+       WHERE (user_id = ?1 OR (?3 IS NOT NULL AND broker_account_id = ?3))
          AND model_status IN ('OPEN','CLOSED')
          AND sync_state NOT IN ('expired','rejected','mirror_suppressed')
        ORDER BY COALESCE(sync_last_checked_at, 0) ASC
        LIMIT ?2
-    `).bind(String(userId).toLowerCase(), Math.max(1, Math.min(500, Number(limit) || 100))).all().catch(() => ({ results: [] }));
+    `).bind(
+      String(userId).toLowerCase(),
+      Math.max(1, Math.min(500, Number(limit) || 100)),
+      brokerAccountId ? String(brokerAccountId) : null,
+    ).all().catch(() => ({ results: [] }));
     return r?.results || [];
   } catch (e) {
     console.warn(`[RECONCILER] read rows failed for ${userId}:`,
@@ -576,6 +585,19 @@ async function _persistRowUpdate(env, row, classification) {
     : (row.mirror_suppressed_reason || null);
   const newSuppressedAt = shouldAutoSuppress ? now : (row.mirror_suppressed_at || null);
   const noteShort = String(classification.note || "").slice(0, 200);
+  // 2026-07-24 — broker_remaining_qty = shares the MIRROR holds at the
+  // broker right now (live qty minus any user-added excess the model
+  // doesn't own). The old binding wrote back `expected` — which is
+  // derived from broker_remaining_qty itself — so the column could
+  // never converge to broker truth after trims/manual sells.
+  const heldQty = Number.isFinite(brokerState.qty)
+    ? Math.max(0, brokerState.qty - (Number(brokerState.user_added) || 0))
+    : null;
+  // broker_filled_qty tracks CUMULATIVE entry fills — only correct it
+  // upward (missed/partial fills detected); never shrink it after a
+  // trim reduces the live position below total bought.
+  const filledUpdate = (heldQty !== null && heldQty > (Number(row.broker_filled_qty) || 0))
+    ? heldQty : null;
   try {
     await db.prepare(`
       UPDATE mirror_trade_manifest
@@ -596,10 +618,8 @@ async function _persistRowUpdate(env, row, classification) {
        WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
     `).bind(
       row.user_id, row.trade_id, row.broker_account_id,
-      Number.isFinite(brokerState.qty) ? brokerState.qty : null,
-      Number.isFinite(brokerState.qty) && Number.isFinite(brokerState.expected)
-        ? Math.max(0, brokerState.expected - 0) // remaining = expected (already-filled view), keep last known qty
-        : null,
+      filledUpdate,
+      heldQty,
       Number.isFinite(brokerState.avgCost) ? brokerState.avgCost : null,
       JSON.stringify(brokerState).slice(0, 4000),
       now,
@@ -664,7 +684,10 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
   const userId = String(user?.user_id || "").toLowerCase();
   if (!userId) return { user_id: null, rows_scanned: 0, error: "no_user_id" };
 
-  const rows = await _readOpenRowsForUser(env, userId, opts.limit || MAX_ROWS_PER_USER_PER_CYCLE);
+  const rows = await _readOpenRowsForUser(
+    env, userId, opts.limit || MAX_ROWS_PER_USER_PER_CYCLE,
+    resolveBrokerAccountId(user),
+  );
   if (rows.length === 0) {
     return {
       user_id: userId, rows_scanned: 0, rows_in_sync: 0,
