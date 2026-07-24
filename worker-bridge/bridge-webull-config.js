@@ -12,13 +12,14 @@ export const WEBULL_API_PATHS = {
   orderPreview: "/openapi/trade/order/preview",
   orderPlace: "/openapi/trade/order/place",
   orderCancel: "/openapi/trade/order/cancel",
-  // 2026-07-24 — verified against the Webull OpenAPI Python SDK
-  // (TodayOrdersListRequest: GET /trade/orders/list-today, v1). The personal
-  // OpenAPI host prefixes SDK v1 paths with /openapi (same mapping as
-  // /trade/order/place → /openapi/trade/order/place, which works live).
-  // The old unverified "POST /openapi/trade/orders/list" always errored,
+  // 2026-07-24 — verified against the official US Trading API reference
+  // (developer.webull.com/apis/docs/reference/order-history.md):
+  // GET /openapi/trade/order/history?account_id=...&page_size=...
+  // (default window: last 7 days). Response is an array of combo groups,
+  // each with a nested `orders` array — extractOrders() flattens them.
+  // The old unverified "POST /openapi/trade/orders/list" always 404'd,
   // which fill reconciliation silently reported as scanned=0.
-  ordersList: "/openapi/trade/orders/list-today",
+  ordersList: "/openapi/trade/order/history",
 };
 
 export function webullAuthMode(env) {

@@ -146,6 +146,9 @@ export async function callWebullAction(env, user, action, args = {}) {
   const act = String(action || "get_portfolio").toLowerCase();
   if (act === "get_portfolio" || act === "get_balance") return getPortfolio(env, user);
   if (act === "get_equity_positions" || act === "get_positions") return getEquityPositions(env, user);
+  if (act === "list_orders") {
+    return listOrders(env, user, { limit: args.limit || 50, path: args.path || null });
+  }
   if (act === "preview_order") {
     return reviewOrder(env, user, {
       ticker: args.symbol || args.ticker || "AAPL",

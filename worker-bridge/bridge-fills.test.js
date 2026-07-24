@@ -49,6 +49,15 @@ describe("extractOrders + ocoSiblingClientOrderId", () => {
     expect(extractOrders({ response: [{ a: 1 }] })).toHaveLength(1);
     expect(extractOrders(null)).toEqual([]);
   });
+  it("flattens Webull order-history combo groups (nested orders arrays)", () => {
+    const res = { response: [
+      { combo_type: "NORMAL", orders: [{ client_order_id: "a", status: "FILLED" }] },
+      { combo_type: "OCO", orders: [{ client_order_id: "b-sl" }, { client_order_id: "b-tp" }] },
+    ] };
+    const orders = extractOrders(res);
+    expect(orders).toHaveLength(3);
+    expect(orders.map(o => o.client_order_id)).toEqual(["a", "b-sl", "b-tp"]);
+  });
   it("derives the OCO sibling by convention", () => {
     expect(ocoSiblingClientOrderId("tt-oco-AMZN-1-WB1-sl")).toBe("tt-oco-AMZN-1-WB1-tp");
     expect(ocoSiblingClientOrderId("tt-oco-AMZN-1-WB1-tp")).toBe("tt-oco-AMZN-1-WB1-sl");

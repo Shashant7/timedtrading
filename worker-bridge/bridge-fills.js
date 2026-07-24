@@ -54,14 +54,19 @@ export function normalizeBrokerOrder(broker, raw) {
   };
 }
 
-/** Pull the orders array out of an adapter listOrders() response. */
+/** Pull the orders array out of an adapter listOrders() response.
+ *  Webull's order history returns an array of combo groups, each with a
+ *  nested `orders` array ([{combo_type, orders:[...]}]) — flatten those
+ *  to the individual order rows. */
 export function extractOrders(res) {
   if (!res) return [];
-  if (Array.isArray(res.orders)) return res.orders;
+  const flatten = (arr) => arr.flatMap((x) =>
+    (x && typeof x === "object" && Array.isArray(x.orders)) ? x.orders : [x]);
+  if (Array.isArray(res.orders)) return flatten(res.orders);
   const r = res.response ?? res;
-  if (Array.isArray(r)) return r;
-  if (Array.isArray(r?.orders)) return r.orders;
-  if (Array.isArray(r?.data)) return r.data;
+  if (Array.isArray(r)) return flatten(r);
+  if (Array.isArray(r?.orders)) return flatten(r.orders);
+  if (Array.isArray(r?.data)) return flatten(r.data);
   return [];
 }
 
