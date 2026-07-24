@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-07-23T19:46:45.103291+00:00",
+  "generated_at_utc": "2026-07-24T08:40:56.388814+00:00",
   "window": {
     "start_date": "2025-07-31",
     "end_date": "2025-08-01",
@@ -16,7 +16,7 @@
     "realized_pnl_delta": 0.0
   },
   "global_cio_eval_snapshot": {
-    "generated_at_utc": "2026-07-23T19:46:34.164271+00:00",
+    "generated_at_utc": "2026-07-24T08:40:51.512114+00:00",
     "decision_rows": 0,
     "rows_with_outcome": 0,
     "approve_adjust_rows": 0,
