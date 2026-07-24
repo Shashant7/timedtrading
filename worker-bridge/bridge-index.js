@@ -1291,6 +1291,13 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     limit_price: payload?.limit_price == null ? null : Number(payload.limit_price),
     vehicle: payload?.vehicle || null,
     decision_reason: payload?.decision_reason || null,
+    mode: payload?.mode || null,
+    // 2026-07-24 — MUST forward reduce_pct/trim_pct. reconcileReducerQty
+    // uses these for TRIM % of the broker model portion. Dropping them
+    // made a 50% NVDA trim resolve as explicit model-book qty, then clamp
+    // to full broker_remaining (sold 7.75 instead of ~3.87).
+    reduce_pct: payload?.reduce_pct == null ? null : Number(payload.reduce_pct),
+    trim_pct: payload?.trim_pct == null ? null : Number(payload.trim_pct),
   };
 
   // 0. Idempotency — a stable client_order_id is claimed once per 24h.

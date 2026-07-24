@@ -1,5 +1,30 @@
 import { describe, it, expect } from "vitest";
-import { evaluateReducerAgainstPositions } from "./bridge-guards.js";
+import { evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
+
+describe("reconcileReducerQty — TRIM uses reduce_pct of model portion", () => {
+  it("NVDA 50% trim sells half the broker lot, not the full remaining", () => {
+    // Model sent ~23.6 shares (50% of $100k book); broker holds ~7.75.
+    // Without reduce_pct, explicit qty clamps to full remaining (the bug).
+    const withPct = reconcileReducerQty({
+      side: "trim",
+      requestedQty: 23.608527686364297,
+      reducePct: 0.5,
+      modelRemainingQty: 7.74514,
+      heldQty: 7.74514,
+    });
+    expect(withPct.qty).toBeCloseTo(3.87257, 4);
+    expect(withPct.reasons.some((r) => String(r).startsWith("pct_"))).toBe(true);
+
+    const withoutPct = reconcileReducerQty({
+      side: "trim",
+      requestedQty: 23.608527686364297,
+      reducePct: null,
+      modelRemainingQty: 7.74514,
+      heldQty: 7.74514,
+    });
+    expect(withoutPct.qty).toBeCloseTo(7.74514, 4);
+  });
+});
 
 describe("evaluateReducerAgainstPositions — never sell what you don't hold", () => {
   it("REJECTS a sell when the account holds no position (the Roth scenario)", () => {
