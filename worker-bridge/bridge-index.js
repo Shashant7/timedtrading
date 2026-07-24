@@ -1165,6 +1165,19 @@ export default {
       // expect drift on closed markets). Operator can flip BROKER_
       // RECONCILE_24_7=true if they want continuous sweeps (useful
       // for Investor mode + post-market drift detection).
+      // Always tick the shared heartbeat so sanity-sweep can tell "cron
+      // alive but gated" from "cron dead". last_run stays RTH-only below.
+      const _writeReconcilerTick = async () => {
+        try {
+          const kv = env?.KV_TIMED || env?.BRIDGE_KV;
+          if (kv) {
+            await kv.put("bridge:reconciler:last_tick", String(Date.now()), { expirationTtl: 24 * 3600 });
+          }
+        } catch (hbErr) {
+          console.warn("[RECONCILER_TICK] write failed:", String(hbErr?.message || hbErr).slice(0, 120));
+        }
+      };
+
       if (String(env?.BROKER_RECONCILE_24_7 || "false").toLowerCase() !== "true") {
         const dt = new Date();
         const hourUtc = dt.getUTCHours();
@@ -1172,6 +1185,7 @@ export default {
         const isWeekend = (dow === 0 || dow === 6);
         const isMarketHours = !isWeekend && hourUtc >= 13 && hourUtc <= 22;
         if (!isMarketHours) {
+          await _writeReconcilerTick();
           console.log(`[RECONCILER] skip off-hours (hourUtc=${hourUtc}, dow=${dow})`);
           return;
         }
@@ -1189,7 +1203,9 @@ export default {
       try {
         const kv = env?.KV_TIMED || env?.BRIDGE_KV;
         if (kv) {
-          await kv.put("bridge:reconciler:last_run", String(Date.now()), { expirationTtl: 24 * 3600 });
+          const nowHb = String(Date.now());
+          await kv.put("bridge:reconciler:last_run", nowHb, { expirationTtl: 24 * 3600 });
+          await kv.put("bridge:reconciler:last_tick", nowHb, { expirationTtl: 24 * 3600 });
         }
       } catch (hbErr) {
         console.warn("[RECONCILER_HEARTBEAT] write failed:", String(hbErr?.message || hbErr).slice(0, 120));
