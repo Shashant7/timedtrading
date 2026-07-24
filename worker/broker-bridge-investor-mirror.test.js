@@ -34,8 +34,40 @@ describe("forwardInvestorMirror", () => {
     expect(result.skip).toBe("no_hmac_or_url");
     expect(ringPuts.length).toBeGreaterThan(0);
     const ring = JSON.parse(ringPuts[0].v);
-    expect(ring[0].trade_id).toBe("inv-inv-KO-auto-1");
+    expect(ring[0].trade_id).toBe("inv-KO-auto-1");
     expect(ring[0].skip_reason).toBe("no_hmac_or_url");
+  });
+
+  it("keeps Webull client_order_id within 10–40 chars", async () => {
+    const seen = [];
+    const env = {
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          const body = JSON.parse(await req.text());
+          seen.push(body.client_order_id);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+      KV_TIMED: {
+        get: async () => "[]",
+        put: async () => {},
+      },
+    };
+    const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+    await forwardInvestorMirror(env, {
+      kind: "dca",
+      ticker: "PANW",
+      shares: 6.14,
+      price: 325.61,
+      position_id: "inv-PANW-auto-1784300543401",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].length).toBeGreaterThanOrEqual(10);
+    expect(seen[0].length).toBeLessThanOrEqual(40);
   });
 
   it("records skip when investor mirror is disabled", async () => {

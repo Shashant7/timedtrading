@@ -107,12 +107,29 @@ export async function recordBridgeMirrorSkip(env, {
  * op = { kind: "open"|"add"|"trim"|"dca", ticker, shares, price, reason,
  *        position_id, score, stage }
  */
+async function shortClientOrderId(kind, tradeId) {
+  // Webull: client_order_id length must be 10–40. Position ids like
+  // inv-PANW-auto-<ms> made `tt-lt-dca-inv-inv-…` overflow (44+).
+  const raw = String(tradeId || "");
+  let hex = "";
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (_) {
+    hex = String(Date.now());
+  }
+  const k = String(kind || "x").replace(/[^a-z0-9]/gi, "").slice(0, 4) || "x";
+  return `ttlt${k}${hex.slice(0, 20)}`.slice(0, 40);
+}
+
 export async function forwardInvestorMirror(env, op = {}) {
   const ticker = String(op?.ticker || "").toUpperCase();
   const kind = String(op?.kind || "add");
   const side = kind === "trim" ? "sell" : "buy";
-  const tradeId = op?.position_id
-    ? `inv-${op.position_id}`
+  // position_id is already `inv-…` from D1 — don't double-prefix.
+  const posId = op?.position_id != null ? String(op.position_id) : "";
+  const tradeId = posId
+    ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
     : `inv-${ticker || "UNK"}-${kind}`;
   const qty = Math.max(0, Number(op?.shares) || 0);
   const investorMirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED ?? "true").toLowerCase() === "true";
@@ -143,7 +160,7 @@ export async function forwardInvestorMirror(env, op = {}) {
     ? Number(op.model_capital_usd)
     : 100000;
   const userEmail = env?.ADMIN_EMAIL || "operator";
-  const clientOrderId = `tt-lt-${kind}-${tradeId}`;
+  const clientOrderId = await shortClientOrderId(kind, tradeId);
   try {
     const result = await forwardOrderToBridge(env, {
       user_id: userEmail,
@@ -252,7 +269,7 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.status = ok ? "ok" : "error";
     ringEntry.http_status = r.status;
     ringEntry.rh_order_id = parsed?.rh_order_id || null;
-    ringEntry.reject_reason = parsed?.reject_reason || null;
+    ringEntry.reject_reason = parsed?.reject_reason || parsed?.error || parsed?.message || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);
     if (!ok) {
