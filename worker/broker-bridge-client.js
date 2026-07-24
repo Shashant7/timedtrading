@@ -99,6 +99,104 @@ export async function recordBridgeMirrorSkip(env, {
   return { ok: false, skip: reason || "skipped" };
 }
 
+/**
+ * Long Term (investor) auto-rebalance / DCA → bridge mirror.
+ * Shared by /timed/investor/auto-rebalance and /timed/investor/dca/execute
+ * so calendar DCA cannot silently skip the broker path.
+ *
+ * op = { kind: "open"|"add"|"trim"|"dca", ticker, shares, price, reason,
+ *        position_id, score, stage }
+ */
+async function shortClientOrderId(kind, tradeId) {
+  // Webull: client_order_id length must be 10–40. Position ids like
+  // inv-PANW-auto-<ms> made `tt-lt-dca-inv-inv-…` overflow (44+).
+  const raw = String(tradeId || "");
+  let hex = "";
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (_) {
+    hex = String(Date.now());
+  }
+  const k = String(kind || "x").replace(/[^a-z0-9]/gi, "").slice(0, 4) || "x";
+  return `ttlt${k}${hex.slice(0, 20)}`.slice(0, 40);
+}
+
+export async function forwardInvestorMirror(env, op = {}) {
+  const ticker = String(op?.ticker || "").toUpperCase();
+  const kind = String(op?.kind || "add");
+  const side = kind === "trim" ? "sell" : "buy";
+  // position_id is already `inv-…` from D1 — don't double-prefix.
+  const posId = op?.position_id != null ? String(op.position_id) : "";
+  const tradeId = posId
+    ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
+    : `inv-${ticker || "UNK"}-${kind}`;
+  const qty = Math.max(0, Number(op?.shares) || 0);
+  const investorMirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED ?? "true").toLowerCase() === "true";
+  if (!investorMirrorOn) {
+    return recordBridgeMirrorSkip(env, {
+      ticker, side, qty, trade_id: tradeId,
+      reason: "investor_mirror_disabled",
+      meta: { kind, source: op?.source || null },
+    });
+  }
+  const bridgeReady = !!(env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY);
+  if (!bridgeReady) {
+    return recordBridgeMirrorSkip(env, {
+      ticker, side, qty, trade_id: tradeId,
+      reason: "no_hmac_or_url",
+      meta: { kind, source: op?.source || null },
+    });
+  }
+  if (qty <= 0) {
+    return recordBridgeMirrorSkip(env, {
+      ticker, side, qty, trade_id: tradeId,
+      reason: "qty_zero",
+      meta: { kind, source: op?.source || null },
+    });
+  }
+
+  const modelCapital = Number(op?.model_capital_usd) > 0
+    ? Number(op.model_capital_usd)
+    : 100000;
+  const userEmail = env?.ADMIN_EMAIL || "operator";
+  const clientOrderId = await shortClientOrderId(kind, tradeId);
+  try {
+    const result = await forwardOrderToBridge(env, {
+      user_id: userEmail,
+      trade_id: tradeId,
+      client_order_id: clientOrderId,
+      ticker,
+      side,
+      qty,
+      entry: Number(op?.price) || null,
+      sl: null,
+      tp: null,
+      decision_reason: op?.reason || `long_term_${kind}`,
+      action_ts: Date.now(),
+      setup_name: `long_term_${op?.stage || kind}`,
+      rank: Number(op?.score) || null,
+      mode: "investor",
+      horizon: "long_term",
+      vehicle: "equity_long",
+      model_capital_usd: modelCapital,
+    });
+    return {
+      ok: !!result?.ok,
+      result,
+      trade_id: tradeId,
+      side,
+      qty,
+      bridge_reject_reason: result?.response?.reject_reason || null,
+      bridge_scaled_qty: result?.response?.scaling?.scaled_qty ?? null,
+      bridge_scale_reason: result?.response?.scaling?.reason || null,
+    };
+  } catch (e) {
+    console.warn(`[INVESTOR_MIRROR] ${ticker}/${kind} threw: ${String(e?.message || e).slice(0, 200)}`);
+    return { ok: false, error: String(e?.message || e).slice(0, 200), trade_id: tradeId, side, qty };
+  }
+}
+
 // Fire-and-forget dispatch. Caller should wrap in ctx.waitUntil().
 export async function forwardOrderToBridge(env, order) {
   const bridgeUrl = env?.BROKER_BRIDGE_URL;
@@ -171,7 +269,7 @@ export async function forwardOrderToBridge(env, order) {
     ringEntry.status = ok ? "ok" : "error";
     ringEntry.http_status = r.status;
     ringEntry.rh_order_id = parsed?.rh_order_id || null;
-    ringEntry.reject_reason = parsed?.reject_reason || null;
+    ringEntry.reject_reason = parsed?.reject_reason || parsed?.error || parsed?.message || null;
     ringEntry.latency_ms = Date.now() - t0;
     await pushRing(env, ringEntry);
     if (!ok) {

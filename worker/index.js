@@ -2201,6 +2201,9 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/options-prefs",    "POST /timed/admin/broker-bridge/options-prefs"],
   ["GET",  "/timed/admin/broker-bridge/manifest",         "GET /timed/admin/broker-bridge/manifest"],
   ["POST", "/timed/admin/broker-bridge/reconcile",        "POST /timed/admin/broker-bridge/reconcile"],
+  // 2026-07-24 — Catch up Long Term lots that wrote D1 but never hit the
+  // bridge (DCA execute had no mirror path; research missing HMAC).
+  ["POST", "/timed/admin/broker-bridge/catchup-investor", "POST /timed/admin/broker-bridge/catchup-investor"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
   ["POST", "/timed/admin/broker-bridge/notify/drain",     "POST /timed/admin/broker-bridge/notify/drain"],
   ["POST", "/timed/admin/broker-bridge/daily-digest",     "POST /timed/admin/broker-bridge/daily-digest"],
@@ -80866,6 +80869,87 @@ export default {
             headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } });
       }
 
+      // 2026-07-24 — Replay unmirrored investor lots (BUY/DCA_BUY/SELL) to the
+      // bridge. Default dry_run=true. Dedupes by position_id + action day.
+      if (routeKey === "POST /timed/admin/broker-bridge/catchup-investor") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const dryRun = body?.dry_run !== false; // default true
+          const hours = Math.min(168, Math.max(1, Number(body?.hours) || 72));
+          const sinceMs = Date.now() - hours * 3600000;
+          const { results: lots } = await env.DB.prepare(
+            `SELECT id, position_id, ticker, action, shares, price, ts, reason
+             FROM investor_lots
+             WHERE ts >= ?1 AND action IN ('BUY','SELL','DCA_BUY')
+             ORDER BY ts ASC`
+          ).bind(sinceMs).all().catch(() => ({ results: [] }));
+          const { readClientRing, forwardInvestorMirror } = await import("./broker-bridge-client.js");
+          const ring = await readClientRing(env);
+          // Only skip lots that already placed successfully on the bridge.
+          // Prior catch-up errors (e.g. oversized client_order_id) must retry.
+          const mirroredOkIds = new Set(
+            (ring || [])
+              .filter((r) => String(r?.trade_id || "").startsWith("inv-") && r?.status === "ok")
+              .map((r) => String(r.trade_id)),
+          );
+          const seen = new Set();
+          const planned = [];
+          for (const lot of (lots || [])) {
+            const day = new Date(Number(lot.ts) || 0).toISOString().slice(0, 10);
+            const dedupeKey = `${lot.position_id || lot.ticker}|${lot.action}|${day}`;
+            if (seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
+            const posId = lot.position_id ? String(lot.position_id) : "";
+            const tradeId = posId
+              ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
+              : `inv-${lot.ticker}-${lot.action}`;
+            // Legacy double-prefix trade_ids from the first catch-up attempt.
+            if (mirroredOkIds.has(tradeId) || mirroredOkIds.has(`inv-${tradeId}`)) continue;
+            const kind = lot.action === "SELL" ? "trim"
+              : lot.action === "DCA_BUY" ? "dca" : "add";
+            planned.push({
+              ticker: lot.ticker,
+              kind,
+              shares: Number(lot.shares) || 0,
+              price: Number(lot.price) || null,
+              position_id: lot.position_id,
+              reason: `catchup_${lot.reason || lot.action}`,
+              trade_id: tradeId,
+              lot_id: lot.id,
+              lot_ts: lot.ts,
+            });
+          }
+          const results = [];
+          if (!dryRun) {
+            for (const op of planned) {
+              const r = await forwardInvestorMirror(env, { ...op, source: "catchup_investor" });
+              results.push({
+                ticker: op.ticker, kind: op.kind, trade_id: op.trade_id,
+                ok: !!r?.ok, skip: r?.skip || null,
+                reject: r?.bridge_reject_reason || r?.error || null,
+                scaled_qty: r?.bridge_scaled_qty ?? null,
+              });
+            }
+          }
+          return sendJSON({
+            ok: true,
+            dry_run: dryRun,
+            hours,
+            candidate_lots: (lots || []).length,
+            planned: planned.length,
+            planned_ops: planned,
+            results,
+            note: dryRun
+              ? "Pass {\"dry_run\":false} to forward these ops to the bridge (places real broker orders, relational-scaled)."
+              : "Forwarded planned ops; inspect bridge:client:recent + broker fills.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // 2026-06-01 — Phase E: operator action on a manifest row.
       // Body { user_id, trade_id, broker_account_id?, action,
       //        reason? }. Valid actions: suppress | unsuppress |
@@ -92490,6 +92574,32 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 },
               }).catch((e) => console.warn("[DECISION_RECORDS] dca failed:", String(e?.message || e).slice(0, 120)));
 
+              // 2026-07-24 — DCA lived on a separate route from auto-rebalance
+              // and never called the bridge. Model book grew (lot + ledger)
+              // while Webull/IBKR stayed flat → bridge_mirror_coverage warn +
+              // investor cash drift vs broker. Mirror every executed DCA.
+              try {
+                const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+                const _dcaMirrorP = forwardInvestorMirror(env, {
+                  kind: "dca",
+                  ticker: pos.ticker,
+                  shares,
+                  price,
+                  position_id: pos.id,
+                  reason: `investor_${lotReason}`,
+                  stage: scoreRow?.stage || "accumulate",
+                  score: tickerScore,
+                  source: "dca_execute",
+                });
+                if (typeof ctx !== "undefined" && ctx && typeof ctx.waitUntil === "function") {
+                  ctx.waitUntil(_dcaMirrorP.catch(() => {}));
+                } else {
+                  await _dcaMirrorP.catch(() => {});
+                }
+              } catch (mirrorErr) {
+                console.warn(`[INVESTOR_MIRROR] dca ${pos.ticker} setup failed:`, String(mirrorErr?.message || mirrorErr).slice(0, 160));
+              }
+
               executed.push({
                 ticker: pos.ticker, shares: Math.round(shares * 10000) / 10000,
                 price, value: Math.round(value * 100) / 100,
@@ -92762,66 +92872,28 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // 2026-07-23 — BROKER_INVESTOR_MIRROR_ENABLED defaults ON via
           // wrangler.toml (monolith + research). Set to "false" to pause
           // Long Term mirroring without touching Short Term (trader) forwards.
-          const _investorMirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED ?? "true").toLowerCase() === "true";
-          const _bridgeReady = !!(env?.BROKER_BRIDGE_URL && env?.BROKER_BRIDGE_HMAC_KEY);
-          const _bridgeForwarder = (_investorMirrorOn && _bridgeReady)
-            ? (await import("./broker-bridge-client.js")).forwardOrderToBridge
-            : null;
-          if (!_investorMirrorOn) {
-            console.log("[INVESTOR_MIRROR] disabled (BROKER_INVESTOR_MIRROR_ENABLED=false)");
-          } else if (!_bridgeReady) {
-            console.warn("[INVESTOR_MIRROR] enabled but BROKER_BRIDGE_URL/HMAC missing — forwards skipped");
-          }
+          // 2026-07-24 — Shared forwardInvestorMirror() (also used by DCA
+          // execute) so missing HMAC records a skip in the client ring
+          // instead of a silent no-op.
+          const { forwardInvestorMirror: _forwardInvestorMirror } = await import("./broker-bridge-client.js");
           const _MODEL_NOTIONAL_USD = INVESTOR_CAPITAL; // $100k by current config
           const _bridgeMirrorInvestor = async (op) => {
             // op = { kind: "open"|"add"|"trim", ticker, shares, price, reason, position_id, score, stage }
-            if (!_bridgeForwarder) return null;
-            try {
-              // Per-user scale ratio. If we can't read live equity, fall
-              // back to mirroring 1:1 — the bridge's scale-to-fit will
-              // catch anything that doesn't actually support the size.
-              const userEmail = env?.ADMIN_EMAIL || "operator";
-              const ratio = 1; // Bridge owns the user_equity → scale math
-              // Stable ids so Short Term + Long Term can both mirror the same
-              // ticker without colliding (bridge PK = user/trade_id/account).
-              const tradeId = op.position_id
-                ? `inv-${op.position_id}`
-                : `inv-${String(op.ticker || "").toUpperCase()}-${op.kind}`;
-              const side = op.kind === "trim" ? "sell" : "buy";
-              const qty = Math.max(0, Number(op.shares) || 0) * ratio;
-              if (qty <= 0) return null;
-              const _ltClientId = `tt-lt-${op.kind}-${tradeId}`;
-              const result = await _bridgeForwarder(env, {
-                user_id: userEmail,
-                trade_id: tradeId,
-                client_order_id: _ltClientId,
-                ticker: op.ticker,
-                side,
-                qty,
-                entry: Number(op.price) || null,
-                sl: null, // Long Term entries don't carry a hard SL — thesis-driven
-                tp: null,
-                decision_reason: op.reason || `long_term_${op.kind}`,
-                action_ts: Date.now(),
-                setup_name: `long_term_${op.stage || "?"}`,
-                rank: Number(op.score) || null,
-                mode: "investor",
-                horizon: "long_term",
-                vehicle: "equity_long",
-                model_capital_usd: _MODEL_NOTIONAL_USD,
-              });
+            const result = await _forwardInvestorMirror(env, {
+              ...op,
+              model_capital_usd: _MODEL_NOTIONAL_USD,
+              source: "auto_rebalance",
+            });
+            if (result && result.qty > 0) {
               bridgeMirrored.push({
-                ticker: op.ticker, kind: op.kind, side, model_qty: op.shares,
+                ticker: op.ticker, kind: op.kind, side: result.side, model_qty: op.shares,
                 bridge_ok: !!result?.ok,
-                bridge_reject_reason: result?.response?.reject_reason || null,
-                bridge_scaled_qty: result?.response?.scaling?.scaled_qty ?? null,
-                bridge_scale_reason: result?.response?.scaling?.reason || null,
+                bridge_reject_reason: result?.bridge_reject_reason || null,
+                bridge_scaled_qty: result?.bridge_scaled_qty ?? null,
+                bridge_scale_reason: result?.bridge_scale_reason || null,
               });
-              return result;
-            } catch (e) {
-              console.warn(`[INVESTOR_MIRROR] ${op?.ticker}/${op?.kind} threw: ${String(e?.message || e).slice(0, 200)}`);
-              return null;
             }
+            return result;
           };
 
           // Phase 3.9k — skip new-position + add-to-existing paths if caller asked
