@@ -37,9 +37,14 @@ export function normalizeOrderIntent(payload = {}) {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : null;
   };
+  // Map model lifecycle verbs onto broker executable sides. Webull/IBKR
+  // adapters accept sell; leaving side="trim" confused downstream plans.
+  const execSide = (side === "exit" || side === "trim" || side === "reduce" || side === "close")
+    ? "sell"
+    : (side || "buy");
   return {
     lifecycle: classifyIntent(side),
-    side: side === "exit" ? "sell" : (side || "buy"),
+    side: execSide,
     is_short: side === "short",
     vehicle,
     symbol: String(payload.ticker || payload.symbol || "").toUpperCase(),

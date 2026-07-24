@@ -6,6 +6,21 @@
 
 ---
 
+## Webull TRIM blocked by pending manifest + reject JSON 500 [2026-07-24]
+
+Model NVDA 50% trim fired; Webull showed no sell. Ring had `side=trim`
+`http=500`, no `bridge_audit` row. Root causes: (1) Webull place returned
+`order_id` without `filled_qty` → manifest `sync_state=pending` /
+`broker_filled_qty=0`; with `BROKER_MANIFEST_ENFORCE=on` reducers were
+hard-blocked. (2) Reject path spread full preflight payload into
+`JSON.stringify` and could bare-500 before a useful audit. (3) Buy-side
+cash/cap scale-to-fit must never run on TRIM/EXIT.
+
+Fix: on successful entry place, fall back filled qty to requested qty;
+allow reduce/close when pending-but-placed; skip cash/cap scaling for
+reducers; return a lean reject JSON. Live-position guard still clamps.
+Do not auto-replay a missed trim unless the operator asks.
+
 ## Investor ledger repair must match DCA_BUY lots [2026-07-23]
 
 Sanity `portfolio_reconcile` failed −18.9% (cash −$16.5k). Root cause: live

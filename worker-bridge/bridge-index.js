@@ -1318,7 +1318,27 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   }
 
   // 1. Preflight
-  const pf = await preflightOrder(env, sanitized);
+  let pf;
+  try {
+    pf = await preflightOrder(env, sanitized);
+  } catch (e) {
+    const detail = String(e?.message || e).slice(0, 200);
+    console.error("[BRIDGE] preflight threw:", detail);
+    await writeAudit(env, {
+      ts: Date.now(),
+      user_id: sanitized.user_id,
+      trade_id: sanitized.trade_id,
+      ticker: sanitized.ticker,
+      action: "reject",
+      side: sanitized.side,
+      qty: sanitized.qty,
+      status: "error",
+      reject_reason: `preflight_threw:${detail}`,
+      request_json: sanitized,
+      latency_ms: Date.now() - t0,
+    });
+    return json({ ok: false, rejected: true, reject_reason: `preflight_threw:${detail}` }, 200);
+  }
   if (!pf.ok) {
     await writeAudit(env, {
       ts: Date.now(),
@@ -1349,7 +1369,17 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       const userForReject = await readUser(env, sanitized.user_id);
       await writeRejectedEntry(env, sanitized, userForReject, pf.reject_reason);
     }
-    return json({ ok: false, rejected: true, reject_reason: pf.reject_reason, ...pf }, 200);
+    // Never spread pf into the response — ok:true carries the full user
+    // row (wrapped secrets) which can break JSON.stringify → bare HTTP 500
+    // with no audit (looked like "trim never hit Webull").
+    return json({
+      ok: false,
+      rejected: true,
+      reject_reason: pf.reject_reason || "preflight_rejected",
+      estimated_value: pf.estimated_value ?? null,
+      manifest_sync_state: pf.manifest_sync_state ?? null,
+      lifecycle: pf.lifecycle ?? null,
+    }, 200);
   }
 
   const user = pf.user;
@@ -1724,8 +1754,15 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     // 2026-06-01 — Phase A: stamp the manifest with the entry-tracker
     // row + order ID on a successful ENTRY/ADD.
     if (lifecycle === "open" && sanitized.trade_id) {
+      // 2026-07-24 — Webull market place often returns order_id without
+      // filled_qty/cumulative_quantity. Falling back to 0 left the manifest
+      // stuck in sync_state=pending, which BROKER_MANIFEST_ENFORCE=on then
+      // used to hard-block every TRIM/EXIT (NVDA 50% trim never reached
+      // Webull). When place.ok, treat requested qty as filled until the
+      // reconciler confirms live broker qty.
       const filledQty = Number(place?.response?.filled_qty
         ?? place?.response?.cumulative_quantity
+        ?? sanitized.qty
         ?? 0);
       const mfRes = await writeEntryManifest(env, sanitized, user, {
         broker_order_id: rhOrderId,
