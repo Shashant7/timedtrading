@@ -29,6 +29,7 @@ import {
   claimOrderIdempotency, resolveBridgeAccounts,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
+import { roundQtyForBroker } from "./bridge-sizing.js";
 import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow,
@@ -53,7 +54,7 @@ import {
 } from "./bridge-webull-auth.js";
 import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
 import { refreshRhTokensIfNeeded } from "./bridge-robinhood-auth.js";
-import { listBrokers, resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
+import { listBrokers, resolveBrokerAccountId, resolveBrokerId, brokerCapabilities } from "./bridge-brokers.js";
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
 import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
 import { classifyWebullFractError, roundToWholeShares } from "./bridge-webull-fract.js";
@@ -1291,6 +1292,13 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     limit_price: payload?.limit_price == null ? null : Number(payload.limit_price),
     vehicle: payload?.vehicle || null,
     decision_reason: payload?.decision_reason || null,
+    mode: payload?.mode || null,
+    // 2026-07-24 — MUST forward reduce_pct/trim_pct. reconcileReducerQty
+    // uses these for TRIM % of the broker model portion. Dropping them
+    // made a 50% NVDA trim resolve as explicit model-book qty, then clamp
+    // to full broker_remaining (sold 7.75 instead of ~3.87).
+    reduce_pct: payload?.reduce_pct == null ? null : Number(payload.reduce_pct),
+    trim_pct: payload?.trim_pct == null ? null : Number(payload.trim_pct),
   };
 
   // 0. Idempotency — a stable client_order_id is claimed once per 24h.
@@ -1589,8 +1597,22 @@ async function handleSingleAccountOrder(env, ctx, payload) {
         held_qty: heldQty, model_remaining: modelRemaining, requested_qty: sanitized.qty,
       }, 200);
     }
-    sanitized.qty = recon.qty;
-    sanitized._reducer = { isFull: recon.isFull, heldQty, modelRemaining };
+    // Webull fractional qty max 5 decimal places — 1.199385 (6dp) from a
+    // 50% of 2.39877 TT trim returned OAUTH_OPENAPI_INVALID_PARAMETER.
+    const fractionalCap = !!brokerCapabilities(brokerId, "adapter")?.fractional;
+    const roundedQty = roundQtyForBroker(recon.qty, {
+      fractional: fractionalCap || brokerId === "webull",
+      precision: 5,
+    });
+    if (!(roundedQty > 0)) {
+      return json({
+        ok: false, rejected: true, reject_reason: "reducer_qty_rounded_to_zero",
+        held_qty: heldQty, model_remaining: modelRemaining, requested_qty: sanitized.qty,
+        resolved_qty: recon.qty,
+      }, 200);
+    }
+    sanitized.qty = roundedQty;
+    sanitized._reducer = { isFull: recon.isFull, heldQty, modelRemaining, pre_round_qty: recon.qty };
 
     // (e) Cancel pending OCO children — they reserve the shares, so a trim /
     // flatten would otherwise be rejected by the broker ("qty locked up").

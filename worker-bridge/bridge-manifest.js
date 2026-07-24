@@ -227,7 +227,10 @@ export async function writeEntryManifest(env, payload, user, extras = {}) {
       mode, instrument_type, options_structure,
       ticker, direction, setupName,
       modelIntendedQty, modelLegs ? JSON.stringify(modelLegs) : null, modelEntryTs, "OPEN",
-      filledQty, modelIntendedQty - filledQty,
+      // broker_remaining_qty = shares now HELD at the broker (what the
+      // reconciler/reducer guard clamp against), NOT the unfilled
+      // remainder of this order. A fully-filled entry holds filledQty.
+      filledQty, filledQty,
       orderTrackerJson,
       filledQty > 0 ? "in_sync" : "pending", now,
       now, now,
@@ -241,7 +244,7 @@ export async function writeEntryManifest(env, payload, user, extras = {}) {
     // this fresh tranche / order ID. Use a merge-then-write because
     // D1 SQLite lacks json_each-style append.
     const existing = await db.prepare(`
-      SELECT broker_entry_order_ids, broker_filled_qty, model_intended_qty
+      SELECT broker_entry_order_ids, broker_filled_qty, broker_remaining_qty, model_intended_qty
         FROM mirror_trade_manifest
        WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3
     `).bind(userId, tradeId, brokerAccountId).first();
@@ -259,11 +262,15 @@ export async function writeEntryManifest(env, payload, user, extras = {}) {
     }
     const newBrokerFilled = Number(existing?.broker_filled_qty || 0) + filledQty;
     const newModelIntended = Math.max(Number(existing?.model_intended_qty || 0), modelIntendedQty);
+    // broker_remaining_qty tracks shares HELD at the broker. An entry/ADD
+    // fill increases the held position; trims are decremented by the
+    // reconciler from live positions (Phase C), not here.
+    const newRemaining = Math.max(0, Number(existing?.broker_remaining_qty || 0)) + filledQty;
     await db.prepare(`
       UPDATE mirror_trade_manifest
          SET model_intended_qty = ?4,
              broker_filled_qty  = ?5,
-             broker_remaining_qty = ?4 - ?5,
+             broker_remaining_qty = ?8,
              broker_entry_order_ids = ?6,
              sync_state = CASE WHEN ?5 >= ?4 THEN 'in_sync' ELSE sync_state END,
              updated_at = ?7
@@ -273,6 +280,7 @@ export async function writeEntryManifest(env, payload, user, extras = {}) {
       newModelIntended, newBrokerFilled,
       mergedTracker.length > 0 ? JSON.stringify(mergedTracker) : null,
       now,
+      newRemaining,
     ).run();
     return { ok: true, action: "updated" };
   } catch (e) {

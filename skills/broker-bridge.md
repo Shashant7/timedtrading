@@ -139,6 +139,9 @@ A reducer (SELL/EXIT/TRIM) runs a full pipeline before it can place:
    less than model tracked = user trimmed more; or more = user added) are
    **always logged** (`reducer_reconcile` audit) and **notified** on mismatch
    (`reducer_discrepancy` audit + drift notification).
+   **`reduce_pct` / `trim_pct` must be copied into `sanitized` in
+   `handleSingleAccountOrder`** — dropping them makes a 50% trim resolve as
+   explicit model-book qty and clamp to full `broker_remaining` (NVDA Jul 24).
 4. **OCO cancel before place** — pending SL/TP children reserve the shares, so a
    trim/flatten would be rejected ("qty locked up"). `cancelOcoChildren` cancels
    the active children (found via the per-account ledger, so generation-stamped

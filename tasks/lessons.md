@@ -6,6 +6,27 @@
 
 ---
 
+## Sanity bridge_bridge_bindings must ignore superseded ring fails [2026-07-24]
+
+12:00 `#system-alerts` failed on 9/20 ring errors after NVDA/TT were already
+retried successfully — the 6h window still held the old 500/200 rows.
+Also counted investor `inv-inv-*` client_order_id rejects whose later
+`inv-*` place ok'd. Count only unresolved failures (no later ok for
+trade_id+side; map `inv-inv-*` → `inv-*`). ETN/HALO/RTX/XLRE "missed
+trims" were really never-entered (fract agreement); catch up remaining
+model size with a buy, don't retry trim on a flat account.
+
+## Bridge sanitize must keep reduce_pct on TRIM [2026-07-24]
+
+Operator retry of NVDA 50% trim placed successfully but sold the **full**
+Webull lot (7.745) instead of ~3.87. `reconcileReducerQty` reads
+`sanitized.reduce_pct`, but `handleSingleAccountOrder` never copied
+`reduce_pct`/`trim_pct` into `sanitized` — so pct was null, the model-book
+trim qty (23.6) was treated as explicit, then capped to
+`broker_remaining`. Fix: forward those fields in sanitize. Add a unit
+test that 50% of model portion ≠ full remaining. Do not auto-rebuy the
+oversold half unless the operator asks.
+
 ## Webull TRIM blocked by pending manifest + reject JSON 500 [2026-07-24]
 
 Model NVDA 50% trim fired; Webull showed no sell. Ring had `side=trim`
