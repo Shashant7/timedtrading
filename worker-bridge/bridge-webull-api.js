@@ -359,14 +359,15 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
   });
 }
 
-/** List recent orders for an account — used for fill reconciliation. */
+/** List today's orders for an account — used for fill reconciliation.
+ *  GET /openapi/trade/orders/list-today with query params (max page_size 100). */
 export async function webullListOrders(env, user, accessToken, { limit = 50 } = {}) {
   return signedFetch(env, {
     path: WEBULL_API_PATHS.ordersList,
-    method: "POST",
-    body: {
+    method: "GET",
+    query: {
       account_id: user.webull_account_id,
-      page_size: Number(limit) || 50,
+      page_size: String(Math.min(100, Number(limit) || 50)),
     },
     accessToken,
   });

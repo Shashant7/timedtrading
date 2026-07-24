@@ -12,10 +12,13 @@ export const WEBULL_API_PATHS = {
   orderPreview: "/openapi/trade/order/preview",
   orderPlace: "/openapi/trade/order/place",
   orderCancel: "/openapi/trade/order/cancel",
-  // 2026-07-20 — order-status read for fill reconciliation. VERIFY exact path
-  // against Webull OpenAPI docs before live (endpoint naming varies by API
-  // version); mock mode exercises the full flow independent of the path.
-  ordersList: "/openapi/trade/orders/list",
+  // 2026-07-24 — verified against the Webull OpenAPI Python SDK
+  // (TodayOrdersListRequest: GET /trade/orders/list-today, v1). The personal
+  // OpenAPI host prefixes SDK v1 paths with /openapi (same mapping as
+  // /trade/order/place → /openapi/trade/order/place, which works live).
+  // The old unverified "POST /openapi/trade/orders/list" always errored,
+  // which fill reconciliation silently reported as scanned=0.
+  ordersList: "/openapi/trade/orders/list-today",
 };
 
 export function webullAuthMode(env) {

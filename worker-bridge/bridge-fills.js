@@ -93,6 +93,14 @@ export async function reconcileAccountFills(env, user, adapter, opts = {}) {
   } catch (e) {
     return { ...stats, error: String(e?.message || e).slice(0, 160) };
   }
+  // 2026-07-24 — surface a failed list call instead of treating it as
+  // "no orders" (a broken endpoint looked identical to a quiet day).
+  if (listRes && listRes.ok === false) {
+    return {
+      ...stats,
+      error: String(listRes.error || `list_orders_http_${listRes.http_status || "unknown"}`).slice(0, 160),
+    };
+  }
   const orders = extractOrders(listRes);
   stats.scanned = orders.length;
 
