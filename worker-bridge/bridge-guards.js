@@ -7,7 +7,7 @@
 
 import { getKillSwitch, readUser, writeUser, resolveBridgeUser } from "./bridge-storage.js";
 import { readManifestRow, classifyOrderLifecycle } from "./bridge-manifest.js";
-import { brokerCapabilities, resolveBrokerId } from "./bridge-brokers.js";
+import { brokerCapabilities, resolveBrokerId, resolveBrokerAccountId } from "./bridge-brokers.js";
 import { computeRelationalQty } from "./bridge-sizing.js";
 
 // 2026-06-01 — Naked-short sides are HARD-rejected regardless of any
@@ -287,7 +287,14 @@ export async function manifestAwareReducerCheck(env, payload, user) {
   if (lifecycle === "reduce") {
     const PROCEED = new Set(["in_sync", "partial_fill", "broker_orphan"]);
     const REJECT = new Set(["pending", "rejected", "mothership_orphan", "expired", "untracked", "mirror_suppressed", "reconcile_error"]);
-    if (PROCEED.has(state)) {
+    // 2026-07-24 — pending + known remaining qty means the ENTRY place
+    // succeeded but fill qty wasn't echoed (Webull). Allow the reducer;
+    // live-position guard still clamps to what the account actually holds.
+    const pendingButPlaced = state === "pending"
+      && ((Number(row.broker_remaining_qty) || 0) > 0
+        || (Number(row.model_intended_qty) || 0) > 0
+        || !!row.broker_entry_order_ids);
+    if (PROCEED.has(state) || pendingButPlaced) {
       let scaledQty = null;
       if (state === "partial_fill" && String(env?.BROKER_PARTIAL_FILL_MODE || "scale").toLowerCase() === "scale") {
         const ratio = Number(row.model_intended_qty) > 0
@@ -303,6 +310,7 @@ export async function manifestAwareReducerCheck(env, payload, user) {
         manifest_sync_state: state,
         broker_remaining_qty: Number(row.broker_remaining_qty) || null,
         scaled_qty: scaledQty,
+        pending_entry_assumed_filled: pendingButPlaced || undefined,
       };
     }
     if (REJECT.has(state)) {
@@ -324,12 +332,17 @@ export async function manifestAwareReducerCheck(env, payload, user) {
   if (lifecycle === "close") {
     const PROCEED = new Set(["in_sync", "partial_fill", "broker_orphan", "untracked"]);
     const REJECT = new Set(["pending", "rejected", "mothership_orphan", "expired", "mirror_suppressed", "reconcile_error"]);
-    if (PROCEED.has(state)) {
+    const pendingButPlaced = state === "pending"
+      && ((Number(row.broker_remaining_qty) || 0) > 0
+        || (Number(row.model_intended_qty) || 0) > 0
+        || !!row.broker_entry_order_ids);
+    if (PROCEED.has(state) || pendingButPlaced) {
       return {
         ok: true,
         lifecycle,
         manifest_sync_state: state,
         broker_remaining_qty: Number(row.broker_remaining_qty) || null,
+        pending_entry_assumed_filled: pendingButPlaced || undefined,
       };
     }
     if (REJECT.has(state)) {
@@ -698,7 +711,11 @@ export async function preflightOrder(env, payload) {
   let qty = Number(payload.qty || 0);
   let estValue = entry > 0 ? entry * qty : null;
   let scalingMeta = null;
-  if (estValue != null && estValue > caps.max_per_order_usd) {
+  // Reducers free cash — never scale a SELL/TRIM/EXIT down by buy-side
+  // cash / concentration ceilings (that path used Math.floor(cash/entry)
+  // and could zero out a legitimate trim).
+  const isReducer = sizingLifecycle === "reduce" || sizingLifecycle === "close";
+  if (!isReducer && estValue != null && estValue > caps.max_per_order_usd) {
     const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
     if (!scaleToFit) {
       return {
@@ -741,7 +758,7 @@ export async function preflightOrder(env, payload) {
   // a user with $200 cash + a cap of $5k still gets 0 shares if entry
   // > $200, but gets the right fractional / floor count if it fits.
   const liveCash = Number(user?.cash_usd || user?.portfolio?.cash_usd);
-  if (Number.isFinite(liveCash) && liveCash > 0 && estValue != null && estValue > liveCash) {
+  if (!isReducer && Number.isFinite(liveCash) && liveCash > 0 && estValue != null && estValue > liveCash) {
     const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
     if (!scaleToFit) {
       return {
@@ -786,7 +803,7 @@ export async function preflightOrder(env, payload) {
   // skipped silently if equity isn't in the user record. Scale-to-fit
   // applies the same way.
   const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd);
-  if (Number.isFinite(liveEquity) && liveEquity > 0 && estValue != null) {
+  if (!isReducer && Number.isFinite(liveEquity) && liveEquity > 0 && estValue != null) {
     const maxAccountUsd = liveEquity * Number(caps.max_account_pct);
     if (maxAccountUsd > 0 && estValue > maxAccountUsd) {
       const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";

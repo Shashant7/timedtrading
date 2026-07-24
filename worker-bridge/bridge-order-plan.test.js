@@ -39,6 +39,15 @@ describe("normalizeOrderIntent", () => {
     expect(intent.side).toBe("sell");
     expect(intent.lifecycle).toBe("close");
   });
+
+  it("maps trim/reduce to executable sell while keeping reduce lifecycle", () => {
+    const trim = normalizeOrderIntent({ ticker: "NVDA", side: "trim", qty: 3.8 });
+    expect(trim.side).toBe("sell");
+    expect(trim.lifecycle).toBe("reduce");
+    const reduce = normalizeOrderIntent({ ticker: "NVDA", side: "reduce", qty: 1 });
+    expect(reduce.side).toBe("sell");
+    expect(reduce.lifecycle).toBe("reduce");
+  });
 });
 
 describe("planBrokerOrder — respects each broker's order-type support", () => {

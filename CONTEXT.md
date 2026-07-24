@@ -257,6 +257,13 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   heartbeats; `RESEARCH_SLOTS_EXTERNAL` not `RESEARCH_EXTERNAL`).
 - Long Term (investor) mirror: `BROKER_INVESTOR_MIRROR_ENABLED=true` on
   monolith (+ research if it hosts auto-rebalance).
+- **Webull TRIM + pending manifest (2026-07-24)**: place often returns
+  `order_id` without `filled_qty` → manifest stuck `pending` with
+  `broker_filled_qty=0`. With `BROKER_MANIFEST_ENFORCE=on` that hard-blocked
+  TRIM/EXIT (NVDA). On successful place, fall back filled qty to requested
+  qty; allow reduce/close when `pending` but placed (remaining/intended/order
+  ids); never buy-side cash-scale reducers; never spread full preflight `user`
+  into reject JSON (can 500). Live-position guard still clamps.
 
 **WoW PnL adaptive governor (2026-07-23)**
 - Plan: `plans/wow-pnl-adaptive-governor.plan.md`. Demotion keys must load

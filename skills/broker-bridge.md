@@ -24,6 +24,14 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >
 > Start in `log` for the first week to gather data; flip to `on` once the
 > log shows no false-positive rejects.
+>
+> **Webull pending-fill pitfall (2026-07-24):** market place often returns
+> `order_id` without `filled_qty`. Entry writer must fall back to requested
+> qty (else `sync_state=pending` forever and TRIM/EXIT are blocked). Reducers
+> also proceed when `pending` but placed (`broker_remaining_qty` /
+> `model_intended_qty` / entry order ids); live-position guard still clamps.
+> Never buy-side cash-scale a TRIM/EXIT. Never spread the full preflight
+> `user` into the HTTP reject body (can break `JSON.stringify` → bare 500).
 
 **Architecture:**
 
