@@ -726,6 +726,8 @@ Two vintages run in parallel: `STRATEGY_VINTAGE` (structural — sector/theme/SM
 
 Structural vintage bumped to **2026-07-07** (July Sector Allocation): Industrials +2.7% to 10.0% (overweight), Financials +2.4% to 12.3%, Discretionary +1.9% to 8.5%; Utilities cut to 1.8%, Real Estate to 2.0%, Comm Services to 6.7%; Tech neutral at 31.0%. Theme sleeve adds JETS/IBB/SPHB; drops IHF/DRIV/IYT (keeps CIBR/ARKG). CRO auto-ingested pub `1541315` but a later daily note overwrote the KV stance merge — `cro-apply` now preserves structural sector changes across tactical applies. `/timed/strategy` surfaces the live CRO KV override when active (`tactical.override_applied`).
 
+- **Investor DCA ledger must not twin ENTRY+DCA_BUY (2026-07-23)**: Live DCA writes `DCA_BUY`; ledger-repair used to match only `ENTRY` and back-fill a second −$cash row. Matcher accepts `DCA_BUY|ENTRY` (prefer `DCA_BUY`), dedupes twins, and DCA position updates bump shares/cost atomically.
+
 ## Full Lessons
 
 See `tasks/lessons.md` for the complete list (180+ items). Use CONTEXT for quick refresh.

@@ -22,7 +22,14 @@
 
 ### Active
 
-- [ ] **FSD rewrite stale model levels (2026-07-23).** Research notes
+- [x] **Investor DCA double ledger cash (2026-07-23).** Sanity
+      portfolio_reconcile −18.9%: ledger repair matched DCA_BUY lots only
+      to ENTRY and back-filled duplicates beside real DCA_BUY rows
+      (−$16k cash); KO/TWLO/PLTR positions also missed a concurrent DCA
+      lot (+$6k cost drift). Fix matcher + dedupe + atomic DCA update.
+      Branch: `cursor/investor-dca-ledger-dup-df0c`.
+
+- [x] **FSD rewrite stale model levels (2026-07-23).** Research notes
       cited TSLA stop $373 / tp $338 from stale `timed:all:snapshot`
       while live was ~$320. Prefer freshest payload + live price overlay;
       omit divergent plan levels; auto-refresh rewrites when px drifts;

@@ -6,6 +6,18 @@
 
 ---
 
+## Investor ledger repair must match DCA_BUY lots [2026-07-23]
+
+Sanity `portfolio_reconcile` failed −18.9% (cash −$16.5k). Root cause: live
+DCA writes `account_ledger.event_type=DCA_BUY`, but `/timed/admin/ledger/repair`
+only accepted `ENTRY` for buy lots — COO self-heal back-filled a second
+`repair_backfill_from_lot_*` ENTRY beside each DCA_BUY (−$2k × 8). Concurrent
+DCA crons also lost position share bumps via read-modify-write.
+
+Fix: match DCA lots to `DCA_BUY|ENTRY` (prefer `DCA_BUY`), delete unclaimed
+buy twins at the same `position_id|ts`, atomic `total_shares/cost_basis +=`,
+and run positions/repair after ledger repair in COO heal.
+
 ## FSD rewrite must not cite stale TT plan levels [2026-07-23]
 
 Research Desk notes for TSLA cited stop `$373.15` / target `$338.33` /

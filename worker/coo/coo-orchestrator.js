@@ -382,13 +382,32 @@ export async function runSelfHealing(env, options = {}) {
 
 async function _healPortfolioReconcile(env, baseUrl, adminKey) {
   try {
+    // 2026-07-23 — ledger repair now also dedupes twin ENTRY/DCA_BUY rows;
+    // follow with positions/repair so cost_basis tracks lots after concurrent
+    // DCA lost-updates.
     const r = await _dispatch(env, `/timed/admin/ledger/repair?mode=investor&dryRun=false`, {
       method: "POST",
     });
     const j = await r.json();
-    return j?.ok
-      ? { ok: true, written: j.written, rebalanced: j.rebalanced, missing_was: j.missing_count }
-      : { ok: false, error: j?.error || `HTTP ${r.status}` };
+    if (!j?.ok) return { ok: false, error: j?.error || `HTTP ${r.status}` };
+    let positions = null;
+    try {
+      const pr = await _dispatch(env, `/timed/admin/positions/repair?mode=investor&dryRun=false`, {
+        method: "POST",
+      });
+      positions = await pr.json().catch(() => null);
+    } catch (pe) {
+      positions = { ok: false, error: String(pe?.message || pe).slice(0, 160) };
+    }
+    return {
+      ok: true,
+      written: j.written,
+      rebalanced: j.rebalanced,
+      deduped: j.deduped,
+      missing_was: j.missing_count,
+      positions_repaired: positions?.repair_count ?? positions?.ok,
+      positions,
+    };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
