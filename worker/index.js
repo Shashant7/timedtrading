@@ -80998,8 +80998,14 @@ export default {
               ring_match: src ? { trade_id: src.trade_id, side: src.side, status: src.status, http_status: src.http_status } : null,
             }, 400, corsHeaders(env, req));
           }
-          const baseCoid = String(body?.new_client_order_id || src?.client_order_id || body?.client_order_id || `tt-${side}-${tradeId}`).slice(0, 36);
-          const retryCoid = `${baseCoid}-r${Date.now().toString(36)}`.slice(0, 40);
+          // Webull client_order_id max 40 chars. Keep a short stable prefix
+          // and append -r<ts36> so retries never collide with burned ids.
+          const suffix = `r${Date.now().toString(36)}`;
+          const rawBase = String(
+            body?.new_client_order_id || src?.client_order_id || body?.client_order_id || `tt-${side}-${ticker || "x"}`,
+          ).replace(/-r[a-z0-9]+$/i, "");
+          const maxBase = Math.max(10, 40 - suffix.length - 1);
+          const retryCoid = `${rawBase.slice(0, maxBase)}-${suffix}`.slice(0, 40);
           const order = {
             user_id: String(body?.user_id || src?.user_id || env?.ADMIN_EMAIL || "operator").toLowerCase(),
             trade_id: tradeId,
