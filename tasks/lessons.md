@@ -6,6 +6,16 @@
 
 ---
 
+## Sanity bridge_bridge_bindings must ignore superseded ring fails [2026-07-24]
+
+12:00 `#system-alerts` failed on 9/20 ring errors after NVDA/TT were already
+retried successfully — the 6h window still held the old 500/200 rows.
+Also counted investor `inv-inv-*` client_order_id rejects whose later
+`inv-*` place ok'd. Count only unresolved failures (no later ok for
+trade_id+side; map `inv-inv-*` → `inv-*`). ETN/HALO/RTX/XLRE "missed
+trims" were really never-entered (fract agreement); catch up remaining
+model size with a buy, don't retry trim on a flat account.
+
 ## Bridge sanitize must keep reduce_pct on TRIM [2026-07-24]
 
 Operator retry of NVDA 50% trim placed successfully but sold the **full**

@@ -726,14 +726,35 @@ const checkBrokerBridgeBindings = timed(async function checkBrokerBridgeBindings
     }
 
     // Recent reject / fetch_error density in the client ring.
+    // 2026-07-24 — Ignore failures superseded by a later ok for the same
+    // trade_id+side (operator retry / catch-up). Also treat inv-inv-* DCA
+    // rejects as resolved when inv-* later placed (double-prefix catch-up).
+    // Otherwise the 6h window keeps paging after NVDA/TT/ETN were fixed.
     const ringRaw = await env.KV_TIMED.get("bridge:client:recent");
-    const ring = ringRaw ? JSON.parse(ringRaw) : [];
-    const recent = (Array.isArray(ring) ? ring : []).filter((r) => (Date.now() - Number(r?.ts || 0)) < 6 * 3600000);
-    const bad = recent.filter((r) => r?.status === "error" || r?.status === "fetch_error");
+    let ring = [];
+    try { ring = ringRaw ? JSON.parse(ringRaw) : []; } catch (_) { ring = []; }
+    if (!Array.isArray(ring)) ring = [];
+    const recent = ring.filter((r) => (Date.now() - Number(r?.ts || 0)) < 6 * 3600000);
+    const isSuperseded = (r) => {
+      const ts = Number(r?.ts || 0);
+      const side = String(r?.side || "");
+      const tid = String(r?.trade_id || "");
+      const altTid = tid.startsWith("inv-inv-") ? tid.replace(/^inv-inv-/, "inv-") : null;
+      for (const o of ring) {
+        if (o?.status !== "ok") continue;
+        if (String(o?.side || "") !== side) continue;
+        if (Number(o?.ts || 0) <= ts) continue;
+        const otid = String(o?.trade_id || "");
+        if (otid === tid || (altTid && otid === altTid)) return true;
+      }
+      return false;
+    };
+    const bad = recent.filter((r) =>
+      (r?.status === "error" || r?.status === "fetch_error") && !isSuperseded(r));
     if (bad.length >= 3) {
       const sample = bad.slice(0, 3).map((r) => `${r.ticker}/${r.side}:${r.reject_reason || r.error || r.http_status}`).join("; ");
       anomalies.push({
-        detail: `${bad.length} bridge mirror failures in last 6h (of ${recent.length} dispatches) — e.g. ${sample}`,
+        detail: `${bad.length} unresolved bridge mirror failures in last 6h (of ${recent.length} dispatches; superseded retries excluded) — e.g. ${sample}`,
         severity: bad.length >= 8 ? "fail" : "warn",
       });
     }

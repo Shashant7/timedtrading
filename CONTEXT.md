@@ -268,6 +268,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `handleSingleAccountOrder` must forward `reduce_pct`/`trim_pct`. Dropping
   them made a 50% NVDA trim use model-book share qty → clamp to full
   `broker_remaining` (sold 7.75 instead of ~3.87).
+- **Sanity `broker_bridge_bindings` ring density (2026-07-24)**: count only
+  *unresolved* 6h failures — skip rows superseded by a later `ok` for the
+  same `trade_id`+side (and `inv-inv-*` → `inv-*`). Otherwise operator
+  retries keep paging after NVDA/TT/ETN were fixed.
 
 **WoW PnL adaptive governor (2026-07-23)**
 - Plan: `plans/wow-pnl-adaptive-governor.plan.md`. Demotion keys must load
