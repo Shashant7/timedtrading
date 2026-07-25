@@ -4059,13 +4059,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 4.1921
+        "sql_duration_ms": 5.0126
       },
-      "duration": 4.1921,
+      "duration": 5.0126,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4278853632,
+      "size_after": 4279345152,
       "rows_read": 270,
       "rows_written": 0,
       "total_attempts": 1
