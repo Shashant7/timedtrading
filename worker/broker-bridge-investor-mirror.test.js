@@ -70,6 +70,60 @@ describe("forwardInvestorMirror", () => {
     expect(seen[0].length).toBeLessThanOrEqual(40);
   });
 
+  it("maps reducer kinds (trim/exit/close/reduce/sell) to broker side=sell", async () => {
+    for (const kind of ["trim", "exit", "close", "reduce", "sell"]) {
+      const seen = [];
+      const env = {
+        BROKER_INVESTOR_MIRROR_ENABLED: "true",
+        BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+        BROKER_BRIDGE_HMAC_KEY: "secret",
+        ADMIN_EMAIL: "op@example.com",
+        BROKER_BRIDGE: {
+          fetch: async (req) => {
+            const body = JSON.parse(await req.text());
+            seen.push(body.side);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        },
+        KV_TIMED: { get: async () => "[]", put: async () => {} },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind, ticker: "KO", shares: 10, price: 82,
+        position_id: `inv-KO-auto-${kind}`,
+      });
+      expect(seen[0], `kind=${kind}`).toBe("sell");
+    }
+  });
+
+  it("maps entry kinds (add/open/dca) to broker side=buy", async () => {
+    for (const kind of ["add", "open", "dca"]) {
+      const seen = [];
+      const env = {
+        BROKER_INVESTOR_MIRROR_ENABLED: "true",
+        BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+        BROKER_BRIDGE_HMAC_KEY: "secret",
+        ADMIN_EMAIL: "op@example.com",
+        BROKER_BRIDGE: {
+          fetch: async (req) => {
+            const body = JSON.parse(await req.text());
+            seen.push(body.side);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        },
+        KV_TIMED: { get: async () => "[]", put: async () => {} },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind, ticker: "KO", shares: 10, price: 82,
+        position_id: `inv-KO-auto-${kind}`,
+      });
+      expect(seen[0], `kind=${kind}`).toBe("buy");
+    }
+  });
+
   it("records skip when investor mirror is disabled", async () => {
     const env = {
       BROKER_INVESTOR_MIRROR_ENABLED: "false",

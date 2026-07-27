@@ -125,7 +125,15 @@ async function shortClientOrderId(kind, tradeId) {
 export async function forwardInvestorMirror(env, op = {}) {
   const ticker = String(op?.ticker || "").toUpperCase();
   const kind = String(op?.kind || "add");
-  const side = kind === "trim" ? "sell" : "buy";
+  // Reducer kinds MUST resolve to `sell` so the bridge treats them as
+  // TRIM/EXIT (guard clamps, OCO cancel, manifest close) — mapping them
+  // to `buy` (the earlier default) would place a BUY order for an exit.
+  // 2026-07-27 — surfaced while retrying KO's event-risk trim: the
+  // invalidation-exit path passes kind="exit"; without this branch it
+  // would have side-flipped the intent had it ever fired live on a
+  // Webull-enabled account.
+  const isReducer = kind === "trim" || kind === "exit" || kind === "close" || kind === "reduce" || kind === "sell";
+  const side = isReducer ? "sell" : "buy";
   // position_id is already `inv-…` from D1 — don't double-prefix.
   const posId = op?.position_id != null ? String(op.position_id) : "";
   const tradeId = posId
