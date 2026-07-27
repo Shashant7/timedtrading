@@ -60,6 +60,42 @@ lines. Verified: reverting the fix fails the test at `index.js:93786`.
 happened — the alert cron fires from `scheduleInvestorLotActionChannels`,
 which does not touch the bridge. `bridge:client:recent` is the truth.
 
+## Jitter the stale-sweep q_ts fallback [2026-07-24]
+
+Discord paged `Cron Failure: price_value_freshness` with `46 symbols with
+vendor quote >20m stale during RTH — users may see prior-day prices.
+Worst: LUNR:22m, SATS:21m, BK:21m, GRNI:21m, BNY:21m, CRDO:21m, DKS:21m,
+MOD:21m, NBIX:21m, NTRA:21m`. Every worst-symbol age was almost
+identical (21-22m) — a giveaway that they all crossed the threshold in
+the same tick, not that any one feed was truly wedged.
+
+**Root cause.** The RTH stale-sweep touches every non-streamed quiet
+symbol in one batched REST call and stamps `q_ts = resolveRestQuoteReceiptTs
+(snap.trade_ts, sweepNow)`. When the vendor's `trade_ts` was aged or
+missing (typical for quiet mid-caps), the fallback returned exactly
+`sweepNow` for every symbol in the batch. All ~200 rows then aged in
+lockstep and hit the 10-min sweep-stale threshold in the SAME tick
+(`27 → 241 → 127 → 10 → 5` pattern in wrangler tail). SWEEP_CAP=120
+means a burst of 241 takes 3 ticks to clear; if the sweep is briefly
+slow or the API partially fails, dozens of symbols coast past the 20m
+alert threshold together and page — even though the feed is healthy.
+
+**Fix.** `resolveRestQuoteReceiptTs` now spreads the fallback across a
+`0..PF_STALE_JITTER_MAX_MS` window (default 0-8 min into the past,
+below the 10-min freshness gate so display quality is unchanged). Each
+quiet symbol gets a randomized offset, so the batch ages naturally
+across a ~8-min window instead of collapsing into one tick. Tests
+pin randomness by passing `{ jitterMaxMs: 0 }` or `{ random: () => x }`.
+
+**Behavior after deploy** (tt-feed 04dc1062-…): peaks dropped from
+241 to 55/56 across the next 15 minutes, mostly 1-3 stale per tick.
+Real feed outages still page because true failures push `q_ts` past
+20m regardless of jitter — the alert threshold (20m) sits above the
+jitter window (8m) by design.
+
+**Do not** re-simplify to `return now`. Batch sync is the whole reason
+the alert false-fires; the jitter is the fix.
+
 ## Sanity bridge_bridge_bindings must ignore superseded ring fails [2026-07-24]
 
 12:00 `#system-alerts` failed on 9/20 ring errors after NVDA/TT were already

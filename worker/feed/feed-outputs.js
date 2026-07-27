@@ -54,6 +54,13 @@ export function quoteReceiptTimestamp(pf) {
 }
 
 /**
+ * Default jitter window applied to the receipt-now fallback (80% of
+ * PF_FRESH_MS = 8 min). Chosen so the jittered stamp is still "value fresh"
+ * (< 10 min) but batch-swept quiet symbols age at different rates.
+ */
+export const PF_STALE_JITTER_MAX_MS = Math.floor(PF_FRESH_MS * 0.8);
+
+/**
  * Stamp for a successful REST / stale-sweep write into timed:prices.
  *
  * Prefer the vendor trade clock when it is itself fresh (stream-parity for
@@ -61,12 +68,28 @@ export function quoteReceiptTimestamp(pf) {
  * day-old trade_ts even after TD returns a valid quote, and rewriting
  * `q_ts` to that aged stamp leaves the row permanently value-stale so
  * overlay + Discord open-ramp never heal (price_value_freshness daily page).
+ *
+ * 2026-07-24 — Fallback receipt is JITTERED across a 0..jitterMaxMs window
+ * (default 0-8 min into the past). The stale sweep touches every quiet
+ * non-streamed symbol in one batch, so without jitter they all get the
+ * SAME q_ts = now and then all cross the 10-min stale threshold in the
+ * same tick — creating a burst that pages price_value_freshness even
+ * when the feed is healthy. Jitter spreads the aging out organically:
+ * each symbol becomes stale at a different minute, keeping steady-state
+ * stale count well under the page threshold. `opts.jitterMaxMs = 0`
+ * disables jitter for tests / callers that need a deterministic stamp.
  */
-export function resolveRestQuoteReceiptTs(tradeTs, nowMs = Date.now()) {
+export function resolveRestQuoteReceiptTs(tradeTs, nowMs = Date.now(), opts = {}) {
   const now = Number(nowMs) || Date.now();
   const trade = Number(tradeTs) || 0;
   if (trade > 0 && (now - trade) <= PF_FRESH_MS) return trade;
-  return now;
+  const jitterMax = Number.isFinite(Number(opts?.jitterMaxMs))
+    ? Math.max(0, Number(opts.jitterMaxMs))
+    : PF_STALE_JITTER_MAX_MS;
+  if (jitterMax <= 0) return now;
+  const rand = typeof opts?.random === "function" ? opts.random() : Math.random();
+  const jitter = Math.floor(Math.max(0, Math.min(1, rand)) * jitterMax);
+  return now - jitter;
 }
 
 /** Minutes since 9:30 ET on an RTH day; null outside RTH. */
