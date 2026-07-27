@@ -80895,10 +80895,15 @@ export default {
           const ring = await readClientRing(env);
           // Only skip lots that already placed successfully on the bridge.
           // Prior catch-up errors (e.g. oversized client_order_id) must retry.
+          // 2026-07-27 — key by (side, trade_id): a successful BUY on the
+          // position must NOT mask a subsequent SELL that still needs to
+          // reach the broker (this is exactly why the KO PRE_EARNINGS
+          // trim was silently skipped by catch-up — the Jul 24 DCA buy
+          // for the same position was in the ring as ok).
           const mirroredOkIds = new Set(
             (ring || [])
               .filter((r) => String(r?.trade_id || "").startsWith("inv-") && r?.status === "ok")
-              .map((r) => String(r.trade_id)),
+              .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
           );
           const seen = new Set();
           const planned = [];
@@ -80911,8 +80916,10 @@ export default {
             const tradeId = posId
               ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
               : `inv-${lot.ticker}-${lot.action}`;
+            const lotSide = lot.action === "SELL" ? "sell" : "buy";
             // Legacy double-prefix trade_ids from the first catch-up attempt.
-            if (mirroredOkIds.has(tradeId) || mirroredOkIds.has(`inv-${tradeId}`)) continue;
+            if (mirroredOkIds.has(`${lotSide}|${tradeId}`)
+                || mirroredOkIds.has(`${lotSide}|inv-${tradeId}`)) continue;
             const kind = lot.action === "SELL" ? "trim"
               : lot.action === "DCA_BUY" ? "dca" : "add";
             planned.push({
