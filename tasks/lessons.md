@@ -56,6 +56,159 @@ tier decision has to be reconstructed from the promotion_code and the
 `worker/stripe-vip-code.test.js` (18 tests), `worker/index.js`
 `checkout.session.completed` branch.
 
+## Every reducer must have a post-execution receipt [2026-07-27]
+
+Operator after the KO trim was oversold: *"we should be able to properly
+audit after an action as well ... post action we must check did our
+action result in what we expected. If not, an execution signal may have
+been blocked or dropped."*
+
+The bridge could size, place, and log a TRIM/EXIT and still leave the
+broker holding a different quantity than intended — anything from a
+side-mapping bug (`kind="trim"` → `side="sell"` liquidated on KO
+2026-07-27) to a burned client_order_id silently no-op'ing. Nothing
+compared what the mirror said it would do vs what the broker actually
+did until the next model-vs-broker reconcile — and even that comparison
+was against `broker_remaining_qty`, which is itself derived from the
+same broker read.
+
+**Contract now enforced.** Every successful TRIM / EXIT / CLOSE stamps
+`sync_last_action_json` on the manifest row with a full intent snapshot:
+`{ pre_held_qty, intended_qty, expected_post_held_qty, client_order_id,
+broker_order_id, verify_after_ms, verified, drift_qty }`. The next
+reconciler cycle (after `POST_EXEC_VERIFY_DELAY_MS` = 2min so the
+broker has time to route) compares live held vs `expected_post_held_qty`:
+
+- match within `POST_EXEC_TOLERANCE_QTY` (0.05 sh dust) → mark
+  `verified: true`, write `post_exec_verified` bridge_audit row, done.
+- drift outside tolerance → stamp `drift_qty` + `live_held_qty` +
+  `drift_detected_at` on the audit (preserving the original expectation
+  so operator can diff), write `post_exec_drift` bridge_audit row,
+  emit a critical drift notification (Discord + email).
+
+Reasons the reconciler distinguishes:
+- `reducer_underexecuted_or_replenished` — live > expected (broker sold
+  LESS than we asked; or the signal was blocked outright).
+- `reducer_overexecuted` — live < expected (broker sold MORE than we
+  asked, e.g. the KO full-liquidation regression before the trim/sell
+  side-mapping fix).
+
+**No new plumbing on the reducer path.** The audit uses the fresh
+broker positions the reconciler already fetches every cycle — free
+verification per row. Fires from `bridge-index.js` on the SAME success
+branch that stamps `broker_entry_order_ids` for entries, so any future
+reducer path automatically gets audit coverage.
+
+**Runtime coverage for the KO scenario.** Post-exec audit alone would
+NOT have caught KO — because the mirror call was missing, no
+`sync_last_action_json` was ever stamped. Sibling check
+`investor_signal_bridge_coverage` (fast sanity, 15-min cron) compares
+recent `investor_lots` SELLs against `bridge:client:recent` on
+(ticker, side, ts window). Any SELL without a matching reducer-side
+ring entry pages `fail`. Complements the compile-time source-contract
+test `worker/investor-reducer-mirror-coverage.test.js` (that stops the
+regression at PR time); the runtime check catches gaps in code paths
+that aren't exercised until earnings week.
+
+Files: `worker-bridge/bridge-manifest.js` (`writeLastActionAudit`,
+`markLastActionVerified`, `markLastActionDrift`, `readLastActionAudit`,
+`POST_EXEC_VERIFY_DELAY_MS`, `POST_EXEC_TOLERANCE_QTY`, new
+`sync_last_action_json` column via idempotent ALTER). `bridge-index.js`
+reducer success branch. `bridge-reconciler.js` per-row
+`_verifyPostExecutionAudit` after `_persistRowUpdate`.
+`worker/sanity-sweep.js` `evaluateInvestorSignalCoverage` +
+`checkInvestorSignalBridgeCoverage` (in FAST_CHECKS).
+
+## Investor event-risk trim never mirrored to broker [2026-07-27]
+
+KO Long Term trim fired `PRE_EARNINGS_RISK_REDUCTION` (Discord: "Long
+Term Portfolio — 1 trimmed · KO — TRIMMED sold 11 sh @ $82.93") but
+Webull still held the full lot. `bridge:client:recent` had zero KO
+activity on Jul 27 — not even a skip breadcrumb.
+
+**Root.** Four investor reducer loops live in `worker/index.js`
+auto-rebalance. Three queued `_bridgeMirrorInvestor` after writing the
+lot / ledger / alerts; one didn't:
+
+| Path | Line | Mirrored? |
+|---|---|---|
+| Primary invalidation exit | ~93645 | yes (kind="exit") |
+| **Event-risk trim (pre-earnings/pre-macro)** | ~93826 | **no** |
+| Auto-reduce (score→reduce) | ~94011 | yes (kind="trim") |
+| Exhaustion lock-in | ~94204 | yes (kind="trim") |
+
+**Fix.** Queue the same mirror call, `kind="exit"` when the trim
+flattens the position, else `kind="trim"`. Silent-source contract test
+(`worker/investor-reducer-mirror-coverage.test.js`) greps every
+`INSERT INTO investor_lots ... 'SELL'` in `index.js` outside an
+allow-listed manual admin handler and asserts a mirror call within 120
+lines. Verified: reverting the fix fails the test at `index.js:93786`.
+
+**Sibling bugs uncovered while retrying KO:**
+
+1. `forwardInvestorMirror` mapped every non-`trim` kind to `side="buy"` —
+   so `kind="exit"`, `close`, `reduce` would place a BUY for an exit
+   intent. Never fired live (RPG exit in the ring was the trader path),
+   but was a latent landmine. Now maps the whole reducer verb set the
+   bridge preflight uses (`trim | exit | close | reduce | sell`) → `sell`.
+2. `catchup-investor` dedupe keyed mirror-ok by `trade_id` only, so a
+   prior BUY ok for the position hid a subsequent SELL that still
+   needed mirroring. Now keyed by `(side, trade_id)`.
+3. `catchup-investor` counted a bridge `dedupe_skip` (ok:true, order id
+   null — client_order_id already burned by a prior failure) as a
+   successful mirror. Now requires `rh_order_id / broker_order_id /
+   order_id` non-null before excluding a lot.
+4. `shortClientOrderId` hashes `(kind, tradeId)` for natural
+   idempotency, so an operator retry after a hard reject hits
+   `duplicate_client_order_id` and silently no-ops. Added a `retry_nonce`
+   input; catchup passes `Date.now()` per admin call so a retry emits
+   a fresh id while normal auto-mirror stays idempotent.
+5. Legacy investor manifest rows sit as `inv-inv-KO-*` (pre-trade_id
+   normalization) while current lookups hit `inv-KO-*` — every first
+   reducer against a legacy row rejected `no_manifest_for_trade`.
+   `readManifestRow` now transparently retries the flipped prefix on
+   a direct miss (read-side compat shim; new writes stay single-prefix).
+
+**Do not** rely on Discord + email alerts as evidence a broker order
+happened — the alert cron fires from `scheduleInvestorLotActionChannels`,
+which does not touch the bridge. `bridge:client:recent` is the truth.
+
+## Jitter the stale-sweep q_ts fallback [2026-07-24]
+
+Discord paged `Cron Failure: price_value_freshness` with `46 symbols with
+vendor quote >20m stale during RTH — users may see prior-day prices.
+Worst: LUNR:22m, SATS:21m, BK:21m, GRNI:21m, BNY:21m, CRDO:21m, DKS:21m,
+MOD:21m, NBIX:21m, NTRA:21m`. Every worst-symbol age was almost
+identical (21-22m) — a giveaway that they all crossed the threshold in
+the same tick, not that any one feed was truly wedged.
+
+**Root cause.** The RTH stale-sweep touches every non-streamed quiet
+symbol in one batched REST call and stamps `q_ts = resolveRestQuoteReceiptTs
+(snap.trade_ts, sweepNow)`. When the vendor's `trade_ts` was aged or
+missing (typical for quiet mid-caps), the fallback returned exactly
+`sweepNow` for every symbol in the batch. All ~200 rows then aged in
+lockstep and hit the 10-min sweep-stale threshold in the SAME tick
+(`27 → 241 → 127 → 10 → 5` pattern in wrangler tail). SWEEP_CAP=120
+means a burst of 241 takes 3 ticks to clear; if the sweep is briefly
+slow or the API partially fails, dozens of symbols coast past the 20m
+alert threshold together and page — even though the feed is healthy.
+
+**Fix.** `resolveRestQuoteReceiptTs` now spreads the fallback across a
+`0..PF_STALE_JITTER_MAX_MS` window (default 0-8 min into the past,
+below the 10-min freshness gate so display quality is unchanged). Each
+quiet symbol gets a randomized offset, so the batch ages naturally
+across a ~8-min window instead of collapsing into one tick. Tests
+pin randomness by passing `{ jitterMaxMs: 0 }` or `{ random: () => x }`.
+
+**Behavior after deploy** (tt-feed 04dc1062-…): peaks dropped from
+241 to 55/56 across the next 15 minutes, mostly 1-3 stale per tick.
+Real feed outages still page because true failures push `q_ts` past
+20m regardless of jitter — the alert threshold (20m) sits above the
+jitter window (8m) by design.
+
+**Do not** re-simplify to `return now`. Batch sync is the whole reason
+the alert false-fires; the jitter is the fix.
+
 ## Sanity bridge_bridge_bindings must ignore superseded ring fails [2026-07-24]
 
 12:00 `#system-alerts` failed on 9/20 ring errors after NVDA/TT were already

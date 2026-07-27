@@ -70,6 +70,189 @@ describe("forwardInvestorMirror", () => {
     expect(seen[0].length).toBeLessThanOrEqual(40);
   });
 
+  // 2026-07-27 — Distinguish TRIM (portion sell of an explicit qty) from
+  // EXIT/CLOSE (flatten the model portion). The bridge's
+  // reconcileReducerQty treats side="sell"|"exit"|"close" as full
+  // liquidation (isFull=true, intended = model portion or held). Mapping
+  // kind="trim" to side="sell" is what caused the KO PRE_EARNINGS retry
+  // to sell the full ~10.9 sh Webull lot instead of the ~4.05 sh
+  // partial the model actually recorded to D1.
+  it("maps kind=trim → side=trim (portion), NOT side=sell (would liquidate)", async () => {
+    for (const kind of ["trim", "reduce"]) {
+      const seen = [];
+      const env = {
+        BROKER_INVESTOR_MIRROR_ENABLED: "true",
+        BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+        BROKER_BRIDGE_HMAC_KEY: "secret",
+        ADMIN_EMAIL: "op@example.com",
+        BROKER_BRIDGE: {
+          fetch: async (req) => {
+            const body = JSON.parse(await req.text());
+            seen.push(body.side);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        },
+        KV_TIMED: { get: async () => "[]", put: async () => {} },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind, ticker: "KO", shares: 4.04568, price: 82,
+        position_id: `inv-KO-auto-${kind}`,
+      });
+      expect(seen[0], `kind=${kind}`).toBe("trim");
+    }
+  });
+
+  it("maps kind=exit|close|sell → side=sell (full liquidation)", async () => {
+    for (const kind of ["exit", "close", "sell"]) {
+      const seen = [];
+      const env = {
+        BROKER_INVESTOR_MIRROR_ENABLED: "true",
+        BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+        BROKER_BRIDGE_HMAC_KEY: "secret",
+        ADMIN_EMAIL: "op@example.com",
+        BROKER_BRIDGE: {
+          fetch: async (req) => {
+            const body = JSON.parse(await req.text());
+            seen.push(body.side);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        },
+        KV_TIMED: { get: async () => "[]", put: async () => {} },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind, ticker: "KO", shares: 10.9, price: 82,
+        position_id: `inv-KO-auto-${kind}`,
+      });
+      expect(seen[0], `kind=${kind}`).toBe("sell");
+    }
+  });
+
+  it("forwards reduce_pct when supplied (drift-safe sizing at bridge)", async () => {
+    const seen = [];
+    const env = {
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          const body = JSON.parse(await req.text());
+          seen.push(body);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+      KV_TIMED: { get: async () => "[]", put: async () => {} },
+    };
+    vi.resetModules();
+    const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+    await forwardInvestorMirror(env, {
+      kind: "trim", ticker: "KO", shares: 4.04568, price: 82,
+      position_id: "inv-KO-auto-1", reduce_pct: 0.371,
+    });
+    expect(seen[0].side).toBe("trim");
+    expect(seen[0].reduce_pct).toBeCloseTo(0.371, 6);
+    expect(seen[0].qty).toBeCloseTo(4.04568, 6);
+  });
+
+  it("omits reduce_pct when out-of-range or missing (bridge falls back to explicit qty)", async () => {
+    for (const raw of [null, undefined, 0, -0.5, 1.5, 100, "abc"]) {
+      const seen = [];
+      const env = {
+        BROKER_INVESTOR_MIRROR_ENABLED: "true",
+        BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+        BROKER_BRIDGE_HMAC_KEY: "secret",
+        ADMIN_EMAIL: "op@example.com",
+        BROKER_BRIDGE: {
+          fetch: async (req) => {
+            const body = JSON.parse(await req.text());
+            seen.push(body);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        },
+        KV_TIMED: { get: async () => "[]", put: async () => {} },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind: "trim", ticker: "KO", shares: 4.04568, price: 82,
+        position_id: "inv-KO-auto-1", reduce_pct: raw,
+      });
+      expect(seen[0], `raw=${JSON.stringify(raw)}`).not.toHaveProperty("reduce_pct");
+    }
+  });
+
+  it("maps entry kinds (add/open/dca) to broker side=buy", async () => {
+    for (const kind of ["add", "open", "dca"]) {
+      const seen = [];
+      const env = {
+        BROKER_INVESTOR_MIRROR_ENABLED: "true",
+        BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+        BROKER_BRIDGE_HMAC_KEY: "secret",
+        ADMIN_EMAIL: "op@example.com",
+        BROKER_BRIDGE: {
+          fetch: async (req) => {
+            const body = JSON.parse(await req.text());
+            seen.push(body.side);
+            return new Response(JSON.stringify({ ok: true }), { status: 200 });
+          },
+        },
+        KV_TIMED: { get: async () => "[]", put: async () => {} },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind, ticker: "KO", shares: 10, price: 82,
+        position_id: `inv-KO-auto-${kind}`,
+      });
+      expect(seen[0], `kind=${kind}`).toBe("buy");
+    }
+  });
+
+  it("retry_nonce flips the client_order_id off the natural (kind, tradeId) hash", async () => {
+    async function captureCoid(env, extra = {}) {
+      const seen = [];
+      env.BROKER_BRIDGE = {
+        fetch: async (req) => {
+          const body = JSON.parse(await req.text());
+          seen.push(body.client_order_id);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind: "trim", ticker: "KO", shares: 10, price: 82,
+        position_id: "inv-KO-auto-1782223315559",
+        ...extra,
+      });
+      return seen[0];
+    }
+    const baseEnv = () => ({
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      KV_TIMED: { get: async () => "[]", put: async () => {} },
+    });
+    const plain = await captureCoid(baseEnv());
+    const nonced = await captureCoid(baseEnv(), { retry_nonce: "1785164000000" });
+    const noncedTwo = await captureCoid(baseEnv(), { retry_nonce: "1785164999999" });
+    expect(plain).not.toBe(nonced);
+    expect(nonced).not.toBe(noncedTwo);
+    // Same nonce → same client_order_id (deterministic per retry batch).
+    const sameNonce = await captureCoid(baseEnv(), { retry_nonce: "1785164000000" });
+    expect(sameNonce).toBe(nonced);
+    // Format still safe for Webull.
+    for (const c of [plain, nonced, noncedTwo]) {
+      expect(c.length).toBeGreaterThanOrEqual(10);
+      expect(c.length).toBeLessThanOrEqual(40);
+    }
+  });
+
   it("records skip when investor mirror is disabled", async () => {
     const env = {
       BROKER_INVESTOR_MIRROR_ENABLED: "false",
