@@ -899,6 +899,152 @@ const checkBrokerReconcilerFreshness = timed(async function checkBrokerReconcile
   );
 });
 
+// ── Check 17: investor_signal_bridge_coverage ───────────────────────────
+//
+// 2026-07-27 — End-to-end coverage of every model-side investor reducer
+// against the broker bridge. The KO PRE_EARNINGS_RISK_REDUCTION trim on
+// 2026-07-27 wrote an investor_lots SELL row, sent Discord + email,
+// but the event-risk path was missing `_bridgeMirrorInvestor(...)`, so
+// the bridge client ring never fired and the broker held the full
+// position through earnings. Every existing check (`bridge_mirror_
+// coverage`, `broker_bridge_bindings`) tests the health of forwards
+// that DID fire — none of them caught a forward that never left the
+// monolith.
+//
+// This check compares recent investor_lots SELL rows against the
+// bridge:client:recent ring on (ticker, side, ts window). Any SELL
+// without a matching ring entry (or with only stale failures) is
+// flagged. Complements the `investor-reducer-mirror-coverage.test.js`
+// source contract test — that prevents new SELL paths from shipping
+// without a mirror call; this catches the runtime gap that a code
+// path might not exercise until earnings week.
+export function evaluateInvestorSignalCoverage({
+  sells = [],
+  ring = [],
+  nowMs = Date.now(),
+  windowMs = 6 * 3600000,
+  matchWindowMs = 15 * 60000,
+} = {}) {
+  const anomalies = [];
+  const cutoff = nowMs - windowMs;
+  const recent = sells.filter((s) => Number(s?.ts) >= cutoff);
+  if (recent.length === 0) return anomalies;
+
+  // Normalize ring entries once. The ring writes `inv-<pos_id>` for the
+  // trade_id and side ∈ { buy, sell, trim }. Treat any of sell/trim/exit/
+  // close as a reducer match.
+  const REDUCER_SIDES = new Set(["sell", "trim", "exit", "close", "reduce"]);
+  const reducerRing = (Array.isArray(ring) ? ring : []).filter((r) =>
+    REDUCER_SIDES.has(String(r?.side || "").toLowerCase()));
+
+  const missing = [];
+  const failedOnly = [];
+  for (const sell of recent) {
+    const ticker = String(sell?.ticker || "").toUpperCase();
+    if (!ticker) continue;
+    const sellTs = Number(sell?.ts) || 0;
+    const candidates = reducerRing.filter((r) => {
+      if (String(r?.ticker || "").toUpperCase() !== ticker) return false;
+      const dt = Math.abs(Number(r?.ts || 0) - sellTs);
+      return dt <= matchWindowMs;
+    });
+    if (candidates.length === 0) {
+      missing.push({ ticker, ts: sellTs, position_id: sell?.position_id || null, reason: sell?.reason || null });
+      continue;
+    }
+    // Only fails, no successes → the signal fired but the bridge
+    // rejected/errored every time. Still surfaces here — the operator
+    // needs to see it. (broker_bridge_bindings ALSO warns on ring
+    // failures, but this check pins the failure to a specific model-
+    // side lot for faster triage.)
+    const anySuccess = candidates.some((r) => r?.status === "ok");
+    if (!anySuccess) {
+      failedOnly.push({
+        ticker, ts: sellTs, position_id: sell?.position_id || null,
+        reason: sell?.reason || null,
+        last_error: candidates[candidates.length - 1]?.reject_reason
+          || candidates[candidates.length - 1]?.error || "unknown",
+      });
+    }
+  }
+
+  if (missing.length > 0) {
+    const sample = missing.slice(0, 3)
+      .map((m) => `${m.ticker}${m.reason ? `(${m.reason})` : ""}`).join(", ");
+    anomalies.push({
+      detail: `${missing.length} model-side investor SELL${missing.length === 1 ? "" : "s"} in last ${Math.round(windowMs / 3600000)}h with NO matching bridge ring entry (signal never left the monolith) — e.g. ${sample}`,
+      severity: "fail",
+      missing,
+    });
+  }
+  if (failedOnly.length > 0) {
+    const sample = failedOnly.slice(0, 3)
+      .map((m) => `${m.ticker}:${String(m.last_error).slice(0, 40)}`).join("; ");
+    anomalies.push({
+      detail: `${failedOnly.length} investor SELL${failedOnly.length === 1 ? "" : "s"} with ring entries but no successful mirror — e.g. ${sample}`,
+      severity: "warn",
+      failed: failedOnly,
+    });
+  }
+  return anomalies;
+}
+
+const checkInvestorSignalBridgeCoverage = timed(async function checkInvestorSignalBridgeCoverage(env, ctx) {
+  const anomalies = [];
+  try {
+    if (!env?.BROKER_BRIDGE_URL) {
+      // No bridge configured on this env → nothing to check. Silent OK.
+      return envelope(
+        "investor_signal_bridge_coverage",
+        "Investor SELL signals reached the broker bridge",
+        [],
+        "no_op: BROKER_BRIDGE_URL not configured",
+        "would have caught: KO event-risk trim never mirrored to Webull (2026-07-27)"
+      );
+    }
+    const investorMirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true";
+    if (!investorMirrorOn) {
+      return envelope(
+        "investor_signal_bridge_coverage",
+        "Investor SELL signals reached the broker bridge",
+        [],
+        "no_op: BROKER_INVESTOR_MIRROR_ENABLED not true",
+        "would have caught: KO event-risk trim never mirrored to Webull (2026-07-27)"
+      );
+    }
+    // Read recent investor_lots SELLs from D1. Bounded 6h window +
+    // hard limit so a rare cron budget spike doesn't blow the check.
+    const since = Date.now() - 6 * 3600000;
+    let sells = [];
+    try {
+      const r = await env.DB.prepare(
+        `SELECT id, position_id, ticker, ts, reason FROM investor_lots
+          WHERE action = 'SELL' AND ts >= ?1
+          ORDER BY ts DESC LIMIT 200`,
+      ).bind(since).all();
+      sells = r?.results || [];
+    } catch (_) { sells = []; }
+
+    const ringRaw = await env.KV_TIMED.get("bridge:client:recent");
+    let ring = [];
+    try { ring = ringRaw ? JSON.parse(ringRaw) : []; } catch (_) { ring = []; }
+    if (!Array.isArray(ring)) ring = [];
+
+    anomalies.push(...evaluateInvestorSignalCoverage({
+      sells, ring, nowMs: Date.now(), windowMs: 6 * 3600000,
+    }));
+  } catch (e) {
+    anomalies.push({ detail: `check failed: ${String(e?.message || e).slice(0, 200)}`, severity: "warn" });
+  }
+  return envelope(
+    "investor_signal_bridge_coverage",
+    "Investor SELL signals reached the broker bridge",
+    anomalies,
+    "For each missing ticker, replay via POST /timed/admin/broker-bridge/catchup-investor?dry_run=false. Also inspect worker/index.js for a reducer path that updates investor_lots but does NOT call _bridgeMirrorInvestor / forwardInvestorMirror (the KO 2026-07-27 gap).",
+    "would have caught: KO PRE_EARNINGS_RISK_REDUCTION on 2026-07-27 — model wrote the SELL lot + Discord/email, but the event-risk path was missing _bridgeMirrorInvestor so the bridge client ring never fired and the broker held the full position through earnings.",
+  );
+});
+
 // ── Master sweep ────────────────────────────────────────────────────────
 
 const CHECKS = [
@@ -921,6 +1067,10 @@ const CHECKS = [
   checkBrokerReconcilerFreshness,
   checkBrokerBridgeBindings,
   checkWorkerRoleSplit,
+  // 2026-07-27 — Runtime coverage complement to the compile-time
+  // source-contract test. Catches investor SELLs written to D1 but
+  // never forwarded to the broker bridge (KO event-risk gap).
+  checkInvestorSignalBridgeCoverage,
 ];
 
 // Critical-path subset that runs every 15min instead of hourly. These
@@ -936,6 +1086,11 @@ const FAST_CHECKS = [
   checkBrokerReconcilerFreshness,
   checkBrokerBridgeBindings,
   checkWorkerRoleSplit,
+  // 2026-07-27 — Fast-path this one: if a model-side reducer never
+  // reaches the bridge (KO event-risk gap), the 1h detection window
+  // is the difference between catching it before earnings and eating
+  // the drawdown.
+  checkInvestorSignalBridgeCoverage,
 ];
 
 /**
