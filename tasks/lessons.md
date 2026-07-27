@@ -6,6 +6,60 @@
 
 ---
 
+## Investor event-risk trim never mirrored to broker [2026-07-27]
+
+KO Long Term trim fired `PRE_EARNINGS_RISK_REDUCTION` (Discord: "Long
+Term Portfolio — 1 trimmed · KO — TRIMMED sold 11 sh @ $82.93") but
+Webull still held the full lot. `bridge:client:recent` had zero KO
+activity on Jul 27 — not even a skip breadcrumb.
+
+**Root.** Four investor reducer loops live in `worker/index.js`
+auto-rebalance. Three queued `_bridgeMirrorInvestor` after writing the
+lot / ledger / alerts; one didn't:
+
+| Path | Line | Mirrored? |
+|---|---|---|
+| Primary invalidation exit | ~93645 | yes (kind="exit") |
+| **Event-risk trim (pre-earnings/pre-macro)** | ~93826 | **no** |
+| Auto-reduce (score→reduce) | ~94011 | yes (kind="trim") |
+| Exhaustion lock-in | ~94204 | yes (kind="trim") |
+
+**Fix.** Queue the same mirror call, `kind="exit"` when the trim
+flattens the position, else `kind="trim"`. Silent-source contract test
+(`worker/investor-reducer-mirror-coverage.test.js`) greps every
+`INSERT INTO investor_lots ... 'SELL'` in `index.js` outside an
+allow-listed manual admin handler and asserts a mirror call within 120
+lines. Verified: reverting the fix fails the test at `index.js:93786`.
+
+**Sibling bugs uncovered while retrying KO:**
+
+1. `forwardInvestorMirror` mapped every non-`trim` kind to `side="buy"` —
+   so `kind="exit"`, `close`, `reduce` would place a BUY for an exit
+   intent. Never fired live (RPG exit in the ring was the trader path),
+   but was a latent landmine. Now maps the whole reducer verb set the
+   bridge preflight uses (`trim | exit | close | reduce | sell`) → `sell`.
+2. `catchup-investor` dedupe keyed mirror-ok by `trade_id` only, so a
+   prior BUY ok for the position hid a subsequent SELL that still
+   needed mirroring. Now keyed by `(side, trade_id)`.
+3. `catchup-investor` counted a bridge `dedupe_skip` (ok:true, order id
+   null — client_order_id already burned by a prior failure) as a
+   successful mirror. Now requires `rh_order_id / broker_order_id /
+   order_id` non-null before excluding a lot.
+4. `shortClientOrderId` hashes `(kind, tradeId)` for natural
+   idempotency, so an operator retry after a hard reject hits
+   `duplicate_client_order_id` and silently no-ops. Added a `retry_nonce`
+   input; catchup passes `Date.now()` per admin call so a retry emits
+   a fresh id while normal auto-mirror stays idempotent.
+5. Legacy investor manifest rows sit as `inv-inv-KO-*` (pre-trade_id
+   normalization) while current lookups hit `inv-KO-*` — every first
+   reducer against a legacy row rejected `no_manifest_for_trade`.
+   `readManifestRow` now transparently retries the flipped prefix on
+   a direct miss (read-side compat shim; new writes stay single-prefix).
+
+**Do not** rely on Discord + email alerts as evidence a broker order
+happened — the alert cron fires from `scheduleInvestorLotActionChannels`,
+which does not touch the bridge. `bridge:client:recent` is the truth.
+
 ## Jitter the stale-sweep q_ts fallback [2026-07-24]
 
 Discord paged `Cron Failure: price_value_freshness` with `46 symbols with

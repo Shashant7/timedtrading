@@ -107,10 +107,18 @@ export async function recordBridgeMirrorSkip(env, {
  * op = { kind: "open"|"add"|"trim"|"dca", ticker, shares, price, reason,
  *        position_id, score, stage }
  */
-async function shortClientOrderId(kind, tradeId) {
+async function shortClientOrderId(kind, tradeId, nonce = "") {
   // Webull: client_order_id length must be 10–40. Position ids like
   // inv-PANW-auto-<ms> made `tt-lt-dca-inv-inv-…` overflow (44+).
-  const raw = String(tradeId || "");
+  // The (kind, tradeId) hash gives us free per-trade idempotency: the
+  // bridge dedupes on client_order_id, so if the model re-fires the
+  // same event twice we never double-place. For explicit operator
+  // retries (see catchup-investor) pass a `nonce` — usually Date.now()
+  // stringified — so the hash flips and dedupe releases exactly for
+  // that call (KO PRE_EARNINGS retry 2026-07-27: first attempt burned
+  // the id with a no_manifest reject; second attempt after the alias
+  // fix hit `duplicate_client_order_id` from the same hash).
+  const raw = String(tradeId || "") + (nonce ? `|${nonce}` : "");
   let hex = "";
   try {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
@@ -125,7 +133,15 @@ async function shortClientOrderId(kind, tradeId) {
 export async function forwardInvestorMirror(env, op = {}) {
   const ticker = String(op?.ticker || "").toUpperCase();
   const kind = String(op?.kind || "add");
-  const side = kind === "trim" ? "sell" : "buy";
+  // Reducer kinds MUST resolve to `sell` so the bridge treats them as
+  // TRIM/EXIT (guard clamps, OCO cancel, manifest close) — mapping them
+  // to `buy` (the earlier default) would place a BUY order for an exit.
+  // 2026-07-27 — surfaced while retrying KO's event-risk trim: the
+  // invalidation-exit path passes kind="exit"; without this branch it
+  // would have side-flipped the intent had it ever fired live on a
+  // Webull-enabled account.
+  const isReducer = kind === "trim" || kind === "exit" || kind === "close" || kind === "reduce" || kind === "sell";
+  const side = isReducer ? "sell" : "buy";
   // position_id is already `inv-…` from D1 — don't double-prefix.
   const posId = op?.position_id != null ? String(op.position_id) : "";
   const tradeId = posId
@@ -160,7 +176,12 @@ export async function forwardInvestorMirror(env, op = {}) {
     ? Number(op.model_capital_usd)
     : 100000;
   const userEmail = env?.ADMIN_EMAIL || "operator";
-  const clientOrderId = await shortClientOrderId(kind, tradeId);
+  // Operator retry (catchup-investor) sets `retry_nonce` so the
+  // client_order_id flips off the (kind, tradeId) hash and the bridge's
+  // idempotency layer accepts it as a fresh order. Normal auto-mirror
+  // calls omit it and keep the natural per-trade idempotency.
+  const nonce = op?.retry_nonce != null ? String(op.retry_nonce) : "";
+  const clientOrderId = await shortClientOrderId(kind, tradeId, nonce);
   try {
     const result = await forwardOrderToBridge(env, {
       user_id: userEmail,

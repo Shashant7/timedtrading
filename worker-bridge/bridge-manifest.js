@@ -360,15 +360,34 @@ export async function readManifestRow(env, userId, tradeId, brokerAccountId) {
   const db = env?.BRIDGE_DB;
   if (!db) return null;
   await ensureMirrorManifestSchema(env);
+  const uid = String(userId).toLowerCase();
+  const acct = String(brokerAccountId || "default");
+  const tid = String(tradeId);
   try {
-    const row = await db.prepare(`
+    let row = await db.prepare(`
       SELECT * FROM mirror_trade_manifest
        WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3
-    `).bind(
-      String(userId).toLowerCase(),
-      String(tradeId),
-      String(brokerAccountId || "default"),
-    ).first();
+    `).bind(uid, tid, acct).first();
+    if (!row) {
+      // 2026-07-27 — legacy trade_id prefix alias. Investor DCAs prior to
+      // the client_order_id / trade_id normalization sat in the manifest
+      // as `inv-inv-<pos_id>` while the current forwardInvestorMirror
+      // writes `inv-<pos_id>`. Any reducer/close/reconcile against a
+      // legacy row would miss and hard-reject `no_manifest_for_trade`
+      // (KO PRE_EARNINGS trim, Jul 27). Try the flipped prefix once
+      // before returning null. New writes are single-prefix by design;
+      // this is a read-side compat shim that costs one extra query only
+      // when the direct lookup misses.
+      const altTid = tid.startsWith("inv-inv-")
+        ? tid.replace(/^inv-inv-/, "inv-")
+        : (tid.startsWith("inv-") ? tid.replace(/^inv-/, "inv-inv-") : null);
+      if (altTid) {
+        row = await db.prepare(`
+          SELECT * FROM mirror_trade_manifest
+           WHERE user_id=?1 AND trade_id=?2 AND broker_account_id=?3
+        `).bind(uid, altTid, acct).first();
+      }
+    }
     return row ? _expandJsonCols(row) : null;
   } catch (e) {
     console.warn(`[MANIFEST] readManifestRow failed:`,

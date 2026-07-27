@@ -80895,10 +80895,22 @@ export default {
           const ring = await readClientRing(env);
           // Only skip lots that already placed successfully on the bridge.
           // Prior catch-up errors (e.g. oversized client_order_id) must retry.
+          // 2026-07-27 — key by (side, trade_id): a successful BUY on the
+          // position must NOT mask a subsequent SELL that still needs to
+          // reach the broker (this is exactly why the KO PRE_EARNINGS
+          // trim was silently skipped by catch-up — the Jul 24 DCA buy
+          // for the same position was in the ring as ok).
+          // Also require rh_order_id / broker_order_id to be non-null: a
+          // bridge dedupe_skip returns ok:true with a null order id
+          // (client_order_id already burned by a prior failed attempt);
+          // treating it as "mirrored" would swallow the retry. Real
+          // places always echo an order id.
           const mirroredOkIds = new Set(
             (ring || [])
-              .filter((r) => String(r?.trade_id || "").startsWith("inv-") && r?.status === "ok")
-              .map((r) => String(r.trade_id)),
+              .filter((r) => String(r?.trade_id || "").startsWith("inv-")
+                && r?.status === "ok"
+                && (r?.rh_order_id || r?.broker_order_id || r?.order_id))
+              .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
           );
           const seen = new Set();
           const planned = [];
@@ -80911,8 +80923,10 @@ export default {
             const tradeId = posId
               ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
               : `inv-${lot.ticker}-${lot.action}`;
+            const lotSide = lot.action === "SELL" ? "sell" : "buy";
             // Legacy double-prefix trade_ids from the first catch-up attempt.
-            if (mirroredOkIds.has(tradeId) || mirroredOkIds.has(`inv-${tradeId}`)) continue;
+            if (mirroredOkIds.has(`${lotSide}|${tradeId}`)
+                || mirroredOkIds.has(`${lotSide}|inv-${tradeId}`)) continue;
             const kind = lot.action === "SELL" ? "trim"
               : lot.action === "DCA_BUY" ? "dca" : "add";
             planned.push({
@@ -80929,8 +80943,18 @@ export default {
           }
           const results = [];
           if (!dryRun) {
+            // 2026-07-27 — pass a fresh retry_nonce per catchup call so a
+            // previously-burned client_order_id (e.g. the first attempt
+            // failed with a hard reject and the (kind, tradeId) hash is
+            // now cached as `duplicate_client_order_id`) does not silently
+            // dedupe on the bridge and swallow the retry.
+            const retryNonce = String(Date.now());
             for (const op of planned) {
-              const r = await forwardInvestorMirror(env, { ...op, source: "catchup_investor" });
+              const r = await forwardInvestorMirror(env, {
+                ...op,
+                source: "catchup_investor",
+                retry_nonce: retryNonce,
+              });
               results.push({
                 ticker: op.ticker, kind: op.kind, trade_id: op.trade_id,
                 ok: !!r?.ok, skip: r?.skip || null,
@@ -93823,6 +93847,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               profileReasons: riskProfile.reasons,
               remaining: Math.max(0, Math.round(remaining * 10000) / 10000),
             });
+            // 2026-07-27 — Mirror the event-risk trim (pre-earnings /
+            // pre-macro) to the broker bridge. Every OTHER investor
+            // reducer path — invalidation exit, auto-reduce, exhaustion
+            // lock-in — already queues this call; this loop was the only
+            // trim that touched investor_positions/lots without telling
+            // Webull. Result: KO's PRE_EARNINGS_RISK_REDUCTION trim on
+            // Jul 27 sold 10.568 sh in the model book while the broker
+            // stayed long the full lot. Fire-and-forget via queueBackground
+            // matches the sibling reducers; kind="exit" when the trim
+            // flattens the position so the bridge cancels sibling OCOs
+            // and the manifest closes cleanly.
+            queueBackground(_bridgeMirrorInvestor({
+              kind: remaining <= 0.0001 ? "exit" : "trim",
+              ticker: pos.ticker,
+              shares: trimShares,
+              price,
+              position_id: pos.id,
+              reason: `investor_${String(trimReason || "event_risk_trim").toLowerCase()}`,
+              stage: scores[pos.ticker]?.stage || null,
+              score: scores[pos.ticker]?.score || null,
+            }));
             scheduleInvestorLotActionChannels(env, env?.KV_TIMED, {
               ticker: pos.ticker,
               shares: trimShares,

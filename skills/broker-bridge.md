@@ -49,6 +49,28 @@ the operator audit log, or the `tt-broker-bridge` worker.
 >   not `scanned=0`. Probe live with the admin webull test action
 >   `list_orders` (optional `args.path` restricted to
 >   `/openapi/trade/order*`).
+>
+> **Investor reducer mirror coverage (2026-07-27):** Every investor
+> auto-rebalance reducer path — invalidation exit, event-risk
+> (pre-earnings / pre-macro) trim, auto-reduce (score→reduce),
+> exhaustion lock-in — MUST queue `_bridgeMirrorInvestor` after writing
+> the D1 lot. `worker/investor-reducer-mirror-coverage.test.js` is the
+> regression guard (source contract). Discord + email alerts run from
+> `scheduleInvestorLotActionChannels`, which never touches the bridge —
+> **`bridge:client:recent` is the truth**. Related invariants:
+> - `forwardInvestorMirror` maps the whole reducer verb set
+>   (`trim | exit | close | reduce | sell`) → `side="sell"`. Passing
+>   `kind="exit"` used to map to `side="buy"` (would place a BUY for an
+>   exit intent) — landmine fixed 2026-07-27.
+> - `catchup-investor` dedupe: key mirror-ok by `(side, trade_id)` (so a
+>   prior BUY doesn't mask a later SELL) AND require a non-null broker
+>   `order id` (so a bridge `dedupe_skip` — ok:true, null id — doesn't
+>   look like a real place). Pass `retry_nonce` per catchup call so
+>   `shortClientOrderId` produces a fresh id and the bridge idempotency
+>   layer releases the retry.
+> - `readManifestRow` transparently aliases `inv-inv-*` ↔ `inv-*` trade
+>   IDs so legacy investor manifest rows (pre-normalization) don't
+>   reject `no_manifest_for_trade` on their first reducer lookup.
 
 **Architecture:**
 
