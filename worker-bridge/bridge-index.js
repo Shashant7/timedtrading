@@ -34,6 +34,7 @@ import {
   writeEntryManifest, writeRejectedEntry,
   recentManifestRows, readManifestRow,
   classifyOrderLifecycle, markManifestModelClosed,
+  writeLastActionAudit,
 } from "./bridge-manifest.js";
 import {
   reconcileAllUsers, reconcileUser,
@@ -1827,6 +1828,43 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       markManifestModelClosed(env, sanitized.user_id, sanitized.trade_id, accountId, {
         exitReason, exitTs: Date.now(),
       }).catch(e => console.warn("[MANIFEST] markClosed failed:", String(e?.message || e).slice(0, 160)));
+    }
+
+    // 2026-07-27 — Post-execution audit. Every successful REDUCER
+    // (TRIM / EXIT / CLOSE) stamps its expectation onto the manifest
+    // row: pre-held qty (broker-verified milliseconds ago), intended
+    // qty (reconciled), expected post-held qty. The reconciler compares
+    // live held vs expected_post_held_qty a couple of minutes later
+    // and either clears the audit (in_sync) or emits a post_exec_drift
+    // notification. This is the "did our action result in what we
+    // expected?" contract — every model-fired reducer signal now has
+    // a first-class execution receipt attached to its manifest row.
+    if ((lifecycle === "reduce" || lifecycle === "close") && sanitized.trade_id) {
+      const preHeld = Number(sanitized?._reducer?.heldQty);
+      // Prefer the pre-round reconciled qty (what the model wanted post
+      // reducer sizing); the broker adapter may round to precision but
+      // we intended `pre_round_qty`. Falls back to the placed qty.
+      const intended = Number(sanitized?._reducer?.pre_round_qty) || Number(sanitized.qty);
+      if (Number.isFinite(preHeld) && preHeld > 0 && Number.isFinite(intended) && intended > 0) {
+        writeLastActionAudit(env, {
+          userId: sanitized.user_id,
+          tradeId: sanitized.trade_id,
+          brokerAccountId,
+          kind: sanitized.side,
+          preHeldQty: preHeld,
+          intendedQty: intended,
+          clientOrderId: sanitized.client_order_id || null,
+          brokerOrderId: rhOrderId,
+          reasons: {
+            is_full: !!sanitized?._reducer?.isFull,
+            model_remaining: sanitized?._reducer?.modelRemaining ?? null,
+            placed_qty: Number(sanitized.qty) || null,
+          },
+        }).catch((e) => console.warn(
+          `[MANIFEST] writeLastActionAudit failed for ${sanitized.trade_id}:`,
+          String(e?.message || e).slice(0, 160),
+        ));
+      }
     }
 
     // On a partial TRIM, re-establish OCO protection for the REMAINING qty

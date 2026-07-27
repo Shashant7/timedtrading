@@ -39,11 +39,19 @@
 //   - Schema mismatch (e.g. column missing) → caught and logged once
 //     per process; subsequent rows continue.
 
-import { ensureMirrorManifestSchema } from "./bridge-manifest.js";
+import {
+  ensureMirrorManifestSchema,
+  readLastActionAudit,
+  markLastActionVerified,
+  markLastActionDrift,
+  POST_EXEC_VERIFY_DELAY_MS,
+  POST_EXEC_TOLERANCE_QTY,
+} from "./bridge-manifest.js";
 import { emitDriftNotification } from "./bridge-notifications.js";
 import { snapshotAccount } from "./bridge-account-ledger.js";
 import { resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
 import { reconcileAccountFills } from "./bridge-fills.js";
+import { writeAudit } from "./bridge-storage.js";
 
 const TOLERANCE = {
   trader_equity: 0.01,
@@ -670,6 +678,110 @@ async function _persistReconcileError(env, row, errMsg) {
 }
 
 /**
+ * 2026-07-27 — Post-execution audit verification. For any manifest row
+ * carrying a `sync_last_action_json` snapshot (stamped after a
+ * successful TRIM / EXIT / CLOSE place), compare the live held qty
+ * against the expected post-execution held qty. Fires per-row after
+ * `_persistRowUpdate` — the reconciler has already fetched broker
+ * positions this cycle, so this check is free.
+ *
+ * Behavior:
+ *   - Skipped when the audit isn't due yet (POST_EXEC_VERIFY_DELAY_MS
+ *     window — gives the broker time to route/fill).
+ *   - Skipped when already verified (single-shot per stamped intent).
+ *   - Verified when |liveHeld - expectedPostHeld| <= POST_EXEC_TOLERANCE_QTY
+ *     → marks the audit verified + emits an audit-log row.
+ *   - Drift otherwise → marks drift, emits notification + audit log.
+ *
+ * @param {object} env
+ * @param {object} row              Manifest row (already updated w/ heldQty)
+ * @param {number} liveHeldQty      Fresh broker held qty for this trade
+ * @returns {Promise<'skip_not_due'|'skip_verified'|'skip_no_audit'|'verified'|'drift'>}
+ */
+async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
+  const audit = readLastActionAudit(row);
+  if (!audit) return "skip_no_audit";
+  if (audit.verified === true) return "skip_verified";
+  const verifyAfter = Number(audit.verify_after_ms || 0);
+  if (verifyAfter > 0 && Date.now() < verifyAfter) return "skip_not_due";
+
+  const expected = Number(audit.expected_post_held_qty);
+  if (!Number.isFinite(expected)) return "skip_no_audit";
+  const live = Number(liveHeldQty) || 0;
+  const drift = live - expected;
+  const absDrift = Math.abs(drift);
+
+  if (absDrift <= POST_EXEC_TOLERANCE_QTY) {
+    // Broker converged. Clear the audit (verified) + log the receipt.
+    await markLastActionVerified(env, row, live);
+    try {
+      await writeAudit(env, {
+        ts: Date.now(),
+        user_id: row.user_id,
+        trade_id: row.trade_id,
+        ticker: row.ticker,
+        action: "post_exec_verified",
+        side: audit.kind || null,
+        qty: audit.intended_qty || null,
+        status: "ok",
+        request_json: {
+          broker_account_id: row.broker_account_id,
+          pre_held_qty: audit.pre_held_qty,
+          intended_qty: audit.intended_qty,
+          expected_post_held_qty: expected,
+          live_held_qty: live,
+          drift_qty: drift,
+          client_order_id: audit.client_order_id,
+          broker_order_id: audit.broker_order_id,
+        },
+      });
+    } catch (_) { /* audit best-effort */ }
+    return "verified";
+  }
+
+  // Drift — broker did NOT do what we asked. Stamp drift on the audit,
+  // log a discrepancy audit row, and emit a critical drift notification
+  // so the operator sees a first-class alert (Discord + email in
+  // production).
+  await markLastActionDrift(env, row, live);
+  const reason = live > expected
+    ? "reducer_underexecuted_or_replenished" // broker sold LESS than expected
+    : "reducer_overexecuted";                // broker sold MORE than expected
+  try {
+    await writeAudit(env, {
+      ts: Date.now(),
+      user_id: row.user_id,
+      trade_id: row.trade_id,
+      ticker: row.ticker,
+      action: "post_exec_drift",
+      side: audit.kind || null,
+      qty: audit.intended_qty || null,
+      status: "warn",
+      reject_reason: reason,
+      request_json: {
+        broker_account_id: row.broker_account_id,
+        pre_held_qty: audit.pre_held_qty,
+        intended_qty: audit.intended_qty,
+        expected_post_held_qty: expected,
+        live_held_qty: live,
+        drift_qty: drift,
+        client_order_id: audit.client_order_id,
+        broker_order_id: audit.broker_order_id,
+        tolerance_qty: POST_EXEC_TOLERANCE_QTY,
+      },
+    });
+  } catch (_) { /* audit best-effort */ }
+  try {
+    await emitDriftNotification(env, {
+      ...row,
+      sync_state: "reconcile_error",
+      sync_note: `post-exec drift on ${audit.kind}: expected ~${expected.toFixed(4)} held, live ${live.toFixed(4)} (drift ${drift.toFixed(4)} sh)`,
+    }, "critical");
+  } catch (_) { /* notify best-effort */ }
+  return "drift";
+}
+
+/**
  * Reconcile a single user against their broker.
  *
  * @param {object} env
@@ -817,6 +929,33 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     }
 
     await _persistRowUpdate(env, row, classification);
+
+    // 2026-07-27 — Post-execution audit verification. Free ride: the
+    // reconciler already fetched broker positions this cycle. If the
+    // row carries a `sync_last_action_json` snapshot from a recently
+    // placed TRIM/EXIT, compare live held vs expected — mark verified
+    // or emit a post_exec_drift notification so the operator sees a
+    // first-class alert when a reducer signal didn't take.
+    try {
+      const brokerQty = Number(classification.broker_state?.qty) || 0;
+      const userAdded = Number(classification.broker_state?.user_added) || 0;
+      const liveHeld = Math.max(0, brokerQty - userAdded);
+      const audit = readLastActionAudit(row);
+      if (audit && !audit.verified) {
+        const outcome = await _verifyPostExecutionAudit(env, row, liveHeld);
+        if (outcome === "verified") {
+          stats.post_exec_verified = (stats.post_exec_verified || 0) + 1;
+        } else if (outcome === "drift") {
+          stats.post_exec_drift = (stats.post_exec_drift || 0) + 1;
+        } else if (outcome === "skip_not_due") {
+          stats.post_exec_pending = (stats.post_exec_pending || 0) + 1;
+        }
+      }
+    } catch (e) {
+      console.warn("[POST_EXEC_AUDIT] verify failed:",
+        String(e?.message || e).slice(0, 200));
+    }
+
     if (classification.drift_detected) {
       stats.rows_drifting++;
       const newDrift = (Number(row.sync_drift_count) || 0) + 1;

@@ -404,8 +404,16 @@ export function evaluateReducerAgainstPositions({ ticker, requestedQty, position
  * (or the held qty if the model portion is unknown). A full exit flattens the
  * model portion. Everything is clamped to the live held qty.
  *
+ * 2026-07-27 — Dust sweep on full-exit. When the intent is a flatten and the
+ * live holding sits within `dustSweepTolerance` of the model portion (broker-
+ * side rounding on the initial fill can leave 0.0001–0.05 sh above the model
+ * shares the mirror opened), take the WHOLE held qty so we don't leave dust
+ * that keeps the manifest open + pings the reconciler indefinitely. Never
+ * touches shares beyond the tolerance — real user-added excess still stays
+ * with the user.
+ *
  * @returns {{qty, isFull, adjusted, discrepancy:Array|null, reasons:Array,
- *            modelRemainingQty, heldQty}}
+ *            modelRemainingQty, heldQty, sweptDust:boolean}}
  */
 export function reconcileReducerQty({
   side,
@@ -414,6 +422,7 @@ export function reconcileReducerQty({
   modelRemainingQty = null,
   heldQty,
   tolerance = 1e-6,
+  dustSweepTolerance = 0.05,
 } = {}) {
   const lc = String(side || "").toLowerCase();
   const isFull = lc === "exit" || lc === "close" || lc === "sell";
@@ -422,6 +431,7 @@ export function reconcileReducerQty({
   const reqQty = Number(requestedQty) || 0;
   const reasons = [];
   const discrepancy = [];
+  let sweptDust = false;
 
   const pctRaw = reducePct == null ? null : Number(reducePct);
   const pct = pctRaw != null && Number.isFinite(pctRaw) && pctRaw > 0
@@ -436,13 +446,30 @@ export function reconcileReducerQty({
   } else if (isFull) {
     intended = model != null && model > 0 ? model : held;
     reasons.push(model != null ? "full_model_portion" : "full_held");
+    // 2026-07-27 — Dust sweep on full-exit. Broker-side fill precision
+    // (e.g. Webull rounding an initial market fill) can leave the account
+    // holding 0.0001–0.05 sh MORE than the model portion recorded. On a
+    // flatten we sweep that dust so the manifest closes cleanly — leaving
+    // ~0.001 sh behind keeps the row "open" forever and pings the
+    // reconciler each cycle. Bounded by dustSweepTolerance so genuine
+    // user-added excess stays untouched (see capped_to_model_portion
+    // below).
+    if (model != null && held > intended + tolerance) {
+      const excess = held - intended;
+      if (excess <= dustSweepTolerance) {
+        intended = held;
+        sweptDust = true;
+        reasons.push(`full_exit_sweep_dust_${excess.toFixed(6)}`);
+      }
+    }
   } else {
     intended = reqQty;
     reasons.push("explicit_qty");
   }
 
   // Never reduce more than the model's tracked portion (protect user shares).
-  if (model != null && intended > model + tolerance) {
+  // Not applied when the dust sweep intentionally bumped intended up to held.
+  if (!sweptDust && model != null && intended > model + tolerance) {
     intended = model;
     reasons.push("capped_to_model_portion");
   }
@@ -452,7 +479,12 @@ export function reconcileReducerQty({
     if (held + tolerance < model) {
       discrepancy.push({ kind: "held_lt_model", held, model, note: "account holds less than model tracked (user may have trimmed/sold)" });
     } else if (held > model + tolerance) {
-      discrepancy.push({ kind: "held_gt_model", held, model, note: "account holds more than model tracked (user may have added); reducing only the model portion" });
+      // Full-exit dust: NOT a real discrepancy, just broker-side fill
+      // precision. Skip the noisy notification.
+      const isDust = isFull && (held - model) <= dustSweepTolerance;
+      if (!isDust) {
+        discrepancy.push({ kind: "held_gt_model", held, model, note: "account holds more than model tracked (user may have added); reducing only the model portion" });
+      }
     }
   }
 
@@ -473,6 +505,7 @@ export function reconcileReducerQty({
     reasons,
     modelRemainingQty: model,
     heldQty: held,
+    sweptDust,
   };
 }
 
