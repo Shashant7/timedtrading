@@ -33,6 +33,121 @@ describe("reconcileReducerQty — TRIM uses reduce_pct of model portion", () => 
   });
 });
 
+describe("reconcileReducerQty — TRIM (side=trim) uses explicit qty (KO retry regression)", () => {
+  it("side=trim with explicit qty uses reqQty, NOT full model portion", () => {
+    // KO scenario: model book intended 4.04568 sh trim; broker holds 10.9.
+    // With the correct side=trim (not side=sell), the bridge must sell
+    // exactly the intended 4.04568 — not liquidate all 10.9 sh.
+    const r = reconcileReducerQty({
+      side: "trim",
+      requestedQty: 4.04568,
+      reducePct: null,
+      modelRemainingQty: 10.9,
+      heldQty: 10.9,
+    });
+    expect(r.qty).toBeCloseTo(4.04568, 5);
+    expect(r.isFull).toBe(false);
+    expect(r.reasons).toContain("explicit_qty");
+    expect(r.sweptDust).toBe(false);
+  });
+
+  it("side=sell (exit) with same model + held liquidates in full (documents the difference)", () => {
+    const r = reconcileReducerQty({
+      side: "sell",
+      requestedQty: 4.04568,   // model would have passed the trim qty
+      reducePct: null,
+      modelRemainingQty: 10.9,
+      heldQty: 10.9,
+    });
+    expect(r.qty).toBeCloseTo(10.9, 5); // full flatten
+    expect(r.isFull).toBe(true);
+  });
+});
+
+describe("reconcileReducerQty — full-exit dust sweep (2026-07-27)", () => {
+  it("sweeps up sub-dust when held slightly exceeds model portion (no leftover fraction)", () => {
+    // KO after event-risk full exit: model tracked 10.905 sh, broker
+    // reports 10.90578 held (0.00078 sh above model — broker-side fill
+    // precision). Without the sweep we sell 10.905 and leave 0.00078
+    // "open" on the manifest forever.
+    const r = reconcileReducerQty({
+      side: "exit",
+      requestedQty: 10.905,
+      reducePct: null,
+      modelRemainingQty: 10.905,
+      heldQty: 10.90578,
+    });
+    expect(r.qty).toBeCloseTo(10.90578, 6);
+    expect(r.sweptDust).toBe(true);
+    expect(r.reasons.some((s) => String(s).startsWith("full_exit_sweep_dust_"))).toBe(true);
+    // A dust delta is NOT a real discrepancy on a full exit — skip the
+    // noisy notification.
+    expect(r.discrepancy).toBeNull();
+  });
+
+  it("does NOT sweep on a partial trim (side=trim) even when held is slightly above model", () => {
+    const r = reconcileReducerQty({
+      side: "trim",
+      requestedQty: 3,
+      reducePct: null,
+      modelRemainingQty: 10.905,
+      heldQty: 10.90578,
+    });
+    // trim of 3 sh; no dust involved because we're not flattening.
+    expect(r.qty).toBeCloseTo(3, 6);
+    expect(r.sweptDust).toBe(false);
+  });
+
+  it("does NOT sweep when the excess exceeds the tolerance (protects user shares)", () => {
+    // User added 0.5 sh above the model portion (>0.05 dust tolerance).
+    // A full exit must NOT touch the user's shares — stays at model.
+    const r = reconcileReducerQty({
+      side: "sell",
+      requestedQty: 10.9,
+      reducePct: null,
+      modelRemainingQty: 10.9,
+      heldQty: 11.4, // 0.5 sh user-added
+    });
+    expect(r.qty).toBeCloseTo(10.9, 6);
+    expect(r.sweptDust).toBe(false);
+    // The full exit path settled on model portion (10.9); the "held_gt_model"
+    // discrepancy is still surfaced so the operator sees the untouched excess.
+    expect(r.discrepancy).not.toBeNull();
+    expect(r.discrepancy.some((d) => d.kind === "held_gt_model")).toBe(true);
+  });
+
+  it("dust sweep respects heldQty ceiling — cannot oversell if held is below intended", () => {
+    // Edge: model says 10.9, held=10.9 (exact match). No dust to sweep.
+    const r = reconcileReducerQty({
+      side: "close",
+      requestedQty: 10.9,
+      reducePct: null,
+      modelRemainingQty: 10.9,
+      heldQty: 10.9,
+    });
+    expect(r.qty).toBeCloseTo(10.9, 6);
+    expect(r.sweptDust).toBe(false);
+  });
+
+  it("dustSweepTolerance is overridable per-call", () => {
+    // 0.1 sh excess is above default 0.05 tolerance → no sweep by default.
+    const rDefault = reconcileReducerQty({
+      side: "exit", requestedQty: 10, reducePct: null,
+      modelRemainingQty: 10, heldQty: 10.1,
+    });
+    expect(rDefault.sweptDust).toBe(false);
+    expect(rDefault.qty).toBeCloseTo(10, 6);
+    // With a higher tolerance the sweep engages.
+    const rWide = reconcileReducerQty({
+      side: "exit", requestedQty: 10, reducePct: null,
+      modelRemainingQty: 10, heldQty: 10.1,
+      dustSweepTolerance: 0.5,
+    });
+    expect(rWide.sweptDust).toBe(true);
+    expect(rWide.qty).toBeCloseTo(10.1, 6);
+  });
+});
+
 describe("evaluateReducerAgainstPositions — never sell what you don't hold", () => {
   it("REJECTS a sell when the account holds no position (the Roth scenario)", () => {
     const r = evaluateReducerAgainstPositions({
