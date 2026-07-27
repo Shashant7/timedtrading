@@ -961,6 +961,11 @@ import {
   unsubscribeConfirmationHtml,
 } from "./email.js";
 import {
+  extractSubscriptionPromoCode,
+  lookupVipCodeRow,
+  resolveCheckoutTierGrant,
+} from "./stripe-vip-code.js";
+import {
   syncAllETFHoldings,
   handleGetETFGroups,
   handleGetETFHoldings,
@@ -78690,16 +78695,23 @@ export default {
             const session = event.data.object;
             const email = (session.customer_email || session.metadata?.user_email || "").toLowerCase();
             if (email) {
-              // Fetch the real subscription status from Stripe (may be "trialing" if trial_period_days was set)
+              // Fetch the real subscription status from Stripe (may be "trialing" if trial_period_days was set).
+              // 2026-07-27 — Also expand the applied promotion_code + discounts so we can
+              // detect a VIP invite redemption at checkout. A user who pasted a VIP code
+              // used to land in Pro/Trial because this handler unconditionally wrote
+              // tier='pro' — operator had to flip them by hand.
               let subStatus = "active";
               let trialEnd = null;
+              let subObj = null;
               if (session.subscription && env.STRIPE_SECRET_KEY) {
                 try {
-                  const subResp = await fetch(`https://api.stripe.com/v1/subscriptions/${session.subscription}`, {
-                    headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` },
-                  });
+                  const subResp = await fetch(
+                    `https://api.stripe.com/v1/subscriptions/${session.subscription}`
+                      + `?expand[]=discount.promotion_code&expand[]=discounts.promotion_code`,
+                    { headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` } },
+                  );
                   if (subResp.ok) {
-                    const subObj = await subResp.json();
+                    subObj = await subResp.json();
                     subStatus = subObj.status || "active"; // "trialing", "active", etc.
                     trialEnd = subObj.trial_end ? subObj.trial_end * 1000 : null; // Stripe sends epoch seconds, store as ms
                     console.log(`[STRIPE] Subscription ${session.subscription}: status=${subStatus}, trial_end=${trialEnd}`);
@@ -78708,25 +78720,90 @@ export default {
                   console.warn(`[STRIPE] Failed to fetch subscription details:`, String(e));
                 }
               }
+
+              // VIP promo-code detection. If the applied promotion code matches a row
+              // in `vip_codes`, treat this checkout as a permanent VIP grant (tier='vip'
+              // + subscription_status='manual' — matches the admin-flip semantics so
+              // customer.subscription.deleted won't downgrade later) and cancel the
+              // Stripe subscription so the user isn't billed when the 12-month 100%-off
+              // coupon expires.
+              await d1EnsureVipCodesSchema(env);
+              const _vipGrant = await resolveCheckoutTierGrant({
+                subObj,
+                lookup: (q) => lookupVipCodeRow(env, q),
+              });
+              const _isVip = _vipGrant.tier === "vip";
+              const _tierToWrite = _isVip ? "vip" : "pro";
+              const _statusToWrite = _isVip ? "manual" : subStatus;
+              const _trialEndToWrite = _isVip ? null : trialEnd; // VIP has no trial concept
+
               await db.prepare(`
-                UPDATE users SET tier = 'pro', stripe_customer_id = ?1, stripe_subscription_id = ?2,
-                subscription_status = ?3, trial_end = ?4, expires_at = NULL, updated_at = ?5 WHERE email = ?6
-              `).bind(session.customer || null, session.subscription || null, subStatus, trialEnd, Date.now(), email).run();
-              console.log(`[STRIPE] checkout.session.completed for ${email}, status=${subStatus}`);
+                UPDATE users SET tier = ?1, stripe_customer_id = ?2, stripe_subscription_id = ?3,
+                subscription_status = ?4, trial_end = ?5, expires_at = NULL, updated_at = ?6 WHERE email = ?7
+              `).bind(
+                _tierToWrite,
+                session.customer || null,
+                session.subscription || null,
+                _statusToWrite,
+                _trialEndToWrite,
+                Date.now(),
+                email,
+              ).run();
+              console.log(`[STRIPE] checkout.session.completed for ${email}, tier=${_tierToWrite}, status=${_statusToWrite}`
+                + (_isVip ? ` (VIP code ${_vipGrant.vip_code_row?.code || _vipGrant.promo?.code || _vipGrant.promo?.promoId || "?"} redeemed)` : ""));
+
+              if (_isVip) {
+                // Mark the VIP code row as used (idempotent — used_at may already be
+                // set by the /admin/vip-codes cross-reference cron).
+                try {
+                  await db.prepare(`
+                    UPDATE vip_codes SET status = 'used', used_at = COALESCE(used_at, ?1), used_by_email = ?2
+                    WHERE id = ?3
+                  `).bind(Date.now(), email, _vipGrant.vip_code_row.id).run();
+                } catch (e) {
+                  console.warn(`[STRIPE] Failed to mark vip_codes row used for ${email}:`, String(e?.message || e).slice(0, 150));
+                }
+                // Cancel the Stripe subscription — VIP is a manual permanent grant,
+                // no billing needed. Skip cancellation if the sub is already gone /
+                // trialing-only / not present.
+                if (session.subscription && env.STRIPE_SECRET_KEY) {
+                  try {
+                    const cancelResp = await fetch(`https://api.stripe.com/v1/subscriptions/${session.subscription}`, {
+                      method: "DELETE",
+                      headers: { "Authorization": `Bearer ${env.STRIPE_SECRET_KEY}` },
+                    });
+                    if (cancelResp.ok) {
+                      console.log(`[STRIPE] VIP redeem — canceled Stripe sub ${session.subscription} for ${email}`);
+                    } else {
+                      const _err = await cancelResp.json().catch(() => ({}));
+                      console.warn(`[STRIPE] VIP redeem — cancel failed for ${email}:`, String(_err.error?.message || cancelResp.status).slice(0, 150));
+                    }
+                  } catch (e) {
+                    console.warn(`[STRIPE] VIP redeem — cancel threw for ${email}:`, String(e?.message || e).slice(0, 150));
+                  }
+                }
+              }
+
               await d1InsertNotification(env, {
                 email, type: "system",
-                title: "Subscription Activated",
-                body: subStatus === "trialing"
-                  ? "Welcome to Timed Trading Pro! Your 14-day free trial has started."
-                  : "Welcome to Timed Trading Pro! Your subscription is now active.",
+                title: _isVip ? "VIP Access Activated" : "Subscription Activated",
+                body: _isVip
+                  ? "Welcome to Timed Trading VIP. Full access is now live for this account — no billing required."
+                  : (subStatus === "trialing"
+                    ? "Welcome to Timed Trading Pro! Your 14-day free trial has started."
+                    : "Welcome to Timed Trading Pro! Your subscription is now active."),
                 link: "/today.html",
               });
-              // Subscription confirmation email
-              ctx.waitUntil(
-                sendSubscriptionEmail(env, email, subStatus === "trialing").catch(e =>
-                  console.warn("[STRIPE] Subscription email failed:", String(e?.message || e).slice(0, 150))
-                )
-              );
+              // Confirmation email — VIP welcome for VIP grants; standard Pro
+              // confirmation otherwise.
+              ctx.waitUntil((
+                _isVip
+                  ? sendVipWelcomeEmail(env, email)
+                  : sendSubscriptionEmail(env, email, subStatus === "trialing")
+              ).catch((e) => console.warn(
+                _isVip ? "[STRIPE] VIP welcome email failed:" : "[STRIPE] Subscription email failed:",
+                String(e?.message || e).slice(0, 150),
+              )));
               // Auto-provision Discord role if already connected
               if (env.DISCORD_BOT_TOKEN && env.DISCORD_GUILD_ID && env.DISCORD_SUBSCRIBER_ROLE_ID) {
                 ctx.waitUntil((async () => {
