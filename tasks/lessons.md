@@ -6,6 +6,56 @@
 
 ---
 
+## VIP code applied at checkout landed user in Pro Trial [2026-07-27]
+
+A user pasted a VIP invite code at Stripe checkout, checkout succeeded,
+but the account tier stayed `Pro (trial)` in Admin. Operator had to flip
+it manually.
+
+**Root.** `checkout.session.completed` webhook unconditionally wrote
+`tier = 'pro'` — the handler fetched the subscription only for
+`status` / `trial_end`, never for `discount.promotion_code`. VIP codes
+are just 100%-off Stripe coupons (`POST /timed/admin/vip-code` mints
+them + `vip_codes` D1 row keyed by `stripe_promo_id`), so at Stripe's
+level a VIP checkout looks identical to a Pro checkout with a launch
+discount applied.
+
+**Fix.** Webhook now fetches the sub with
+`?expand[]=discount.promotion_code&expand[]=discounts.promotion_code`
+(both legacy and current Stripe shapes) and passes the object to a
+pure helper `resolveCheckoutTierGrant`. The helper:
+
+1. `extractSubscriptionPromoCode(subObj)` — returns `{ promoId?, code? }`
+   from either `subObj.discount.promotion_code` or
+   `subObj.discounts[0].promotion_code`, accepting string ids or
+   expanded objects.
+2. `lookupVipCodeRow(env, {promoId, code})` — hits `vip_codes` by
+   `stripe_promo_id` first, then case-insensitive `code` fallback.
+   Best-effort: never throws (silences a rare D1 hiccup so the
+   webhook still writes at least the Pro baseline).
+3. Match → `{ tier: 'vip', subscription_status: 'manual' }`;
+   no match → `{ tier: 'pro', subscription_status: 'active_or_trialing' }`.
+
+On a VIP grant the webhook also:
+- Marks the `vip_codes` row `status='used'` + `used_by_email` +
+  `used_at` (idempotent — the admin cross-reference cron may already
+  have set it via Stripe polling).
+- Cancels the Stripe subscription. The coupon is `repeating,
+  duration_in_months=12`, so leaving it in place would silently
+  restart billing after a year. Manual-VIP has no billing.
+- Fires `sendVipWelcomeEmail` instead of `sendSubscriptionEmail`;
+  notification title reads "VIP Access Activated".
+- `subscription_status='manual'` triggers the existing guard in
+  `customer.subscription.deleted` (line ~78791) so the follow-up
+  cancellation webhook doesn't downgrade the fresh VIP grant.
+
+**Do not** trust Stripe checkout to emit any distinct event for VIP —
+it's just "a subscription with a 100%-off discount applied". The
+tier decision has to be reconstructed from the promotion_code and the
+`vip_codes` D1 truth table. Files: `worker/stripe-vip-code.js`,
+`worker/stripe-vip-code.test.js` (18 tests), `worker/index.js`
+`checkout.session.completed` branch.
+
 ## Every reducer must have a post-execution receipt [2026-07-27]
 
 Operator after the KO trim was oversold: *"we should be able to properly
