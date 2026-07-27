@@ -80936,8 +80936,18 @@ export default {
           }
           const results = [];
           if (!dryRun) {
+            // 2026-07-27 — pass a fresh retry_nonce per catchup call so a
+            // previously-burned client_order_id (e.g. the first attempt
+            // failed with a hard reject and the (kind, tradeId) hash is
+            // now cached as `duplicate_client_order_id`) does not silently
+            // dedupe on the bridge and swallow the retry.
+            const retryNonce = String(Date.now());
             for (const op of planned) {
-              const r = await forwardInvestorMirror(env, { ...op, source: "catchup_investor" });
+              const r = await forwardInvestorMirror(env, {
+                ...op,
+                source: "catchup_investor",
+                retry_nonce: retryNonce,
+              });
               results.push({
                 ticker: op.ticker, kind: op.kind, trade_id: op.trade_id,
                 ok: !!r?.ok, skip: r?.skip || null,

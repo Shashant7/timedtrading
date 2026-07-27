@@ -124,6 +124,47 @@ describe("forwardInvestorMirror", () => {
     }
   });
 
+  it("retry_nonce flips the client_order_id off the natural (kind, tradeId) hash", async () => {
+    async function captureCoid(env, extra = {}) {
+      const seen = [];
+      env.BROKER_BRIDGE = {
+        fetch: async (req) => {
+          const body = JSON.parse(await req.text());
+          seen.push(body.client_order_id);
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      };
+      vi.resetModules();
+      const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+      await forwardInvestorMirror(env, {
+        kind: "trim", ticker: "KO", shares: 10, price: 82,
+        position_id: "inv-KO-auto-1782223315559",
+        ...extra,
+      });
+      return seen[0];
+    }
+    const baseEnv = () => ({
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      KV_TIMED: { get: async () => "[]", put: async () => {} },
+    });
+    const plain = await captureCoid(baseEnv());
+    const nonced = await captureCoid(baseEnv(), { retry_nonce: "1785164000000" });
+    const noncedTwo = await captureCoid(baseEnv(), { retry_nonce: "1785164999999" });
+    expect(plain).not.toBe(nonced);
+    expect(nonced).not.toBe(noncedTwo);
+    // Same nonce → same client_order_id (deterministic per retry batch).
+    const sameNonce = await captureCoid(baseEnv(), { retry_nonce: "1785164000000" });
+    expect(sameNonce).toBe(nonced);
+    // Format still safe for Webull.
+    for (const c of [plain, nonced, noncedTwo]) {
+      expect(c.length).toBeGreaterThanOrEqual(10);
+      expect(c.length).toBeLessThanOrEqual(40);
+    }
+  });
+
   it("records skip when investor mirror is disabled", async () => {
     const env = {
       BROKER_INVESTOR_MIRROR_ENABLED: "false",
