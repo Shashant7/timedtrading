@@ -80900,9 +80900,16 @@ export default {
           // reach the broker (this is exactly why the KO PRE_EARNINGS
           // trim was silently skipped by catch-up — the Jul 24 DCA buy
           // for the same position was in the ring as ok).
+          // Also require rh_order_id / broker_order_id to be non-null: a
+          // bridge dedupe_skip returns ok:true with a null order id
+          // (client_order_id already burned by a prior failed attempt);
+          // treating it as "mirrored" would swallow the retry. Real
+          // places always echo an order id.
           const mirroredOkIds = new Set(
             (ring || [])
-              .filter((r) => String(r?.trade_id || "").startsWith("inv-") && r?.status === "ok")
+              .filter((r) => String(r?.trade_id || "").startsWith("inv-")
+                && r?.status === "ok"
+                && (r?.rh_order_id || r?.broker_order_id || r?.order_id))
               .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
           );
           const seen = new Set();
