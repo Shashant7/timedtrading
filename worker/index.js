@@ -93823,6 +93823,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               profileReasons: riskProfile.reasons,
               remaining: Math.max(0, Math.round(remaining * 10000) / 10000),
             });
+            // 2026-07-27 — Mirror the event-risk trim (pre-earnings /
+            // pre-macro) to the broker bridge. Every OTHER investor
+            // reducer path — invalidation exit, auto-reduce, exhaustion
+            // lock-in — already queues this call; this loop was the only
+            // trim that touched investor_positions/lots without telling
+            // Webull. Result: KO's PRE_EARNINGS_RISK_REDUCTION trim on
+            // Jul 27 sold 10.568 sh in the model book while the broker
+            // stayed long the full lot. Fire-and-forget via queueBackground
+            // matches the sibling reducers; kind="exit" when the trim
+            // flattens the position so the bridge cancels sibling OCOs
+            // and the manifest closes cleanly.
+            queueBackground(_bridgeMirrorInvestor({
+              kind: remaining <= 0.0001 ? "exit" : "trim",
+              ticker: pos.ticker,
+              shares: trimShares,
+              price,
+              position_id: pos.id,
+              reason: `investor_${String(trimReason || "event_risk_trim").toLowerCase()}`,
+              stage: scores[pos.ticker]?.stage || null,
+              score: scores[pos.ticker]?.score || null,
+            }));
             scheduleInvestorLotActionChannels(env, env?.KV_TIMED, {
               ticker: pos.ticker,
               shares: trimShares,
