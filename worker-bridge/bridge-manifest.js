@@ -93,6 +93,17 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS idx_mtm_updated    ON mirror_trade_manifest(updated_at DESC)`,
 ];
 
+// 2026-07-27 — Post-execution reducer audit column, added via ALTER TABLE
+// (wrapped in try/catch — safe when the column already exists per
+// tasks/lessons.md D1 rules). Stores JSON snapshot of the LAST placed
+// reducer's expectation: { ts, kind, intended_qty, pre_held_qty,
+// expected_post_held_qty, client_order_id, broker_order_id, verified,
+// verified_at, drift_pct }. The next reconciler cycle compares live
+// held vs expected_post_held_qty and clears (or drift-alerts) the row.
+const SCHEMA_ALTERS = [
+  `ALTER TABLE mirror_trade_manifest ADD COLUMN sync_last_action_json TEXT`,
+];
+
 let _schemaReady = false;
 
 /**
@@ -110,6 +121,19 @@ export async function ensureMirrorManifestSchema(env) {
   try {
     for (const ddl of SCHEMA_DDL) {
       await db.prepare(ddl).run();
+    }
+    // Idempotent column adds — safe to run on every deploy; ignore
+    // "duplicate column" errors from D1 when the column already exists
+    // (per tasks/lessons.md D1 rules).
+    for (const alt of SCHEMA_ALTERS) {
+      try {
+        await db.prepare(alt).run();
+      } catch (e) {
+        const msg = String(e?.message || e).toLowerCase();
+        if (!msg.includes("duplicate column") && !msg.includes("already exists")) {
+          console.warn(`[MANIFEST] ALTER skipped: ${msg.slice(0, 160)}`);
+        }
+      }
     }
     _schemaReady = true;
   } catch (e) {
@@ -452,12 +476,225 @@ function _expandJsonCols(row) {
     "broker_exit_order_ids",
     "broker_tp_order_ids",
     "broker_last_known_state",
+    "sync_last_action_json",
   ]) {
     if (typeof row[k] === "string" && row[k].length > 0) {
       try { row[k] = JSON.parse(row[k]); } catch (_) { /* leave as string */ }
     }
   }
   return row;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// 2026-07-27 — Post-execution reducer audit
+// ─────────────────────────────────────────────────────────────────────
+//
+// After every successful reducer (TRIM / EXIT / CLOSE) place, we stamp
+// the manifest row with a snapshot of what the bridge INTENDED to
+// happen: pre-held qty (verified from live positions milliseconds
+// before order placement), the reconciled intended qty, the expected
+// post-execution held qty, and the broker order id. The next reconciler
+// cycle (after a short verify-wait window) reads live broker held vs
+// `expected_post_held_qty` and either:
+//
+//   1. Clears the audit + marks in_sync when live matches expected
+//      within a tight tolerance (broker did what we asked).
+//   2. Emits a `post_exec_drift` notification + leaves the audit
+//      populated so an operator can retry / investigate.
+//
+// This is the "did our action result in what we expected?" contract
+// the operator asked for — every model-fired reducer signal now has
+// a first-class execution receipt attached to its manifest row.
+//
+// The audit is intentionally single-slot per row (last action wins).
+// A second reducer against the same trade before the first has been
+// verified is uncommon (blocked by manifest enforcement in most cases)
+// and would overwrite the prior expectation with the newer one — the
+// reconciler still compares live held against the LATEST intent, which
+// is the correct behavior.
+
+// Verification cannot fire immediately — the broker needs time to
+// route/fill and the fill reconciler needs time to snapshot. We defer
+// the first check until at least this many ms after the audit was
+// written; earlier reconciler passes will skip the row. 2 min is
+// tight enough to catch a blocked order the same session, loose
+// enough to survive routine broker latency + our 5-min reconcile cron.
+export const POST_EXEC_VERIFY_DELAY_MS = 2 * 60 * 1000;
+// Tolerance on the (expected_post_held_qty - live_held_qty) diff, in
+// shares. Broker fill precision (~0.00001 sh on Webull) plus tiny
+// dust routinely creates a fractional delta; anything larger than
+// this is a real execution gap we alert on.
+export const POST_EXEC_TOLERANCE_QTY = 0.05;
+
+/**
+ * Stamp the last-action expectation onto a manifest row. Best-effort:
+ * never throws. Called immediately after a successful reducer place
+ * from bridge-index.js so the reconciler can verify the outcome.
+ *
+ * @param {object} env
+ * @param {object} args
+ *   @property {string} userId          Manifest user_id (mirror owner)
+ *   @property {string} tradeId
+ *   @property {string} brokerAccountId
+ *   @property {string} kind            'trim' | 'exit' | 'close' | 'sell' | 'reduce'
+ *   @property {number} preHeldQty      Broker-verified held qty before the reducer
+ *   @property {number} intendedQty     Reconciled qty that was actually placed
+ *   @property {string} [clientOrderId]
+ *   @property {string} [brokerOrderId]
+ *   @property {object} [reasons]       Snapshot of recon.reasons / meta
+ * @returns {Promise<{ok:boolean, action?:string, reason?:string}>}
+ */
+export async function writeLastActionAudit(env, args = {}) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return { ok: false, action: "skipped", reason: "no_db" };
+  await ensureMirrorManifestSchema(env);
+
+  const userId = String(args?.userId || "").toLowerCase();
+  const tradeId = String(args?.tradeId || "").trim();
+  const brokerAccountId = String(args?.brokerAccountId || "default");
+  if (!userId || !tradeId) {
+    return { ok: false, action: "skipped", reason: "missing_user_id_or_trade_id" };
+  }
+
+  const preHeld = Number(args?.preHeldQty);
+  const intended = Number(args?.intendedQty);
+  if (!Number.isFinite(preHeld) || !Number.isFinite(intended) || intended <= 0) {
+    return { ok: false, action: "skipped", reason: "bad_qty_inputs" };
+  }
+  const expectedPostHeld = Math.max(0, preHeld - intended);
+  const now = Date.now();
+  const snapshot = {
+    ts: now,
+    kind: String(args?.kind || "").toLowerCase(),
+    intended_qty: intended,
+    pre_held_qty: preHeld,
+    expected_post_held_qty: expectedPostHeld,
+    client_order_id: args?.clientOrderId || null,
+    broker_order_id: args?.brokerOrderId || null,
+    reasons: args?.reasons || null,
+    verify_after_ms: now + POST_EXEC_VERIFY_DELAY_MS,
+    verified: false,
+    verified_at: null,
+    drift_qty: null,
+  };
+
+  try {
+    const res = await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET sync_last_action_json = ?4,
+             updated_at = ?5
+       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+    `).bind(userId, tradeId, brokerAccountId, JSON.stringify(snapshot), now).run();
+    const changes = res?.meta?.changes ?? 0;
+    if (changes > 0) return { ok: true, action: "stamped" };
+
+    // Reader-side alias parity — mirror the inv-*/inv-inv-* fallback
+    // in readManifestRow so a legacy DCA row still receives the audit.
+    const altTid = tradeId.startsWith("inv-inv-")
+      ? tradeId.replace(/^inv-inv-/, "inv-")
+      : (tradeId.startsWith("inv-") ? tradeId.replace(/^inv-/, "inv-inv-") : null);
+    if (altTid) {
+      const alt = await db.prepare(`
+        UPDATE mirror_trade_manifest
+           SET sync_last_action_json = ?4,
+               updated_at = ?5
+         WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+      `).bind(userId, altTid, brokerAccountId, JSON.stringify(snapshot), now).run();
+      if ((alt?.meta?.changes ?? 0) > 0) return { ok: true, action: "stamped_alias" };
+    }
+    return { ok: false, action: "skipped", reason: "no_matching_row" };
+  } catch (e) {
+    console.warn(`[MANIFEST] writeLastActionAudit failed for ${userId}/${tradeId}:`,
+      String(e?.message || e).slice(0, 200));
+    return { ok: false, action: "skipped", reason: `write_error:${String(e?.message || e).slice(0, 80)}` };
+  }
+}
+
+/**
+ * Mark a last-action audit as verified (live held converged to
+ * expected within tolerance). Populates `verified`, `verified_at`,
+ * `drift_qty` on the existing snapshot.
+ *
+ * @param {object} env
+ * @param {object} row     Manifest row (already read; caller passes
+ *                         the parsed sync_last_action_json).
+ * @param {number} liveHeldQty
+ * @returns {Promise<boolean>}
+ */
+export async function markLastActionVerified(env, row, liveHeldQty) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return false;
+  const audit = _parseAudit(row?.sync_last_action_json);
+  if (!audit) return false;
+  const drift = (Number(liveHeldQty) || 0) - (Number(audit.expected_post_held_qty) || 0);
+  const now = Date.now();
+  const updated = { ...audit, verified: true, verified_at: now, drift_qty: drift };
+  try {
+    await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET sync_last_action_json = ?4,
+             updated_at = ?5
+       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+    `).bind(row.user_id, row.trade_id, row.broker_account_id, JSON.stringify(updated), now).run();
+    return true;
+  } catch (e) {
+    console.warn(`[MANIFEST] markLastActionVerified failed for ${row?.user_id}/${row?.trade_id}:`,
+      String(e?.message || e).slice(0, 200));
+    return false;
+  }
+}
+
+/**
+ * Stamp a drift on the last-action audit (live held did NOT converge
+ * to expected within tolerance). Preserves the original expectation
+ * so the operator can see intended vs actual side-by-side; sets
+ * `drift_qty` + `drift_detected_at` and leaves `verified=false` so
+ * follow-up reconciler passes re-check (the drift may self-heal on
+ * the next fill snapshot).
+ */
+export async function markLastActionDrift(env, row, liveHeldQty) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return false;
+  const audit = _parseAudit(row?.sync_last_action_json);
+  if (!audit) return false;
+  const drift = (Number(liveHeldQty) || 0) - (Number(audit.expected_post_held_qty) || 0);
+  const now = Date.now();
+  const updated = {
+    ...audit,
+    verified: false,
+    verified_at: null,
+    drift_qty: drift,
+    drift_detected_at: now,
+    live_held_qty: Number(liveHeldQty) || 0,
+  };
+  try {
+    await db.prepare(`
+      UPDATE mirror_trade_manifest
+         SET sync_last_action_json = ?4,
+             updated_at = ?5
+       WHERE user_id = ?1 AND trade_id = ?2 AND broker_account_id = ?3
+    `).bind(row.user_id, row.trade_id, row.broker_account_id, JSON.stringify(updated), now).run();
+    return true;
+  } catch (e) {
+    console.warn(`[MANIFEST] markLastActionDrift failed for ${row?.user_id}/${row?.trade_id}:`,
+      String(e?.message || e).slice(0, 200));
+    return false;
+  }
+}
+
+function _parseAudit(raw) {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try { return JSON.parse(raw); } catch (_) { return null; }
+}
+
+/**
+ * Extract the parsed audit snapshot from a manifest row. Returns null
+ * if the row has no audit stamped, or the JSON is unparseable.
+ */
+export function readLastActionAudit(row) {
+  return _parseAudit(row?.sync_last_action_json);
 }
 
 /**
