@@ -7,6 +7,7 @@ import {
   overlayTimedPricesRow,
   overlayLivePricesOntoMap,
   PF_FRESH_MS,
+  PF_STALE_JITTER_MAX_MS,
   priceValueTimestamp,
   quoteReceiptTimestamp,
   resolveRestQuoteReceiptTs,
@@ -40,27 +41,73 @@ describe("quoteReceiptTimestamp", () => {
 });
 
 describe("resolveRestQuoteReceiptTs", () => {
-  it("keeps a fresh vendor trade_ts", () => {
+  const noJitter = { jitterMaxMs: 0 };
+
+  it("keeps a fresh vendor trade_ts (jitter never applies to real trade clock)", () => {
     const now = Date.now();
     const trade = now - 2 * 60 * 1000;
     expect(resolveRestQuoteReceiptTs(trade, now)).toBe(trade);
+    expect(resolveRestQuoteReceiptTs(trade, now, { jitterMaxMs: 5000 })).toBe(trade);
   });
 
   it("stamps receipt now when vendor trade_ts is aged (overnight / quiet print)", () => {
     const now = Date.now();
     const aged = now - 17 * 60 * 60 * 1000;
-    expect(resolveRestQuoteReceiptTs(aged, now)).toBe(now);
+    expect(resolveRestQuoteReceiptTs(aged, now, noJitter)).toBe(now);
   });
 
   it("stamps receipt now when trade_ts is missing", () => {
     const now = Date.now();
-    expect(resolveRestQuoteReceiptTs(0, now)).toBe(now);
-    expect(resolveRestQuoteReceiptTs(null, now)).toBe(now);
+    expect(resolveRestQuoteReceiptTs(0, now, noJitter)).toBe(now);
+    expect(resolveRestQuoteReceiptTs(null, now, noJitter)).toBe(now);
   });
 
   it("treats trade_ts just beyond PF_FRESH_MS as receipt-now", () => {
     const now = Date.now();
-    expect(resolveRestQuoteReceiptTs(now - PF_FRESH_MS - 1, now)).toBe(now);
+    expect(resolveRestQuoteReceiptTs(now - PF_FRESH_MS - 1, now, noJitter)).toBe(now);
+  });
+
+  // 2026-07-24 — value-freshness burst fix. Batched REST sweeps stamped
+  // every quiet symbol with q_ts = now; they then aged in lockstep and
+  // paged price_value_freshness the moment they crossed the 10-min stale
+  // threshold. Fallback now jitters q_ts across a 0..8m window so aging
+  // spreads across the cycle.
+  describe("stale-jitter fallback", () => {
+    it("exports a jitter cap below the 10m freshness gate so jittered stamps stay display-fresh", () => {
+      expect(PF_STALE_JITTER_MAX_MS).toBeGreaterThan(0);
+      expect(PF_STALE_JITTER_MAX_MS).toBeLessThan(PF_FRESH_MS);
+    });
+
+    it("subtracts a bounded jittered offset from receipt-now (default cap)", () => {
+      const now = Date.now();
+      const stampMax = resolveRestQuoteReceiptTs(0, now, { random: () => 0.999999 });
+      const stampMid = resolveRestQuoteReceiptTs(0, now, { random: () => 0.5 });
+      const stampMin = resolveRestQuoteReceiptTs(0, now, { random: () => 0 });
+      expect(stampMin).toBe(now);
+      expect(stampMax).toBeGreaterThanOrEqual(now - PF_STALE_JITTER_MAX_MS);
+      expect(stampMax).toBeLessThan(now);
+      expect(stampMid).toBe(now - Math.floor(0.5 * PF_STALE_JITTER_MAX_MS));
+    });
+
+    it("respects an explicit jitterMaxMs override", () => {
+      const now = Date.now();
+      const stamp = resolveRestQuoteReceiptTs(0, now, { jitterMaxMs: 60_000, random: () => 0.5 });
+      expect(stamp).toBe(now - 30_000);
+    });
+
+    it("clamps a negative jitterMaxMs to zero (no jitter)", () => {
+      const now = Date.now();
+      expect(resolveRestQuoteReceiptTs(0, now, { jitterMaxMs: -1 })).toBe(now);
+    });
+
+    it("keeps every jittered fallback within the value-freshness window", () => {
+      const now = Date.now();
+      for (let i = 0; i < 20; i++) {
+        const stamp = resolveRestQuoteReceiptTs(0, now, { random: () => Math.random() });
+        expect(now - stamp).toBeGreaterThanOrEqual(0);
+        expect(now - stamp).toBeLessThan(PF_FRESH_MS);
+      }
+    });
   });
 });
 
