@@ -133,15 +133,26 @@ async function shortClientOrderId(kind, tradeId, nonce = "") {
 export async function forwardInvestorMirror(env, op = {}) {
   const ticker = String(op?.ticker || "").toUpperCase();
   const kind = String(op?.kind || "add");
-  // Reducer kinds MUST resolve to `sell` so the bridge treats them as
-  // TRIM/EXIT (guard clamps, OCO cancel, manifest close) — mapping them
-  // to `buy` (the earlier default) would place a BUY order for an exit.
-  // 2026-07-27 — surfaced while retrying KO's event-risk trim: the
-  // invalidation-exit path passes kind="exit"; without this branch it
-  // would have side-flipped the intent had it ever fired live on a
-  // Webull-enabled account.
-  const isReducer = kind === "trim" || kind === "exit" || kind === "close" || kind === "reduce" || kind === "sell";
-  const side = isReducer ? "sell" : "buy";
+  // Model verb → bridge side. Must distinguish TRIM (portion sell of an
+  // explicit qty) from EXIT/CLOSE (flatten the model portion) — the
+  // bridge's reconcileReducerQty treats side="sell"|"exit"|"close" as a
+  // FULL liquidation (isFull=true → intended = model or held). Mapping
+  // kind="trim" to side="sell" is what caused the KO PRE_EARNINGS retry
+  // to sell the full ~10.9 sh Webull lot instead of the ~4.05 sh
+  // partial that the model actually recorded to D1 (2026-07-27).
+  //
+  // Contract:
+  //   kind ∈ {trim, reduce}          → side="trim"  (bridge uses reqQty)
+  //   kind ∈ {exit, close, sell}     → side="sell"  (bridge uses model portion)
+  //   everything else (add/open/dca) → side="buy"
+  let side;
+  if (kind === "trim" || kind === "reduce") {
+    side = "trim";
+  } else if (kind === "exit" || kind === "close" || kind === "sell") {
+    side = "sell";
+  } else {
+    side = "buy";
+  }
   // position_id is already `inv-…` from D1 — don't double-prefix.
   const posId = op?.position_id != null ? String(op.position_id) : "";
   const tradeId = posId
@@ -182,6 +193,18 @@ export async function forwardInvestorMirror(env, op = {}) {
   // calls omit it and keep the natural per-trade idempotency.
   const nonce = op?.retry_nonce != null ? String(op.retry_nonce) : "";
   const clientOrderId = await shortClientOrderId(kind, tradeId, nonce);
+  // Optional reduce_pct hint. When the model expresses a trim as "X% of
+  // the position" (event-risk profile, auto-reduce), forward the pct so
+  // the bridge's reconcileReducerQty can size against the ACTUAL model
+  // portion the mirror opened on that account (drift-safe) instead of a
+  // shares number that may have been floored / rounded on the model
+  // side. Bridge prefers pct over reqQty when both are supplied; if the
+  // caller omits it we fall back to the explicit `qty`.
+  const reducePctRaw = op?.reduce_pct ?? op?.trim_pct ?? null;
+  const reducePct = reducePctRaw != null && Number.isFinite(Number(reducePctRaw))
+    && Number(reducePctRaw) > 0 && Number(reducePctRaw) <= 1
+    ? Number(reducePctRaw)
+    : null;
   try {
     const result = await forwardOrderToBridge(env, {
       user_id: userEmail,
@@ -201,6 +224,7 @@ export async function forwardInvestorMirror(env, op = {}) {
       horizon: "long_term",
       vehicle: "equity_long",
       model_capital_usd: modelCapital,
+      ...(reducePct != null ? { reduce_pct: reducePct } : {}),
     });
     return {
       ok: !!result?.ok,
