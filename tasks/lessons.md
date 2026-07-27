@@ -6,6 +6,69 @@
 
 ---
 
+## Every reducer must have a post-execution receipt [2026-07-27]
+
+Operator after the KO trim was oversold: *"we should be able to properly
+audit after an action as well ... post action we must check did our
+action result in what we expected. If not, an execution signal may have
+been blocked or dropped."*
+
+The bridge could size, place, and log a TRIM/EXIT and still leave the
+broker holding a different quantity than intended — anything from a
+side-mapping bug (`kind="trim"` → `side="sell"` liquidated on KO
+2026-07-27) to a burned client_order_id silently no-op'ing. Nothing
+compared what the mirror said it would do vs what the broker actually
+did until the next model-vs-broker reconcile — and even that comparison
+was against `broker_remaining_qty`, which is itself derived from the
+same broker read.
+
+**Contract now enforced.** Every successful TRIM / EXIT / CLOSE stamps
+`sync_last_action_json` on the manifest row with a full intent snapshot:
+`{ pre_held_qty, intended_qty, expected_post_held_qty, client_order_id,
+broker_order_id, verify_after_ms, verified, drift_qty }`. The next
+reconciler cycle (after `POST_EXEC_VERIFY_DELAY_MS` = 2min so the
+broker has time to route) compares live held vs `expected_post_held_qty`:
+
+- match within `POST_EXEC_TOLERANCE_QTY` (0.05 sh dust) → mark
+  `verified: true`, write `post_exec_verified` bridge_audit row, done.
+- drift outside tolerance → stamp `drift_qty` + `live_held_qty` +
+  `drift_detected_at` on the audit (preserving the original expectation
+  so operator can diff), write `post_exec_drift` bridge_audit row,
+  emit a critical drift notification (Discord + email).
+
+Reasons the reconciler distinguishes:
+- `reducer_underexecuted_or_replenished` — live > expected (broker sold
+  LESS than we asked; or the signal was blocked outright).
+- `reducer_overexecuted` — live < expected (broker sold MORE than we
+  asked, e.g. the KO full-liquidation regression before the trim/sell
+  side-mapping fix).
+
+**No new plumbing on the reducer path.** The audit uses the fresh
+broker positions the reconciler already fetches every cycle — free
+verification per row. Fires from `bridge-index.js` on the SAME success
+branch that stamps `broker_entry_order_ids` for entries, so any future
+reducer path automatically gets audit coverage.
+
+**Runtime coverage for the KO scenario.** Post-exec audit alone would
+NOT have caught KO — because the mirror call was missing, no
+`sync_last_action_json` was ever stamped. Sibling check
+`investor_signal_bridge_coverage` (fast sanity, 15-min cron) compares
+recent `investor_lots` SELLs against `bridge:client:recent` on
+(ticker, side, ts window). Any SELL without a matching reducer-side
+ring entry pages `fail`. Complements the compile-time source-contract
+test `worker/investor-reducer-mirror-coverage.test.js` (that stops the
+regression at PR time); the runtime check catches gaps in code paths
+that aren't exercised until earnings week.
+
+Files: `worker-bridge/bridge-manifest.js` (`writeLastActionAudit`,
+`markLastActionVerified`, `markLastActionDrift`, `readLastActionAudit`,
+`POST_EXEC_VERIFY_DELAY_MS`, `POST_EXEC_TOLERANCE_QTY`, new
+`sync_last_action_json` column via idempotent ALTER). `bridge-index.js`
+reducer success branch. `bridge-reconciler.js` per-row
+`_verifyPostExecutionAudit` after `_persistRowUpdate`.
+`worker/sanity-sweep.js` `evaluateInvestorSignalCoverage` +
+`checkInvestorSignalBridgeCoverage` (in FAST_CHECKS).
+
 ## Investor event-risk trim never mirrored to broker [2026-07-27]
 
 KO Long Term trim fired `PRE_EARNINGS_RISK_REDUCTION` (Discord: "Long

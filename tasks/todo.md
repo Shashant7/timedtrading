@@ -22,6 +22,24 @@
 
 ### Active
 
+- [x] **Post-execution audit — verify every reducer reached the broker
+      (2026-07-27).** Operator ask after the KO trim was oversold:
+      "post action we must check did our action result in what we
+      expected. If not, an execution signal may have been blocked or
+      dropped." Every successful TRIM/EXIT/CLOSE now stamps
+      `mirror_trade_manifest.sync_last_action_json` with pre-held,
+      intended, and expected-post-held qtys; the next reconciler cycle
+      (5 min, cadence-eligible) compares live held vs expected —
+      match within 0.05 sh dust → `post_exec_verified` receipt;
+      drift → `post_exec_drift` critical notification. Runtime
+      `investor_signal_bridge_coverage` sanity check (fast, 15-min
+      cron) pages `fail` when an `investor_lots` SELL has no matching
+      `bridge:client:recent` entry — catches the "signal never left
+      the monolith" case (the KO event-risk gap). Together with the
+      compile-time source-contract test that stops the regression at
+      PR time. 33 new tests (post-exec audit + coverage + reconciler).
+      Branch: `cursor/model-broker-execution-audit-df0c`.
+
 - [x] **Bridge full sweep — three silent bugs (2026-07-24).** Post
       NVDA/TT-trim sweep found: (1) `writeEntryManifest` wrote
       `broker_remaining_qty` as the unfilled remainder → fully-filled

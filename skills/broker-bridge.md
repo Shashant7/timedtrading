@@ -71,6 +71,64 @@ the operator audit log, or the `tt-broker-bridge` worker.
 > - `readManifestRow` transparently aliases `inv-inv-*` ↔ `inv-*` trade
 >   IDs so legacy investor manifest rows (pre-normalization) don't
 >   reject `no_manifest_for_trade` on their first reducer lookup.
+>
+> **Post-execution audit — "did our action result in what we expected?" (2026-07-27):**
+> Every successful reducer stamps `mirror_trade_manifest.sync_last_action_json`
+> with the intent snapshot; the next reconciler cycle compares live held
+> vs expected. Fires from the same success branch in `bridge-index.js`
+> that writes `broker_entry_order_ids`, so any future reducer path is
+> covered automatically.
+>
+> Column shape (JSON stored on the row, single-slot, last action wins):
+>
+> ```json
+> {
+>   "ts": 1785000000000,
+>   "kind": "trim",
+>   "intended_qty": 4.04568,
+>   "pre_held_qty": 10.9,
+>   "expected_post_held_qty": 6.85432,
+>   "client_order_id": "tt-trim-KO-123-ab",
+>   "broker_order_id": "wb-ord-99",
+>   "verify_after_ms": 1785000120000,
+>   "verified": false,
+>   "verified_at": null,
+>   "drift_qty": null
+> }
+> ```
+>
+> Verification (in `bridge-reconciler.js`, per row after
+> `_persistRowUpdate`):
+> - `Date.now() < verify_after_ms` → skip (broker still routing;
+>   default 2 min per `POST_EXEC_VERIFY_DELAY_MS`).
+> - `|live_held - expected_post_held| <= 0.05 sh` (`POST_EXEC_TOLERANCE_QTY`)
+>   → `markLastActionVerified`, write `post_exec_verified` bridge_audit
+>   receipt. Bumps `stats.post_exec_verified`.
+> - Drift outside tolerance → `markLastActionDrift` stamps `drift_qty`
+>   + `live_held_qty` + `drift_detected_at` (preserving the original
+>   expectation so operator can diff), write `post_exec_drift`
+>   bridge_audit row, emit `critical` drift notification.
+>   `reject_reason` distinguishes `reducer_underexecuted_or_replenished`
+>   (live > expected) vs `reducer_overexecuted` (live < expected).
+>
+> Helpers: `writeLastActionAudit`, `markLastActionVerified`,
+> `markLastActionDrift`, `readLastActionAudit` in `worker-bridge/bridge-manifest.js`.
+> Column added by idempotent `ALTER TABLE ... ADD COLUMN
+> sync_last_action_json TEXT` (safe on re-deploy).
+>
+> **Runtime signal-coverage complement.** The post-exec audit assumes
+> the reducer at least reached the bridge. The KO 2026-07-27 scenario
+> was different — the mirror call was missing so nothing stamped an
+> audit. The fast (15-min) sanity check `investor_signal_bridge_coverage`
+> compares recent `investor_lots` SELL rows against
+> `bridge:client:recent` on (ticker, reducer-side, ±15-min window). Any
+> SELL without a matching ring entry pages `fail` with the ticker +
+> reason. Together with the compile-time
+> `worker/investor-reducer-mirror-coverage.test.js` this catches:
+> - New code path missing a mirror call → source-contract test fails at PR time.
+> - Existing path silently degraded → runtime coverage flags within 15 min.
+> - Signal reached the bridge but broker didn't do what we asked →
+>   post-exec audit drift alert within one reconcile cycle.
 
 **Architecture:**
 
