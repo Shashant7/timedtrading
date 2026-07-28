@@ -6,6 +6,93 @@
 
 ---
 
+## TwelveData quantizes `last_quote_at` across quiet symbols — sweep jitter must always apply [2026-07-28]
+
+Tuesday 10-11 AM ET both the `price_value_freshness` Discord alert AND
+the GitHub Health watchdog fired within ~30 min of each other, each
+reporting **46-47 symbols ~22 min stale during RTH** — even though the
+2026-07-24 jitter fix (PR #1171) was live. Same set of quiet mid-cap
+symbols each time (BNY, CRDO, DKS, MOD, NBIX, NTRA, RKT, RMBS, TTMI,
+ZETA, WULF, SATS, SKHY, …). Feed itself was healthy: `pricesAgeSec ≤ 40`,
+`pricesSource=twelvedata_stream`, chain-smoke `ok:true`, `staleSymbolCountRaw=0`.
+
+**Root.** `resolveRestQuoteReceiptTs` had a shortcut on line 85:
+```js
+if (trade > 0 && (now - trade) <= PF_FRESH_MS) return trade;
+```
+"Prefer the vendor trade clock when it's fresh (stream-parity for active
+prints)." Fine in isolation — broken under TD's actual behavior.
+
+TwelveData's `/quote?symbol=...` API returns MINUTE-QUANTIZED
+`last_quote_at` values across every quiet symbol in the same batch. I
+polled it directly and got:
+
+```
+BNY:  timestamp=1785245400, last_quote_at=1785253860
+CRDO: timestamp=1785245400, last_quote_at=1785253920
+DKS:  timestamp=1785245400, last_quote_at=1785253920
+MOD:  timestamp=1785245400, last_quote_at=1785253920
+NBIX: timestamp=1785245400, last_quote_at=1785253920
+NTRA: timestamp=1785245400, last_quote_at=1785253920
+RKT:  timestamp=1785245400, last_quote_at=1785253920
+RMBS: timestamp=1785245400, last_quote_at=1785253920
+```
+
+Seven of eight batch entries shared `last_quote_at=1785253920`. Reading
+timed:prices at the moment the alerts fired showed 37 symbols with
+literally the SAME `q_ts=1785252857697` — the batch of quiet symbols
+from the previous sweep tick all resolved via `return trade`, got
+stamped with TD's shared quantized value, and then aged in PERFECT
+lockstep. When `_sweepNow - shared_q_ts > 10 min` (the sweep
+threshold), the sweep re-fetched them, TD returned the NEXT quantized
+`last_quote_at` (still within 10m of the new `_sweepNow`), so the
+shortcut fired again and RE-STAMPED every symbol to yet another shared
+value. Every ~10 min the batch of 40+ symbols crossed the 20-min
+value-stale + grace threshold together → alert fires.
+
+`overlayTimedPricesRow`'s `valueFresh` gate blocks stale rows from
+overlaying prices in `/timed/all`, so users literally saw the prior-day
+scoring close for that band of symbols each cycle. Both alerts routed
+from the same signal: cron's `summarizeValueStaleSymbols(...)` and
+watchdog's `VALUE_STALE >= 40` gate read `q_ts` age from the same rows.
+
+**Why the 2026-07-24 jitter fix didn't catch this.** That fix jittered
+the RECEIPT-NOW FALLBACK, i.e. only the path taken when the vendor's
+trade_ts was aged. It never touched the trade-preferred path — and the
+trade-preferred path is exactly what TD's quantization funnels a whole
+batch through.
+
+**Fix.** `resolveRestQuoteReceiptTs` now ALWAYS returns
+`now - jitter`, ignoring `tradeTs` entirely for stamping purposes. The
+vendor's own trade clock is still preserved on `snap.trade_ts` for
+callers that want the last-trade time (e.g. `worker/index.js` line 63923
+sets the poll `t` to `snap.trade_ts || now`). New tests reproduce the
+regression: 40 back-to-back calls with the same fresh `sharedTrade` now
+produce distinct stamps spanning >1 min of the jitter window instead of
+40 identical values. Also renamed the first `tradeTs` parameter to
+`_tradeTs` to signal it's kept for API compatibility only.
+
+**Deploy.** `tt-feed` (owns the sweep during RTH), `timed-trading-ingest`
+(fallback), plus `tt-engine`/`tt-research` (build-time import; skipping
+would drift the shared bundle).
+
+**Verify.** Within one sweep tick after deploy:
+- No two quiet symbols in the same batch should share `q_ts` down to
+  the millisecond. `jq '.prices | to_entries | map(.value.q_ts) | group_by(.) | map(select(length > 3))'`
+  on `timed:prices` should return an empty array (was returning a
+  40-element group before the fix).
+- `/timed/health` `valueStaleCount` should stabilize under 20 during
+  RTH instead of the sawtooth 0 → 48 → 0 → 48 pattern.
+- Health watchdog next scheduled run should show `ok=true, ok`.
+
+**Prevention.** `q_ts` is now unambiguously "when we last received this
+row from the vendor" (jittered `now`). Never conflate it with the
+vendor's own trade clock again — vendor timestamps are quantized,
+sync-prone, and semantically the wrong signal for OUR sweep scheduling.
+The docstring on `resolveRestQuoteReceiptTs` calls this out explicitly.
+
+---
+
 ## VIP code applied at checkout landed user in Pro Trial [2026-07-27]
 
 A user pasted a VIP invite code at Stripe checkout, checkout succeeded,

@@ -63,11 +63,13 @@ export const PF_STALE_JITTER_MAX_MS = Math.floor(PF_FRESH_MS * 0.8);
 /**
  * Stamp for a successful REST / stale-sweep write into timed:prices.
  *
- * Prefer the vendor trade clock when it is itself fresh (stream-parity for
- * active prints). Otherwise use receipt time — quiet names often keep a
- * day-old trade_ts even after TD returns a valid quote, and rewriting
- * `q_ts` to that aged stamp leaves the row permanently value-stale so
- * overlay + Discord open-ramp never heal (price_value_freshness daily page).
+ * SEMANTIC: `q_ts` records WHEN WE LAST RECEIVED this quote from the vendor
+ * (our receipt time), NOT the vendor's own trade timestamp. Every path that
+ * calls this helper has just successfully fetched fresh data from TD, so
+ * our receipt time is "now" — jittered so batches of quiet symbols don't
+ * age in lockstep. The vendor's own trade clock is preserved on `snap.trade_ts`
+ * for callers that want the actual last-trade time; `q_ts` is exclusively
+ * "when the sweep confirmed the row was still current."
  *
  * 2026-07-24 — Fallback receipt is JITTERED across a 0..jitterMaxMs window
  * (default 0-8 min into the past). The stale sweep touches every quiet
@@ -78,11 +80,25 @@ export const PF_STALE_JITTER_MAX_MS = Math.floor(PF_FRESH_MS * 0.8);
  * each symbol becomes stale at a different minute, keeping steady-state
  * stale count well under the page threshold. `opts.jitterMaxMs = 0`
  * disables jitter for tests / callers that need a deterministic stamp.
+ *
+ * 2026-07-28 — TD-QUANTIZATION FIX. The prior implementation shortcut to
+ * `return trade` whenever the vendor's trade_ts was itself within
+ * PF_FRESH_MS ("stream-parity for active prints"). But TwelveData's
+ * `/quote` API returns MINUTE-QUANTIZED `last_quote_at` values for quiet
+ * symbols — a single batch response for BNY/CRDO/RKT/MOD/NBIX/NTRA/RMBS/…
+ * arrived with 30+ symbols all sharing `last_quote_at = 1785253920`. The
+ * sweep then stamped every one of them with the IDENTICAL q_ts, defeating
+ * the per-symbol jitter. They aged in perfect lockstep, all crossing the
+ * 20-min alert threshold together on the next sweep cycle → fired both
+ * price_value_freshness (Discord) and the /timed/health display-stale
+ * gate (GitHub watchdog) with 40+ symbols reported ~22 min stale even
+ * though the feed itself was healthy. The fix drops the vendor-trade
+ * shortcut entirely: `q_ts` is always jittered `now`, so batch responses
+ * with quantized `last_quote_at` values still desync at the receipt
+ * layer. Actual vendor trade time remains available on `snap.trade_ts`.
  */
-export function resolveRestQuoteReceiptTs(tradeTs, nowMs = Date.now(), opts = {}) {
+export function resolveRestQuoteReceiptTs(_tradeTs, nowMs = Date.now(), opts = {}) {
   const now = Number(nowMs) || Date.now();
-  const trade = Number(tradeTs) || 0;
-  if (trade > 0 && (now - trade) <= PF_FRESH_MS) return trade;
   const jitterMax = Number.isFinite(Number(opts?.jitterMaxMs))
     ? Math.max(0, Number(opts.jitterMaxMs))
     : PF_STALE_JITTER_MAX_MS;
