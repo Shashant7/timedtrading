@@ -6,6 +6,145 @@
 
 ---
 
+## DO stream must override vendor trade_ts for quiet symbols too [2026-07-28 — same day as jitter fix]
+
+Tuesday afternoon, ~5 hours after PR #1175 (the "always jitter q_ts on
+the sweep" fix) merged, the SAME `price_value_freshness` cron alert
+fired **again** — 46 symbols with vendor quote >20 min stale, worst
+OKLO:34m DUOL:34m BK:33m DAL:32m NXE:31m IRM:30m DRIV:30m LUNR:29m
+SATS:27m DKS:27m. `/timed/health` showed `valueStaleCount=48`, worst 36m.
+Feed itself was healthy: `pricesAgeSec=8`, `pricesSource=twelvedata_stream`,
+`freshness.slo_ok=true`, 309/309 candles fresh.
+
+**Direct KV inspection was decisive.** Reading `timed:prices` from KV
+via `wrangler kv key get`:
+
+```
+updated_at:       1785267277169  (source=twelvedata_stream, i.e. DO wrote last)
+q_ts of alert symbols (age relative to updated_at):
+  OKLO: 37.8m  DUOL: 38.0m  BK: 37.2m  DAL: 36.5m  NXE: 35.0m
+  IRM:  34.7m  DRIV: 34.6m  LUNR: 33.7m  SATS: 31.4m  INFL: 30.7m
+  NBIX: 35.8m  RBRK: 33.7m  WULF: 33.6m  CIFR: 34.4m  ZS: 37.9m
+  CRDO: 33.3m  BNY:  36.3m  RMBS: 36.5m  DKS: 31.2m  SKHY: 11.6m
+
+q_ts clustering (n = # rows sharing this exact q_ts):
+  1785267240000 → n=200 (age 0.6m)   ← stream flush, all streamed symbols
+  1785267230116 → n=31  (age 0.8m)   ← cron sweep, just wrote 31 rows (jittered)
+  1785267139226 → n=8   (age 2.3m)   ← previous cron sweep
+  1785267120000 → n=4   (age 2.6m)
+```
+
+The cron sweep **is** writing fresh jittered `q_ts` every minute
+(confirmed via `wrangler tail tt-feed`: "STALE SWEEP: 43 symbols >30m
+stale, refreshed 43/43"). Yet the alert symbols show 30-38m ages with a
+7-8 min spread that matches the sweep's jitter window. Something is
+persistently clobbering the sweep's writes for the same set of quiet
+symbols.
+
+**Root — a second, separate q_ts writer.** `PriceStream` (Durable
+Object, owned by the monolith `timed-trading-ingest`, cross-script from
+`tt-feed`) flushes `timed:prices` every 10s. Its merge writes a full
+blob back to KV. `mergeStreamRowIntoKv` picks the fresher stamp with
+`merged.q_ts = max(base.q_ts, next.q_ts)` — but the DO's
+`_applySnapshots` (called every 60s by the refresh alarm) had this
+assignment:
+
+```js
+const nextTs = Number(data.trade_ts) || 0;
+const priceChanged = liveP > 0 && Math.abs(liveP - (existing.last || 0)) > 0.0001;
+if (liveP > 0 && (nextTs > (existing.lastTs || 0) || priceChanged)) {
+  existing.last = liveP;
+  existing.lastTs = priceChanged ? Math.max(nextTs, Date.now()) : nextTs;
+  ...
+}
+```
+
+For a QUIET symbol whose price hasn't moved (OKLO, DUOL, BK, etc):
+- `data.trade_ts` = TD's minute-quantized `last_quote_at` — often 30+
+  min old (TD's own vendor clock lags for illiquid names)
+- `priceChanged = false`
+- `existing.lastTs = nextTs` → the vendor's stale trade clock
+
+That stale `lastTs` becomes `q_ts` on the next flush
+(`buildStreamFlushRow`: `q_ts: lastTs`). The DO's KV write includes it.
+If the DO's KV read of `existing` (base) missed the cron's most-recent
+write — which is common because CF KV eventual consistency between
+writers is up to ~60s, and the DO is pinned to one region while the
+`tt-feed` cron runs on whichever colo the scheduler picks — then
+`max(base.q_ts stale, next.q_ts stale) = stale`. The sweep's fresh
+stamp is lost.
+
+Once 40+ quiet symbols land in this state, `valueStaleCount ≥ 40`
+trips both the cron `price_value_freshness` page and the
+`/timed/health` watchdog step. Steady-state: age grows monotonically
+because every DO refresh re-writes the SAME stale `nextTs`, and every
+DO flush re-clobbers.
+
+**Why the 07-28 morning jitter fix didn't catch this.** That fix was
+for a different symptom — batches of 40+ symbols all sharing the
+IDENTICAL `q_ts` (TD quantization). The jitter fix eliminated
+clustering, but individual quiet symbols could still be stale — just
+staggered. What surfaced next was the DO's own stale-write, which the
+jitter fix did not touch.
+
+**Fix.** Extracted `_applySnapshots` into a testable helper
+`applyPriceSnapshotBatch(symState, snaps, opts)`. On every successful
+refresh (`liveP > 0`), stamp `lastTs = max(nextTs, receiptTs)`
+regardless of whether the price moved. `receiptTs` is `Date.now()`
+captured at the start of the batch. Semantic aligns with the doctrine
+in `worker/price-stream.js` header: `q_ts = "quote receipt time"`, i.e.
+"when we last received a valid quote from the vendor" — which for a
+successful REST refresh is `now`, not the vendor's stale trade clock.
+`lastChangeTs` (→ `p_ts`) is only bumped on real price moves, so
+"when did p last move" semantics are preserved.
+
+Applied the same fix in `worker/alpaca-stream.js` `_applySnapshots`
+(mirrored code path, same bug pattern if Alpaca stream is ever active).
+
+**Tests.** 8 new regression tests in `worker/price-stream-freshness.test.js`:
+
+1. `!priceChanged` branch: quiet symbol with 33-min-old vendor
+   `trade_ts` → `lastTs === receiptTs`; `lastChangeTs` untouched.
+2. `priceChanged` branch still bumps both `lastTs` and `lastChangeTs`.
+3. Vendor `trade_ts` slightly ahead of local clock (2s drift) →
+   `lastTs === futureTradeTs` (max wins, no regression).
+4. Seed path: brand-new quiet symbol → `lastTs === receiptTs`,
+   `lastChangeTs = staleTradeTs` (best-effort last-move approximation).
+5. `data.price = 0` → no update to `lastTs` (correct: no verified quote).
+6. Batch of 40 quiet symbols with identical stale shared `trade_ts` →
+   all 40 land on `lastTs = receiptTs`.
+7. Integration: `buildStreamFlushRow(post-fix symState)` produces a row
+   that passes `isPriceValueFresh` AND survives
+   `mergeStreamRowIntoKv` against a 45-min-old KV base.
+8. Outside-RTH: `extendedPrice` wins for `liveP`, `lastTs` still fresh.
+
+`worker/price-stream-freshness.test.js` → 22/22 pass;
+`worker/feed/` + streams → 159/159 pass.
+
+**Deploy target.** Monolith `timed-trading-ingest` (default +
+production) — it OWNS the `PriceStream` DO. `tt-feed`/`tt-engine`/
+`tt-research` import the module too via cross-script bundling; deploy
+them for module-tree consistency. Alpaca fix is only active if
+`DATA_PROVIDER != twelvedata`, but ships in the same bundle.
+
+**Verify after deploy.** Within one 60s DO refresh cycle:
+- `/timed/health` `valueStaleCount` should drop from 40+ into single
+  digits and stay there.
+- Quiet symbols should have `q_ts` age <10m (well under the 20m alert
+  threshold) even without a fresh price tick.
+- `cronFailures.ops` should NOT re-contain `price_value_freshness`.
+
+**Prevention.** The doctrine header at the top of
+`worker/price-stream.js` explicitly states: "EVERY writer of
+timed:prices rows must stamp `q_ts` (vendor event / quote receipt
+time)". The word "receipt" is load-bearing — it is NOT the vendor's
+trade clock. Any future rewrite of `_applySnapshots` / stream flush
+paths must keep the extracted helper's contract: successful refresh
+implies `lastTs >= receiptTs`. The pure-function extraction makes this
+enforceable in test rather than only reviewable.
+
+---
+
 ## TwelveData quantizes `last_quote_at` across quiet symbols — sweep jitter must always apply [2026-07-28]
 
 Tuesday 10-11 AM ET both the `price_value_freshness` Discord alert AND
