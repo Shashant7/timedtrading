@@ -43,11 +43,63 @@ describe("quoteReceiptTimestamp", () => {
 describe("resolveRestQuoteReceiptTs", () => {
   const noJitter = { jitterMaxMs: 0 };
 
-  it("keeps a fresh vendor trade_ts (jitter never applies to real trade clock)", () => {
+  // 2026-07-28 — TD-QUANTIZATION FIX. TwelveData's `/quote` API returns
+  // minute-quantized `last_quote_at` values for quiet symbols (a single
+  // batch response for BNY/CRDO/RKT/… arrived with 30+ symbols all
+  // sharing the same value). The prior implementation shortcut to
+  // `return trade` when trade_ts was fresh, stamping every symbol in the
+  // batch with an IDENTICAL q_ts and defeating the per-symbol jitter.
+  // The helper now ALWAYS uses receipt-now (jittered), so even a fresh
+  // vendor trade clock desyncs across a batch. Actual vendor trade time
+  // stays on `snap.trade_ts` for callers that need the last-trade info.
+  it("stamps receipt-now even when vendor trade_ts is fresh (defeats TD batch quantization)", () => {
     const now = Date.now();
-    const trade = now - 2 * 60 * 1000;
-    expect(resolveRestQuoteReceiptTs(trade, now)).toBe(trade);
-    expect(resolveRestQuoteReceiptTs(trade, now, { jitterMaxMs: 5000 })).toBe(trade);
+    const trade = now - 2 * 60 * 1000; // vendor says trade was 2m ago
+    expect(resolveRestQuoteReceiptTs(trade, now, noJitter)).toBe(now);
+    // With default jitter, the stamp is now-jitter (in the receipt window).
+    const stamp = resolveRestQuoteReceiptTs(trade, now, { random: () => 0.5 });
+    expect(stamp).toBe(now - Math.floor(0.5 * PF_STALE_JITTER_MAX_MS));
+  });
+
+  it("does not return the vendor trade clock even for tiny (<PF_FRESH_MS) trade_ts values", () => {
+    const now = Date.now();
+    // TD sometimes returns last_quote_at within 30s of now for actively-traded
+    // symbols in a batch. Each still needs an independent jitter so that a
+    // batch of 8 symbols with identical trade_ts don't all resolve to the
+    // same q_ts.
+    const veryFreshTrade = now - 15 * 1000;
+    const stamps = [];
+    for (let i = 0; i < 20; i++) {
+      const stamp = resolveRestQuoteReceiptTs(veryFreshTrade, now, { random: () => Math.random() });
+      // Never returns trade — always in [now - jitterMax, now].
+      expect(stamp).toBeGreaterThanOrEqual(now - PF_STALE_JITTER_MAX_MS);
+      expect(stamp).toBeLessThanOrEqual(now);
+      expect(stamp).not.toBe(veryFreshTrade);
+      stamps.push(stamp);
+    }
+    // With random jitter, at least half the stamps should be unique
+    // (defeats the batch-sync that the old shortcut created).
+    const uniqueStamps = new Set(stamps);
+    expect(uniqueStamps.size).toBeGreaterThan(1);
+  });
+
+  it("desyncs a simulated TD batch response where every symbol shares last_quote_at", () => {
+    // Reproduces the 2026-07-28 alert: TD returned 30+ quiet symbols with
+    // the SAME `last_quote_at` (minute-quantized). Under the old shortcut,
+    // every call stamped the identical q_ts and the batch aged in lockstep.
+    const now = Date.now();
+    const sharedTrade = now - 90 * 1000; // TD's quantized last_quote_at
+    const stamps = [];
+    for (let i = 0; i < 40; i++) {
+      stamps.push(resolveRestQuoteReceiptTs(sharedTrade, now, { random: () => Math.random() }));
+    }
+    // No stamp should equal the (shared) trade_ts.
+    for (const s of stamps) expect(s).not.toBe(sharedTrade);
+    // Stamps should span a meaningful range of the jitter window — not all
+    // identical the way the old code produced.
+    const min = Math.min(...stamps);
+    const max = Math.max(...stamps);
+    expect(max - min).toBeGreaterThan(60_000); // >1 minute spread across 40 draws
   });
 
   it("stamps receipt now when vendor trade_ts is aged (overnight / quiet print)", () => {
