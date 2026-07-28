@@ -142,6 +142,72 @@ export function mergeStreamRowIntoKv(ex, row, opts = {}) {
   return merged;
 }
 
+/**
+ * Pure helper that folds a batch of REST snapshots into the DO's per-symbol
+ * `symState` map. Extracted from `_applySnapshots` so the quiet-symbol
+ * freshness contract can be regression-tested without a Durable Object.
+ *
+ * Contract (2026-07-28 QUIET-SYMBOL FRESHNESS):
+ * On every successful refresh (liveP > 0), `lastTs = max(nextTs, receiptTs)`
+ * regardless of whether the price moved. `lastTs` becomes the row's `q_ts`
+ * on flush; a stale vendor `trade_ts` (TwelveData's minute-quantized
+ * `last_quote_at` for quiet mid-caps often lags 30+ min) must not make a
+ * verified quote look value-stale. `lastChangeTs` (→ `p_ts`) is only bumped
+ * when the price actually moves.
+ *
+ * @param {Record<string, any>} symState  Mutated in place. Symbols missing
+ *   from the map are seeded.
+ * @param {Record<string, any>} snaps     `{ [sym]: { price, trade_ts, ... } }`
+ *   as returned by `tdFetchQuote` (or the equivalent adapter shape).
+ * @param {{ session?: string, receiptTs?: number, cryptoSyms?: Set<string> }} [opts]
+ * @returns {number} Count of symbols touched.
+ */
+export function applyPriceSnapshotBatch(symState, snaps, opts = {}) {
+  const session = String(opts.session || "RTH").toUpperCase();
+  const outsideRth = session !== "RTH";
+  const receiptTs = Number(opts.receiptTs) || Date.now();
+  const cryptoSyms = opts.cryptoSyms || new Set(["BTCUSD", "ETHUSD"]);
+  let count = 0;
+  for (const [sym, data] of Object.entries(snaps || {})) {
+    const existing = symState[sym];
+    const isCrypto = cryptoSyms.has(sym);
+    const extP = Number(data?.extendedPrice) || 0;
+    const rthP = Number(data?.dailyClose) || Number(data?.price) || 0;
+    const liveP = (!isCrypto && outsideRth && extP > 0) ? extP : (Number(data?.price) || rthP || 0);
+    if (existing) {
+      if (data.prevDailyClose > 0) existing.prevClose = data.prevDailyClose;
+      if (rthP > 0) existing.dailyClose = rthP;
+      if (data.dailyOpen > 0) existing.dayOpen = data.dailyOpen;
+      if (data.dailyHigh > 0) existing.dayHigh = data.dailyHigh;
+      if (data.dailyLow > 0) existing.dayLow = data.dailyLow;
+      if (data.dailyVolume > 0) existing.dayVol = data.dailyVolume;
+      const nextTs = Number(data.trade_ts) || 0;
+      const priceChanged = liveP > 0 && Math.abs(liveP - (existing.last || 0)) > 0.0001;
+      if (liveP > 0) {
+        existing.last = liveP;
+        existing.lastTs = Math.max(nextTs, receiptTs);
+        if (priceChanged) existing.lastChangeTs = existing.lastTs;
+      }
+      existing.dirty = true;
+    } else {
+      symState[sym] = {
+        last: liveP || 0,
+        lastTs: receiptTs,
+        lastChangeTs: Number(data.trade_ts) || receiptTs,
+        prevClose: data.prevDailyClose || 0,
+        dailyClose: rthP || 0,
+        dayOpen: data.dailyOpen || 0,
+        dayHigh: data.dailyHigh || 0,
+        dayLow: data.dailyLow || 0,
+        dayVol: data.dailyVolume || 0,
+        dirty: true,
+      };
+    }
+    count++;
+  }
+  return count;
+}
+
 export class PriceStream {
   constructor(state, env) {
     this.state = state;
@@ -243,48 +309,9 @@ export class PriceStream {
   }
 
   _applySnapshots(snaps) {
-    let count = 0;
-    const session = this._getSession();
-    const outsideRth = session !== "RTH";
-    for (const [sym, data] of Object.entries(snaps)) {
-      const existing = this.symState[sym];
-      const isCrypto = sym === "BTCUSD" || sym === "ETHUSD";
-      // Outside RTH: live print prefers extended_price; dailyClose holds RTH close.
-      const extP = Number(data.extendedPrice) || 0;
-      const rthP = Number(data.dailyClose) || Number(data.price) || 0;
-      const liveP = (!isCrypto && outsideRth && extP > 0) ? extP : (Number(data.price) || rthP || 0);
-      if (existing) {
-        if (data.prevDailyClose > 0) existing.prevClose = data.prevDailyClose;
-        if (rthP > 0) existing.dailyClose = rthP;
-        if (data.dailyOpen > 0) existing.dayOpen = data.dailyOpen;
-        if (data.dailyHigh > 0) existing.dayHigh = data.dailyHigh;
-        if (data.dailyLow > 0) existing.dayLow = data.dailyLow;
-        if (data.dailyVolume > 0) existing.dayVol = data.dailyVolume;
-        const nextTs = Number(data.trade_ts) || 0;
-        const priceChanged = liveP > 0 && Math.abs(liveP - (existing.last || 0)) > 0.0001;
-        if (liveP > 0 && (nextTs > (existing.lastTs || 0) || priceChanged)) {
-          existing.last = liveP;
-          existing.lastTs = priceChanged ? Math.max(nextTs, Date.now()) : nextTs;
-          if (priceChanged) existing.lastChangeTs = existing.lastTs;
-        }
-        existing.dirty = true;
-      } else {
-        this.symState[sym] = {
-          last: liveP || 0,
-          lastTs: data.trade_ts || Date.now(),
-          lastChangeTs: data.trade_ts || Date.now(),
-          prevClose: data.prevDailyClose || 0,
-          dailyClose: rthP || 0,
-          dayOpen: data.dailyOpen || 0,
-          dayHigh: data.dailyHigh || 0,
-          dayLow: data.dailyLow || 0,
-          dayVol: data.dailyVolume || 0,
-          dirty: true,
-        };
-      }
-      count++;
-    }
-    return count;
+    return applyPriceSnapshotBatch(this.symState, snaps, {
+      session: this._getSession(),
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════════

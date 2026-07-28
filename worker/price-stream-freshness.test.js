@@ -4,7 +4,11 @@
 // /timed/all served the prior-day scoring close (MU $984.75 on a -6% day) and
 // client merges rejected the fresh feed too (hard refresh didn't help).
 import { describe, it, expect } from "vitest";
-import { buildStreamFlushRow, mergeStreamRowIntoKv } from "./price-stream.js";
+import {
+  applyPriceSnapshotBatch,
+  buildStreamFlushRow,
+  mergeStreamRowIntoKv,
+} from "./price-stream.js";
 import {
   isPriceValueFresh,
   overlayTimedPricesRow,
@@ -135,6 +139,196 @@ describe("incident regression: stream tick must reach /timed/all", () => {
     const oldShape = { p: 925.5, pc: 984.75, dp: -6.02, t: now, q_ts: now - 33 * 60_000, p_ts: now - 33 * 60_000 };
     overlayTimedPricesRow(snapshotRow, oldShape, { sym: "MU", marketOpen: true });
     expect(snapshotRow.price).toBe(984.75); // gate correctly refuses stale-stamped values
+  });
+});
+
+// 2026-07-28 — QUIET-SYMBOL FRESHNESS. TwelveData's /quote returns
+// minute-quantized (and often 30+ min old) `last_quote_at` for quiet
+// mid-caps. The DO's `_applySnapshots` previously stamped
+// `existing.lastTs = data.trade_ts` on the !priceChanged branch — so the
+// DO's next KV flush wrote a stale q_ts that could clobber the cron sweep's
+// fresh stamp via `mergeStreamRowIntoKv`'s `max(base, next)` when the DO's
+// KV read missed a recent cron write (KV eventual consistency between
+// writers is up to ~60s). Result: 46-62 quiet symbols paged
+// price_value_freshness with 30-38m ages even though the feed was healthy.
+// Fix: on every successful refresh, `lastTs = max(nextTs, receiptTs)`.
+describe("applyPriceSnapshotBatch — quiet-symbol freshness", () => {
+  it("advances lastTs to receiptTs even when the vendor trade_ts is stale (!priceChanged)", () => {
+    const receiptTs = 1_785_267_240_000;
+    const staleTradeTs = receiptTs - 33 * 60_000;
+    const symState = {
+      OKLO: {
+        last: 39.49,
+        lastTs: receiptTs - 20 * 60_000,
+        lastChangeTs: receiptTs - 45 * 60_000,
+        prevClose: 39.5,
+        dailyClose: 39.49,
+      },
+    };
+    applyPriceSnapshotBatch(
+      symState,
+      {
+        OKLO: {
+          price: 39.49,
+          dailyClose: 39.49,
+          prevDailyClose: 39.5,
+          trade_ts: staleTradeTs,
+        },
+      },
+      { receiptTs, session: "RTH" },
+    );
+    expect(symState.OKLO.lastTs).toBe(receiptTs);
+    expect(symState.OKLO.lastChangeTs).toBe(receiptTs - 45 * 60_000); // p didn't move → not bumped
+    expect(symState.OKLO.dirty).toBe(true);
+  });
+
+  it("also advances lastTs to receiptTs when priceChanged, and moves lastChangeTs too", () => {
+    const receiptTs = 1_785_267_240_000;
+    const symState = {
+      NVDA: {
+        last: 190,
+        lastTs: receiptTs - 5_000,
+        lastChangeTs: receiptTs - 5_000,
+        prevClose: 189,
+      },
+    };
+    applyPriceSnapshotBatch(
+      symState,
+      {
+        NVDA: {
+          price: 192.5,
+          dailyClose: 192.5,
+          prevDailyClose: 189,
+          trade_ts: receiptTs - 500,
+        },
+      },
+      { receiptTs, session: "RTH" },
+    );
+    expect(symState.NVDA.last).toBe(192.5);
+    expect(symState.NVDA.lastTs).toBe(receiptTs);
+    expect(symState.NVDA.lastChangeTs).toBe(receiptTs);
+  });
+
+  it("keeps a vendor trade_ts that is somehow fresher than the local clock", () => {
+    const receiptTs = 1_785_267_240_000;
+    const futureTradeTs = receiptTs + 2_000; // vendor clock ahead of local by 2s
+    const symState = {
+      AAPL: {
+        last: 220,
+        lastTs: receiptTs - 60_000,
+        prevClose: 219,
+      },
+    };
+    applyPriceSnapshotBatch(
+      symState,
+      {
+        AAPL: {
+          price: 220,
+          dailyClose: 220,
+          prevDailyClose: 219,
+          trade_ts: futureTradeTs,
+        },
+      },
+      { receiptTs, session: "RTH" },
+    );
+    expect(symState.AAPL.lastTs).toBe(futureTradeTs);
+  });
+
+  it("seeds a brand-new quiet symbol with lastTs = receiptTs, not the vendor's stale trade clock", () => {
+    const receiptTs = 1_785_267_240_000;
+    const staleTradeTs = receiptTs - 45 * 60_000;
+    const symState = {};
+    applyPriceSnapshotBatch(
+      symState,
+      {
+        WULF: {
+          price: 16.61,
+          dailyClose: 16.61,
+          prevDailyClose: 16.5,
+          trade_ts: staleTradeTs,
+        },
+      },
+      { receiptTs, session: "RTH" },
+    );
+    expect(symState.WULF.lastTs).toBe(receiptTs);
+    // lastChangeTs seeded from vendor trade_ts (best-effort "last observed move")
+    expect(symState.WULF.lastChangeTs).toBe(staleTradeTs);
+  });
+
+  it("does not advance lastTs when the /quote response carries no price (skip)", () => {
+    const receiptTs = 1_785_267_240_000;
+    const symState = {
+      DEAD: { last: 10, lastTs: receiptTs - 40 * 60_000 },
+    };
+    applyPriceSnapshotBatch(
+      symState,
+      { DEAD: { price: 0, dailyClose: 0, trade_ts: receiptTs - 40 * 60_000 } },
+      { receiptTs, session: "RTH" },
+    );
+    expect(symState.DEAD.lastTs).toBe(receiptTs - 40 * 60_000);
+  });
+
+  it("a batch of 40 quiet symbols with identical stale vendor trade_ts all get fresh lastTs", () => {
+    const receiptTs = 1_785_267_240_000;
+    const staleShared = receiptTs - 30 * 60_000;
+    const symState = {};
+    for (let i = 0; i < 40; i++) symState[`Q${i}`] = { last: 10, lastTs: receiptTs - 30 * 60_000 };
+    const snaps = {};
+    for (let i = 0; i < 40; i++) {
+      snaps[`Q${i}`] = { price: 10, dailyClose: 10, prevDailyClose: 10, trade_ts: staleShared };
+    }
+    applyPriceSnapshotBatch(symState, snaps, { receiptTs, session: "RTH" });
+    for (let i = 0; i < 40; i++) {
+      expect(symState[`Q${i}`].lastTs).toBe(receiptTs);
+    }
+  });
+
+  it("regression: flushed rows built from post-fix symState pass the RTH value-freshness gate", () => {
+    const receiptTs = 1_785_267_240_000;
+    const staleTradeTs = receiptTs - 33 * 60_000;
+    const symState = {
+      DUOL: { last: 140.47, lastTs: receiptTs - 33 * 60_000, prevClose: 141 },
+    };
+    applyPriceSnapshotBatch(
+      symState,
+      {
+        DUOL: {
+          price: 140.47,
+          dailyClose: 140.47,
+          prevDailyClose: 141,
+          trade_ts: staleTradeTs,
+        },
+      },
+      { receiptTs, session: "RTH" },
+    );
+    const row = buildStreamFlushRow(symState.DUOL, receiptTs);
+    expect(row.q_ts).toBe(receiptTs);
+    expect(isPriceValueFresh(row, receiptTs, true)).toBe(true);
+    // Merge with a KV row whose q_ts is even older — max(fresh, stale) wins.
+    const kvStale = { p: 140.5, pc: 141, q_ts: receiptTs - 45 * 60_000 };
+    const merged = mergeStreamRowIntoKv(kvStale, row);
+    expect(merged.q_ts).toBe(receiptTs);
+    expect(isPriceValueFresh(merged, receiptTs, true)).toBe(true);
+  });
+
+  it("outside RTH: extendedPrice wins over dailyClose for liveP, and lastTs still fresh", () => {
+    const receiptTs = 1_785_267_240_000;
+    const symState = {};
+    applyPriceSnapshotBatch(
+      symState,
+      {
+        IBM: {
+          price: 290,
+          extendedPrice: 222.69,
+          dailyClose: 290.23,
+          prevDailyClose: 287.56,
+          trade_ts: receiptTs - 5_000,
+        },
+      },
+      { receiptTs, session: "PRE" },
+    );
+    expect(symState.IBM.last).toBe(222.69); // AH print
+    expect(symState.IBM.lastTs).toBe(receiptTs);
   });
 });
 
