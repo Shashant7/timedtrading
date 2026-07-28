@@ -170,8 +170,15 @@ export class AlpacaStream {
     return result;
   }
 
+  // 2026-07-28 — QUIET-SYMBOL FRESHNESS FIX (mirrors PriceStream._applySnapshots).
+  // `lastTs` becomes `q_ts` on the DO's KV flush. Doctrine: q_ts = "when we
+  // last received a valid quote". For a successful REST snapshot refresh
+  // that's `now`, not the vendor's trade_ts (which for quiet symbols can be
+  // 30+ minutes old and would falsely mark the row as value-stale — see
+  // price_value_freshness incident 2026-07-28).
   _applySnapshots(snaps) {
     let count = 0;
+    const receiptTs = Date.now();
     for (const [sym, data] of Object.entries(snaps)) {
       const existing = this.symState[sym];
       if (existing) {
@@ -181,15 +188,17 @@ export class AlpacaStream {
         if (data.dailyHigh > 0) existing.dayHigh = data.dailyHigh;
         if (data.dailyLow > 0) existing.dayLow = data.dailyLow;
         if (data.dailyVolume > 0) existing.dayVol = data.dailyVolume;
-        if (data.tradeTs > (existing.lastTs || 0) && data.price > 0) {
+        if (data.price > 0) {
           existing.last = data.price;
-          existing.lastTs = data.tradeTs;
+          // Advance to at least `now` so a verified quote is always fresh,
+          // even when the vendor's trade_ts is stale (quiet symbol clock).
+          existing.lastTs = Math.max(Number(data.tradeTs) || 0, receiptTs);
         }
         existing.dirty = true;
       } else {
         this.symState[sym] = {
           last: data.price,
-          lastTs: data.tradeTs || Date.now(),
+          lastTs: receiptTs,
           prevClose: data.prevClose,
           dailyClose: data.dailyClose,
           dayOpen: data.dailyOpen,
