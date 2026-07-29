@@ -7,6 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   applyPriceSnapshotBatch,
   buildStreamFlushRow,
+  computeStreamSymbolDelta,
   mergeStreamRowIntoKv,
 } from "./price-stream.js";
 import {
@@ -368,5 +369,86 @@ describe("summarizeValueStaleSymbols", () => {
     const res = summarizeValueStaleSymbols(prices, now, true);
     expect(res.count).toBe(1);
     expect(res.symbols[0]).toBe("MU:33m");
+  });
+});
+
+// 2026-07-29 Health Watchdog "43 symbols display-stale (vendor quote aged)"
+// fire — root cause: PriceStream DO subscribed 258 symbols but timed:prices
+// KV blob had 315. The 57 orphan symbols (discovery / screener / theme adds
+// that seeded timed:prices via other cron paths) were refreshed only by
+// tt-feed's stale sweep, then routinely CLOBBERED by the DO's full-blob KV
+// write under KV eventual consistency (DO read a version up to ~60s old,
+// spread `{...existing}` back over the cron's fresh q_ts, wrote them stale
+// again). Fix: bar-cron re-invokes /start on every 5-min tick with the
+// union of SECTOR_MAP + user-added + current timed:prices keys — DO
+// re-sync path only seeds the NEWLY-added delta to keep TD credits bounded.
+describe("computeStreamSymbolDelta — orphan symbol re-sync (2026-07-29)", () => {
+  it("returns empty delta when the requested set matches the current allSymbols", () => {
+    const prev = ["AAPL", "NVDA", "SPY"];
+    const requested = ["AAPL", "NVDA", "SPY"];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(prev, requested);
+    expect(nextSymbols).toEqual(["AAPL", "NVDA", "SPY"]);
+    expect(newSymbols).toEqual([]);
+  });
+
+  it("returns only the ADDED symbols when the requested set grows (discovery orphan case)", () => {
+    const prev = ["AAPL", "NVDA", "SPY"];
+    // tt-feed cron's discovery / screener adds seeded these into timed:prices;
+    // bar-cron includes them in the union so the DO takes ownership.
+    const requested = ["AAPL", "NVDA", "SPY", "CRDO", "MOD", "OKLO", "DUOL"];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(prev, requested);
+    expect(nextSymbols).toEqual(requested);
+    expect(newSymbols).toEqual(["CRDO", "MOD", "OKLO", "DUOL"]);
+  });
+
+  it("dedupes duplicate entries in the requested list (Set semantics)", () => {
+    const prev = ["AAPL"];
+    const requested = ["AAPL", "NVDA", "NVDA", "SPY", "SPY", "AAPL"];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(prev, requested);
+    expect(nextSymbols).toEqual(["AAPL", "NVDA", "SPY"]);
+    expect(newSymbols).toEqual(["NVDA", "SPY"]);
+  });
+
+  it("filters SKIP_TICKERS out of BOTH nextSymbols and newSymbols", () => {
+    const prev = ["AAPL"];
+    const skip = new Set(["JUNK", "SPX"]);
+    const requested = ["AAPL", "NVDA", "JUNK", "SPX", "CRDO"];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(prev, requested, skip);
+    expect(nextSymbols).toEqual(["AAPL", "NVDA", "CRDO"]);
+    expect(newSymbols).toEqual(["NVDA", "CRDO"]);
+  });
+
+  it("is a no-op when requested is empty (keeps prev, empty delta)", () => {
+    const prev = ["AAPL", "NVDA"];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(prev, []);
+    expect(nextSymbols).toEqual(prev);
+    expect(newSymbols).toEqual([]);
+  });
+
+  it("is a no-op when requested is not an array (defensive against garbage POST bodies)", () => {
+    const prev = ["AAPL"];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(prev, null);
+    expect(nextSymbols).toEqual(prev);
+    expect(newSymbols).toEqual([]);
+  });
+
+  it("handles cold-start (prev empty) by treating every requested symbol as new", () => {
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta([], ["AAPL", "NVDA", "SPY"]);
+    expect(nextSymbols).toEqual(["AAPL", "NVDA", "SPY"]);
+    expect(newSymbols).toEqual(["AAPL", "NVDA", "SPY"]);
+  });
+
+  it("regression: 315-symbol re-sync against a 258-symbol current set finds exactly 57 orphans", () => {
+    // Simulate the 2026-07-29 14:53 UTC watchdog fire state.
+    const streamCurrent = Array.from({ length: 258 }, (_, i) => `SYM${String(i).padStart(3, "0")}`);
+    const kvUnion = [
+      ...streamCurrent,
+      ...Array.from({ length: 57 }, (_, i) => `ORPH${String(i).padStart(3, "0")}`),
+    ];
+    const { nextSymbols, newSymbols } = computeStreamSymbolDelta(streamCurrent, kvUnion);
+    expect(nextSymbols.length).toBe(315);
+    expect(newSymbols.length).toBe(57);
+    // Delta contains only the orphan-prefixed entries.
+    expect(newSymbols.every(s => s.startsWith("ORPH"))).toBe(true);
   });
 });
