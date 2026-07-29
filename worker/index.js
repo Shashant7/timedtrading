@@ -93621,9 +93621,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
               eventReducedTickers.add(pos.ticker);
               fsdRemovalExits.push({ ticker: sym, shares: sellShares, price, pnl: Math.round(pnl * 100) / 100, full: isFull, removed_days_ago: sig.days_ago });
+              // reduce_pct forwards the intent as a percentage so the bridge
+              // scales against the ACTUAL held (relational-sized) portion —
+              // sending raw model shares here caused META/PANW to be flattened
+              // on 2026-07-29 (model wanted 8.7% but shares=0.9021 clamped to
+              // held=0.54136 = 100% liquidation). Full exits still route via
+              // kind="exit" so the bridge treats them as flatten (no pct).
               queueBackground(_bridgeMirrorInvestor({
                 kind: isFull ? "exit" : "trim", ticker: sym, shares: sellShares,
                 price, position_id: pos.id, reason: "investor_fsd_removed",
+                ...(isFull ? {} : { reduce_pct: _frPct }),
               }));
               scheduleInvestorLotActionChannels(env, env?.KV_TIMED, {
                 ticker: sym, shares: sellShares, price, value: sellValue,
@@ -93935,6 +93942,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // matches the sibling reducers; kind="exit" when the trim
             // flattens the position so the bridge cancels sibling OCOs
             // and the manifest closes cleanly.
+            //
+            // 2026-07-29 — reduce_pct MUST be forwarded on partial trims.
+            // Model shares (trimShares) live in model space ($100k notional
+            // sim), broker mirror lives in the account's real capital space
+            // — relational sizing scales entries down but the mirror's held
+            // qty is often << trimShares. Sending shares only caused META's
+            // 8.7% event-risk trim (0.9021 sh model) to be capped to broker
+            // held (0.54136 sh) → 100% flatten. Pct is dimensionless and
+            // reconciles against the held portion cleanly. Full exits skip
+            // the pct hint (kind="exit" already flattens the model portion).
             queueBackground(_bridgeMirrorInvestor({
               kind: remaining <= 0.0001 ? "exit" : "trim",
               ticker: pos.ticker,
@@ -93944,6 +93961,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               reason: `investor_${String(trimReason || "event_risk_trim").toLowerCase()}`,
               stage: scores[pos.ticker]?.stage || null,
               score: scores[pos.ticker]?.score || null,
+              ...(remaining <= 0.0001 ? {} : { reduce_pct: trimPct }),
             }));
             scheduleInvestorLotActionChannels(env, env?.KV_TIMED, {
               ticker: pos.ticker,
@@ -94130,11 +94148,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             reduced.push({ ticker: pos.ticker, trimmedShares: trimShares, price, pnl: Math.round(pnl * 100) / 100, remaining: Math.round(remaining * 10000) / 10000 });
             // 2026-06-01 — Mirror the trim to the broker bridge.
+            // 2026-07-29 — Forward reduce_pct so the bridge scales against
+            // ACTUAL broker-held (relational-sized) portion, not model shares.
+            // Full exits (invalidation breach → _reduceTrimPct=1) route as
+            // kind="exit" so the bridge treats them as a flatten (dust sweep).
+            const _autoReduceIsFull = _reduceTrimPct >= 1 || remaining <= 0.0001;
             queueBackground(_bridgeMirrorInvestor({
-              kind: "trim", ticker: pos.ticker, shares: trimShares,
+              kind: _autoReduceIsFull ? "exit" : "trim",
+              ticker: pos.ticker, shares: trimShares,
               price, position_id: pos.id,
               reason: "investor_auto_reduce_stage",
               stage: "reduce", score: data?.score,
+              ...(_autoReduceIsFull ? {} : { reduce_pct: _reduceTrimPct }),
             }));
             const _invScoreBreach = _isInvScoreExit
               ? resolvePrimaryInvalidationBreach(price, data, null)
@@ -94323,11 +94348,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               ts: now,
             }, { collect: _rebalDigestTrims });
             // Bridge mirror (same path as auto-reduce trim)
+            // 2026-07-29 — reduce_pct=0.20 forwarded so bridge scales against
+            // broker-held (not raw model shares — see event-risk trim comment).
+            const _exhIsFull = remainingX <= 0.0001;
             queueBackground(_bridgeMirrorInvestor({
-              kind: "trim", ticker: pos.ticker, shares: trimSharesX,
+              kind: _exhIsFull ? "exit" : "trim",
+              ticker: pos.ticker, shares: trimSharesX,
               price: priceX, position_id: pos.id,
               reason: "investor_exhaustion_lock_in",
               stage: "watch", score: data?.score,
+              ...(_exhIsFull ? {} : { reduce_pct: 0.20 }),
             }));
           }
 
