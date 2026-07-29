@@ -1846,24 +1846,43 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       // we intended `pre_round_qty`. Falls back to the placed qty.
       const intended = Number(sanitized?._reducer?.pre_round_qty) || Number(sanitized.qty);
       if (Number.isFinite(preHeld) && preHeld > 0 && Number.isFinite(intended) && intended > 0) {
-        writeLastActionAudit(env, {
-          userId: sanitized.user_id,
-          tradeId: sanitized.trade_id,
-          brokerAccountId,
-          kind: sanitized.side,
-          preHeldQty: preHeld,
-          intendedQty: intended,
-          clientOrderId: sanitized.client_order_id || null,
-          brokerOrderId: rhOrderId,
-          reasons: {
-            is_full: !!sanitized?._reducer?.isFull,
-            model_remaining: sanitized?._reducer?.modelRemaining ?? null,
-            placed_qty: Number(sanitized.qty) || null,
-          },
-        }).catch((e) => console.warn(
-          `[MANIFEST] writeLastActionAudit failed for ${sanitized.trade_id}:`,
-          String(e?.message || e).slice(0, 160),
-        ));
+        // 2026-07-29 — MUST be awaited. Fire-and-forget without
+        // ctx.waitUntil() on Workers has the runtime cancel the pending
+        // promise once the response is sent, so `sync_last_action_json`
+        // never lands (verified via query: 0/18 rows stamped despite
+        // dozens of successful reducers). Blocking here adds ~10ms; the
+        // reducer path is already async so the caller doesn't feel it.
+        try {
+          const auditRes = await writeLastActionAudit(env, {
+            userId: sanitized.user_id,
+            tradeId: sanitized.trade_id,
+            brokerAccountId,
+            kind: sanitized.side,
+            preHeldQty: preHeld,
+            intendedQty: intended,
+            clientOrderId: sanitized.client_order_id || null,
+            brokerOrderId: rhOrderId,
+            reasons: {
+              is_full: !!sanitized?._reducer?.isFull,
+              model_remaining: sanitized?._reducer?.modelRemaining ?? null,
+              placed_qty: Number(sanitized.qty) || null,
+            },
+          });
+          if (!auditRes?.ok) {
+            console.warn(
+              `[MANIFEST] writeLastActionAudit did not stamp ${sanitized.trade_id}: ${auditRes?.reason || "unknown"}`,
+            );
+          }
+        } catch (e) {
+          console.warn(
+            `[MANIFEST] writeLastActionAudit failed for ${sanitized.trade_id}:`,
+            String(e?.message || e).slice(0, 160),
+          );
+        }
+      } else if (env?.MANIFEST_DEBUG_LOG === "true") {
+        console.warn(
+          `[MANIFEST] audit-skip ${sanitized.trade_id}: preHeld=${preHeld} intended=${intended}`,
+        );
       }
     }
 
