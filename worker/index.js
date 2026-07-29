@@ -101260,15 +101260,45 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         ctx.waitUntil((async () => {
           try {
             const streamStatus = await dataStreamStatus(env);
-            if (!streamStatus.isRunning && isWithinOperatingHours()) {
-              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
-              const userAddedForStream = await d1GetActiveUserTickersCached(env);
-              const symbols = [...new Set([...Object.keys(SECTOR_MAP), ...userAddedForStream])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
-              const startRes = await dataStreamStart(env, symbols);
-              console.log(`[STREAM] Started (${useTD ? "TD" : "Alpaca"}): ${symbols.length} symbols, result:`, JSON.stringify(startRes).slice(0, 200));
-            } else if (streamStatus.isRunning && !isWithinOperatingHours()) {
+            const inHours = isWithinOperatingHours();
+            if (streamStatus.isRunning && !inHours) {
               const stopRes = await dataStreamStop(env);
               console.log(`[STREAM] Stopped (${useTD ? "TD" : "Alpaca"}, outside operating hours):`, JSON.stringify(stopRes).slice(0, 200));
+            } else if (inHours) {
+              // 2026-07-29 — SYMBOL SET RE-SYNC on every bar cron (not just
+              // cold-start). Discovery / screener / theme adds seed
+              // `timed:prices` via other cron paths but were never in the
+              // stream's subscribe list, leaving them orphaned: no WebSocket
+              // tick, no snapshot refresh, `q_ts` frozen at whatever the last
+              // writer stamped. The tt-feed cron's stale sweep tries to heal
+              // them but is clobbered by the PriceStream DO's full-blob KV
+              // write under KV eventual-consistency (DO reads a stale
+              // `existing` up to ~60s old, spreads `{...existing}`, writes
+              // back with the pre-sweep orphan `q_ts` values). Watchdog then
+              // pages on `valueStaleCount >= 40` with the orphans all aged
+              // in lockstep (2026-07-29 14:53 UTC: 43 symbols, all 13m).
+              //
+              // Fix: include current `timed:prices` blob keys in the stream
+              // symbol union and call `/start` on every bar-cron. The DO
+              // treats a running-instance `/start` as a symbol re-sync
+              // (updates `allSymbols`, no WS reconnect) so `_refreshSnapshots`
+              // starts stamping fresh `lastTs` on the newly-owned symbols
+              // and the DO becomes the single writer for their `q_ts`.
+              const blocklist = new Set(["ES1!","NQ1!","YM1!","RTY1!","CL1!","GC1!","SI1!","HG1!","NG1!","BTCUSD","ETHUSD","US500","VX1!"]);
+              const userAddedForStream = await d1GetActiveUserTickersCached(env);
+              let pricesBlobSyms = [];
+              try {
+                const pricesBlob = env?.KV_TIMED ? await env.KV_TIMED.get("timed:prices", "json") : null;
+                if (pricesBlob?.prices) pricesBlobSyms = Object.keys(pricesBlob.prices);
+              } catch (_) { /* best-effort — cold-start / KV blip still gets sector+user set */ }
+              const symbols = [...new Set([
+                ...Object.keys(SECTOR_MAP),
+                ...userAddedForStream,
+                ...pricesBlobSyms,
+              ])].filter(t => !blocklist.has(t) && /^[A-Z]{1,5}(-[A-Z]{1,2})?$/.test(t));
+              const startRes = await dataStreamStart(env, symbols);
+              const action = streamStatus.isRunning ? "Resynced" : "Started";
+              console.log(`[STREAM] ${action} (${useTD ? "TD" : "Alpaca"}): ${symbols.length} symbols (blob=${pricesBlobSyms.length}, user=${userAddedForStream.length}), result:`, JSON.stringify(startRes).slice(0, 200));
             }
           } catch (streamErr) {
             console.warn("[STREAM] Lifecycle error:", String(streamErr).slice(0, 200));

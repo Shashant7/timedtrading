@@ -6,6 +6,131 @@
 
 ---
 
+## Watchdog price_value_freshness fire #3 — PriceStream DO didn't own the KV blob's orphan symbols [2026-07-29]
+
+**Operator report** (Wed afternoon):
+> "Can you review the latest Health Watchdog alert?"
+
+External watchdog at 14:53 UTC paged:
+```
+https://timed-trading-ingest.shashant.workers.dev: 43 symbols display-stale
+(vendor quote aged) — BK:13m,BNY:13m,CRDO:13m,DKS:13m,MOD:13m,NBIX:13m,
+NTRA:13m,P:13m,RKT:13m,RMBS:13m.
+```
+
+Same alert shape as PRs [#1175](https://github.com/Shashant7/timedtrading/pull/1175)
+and [#1176](https://github.com/Shashant7/timedtrading/pull/1176) but a
+different underlying cause. Every offender aged in lockstep at exactly the
+same minute — synchronized-aging pattern, but not one those two fixes cover.
+
+### Investigation
+
+Feed itself was healthy at the moment of the watchdog probe:
+`prices_age_sec=4, mode=full, cron_active=true, operating_hours=true`,
+chain-smoke `feed=ok candles=ok scoring=ok overlay=ok`. So it wasn't a
+feed outage.
+
+Direct KV inspection of `timed:prices` was decisive:
+
+| Symbol | q_ts (UTC) | Age from KV updated_at |
+|---|---|---|
+| AAPL / NVDA / SPY | 17:47:00 | ~24s (fresh) |
+| CRDO | 17:18:38 | ~28.6m stale |
+| MOD  | 17:18:42 | ~28.5m stale |
+| NBIX | 17:17:31 | ~29.7m stale |
+| RKT  | 17:17:03 | ~30.2m stale |
+
+Cross-checked against the DO's `/timed/price-stream/status`:
+```json
+{ "isRunning": true, "symbolCount": 258, "snapshotSeeds": 258,
+  "lastSnapshotRefresh": <40s ago>, "lastKvWrite": <4s ago> }
+```
+
+**The gap.** DO owned 258 symbols but the KV blob had 315 → **57 orphan
+symbols** (discovery / screener / theme adds) that other cron paths had
+seeded into `timed:prices` but were NEVER in the stream's subscribe list.
+
+Direct TD `/quote?symbol=CRDO,MOD,NBIX,RKT,ALAB,OKLO,DUOL,FSLY` confirmed
+TwelveData was serving fresh close+quote data for these symbols right
+then. So the vendor wasn't the problem.
+
+### Root cause
+
+`worker/price-stream.js:_flushPrices` writes the full `timed:prices` blob
+via:
+```javascript
+const merged = { ...existing };                    // orphan rows pass through
+for (const [sym, data] of Object.entries(pricesData)) {
+  merged[sym] = mergeStreamRowIntoKv(existing[sym], data, ...);  // DO's owned rows
+}
+await this.env.KV_TIMED.put("timed:prices", JSON.stringify(...));
+```
+
+Two-writer race:
+1. tt-feed cron's stale sweep runs at :00 → writes fresh `q_ts` for CRDO
+   (and the 56 other orphans) into `timed:prices`.
+2. PriceStream DO alarm fires ~10s later → reads `existing` from KV. Under
+   Cloudflare KV eventual consistency, that read can return a version up
+   to ~60s old — **missing the cron's fresh write**.
+3. DO spreads `{...existing}` (stale orphan rows) + overrides its own 258
+   symbols → writes back to KV. Orphan `q_ts` values REVERT to what the
+   DO's stale read saw. Cron's healing work is lost.
+4. Next cron cycle catches them again → repeats. Under RTH the DO writes
+   every ~10s and cron writes every ~60s, so ~6 clobbers per healing.
+
+The 43 orphans aged in perfect lockstep because they all lost their
+freshness at the same DO write and stayed pinned to whatever `existing`
+recorded at that read (identical `updated_at` from the last KV blob).
+
+Neither PR #1175 (jitter on cron's stale-sweep writes) nor PR #1176 (DO
+advances its own symbols' `lastTs` on every apply) covers this — both
+assume the writer with fresh data actually ends up in KV. The orphan class
+was invisible because it's a **cross-writer coordination bug**, not a
+per-writer stamping bug.
+
+### Fix (PR that follows this entry)
+
+Make the DO the single writer for orphan `q_ts` by widening its
+`allSymbols` to include the KV blob:
+
+1. **`worker/index.js` — bar-cron stream lifecycle block**: build the
+   `dataStreamStart` symbol union as
+   `Object.keys(SECTOR_MAP) ∪ userAddedForStream ∪ Object.keys(timed:prices)`,
+   and call `dataStreamStart` on every 5-min bar-cron regardless of
+   `streamStatus.isRunning`. Guard removed only for the start branch —
+   the outside-operating-hours stop path still requires `isRunning`.
+2. **`worker/price-stream.js` — `/start` handler + `_seedFromSnapshots`**:
+   extract `computeStreamSymbolDelta(prev, requested)` as a pure helper
+   (dedupe + `SKIP_TICKERS` filter + return `{nextSymbols, newSymbols}`).
+   On a running instance, seed **only** `newSymbols` — not the full
+   315-symbol set every 5 min. Full re-seed would cost ~40 extra TD
+   `/quote` calls per bar-cron; the pattern that let quiet `q_ts` age is
+   "not owned by DO," not "not seeded recently enough."
+3. **Coverage** (`worker/price-stream-freshness.test.js`): 7 new tests
+   pin `computeStreamSymbolDelta` including the exact 315-vs-258 shape
+   from the watchdog fire — `orphans = kv_union.filter(sym => !allSymbols.has(sym))`
+   returns exactly the 57 previously-orphaned symbols.
+
+### Class-of-bug guard
+
+Any future writer of `timed:prices` MUST own every symbol it emits — no
+more single-blob-two-writers architecture for the price feed. Adding a
+new writer requires either wiring its symbol set into the DO's
+`allSymbols` OR moving to a separate KV key. The watchdog `valueStaleCount`
+gate + `/timed/health` display-staleness surface will keep catching new
+orphan classes if the ownership rule regresses.
+
+### What still needs operator attention
+
+- The 43 stale symbols will heal within ~5 min of deploy (next bar-cron
+  fires, DO picks them up, `_seedFromSnapshots` stamps fresh `lastTs`).
+  No manual retry needed.
+- Watchdog page/notice threshold on `valueStaleCount` (≥40 fails, ≥15
+  notice) stays as-is — it correctly caught this incident; the fix is
+  upstream, not the alert threshold.
+
+---
+
 ## Investor mirror trims must forward reduce_pct (META flatten + phantom dust) [2026-07-29]
 
 **Operator report** with a Webull Roth screenshot:
