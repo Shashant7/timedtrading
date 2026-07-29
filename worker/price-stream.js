@@ -15,6 +15,40 @@
 
 import { tdFetchQuote, toTdSymbol, fromTdSymbol, SKIP_TICKERS } from "./twelvedata.js";
 
+/**
+ * Compute the sanitized next symbol set and the delta of newly-added symbols
+ * for a PriceStream `/start` re-invocation. Extracted so the orphan-symbol
+ * re-sync contract (2026-07-29 Health Watchdog `valueStaleCount` fire) can
+ * be regression-tested without a Durable Object.
+ *
+ * Rules:
+ * - Empty / non-array `requested` → no-op: keep current set, no delta.
+ * - Otherwise: filter out `SKIP_TICKERS`, dedupe (Set semantics), and return
+ *   the members that are NOT already in `prev` as the delta to seed.
+ *
+ * @param {string[]} prev
+ * @param {string[]} requested
+ * @param {Set<string>} [skip]
+ * @returns {{ nextSymbols: string[], newSymbols: string[] }}
+ */
+export function computeStreamSymbolDelta(prev, requested, skip = SKIP_TICKERS) {
+  if (!Array.isArray(requested) || requested.length === 0) {
+    return { nextSymbols: Array.isArray(prev) ? prev : [], newSymbols: [] };
+  }
+  const prevSet = new Set(Array.isArray(prev) ? prev : []);
+  const seen = new Set();
+  const nextSymbols = [];
+  const newSymbols = [];
+  for (const s of requested) {
+    if (skip?.has?.(s)) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    nextSymbols.push(s);
+    if (!prevSet.has(s)) newSymbols.push(s);
+  }
+  return { nextSymbols, newSymbols };
+}
+
 const TD_WS_BASE = "wss://ws.twelvedata.com/v1/quotes/price";
 const MAX_CONNECTIONS = 3;
 const HEARTBEAT_INTERVAL_MS = 10_000;
@@ -291,14 +325,23 @@ export class PriceStream {
   // REST Snapshot Seeding (via TwelveData /quote)
   // ══════════════════════════════════════════════════════════════════════════
 
-  async _seedFromSnapshots() {
-    if (this.allSymbols.length === 0) return;
-    console.log(`[PriceStream] Seeding ${this.allSymbols.length} symbols from TwelveData quotes...`);
-    const { snapshots } = await tdFetchQuote(this.env, this.allSymbols);
+  async _seedFromSnapshots(symbolsSubset = null) {
+    // symbolsSubset: when provided, only fetch quotes for that subset (used
+    // by /start re-invocation to seed newly-added orphan symbols without
+    // re-fetching the entire 300+ ticker set every bar-cron). Falls back to
+    // the full `allSymbols` set on cold-start.
+    const targets = (Array.isArray(symbolsSubset) && symbolsSubset.length > 0)
+      ? symbolsSubset
+      : this.allSymbols;
+    if (targets.length === 0) return;
+    console.log(`[PriceStream] Seeding ${targets.length} symbols from TwelveData quotes...`);
+    const { snapshots } = await tdFetchQuote(this.env, targets);
     const count = this._applySnapshots(snapshots || {});
-    this.snapshotSeeds = count;
+    // Only overwrite snapshotSeeds on a full seed — a delta seed shouldn't
+    // shrink the reported count and mislead the /status dashboard.
+    if (!symbolsSubset) this.snapshotSeeds = count;
     this.lastSnapshotRefresh = Date.now();
-    console.log(`[PriceStream] Seeded ${count} symbols from quotes`);
+    console.log(`[PriceStream] Seeded ${count}/${targets.length} symbols from quotes`);
   }
 
   async _refreshSnapshots() {
@@ -418,7 +461,14 @@ export class PriceStream {
       try {
         const body = await request.json().catch(() => ({}));
         const symbols = body.symbols || [];
-        if (symbols.length > 0) this.allSymbols = symbols.filter(s => !SKIP_TICKERS.has(s));
+        // 2026-07-29 — Compute the DELTA before overwriting allSymbols so a
+        // re-invocation from the bar-cron only seeds NEWLY-added orphan
+        // symbols (discovery / screener adds). Full re-seed on every 5-min
+        // bar-cron would cost ~40 extra TD /quote calls per cron across
+        // 315 symbols — the pattern that let quiet-symbol q_ts age is the
+        // "not owned by DO" case, not "not seeded recently enough".
+        const { nextSymbols, newSymbols } = computeStreamSymbolDelta(this.allSymbols, symbols);
+        if (nextSymbols.length > 0 && symbols.length > 0) this.allSymbols = nextSymbols;
 
         if (!this.isRunning) {
           this.isRunning = true;
@@ -434,12 +484,17 @@ export class PriceStream {
           await this._recordLifecycleEvent("started", {
             symbolCount: this.allSymbols.length,
           });
-        } else if (symbols.length > 0) {
-          await this._seedFromSnapshots();
+        } else if (newSymbols.length > 0) {
+          // Running instance + new symbols added → seed the delta only.
+          // WebSocket is NOT re-subscribed to the new symbols (avoids
+          // reconnect flapping); the 60s snapshot-refresh alarm now
+          // includes them, which is what q_ts freshness needs.
+          await this._seedFromSnapshots(newSymbols);
         }
         return _json({
           ok: true, status: "running",
           symbols: this.allSymbols.length,
+          added: newSymbols.length,
           seeded: this.snapshotSeeds,
           connections: this.connections.filter(ws => ws?.readyState === 1).length,
         });
