@@ -6,6 +6,128 @@
 
 ---
 
+## Investor mirror trims must forward reduce_pct (META flatten + phantom dust) [2026-07-29]
+
+**Operator report** with a Webull Roth screenshot:
+> "The model sent out a bunch of trade signals but Webull exited rather
+> trimmed on many of those. It also left a ghost position in Meta."
+
+The screenshot showed **META, ETN, KO all sitting at 0.00001 shares**
+(dust) and **PANW at 0.04734 sh** — 8 positions, 4 of them essentially
+flattened. Model book still had OPEN positions on those tickers (META:
+10.375 sh model, PANW: 18.246 sh model, KO: substantial), so this was
+not the model exiting — the mirror execution went wrong.
+
+### Investigation
+
+**Ledger + manifest correlation for META (2026-07-29):**
+
+| Event | Time (UTC) | Side | Qty | Notes |
+|---|---|---|---|---|
+| investor_lots SELL | 14:02:27 | — | 0.9021 | Model event-risk trim (PRE_EARNINGS, ~8.7%) |
+| bridge order_in | 14:03:34 | trim | 0.9021 | Model shares forwarded raw |
+| bridge reducer_reconcile | 14:03:35 | trim | **0.54136** | `capped_to_model_portion` |
+| bridge place | 14:03:36 | trim | 0.54135 | Webull 5dp round |
+| broker FILL | 14:05:28 | sell | 0.54135 | 100% liquidation of broker holding |
+
+The `reducer_reconcile` audit row was the smoking gun:
+```json
+{"requested_qty":0.9021,"resolved_qty":0.54136,"model_remaining":0.54136,
+ "held_qty":0.54136,"reasons":["explicit_qty","capped_to_model_portion"]}
+```
+
+Model space vs broker space mismatch:
+- Model position: 10.375 sh META (in $100k-notional simulator)
+- Broker position (Roth IRA, relational-sized): 0.54136 sh
+- Model intent: trim 8.7% (~0.9021 model sh → should be ~0.047 broker sh)
+- What happened: 0.9021 got clamped to 0.54136 = **100% flatten**
+
+PANW same day, less severe only by coincidence:
+- Broker held 1.00754 sh
+- Model sent trim shares = 0.9602 (still less than held, no cap)
+- Broker sold 0.9602 → 0.04734 remain (95% "trim" on 1 sh = essentially flat)
+
+KO, ETN same story from earlier days.
+
+### Root cause chain
+
+1. `_bridgeMirrorInvestor({ kind: "trim", shares: trimShares, … })` sent
+   raw model-space `shares` with no `reduce_pct` hint.
+2. `forwardInvestorMirror` forwarded `qty=<model sh>` to the bridge.
+3. `reconcileReducerQty` (bridge-guards.js) with `reducePct=null` and
+   `side="trim"` took `intended = requestedQty` (`explicit_qty` branch),
+   then hit `capped_to_model_portion` because `requestedQty > modelRemainingQty`.
+4. Result: TRIM intent silently became a full liquidation of the mirror
+   portion. No alert, no discrepancy notification.
+
+The `reduce_pct` path already existed in `forwardInvestorMirror` and the
+bridge (`reconcileReducerQty` uses `pct × basis`), but no caller passed
+it. Only the DCA path did, and DCA is never a trim.
+
+### Fix
+
+1. **`worker/index.js`** — every `_bridgeMirrorInvestor` partial-trim
+   call now passes `reduce_pct: <trimPct>`:
+   - Event-risk trim (line ~93938): `reduce_pct: trimPct` from
+     `computeAdaptiveEventRiskTrimPct(...).trimPct`
+   - Auto-reduce trim (line ~94133): `reduce_pct: _reduceTrimPct`
+   - Exhaustion-lock-in (line ~94326): `reduce_pct: 0.20`
+   - FSD-removal (line ~93624): `reduce_pct: _frPct`
+   
+   Full exits (invalidation breach, or when `remaining <= 0.0001`) still
+   route as `kind: "exit"` with no pct — the bridge treats "exit" as a
+   flatten of the model portion by design.
+
+2. **`worker-bridge/bridge-guards.js` — `reconcileReducerQty`**:
+   - **TRIM dust sweep**: when a TRIM leaves `<= dustSweepTolerance` (0.05
+     sh) residual on the account, sweep the whole held qty. Prevents
+     5-decimal Webull precision from leaving 0.00001 phantom dust that
+     keeps the manifest open as mothership_orphan indefinitely.
+   - **`intent_unit_mismatch` discrepancy**: when a TRIM with no
+     `reduce_pct` triggers `capped_to_model_portion`, emit a first-class
+     discrepancy so bridge-index escalates instead of silently flattening.
+     Existing `emitDriftNotification` picks this up automatically.
+
+3. **`worker-bridge/bridge-index.js`** — `writeLastActionAudit` is now
+   **awaited**. Diagnostics showed 0/18 manifest rows had ever received a
+   `sync_last_action_json` stamp because the fire-and-forget promise was
+   being cancelled by the Worker runtime once the response was sent (no
+   `ctx.waitUntil()`). Blocking here adds ~10 ms; the reducer path is
+   already async so the caller doesn't feel it. On `{ok:false}` from the
+   audit we now log the exact skip reason so a silent WHERE-miss can't
+   regress silently again.
+
+4. **Coverage test** (`worker/investor-reducer-mirror-coverage.test.js`):
+   new source-contract check `every partial-trim mirror block includes
+   a reduce_pct hint` — a PR that adds a new `_bridgeMirrorInvestor({
+   kind: "trim", … })` block without `reduce_pct:` fails CI with the
+   concrete file + line printed.
+
+5. **Bridge tests** (`worker-bridge/bridge-reducer-guard.test.js`): 8 new
+   cases covering TRIM dust sweep, pct-based trim + dust, held ceiling
+   respected, `intent_unit_mismatch` fires with the right conditions and
+   does NOT fire when `reduce_pct` is present or the side is
+   `exit`/`close`/`sell`.
+
+### Class-of-bug guard
+
+"Model-space qty forwarded to broker-space bridge" is now impossible for
+partial trims — the source contract test blocks it, and the bridge's
+`intent_unit_mismatch` discrepancy would surface any legacy caller that
+slipped through. Full exits stay unchanged (they're already unit-safe
+because the bridge flattens the model portion).
+
+### What still needs operator attention
+
+- META/ETN/KO manifest rows are stuck in `mothership_orphan` /
+  `mirror_suppressed:auto_suppressed_after_4_drifts` from the pre-fix
+  trims. The mirror will keep rejecting new trims on those tickers until
+  the operator unblocks (admin unsuppress or D1 reset).
+- Physical 0.00001 sh dust in Webull can't be sold (below Webull's
+  min-fractional threshold). Cosmetic-only; PnL impact is <$0.01.
+
+---
+
 ## Daily Brief silently vanished for 2 trading days — OpenAI billing exhausted, "degraded" swallowed the alert [2026-07-29]
 
 **Symptom.** Operator (Wed morning): "Could you look into why the Daily

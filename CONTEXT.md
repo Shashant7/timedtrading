@@ -285,6 +285,29 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `handleSingleAccountOrder` must forward `reduce_pct`/`trim_pct`. Dropping
   them made a 50% NVDA trim use model-book share qty → clamp to full
   `broker_remaining` (sold 7.75 instead of ~3.87).
+- **Investor mirror trims MUST forward `reduce_pct` (2026-07-29 META/PANW flatten)**:
+  Model sent an 8.7% pre-earnings META trim (shares=0.9021 in $100k-notional
+  model space) to `_bridgeMirrorInvestor` **without** `reduce_pct`. The bridge
+  received `qty=0.9021, held=0.54136 (relational-sized), reducePct=null` and
+  fell into `explicit_qty` → `capped_to_model_portion` → sold 0.54135 =
+  100% liquidation. PANW same day: sold 95% (0.9602 of 1.00754). ETN/KO
+  earlier: same pattern. Every `_bridgeMirrorInvestor({ kind: "trim", … })`
+  callsite (event-risk, auto-reduce, exhaustion-lock-in, FSD-removal) now
+  forwards `reduce_pct: <trimPct>` — pct is dimensionless so the bridge
+  scales against the mirrored held portion cleanly. Full exits still route
+  as `kind: "exit"` (no pct needed). Defense-in-depth: bridge flags
+  `intent_unit_mismatch` when a TRIM without pct requires
+  `capped_to_model_portion`; TRIM dust sweep sweeps residuals ≤ 0.05 sh so
+  5-decimal Webull precision no longer leaves phantom 0.00001 rows. Source
+  contract test (`investor-reducer-mirror-coverage.test.js`) fails a PR
+  that adds a partial-trim mirror block without a `reduce_pct` hint.
+- **Post-execution audit MUST be awaited on Workers (2026-07-29 silent audit)**:
+  `writeLastActionAudit` was fire-and-forget without `ctx.waitUntil()` — the
+  Worker runtime cancelled the pending D1 UPDATE the moment the reducer
+  response was sent, so `sync_last_action_json` never landed (0/18 rows
+  stamped despite dozens of successful trims). Now awaited and the audit
+  logs the exact skip reason on `{ok:false}` so a silent WHERE-miss can
+  never regress again.
 - **Sanity `broker_bridge_bindings` ring density (2026-07-24)**: count only
   *unresolved* 6h failures — skip rows superseded by a later `ok` for the
   same `trade_id`+side (and `inv-inv-*` → `inv-*`). Otherwise operator
