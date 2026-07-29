@@ -103,3 +103,53 @@ describe("investor reducer paths mirror to broker bridge (source contract)", () 
     ).toEqual([]);
   });
 });
+
+/**
+ * 2026-07-29 — After the META/PANW event-risk trim mis-scaling (model
+ * intended 8.7% but broker flattened 100% because reduce_pct was omitted
+ * and the raw model-share qty capped to `broker_remaining_qty`), every
+ * `_bridgeMirrorInvestor({ kind: "trim", … })` block MUST also carry a
+ * `reduce_pct:` hint. The bridge's reconcileReducerQty then scales the
+ * pct against the mirrored held portion (relational-sized) instead of
+ * treating model-space shares as broker-space and capping silently.
+ *
+ * Full exits (`kind: "exit"` or `kind: (isFull ? "exit" : "trim")`) don't
+ * need reduce_pct — the bridge flattens the model portion by default.
+ * The check therefore looks for a matching `reduce_pct` on any block
+ * whose `kind:` string contains the literal "trim" (partial reducer).
+ */
+function findInvestorMirrorTrimCalls() {
+  const hits = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!/_bridgeMirrorInvestor\s*\(\s*\{/.test(lines[i])) continue;
+    // Reconstruct up to 12 lines to capture the object literal end brace.
+    const window = lines.slice(i, i + 14).join("\n");
+    // Only care about blocks whose `kind:` contains "trim" — this catches
+    // literal `kind: "trim"` AND ternary `kind: (isFull ? "exit" : "trim")`.
+    if (!/kind\s*:\s*[^,\n]*"trim"/.test(window)) continue;
+    hits.push({ idx: i, window });
+  }
+  return hits;
+}
+
+describe("investor mirror partial-trim calls MUST forward reduce_pct (2026-07-29)", () => {
+  it("finds at least one _bridgeMirrorInvestor trim call (sanity — pattern still matches)", () => {
+    const hits = findInvestorMirrorTrimCalls();
+    expect(hits.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("every partial-trim mirror block includes a reduce_pct hint (prevents model→broker unit mismatch)", () => {
+    const hits = findInvestorMirrorTrimCalls();
+    const missing = [];
+    for (const { idx, window } of hits) {
+      if (!/reduce_pct\s*:/.test(window)) {
+        const lineNo = idx + 1;
+        missing.push(`worker/index.js:${lineNo} — ${window.slice(0, 320)}`);
+      }
+    }
+    expect(
+      missing,
+      `_bridgeMirrorInvestor({ kind: "trim", … }) block(s) missing reduce_pct — the bridge cannot re-scale model shares against the mirrored (relational-sized) held portion without it, and will cap+flatten instead of trimming. Add \`reduce_pct: <trimPct>\` to the call:\n${missing.join("\n\n")}`,
+    ).toEqual([]);
+  });
+});

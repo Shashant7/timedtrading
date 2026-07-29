@@ -412,6 +412,17 @@ export function evaluateReducerAgainstPositions({ ticker, requestedQty, position
  * touches shares beyond the tolerance — real user-added excess still stays
  * with the user.
  *
+ * 2026-07-29 — Two additions after META/PANW event-risk trim mis-scaling:
+ *   1. Dust sweep now also fires on TRIMs that leave <= dustSweepTolerance
+ *      remaining post-trim (e.g. Webull's 5-decimal precision leaves 0.00001
+ *      after a "sell almost everything" trim). Prevents the manifest from
+ *      lingering as a phantom dust row after a near-full trim.
+ *   2. `explicit_qty` that requires `capped_to_model_portion` (raw reqQty >
+ *      modelRemaining, no pct given) is a symptom of caller/broker unit
+ *      mismatch — model-space shares treated as broker-space. Flagged as
+ *      `intent_unit_mismatch` discrepancy so bridge-index can log critical
+ *      and surface the drift; caller MUST send reduce_pct to size correctly.
+ *
  * @returns {{qty, isFull, adjusted, discrepancy:Array|null, reasons:Array,
  *            modelRemainingQty, heldQty, sweptDust:boolean}}
  */
@@ -469,9 +480,42 @@ export function reconcileReducerQty({
 
   // Never reduce more than the model's tracked portion (protect user shares).
   // Not applied when the dust sweep intentionally bumped intended up to held.
-  if (!sweptDust && model != null && intended > model + tolerance) {
+  const cappedToModel = !sweptDust && model != null && intended > model + tolerance;
+  if (cappedToModel) {
     intended = model;
     reasons.push("capped_to_model_portion");
+    // 2026-07-29 — intent unit mismatch. A trim caller that sends raw model
+    // shares (not scaled to the account) triggers this cap silently — see
+    // META 2026-07-29: model wanted 8.7% (reqQty=0.9021 model sh) but held
+    // only 0.54136 sh on the mirrored account, capping to 0.54136 = 100%
+    // liquidation. Surface the mismatch as a first-class discrepancy so
+    // bridge-index escalates instead of quietly flattening.
+    if (!isFull && pct == null) {
+      discrepancy.push({
+        kind: "intent_unit_mismatch",
+        requested: reqQty,
+        model,
+        held,
+        note: "trim requestedQty > modelRemaining without reduce_pct — likely model-space shares being treated as broker-space. Caller MUST send reduce_pct to size correctly.",
+      });
+      reasons.push("intent_unit_mismatch");
+    }
+  }
+
+  // 2026-07-29 — Dust sweep on TRIMs. If the resolved intended qty would
+  // leave <= dustSweepTolerance behind on the account, treat the trim as
+  // effectively a flatten and sweep the whole held qty. Prevents 0.00001
+  // Webull-precision dust from lingering after a "sell essentially all"
+  // trim (which then keeps the manifest phantom-open until the reconciler
+  // classifies it as mothership_orphan). Only applies when a non-trivial
+  // trim was already intended (skips 0-qty edge cases).
+  if (!isFull && !sweptDust && intended > tolerance && held > intended + tolerance) {
+    const residual = held - intended;
+    if (residual <= dustSweepTolerance) {
+      intended = held;
+      sweptDust = true;
+      reasons.push(`trim_sweep_dust_${residual.toFixed(6)}`);
+    }
   }
 
   // Discrepancy detection vs live holding.
