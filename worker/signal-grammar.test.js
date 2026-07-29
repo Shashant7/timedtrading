@@ -225,6 +225,29 @@ describe("isActionableNotification", () => {
       title: "INVESTOR · EXITED: TWLO",
     })).toBe(true);
   });
+
+  // 2026-07-29 — Titles are written with the horizon prefix ("LONG TERM ·"),
+  // not "INVESTOR ·" / "MODEL ·". Before the regex fix, ADD/BOUGHT were
+  // dropped from the bell while TRIMMED/EXITED accidentally passed via
+  // `.includes("TRIM"|"EXIT")`. Pin all four executed verbs.
+  it("includes LONG TERM · prefixed executed investor fills (horizon label)", () => {
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "LONG TERM · ADD: CRDO",
+    })).toBe(true);
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "LONG TERM · BOUGHT: PLTR",
+    })).toBe(true);
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "LONG TERM · TRIMMED: META",
+    })).toBe(true);
+    expect(isActionableNotification({
+      type: "investor_signal",
+      title: "LONG TERM · EXITED: TWLO",
+    })).toBe(true);
+  });
 });
 
 describe("lane meta bands", () => {
