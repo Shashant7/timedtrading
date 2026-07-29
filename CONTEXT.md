@@ -308,6 +308,19 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   stamped despite dozens of successful trims). Now awaited and the audit
   logs the exact skip reason on `{ok:false}` so a silent WHERE-miss can
   never regress again.
+- **PriceStream DO must OWN every symbol in `timed:prices` (2026-07-29 orphan clobber)**:
+  Watchdog fired at 14:53 UTC: 43 symbols aged in lockstep at exactly 13m.
+  DO owned 258/315 KV symbols; the 57 orphans (discovery / screener / theme
+  adds) got healed by tt-feed's stale sweep, then routinely CLOBBERED by the
+  DO's full-blob KV write under KV eventual consistency (DO read a version
+  up to ~60s old, spread `{...existing}` back over the cron's fresh `q_ts`).
+  Fix: bar-cron re-invokes `dataStreamStart` on every 5-min tick with the
+  union of `SECTOR_MAP` + user-added + `Object.keys(timed:prices)`. The DO's
+  `/start` handler uses `computeStreamSymbolDelta(prev, requested)` to seed
+  only the NEWLY-added orphan symbols (bounds TD `/quote` credit spend).
+  Any future writer of `timed:prices` MUST own every symbol it emits — no
+  more single-blob-two-writers architecture (PRs #1175 + #1176 fixed the
+  per-writer stamping; this fixes cross-writer coordination).
 - **Sanity `broker_bridge_bindings` ring density (2026-07-24)**: count only
   *unresolved* 6h failures — skip rows superseded by a later `ok` for the
   same `trade_id`+side (and `inv-inv-*` → `inv-*`). Otherwise operator
