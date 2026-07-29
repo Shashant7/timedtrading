@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { recordCronFailure, cronErrorSignature, cronErrorSeverityBand, isOpenAiQuotaError, normalizeBriefCronError, recordBriefCronOutcome, recordCronSuccess, healDegradedBriefTombstones } from "../worker/alerts.js";
+import { recordCronFailure, cronErrorSignature, cronErrorSeverityBand, isOpenAiQuotaError, isOpenAiRateLimitError, normalizeBriefCronError, recordBriefCronOutcome, recordCronSuccess, healDegradedBriefTombstones } from "../worker/alerts.js";
 
 describe("recordCronFailure discord dedup", () => {
   let kvStore;
@@ -122,48 +122,94 @@ describe("recordCronFailure discord dedup", () => {
     expect(tomb.count).toBe(1);
   });
 
-  it("normalizeBriefCronError marks OpenAI quota as degraded and skipDiscord", async () => {
+  // 2026-07-29 — updated contract: OpenAI quota exhaustion is NO LONGER
+  // silent. It requires operator action (billing top-up) before ANY
+  // future brief slot can succeed, so leaving it in the "degraded, skip
+  // discord" bucket meant two consecutive missed Daily Briefs and zero
+  // pages. Quota now pages once (count-based dedup still throttles);
+  // transient rate-limit remains silent because the next slot retries.
+  it("normalizeBriefCronError marks OpenAI quota degraded but REQUIRES operator action (pages Discord)", async () => {
     const raw = 'OpenAI 429: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.';
     const norm = normalizeBriefCronError(raw);
     expect(norm.degraded).toBe(true);
-    expect(norm.skipDiscord).toBe(true);
+    expect(norm.skipDiscord).toBe(false); // NEW: quota MUST page
+    expect(norm.requiresOperatorAction).toBe(true);
     expect(norm.error).toMatch(/openai_quota_exceeded/i);
+    expect(norm.error).toMatch(/openai\.com\/account\/billing/i); // billing URL surfaced
     expect(isOpenAiQuotaError(raw)).toBe(true);
-
-    const env = makeEnv();
-    await recordCronFailure(env, {
-      op: "intraday_flash",
-      error: norm.error,
-      caller: "scheduled_event",
-      skipDiscord: norm.skipDiscord,
-    });
-    expect(discordCalls).toBe(0);
+    expect(isOpenAiRateLimitError(raw)).toBe(false); // quota is NOT rate-limit
   });
 
-  it("recordBriefCronOutcome heals tombstone on OpenAI quota skip", async () => {
+  it("normalizeBriefCronError marks transient OpenAI rate-limit as degraded + skipDiscord (self-healing)", async () => {
+    // Real rate limit — not quota — self-heals on next slot; no page.
+    const raw = 'OpenAI 429: Rate limit reached for gpt-4o in organization';
+    const norm = normalizeBriefCronError(raw);
+    expect(norm.degraded).toBe(true);
+    expect(norm.skipDiscord).toBe(true);
+    expect(norm.requiresOperatorAction).toBe(false);
+    expect(norm.error).toMatch(/openai_rate_limited/i);
+    expect(isOpenAiRateLimitError(raw)).toBe(true);
+    expect(isOpenAiQuotaError(raw)).toBe(false);
+  });
+
+  it("recordBriefCronOutcome ESCALATES on OpenAI quota (writes tombstone + pages)", async () => {
     const env = makeEnv();
-    await recordCronFailure(env, {
-      op: "intraday_flash",
-      error: "openai_quota_exceeded — AI brief skipped",
-      caller: "scheduled_event",
-      skipDiscord: true,
-    });
-    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(1);
+    // Quota exhaustion: write tombstone + fire Discord (once per shape).
     await recordBriefCronOutcome(env, "intraday_flash", {
       ok: false,
       error: 'OpenAI 429: quota exceeded',
     });
-    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(0);
+    const tomb1 = JSON.parse(kvStore.get("timed:cron:failure:intraday_flash"));
+    expect(tomb1.count).toBe(1);
+    expect(tomb1.error).toMatch(/openai_quota_exceeded/i);
+    expect(discordCalls).toBe(1);
+
+    // Second slot with the same quota error → tombstone bumps, no re-page
+    // (recordCronFailure's shape+severity dedup handles this).
+    await recordBriefCronOutcome(env, "intraday_flash", {
+      ok: false,
+      error: 'OpenAI 429: quota exceeded',
+    });
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(2);
+    expect(discordCalls).toBe(1);
   });
 
-  it("healDegradedBriefTombstones clears active quota tombstones", async () => {
+  it("recordBriefCronOutcome stays SILENT on transient rate-limit (records success, no page)", async () => {
+    const env = makeEnv();
+    await recordBriefCronOutcome(env, "intraday_flash", {
+      ok: false,
+      error: 'OpenAI 429: Rate limit reached',
+    });
+    // No tombstone written — treated as success.
+    expect(kvStore.get("timed:cron:failure:intraday_flash")).toBeUndefined();
+    expect(discordCalls).toBe(0);
+  });
+
+  it("healDegradedBriefTombstones PRESERVES quota tombstones (needs operator top-up)", async () => {
     const env = makeEnv();
     await recordCronFailure(env, {
       op: "intraday_flash",
-      error: "openai_quota_exceeded — AI brief skipped",
+      error: "openai_quota_exceeded — AI brief blocked (top up OpenAI billing)",
+      caller: "scheduled_event",
+    });
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(1);
+
+    await healDegradedBriefTombstones(env);
+    // Quota tombstone MUST persist until a real brief succeeds; the
+    // billing-top-up + next successful generation is the only heal path.
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(1);
+  });
+
+  it("healDegradedBriefTombstones CLEARS transient rate-limit tombstones", async () => {
+    const env = makeEnv();
+    await recordCronFailure(env, {
+      op: "intraday_flash",
+      error: "openai_rate_limited — AI brief skipped (retry next slot)",
       caller: "scheduled_event",
       skipDiscord: true,
     });
+    expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(1);
+
     await healDegradedBriefTombstones(env);
     expect(JSON.parse(kvStore.get("timed:cron:failure:intraday_flash")).count).toBe(0);
   });
