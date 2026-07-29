@@ -217,6 +217,23 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Daily Brief silent-vanish — OpenAI quota exhaustion needs an operator page (2026-07-29)**
+- Symptom: `daily_briefs` D1 empty for Tue+Wed AM after Mon evening;
+  `/timed/admin/cron-status` had no `daily_brief_*` tombstones and no
+  Discord alerts fired. Two trading days of missing briefs, zero signal.
+- Root: `worker/alerts.js` treated EVERY OpenAI 429 (including `insufficient_quota`)
+  as `degraded` and short-circuited to `recordCronSuccess` with `skipDiscord: true`.
+  Quota exhaustion needs a billing top-up — it will never self-heal, so silent
+  skipping loses one brief per cron tick until the operator notices.
+- Fix: `normalizeBriefCronError` now returns `requiresOperatorAction`.
+  Quota → `recordCronFailure` (tombstone + one Discord page via existing
+  count-based dedupe). Rate-limit stays silent (self-heals next tick).
+  `healDegradedBriefTombstones` heals rate-limit only; quota tombstones stick
+  until a successful brief calls `recordCronSuccess`.
+- Rule: "degraded" ≠ "silent". Any failure requiring OPERATOR ACTION
+  (billing, credentials, quota bump, API key swap) MUST leave a
+  tombstone + one-shot Discord page on first detection.
+
 **CF long-term capture — compounder dip + pullback DCA (2026-07-23)**
 - CF auto-open (growth_strong + weekly_pullback + intraday) worked; D1 left
   `thesis`/`thesis_invalidation` null and DCA was calendar-only.

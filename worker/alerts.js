@@ -283,20 +283,34 @@ export function isOpenAiQuotaError(error) {
 /** OpenAI transient rate limit (429 without quota/billing wording). */
 export function isOpenAiRateLimitError(error) {
   const s = String(error || "").toLowerCase();
-  if (s === "openai_rate_limited") return true;
+  // Substring match so this still fires for the normalized message we
+  // stamp on tombstones ("openai_rate_limited — AI brief skipped ...").
+  // Bare-exact match was regressing the tombstone-heal path.
+  if (s.includes("openai_rate_limited")) return true;
   return s.includes("openai 429") && !isOpenAiQuotaError(error);
 }
 
 /**
- * Normalize AI brief cron errors so quota/rate-limit outages read as
- * billing/degraded skips — not infra failures that page #system-alerts.
+ * Normalize AI brief cron errors so infra vs. billing vs. transient are
+ * classified up-front. `requiresOperatorAction` splits the two degraded
+ * flavors: quota exhaustion needs the operator to top up OpenAI billing
+ * (never self-heals), while rate-limit typically clears within a slot.
+ *
+ * 2026-07-29 — the daily brief silently missed TWO trading days when
+ * OpenAI billing ran dry (all 429 responses were folded into `degraded`
+ * with `skipDiscord: true` and no tombstone). Quota exhaustion is now
+ * flagged as an operator-actionable failure so the count-based dedupe
+ * in `recordCronFailure` pages once per outage and the tombstone shows
+ * up in `/timed/admin/cron-status`. Rate-limit stays silent — it
+ * self-recovers next tick.
  */
 export function normalizeBriefCronError(error) {
   if (isOpenAiQuotaError(error)) {
     return {
-      error: "openai_quota_exceeded — AI brief skipped (top up OpenAI billing)",
-      skipDiscord: true,
+      error: "openai_quota_exceeded — AI brief blocked (top up OpenAI billing at https://platform.openai.com/account/billing/overview)",
+      skipDiscord: false,
       degraded: true,
+      requiresOperatorAction: true,
     };
   }
   if (isOpenAiRateLimitError(error)) {
@@ -304,12 +318,14 @@ export function normalizeBriefCronError(error) {
       error: "openai_rate_limited — AI brief skipped (retry next slot)",
       skipDiscord: true,
       degraded: true,
+      requiresOperatorAction: false,
     };
   }
   return {
     error: String(error || "unknown").slice(0, 500),
     skipDiscord: false,
     degraded: false,
+    requiresOperatorAction: false,
   };
 }
 
@@ -403,8 +419,15 @@ export async function recordCronSuccess(env, op) {
 }
 
 /**
- * Brief / flash cron outcome — heals tombstones on success, idempotent skip,
- * and OpenAI quota/rate-limit degradations (not infra failures).
+ * Brief / flash cron outcome — heals tombstones on success and routes
+ * failures by cause:
+ *   - success                     → heal tombstone
+ *   - transient rate limit        → silent (self-heals next tick)
+ *   - quota exhausted (billing)   → tombstone + Discord alert (count
+ *                                   dedupe pages ONCE per outage; a
+ *                                   successful brief resets, so a fresh
+ *                                   quota outage re-pages)
+ *   - genuine infra failure       → tombstone + Discord alert (standard)
  */
 export async function recordBriefCronOutcome(env, op, outcome) {
   const safeOp = String(op || "unknown").slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
@@ -412,7 +435,11 @@ export async function recordBriefCronOutcome(env, op, outcome) {
     return recordCronSuccess(env, safeOp);
   }
   const norm = normalizeBriefCronError(outcome?.error || "unknown");
-  if (norm.degraded) {
+  // Transient rate-limit is the only truly silent branch — the next cron
+  // slot will retry. Everything else (including quota exhaustion, which
+  // needs an operator top-up before ANY future slot succeeds) MUST leave
+  // a forensic trail.
+  if (norm.degraded && !norm.requiresOperatorAction) {
     return recordCronSuccess(env, safeOp);
   }
   return recordCronFailure(env, {
@@ -425,7 +452,13 @@ export async function recordBriefCronOutcome(env, op, outcome) {
 
 const BRIEF_CRON_OPS = ["intraday_flash", "daily_brief_morning", "daily_brief_evening"];
 
-/** Clear active tombstones left by OpenAI quota/rate-limit skips (not infra). */
+/**
+ * Clear active tombstones left by transient OpenAI rate-limit skips
+ * (those self-recover; the tombstone is noise). Quota-exhausted
+ * tombstones are DELIBERATELY LEFT ALONE — they stick until the operator
+ * tops up billing and the next brief succeeds via `recordCronSuccess`,
+ * which is the correct healing signal for a billing outage.
+ */
 export async function healDegradedBriefTombstones(env) {
   const KV = env?.KV_TIMED;
   if (!KV) return;
@@ -433,7 +466,10 @@ export async function healDegradedBriefTombstones(env) {
     try {
       const row = await KV.get(`timed:cron:failure:${op}`, "json");
       if (!row || Number(row.count) <= 0) continue;
-      if (isOpenAiQuotaError(row.error) || isOpenAiRateLimitError(row.error)) {
+      // Quota exhaustion (billing) intentionally NOT healed here — see
+      // block comment above. isOpenAiRateLimitError() excludes the
+      // quota case so this branch only clears the transient variety.
+      if (isOpenAiRateLimitError(row.error)) {
         await recordCronSuccess(env, op);
       }
     } catch {}

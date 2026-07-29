@@ -6,6 +6,104 @@
 
 ---
 
+## Daily Brief silently vanished for 2 trading days — OpenAI billing exhausted, "degraded" swallowed the alert [2026-07-29]
+
+**Symptom.** Operator (Wed morning): "Could you look into why the Daily
+Brief didn't fire this morning?" `daily_briefs` D1 table showed the last
+row landed 2026-07-27 21:01 UTC (evening). Every scheduled slot after
+that — Tue morning/intraday×2/evening AND Wed morning — was missing.
+
+Confusingly:
+- `/timed/admin/cron-status?key=…` had **zero** tombstones for
+  `daily_brief_morning`, `daily_brief_evening`, or `intraday_flash`.
+- No Discord alerts had fired on the system lane.
+- `cronTickAgeMin` on `tt-research` was ~0.7 min (cron ticks WERE
+  reaching the worker).
+
+**How the cause was found.** The daily-brief cron also calls the CRO
+note refresh via `ensureCRONoteForBriefCadenceWithTimeout` — same
+OpenAI dependency. `cro_daily_notes` D1 rows for the missing slots all
+had `note_id LIKE '%_err_%'` and matching timestamps to the brief cron
+(13:00 / 15:00 / 18:00 / 21:00 UTC). Reading the `error` column showed
+the actual failure: `openai_429: {"error":{"message":"You exceeded your
+current quota, please check your plan and billing details."}}`.
+
+A one-shot `POST /timed/daily-brief/generate?type=morning&async=0`
+against `tt-research` confirmed the current state:
+`{"ok":false,"error":"Error: openai_quota_exceeded"}`. OpenAI billing
+was flat.
+
+**Root — over-generous "degraded" bucket.** `worker/alerts.js` had two
+helpers that between them classified EVERY OpenAI 429 as "degraded" and
+routed it through `recordCronSuccess` with `skipDiscord: true`:
+
+```javascript
+export function normalizeBriefCronError(error) {
+  if (isOpenAiQuotaError(error)) {
+    return { error: "openai_quota_exceeded — AI brief skipped (top up OpenAI billing)",
+             skipDiscord: true, degraded: true };
+  }
+  if (isOpenAiRateLimitError(error)) {
+    return { error: "openai_rate_limited — AI brief skipped (retry next slot)",
+             skipDiscord: true, degraded: true };
+  }
+  …
+}
+export async function recordBriefCronOutcome(env, op, outcome) {
+  if (outcome?.ok) return recordCronSuccess(env, safeOp);
+  const norm = normalizeBriefCronError(outcome?.error || "unknown");
+  if (norm.degraded) return recordCronSuccess(env, safeOp);  // ← always silent
+  return recordCronFailure(env, …);
+}
+```
+
+The intent (avoid #system-alerts spam when OpenAI briefly throttles)
+was reasonable for transient 429s — those clear within a slot. But
+quota exhaustion is a BILLING outage: it will fail every subsequent
+tick until the operator tops up. Silent-skipping it lost two full
+trading days of morning/evening briefs AND every intraday flash.
+
+`healDegradedBriefTombstones` (called at the top of every cron tick)
+had a matching bug — it also cleared quota tombstones (`if
+(isOpenAiQuotaError(row.error) || isOpenAiRateLimitError(row.error))`),
+so even if some other path wrote a quota tombstone, the next tick
+erased it before anyone saw it.
+
+**Fix (PR that follows this entry).**
+1. `normalizeBriefCronError` now returns a `requiresOperatorAction`
+   flag. Quota exhaustion sets it `true` and includes the OpenAI billing
+   URL in the message; rate-limit keeps it `false`.
+2. `recordBriefCronOutcome` still short-circuits to `recordCronSuccess`
+   for RATE-LIMITED (transient, self-heals), but routes QUOTA-EXHAUSTED
+   through `recordCronFailure` so:
+   - a tombstone appears on `/timed/admin/cron-status`,
+   - Discord pages ONCE (count===1) — the existing count-based dedupe
+     in `recordCronFailure` handles the "don't spam every hour"
+     concern automatically,
+   - when the operator tops up and the next brief succeeds,
+     `recordCronSuccess` resets `count=0` and stamps `last_ok_ts`, so a
+     fresh outage later re-pages cleanly.
+3. `healDegradedBriefTombstones` now only heals rate-limit tombstones —
+   the quota tombstone stays until a successful brief clears it, which
+   is the correct healing signal for a billing outage.
+4. Tightened `isOpenAiRateLimitError` to substring-match
+   `openai_rate_limited` (mirroring the quota classifier), so the
+   heal-only-transient logic recognizes the normalized tombstone
+   message and doesn't accidentally leave rate-limit tombstones
+   behind.
+
+**Lesson.** "Degraded" is not the same as "silent." Any failure that
+requires an OPERATOR ACTION to recover (billing top-up, credentials
+rotation, quota bump, API key swap) MUST leave a forensic trail — a
+tombstone at minimum, and a one-shot Discord page on first detection.
+Retry-friendly transient errors are the only category that should
+degrade silently, and even then only for a bounded number of ticks
+before escalating. Two trading days of missing briefs with zero
+external signal is exactly the failure mode the tombstone + dedupe
+design was supposed to prevent.
+
+---
+
 ## DO stream must override vendor trade_ts for quiet symbols too [2026-07-28 — same day as jitter fix]
 
 Tuesday afternoon, ~5 hours after PR #1175 (the "always jitter q_ts on
