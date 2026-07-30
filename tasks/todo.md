@@ -22,6 +22,16 @@
 
 ### Active
 
+- [ ] **DE trader EXIT never placed (2026-07-30).** Model closed
+      `DE-1785351897700-5d1dzat80` (`sl_breached`); bridge audit stops at
+      `review ok` (no `reducer_reconcile` / `place`). Roth still holds
+      0.85444 DE. Root: mid-flight abort after review during positions
+      fetch + 24h idempotency claim blocked retry + `markManifestModelClosed`
+      only on `place.ok` left manifest OPEN/`in_sync`. Ops: claim deleted,
+      manifest `mark_closed`. Fix branch `cursor/de-exit-bridge-abort-df0c`
+      (early mark-closed, release claim on fail, 28s reducer timeout,
+      `POST .../catchup-exit`). Run catchup after deploy.
+
 - [x] **Adaptive catch-up + DCA twin cleanup (2026-07-30).** Operator
       ask: cleanup duplicate DCA lots and only catch up when price +
       thesis still intact. Live D1: reversed 12 twin pairs

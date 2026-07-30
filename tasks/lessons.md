@@ -6,6 +6,35 @@
 
 ---
 
+## DE EXIT: review ok → no place (mid-flight abort + claim) [2026-07-30]
+
+**Symptom:** Model closed DE (`sl_breached`); Roth still held 0.85444;
+bridge audit = `order_plan` → `order_in` → `review ok` then silence.
+No `reducer_reconcile` / `place` / `reducer_rejected`. Client ring had
+no DE exit row; silent-failures had no `fetch_error` for that window.
+WM EXIT ~10 min later completed fully.
+
+**Root cause chain:**
+1. EXIT forwarded with stable `tt-exit-<tradeId>`; claim written at start.
+2. After review, bridge calls `getEquityPositions` (Webull signed fetch,
+   up to 12s) before `reducer_reconcile` audit. Request died there
+   (caller abort / waitUntil teardown) — no further audits.
+3. `markManifestModelClosed` only ran on `place.ok` → manifest stayed
+   `OPEN` + `in_sync` while broker held shares (invisible orphan).
+4. 24h idempotency claim blocked any same-id retry; model does not
+   re-fire exits after close.
+
+**Fixes:** Stamp CLOSED right after EXIT clears review (before
+positions); `releaseOrderIdempotency` when place fails / post-review
+throws; 28s client timeout for reducer sides; audit
+`reducer_guard_begin`; `POST /timed/admin/broker-bridge/catchup-exit`
+with `tt-exit-*-retry-*` client_order_id.
+
+**Ops for DE:** deleted claim key; `manifest/action mark_closed`; run
+`catchup-exit` after deploy with `dry_run:false`.
+
+---
+
 ## Adaptive catch-up: only replay when price + thesis still intact [2026-07-30]
 
 **Operator ask** after the silent DCA / duplicate-lot incident:
