@@ -1291,6 +1291,12 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     tp: payload?.tp == null ? null : Number(payload.tp),
     order_kind: payload?.order_kind || null,
     limit_price: payload?.limit_price == null ? null : Number(payload.limit_price),
+    // ETH / extended: caller may request GTC + support_trading_session=ALL.
+    // Defaults stay DAY/CORE via the order planner + Webull body builder.
+    tif: payload?.tif != null ? String(payload.tif) : null,
+    support_trading_session: payload?.support_trading_session != null
+      ? String(payload.support_trading_session)
+      : null,
     vehicle: payload?.vehicle || null,
     decision_reason: payload?.decision_reason || null,
     mode: payload?.mode || null,

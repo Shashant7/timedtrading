@@ -22,6 +22,13 @@
 
 ### Active
 
+- [ ] **ETH rebuild execution — LIMIT + GTC + ALL session (2026-07-30).**
+      After #1188 merge, Roth rebuild dry-run plans 12 names during ETH.
+      Webull needs `order_type=LIMIT`, `time_in_force=GTC`,
+      `support_trading_session=ALL`, and whole shares (fractionals are
+      RTH-only). Wire rebuild → forwardInvestorMirror → bridge →
+      `buildOrderBody`. Branch: `cursor/eth-limit-gtc-rebuild-df0c`.
+
 - [x] **Roth mirror rebuild — avg_entry band + thesis (2026-07-30).**
       After orphan mark_closed, don't force expired DCA catch-up.
       Rebuild only OPEN investor positions where live is within

@@ -423,6 +423,90 @@ export function rebuildSliceShares(args = {}) {
 }
 
 /**
+ * Webull ETH (outside RTH) buy execution.
+ *
+ * Webull rejects fractional equity orders outside 9:30–4:00 ET, and ETH
+ * placement requires LIMIT + support_trading_session=ALL. GTC lets the
+ * order rest across the overnight / next session if AH is thin.
+ *
+ * @param {{ livePrice: number, shares: number, side?: string }} args
+ * @returns {{ ok: boolean, reason?: string, shares?: number, order_kind?: string,
+ *   limit_price?: number, tif?: string, support_trading_session?: string, eth?: boolean }}
+ */
+export function buildEthBuyExecution(args = {}) {
+  const px = Number(args.livePrice);
+  const sh = Number(args.shares);
+  if (!(px > 0) || !(sh > 0)) {
+    return { ok: false, reason: "invalid_price_or_shares" };
+  }
+  const wholeShares = Math.floor(sh + 1e-9);
+  if (!(wholeShares > 0)) {
+    return { ok: false, reason: "eth_whole_share_zero", shares_frac: sh };
+  }
+  // Limit at the live print (2dp). No chase buffer — rebuild already
+  // gated vs avg_entry; GTC can rest if AH does not print through.
+  const limit = Math.round(px * 100) / 100;
+  return {
+    ok: true,
+    shares: wholeShares,
+    order_kind: "limit",
+    limit_price: limit,
+    tif: "GTC",
+    support_trading_session: "ALL",
+    eth: true,
+  };
+}
+
+/**
+ * Annotate a rebuild op with session-aware broker execution fields.
+ * RTH → market/DAY/CORE. Outside RTH → ETH limit/GTC/ALL + whole shares.
+ *
+ * @param {object} op
+ * @param {{ marketOpen?: boolean }} opts
+ * @returns {{ op: object|null, skip_reason?: string, detail?: object }}
+ */
+export function annotateRebuildExecution(op, opts = {}) {
+  const marketOpen = opts.marketOpen === true;
+  if (marketOpen) {
+    return {
+      op: {
+        ...op,
+        order_kind: "market",
+        tif: "DAY",
+        support_trading_session: "CORE",
+        eth: false,
+      },
+    };
+  }
+  const eth = buildEthBuyExecution({
+    livePrice: op?.price ?? op?.limit_price,
+    shares: op?.shares,
+    side: "buy",
+  });
+  if (!eth.ok) {
+    return {
+      op: null,
+      skip_reason: eth.reason || "eth_exec_invalid",
+      detail: { shares_frac: op?.shares, price: op?.price },
+    };
+  }
+  const notional = Math.round(eth.shares * eth.limit_price * 100) / 100;
+  return {
+    op: {
+      ...op,
+      shares_frac: op.shares,
+      shares: eth.shares,
+      notional_usd: notional,
+      order_kind: eth.order_kind,
+      limit_price: eth.limit_price,
+      tif: eth.tif,
+      support_trading_session: eth.support_trading_session,
+      eth: true,
+    },
+  };
+}
+
+/**
  * Resolve a live headline price from timed:prices row or timed:latest blob.
  * Prefers RTH `p` / `_live_price` / `price`.
  */

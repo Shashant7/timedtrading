@@ -193,4 +193,33 @@ describe("Webull buildOrderBody — Connect API schema (new_orders array)", () =
     expect(b.new_orders[0].support_trading_session).toBe("CORE");
     expect(b.new_orders[0].combo_type).toBe("NORMAL");
   });
+  it("honors ETH LIMIT + GTC + support_trading_session=ALL", () => {
+    const b = buildOrderBody(user, {
+      ticker: "AMAT",
+      side: "buy",
+      qty: 3,
+      order_type: "limit",
+      limit_price: 501.95,
+      tif: "GTC",
+      support_trading_session: "ALL",
+    });
+    expect(b.new_orders[0].order_type).toBe("LIMIT");
+    expect(b.new_orders[0].limit_price).toBe("501.95");
+    expect(b.new_orders[0].time_in_force).toBe("GTC");
+    expect(b.new_orders[0].support_trading_session).toBe("ALL");
+  });
+  it("upgrades MARKET→LIMIT when session is ALL and limit_price is present", () => {
+    const b = buildOrderBody(user, {
+      ticker: "NVDA",
+      side: "buy",
+      qty: 10,
+      order_type: "market",
+      limit_price: 195.15,
+      tif: "GTC",
+      support_trading_session: "ALL",
+    });
+    expect(b.new_orders[0].order_type).toBe("LIMIT");
+    expect(b.new_orders[0].limit_price).toBe("195.15");
+    expect(b.new_orders[0].support_trading_session).toBe("ALL");
+  });
 });

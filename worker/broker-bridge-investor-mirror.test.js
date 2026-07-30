@@ -269,4 +269,40 @@ describe("forwardInvestorMirror", () => {
     });
     expect(result.skip).toBe("investor_mirror_disabled");
   });
+
+  it("forwards ETH LIMIT + GTC + ALL session fields to the bridge", async () => {
+    const seen = [];
+    const env = {
+      BROKER_INVESTOR_MIRROR_ENABLED: "true",
+      BROKER_BRIDGE_URL: "https://tt-broker-bridge.example",
+      BROKER_BRIDGE_HMAC_KEY: "secret",
+      ADMIN_EMAIL: "op@example.com",
+      BROKER_BRIDGE: {
+        fetch: async (req) => {
+          seen.push(JSON.parse(await req.text()));
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        },
+      },
+      KV_TIMED: { get: async () => "[]", put: async () => {} },
+    };
+    const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+    await forwardInvestorMirror(env, {
+      kind: "dca",
+      ticker: "AMAT",
+      shares: 3,
+      price: 501.95,
+      position_id: "inv-AMAT-auto-1",
+      order_kind: "limit",
+      limit_price: 501.95,
+      tif: "GTC",
+      support_trading_session: "ALL",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].order_kind).toBe("limit");
+    expect(seen[0].limit_price).toBe(501.95);
+    expect(seen[0].tif).toBe("GTC");
+    expect(seen[0].support_trading_session).toBe("ALL");
+    expect(seen[0].side).toBe("buy");
+    expect(seen[0].qty).toBe(3);
+  });
 });
