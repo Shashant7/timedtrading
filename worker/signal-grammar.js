@@ -307,7 +307,15 @@ function normalizeInvestorVerb(raw) {
 
 function investorVerbFromNotification(n) {
   const title = String(n?.title || "");
-  const m = title.match(/^(?:INVESTOR|MODEL)\s*·\s*([^:]+)/i);
+  // 2026-07-29 — Titles are written as "LONG TERM · ADD: CRDO" (horizon
+  // prefix from horizon-labels.js), but this regex only accepted
+  // INVESTOR|MODEL. Result: ADD/BOUGHT notifications failed
+  // isActionableNotification and never appeared in the bell panel,
+  // while TRIMMED/EXITED accidentally passed via normalizeInvestorVerb's
+  // `.includes("TRIM"|"EXIT")` fallback. Web push still fired (insert
+  // happens before the filter) — which is exactly the user-visible
+  // "got a push but the panel is empty" symptom for today's DCA adds.
+  const m = title.match(/^(?:INVESTOR|MODEL|LONG\s*TERM)\s*·\s*([^:]+)/i);
   if (m) return normalizeInvestorVerb(`MODEL · ${m[1].trim()}`);
   return normalizeInvestorVerb(title);
 }

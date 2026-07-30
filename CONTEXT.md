@@ -308,6 +308,18 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   stamped despite dozens of successful trims). Now awaited and the audit
   logs the exact skip reason on `{ok:false}` so a silent WHERE-miss can
   never regress again.
+- **DCA execute MUST notify + claim-before-write (2026-07-29 silent adds + duplicate lots)**:
+  Daily pullback DCA wrote `investor_lots` + mirrored the bridge but never
+  called `scheduleInvestorBuyActionChannels` — so Discord / email / bell /
+  activity-KV were silent. Activity strip still showed the add (it reads
+  lots directly) and web push could fire via backfill, but the bell panel
+  filtered `LONG TERM · ADD` titles (`investorVerbFromNotification` only
+  matched `INVESTOR|MODEL`). Dual every-5-min workers both fired DCA ~300ms
+  apart → duplicate lots (CRDO/PLTR/TWLO/…) and Webull `PLACE_ORDER_REPEAT`.
+  4:30 PM ET slot also guaranteed Webull fractional rejection (RTH-only).
+  Fix: claim-before-write + stable same-day lot id; wire buy notify channels
+  + email `position_open`/`position_add` templates; accept `LONG TERM ·` in
+  the bell filter; move DCA to 11:30 AM ET; skip on tt-engine + day KV lock.
 - **PriceStream DO must OWN every symbol in `timed:prices` (2026-07-29 orphan clobber)**:
   Watchdog fired at 14:53 UTC: 43 symbols aged in lockstep at exactly 13m.
   DO owned 258/315 KV symbols; the 57 orphans (discovery / screener / theme

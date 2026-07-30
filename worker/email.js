@@ -2142,6 +2142,16 @@ export async function sendInvestorAlertEmails(env, alert) {
       headline: `Model Thesis Shift`,
       lede: `The TT Long Term model no longer sees valid supporting conditions for <strong>${data.ticker}</strong>: ${(data.reasons || []).join("; ")}.`,
     },
+    position_open: {
+      subjectBase: `${data.ticker} — Long Term BOUGHT (new position)`,
+      headline: `Long Term BOUGHT — new position`,
+      lede: `The Long Term book <strong>opened</strong> <strong>${data.ticker}</strong> — bought ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}${Number(data.value) > 0 ? ` (≈$${Math.round(Number(data.value)).toLocaleString()})` : ""}.`,
+    },
+    position_add: {
+      subjectBase: `${data.ticker} — Long Term ADD (scale-in / DCA)`,
+      headline: `Long Term ADD — scale-in`,
+      lede: `The Long Term book <strong>added</strong> to <strong>${data.ticker}</strong> — bought ${Number(data.shares || 0).toFixed(2)} shares at $${Number(data.price || 0).toFixed(2)}${data.reason ? ` (${String(data.reason).replace(/_/g, " ")})` : ""}.`,
+    },
     position_trim: {
       subjectBase: `${data.ticker} — Long Term TRIMMED (partial reduce)`,
       headline: `Long Term TRIMMED — partial reduce`,

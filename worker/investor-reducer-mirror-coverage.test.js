@@ -153,3 +153,59 @@ describe("investor mirror partial-trim calls MUST forward reduce_pct (2026-07-29
     ).toEqual([]);
   });
 });
+
+/**
+ * 2026-07-29 — DCA execute wrote lots + mirrored broker but skipped
+ * Discord / email / bell / activity. Activity strip still showed the
+ * add (D1 lots are a feed source) and web push could fire via backfill,
+ * but the operator saw "no emails, no Discord, panel empty". The route
+ * MUST call scheduleInvestorBuyActionChannels after a successful lot
+ * INSERT, and MUST claim-before-write with a stable same-day lot id so
+ * dual every-5-min workers can't double-buy.
+ */
+describe("DCA execute MUST notify + claim-before-write (2026-07-29)", () => {
+  function dcaExecuteWindow() {
+    const start = lines.findIndex((l) => /routeKey\s*===\s*"POST \/timed\/investor\/dca\/execute"/.test(l));
+    expect(start, "dca/execute route marker missing").toBeGreaterThan(0);
+    // Bound the window to the next routeKey or ~400 lines.
+    let end = start + 400;
+    for (let i = start + 1; i < Math.min(lines.length, start + 500); i++) {
+      if (/routeKey\s*===\s*"/.test(lines[i])) { end = i; break; }
+    }
+    return { start, src: lines.slice(start, end).join("\n") };
+  }
+
+  it("calls scheduleInvestorBuyActionChannels after the DCA lot write", () => {
+    const { src } = dcaExecuteWindow();
+    expect(
+      /scheduleInvestorBuyActionChannels\s*\(/.test(src),
+      "POST /timed/investor/dca/execute must call scheduleInvestorBuyActionChannels so Discord/email/bell/activity fire for DCA fills",
+    ).toBe(true);
+  });
+
+  it("uses a stable same-day lot id (not Date.now()) to collapse dual-worker races", () => {
+    const { src } = dcaExecuteWindow();
+    expect(
+      /lot-\$\{pos\.ticker\}-dca-\$\{nyDate\}-\$\{lotReason\}/.test(src)
+        || /lot-.*-dca-\$\{nyDate\}/.test(src),
+      "DCA lot id must include nyDate (stable same-day) — timestamp-only ids let dual workers both INSERT",
+    ).toBe(true);
+    expect(
+      /lot-\$\{pos\.ticker\}-dca-\$\{now\}/.test(src),
+      "timestamp-based lot id `lot-${pos.ticker}-dca-${now}` must be gone — it is the 2026-07-29 duplicate-lot root cause",
+    ).toBe(false);
+  });
+
+  it("claims the position (UPDATE last_entry_ts) before INSERT so a racing sibling loses cleanly", () => {
+    const { src } = dcaExecuteWindow();
+    expect(
+      /lost_race_or_min_gap/.test(src) && /UPDATE investor_positions SET last_entry_ts/.test(src),
+      "DCA execute must claim via UPDATE last_entry_ts and skip on 0 changes (lost_race_or_min_gap)",
+    ).toBe(true);
+  });
+
+  it("still mirrors to the broker (forwardInvestorMirror)", () => {
+    const { src } = dcaExecuteWindow();
+    expect(/forwardInvestorMirror\s*\(/.test(src)).toBe(true);
+  });
+});

@@ -38519,7 +38519,7 @@ function scheduleInvestorLotActionChannels(env, KV, lotData, opts = {}) {
   });
 }
 
-/** Surface auto-rebalance buy/open to activity strip, bell, and Discord. */
+/** Surface auto-rebalance / DCA buy/open to activity strip, bell, Discord, email. */
 function scheduleInvestorBuyActionChannels(env, KV, payload) {
   const ticker = String(payload?.ticker || "").toUpperCase();
   if (!ticker) return;
@@ -38536,6 +38536,10 @@ function scheduleInvestorBuyActionChannels(env, KV, payload) {
   };
   const action = deriveInvestorAlertAction(invType, data);
   const embed = createInvestorAlertEmbed(invType, data);
+  const lotId = payload.lot_id || null;
+  const link = lotId
+    ? `/investor.html?ticker=${encodeURIComponent(ticker)}&lot_id=${encodeURIComponent(lotId)}`
+    : `/investor.html?ticker=${encodeURIComponent(ticker)}`;
   const tasks = [];
   if (KV) {
     tasks.push(appendActivity(KV, {
@@ -38552,7 +38556,7 @@ function scheduleInvestorBuyActionChannels(env, KV, payload) {
       alert_class: "doing",
       stage: data.stage,
       score: data.score,
-      lot_id: payload.lot_id || null,
+      lot_id: lotId,
       ts: payload.ts || undefined,
     }).catch(() => {}));
   }
@@ -38561,11 +38565,15 @@ function scheduleInvestorBuyActionChannels(env, KV, payload) {
     type: "investor_signal",
     title: `${action.verb.replace(/^MODEL\s*·\s*/, "LONG TERM · ")}: ${ticker}`,
     body: action.one_liner || `Long Term model signal on ${ticker}.`,
-    link: `/investor.html?ticker=${encodeURIComponent(ticker)}`,
+    link,
   }).catch(() => {}));
   if (embed) {
     tasks.push(notifyDiscord(env, embed, "trade").catch(() => {}));
   }
+  // 2026-07-29 — Buys previously skipped email entirely (TYPE_META also
+  // lacked position_open/position_add). DCA + auto-rebalance fills must
+  // page the inbox the same way trims/exits do.
+  tasks.push(sendInvestorAlertEmails(env, { type: invType, data }).catch(() => {}));
   const work = Promise.allSettled(tasks);
   const execCtx = env?._executionCtx;
   if (execCtx?.waitUntil) execCtx.waitUntil(work);
@@ -92613,14 +92621,43 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
               const shares = pos.dca_amount / price;
               const value = shares * price;
-              const lotId = `lot-${pos.ticker}-dca-${now}`;
               const lotReason = dcaGate.reason === "pullback_opportunistic"
                 ? "dca_pullback"
                 : "dca_auto";
+              // 2026-07-29 — Stable same-day lot id + claim-before-write.
+              // Dual */5 workers (monolith + tt-engine) both fired
+              // /timed/investor/dca/execute ~300ms apart and each wrote a
+              // full DCA lot (CRDO/PLTR/TWLO/… all doubled). Timestamp-based
+              // lot ids made both INSERTs succeed; atomic share bumps then
+              // inflated total_shares. Stable id + claim UPDATE makes the
+              // second worker lose the race cleanly.
+              const _nyPartsDca = new Date(now).toLocaleString("en-US", {
+                timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+              }).split("/");
+              const nyDate = `${_nyPartsDca[2]}-${_nyPartsDca[0]}-${_nyPartsDca[1]}`;
+              const lotId = `lot-${pos.ticker}-dca-${nyDate}-${lotReason}`;
+              const minGapMs = 5 * 24 * 60 * 60 * 1000;
+              const claimCutoff = now - minGapMs;
+              const claim = await env.DB.prepare(
+                `UPDATE investor_positions SET last_entry_ts = ?1, updated_at = ?1
+                 WHERE id = ?2 AND status = 'OPEN'
+                   AND COALESCE(last_entry_ts, 0) <= ?3`
+              ).bind(now, pos.id, claimCutoff).run();
+              if ((claim?.meta?.changes || 0) === 0) {
+                errors.push({ ticker: pos.ticker, skipped: true, reason: "lost_race_or_min_gap" });
+                continue;
+              }
 
-              await env.DB.prepare(
-                "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'DCA_BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
-              ).bind(lotId, pos.id, pos.ticker, shares, price, value, now, lotReason).run();
+              try {
+                await env.DB.prepare(
+                  "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'DCA_BUY', ?4, ?5, ?6, ?7, ?8, ?7)"
+                ).bind(lotId, pos.id, pos.ticker, shares, price, value, now, lotReason).run();
+              } catch (insErr) {
+                // Unique PK collision = another worker already wrote today's lot.
+                console.warn(`[DCA] lot insert race ${pos.ticker}:`, String(insErr?.message || insErr).slice(0, 120));
+                errors.push({ ticker: pos.ticker, skipped: true, reason: "duplicate_lot_id" });
+                continue;
+              }
 
               // Atomic share/cost bump — concurrent DCA crons used to
               // read-modify-write the same total_shares and lose one add
@@ -92633,12 +92670,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   WHEN (COALESCE(total_shares, 0) + ?1) > 0
                   THEN (COALESCE(cost_basis, 0) + ?2) / (COALESCE(total_shares, 0) + ?1)
                   ELSE 0 END,
-                last_entry_ts = ?3, dca_next_ts = ?4,
+                dca_next_ts = ?3,
                 dca_total_invested = COALESCE(dca_total_invested, 0) + ?2,
                 dca_num_buys = COALESCE(dca_num_buys, 0) + 1,
-                updated_at = ?3
+                updated_at = ?4
                 WHERE id = ?5
-              `).bind(shares, value, now, nextTs, pos.id).run();
+              `).bind(shares, value, nextTs, now, pos.id).run();
 
               const posAfter = await env.DB.prepare(
                 "SELECT total_shares, cost_basis, avg_entry FROM investor_positions WHERE id = ?1",
@@ -92681,6 +92718,26 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 },
               }).catch((e) => console.warn("[DECISION_RECORDS] dca failed:", String(e?.message || e).slice(0, 120)));
 
+              // 2026-07-29 — DCA previously wrote lots + mirrored broker but
+              // NEVER fired Discord / email / bell / activity KV. Activity
+              // strip still showed the add (it reads investor_lots directly)
+              // and web push could fire later via backfill — but the bell
+              // panel filtered LONG TERM · titles and emails had no
+              // position_add template. Wire the same buy channels auto-
+              // rebalance already uses.
+              scheduleInvestorBuyActionChannels(env, env.KV_TIMED, {
+                ticker: pos.ticker,
+                shares,
+                price,
+                value,
+                reason: lotReason,
+                stage: scoreRow?.stage || "accumulate",
+                score: tickerScore,
+                investor_alert_type: "position_add",
+                lot_id: lotId,
+                ts: now,
+              });
+
               // 2026-07-24 — DCA lived on a separate route from auto-rebalance
               // and never called the bridge. Model book grew (lot + ledger)
               // while Webull/IBKR stayed flat → bridge_mirror_coverage warn +
@@ -92715,6 +92772,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 nextBuyDate: new Date(nextTs).toISOString().slice(0, 10),
                 reason: dcaGate.reason,
                 dip_signals: dipBuy?.signals || [],
+                lot_id: lotId,
               });
             } catch (e) {
               errors.push({ ticker: pos.ticker, error: e.message });
@@ -98807,6 +98865,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 19 || _utcH === 20) && _utcM === 30) vc.add("30 20 * * 1-5");
       if (_utcDay === 5 && (_utcH === 20 || _utcH === 21) && _utcM === 15) vc.add("15 21 * * 5");
       if (_isWeekday && (_utcH === 20 || _utcH === 21) && _utcM === 30)    vc.add("30 21 * * 1-5");
+      // 2026-07-29 — DCA slot at 11:30 AM ET (15:30 UTC EDT / 16:30 UTC EST).
+      // Kept separate from the 4:30 PM ET labels above (those still drive
+      // brief-eval + portfolio EOD snap). Do NOT overlap the two windows
+      // the way 20:30 used to add BOTH "30 20" and "30 21".
+      if (_isWeekday && _utcH === 15 && _utcM === 30) vc.add("30 15 * * 1-5");
+      if (_isWeekday && _utcH === 16 && _utcM === 30) vc.add("30 16 * * 1-5");
     }
     if (_isHourly) {
       /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
@@ -99438,19 +99502,43 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Investor Intelligence: daily DCA execution at 4:30 PM ET ──
+    // ── Investor Intelligence: daily DCA execution at 11:30 AM ET ──
     //
     // Phase 3.9k — DCA only (calendar-based, not signal-based). Signal-based
     // auto-rebalance runs during RTH (10:30 primary + hourly action passes).
     //
-    // DCA stays at 4:30 PM ET because (a) it's calendar-based (monthly
-    // / weekly schedules) so timing isn't signal-critical, and (b) by
-    // design DCA orders are typically next-session-fills via dollar-cost
-    // averaging tooling at the user's broker.
-    if (vc.has("30 20 * * 1-5") || vc.has("30 21 * * 1-5")) {
+    // 2026-07-29 — Moved from 4:30 PM ET → 11:30 AM ET. Webull rejects
+    // fractional share orders outside RTH ("Fractional shares trading is
+    // only available during regular trading hours: 9:30 a.m. - 4:00 p.m.").
+    // The 4:30 PM slot guaranteed every DCA mirror failed on Webull, which
+    // is exactly what the operator saw today (CRDO/PLTR/TWLO/… model book
+    // grew, broker stayed flat). 11:30 AM is mid-RTH so fractional places.
+    //
+    // Also: skip on tt-engine. The */5 virtual-cron registration runs on
+    // BOTH monolith and engine; dual dispatch ~300ms apart was writing
+    // duplicate lots + hammering Webull into PLACE_ORDER_REPEAT. Engine
+    // owns scoring only — DCA stays on the monolith (or research when
+    // that lane is externalized). Day-level KV lock is a second belt.
+    if (!_isDedicatedEngine && (vc.has("30 15 * * 1-5") || vc.has("30 16 * * 1-5"))) {
       const _dcaEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
-      if (_dcaEtH === 16) ctx.waitUntil((async () => {
+      if (_dcaEtH === 11) ctx.waitUntil((async () => {
         try {
+          const KV = env?.KV_TIMED;
+          const _nyPartsDcaCron = new Date().toLocaleString("en-US", {
+            timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+          }).split("/");
+          const _nyDateDca = `${_nyPartsDcaCron[2]}-${_nyPartsDcaCron[0]}-${_nyPartsDcaCron[1]}`;
+          const _dcaDoneKey = `timed:cron:investor_dca_done:${_nyDateDca}`;
+          if (KV) {
+            const _done = await KV.get(_dcaDoneKey).catch(() => null);
+            if (_done) {
+              console.log(`[INVESTOR CRON] DCA already ran today (${_nyDateDca}) — skip`);
+              return;
+            }
+            // Claim the day BEFORE dispatch so a racing sibling worker
+            // (if any) sees the marker. 36h TTL covers DST edges.
+            await KV.put(_dcaDoneKey, String(Date.now()), { expirationTtl: 36 * 3600 }).catch(() => {});
+          }
           console.log("[INVESTOR CRON] Checking DCA plans...");
           const dcaResp = await _selfDispatch(`/timed/investor/dca/execute`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));

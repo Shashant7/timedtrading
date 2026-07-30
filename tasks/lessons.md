@@ -6,6 +6,97 @@
 
 ---
 
+## DCA adds silent on Discord/email/bell + duplicate lots + broker PLACE_ORDER_REPEAT [2026-07-29]
+
+**Operator report** with Model tab + History + Notifications screenshots:
+> "Long Term positions opened for CRDO, PLTR, TWLO, AMAT, WTS, TSM, PANW,
+> META. But there were no emails, discord alerts, broker executions and
+> the notification panel does not show it. The activity strip shows it,
+> web notifications fired, History shows activity — but duplicate rows
+> and CRDO shows 11 lots / 4 sold that don't reconcile."
+
+### What actually happened (20:30 UTC = 4:30 PM ET)
+
+Live `investor_lots` for those tickers: `DCA_BUY` / `dca_pullback` at
+`ts=1785357048105` **and** a twin at `+295ms` (`…8400`) — every name
+doubled. Same pattern on 7/24 and 7/23. Open CRDO position
+`dca_num_buys=4` / `dca_total_invested=$8000` for what should have been
+two $2k DCAs (7/24 + 7/29).
+
+Bridge audit for the same window:
+- WTS → Webull `"Fractional shares trading is only available during
+  regular trading hours: 9:30 a.m. - 4:00 p.m."`
+- CRDO/PLTR/TWLO/AMAT/TSM/META/PANW →
+  `OAUTH_OPENAPI_TRADE_PLACE_ORDER_REPEAT` ("Please do not place an
+  order repeatedly")
+
+So the model book grew (twice), the broker rejected every place, and
+no operator-facing alert fired.
+
+### Root cause chain
+
+1. **DCA path never notified.**
+   `POST /timed/investor/dca/execute` wrote the lot + ledger + called
+   `forwardInvestorMirror`, but never called
+   `scheduleInvestorBuyActionChannels`. Discord / email / bell /
+   activity-KV all skipped. Activity strip still showed the add because
+   `buildMergedActivityFeed` reads `investor_lots` directly. Web push
+   could still fire later via `backfillInvestorLotNotifications` →
+   `d1InsertNotification` → `sendWebPushForNotification`.
+
+2. **Bell panel filtered the horizon prefix.**
+   Titles are written as `LONG TERM · ADD: CRDO`, but
+   `investorVerbFromNotification` only matched `^(?:INVESTOR|MODEL)`.
+   `isActionableNotification` returned false for ADD/BOUGHT (TRIMMED/
+   EXITED accidentally passed via `.includes("TRIM"|"EXIT")`). Push
+   without panel = the screenshot symptom.
+
+3. **Email templates missing for buys.**
+   `sendInvestorAlertEmails` `TYPE_META` had `position_trim` /
+   `position_close` only — `position_open` / `position_add` returned
+   `{ sent: 0 }`. Even auto-rebalance buys that called Discord never
+   emailed.
+
+4. **Dual every-5-min workers both fired DCA.**
+   Virtual-cron labels `30 20` / `30 21` are registered inside the
+   every-5-min block, which runs on **both** monolith and tt-engine.
+   Both `_selfDispatch`'d `/timed/investor/dca/execute` ~300ms apart.
+   Lot ids were `lot-${ticker}-dca-${Date.now()}` so both INSERTs
+   succeeded; atomic share bumps then inflated `total_shares`.
+   Identical `client_order_id`s hit Webull → `PLACE_ORDER_REPEAT`.
+
+5. **4:30 PM ET is after RTH.**
+   Webull blocks fractional share orders outside 9:30–4:00. The DCA
+   slot was guaranteed to fail on Webull even without the race.
+
+### Fix
+
+1. DCA execute: claim-before-write (`UPDATE last_entry_ts … WHERE
+   last_entry_ts <= now - minGap`), stable lot id
+   `lot-${ticker}-dca-${nyDate}-${lotReason}`, call
+   `scheduleInvestorBuyActionChannels` after success.
+2. `scheduleInvestorBuyActionChannels` also sends email.
+3. `investorVerbFromNotification` accepts `LONG TERM ·` prefix.
+4. Email `TYPE_META` gains `position_open` / `position_add`.
+5. DCA cron: 11:30 AM ET (mid-RTH), skip on tt-engine, day-level KV
+   lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
+6. Source-contract tests for notify + claim + stable lot id; grammar
+   tests for `LONG TERM ·` bell filter.
+
+### Operator cleanup still needed
+
+- Duplicate DCA lots on CRDO/PLTR/TWLO/AMAT/WTS/TSM/META/PANW (and
+  earlier CW) inflated `total_shares` / `dca_num_buys`. Do **not**
+  blindly delete — reverse the share bump for the losing twin, then
+  delete the duplicate lot + ledger row. Catchup-investor can retry
+  broker fills once the model book is correct and RTH is open.
+- History "11 lots / 4 sold" on CRDO is `invTrades.length` across
+  **all** historical lots for the ticker (including closed cycles +
+  duplicates) — not "11 open lots". After dedupe cleanup the number
+  will drop.
+
+---
+
 ## Watchdog price_value_freshness fire #3 — PriceStream DO didn't own the KV blob's orphan symbols [2026-07-29]
 
 **Operator report** (Wed afternoon):
@@ -128,6 +219,97 @@ orphan classes if the ownership rule regresses.
 - Watchdog page/notice threshold on `valueStaleCount` (≥40 fails, ≥15
   notice) stays as-is — it correctly caught this incident; the fix is
   upstream, not the alert threshold.
+
+---
+
+## DCA adds silent on Discord/email/bell + duplicate lots + broker PLACE_ORDER_REPEAT [2026-07-29]
+
+**Operator report** with Model tab + History + Notifications screenshots:
+> "Long Term positions opened for CRDO, PLTR, TWLO, AMAT, WTS, TSM, PANW,
+> META. But there were no emails, discord alerts, broker executions and
+> the notification panel does not show it. The activity strip shows it,
+> web notifications fired, History shows activity — but duplicate rows
+> and CRDO shows 11 lots / 4 sold that don't reconcile."
+
+### What actually happened (20:30 UTC = 4:30 PM ET)
+
+Live `investor_lots` for those tickers: `DCA_BUY` / `dca_pullback` at
+`ts=1785357048105` **and** a twin at `+295ms` (`…8400`) — every name
+doubled. Same pattern on 7/24 and 7/23. Open CRDO position
+`dca_num_buys=4` / `dca_total_invested=$8000` for what should have been
+two $2k DCAs (7/24 + 7/29).
+
+Bridge audit for the same window:
+- WTS → Webull `"Fractional shares trading is only available during
+  regular trading hours: 9:30 a.m. - 4:00 p.m."`
+- CRDO/PLTR/TWLO/AMAT/TSM/META/PANW →
+  `OAUTH_OPENAPI_TRADE_PLACE_ORDER_REPEAT` ("Please do not place an
+  order repeatedly")
+
+So the model book grew (twice), the broker rejected every place, and
+no operator-facing alert fired.
+
+### Root cause chain
+
+1. **DCA path never notified.**
+   `POST /timed/investor/dca/execute` wrote the lot + ledger + called
+   `forwardInvestorMirror`, but never called
+   `scheduleInvestorBuyActionChannels`. Discord / email / bell /
+   activity-KV all skipped. Activity strip still showed the add because
+   `buildMergedActivityFeed` reads `investor_lots` directly. Web push
+   could still fire later via `backfillInvestorLotNotifications` →
+   `d1InsertNotification` → `sendWebPushForNotification`.
+
+2. **Bell panel filtered the horizon prefix.**
+   Titles are written as `LONG TERM · ADD: CRDO`, but
+   `investorVerbFromNotification` only matched `^(?:INVESTOR|MODEL)`.
+   `isActionableNotification` returned false for ADD/BOUGHT (TRIMMED/
+   EXITED accidentally passed via `.includes("TRIM"|"EXIT")`). Push
+   without panel = the screenshot symptom.
+
+3. **Email templates missing for buys.**
+   `sendInvestorAlertEmails` `TYPE_META` had `position_trim` /
+   `position_close` only — `position_open` / `position_add` returned
+   `{ sent: 0 }`. Even auto-rebalance buys that called Discord never
+   emailed.
+
+4. **Dual every-5-min workers both fired DCA.**
+   Virtual-cron labels `30 20` / `30 21` are registered inside the
+   `*/5` block, which runs on **both** monolith and tt-engine. Both
+   `_selfDispatch`'d `/timed/investor/dca/execute` ~300ms apart. Lot
+   ids were `lot-${ticker}-dca-${Date.now()}` so both INSERTs succeeded;
+   atomic share bumps then inflated `total_shares`. Identical
+   `client_order_id`s hit Webull → `PLACE_ORDER_REPEAT`.
+
+5. **4:30 PM ET is after RTH.**
+   Webull blocks fractional share orders outside 9:30–4:00. The DCA
+   slot was guaranteed to fail on Webull even without the race.
+
+### Fix
+
+1. DCA execute: claim-before-write (`UPDATE last_entry_ts … WHERE
+   last_entry_ts <= now - minGap`), stable lot id
+   `lot-${ticker}-dca-${nyDate}-${lotReason}`, call
+   `scheduleInvestorBuyActionChannels` after success.
+2. `scheduleInvestorBuyActionChannels` also sends email.
+3. `investorVerbFromNotification` accepts `LONG TERM ·` prefix.
+4. Email `TYPE_META` gains `position_open` / `position_add`.
+5. DCA cron: 11:30 AM ET (mid-RTH), skip on tt-engine, day-level KV
+   lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
+6. Source-contract tests for notify + claim + stable lot id; grammar
+   tests for `LONG TERM ·` bell filter.
+
+### Operator cleanup still needed
+
+- Duplicate DCA lots on CRDO/PLTR/TWLO/AMAT/WTS/TSM/META/PANW (and
+  earlier CW) inflated `total_shares` / `dca_num_buys`. Do **not**
+  blindly delete — reverse the share bump for the losing twin, then
+  delete the duplicate lot + ledger row. Catchup-investor can retry
+  broker fills once the model book is correct and RTH is open.
+- History "11 lots / 4 sold" on CRDO is `invTrades.length` across
+  **all** historical lots for the ticker (including closed cycles +
+  duplicates) — not "11 open lots". After dedupe cleanup the number
+  will drop.
 
 ---
 
