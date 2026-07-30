@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Speculative ATH/N-test admission + min_rr (2026-07-30).**
+- [x] **Speculative ATH/N-test admission + min_rr (2026-07-30).**
       DE + WM Speculative LONGs taken post-FOMC Jul 29, SL'd Jul 30.
       Root: Speculative ATH had no matrix row (default ALLOW while
       Confirmed is always blocked); Speculative N-test always allowed
@@ -31,15 +31,18 @@
       allow_only_in as Prime + `min_rr: 2.5`.
       Branch: `cursor/speculative-ath-ntest-gates-df0c`.
 
+- [x] **Auto catch-up last-signal-wins + 4h RTH TTL (2026-07-30).**
+      After CRS/CW/NVDA buy+trim churn: catch-up now keeps only the
+      latest lot per position (older unmatched = superseded), expires
+      after 4h of NY RTH (ETH/overnight excluded), aliases trim↔sell for
+      ring dedupe, Discord on forward. `BROKER_CATCHUP_AUTO_RTH=true`.
+      Branch: `cursor/catchup-buy-trim-churn-df0c`.
+
 - [x] **DE trader EXIT never placed (2026-07-30).** Model closed
-      `DE-1785351897700-5d1dzat80` (`sl_breached`); bridge audit stops at
-      `review ok` (no `reducer_reconcile` / `place`). Roth still holds
-      0.85444 DE. Root: mid-flight abort after review during positions
-      fetch + 24h idempotency claim blocked retry + `markManifestModelClosed`
-      only on `place.ok` left manifest OPEN/`in_sync`. Ops: claim deleted,
-      manifest `mark_closed`. Fix branch `cursor/de-exit-bridge-abort-df0c`
-      (early mark-closed, release claim on fail, 28s reducer timeout,
-      `POST .../catchup-exit`). Run catchup after deploy.
+      `DE-1785351897700-5d1dzat80` (`sl_breached`); bridge died after
+      `review ok`. Ops catchup placed Webull exit `U7HMS3K2AUVE7VI7VM41`.
+      Fix: `cursor/de-exit-bridge-abort-df0c` (early mark-closed, release
+      claim, 28s reducer timeout, `catchup-exit`).
 
 - [x] **Adaptive catch-up + DCA twin cleanup (2026-07-30).** Operator
       ask: cleanup duplicate DCA lots and only catch up when price +
