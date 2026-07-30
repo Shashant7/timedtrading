@@ -6,6 +6,17 @@
 
 ---
 
+## Roth mirror rebuild ≠ expired DCA catch-up [2026-07-30]
+
+After orphan `mark_closed`, do **not** `force` expired lot catch-up.
+Rebuild via `POST /timed/admin/broker-bridge/rebuild-mirror`: OPEN
+positions only, live within ~−8%…+2% of model `avg_entry`, stage
+`accumulate|core_hold`, not exhausted, broker not already holding;
+one DCA slice. Chase (above entry) and deep-underwater stubborn losers
+are skipped. Default `dry_run=true`.
+
+---
+
 ## Speculative ATH/N-test admission holes (DE + WM) [2026-07-30]
 
 **Symptom:** DE (`tt_n_test_support` Speculative) and WM (`tt_ath_breakout`
