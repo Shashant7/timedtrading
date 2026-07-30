@@ -80964,175 +80964,30 @@ export default {
 
       // 2026-07-24 — Replay unmirrored investor lots (BUY/DCA_BUY/SELL) to the
       // bridge. Default dry_run=true. Dedupes by position_id + action day.
-      // 2026-07-30 — Adaptive thesis/price gates: buy/DCA catch-up only
-      // proceeds when stage still supports an add, score is above the DCA
-      // floor, and live price has not chased more than max_buy_drift_pct
-      // above the original lot print. Sells always proceed (risk reduction).
+      // 2026-07-30 — Adaptive thesis/price gates + shared runner
+      // (worker/investor-catchup-run.js). Auto RTH cron + COO heal call the
+      // same path with dry_run=false.
       if (routeKey === "POST /timed/admin/broker-bridge/catchup-investor") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
           const body = await req.json().catch(() => ({}));
-          const dryRun = body?.dry_run !== false; // default true
-          const hours = Math.min(168, Math.max(1, Number(body?.hours) || 72));
-          const force = body?.force === true;
-          const maxBuyDriftPct = Number.isFinite(Number(body?.max_buy_drift_pct))
-            ? Number(body.max_buy_drift_pct) : 5;
-          const minScoreBuy = Number.isFinite(Number(body?.min_score_buy))
-            ? Number(body.min_score_buy) : 30;
-          const tickerFilter = Array.isArray(body?.tickers)
-            ? new Set(body.tickers.map((t) => String(t || "").toUpperCase()).filter(Boolean))
-            : null;
-          const sinceMs = Date.now() - hours * 3600000;
-          const { results: lots } = await env.DB.prepare(
-            `SELECT id, position_id, ticker, action, shares, price, ts, reason
-             FROM investor_lots
-             WHERE ts >= ?1 AND action IN ('BUY','SELL','DCA_BUY')
-             ORDER BY ts ASC`
-          ).bind(sinceMs).all().catch(() => ({ results: [] }));
-          const { readClientRing, forwardInvestorMirror } = await import("./broker-bridge-client.js");
-          const {
-            evaluateCatchupThesisGate,
-            resolveCatchupLivePrice,
-          } = await import("./investor-catchup-gates.js");
-          const ring = await readClientRing(env);
-          // Only skip lots that already placed successfully on the bridge.
-          // Prior catch-up errors (e.g. oversized client_order_id) must retry.
-          // 2026-07-27 — key by (side, trade_id): a successful BUY on the
-          // position must NOT mask a subsequent SELL that still needs to
-          // reach the broker (this is exactly why the KO PRE_EARNINGS
-          // trim was silently skipped by catch-up — the Jul 24 DCA buy
-          // for the same position was in the ring as ok).
-          // Also require rh_order_id / broker_order_id to be non-null: a
-          // bridge dedupe_skip returns ok:true with a null order id
-          // (client_order_id already burned by a prior failed attempt);
-          // treating it as "mirrored" would swallow the retry. Real
-          // places always echo an order id.
-          const mirroredOkIds = new Set(
-            (ring || [])
-              .filter((r) => String(r?.trade_id || "").startsWith("inv-")
-                && r?.status === "ok"
-                && (r?.rh_order_id || r?.broker_order_id || r?.order_id))
-              .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
-          );
-          const scores = (await kvGetJSON(env.KV_TIMED, "timed:investor:scores")) || {};
-          const pricesBlob = (await kvGetJSON(env.KV_TIMED, "timed:prices")) || {};
-          const pricesMap = pricesBlob.prices || pricesBlob || {};
-          const seen = new Set();
-          const planned = [];
-          const skippedGates = [];
-          for (const lot of (lots || [])) {
-            const ticker = String(lot.ticker || "").toUpperCase();
-            if (tickerFilter && !tickerFilter.has(ticker)) continue;
-            const day = new Date(Number(lot.ts) || 0).toISOString().slice(0, 10);
-            const dedupeKey = `${lot.position_id || lot.ticker}|${lot.action}|${day}`;
-            if (seen.has(dedupeKey)) continue;
-            seen.add(dedupeKey);
-            const posId = lot.position_id ? String(lot.position_id) : "";
-            const tradeId = posId
-              ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
-              : `inv-${lot.ticker}-${lot.action}`;
-            const lotSide = lot.action === "SELL" ? "sell" : "buy";
-            // Legacy double-prefix trade_ids from the first catch-up attempt.
-            if (mirroredOkIds.has(`${lotSide}|${tradeId}`)
-                || mirroredOkIds.has(`${lotSide}|inv-${tradeId}`)) continue;
-            // Map full-exit SELLs to exit; partials to trim. Heuristic: reason
-            // containing INVALIDATION / EXIT / CLOSE → exit; else trim.
-            const reasonU = String(lot.reason || "").toUpperCase();
-            let kind;
-            if (lot.action === "SELL") {
-              kind = /INVALIDATION|EXIT|CLOSE|FULL/.test(reasonU) ? "exit" : "trim";
-            } else if (lot.action === "DCA_BUY") {
-              kind = "dca";
-            } else {
-              kind = "add";
-            }
-            const scoreRow = scores[ticker] || scores[String(lot.ticker || "").toUpperCase()] || {};
-            const latest = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`).catch(() => null);
-            const livePrice = resolveCatchupLivePrice(pricesMap[ticker], latest);
-            const gate = evaluateCatchupThesisGate({
-              kind,
-              lotPrice: Number(lot.price) || null,
-              livePrice,
-              stage: scoreRow?.stage || null,
-              score: scoreRow?.score ?? null,
-              accumZone: scoreRow?.accumZone || null,
-              maxBuyDriftPct,
-              minScoreBuy,
-              force,
-            });
-            const op = {
-              ticker,
-              kind,
-              shares: Number(lot.shares) || 0,
-              price: Number(lot.price) || null,
-              position_id: lot.position_id,
-              reason: `catchup_${lot.reason || lot.action}`,
-              trade_id: tradeId,
-              lot_id: lot.id,
-              lot_ts: lot.ts,
-              live_price: livePrice,
-              stage: scoreRow?.stage || null,
-              score: scoreRow?.score ?? null,
-              drift_pct: gate.drift_pct,
-              gate_reason: gate.reason,
-            };
-            if (!gate.allow) {
-              skippedGates.push({
-                ...op,
-                skip_reason: gate.reason,
-                detail: gate.detail || null,
-              });
-              continue;
-            }
-            planned.push(op);
-          }
-          const results = [];
-          if (!dryRun) {
-            // 2026-07-27 — pass a fresh retry_nonce per catchup call so a
-            // previously-burned client_order_id (e.g. the first attempt
-            // failed with a hard reject and the (kind, tradeId) hash is
-            // now cached as `duplicate_client_order_id`) does not silently
-            // dedupe on the bridge and swallow the retry.
-            const retryNonce = String(Date.now());
-            for (const op of planned) {
-              const r = await forwardInvestorMirror(env, {
-                ticker: op.ticker,
-                kind: op.kind,
-                shares: op.shares,
-                price: op.price,
-                position_id: op.position_id,
-                reason: op.reason,
-                source: "catchup_investor",
-                retry_nonce: retryNonce,
-              });
-              results.push({
-                ticker: op.ticker, kind: op.kind, trade_id: op.trade_id,
-                lot_id: op.lot_id,
-                ok: !!r?.ok, skip: r?.skip || null,
-                reject: r?.bridge_reject_reason || r?.error || null,
-                scaled_qty: r?.bridge_scaled_qty ?? null,
-                drift_pct: op.drift_pct,
-                stage: op.stage,
-                score: op.score,
-              });
-            }
-          }
+          const { runInvestorCatchup } = await import("./investor-catchup-run.js");
+          const out = await runInvestorCatchup(env, {
+            dry_run: body?.dry_run !== false,
+            hours: body?.hours,
+            force: body?.force === true,
+            max_buy_drift_pct: body?.max_buy_drift_pct,
+            min_score_buy: body?.min_score_buy,
+            tickers: body?.tickers,
+            max_ops: body?.max_ops,
+            skip_buys: body?.skip_buys === true,
+            source: body?.source || "catchup_investor",
+          });
           return sendJSON({
-            ok: true,
-            dry_run: dryRun,
-            hours,
-            force,
-            max_buy_drift_pct: maxBuyDriftPct,
-            min_score_buy: minScoreBuy,
-            candidate_lots: (lots || []).length,
-            planned: planned.length,
-            planned_ops: planned,
-            skipped_gates: skippedGates,
-            skipped_gates_count: skippedGates.length,
-            results,
-            note: dryRun
-              ? "Pass {\"dry_run\":false} to forward planned ops (thesis/price gates already applied). Use force:true to bypass gates. Optional tickers:[...], max_buy_drift_pct, min_score_buy."
+            ...out,
+            note: out.dry_run
+              ? "Pass {\"dry_run\":false} to forward planned ops (thesis/price gates already applied). Use force:true to bypass gates. Optional tickers:[...], max_buy_drift_pct, min_score_buy. Auto-retry also runs hourly in RTH."
               : "Forwarded planned ops; inspect bridge:client:recent + broker fills. skipped_gates were NOT sent.",
           }, 200, corsHeaders(env, req));
         } catch (e) {
@@ -99745,6 +99600,57 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       })());
       // Don't return — let other cron handlers run too if they match
+    }
+
+    // ── Investor auto catch-up (hourly during RTH) ──
+    //
+    // 2026-07-30 — Operator ask: when Webull rejects ETH fractionals (or any
+    // other mirror miss), don't wait for a human to POST catchup-investor.
+    // Hourly RTH pass reuses the adaptive gates (stage/score/price drift)
+    // and only forwards ops that still make sense. Caps at 8 ops/run so a
+    // backlog cannot flood the bridge. Skips tt-engine (monolith only).
+    if (!_isDedicatedEngine
+        && vc.has("investor-session")
+        && _isHourly
+        && isNyRegularMarketOpen()
+        && String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true") {
+      ctx.waitUntil((async () => {
+        try {
+          const KV = env?.KV_TIMED;
+          const lockKey = "timed:cron:investor_catchup_auto";
+          if (KV) {
+            const held = await KV.get(lockKey).catch(() => null);
+            if (held) {
+              console.log("[INVESTOR CATCHUP AUTO] skip — lock held");
+              return;
+            }
+            await KV.put(lockKey, String(Date.now()), { expirationTtl: 50 * 60 }).catch(() => {});
+          }
+          const { runInvestorCatchup } = await import("./investor-catchup-run.js");
+          const out = await runInvestorCatchup(env, {
+            dry_run: false,
+            hours: 72,
+            max_ops: 8,
+            source: "catchup_auto_rth",
+          });
+          const okN = (out.results || []).filter((r) => r.ok).length;
+          const failN = (out.results || []).filter((r) => !r.ok).length;
+          console.log(
+            `[INVESTOR CATCHUP AUTO] planned=${out.planned} skipped_gates=${out.skipped_gates_count}`
+            + ` forwarded_ok=${okN} forwarded_fail=${failN} truncated=${out.truncated_ops || 0}`,
+          );
+          if (out.planned > 0) {
+            recordCronSuccess(env, "investor_catchup_auto").catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[INVESTOR CATCHUP AUTO] Failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "investor_catchup_auto",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
     }
 
     // ── Investor Intelligence: weekly digest (Saturday 10 AM ET — 14:00 UTC in EDT, 15:00 UTC in EST) ──

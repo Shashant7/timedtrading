@@ -42,6 +42,21 @@ Twin cleanup API: `POST /timed/admin/investor/dedupe-dca-lots`.
 **Do not** blind-replay ADDs days later when price has chased or the
 stage flipped to reduce — that turns a missed fill into a chase.
 
+### Auto-retry (not just admin POST)
+
+Operator follow-up: ETH fractional rejects / missed mirrors should not
+wait for a human. Shared runner `runInvestorCatchup` is now invoked by:
+
+1. **Hourly RTH cron** (`catchup_auto_rth`) — monolith only, requires
+   `BROKER_INVESTOR_MIRROR_ENABLED`, KV lock ~50m, `max_ops=8`, 72h
+   lookback. Same thesis/price gates as the admin path.
+2. **COO self-heal** on `investor_signal_bridge_coverage` fail/warn
+   (`catchup_coo_heal`, 4h cooldown).
+3. **Admin POST** — still default `dry_run:true` for preview.
+
+Buys that fail overnight (ETH) retry next RTH open once price/thesis
+still pass. Chased or reduce-stage names stay in `skipped_gates`.
+
 ### portfolio_reconcile +18.6% after twin cleanup (false alarm)
 
 Sanity sweep at 9 PM ET fired `portfolio_reconcile` with

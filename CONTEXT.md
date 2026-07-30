@@ -322,19 +322,18 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   the bell filter; DCA at **3:45 PM ET** (near old 4:30 pullback intent,
   still inside RTH for Webull fractionals; skip early-close via
   `isNyRegularMarketOpen`); skip on tt-engine + day KV lock.
-- **Adaptive catch-up + DCA twin dedupe (2026-07-30)**:
-  `POST /timed/admin/broker-bridge/catchup-investor` must NOT blindly replay
-  buys days later. Gate on stage (block reduce/exited/research_avoid/low),
-  score (≥30), zone exhaustion, and live vs lot drift (default max +5%).
-  Sells/trims/exits always allowed. Defaults `dry_run:true`; `force:true`
-  bypasses. Twin-lot cleanup: `POST /timed/admin/investor/dedupe-dca-lots`
-  (keep earlier, reverse position, delete twin lot + matching ledger).
-  Cash is SUM(`cash_delta`) — deleting the twin ledger restores cash; do
-  not also write an ADJUSTMENT (double-credit). Helpers in
-  `worker/investor-catchup-gates.js`. Transient `portfolio_reconcile`
-  +drift after twin-ledger delete is expected until COO/ledger repair
-  back-fills the kept lot's DCA_BUY row — do not treat that spike as a
-  new root cause.
+- **Adaptive catch-up + auto RTH retry (2026-07-30)**:
+  Missed broker mirrors (Webull ETH fractional reject, missing forward)
+  auto-retry hourly during RTH via `runInvestorCatchup`
+  (`worker/investor-catchup-run.js`, source `catchup_auto_rth`, max 8
+  ops). COO also heals `investor_signal_bridge_coverage` the same way.
+  Buys gated: stage (block reduce/exited/research_avoid/low), score ≥30,
+  zone exhaustion, live vs lot drift ≤+5%. Sells always allowed.
+  Admin POST still defaults `dry_run:true`. Twin-lot cleanup:
+  `POST /timed/admin/investor/dedupe-dca-lots` (no ADJUSTMENT after
+  ledger delete — cash is SUM(`cash_delta`)). Transient
+  `portfolio_reconcile` +drift after twin-ledger delete clears after
+  COO back-fill.
 - **PriceStream DO must OWN every symbol in `timed:prices` (2026-07-29 orphan clobber)**:
   Watchdog fired at 14:53 UTC: 43 symbols aged in lockstep at exactly 13m.
   DO owned 258/315 KV symbols; the 57 orphans (discovery / screener / theme

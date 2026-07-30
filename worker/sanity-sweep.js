@@ -1040,7 +1040,7 @@ const checkInvestorSignalBridgeCoverage = timed(async function checkInvestorSign
     "investor_signal_bridge_coverage",
     "Investor SELL signals reached the broker bridge",
     anomalies,
-    "For each missing ticker, replay via POST /timed/admin/broker-bridge/catchup-investor?dry_run=false. Also inspect worker/index.js for a reducer path that updates investor_lots but does NOT call _bridgeMirrorInvestor / forwardInvestorMirror (the KO 2026-07-27 gap).",
+    "Auto-retry: hourly RTH catch-up + COO heal call the gated catchup runner. Manual: POST /timed/admin/broker-bridge/catchup-investor {dry_run:false}. Also inspect reducer paths missing _bridgeMirrorInvestor / forwardInvestorMirror (the KO 2026-07-27 gap).",
     "would have caught: KO PRE_EARNINGS_RISK_REDUCTION on 2026-07-27 — model wrote the SELL lot + Discord/email, but the event-risk path was missing _bridgeMirrorInvestor so the bridge client ring never fired and the broker held the full position through earnings.",
   );
 });
