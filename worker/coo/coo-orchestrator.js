@@ -311,6 +311,9 @@ export async function runSelfHealing(env, options = {}) {
     "portfolio_reconcile",
     "candle_freshness_open",
     "invalidation_distance",
+    // 2026-07-30 — Missed broker mirrors (ETH fractional reject, missing
+    // forward call). Gated catch-up replays only when thesis/price intact.
+    "investor_signal_bridge_coverage",
   ]);
   const failing = (sweep.checks || []).filter((c) =>
     c.status === "fail" || (c.status === "warn" && SELF_HEAL_IDS.has(c.id)),
@@ -352,6 +355,10 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healInvalidationDistance(env)
         : { ok: true, dry_run: true, would_do: "tightenWideOpenStops(dryRun=false)" };
+    } else if (check.id === "investor_signal_bridge_coverage") {
+      action = enabled
+        ? await _healInvestorBridgeCatchup(env, baseUrl, adminKey)
+        : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:8}" };
     } else {
       action = { ok: false, reason: `no_handler_for_${check.id}` };
     }
@@ -378,6 +385,33 @@ export async function runSelfHealing(env, options = {}) {
   }
 
   return { healed, skipped, elapsed_ms: Date.now() - t0 };
+}
+
+async function _healInvestorBridgeCatchup(env, baseUrl, adminKey) {
+  try {
+    const r = await _dispatch(env, `/timed/admin/broker-bridge/catchup-investor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dry_run: false,
+        hours: 72,
+        max_ops: 8,
+        source: "catchup_coo_heal",
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!j?.ok) return { ok: false, error: j?.error || `HTTP ${r.status}` };
+    const okN = (j.results || []).filter((x) => x.ok).length;
+    return {
+      ok: true,
+      planned: j.planned || 0,
+      forwarded_ok: okN,
+      skipped_gates: j.skipped_gates_count || 0,
+      source: "catchup_coo_heal",
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
 }
 
 async function _healPortfolioReconcile(env, baseUrl, adminKey) {
