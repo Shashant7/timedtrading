@@ -129,6 +129,15 @@ const DEFAULT_ADMISSION_MATRIX = {
     reason: "Confirmed ATH breakouts: 24% WR in canon, no edge",
     cohort_stats: { n: 21, wr: 0.238, pnl_sum: -8.41 },
   },
+  // P0 (2026-07-30) — WM-1785351960000: Speculative ATH had no matrix row →
+  // default ALLOW, while Confirmed is always blocked. Live entry was
+  // COUNTER_TREND_BEAR, rr≈1.4–1.8 (below Prime's min_rr 2.0), 4% below
+  // 252d high, then gap-stopped next RTH. Close the grade hole: Speculative
+  // cannot be looser than Confirmed for this path.
+  "tt_ath_breakout:LONG:Speculative": {
+    block_when: "always",
+    reason: "Speculative ATH breakouts: no matrix row previously default-allowed (worse than Confirmed kill); always block",
+  },
   "tt_atl_breakdown:SHORT:Prime": {
     allow_only_in: ["STRONG_BEAR", "LATE_BEAR"],
     reason: "ATL breakdowns only in bear regimes",
@@ -185,9 +194,15 @@ const DEFAULT_ADMISSION_MATRIX = {
     reason: "Confirmed N-Test Support: 33% WR, no big_W in 24 trades",
     cohort_stats: { n: 24, wr: 0.333, pnl_sum: -13.31 },
   },
+  // P0 (2026-07-30) — DE-1785351897700: Speculative N-test was always-allow
+  // (small-sample +EV). Live entry LATE_BULL + premium PDZ + adverse 4h
+  // phase-div + high-conf BEAR_TREND HMM, post-FOMC overnight into PCE —
+  // SL'd next open. Align with Prime: bull/neutral only + min_rr 2.5 so
+  // late-cycle / counter-trend / thin-RR Speculative bounces stay out.
   "tt_n_test_support:LONG:Speculative": {
-    block_when: null,
-    reason: "Speculative N-Test Support: small sample but +EV",
+    allow_only_in: ["EARLY_BULL", "STRONG_BULL", "NEUTRAL"],
+    min_rr: 2.5,
+    reason: "Speculative N-Test Support: only bull/neutral with rr>=2.5 (DE LATE_BULL autopsy)",
     cohort_stats: { n: 7, wr: 0.571, pnl_sum: 1.11 },
   },
 

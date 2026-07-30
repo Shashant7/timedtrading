@@ -6,6 +6,30 @@
 
 ---
 
+## Speculative ATH/N-test admission holes (DE + WM) [2026-07-30]
+
+**Symptom:** DE (`tt_n_test_support` Speculative) and WM (`tt_ath_breakout`
+Speculative) entered post-FOMC Jul 29 ~15:05 ET, held overnight into
+Jul 30 PCE/GDP, both `sl_breached` after the open (−3% / −3.4%).
+
+**Root causes:**
+1. **WM:** Confirmed ATH is `block_when: always`, but Speculative ATH had
+   **no matrix row** → `admitSetup` default ALLOW. Live: COUNTER_TREND_BEAR,
+   rr ≈ 1.4–1.8 (below Prime's `min_rr: 2.0`), ~4% below 252d high.
+2. **DE:** Speculative N-test was always-allow on small-sample +EV.
+   Live: LATE_BULL, premium PDZ, adverse 4h phase-div, high-conf
+   BEAR_TREND HMM. CIO ADJUST'd size/SL but did not veto.
+3. Thin R:R on WM made the stop the trade thesis; not a clean fakeout.
+
+**Fix:** `tt_ath_breakout:LONG:Speculative` → always block.
+`tt_n_test_support:LONG:Speculative` → same `allow_only_in` as Prime
+(`EARLY_BULL`/`STRONG_BULL`/`NEUTRAL`) + `min_rr: 2.5`.
+
+**Rule:** Never leave a weaker grade without a matrix row when a stronger
+grade is hard-killed — default ALLOW becomes a hole.
+
+---
+
 ## Auto catch-up buy+trim churn → last signal wins [2026-07-30]
 
 **Symptom:** Six Webull fills at once — buy+sell identical fractional

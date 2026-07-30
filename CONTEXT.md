@@ -696,7 +696,7 @@ playbook in `skills/security-auth-patterns.md`)**
 **Engine — where the levers live** (May 2026 calibration session)
 - `worker/pipeline/gates.js` — universal gates: RVOL dead zone, SHORT min rank, ticker blacklist (Gate 3 = `deep_audit_ticker_blacklist` from model_config; Gate 4 = hardcoded May calibration list NFLX/APD).
 - `worker/pipeline/tt-core-entry.js` — entry pipeline. **Cohort overlays** (index_etf, megacap_tech, industrial, speculative, sector_etf) impose per-cohort caps. **`extensionMaxOverride` for megacap_tech was 8% — silently rejected every NVDA/TSLA/MSFT entry in trending tape for 60 days**. Raised to 15% in PR #194. Cohort ticker lists go stale; review quarterly.
-- `worker/phase-c-setup-admission.js` — `(setup × DIRECTION × Grade)` admission matrix. Block via `block_when: "always"`, restrict via `allow_only_in: [...]`, gate via `min_rr` / `min_conviction`.
+- `worker/phase-c-setup-admission.js` — `(setup × DIRECTION × Grade)` admission matrix. Block via `block_when: "always"`, restrict via `allow_only_in: [...]`, gate via `min_rr` / `min_conviction`. Speculative ATH is always blocked (was default-allow while Confirmed was killed — WM 2026-07-30). Speculative N-test requires bull/neutral + `min_rr: 2.5` (DE LATE_BULL autopsy).
 - `worker/phase-c-exit-doctrine.js` — per-setup force_exit / fresh_fail / regime_decay thresholds. `force_exit_pnl_threshold` was too aggressive at -1.0% (workhorse) / -0.5% (ATH); softened to -1.5% / -1.0% in PR #194 to stop killing trades on regime noise. Fresh-fail window shortened from 90 → 60 min so doctrine fires BEFORE the hard-loss cap.
 - `worker/index.js` line ~18896 — Hard Loss Cap (`_hlcCapDollar`, `_hlcCapPct`, `_hlcMinHoldMs`). Defaults tightened to $250 / 4% / 15min in PR #194.
 
