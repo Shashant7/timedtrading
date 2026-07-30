@@ -159,6 +159,107 @@ export function evaluateCatchupThesisGate(input = {}) {
   };
 }
 
+/** Catch-up signal TTL: 4 hours of NY regular session time (ETH excluded). */
+export const CATCHUP_SIGNAL_TTL_RTH_MS = 4 * 60 * 60 * 1000;
+
+const RTH_OPEN_MIN = 9 * 60 + 30;  // 9:30 ET
+const RTH_CLOSE_MIN = 16 * 60;     // 16:00 ET
+
+/**
+ * ET calendar fields for a UTC ms timestamp.
+ * @returns {{ y: number, m: number, d: number, mins: number, dow: number }}
+ *   dow: 0=Sun … 6=Sat (America/New_York)
+ */
+export function etPartsFromMs(ms) {
+  const d = new Date(ms);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    weekday: "short",
+  }).formatToParts(d);
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+  const wd = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  let hour = Number(map.hour);
+  if (hour === 24) hour = 0; // some engines emit 24:00
+  return {
+    y: Number(map.year),
+    m: Number(map.month),
+    d: Number(map.day),
+    mins: hour * 60 + Number(map.minute),
+    dow: wd[map.weekday] ?? 0,
+  };
+}
+
+/**
+ * Milliseconds of NY RTH (Mon–Fri 9:30–16:00 ET) between fromMs and toMs.
+ * Extended hours / overnight / weekends do NOT count. Holiday-aware calendars
+ * can inject `isRthDay(etYmd)` — default treats weekdays as RTH days.
+ *
+ * @param {number} fromMs
+ * @param {number} toMs
+ * @param {{ isRthDay?: (ymd: string) => boolean }} [opts]
+ */
+export function rthElapsedMs(fromMs, toMs, opts = {}) {
+  const a = Number(fromMs);
+  const b = Number(toMs);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return 0;
+
+  const isRthDay = typeof opts.isRthDay === "function"
+    ? opts.isRthDay
+    : (ymd) => {
+      // ymd unused in default — weekday check happens via etParts
+      return true;
+    };
+
+  // Walk in ~1-day steps using ET midnights approximated via 30-min samples
+  // for correctness at DST boundaries without pulling the full calendar.
+  let elapsed = 0;
+  const STEP = 60 * 1000; // 1 minute
+  // Cap iterations (lookback windows are days, not years).
+  const maxSteps = Math.min(Math.ceil((b - a) / STEP) + 2, 20 * 24 * 60);
+  let t = a;
+  for (let i = 0; i < maxSteps && t < b; i++) {
+    const next = Math.min(t + STEP, b);
+    const mid = t + (next - t) / 2;
+    const et = etPartsFromMs(mid);
+    const ymd = `${et.y}-${String(et.m).padStart(2, "0")}-${String(et.d).padStart(2, "0")}`;
+    const weekday = et.dow >= 1 && et.dow <= 5;
+    if (weekday && isRthDay(ymd) && et.mins >= RTH_OPEN_MIN && et.mins < RTH_CLOSE_MIN) {
+      elapsed += next - t;
+    }
+    t = next;
+  }
+  return elapsed;
+}
+
+/**
+ * True when the signal is still within the RTH TTL window.
+ * `force` bypasses expiry (operator replay).
+ */
+export function isCatchupSignalFresh(signalTs, nowMs = Date.now(), opts = {}) {
+  if (opts.force === true) return { fresh: true, rth_elapsed_ms: 0, ttl_ms: CATCHUP_SIGNAL_TTL_RTH_MS };
+  const from = Number(signalTs);
+  const to = Number(nowMs);
+  if (!Number.isFinite(from) || from <= 0) {
+    return { fresh: false, rth_elapsed_ms: null, ttl_ms: CATCHUP_SIGNAL_TTL_RTH_MS, reason: "bad_signal_ts" };
+  }
+  const ttl = Number.isFinite(Number(opts.ttlRthMs)) && Number(opts.ttlRthMs) > 0
+    ? Number(opts.ttlRthMs)
+    : CATCHUP_SIGNAL_TTL_RTH_MS;
+  const elapsed = rthElapsedMs(from, to, opts);
+  if (elapsed > ttl) {
+    return { fresh: false, rth_elapsed_ms: elapsed, ttl_ms: ttl, reason: "signal_expired_rth" };
+  }
+  return { fresh: true, rth_elapsed_ms: elapsed, ttl_ms: ttl };
+}
+
 /**
  * Resolve a live headline price from timed:prices row or timed:latest blob.
  * Prefers RTH `p` / `_live_price` / `price`.
