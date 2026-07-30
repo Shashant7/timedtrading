@@ -319,7 +319,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   4:30 PM ET slot also guaranteed Webull fractional rejection (RTH-only).
   Fix: claim-before-write + stable same-day lot id; wire buy notify channels
   + email `position_open`/`position_add` templates; accept `LONG TERM ·` in
-  the bell filter; move DCA to 11:30 AM ET; skip on tt-engine + day KV lock.
+  the bell filter; DCA at **3:45 PM ET** (near old 4:30 pullback intent,
+  still inside RTH for Webull fractionals; skip early-close via
+  `isNyRegularMarketOpen`); skip on tt-engine + day KV lock.
 - **Adaptive catch-up + DCA twin dedupe (2026-07-30)**:
   `POST /timed/admin/broker-bridge/catchup-investor` must NOT blindly replay
   buys days later. Gate on stage (block reduce/exited/research_avoid/low),
@@ -329,7 +331,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (keep earlier, reverse position, delete twin lot + matching ledger).
   Cash is SUM(`cash_delta`) — deleting the twin ledger restores cash; do
   not also write an ADJUSTMENT (double-credit). Helpers in
-  `worker/investor-catchup-gates.js`.
+  `worker/investor-catchup-gates.js`. Transient `portfolio_reconcile`
+  +drift after twin-ledger delete is expected until COO/ledger repair
+  back-fills the kept lot's DCA_BUY row — do not treat that spike as a
+  new root cause.
 - **PriceStream DO must OWN every symbol in `timed:prices` (2026-07-29 orphan clobber)**:
   Watchdog fired at 14:53 UTC: 43 symbols aged in lockstep at exactly 13m.
   DO owned 258/315 KV symbols; the 57 orphans (discovery / screener / theme

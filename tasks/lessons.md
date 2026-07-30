@@ -42,6 +42,16 @@ Twin cleanup API: `POST /timed/admin/investor/dedupe-dca-lots`.
 **Do not** blind-replay ADDs days later when price has chased or the
 stage flipped to reduce — that turns a missed fill into a chase.
 
+### portfolio_reconcile +18.6% after twin cleanup (false alarm)
+
+Sanity sweep at 9 PM ET fired `portfolio_reconcile` with
+`cash $7.2k + positions $132k = $139k` vs expected `$117k` (+$21.8k).
+Cause: twin-ledger DELETEs restored cash via SUM before the kept lots'
+missing `DCA_BUY` rows were back-filled. COO/ledger repair then wrote
+the kept-lot debits (−$24k). Re-sweep after heal: **status ok**,
+positions↔lots cost drift ≈ $0.28. Prefer re-running the sweep after
+cleanup+heal over chasing phantom inflation.
+
 ---
 
 ## DCA adds silent on Discord/email/bell + duplicate lots + broker PLACE_ORDER_REPEAT [2026-07-29]
@@ -116,8 +126,9 @@ no operator-facing alert fired.
 2. `scheduleInvestorBuyActionChannels` also sends email.
 3. `investorVerbFromNotification` accepts `LONG TERM ·` prefix.
 4. Email `TYPE_META` gains `position_open` / `position_add`.
-5. DCA cron: 11:30 AM ET (mid-RTH), skip on tt-engine, day-level KV
-   lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
+5. DCA cron: **3:45 PM ET** (end-of-day pullback intent, ~15m inside
+   RTH; gated by `isNyRegularMarketOpen` for early closes), skip on
+   tt-engine, day-level KV lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
 6. Source-contract tests for notify + claim + stable lot id; grammar
    tests for `LONG TERM ·` bell filter.
 
@@ -332,8 +343,9 @@ no operator-facing alert fired.
 2. `scheduleInvestorBuyActionChannels` also sends email.
 3. `investorVerbFromNotification` accepts `LONG TERM ·` prefix.
 4. Email `TYPE_META` gains `position_open` / `position_add`.
-5. DCA cron: 11:30 AM ET (mid-RTH), skip on tt-engine, day-level KV
-   lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
+5. DCA cron: **3:45 PM ET** (end-of-day pullback intent, ~15m inside
+   RTH; gated by `isNyRegularMarketOpen` for early closes), skip on
+   tt-engine, day-level KV lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
 6. Source-contract tests for notify + claim + stable lot id; grammar
    tests for `LONG TERM ·` bell filter.
 

@@ -99057,12 +99057,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 19 || _utcH === 20) && _utcM === 30) vc.add("30 20 * * 1-5");
       if (_utcDay === 5 && (_utcH === 20 || _utcH === 21) && _utcM === 15) vc.add("15 21 * * 5");
       if (_isWeekday && (_utcH === 20 || _utcH === 21) && _utcM === 30)    vc.add("30 21 * * 1-5");
-      // 2026-07-29 — DCA slot at 11:30 AM ET (15:30 UTC EDT / 16:30 UTC EST).
-      // Kept separate from the 4:30 PM ET labels above (those still drive
-      // brief-eval + portfolio EOD snap). Do NOT overlap the two windows
-      // the way 20:30 used to add BOTH "30 20" and "30 21".
-      if (_isWeekday && _utcH === 15 && _utcM === 30) vc.add("30 15 * * 1-5");
-      if (_isWeekday && _utcH === 16 && _utcM === 30) vc.add("30 16 * * 1-5");
+      // 2026-07-30 — DCA slot at 3:45 PM ET (19:45 UTC EDT / 20:45 UTC EST).
+      // Near the old 4:30 PM end-of-day pullback intent, still inside RTH so
+      // Webull fractionals accept (~15 min buffer before 4:00 close). Kept
+      // separate from the 4:30 PM labels above (brief-eval + EOD snap).
+      if (_isWeekday && _utcH === 19 && _utcM === 45) vc.add("45 19 * * 1-5");
+      if (_isWeekday && _utcH === 20 && _utcM === 45) vc.add("45 20 * * 1-5");
     }
     if (_isHourly) {
       /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
@@ -99694,26 +99694,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Investor Intelligence: daily DCA execution at 11:30 AM ET ──
+    // ── Investor Intelligence: daily DCA execution at 3:45 PM ET ──
     //
     // Phase 3.9k — DCA only (calendar-based, not signal-based). Signal-based
     // auto-rebalance runs during RTH (10:30 primary + hourly action passes).
     //
-    // 2026-07-29 — Moved from 4:30 PM ET → 11:30 AM ET. Webull rejects
-    // fractional share orders outside RTH ("Fractional shares trading is
-    // only available during regular trading hours: 9:30 a.m. - 4:00 p.m.").
-    // The 4:30 PM slot guaranteed every DCA mirror failed on Webull, which
-    // is exactly what the operator saw today (CRDO/PLTR/TWLO/… model book
-    // grew, broker stayed flat). 11:30 AM is mid-RTH so fractional places.
+    // 2026-07-29 — Moved off 4:30 PM ET (after RTH → Webull fractional reject).
+    // 2026-07-30 — Settled on 3:45 PM ET: same end-of-day pullback intent as
+    // the old 4:30 slot, ~15 min inside RTH so fractionals still place.
+    // Gate on isNyRegularMarketOpen() so early-close days (1 PM) no-op.
     //
     // Also: skip on tt-engine. The */5 virtual-cron registration runs on
     // BOTH monolith and engine; dual dispatch ~300ms apart was writing
     // duplicate lots + hammering Webull into PLACE_ORDER_REPEAT. Engine
     // owns scoring only — DCA stays on the monolith (or research when
     // that lane is externalized). Day-level KV lock is a second belt.
-    if (!_isDedicatedEngine && (vc.has("30 15 * * 1-5") || vc.has("30 16 * * 1-5"))) {
+    if (!_isDedicatedEngine && (vc.has("45 19 * * 1-5") || vc.has("45 20 * * 1-5"))) {
       const _dcaEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
-      if (_dcaEtH === 11) ctx.waitUntil((async () => {
+      const _dcaEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
+      if (_dcaEtH === 15 && _dcaEtM === 45 && isNyRegularMarketOpen()) ctx.waitUntil((async () => {
         try {
           const KV = env?.KV_TIMED;
           const _nyPartsDcaCron = new Date().toLocaleString("en-US", {
@@ -99731,7 +99730,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // (if any) sees the marker. 36h TTL covers DST edges.
             await KV.put(_dcaDoneKey, String(Date.now()), { expirationTtl: 36 * 3600 }).catch(() => {});
           }
-          console.log("[INVESTOR CRON] Checking DCA plans...");
+          console.log("[INVESTOR CRON] Checking DCA plans (15:45 ET)...");
           const dcaResp = await _selfDispatch(`/timed/investor/dca/execute`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));
           console.log(`[INVESTOR CRON] DCA: ${dcaData.executed || 0} executed, ${dcaData.skipped || 0} skipped`);
