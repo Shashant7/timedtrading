@@ -6,6 +6,28 @@
 
 ---
 
+## ETH rebuild buys need LIMIT + GTC + ALL + whole shares [2026-07-30]
+
+**Symptom:** Post-#1188 Roth rebuild during ETH. First AMAT forward stamped
+LIMIT/GTC/`support_trading_session=ALL` but place failed:
+"You cannot place fractional share orders at this moment… RTH only."
+Qty had been relational-scaled 3 → 0.48825 after the rebuild's whole-share floor.
+
+**Rules:**
+1. Outside RTH Webull equity orders need `order_type=LIMIT`, `tif=GTC`,
+   `support_trading_session=ALL` (never hardcoded CORE).
+2. Fractionals are RTH-only — force whole-share sizing in preflight when
+   session is ALL/NIGHT (relational + vehicle cap), not only at rebuild plan.
+3. Names where 1 whole share exceeds ~account/book ratio notional
+   (`account_too_small_for_one_share`) wait for RTH fractionals — don't
+   chase with MARKET/CORE.
+4. ETH hours fract rejects must NOT stamp `fractional_agreement_missing`
+   (session-bound, not account-bound).
+
+Live ETH GTC LIMIT ALL places: TWLO 1 / PLTR 2 / NVDA 1 / BNY 1 / EXEL 5.
+
+---
+
 ## Open investor positions stubbed with score:null [2026-07-30]
 
 **Symptom:** All 20 OPEN Long Term names in `timed:investor:scores`
