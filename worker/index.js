@@ -99609,11 +99609,19 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // Hourly RTH pass reuses the adaptive gates (stage/score/price drift)
     // and only forwards ops that still make sense. Caps at 8 ops/run so a
     // backlog cannot flood the bridge. Skips tt-engine (monolith only).
+    //
+    // 2026-07-30 (same day) — First live run bought missed DCAs then sold
+    // PRE_FOMC trims for CRS/CW/NVDA in one pass (broker buy+sell churn,
+    // no Discord/email). Gated behind BROKER_CATCHUP_AUTO_RTH=true (default
+    // off). Planner now aliases trim↔sell for ring dedupe and suppresses
+    // offsetting buy+sell for the same trade_id. When re-enabled, Discord
+    // gets a summary whenever anything is forwarded.
     if (!_isDedicatedEngine
         && vc.has("investor-session")
         && _isHourly
         && isNyRegularMarketOpen()
-        && String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true") {
+        && String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true"
+        && String(env?.BROKER_CATCHUP_AUTO_RTH || "false").toLowerCase() === "true") {
       ctx.waitUntil((async () => {
         try {
           const KV = env?.KV_TIMED;
@@ -99641,6 +99649,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           );
           if (out.planned > 0) {
             recordCronSuccess(env, "investor_catchup_auto").catch(() => {});
+            try {
+              const lines = (out.results || []).slice(0, 12).map((r) =>
+                `${r.ok ? "ok" : "fail"} ${r.kind} ${r.ticker}`
+                + (r.reject ? ` (${String(r.reject).slice(0, 40)})` : "")
+                + (r.scaled_qty != null ? ` qty=${r.scaled_qty}` : ""),
+              );
+              await notifyDiscord(env, {
+                title: `LONG TERM · catch-up auto (${okN} ok / ${failN} fail)`,
+                description: lines.join("\n") || `${out.planned} planned`,
+                color: failN ? 0xf0a020 : 0x4a90d9,
+              }, "trade").catch(() => {});
+            } catch (_) { /* notify best-effort */ }
           }
         } catch (e) {
           console.warn("[INVESTOR CATCHUP AUTO] Failed:", String(e?.message || e).slice(0, 300));

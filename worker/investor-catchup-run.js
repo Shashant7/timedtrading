@@ -26,6 +26,65 @@ async function kvJson(env, key) {
   }
 }
 
+/** Ring sides that satisfy a D1 lot action (mirror verb ≠ lot action). */
+export function ringSidesForLotAction(action) {
+  if (String(action || "").toUpperCase() === "SELL") {
+    // forwardInvestorMirror writes side=trim|sell, never "SELL".
+    return ["sell", "trim", "exit", "close"];
+  }
+  return ["buy"];
+}
+
+function lotAlreadyMirrored(mirroredOkIds, tradeId, action) {
+  const ids = [String(tradeId), `inv-${tradeId}`];
+  for (const side of ringSidesForLotAction(action)) {
+    for (const id of ids) {
+      if (mirroredOkIds.has(`${side}|${id}`)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 2026-07-30 — Auto catch-up bought missed DCAs then sold PRE_FOMC trims
+ * for the same inv-* trade in one run (CRS/CW/NVDA). Relational sizing made
+ * buy qty ≈ trim qty → Webull buy+sell churn, no Discord/email. When both
+ * sides are still unmatched for one trade_id, keep risk-reducing sells and
+ * defer buys to a later pass (after the sell is marked mirrored).
+ */
+export function suppressOffsettingCatchupBuys(planned = []) {
+  const byTrade = new Map();
+  for (const op of planned) {
+    const tid = String(op?.trade_id || "");
+    if (!tid) continue;
+    if (!byTrade.has(tid)) byTrade.set(tid, { buys: [], sells: [] });
+    const isBuy = ["dca", "add", "buy", "open"].includes(String(op?.kind || ""));
+    if (isBuy) byTrade.get(tid).buys.push(op);
+    else byTrade.get(tid).sells.push(op);
+  }
+  const drop = new Set();
+  const skipped = [];
+  for (const [tid, { buys, sells }] of byTrade) {
+    if (!buys.length || !sells.length) continue;
+    for (const b of buys) {
+      drop.add(b);
+      skipped.push({
+        ...b,
+        skip_reason: "offsetting_sell_same_trade",
+        detail: {
+          note: "Defer buy/DCA catch-up when a sell/trim for the same trade is also unmatched — avoids buy+sell churn",
+          trade_id: tid,
+          pending_sells: sells.map((s) => s.kind),
+        },
+      });
+    }
+  }
+  return {
+    planned: planned.filter((op) => !drop.has(op)),
+    skipped_offsetting: skipped,
+  };
+}
+
 /**
  * Plan catch-up ops from already-loaded lots + ring + scores + prices.
  * Pure aside from optional per-ticker latest lookups (passed in via livePrices map).
@@ -68,9 +127,9 @@ export function planInvestorCatchupOps({
     const tradeId = posId
       ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
       : `inv-${lot.ticker}-${lot.action}`;
-    const lotSide = lot.action === "SELL" ? "sell" : "buy";
-    if (mirroredOkIds.has(`${lotSide}|${tradeId}`)
-        || mirroredOkIds.has(`${lotSide}|inv-${tradeId}`)) continue;
+    // 2026-07-30 — SELL lots must match ring side=trim (not only "sell").
+    // Without this alias, every hourly auto catch-up re-fires trims forever.
+    if (lotAlreadyMirrored(mirroredOkIds, tradeId, lot.action)) continue;
 
     const reasonU = String(lot.reason || "").toUpperCase();
     let kind;
@@ -140,8 +199,13 @@ export function planInvestorCatchupOps({
     planned.push(op);
   }
 
+  const collapsed = suppressOffsettingCatchupBuys(planned);
+  if (collapsed.skipped_offsetting.length) {
+    skippedGates.push(...collapsed.skipped_offsetting);
+  }
+
   return {
-    planned,
+    planned: collapsed.planned,
     skipped_gates: skippedGates,
     mirrored_ok_count: mirroredOkIds.size,
   };

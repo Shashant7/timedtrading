@@ -22,6 +22,15 @@
 
 ### Active
 
+- [x] **Auto catch-up buy+trim churn (2026-07-30).** Hourly
+      `catchup_auto_rth` bought missed DCAs then sold PRE_FOMC trims for
+      CRS/CW/NVDA (same fractional qtys on Webull; no Discord/email).
+      Cause: planner matched SELL lots only to ring `side=sell` (mirrors
+      write `trim`) + planned both sides same run. Ops: KV lock pause +
+      `BROKER_CATCHUP_AUTO_RTH=false`. Fix: trim↔sell alias, suppress
+      offsetting buys, Discord summary when re-enabled.
+      Branch: `cursor/catchup-buy-trim-churn-df0c`.
+
 - [x] **Adaptive catch-up + DCA twin cleanup (2026-07-30).** Operator
       ask: cleanup duplicate DCA lots and only catch up when price +
       thesis still intact. Live D1: reversed 12 twin pairs

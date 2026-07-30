@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { planInvestorCatchupOps } from "./investor-catchup-run.js";
+import {
+  planInvestorCatchupOps,
+  suppressOffsettingCatchupBuys,
+  ringSidesForLotAction,
+} from "./investor-catchup-run.js";
 
 const baseLot = {
   id: "lot-CRDO-dca-1",
@@ -112,5 +116,78 @@ describe("planInvestorCatchupOps", () => {
     });
     expect(out.planned).toHaveLength(1);
     expect(out.planned[0].lot_id).toBe(baseLot.id);
+  });
+
+  it("treats ring side=trim as mirrored for a SELL lot (CRS/CW/NVDA re-fire)", () => {
+    const sell = {
+      ...baseLot,
+      id: "lot-CRS-sell-1",
+      position_id: "inv-CRS-auto-1780326044329",
+      ticker: "CRS",
+      action: "SELL",
+      reason: "PRE_FOMC_RISK_REDUCTION",
+      shares: 0.5925,
+    };
+    const out = planInvestorCatchupOps({
+      lots: [sell],
+      ring: [{
+        trade_id: "inv-CRS-auto-1780326044329",
+        side: "trim",
+        status: "ok",
+        rh_order_id: "wb-trim-1",
+      }],
+      scores: { CRS: { stage: "reduce", score: 40 } },
+      livePrices: { CRS: 500 },
+    });
+    expect(out.planned).toHaveLength(0);
+    expect(ringSidesForLotAction("SELL")).toContain("trim");
+  });
+
+  it("defers DCA when an unmatched trim exists for the same trade (no buy+sell churn)", () => {
+    const dca = {
+      ...baseLot,
+      id: "lot-CRS-dca",
+      position_id: "inv-CRS-auto-1",
+      ticker: "CRS",
+      action: "DCA_BUY",
+      shares: 3.44554,
+      price: 500,
+      reason: "dca_pullback",
+    };
+    const sell = {
+      ...baseLot,
+      id: "lot-CRS-sell",
+      position_id: "inv-CRS-auto-1",
+      ticker: "CRS",
+      action: "SELL",
+      shares: 0.5925,
+      price: 538,
+      reason: "PRE_FOMC_RISK_REDUCTION",
+      ts: dca.ts + 86400000,
+    };
+    const out = planInvestorCatchupOps({
+      lots: [dca, sell],
+      ring: [],
+      scores: { CRS: { stage: "accumulate", score: 70 } },
+      livePrices: { CRS: 501 },
+    });
+    expect(out.planned.map((p) => p.kind)).toEqual(["trim"]);
+    expect(out.skipped_gates.some((s) => s.skip_reason === "offsetting_sell_same_trade")).toBe(true);
+  });
+});
+
+describe("suppressOffsettingCatchupBuys", () => {
+  it("drops buys when sells share the trade_id", () => {
+    const { planned, skipped_offsetting } = suppressOffsettingCatchupBuys([
+      { trade_id: "inv-A", kind: "dca", ticker: "A" },
+      { trade_id: "inv-A", kind: "trim", ticker: "A" },
+      { trade_id: "inv-B", kind: "dca", ticker: "B" },
+    ]);
+    expect(planned.map((p) => `${p.trade_id}:${p.kind}`).sort()).toEqual([
+      "inv-A:trim",
+      "inv-B:dca",
+    ]);
+    expect(skipped_offsetting).toHaveLength(1);
+    expect(skipped_offsetting[0].skip_reason).toBe("offsetting_sell_same_trade");
   });
 });
