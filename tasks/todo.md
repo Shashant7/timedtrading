@@ -22,6 +22,15 @@
 
 ### Active
 
+- [x] **Roth mirror rebuild — avg_entry band + thesis (2026-07-30).**
+      After orphan mark_closed, don't force expired DCA catch-up.
+      Rebuild only OPEN investor positions where live is within
+      ~−8%…+2% of model `avg_entry`, stage accumulate/core_hold,
+      score healthy when present, not exhausted; size = one DCA slice.
+      Skip chase (above entry) and deep-underwater stubborn losers.
+      `POST /timed/admin/broker-bridge/rebuild-mirror`.
+      Branch: `cursor/mirror-rebuild-avg-entry-df0c`.
+
 - [x] **Speculative ATH/N-test admission + min_rr (2026-07-30).**
       DE + WM Speculative LONGs taken post-FOMC Jul 29, SL'd Jul 30.
       Root: Speculative ATH had no matrix row (default ALLOW while

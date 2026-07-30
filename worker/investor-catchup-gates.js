@@ -260,6 +260,168 @@ export function isCatchupSignalFresh(signalTs, nowMs = Date.now(), opts = {}) {
   return { fresh: true, rth_elapsed_ms: elapsed, ttl_ms: ttl };
 }
 
+// ── Mirror rebuild (Roth re-sync after orphan cleanup) ─────────────────
+// Operator rebuild must NOT replay expired DCA lots. Score OPEN model
+// positions vs avg_entry + live thesis: buy dips near cost basis, never
+// chase peaks, never refill deep losers the model hasn't exited.
+
+/** Default: live may sit up to 8% below model avg_entry. */
+export const REBUILD_MIN_VS_ENTRY_PCT = -8;
+/** Default: live may sit at most 2% above model avg_entry (no chase). */
+export const REBUILD_MAX_VS_ENTRY_PCT = 2;
+/** Default min investor score for a rebuild add. */
+export const REBUILD_MIN_SCORE = 50;
+/** Stages allowed for rebuild buys. */
+export const REBUILD_OK_STAGES = Object.freeze(["accumulate", "core_hold"]);
+/** Default notional for one rebuild slice when position.dca_amount missing. */
+export const REBUILD_DEFAULT_SLICE_USD = 2000;
+/** Broker qty above this → already mirrored; skip rebuild. */
+export const REBUILD_BROKER_DUST = 0.05;
+
+/**
+ * Pure gate for Roth mirror rebuild of one OPEN investor position.
+ *
+ * @param {object} input
+ * @param {number} input.avgEntry       Model avg entry
+ * @param {number|null} input.livePrice
+ * @param {string|null} [input.stage]
+ * @param {number|null} [input.score]
+ * @param {object|null} [input.accumZone]
+ * @param {number} [input.brokerQty]    Live held at target broker account
+ * @param {number} [input.minVsEntryPct]
+ * @param {number} [input.maxVsEntryPct]
+ * @param {number} [input.minScore]
+ * @param {boolean} [input.force]
+ * @returns {{ allow: boolean, reason: string|null, vs_entry_pct: number|null, detail?: object }}
+ */
+export function evaluateMirrorRebuildGate(input = {}) {
+  if (input.force === true) {
+    return { allow: true, reason: null, vs_entry_pct: null, detail: { forced: true } };
+  }
+
+  const avgEntry = Number(input.avgEntry);
+  const livePrice = Number(input.livePrice);
+  const stage = String(input.stage || "").toLowerCase();
+  const score = input.score == null ? null : Number(input.score);
+  const minVs = Number.isFinite(Number(input.minVsEntryPct))
+    ? Number(input.minVsEntryPct) : REBUILD_MIN_VS_ENTRY_PCT;
+  const maxVs = Number.isFinite(Number(input.maxVsEntryPct))
+    ? Number(input.maxVsEntryPct) : REBUILD_MAX_VS_ENTRY_PCT;
+  const minScore = Number.isFinite(Number(input.minScore))
+    ? Number(input.minScore) : REBUILD_MIN_SCORE;
+  const brokerQty = Number(input.brokerQty) || 0;
+  const dust = Number.isFinite(Number(input.brokerDust))
+    ? Number(input.brokerDust) : REBUILD_BROKER_DUST;
+
+  if (brokerQty > dust) {
+    return {
+      allow: false,
+      reason: "already_mirrored",
+      vs_entry_pct: null,
+      detail: { brokerQty, dust },
+    };
+  }
+
+  if (!(Number.isFinite(livePrice) && livePrice > 0)) {
+    return { allow: false, reason: "no_live_price", vs_entry_pct: null };
+  }
+  if (!(Number.isFinite(avgEntry) && avgEntry > 0)) {
+    return { allow: false, reason: "no_avg_entry", vs_entry_pct: null };
+  }
+
+  const vsEntryPct = ((livePrice - avgEntry) / avgEntry) * 100;
+
+  if (vsEntryPct > maxVs) {
+    return {
+      allow: false,
+      reason: "chase_above_entry",
+      vs_entry_pct: vsEntryPct,
+      detail: { avgEntry, livePrice, maxVsEntryPct: maxVs },
+    };
+  }
+  if (vsEntryPct < minVs) {
+    return {
+      allow: false,
+      reason: "deep_underwater",
+      vs_entry_pct: vsEntryPct,
+      detail: { avgEntry, livePrice, minVsEntryPct: minVs },
+    };
+  }
+
+  if (!stage) {
+    return {
+      allow: false,
+      reason: "no_stage",
+      vs_entry_pct: vsEntryPct,
+      detail: { score },
+    };
+  }
+  if (CATCHUP_BUY_BLOCK_STAGES.includes(stage)) {
+    return {
+      allow: false,
+      reason: "stage_blocks_add",
+      vs_entry_pct: vsEntryPct,
+      detail: { stage, score },
+    };
+  }
+  if (!REBUILD_OK_STAGES.includes(stage)) {
+    return {
+      allow: false,
+      reason: "stage_not_rebuildable",
+      vs_entry_pct: vsEntryPct,
+      detail: { stage, score, ok: REBUILD_OK_STAGES },
+    };
+  }
+
+  // Owned/core_hold rows often have score=null in timed:investor:scores.
+  // Require a healthy score when present; otherwise stage must already be
+  // in REBUILD_OK_STAGES (enforced above).
+  if (score != null && Number.isFinite(score) && score < minScore) {
+    return {
+      allow: false,
+      reason: "score_low",
+      vs_entry_pct: vsEntryPct,
+      detail: { stage, score, minScore },
+    };
+  }
+
+  const zoneType = String(input.accumZone?.zoneType || "").toLowerCase();
+  const exhausted = zoneType.includes("exhaust")
+    || (Array.isArray(input.accumZone?.exhaustionWarnings)
+      && input.accumZone.exhaustionWarnings.length > 0);
+  if (exhausted) {
+    return {
+      allow: false,
+      reason: "zone_exhausted",
+      vs_entry_pct: vsEntryPct,
+      detail: { stage, zoneType },
+    };
+  }
+
+  return {
+    allow: true,
+    reason: null,
+    vs_entry_pct: vsEntryPct,
+    detail: { stage, score, avgEntry, livePrice },
+  };
+}
+
+/**
+ * Shares for one rebuild DCA slice.
+ * @param {{ dcaAmountUsd?: number, livePrice: number, defaultSliceUsd?: number, maxSliceUsd?: number }} args
+ */
+export function rebuildSliceShares(args = {}) {
+  const live = Number(args.livePrice);
+  if (!(live > 0)) return 0;
+  const def = Number.isFinite(Number(args.defaultSliceUsd))
+    ? Number(args.defaultSliceUsd) : REBUILD_DEFAULT_SLICE_USD;
+  let usd = Number(args.dcaAmountUsd);
+  if (!(usd > 0)) usd = def;
+  const maxUsd = Number(args.maxSliceUsd);
+  if (Number.isFinite(maxUsd) && maxUsd > 0) usd = Math.min(usd, maxUsd);
+  return Math.round((usd / live) * 1e5) / 1e5;
+}
+
 /**
  * Resolve a live headline price from timed:prices row or timed:latest blob.
  * Prefers RTH `p` / `_live_price` / `price`.

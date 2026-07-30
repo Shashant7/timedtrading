@@ -6,6 +6,32 @@
 
 ---
 
+## Open investor positions stubbed with score:null [2026-07-30]
+
+**Symptom:** All 20 OPEN Long Term names in `timed:investor:scores`
+showed `score: null`, `stage: core_hold`, `_reconciled_outside_universe`.
+Some (AMAT/CRDO/BNY/CF) are missing from `SECTOR_MAP`; others were
+skipped once (stale/no-price) and the outside-universe stub **overwrote**
+real scores. Focus-only merges kept the stubs.
+
+**Fix:** Union OPEN position tickers into the investor compute universe
+(even on focus path). When still forced to stub, **preserve prior
+score/thesis** instead of writing null. Rebuild also falls back to
+`timed:latest.investor_score`.
+
+---
+
+## Roth mirror rebuild ≠ expired DCA catch-up [2026-07-30]
+
+After orphan `mark_closed`, do **not** `force` expired lot catch-up.
+Rebuild via `POST /timed/admin/broker-bridge/rebuild-mirror`: OPEN
+positions only, live within ~−8%…+2% of model `avg_entry`, stage
+`accumulate|core_hold`, not exhausted, broker not already holding;
+one DCA slice. Chase (above entry) and deep-underwater stubborn losers
+are skipped. Default `dry_run=true`.
+
+---
+
 ## Speculative ATH/N-test admission holes (DE + WM) [2026-07-30]
 
 **Symptom:** DE (`tt_n_test_support` Speculative) and WM (`tt_ath_breakout`
