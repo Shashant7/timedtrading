@@ -6,14 +6,18 @@
  *   - RTH auto-retry cron (anomaly recovery: ETH fractional reject, etc.)
  *   - COO self-heal when bridge coverage fails
  *
- * Buys/DCAs are thesis+price gated (see investor-catchup-gates.js).
- * Sells/trims/exits always plan (risk reduction).
+ * Policy (2026-07-30):
+ *   - Last signal wins per position — older unmatched lots are superseded.
+ *   - Signals expire after 4 hours of NY RTH (ETH / overnight excluded).
+ *   - Buys/DCAs are thesis+price gated; sells stay permissive while fresh.
  */
 
 import { readClientRing, forwardInvestorMirror } from "./broker-bridge-client.js";
 import {
   evaluateCatchupThesisGate,
   resolveCatchupLivePrice,
+  isCatchupSignalFresh,
+  CATCHUP_SIGNAL_TTL_RTH_MS,
 } from "./investor-catchup-gates.js";
 
 async function kvJson(env, key) {
@@ -45,49 +49,64 @@ function lotAlreadyMirrored(mirroredOkIds, tradeId, action) {
   return false;
 }
 
-/**
- * 2026-07-30 — Auto catch-up bought missed DCAs then sold PRE_FOMC trims
- * for the same inv-* trade in one run (CRS/CW/NVDA). Relational sizing made
- * buy qty ≈ trim qty → Webull buy+sell churn, no Discord/email. When both
- * sides are still unmatched for one trade_id, keep risk-reducing sells and
- * defer buys to a later pass (after the sell is marked mirrored).
- */
-export function suppressOffsettingCatchupBuys(planned = []) {
-  const byTrade = new Map();
-  for (const op of planned) {
-    const tid = String(op?.trade_id || "");
-    if (!tid) continue;
-    if (!byTrade.has(tid)) byTrade.set(tid, { buys: [], sells: [] });
-    const isBuy = ["dca", "add", "buy", "open"].includes(String(op?.kind || ""));
-    if (isBuy) byTrade.get(tid).buys.push(op);
-    else byTrade.get(tid).sells.push(op);
+function tradeIdForLot(lot) {
+  const posId = lot?.position_id != null ? String(lot.position_id) : "";
+  if (posId) return posId.startsWith("inv-") ? posId : `inv-${posId}`;
+  return `inv-${lot?.ticker || "UNK"}-${lot?.action || "x"}`;
+}
+
+function kindForLot(lot) {
+  const reasonU = String(lot?.reason || "").toUpperCase();
+  if (lot?.action === "SELL") {
+    return /INVALIDATION|EXIT|CLOSE|FULL/.test(reasonU) ? "exit" : "trim";
   }
-  const drop = new Set();
-  const skipped = [];
-  for (const [tid, { buys, sells }] of byTrade) {
-    if (!buys.length || !sells.length) continue;
-    for (const b of buys) {
-      drop.add(b);
-      skipped.push({
-        ...b,
-        skip_reason: "offsetting_sell_same_trade",
-        detail: {
-          note: "Defer buy/DCA catch-up when a sell/trim for the same trade is also unmatched — avoids buy+sell churn",
-          trade_id: tid,
-          pending_sells: sells.map((s) => s.kind),
-        },
-      });
+  if (lot?.action === "DCA_BUY") return "dca";
+  return "add";
+}
+
+/**
+ * Per position, keep only the chronologically latest lot.
+ * Older lots are returned as superseded skips (last signal wins).
+ */
+export function selectLatestSignalLots(lots = []) {
+  const byPos = new Map();
+  for (const lot of lots || []) {
+    const key = String(lot?.position_id || lot?.ticker || "").toUpperCase();
+    if (!key) continue;
+    const prev = byPos.get(key);
+    if (!prev || (Number(lot.ts) || 0) >= (Number(prev.ts) || 0)) {
+      byPos.set(key, lot);
     }
   }
-  return {
-    planned: planned.filter((op) => !drop.has(op)),
-    skipped_offsetting: skipped,
-  };
+  const latest = [...byPos.values()];
+  const latestIds = new Set(latest.map((l) => l.id));
+  const superseded = (lots || [])
+    .filter((l) => l?.id && !latestIds.has(l.id))
+    .map((l) => {
+      const winner = byPos.get(String(l.position_id || l.ticker || "").toUpperCase());
+      return {
+        ticker: String(l.ticker || "").toUpperCase(),
+        kind: kindForLot(l),
+        shares: Number(l.shares) || 0,
+        price: Number(l.price) || null,
+        position_id: l.position_id,
+        lot_id: l.id,
+        lot_ts: l.ts,
+        trade_id: tradeIdForLot(l),
+        skip_reason: "superseded_by_newer_signal",
+        detail: {
+          note: "Last signal wins — a newer lot on this position replaces older unmatched signals",
+          newer_lot_id: winner?.id || null,
+          newer_lot_ts: winner?.ts || null,
+          newer_action: winner?.action || null,
+        },
+      };
+    });
+  return { latest, superseded };
 }
 
 /**
  * Plan catch-up ops from already-loaded lots + ring + scores + prices.
- * Pure aside from optional per-ticker latest lookups (passed in via livePrices map).
  *
  * @param {object} args
  * @returns {{ planned: object[], skipped_gates: object[], mirrored_ok_count: number }}
@@ -102,6 +121,9 @@ export function planInvestorCatchupOps({
   maxBuyDriftPct = 5,
   minScoreBuy = 30,
   skipBuys = false,
+  nowMs = Date.now(),
+  ttlRthMs = CATCHUP_SIGNAL_TTL_RTH_MS,
+  isRthDay = undefined,
 } = {}) {
   const mirroredOkIds = new Set(
     (ring || [])
@@ -111,34 +133,48 @@ export function planInvestorCatchupOps({
       .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
   );
 
-  const seen = new Set();
-  const planned = [];
-  const skippedGates = [];
-
-  for (const lot of lots || []) {
+  // Pre-filter by ticker, then last-signal-wins per position.
+  const tickerLots = (lots || []).filter((lot) => {
     const ticker = String(lot.ticker || "").toUpperCase();
-    if (tickerFilter && !tickerFilter.has(ticker)) continue;
-    const day = new Date(Number(lot.ts) || 0).toISOString().slice(0, 10);
-    const dedupeKey = `${lot.position_id || lot.ticker}|${lot.action}|${day}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
+    return ticker && (!tickerFilter || tickerFilter.has(ticker));
+  });
 
-    const posId = lot.position_id ? String(lot.position_id) : "";
-    const tradeId = posId
-      ? (posId.startsWith("inv-") ? posId : `inv-${posId}`)
-      : `inv-${lot.ticker}-${lot.action}`;
-    // 2026-07-30 — SELL lots must match ring side=trim (not only "sell").
-    // Without this alias, every hourly auto catch-up re-fires trims forever.
+  const { latest, superseded } = selectLatestSignalLots(tickerLots);
+  const skippedGates = [...superseded];
+  const planned = [];
+
+  for (const lot of latest) {
+    const ticker = String(lot.ticker || "").toUpperCase();
+    const tradeId = tradeIdForLot(lot);
+    const kind = kindForLot(lot);
+
+    // Already mirrored for this action → nothing to catch up. Older lots
+    // were already marked superseded.
     if (lotAlreadyMirrored(mirroredOkIds, tradeId, lot.action)) continue;
 
-    const reasonU = String(lot.reason || "").toUpperCase();
-    let kind;
-    if (lot.action === "SELL") {
-      kind = /INVALIDATION|EXIT|CLOSE|FULL/.test(reasonU) ? "exit" : "trim";
-    } else if (lot.action === "DCA_BUY") {
-      kind = "dca";
-    } else {
-      kind = "add";
+    const freshness = isCatchupSignalFresh(lot.ts, nowMs, {
+      force,
+      ttlRthMs,
+      isRthDay,
+    });
+    if (!freshness.fresh) {
+      skippedGates.push({
+        ticker,
+        kind,
+        shares: Number(lot.shares) || 0,
+        price: Number(lot.price) || null,
+        position_id: lot.position_id,
+        lot_id: lot.id,
+        lot_ts: lot.ts,
+        trade_id: tradeId,
+        skip_reason: freshness.reason || "signal_expired_rth",
+        detail: {
+          note: "Signal expired — 4h of NY RTH from lot ts (ETH/overnight excluded)",
+          rth_elapsed_ms: freshness.rth_elapsed_ms,
+          ttl_ms: freshness.ttl_ms,
+        },
+      });
+      continue;
     }
 
     const isBuy = kind === "dca" || kind === "add" || kind === "buy" || kind === "open";
@@ -151,6 +187,7 @@ export function planInvestorCatchupOps({
         position_id: lot.position_id,
         lot_id: lot.id,
         lot_ts: lot.ts,
+        trade_id: tradeId,
         skip_reason: "rth_closed_buy",
         detail: { note: "Auto buy/DCA catch-up waits for regular hours (Webull fractionals)" },
       });
@@ -186,6 +223,8 @@ export function planInvestorCatchupOps({
       score: scoreRow?.score ?? null,
       drift_pct: gate.drift_pct,
       gate_reason: gate.reason,
+      rth_elapsed_ms: freshness.rth_elapsed_ms,
+      ttl_ms: freshness.ttl_ms,
     };
 
     if (!gate.allow) {
@@ -199,13 +238,8 @@ export function planInvestorCatchupOps({
     planned.push(op);
   }
 
-  const collapsed = suppressOffsettingCatchupBuys(planned);
-  if (collapsed.skipped_offsetting.length) {
-    skippedGates.push(...collapsed.skipped_offsetting);
-  }
-
   return {
-    planned: collapsed.planned,
+    planned,
     skipped_gates: skippedGates,
     mirrored_ok_count: mirroredOkIds.size,
   };
@@ -216,18 +250,10 @@ export function planInvestorCatchupOps({
  *
  * @param {object} env
  * @param {object} [opts]
- * @param {boolean} [opts.dry_run=true]
- * @param {number} [opts.hours=72]
- * @param {boolean} [opts.force=false]
- * @param {number} [opts.max_buy_drift_pct=5]
- * @param {number} [opts.min_score_buy=30]
- * @param {string[]} [opts.tickers]
- * @param {number} [opts.max_ops] cap forwarded ops (auto path)
- * @param {boolean} [opts.skip_buys=false] defer buys when outside RTH
- * @param {string} [opts.source="catchup_investor"]
  */
 export async function runInvestorCatchup(env, opts = {}) {
   const dryRun = opts.dry_run !== false;
+  // Lookback only finds candidate lots; freshness is the 4h RTH TTL.
   const hours = Math.min(168, Math.max(1, Number(opts.hours) || 72));
   const force = opts.force === true;
   const maxBuyDriftPct = Number.isFinite(Number(opts.max_buy_drift_pct))
@@ -242,6 +268,9 @@ export async function runInvestorCatchup(env, opts = {}) {
     : null;
   const skipBuys = opts.skip_buys === true;
   const source = String(opts.source || "catchup_investor").slice(0, 64);
+  const ttlRthMs = Number.isFinite(Number(opts.ttl_rth_ms)) && Number(opts.ttl_rth_ms) > 0
+    ? Number(opts.ttl_rth_ms)
+    : CATCHUP_SIGNAL_TTL_RTH_MS;
 
   const sinceMs = Date.now() - hours * 3600000;
   const { results: lots } = await env.DB.prepare(
@@ -256,7 +285,6 @@ export async function runInvestorCatchup(env, opts = {}) {
   const pricesBlob = (await kvJson(env, "timed:prices")) || {};
   const pricesMap = pricesBlob.prices || pricesBlob || {};
 
-  // Resolve live prices for unique tickers in the lot set (bounded).
   const tickersNeeded = new Set();
   for (const lot of lots || []) {
     const t = String(lot.ticker || "").toUpperCase();
@@ -278,6 +306,8 @@ export async function runInvestorCatchup(env, opts = {}) {
     maxBuyDriftPct,
     minScoreBuy,
     skipBuys,
+    nowMs: Date.now(),
+    ttlRthMs,
   });
 
   let planned = plannedFull.planned;
@@ -313,6 +343,7 @@ export async function runInvestorCatchup(env, opts = {}) {
         drift_pct: op.drift_pct,
         stage: op.stage,
         score: op.score,
+        rth_elapsed_ms: op.rth_elapsed_ms,
       });
     }
   }
@@ -325,6 +356,7 @@ export async function runInvestorCatchup(env, opts = {}) {
     max_buy_drift_pct: maxBuyDriftPct,
     min_score_buy: minScoreBuy,
     skip_buys: skipBuys,
+    ttl_rth_ms: ttlRthMs,
     source,
     candidate_lots: (lots || []).length,
     planned: planned.length,

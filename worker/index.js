@@ -99610,12 +99610,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
     // and only forwards ops that still make sense. Caps at 8 ops/run so a
     // backlog cannot flood the bridge. Skips tt-engine (monolith only).
     //
-    // 2026-07-30 (same day) — First live run bought missed DCAs then sold
-    // PRE_FOMC trims for CRS/CW/NVDA in one pass (broker buy+sell churn,
-    // no Discord/email). Gated behind BROKER_CATCHUP_AUTO_RTH=true (default
-    // off). Planner now aliases trim↔sell for ring dedupe and suppresses
-    // offsetting buy+sell for the same trade_id. When re-enabled, Discord
-    // gets a summary whenever anything is forwarded.
+    // 2026-07-30 — After CRS/CW/NVDA buy+trim churn: planner is last-signal-
+    // wins + 4h RTH TTL (ETH excluded). Gated by BROKER_CATCHUP_AUTO_RTH.
+    // Discord summary whenever anything is forwarded.
     if (!_isDedicatedEngine
         && vc.has("investor-session")
         && _isHourly
