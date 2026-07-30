@@ -22,6 +22,15 @@
 
 ### Active
 
+- [ ] **Speculative ATH/N-test admission + min_rr (2026-07-30).**
+      DE + WM Speculative LONGs taken post-FOMC Jul 29, SL'd Jul 30.
+      Root: Speculative ATH had no matrix row (default ALLOW while
+      Confirmed is always blocked); Speculative N-test always allowed
+      incl. LATE_BULL; WM R:R ~1.4–1.8 below Prime ATH floor.
+      Fix: block Speculative ATH always; Speculative N-test → same
+      allow_only_in as Prime + `min_rr: 2.5`.
+      Branch: `cursor/speculative-ath-ntest-gates-df0c`.
+
 - [x] **DE trader EXIT never placed (2026-07-30).** Model closed
       `DE-1785351897700-5d1dzat80` (`sl_breached`); bridge audit stops at
       `review ok` (no `reducer_reconcile` / `place`). Roth still holds
