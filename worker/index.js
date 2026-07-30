@@ -2211,6 +2211,8 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/catchup-investor", "POST /timed/admin/broker-bridge/catchup-investor"],
   // 2026-07-30 — Re-fire a stuck trader EXIT (review ok, place never ran).
   ["POST", "/timed/admin/broker-bridge/catchup-exit", "POST /timed/admin/broker-bridge/catchup-exit"],
+  // 2026-07-30 — Rebuild Roth mirror from OPEN positions (avg_entry band + thesis).
+  ["POST", "/timed/admin/broker-bridge/rebuild-mirror", "POST /timed/admin/broker-bridge/rebuild-mirror"],
   // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
   ["POST", "/timed/admin/investor/dedupe-dca-lots", "POST /timed/admin/investor/dedupe-dca-lots"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
@@ -80992,6 +80994,39 @@ export default {
             note: out.dry_run
               ? "Pass {\"dry_run\":false} to forward planned ops (thesis/price gates already applied). Use force:true to bypass gates. Optional tickers:[...], max_buy_drift_pct, min_score_buy. Auto-retry also runs hourly in RTH."
               : "Forwarded planned ops; inspect bridge:client:recent + broker fills. skipped_gates were NOT sent.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-07-30 — Roth mirror rebuild: OPEN positions within avg_entry
+      // band (−8%…+2%) + accumulate/core_hold thesis. One DCA slice each.
+      // Default dry_run=true. Does NOT replay expired catch-up lots.
+      if (routeKey === "POST /timed/admin/broker-bridge/rebuild-mirror") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const { runMirrorRebuild } = await import("./investor-mirror-rebuild.js");
+          const out = await runMirrorRebuild(env, {
+            dry_run: body?.dry_run !== false,
+            force: body?.force === true,
+            tickers: body?.tickers,
+            max_ops: body?.max_ops,
+            min_vs_entry_pct: body?.min_vs_entry_pct,
+            max_vs_entry_pct: body?.max_vs_entry_pct,
+            min_score: body?.min_score,
+            default_slice_usd: body?.default_slice_usd,
+            max_slice_usd: body?.max_slice_usd,
+            broker_account_id: body?.broker_account_id,
+            source: body?.source || "mirror_rebuild",
+          });
+          return sendJSON({
+            ...out,
+            note: out.dry_run
+              ? "Pass {\"dry_run\":false} to forward planned DCA slices. Gates: live within min/max vs model avg_entry, stage accumulate|core_hold, score, not exhausted, broker not already holding. Optional tickers:[...], max_ops."
+              : "Forwarded rebuild slices; inspect bridge:client:recent + Roth fills. skipped were NOT sent.",
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
