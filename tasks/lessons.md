@@ -26,6 +26,26 @@ after **4 hours of NY RTH** (ETH/overnight excluded from the clock).
 
 ---
 
+## DE EXIT: review ok → no place (mid-flight abort + claim) [2026-07-30]
+
+**Symptom:** Model closed DE (`sl_breached`); Roth still held 0.85444;
+bridge audit = `order_plan` → `order_in` → `review ok` then silence.
+No `reducer_reconcile` / `place` / `reducer_rejected`. Client ring had
+no DE exit row; silent-failures had no `fetch_error` for that window.
+WM EXIT ~10 min later completed fully.
+
+**Root cause chain:**
+1. EXIT claimed `tt-exit-<tradeId>` then died during post-review
+   `getEquityPositions` (caller abort / waitUntil teardown).
+2. `markManifestModelClosed` only on `place.ok` → invisible orphan.
+3. 24h idempotency claim blocked same-id retry.
+
+**Fixes:** Stamp CLOSED after EXIT clears review; release claim on fail;
+28s reducer client timeout; `POST .../catchup-exit`. Ops catchup placed
+order `U7HMS3K2AUVE7VI7VM41`.
+
+---
+
 ## Adaptive catch-up: only replay when price + thesis still intact [2026-07-30]
 
 **Operator ask** after the silent DCA / duplicate-lot incident:

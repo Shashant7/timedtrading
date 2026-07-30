@@ -26,7 +26,7 @@ import { hmacVerify } from "./bridge-crypto.js";
 import {
   ensureBridgeSchema, readUser, writeUser, listConnectedUsers,
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
-  claimOrderIdempotency, resolveBridgeAccounts,
+  claimOrderIdempotency, releaseOrderIdempotency, resolveBridgeAccounts,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
 import { roundQtyForBroker } from "./bridge-sizing.js";
@@ -1511,6 +1511,10 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     latency_ms: review.latency_ms,
   });
   if (!reviewOk) {
+    // Review rejected — free the claim so a corrected retry can land.
+    if (sanitized.client_order_id) {
+      await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+    }
     return json({ ok: false, rejected: true, reject_reason: reviewRejectReason || "review_failed", review_response: review.response || review }, 200);
   }
 
@@ -1520,7 +1524,32 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   // on a cash/IRA account. Reject if flat/missing; clamp if the model asks to
   // sell more than is held. Skips mock mode (no real positions to check).
   const reducerLifecycle = classifyOrderLifecycle(sanitized.side);
+
+  // 2026-07-30 — DE exit RCA: order_plan→order_in→review ok, then the
+  // request died during getEquityPositions (no reducer_reconcile, no place,
+  // no client ring / silent-failure). model_status stayed OPEN because
+  // markManifestModelClosed only ran on place.ok → reconciler reported
+  // in_sync while Roth still held 0.85 DE. Stamp CLOSED as soon as EXIT
+  // clears review (before the slow positions call) so a mid-flight abort
+  // surfaces as broker_orphan instead of a silent hold.
+  if (reducerLifecycle === "close" && sanitized.trade_id) {
+    const exitReason = sanitized?.decision_reason || sanitized?.exit_reason || "exit";
+    await markManifestModelClosed(env, sanitized.user_id, sanitized.trade_id, brokerAccountId, {
+      exitReason: `intent_accepted:${exitReason}`.slice(0, 180),
+      exitTs: Date.now(),
+    }).catch((e) => console.warn("[MANIFEST] early markClosed failed:", String(e?.message || e).slice(0, 160)));
+  }
+
+  let place = null;
+  let _fractFallback = null;
+  try {
   if (reducerLifecycle === "reduce" || reducerLifecycle === "close") {
+    await writeAudit(env, {
+      ts: Date.now(), user_id: sanitized.user_id, trade_id: sanitized.trade_id,
+      ticker: sanitized.ticker, action: "reducer_guard_begin", side: sanitized.side,
+      qty: sanitized.qty, status: "ok",
+      request_json: { broker_account_id: brokerAccountId, lifecycle: reducerLifecycle },
+    }).catch(() => {});
     // (a) Live position — ground truth; reject if the account holds nothing.
     const posGuard = await verifyReducerHoldsPosition(env, user, sanitized);
     if (!posGuard.ok) {
@@ -1530,6 +1559,9 @@ async function handleSingleAccountOrder(env, ctx, payload) {
         qty: sanitized.qty, status: "rejected", reject_reason: posGuard.reason,
         request_json: { held_qty: posGuard.heldQty ?? null, broker_account_id: brokerAccountId },
       });
+      if (sanitized.client_order_id) {
+        await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+      }
       return json({
         ok: false, rejected: true, reject_reason: posGuard.reason,
         held_qty: posGuard.heldQty ?? null, requested_qty: sanitized.qty,
@@ -1593,6 +1625,9 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     }
 
     if (!(recon.qty > 0)) {
+      if (sanitized.client_order_id) {
+        await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+      }
       return json({
         ok: false, rejected: true, reject_reason: "nothing_to_reduce",
         held_qty: heldQty, model_remaining: modelRemaining, requested_qty: sanitized.qty,
@@ -1606,6 +1641,9 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       precision: 5,
     });
     if (!(roundedQty > 0)) {
+      if (sanitized.client_order_id) {
+        await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+      }
       return json({
         ok: false, rejected: true, reject_reason: "reducer_qty_rounded_to_zero",
         held_qty: heldQty, model_remaining: modelRemaining, requested_qty: sanitized.qty,
@@ -1630,7 +1668,7 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   }
 
   // 4. Place (native bracket when planned + supported, else market/limit)
-  let place = await placePlannedOrder(env, user, sanitized, orderPlan);
+  place = await placePlannedOrder(env, user, sanitized, orderPlan);
 
   // 2026-07-22 — Webull fractional-agreement auto-fallback. Webull rejects
   // fractional orders when the account holder has not signed the "Fractional
@@ -1643,7 +1681,6 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   // round-trip. Retry uses a fresh client_order_id (`…-w`) — Webull can
   // reject a reuse of the failed fractional id even for the whole-share
   // retry. Operator can still sign the agreementUrl to re-enable fractional.
-  let _fractFallback = null;
   if (!place.ok) {
     const _fract = classifyWebullFractError(place);
     if (_fract.isFractAgreementError) {
@@ -1724,6 +1761,29 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       } catch (_flagErr) { /* flagging is best-effort — never block a placed order */ }
     }
   }
+  } catch (e) {
+    // Mid-flight death after review (positions API hang, isolate cancel, …).
+    // Audit + free the claim so catch-up / retry can place.
+    const detail = String(e?.message || e).slice(0, 200);
+    console.error("[BRIDGE] post_review threw:", detail);
+    await writeAudit(env, {
+      ts: Date.now(),
+      user_id: sanitized.user_id,
+      trade_id: sanitized.trade_id,
+      ticker: sanitized.ticker,
+      action: "post_review_error",
+      side: sanitized.side,
+      qty: sanitized.qty,
+      status: "error",
+      reject_reason: `post_review_threw:${detail}`,
+      request_json: sanitized,
+      latency_ms: Date.now() - t0,
+    }).catch(() => {});
+    if (sanitized.client_order_id) {
+      await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+    }
+    return json({ ok: false, error: "post_review_error", detail }, 200);
+  }
 
   // IBKR returns an array (parent + bracket legs); others a single object.
   const _placeResp = place?.response;
@@ -1748,6 +1808,12 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     response_json: _fractFallback ? { ...place.response, _fract_fallback: _fractFallback } : (place.response || place),
     latency_ms: place.latency_ms,
   });
+  // Failed place (or aborted mid-flight that somehow resumed) must free the
+  // idempotency claim — otherwise a stuck EXIT like DE-1785351897700 can
+  // never be retried for 24h (`dedupe_skip`).
+  if (!place.ok && sanitized.client_order_id) {
+    await releaseOrderIdempotency(env, sanitized.client_order_id).catch(() => {});
+  }
   // ── Per-account ledger: record every real fill/reject against the
   // specific broker account (owner runs 5 Webull + 1 IBKR). ──
   await recordAccountFill(env, {

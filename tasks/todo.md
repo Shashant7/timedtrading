@@ -29,6 +29,12 @@
       ring dedupe, Discord on forward. `BROKER_CATCHUP_AUTO_RTH=true`.
       Branch: `cursor/catchup-buy-trim-churn-df0c`.
 
+- [x] **DE trader EXIT never placed (2026-07-30).** Model closed
+      `DE-1785351897700-5d1dzat80` (`sl_breached`); bridge died after
+      `review ok`. Ops catchup placed Webull exit `U7HMS3K2AUVE7VI7VM41`.
+      Fix: `cursor/de-exit-bridge-abort-df0c` (early mark-closed, release
+      claim, 28s reducer timeout, `catchup-exit`).
+
 - [x] **Adaptive catch-up + DCA twin cleanup (2026-07-30).** Operator
       ask: cleanup duplicate DCA lots and only catch up when price +
       thesis still intact. Live D1: reversed 12 twin pairs
