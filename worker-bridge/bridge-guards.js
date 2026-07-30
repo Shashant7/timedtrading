@@ -652,6 +652,13 @@ export async function preflightOrder(env, payload) {
   // actually held, so they must not be re-scaled here.
   const relationalOn = String(env?.BROKER_RELATIONAL_SIZING || "true").toLowerCase() !== "false";
   const sizingLifecycle = classifyOrderLifecycle(payload?.side);
+  // 2026-07-30 — Webull rejects fractional equity orders outside RTH.
+  // ETH / overnight rebuilds pass support_trading_session=ALL|NIGHT and
+  // must size in whole shares up-front (otherwise relational scaling
+  // re-introduces 0.48sh and place fails after review).
+  const ethSession = ["ALL", "NIGHT", "ALL_DAY"].includes(
+    String(payload?.support_trading_session || "").toUpperCase(),
+  );
   if (relationalOn && (sizingLifecycle === "open" || sizingLifecycle === "add")) {
     const modelBook = Number(payload?.model_capital_usd)
       || Number(env?.MODEL_BOOK_BASE_USD)
@@ -668,7 +675,8 @@ export async function preflightOrder(env, payload) {
     const fractionalAgreementBlocked = !!user?.fractional_agreement_missing;
     const fractionalOn = fractionalCap
       && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false"
-      && !fractionalAgreementBlocked;
+      && !fractionalAgreementBlocked
+      && !ethSession;
 
     // Fail-safe: never mirror an entry to an account whose size we don't know
     // — that would risk over-allocating a small account (the exact hazard for
@@ -731,7 +739,8 @@ export async function preflightOrder(env, payload) {
     const fractionalAgreementBlocked = !!user?.fractional_agreement_missing;
     const fractionalOn = fractionalCap
       && String(env?.BROKER_FRACTIONAL_ENABLED || "true").toLowerCase() !== "false"
-      && !fractionalAgreementBlocked;
+      && !fractionalAgreementBlocked
+      && !ethSession;
     const vehCap = applyVehicleNotionalCap(payload, user, {
       fractional: fractionalOn,
       minEquityOrderUsd: Number(env?.BROKER_FRACTIONAL_MIN_USD) || 1,

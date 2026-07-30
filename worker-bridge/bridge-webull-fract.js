@@ -23,27 +23,44 @@ const FRACT_ERROR_CODES = new Set([
 
 /**
  * @param {object} placeResult  { ok, response?, error?, ... } from placeOrder
- * @returns {{ isFractAgreementError: boolean, agreementUrl: string|null, errorCode: string|null }}
+ * @returns {{ isFractAgreementError: boolean, isFractHoursError: boolean,
+ *   agreementUrl: string|null, errorCode: string|null }}
  */
 export function classifyWebullFractError(placeResult) {
   if (!placeResult || placeResult.ok) {
-    return { isFractAgreementError: false, agreementUrl: null, errorCode: null };
+    return {
+      isFractAgreementError: false,
+      isFractHoursError: false,
+      agreementUrl: null,
+      errorCode: null,
+    };
   }
   const response = placeResult.response || {};
   const errorCode = response.error_code || response.errorCode || null;
   const message = String(response.message || response.msg || placeResult.error || "");
   const codeMatch = errorCode && FRACT_ERROR_CODES.has(String(errorCode).toUpperCase());
   const messageMatch = message.includes(AGREEMENT_URL_HINT);
-  if (!codeMatch && !messageMatch) {
-    return { isFractAgreementError: false, agreementUrl: null, errorCode };
+  // Webull ETH/overnight: "Fractional shares trading is only available
+  // during regular trading hours: 9:30 a.m. - 4:00 p.m. ET"
+  const hoursMatch = /fractional share orders at this moment/i.test(message)
+    || /fractional shares trading is only available during regular trading hours/i.test(message);
+  if (!codeMatch && !messageMatch && !hoursMatch) {
+    return {
+      isFractAgreementError: false,
+      isFractHoursError: false,
+      agreementUrl: null,
+      errorCode,
+    };
   }
   // Extract the sign-up URL when present so the operator alert / audit
   // surfaces the exact link they need to visit.
   const urlMatch = message.match(/https?:\/\/[^\s"']+/);
   return {
-    isFractAgreementError: true,
+    isFractAgreementError: !!(codeMatch || messageMatch),
+    isFractHoursError: !!hoursMatch && !(codeMatch || messageMatch),
     agreementUrl: urlMatch ? urlMatch[0] : null,
-    errorCode: errorCode || "OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE",
+    errorCode: errorCode
+      || (hoursMatch ? "FRACTIONAL_OUTSIDE_RTH" : "OPENAPI_FRACT_VERSION2_ACCOUNT_NOT_TRADE"),
   };
 }
 

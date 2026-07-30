@@ -244,7 +244,10 @@ export async function forwardInvestorMirror(env, op = {}) {
       trade_id: tradeId,
       side,
       qty,
-      bridge_reject_reason: result?.response?.reject_reason || null,
+      bridge_reject_reason: result?.response?.reject_reason
+        || result?.response?.error
+        || result?.error
+        || null,
       bridge_scaled_qty: result?.response?.scaling?.scaled_qty ?? null,
       bridge_scale_reason: result?.response?.scaling?.reason || null,
     };

@@ -1689,14 +1689,16 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   // retry. Operator can still sign the agreementUrl to re-enable fractional.
   if (!place.ok) {
     const _fract = classifyWebullFractError(place);
-    if (_fract.isFractAgreementError) {
+    // Agreement missing OR fractional-outside-RTH — both need whole shares.
+    if (_fract.isFractAgreementError || _fract.isFractHoursError) {
       const _origQty = Number(sanitized.qty);
       const _wholeQty = roundToWholeShares(_origQty);
       if (_wholeQty > 0 && _wholeQty < _origQty) {
         const _retryCoid = sanitized.client_order_id
           ? `${String(sanitized.client_order_id).slice(0, 48)}-w`
           : `tt-whole-${sanitized.trade_id || sanitized.ticker}-${Date.now().toString(36)}`;
-        console.warn(`[WEBULL_FRACT] ${(user?.user_id || sanitized.user_id)}/${sanitized.ticker} fractional agreement not signed — retrying whole shares ${_origQty}→${_wholeQty} coid=${_retryCoid} (${_fract.agreementUrl || "no_url"})`);
+        const _why = _fract.isFractHoursError ? "outside_rth" : "agreement_missing";
+        console.warn(`[WEBULL_FRACT] ${(user?.user_id || sanitized.user_id)}/${sanitized.ticker} fractional ${_why} — retrying whole shares ${_origQty}→${_wholeQty} coid=${_retryCoid} (${_fract.agreementUrl || "no_url"})`);
         const _retryPayload = {
           ...sanitized,
           qty: _wholeQty,
@@ -1707,7 +1709,9 @@ async function handleSingleAccountOrder(env, ctx, payload) {
           sanitized.qty = _wholeQty;
           sanitized.client_order_id = _retryCoid;
           _fractFallback = {
-            reason: "webull_fractional_agreement_missing",
+            reason: _fract.isFractHoursError
+              ? "webull_fractional_outside_rth"
+              : "webull_fractional_agreement_missing",
             original_qty: _origQty,
             whole_qty: _wholeQty,
             retry_client_order_id: _retryCoid,
@@ -1735,36 +1739,44 @@ async function handleSingleAccountOrder(env, ctx, payload) {
         // Already whole shares, or would round to 0 — clean reject.
         place = {
           ok: false,
-          error: "webull_fractional_agreement_required",
+          error: _fract.isFractHoursError
+            ? "webull_fractional_outside_rth_whole_share_unaffordable"
+            : "webull_fractional_agreement_required",
           response: {
             error_code: _fract.errorCode,
             agreement_url: _fract.agreementUrl,
-            message: _fract.agreementUrl || "operator must sign Webull TRADE_FRACT_PRO agreement to enable fractional orders",
+            message: _fract.isFractHoursError
+              ? "Fractional equity orders are RTH-only; one whole share does not fit after account scaling"
+              : (_fract.agreementUrl || "operator must sign Webull TRADE_FRACT_PRO agreement to enable fractional orders"),
             requested_qty: _origQty,
             whole_qty: _wholeQty,
           },
           latency_ms: place.latency_ms,
         };
       }
-      // Persist on the RESOLVED broker account (e.g. …#webull#roth-ira), not
-      // the owner email the main worker forwards. Preflight reads this flag
-      // from the resolved user — writing the owner row was a silent no-op.
-      try {
-        const _flagUid = String(user?.user_id || sanitized.user_id || "").toLowerCase();
-        if (_flagUid) {
-          const _u = await readUser(env, _flagUid);
-          if (_u) {
-            _u.fractional_agreement_missing = true;
-            _u.fractional_agreement_url = _fract.agreementUrl || _u.fractional_agreement_url || null;
-            _u.fractional_agreement_flagged_at = Date.now();
-            await writeUser(env, _flagUid, _u);
+      // Persist agreement flag ONLY for the TRADE_FRACT_PRO path — not for
+      // ETH hours rejects (those are session-bound, not account-bound).
+      if (_fract.isFractAgreementError) {
+        // Persist on the RESOLVED broker account (e.g. …#webull#roth-ira), not
+        // the owner email the main worker forwards. Preflight reads this flag
+        // from the resolved user — writing the owner row was a silent no-op.
+        try {
+          const _flagUid = String(user?.user_id || sanitized.user_id || "").toLowerCase();
+          if (_flagUid) {
+            const _u = await readUser(env, _flagUid);
+            if (_u) {
+              _u.fractional_agreement_missing = true;
+              _u.fractional_agreement_url = _fract.agreementUrl || _u.fractional_agreement_url || null;
+              _u.fractional_agreement_flagged_at = Date.now();
+              await writeUser(env, _flagUid, _u);
+            }
+            if (user) {
+              user.fractional_agreement_missing = true;
+              user.fractional_agreement_url = _fract.agreementUrl || null;
+            }
           }
-          if (user) {
-            user.fractional_agreement_missing = true;
-            user.fractional_agreement_url = _fract.agreementUrl || null;
-          }
-        }
-      } catch (_flagErr) { /* flagging is best-effort — never block a placed order */ }
+        } catch (_flagErr) { /* flagging is best-effort — never block a placed order */ }
+      }
     }
   }
   } catch (e) {
@@ -1997,6 +2009,16 @@ async function handleSingleAccountOrder(env, ctx, payload) {
     ok: place.ok,
     rh_order_id: rhOrderId,
     place_status: place.response?.status,
+    // Surface place/reject reason so rebuild / catch-up can show why
+    // ok:false without digging the audit row (AMAT ETH fractional was
+    // silent in rebuild results because only audit had the message).
+    reject_reason: place.ok
+      ? (_fractFallback ? _fractFallback.reason : null)
+      : (place.error
+        || place.response?.message
+        || place.response?.msg
+        || place.response?.reject_reason
+        || "place_failed"),
     review_warnings: reviewWarnings,
     manifest_sync_state: pf.manifest_sync_state || null,
     // 2026-06-01 — surface scaling so the caller can see "model wanted
