@@ -6,6 +6,21 @@
 
 ---
 
+## Open investor positions stubbed with score:null [2026-07-30]
+
+**Symptom:** All 20 OPEN Long Term names in `timed:investor:scores`
+showed `score: null`, `stage: core_hold`, `_reconciled_outside_universe`.
+Some (AMAT/CRDO/BNY/CF) are missing from `SECTOR_MAP`; others were
+skipped once (stale/no-price) and the outside-universe stub **overwrote**
+real scores. Focus-only merges kept the stubs.
+
+**Fix:** Union OPEN position tickers into the investor compute universe
+(even on focus path). When still forced to stub, **preserve prior
+score/thesis** instead of writing null. Rebuild also falls back to
+`timed:latest.investor_score`.
+
+---
+
 ## Roth mirror rebuild ≠ expired DCA catch-up [2026-07-30]
 
 After orphan `mark_closed`, do **not** `force` expired lot catch-up.
