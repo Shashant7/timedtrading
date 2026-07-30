@@ -6,6 +6,29 @@
 
 ---
 
+## Auto catch-up buy+trim churn (no Discord/email) [2026-07-30]
+
+**Symptom:** Six Webull fills at once — buy+sell identical fractional
+qtys for NVDA (1.65633), CRS (0.56053), CW (0.44644). No trade signals
+or emails.
+
+**Cause:** First live `catchup_auto_rth` hourly run. D1 had unmatched
+`DCA_BUY` (prior mirror fails) + `SELL` PRE_FOMC trims (`no_manifest`).
+Planner forwarded both in one pass. Relational sizing made buy ≈ trim
+qty → round-trip churn. Catchup only calls `forwardInvestorMirror` (no
+notify path).
+
+**Secondary bug:** Ring stores successful trims as `side=trim`, but
+planner only checked `sell|<tradeId>` → trims never counted as mirrored
+→ would re-fire every hour.
+
+**Fixes:** Alias trim/sell/exit for SELL-lot dedupe; suppress buy/DCA
+when an unmatched sell exists for the same trade_id; gate auto cron on
+`BROKER_CATCHUP_AUTO_RTH` (default false); Discord summary on forward.
+Ops pause: KV `timed:cron:investor_catchup_auto`.
+
+---
+
 ## Adaptive catch-up: only replay when price + thesis still intact [2026-07-30]
 
 **Operator ask** after the silent DCA / duplicate-lot incident:
