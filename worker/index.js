@@ -2209,6 +2209,8 @@ const ROUTES = [
   // 2026-07-24 — Catch up Long Term lots that wrote D1 but never hit the
   // bridge (DCA execute had no mirror path; research missing HMAC).
   ["POST", "/timed/admin/broker-bridge/catchup-investor", "POST /timed/admin/broker-bridge/catchup-investor"],
+  // 2026-07-30 — Re-fire a stuck trader EXIT (review ok, place never ran).
+  ["POST", "/timed/admin/broker-bridge/catchup-exit", "POST /timed/admin/broker-bridge/catchup-exit"],
   // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
   ["POST", "/timed/admin/investor/dedupe-dca-lots", "POST /timed/admin/investor/dedupe-dca-lots"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
@@ -80990,6 +80992,34 @@ export default {
             note: out.dry_run
               ? "Pass {\"dry_run\":false} to forward planned ops (thesis/price gates already applied). Use force:true to bypass gates. Optional tickers:[...], max_buy_drift_pct, min_score_buy. Auto-retry also runs hourly in RTH."
               : "Forwarded planned ops; inspect bridge:client:recent + broker fills. skipped_gates were NOT sent.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-07-30 — Stuck trader EXIT catch-up (DE: review ok → no place).
+      // Uses a fresh tt-exit-*-retry-* client_order_id so the original 24h
+      // idempotency claim cannot block. Default dry_run=true.
+      if (routeKey === "POST /timed/admin/broker-bridge/catchup-exit") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const { catchupTraderExit } = await import("./broker-bridge-catchup-exit.js");
+          const out = await catchupTraderExit(env, {
+            trade_id: body?.trade_id,
+            dry_run: body?.dry_run !== false,
+            retry_nonce: body?.retry_nonce,
+            qty: body?.qty,
+            user_id: body?.user_id,
+            reason: body?.reason || "admin_catchup_exit",
+          });
+          return sendJSON({
+            ...out,
+            note: out.dry_run
+              ? "Pass {\"dry_run\":false,\"trade_id\":\"…\"} to forward the EXIT to the bridge."
+              : "EXIT forwarded; check bridge audit + broker-bridge/recent.",
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));

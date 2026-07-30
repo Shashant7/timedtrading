@@ -205,6 +205,25 @@ export async function claimOrderIdempotency(env, clientOrderId) {
   }
 }
 
+/**
+ * Release a previously claimed client_order_id so a failed mid-flight
+ * attempt (e.g. DE exit 2026-07-30: review ok → cancelled during
+ * positions fetch → no place) can be retried. Without this, the 24h
+ * claim turns a single aborted exit into a permanent broker orphan.
+ * Never throws.
+ */
+export async function releaseOrderIdempotency(env, clientOrderId) {
+  const KV = env?.BRIDGE_KV;
+  const id = String(clientOrderId || "").trim();
+  if (!KV || !id) return { ok: false, skipped: "no_id" };
+  try {
+    await KV.delete(ORDER_CLAIM_KEY(id));
+    return { ok: true, id };
+  } catch (e) {
+    return { ok: false, id, error: String(e?.message || e).slice(0, 120) };
+  }
+}
+
 export async function recordOauthState(env, state, payload) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return false;
