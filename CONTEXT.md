@@ -322,6 +322,10 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   the bell filter; DCA at **3:45 PM ET** (near old 4:30 pullback intent,
   still inside RTH for Webull fractionals; skip early-close via
   `isNyRegularMarketOpen`); skip on tt-engine + day KV lock.
+- **Notify horizon labels (2026-07-30)**: Email subjects + Discord titles
+  for trade alerts use `SHORT TERM ·` / `LONG TERM ·` via `horizon-labels.js`
+  + `renderEmailSubject` / entry-trim-exit formatters. Body masthead already
+  said Short/Long Term; subject line was the gap.
 - **Adaptive catch-up + auto RTH retry (2026-07-30)**:
   Missed broker mirrors (Webull ETH fractional reject, missing forward)
   auto-retry hourly during RTH via `runInvestorCatchup`

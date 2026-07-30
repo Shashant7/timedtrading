@@ -4,6 +4,8 @@
 // activity strip, and kanban badge copy.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { horizonLabel, horizonPrefix } from "./horizon-labels.js";
+
 /** @typedef {'trader'|'investor'} SignalEngine */
 /** @typedef {'watching'|'doing'} SignalMode */
 /** @typedef {'watching'|'recommended'|'done'} SignalExecState */
@@ -54,7 +56,8 @@ function inferSeverity(mode, execState, action) {
 }
 
 export function engineLabel(engine) {
-  return engine === "investor" ? "INVESTOR" : "TRADER";
+  // User-facing: Short Term / Long Term (internal keys stay trader|investor).
+  return horizonLabel(engine, { upper: true });
 }
 
 export function modeLabel(mode) {
@@ -97,7 +100,7 @@ export function verdictWordFromSignal(signal) {
   return actionVerb(s.action).toUpperCase();
 }
 
-/** Discord title: `{emoji} TRADER · BUY · NVDA` (lane + verdict word first). */
+/** Discord title: `{emoji} SHORT TERM · BUY: NVDA` (horizon + verdict). */
 export function renderDiscordTitle(signal, { emoji = "" } = {}) {
   const s = typeof signal === "object" ? signal : buildSignal(signal);
   const prefix = emoji ? `${emoji} ` : "";
@@ -109,14 +112,18 @@ export function renderDiscordTitle(signal, { emoji = "" } = {}) {
 /** Bell / notification title — strips legacy DOING/WATCHING bracket prefixes. */
 export function formatNotificationTitle(raw, opts = {}) {
   let t = String(raw || "").trim();
-  t = t.replace(/^\[(?:TRADER|INVESTOR)\s*·\s*(?:DOING|WATCHING)(?:\s*·\s*\w+)?\]\s*/i, "");
-  t = t.replace(/^\[(?:TRADER|INVESTOR)\s*·\s*\w+\]\s*/i, "");
+  t = t.replace(/^\[(?:TRADER|INVESTOR|SHORT TERM|LONG TERM)\s*·\s*(?:DOING|WATCHING)(?:\s*·\s*\w+)?\]\s*/i, "");
+  t = t.replace(/^\[(?:TRADER|INVESTOR|SHORT TERM|LONG TERM)\s*·\s*\w+\]\s*/i, "");
   return t.trim();
 }
 
-/** Email / bell subject: `Exit GEV LONG -1.00% @ $1042.00 (filled)` */
+/**
+ * Email / bell subject with horizon:
+ * `SHORT TERM · Exit GEV LONG -1.00% @ $1042.00 (filled)`
+ */
 export function renderEmailSubject(signal, extras = {}) {
   const s = typeof signal === "object" ? signal : buildSignal(signal);
+  const hz = horizonPrefix(s.engine); // "SHORT TERM · " / "LONG TERM · "
   const dir = s.direction ? ` ${s.direction}` : "";
   const pct = Number.isFinite(s.pnlPct)
     ? ` ${s.pnlPct >= 0 ? "+" : ""}${s.pnlPct.toFixed(2)}%`
@@ -124,9 +131,9 @@ export function renderEmailSubject(signal, extras = {}) {
   const price = Number.isFinite(s.price) ? ` @ $${s.price.toFixed(2)}` : "";
   const thread = extras.threadLabel ? ` (${extras.threadLabel})` : "";
   if (s.execState === "recommended") {
-    return `Warning: ${s.ticker} — ${actionVerb(s.action).toLowerCase()} recommended`;
+    return `${hz}Warning: ${s.ticker} — ${actionVerb(s.action).toLowerCase()} recommended`.trim();
   }
-  return `${actionVerb(s.action)} ${s.ticker}${dir}${pct}${price}${thread}`.trim();
+  return `${hz}${actionVerb(s.action)} ${s.ticker}${dir}${pct}${price}${thread}`.trim();
 }
 
 /** Winner/loss close title — avoids "Closed 25%" reading like a trim. */
@@ -158,7 +165,7 @@ export function formatTradeCloseTitle({
     : ` — closed full position`;
 
   const emoji = isWin ? "🏆" : isFlat ? "➖" : "🛑";
-  let title = `${emoji} Exit: ${ticker} ${dir} — ${headline}${detail}`;
+  let title = `${emoji} SHORT TERM · Exit: ${ticker} ${dir} — ${headline}${detail}`;
   if (Number.isFinite(Number(exitPrice))) title += ` @ $${Number(exitPrice).toFixed(2)}`;
   if (typeof formatEtClock === "function") {
     const et = formatEtClock(actionTs);
@@ -168,19 +175,19 @@ export function formatTradeCloseTitle({
 }
 
 export function formatExitRecommendedTitle(ticker) {
-  return `⚠️ Warning: ${String(ticker || "").toUpperCase()} — Exit recommended`;
+  return `⚠️ SHORT TERM · Warning: ${String(ticker || "").toUpperCase()} — Exit recommended`;
 }
 
 export function formatTradeTrimTitle({ ticker, direction, stepLabel, fillPrice, isProfit }) {
   const emoji = isProfit ? "💰" : "✂️";
   const action = isProfit ? "Taking Profit" : "Trimming";
-  return `${emoji}  TRADER · ${action}: ${ticker} ${direction} — ${stepLabel} @ $${Number(fillPrice).toFixed(2)}`;
+  return `${emoji}  SHORT TERM · ${action}: ${ticker} ${direction} — ${stepLabel} @ $${Number(fillPrice).toFixed(2)}`;
 }
 
 export function formatTradeEntryTitle({ ticker, direction, entryPrice, isLong }) {
   const emoji = isLong ? "🟢" : "🔴";
   const dirLabel = isLong ? "LONG" : "SHORT";
-  return `${emoji} Enter: ${ticker} ${dirLabel} @ $${Number(entryPrice).toFixed(2)}`;
+  return `${emoji} SHORT TERM · Enter: ${ticker} ${dirLabel} @ $${Number(entryPrice).toFixed(2)}`;
 }
 
 /** Trader kanban lane metadata with watching/doing band. */

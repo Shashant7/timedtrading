@@ -34594,10 +34594,11 @@ async function evaluateTpCrossNotifications(env, ctx) {
         const commentary = _TP_CROSS_TIER_PLAY[tierName](nextTxt, slTxt);
 
         const embed = {
-          title: `🎯 ${sym} crossed ${tierLabel} — $${lvl.toFixed(2)}`,
+          title: `🎯 SHORT TERM · ${sym} crossed ${tierLabel} — $${lvl.toFixed(2)}`,
           description: commentary,
           color: 0x34d399,
           fields: [
+            { name: "Horizon", value: "Short Term", inline: true },
             { name: "Price now", value: `$${pxNow.toFixed(2)}${Number.isFinite(pnlPct) ? ` (${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}% from entry $${entryPx.toFixed(2)})` : ""}`, inline: true },
             { name: "Trimmed so far", value: `${Math.round(trimmedPct * 100)}%`, inline: true },
             ...(nextTxt ? [{ name: "Next target", value: nextTxt, inline: true }] : []),

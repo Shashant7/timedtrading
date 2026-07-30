@@ -21,6 +21,17 @@ describe("buildSignal", () => {
   });
 });
 
+describe("renderDiscordTitle", () => {
+  it("uses SHORT TERM / LONG TERM horizon labels", () => {
+    expect(renderDiscordTitle(buildSignal({
+      engine: "trader", action: "enter", ticker: "NVDA",
+    }), { emoji: "🟢" })).toBe("🟢 SHORT TERM · BUY: NVDA");
+    expect(renderDiscordTitle(buildSignal({
+      engine: "investor", action: "add", ticker: "CRDO",
+    }))).toBe("LONG TERM · ADD: CRDO");
+  });
+});
+
 describe("formatTradeCloseTitle", () => {
   it("explains final runner slice after prior trim", () => {
     const title = formatTradeCloseTitle({
@@ -31,7 +42,7 @@ describe("formatTradeCloseTitle", () => {
       exitPrice: 1097.14,
       trimmedPct: 0.75,
     });
-    expect(title).toContain("Exit: MU LONG");
+    expect(title).toContain("SHORT TERM · Exit: MU LONG");
     expect(title).toContain("Full exit +42.97%");
     expect(title).toContain("final 25% runner");
     expect(title).toContain("trimming 75%");
@@ -42,6 +53,7 @@ describe("formatTradeCloseTitle", () => {
 
 describe("formatExitRecommendedTitle", () => {
   it("uses Warning label for exit recommendations", () => {
+    expect(formatExitRecommendedTitle("MU")).toContain("SHORT TERM");
     expect(formatExitRecommendedTitle("MU")).toContain("Warning");
     expect(formatExitRecommendedTitle("MU")).toContain("Exit recommended");
     expect(formatExitRecommendedTitle("MU")).not.toContain("DOING");
@@ -263,7 +275,7 @@ describe("lane meta bands", () => {
 });
 
 describe("renderEmailSubject", () => {
-  it("uses simple action grammar without DOING prefix", () => {
+  it("prefixes Short Term horizon without DOING", () => {
     const subj = renderEmailSubject(buildSignal({
       engine: "trader",
       mode: "doing",
@@ -273,17 +285,31 @@ describe("renderEmailSubject", () => {
       direction: "LONG",
       pnlPct: 42.97,
     }));
-    expect(subj).toMatch(/^Exit MU LONG/);
+    expect(subj).toMatch(/^SHORT TERM · Exit MU LONG/);
     expect(subj).not.toContain("DOING");
   });
 
-  it("uses Warning for recommended exits", () => {
+  it("prefixes Long Term for investor fills", () => {
+    const subj = renderEmailSubject(buildSignal({
+      engine: "investor",
+      mode: "doing",
+      execState: "done",
+      action: "add",
+      ticker: "CRDO",
+      direction: "LONG",
+      price: 177.04,
+    }));
+    expect(subj).toMatch(/^LONG TERM · Add CRDO/);
+  });
+
+  it("uses Warning for recommended exits with horizon", () => {
     const subj = renderEmailSubject(buildSignal({
       engine: "trader",
       execState: "recommended",
       action: "exit",
       ticker: "GEV",
     }));
+    expect(subj).toContain("SHORT TERM");
     expect(subj).toContain("Warning");
     expect(subj).not.toContain("DOING");
   });
