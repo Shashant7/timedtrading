@@ -29,7 +29,9 @@
       `catchup-investor` gates buys on stage/score/exhaustion/+5% drift
       (`worker/investor-catchup-gates.js`); sells always allowed.
       `dedupe-dca-lots` admin route for future races (no ADJUSTMENT
-      double-credit). Branch: `cursor/investor-dca-ledger-dup-df0c`.
+      double-credit). DCA slot → **3:45 PM ET** (RTH-gated). Transient
+      portfolio_reconcile +18.6% after twin-ledger delete cleared after
+      COO back-fill (re-sweep ok). Branch: `cursor/investor-dca-ledger-dup-df0c`.
 
 - [x] **Post-execution audit — verify every reducer reached the broker
       (2026-07-27).** Operator ask after the KO trim was oversold:
