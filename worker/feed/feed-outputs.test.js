@@ -87,16 +87,29 @@ describe("resolveRestQuoteReceiptTs", () => {
     // Reproduces the 2026-07-28 alert: TD returned 30+ quiet symbols with
     // the SAME `last_quote_at` (minute-quantized). Under the old shortcut,
     // every call stamped the identical q_ts and the batch aged in lockstep.
+    //
+    // Use a deterministic RNG — Math.random() can land jitter exactly on
+    // the shared trade offset (now-90s), which made CI flake even though
+    // the helper never returns trade_ts (it always returns now-jitter).
     const now = Date.now();
     const sharedTrade = now - 90 * 1000; // TD's quantized last_quote_at
+    let seed = 0xC0FFEE;
+    const detRandom = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
     const stamps = [];
     for (let i = 0; i < 40; i++) {
-      stamps.push(resolveRestQuoteReceiptTs(sharedTrade, now, { random: () => Math.random() }));
+      const stamp = resolveRestQuoteReceiptTs(sharedTrade, now, { random: detRandom });
+      expect(stamp).toBeGreaterThanOrEqual(now - PF_STALE_JITTER_MAX_MS);
+      expect(stamp).toBeLessThanOrEqual(now);
+      stamps.push(stamp);
     }
-    // No stamp should equal the (shared) trade_ts.
-    for (const s of stamps) expect(s).not.toBe(sharedTrade);
-    // Stamps should span a meaningful range of the jitter window — not all
-    // identical the way the old code produced.
+    // Contract: receipt stamps desync across the batch (not lockstep).
+    // Accidental equality with sharedTrade is possible for some jitter
+    // draws and is not a regression — q_ts is never "return trade".
+    const unique = new Set(stamps);
+    expect(unique.size).toBeGreaterThan(10);
     const min = Math.min(...stamps);
     const max = Math.max(...stamps);
     expect(max - min).toBeGreaterThan(60_000); // >1 minute spread across 40 draws
