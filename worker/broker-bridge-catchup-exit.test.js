@@ -42,11 +42,13 @@ describe("catchupTraderExit", () => {
     expect(out.dry_run).toBe(true);
     expect(out.planned.qty).toBe(0.85444);
     expect(out.planned.side).toBe("exit");
-    expect(out.planned.client_order_id).toContain("retry-test1");
+    expect(out.planned.client_order_id.startsWith("ttex")).toBe(true);
+    expect(out.planned.client_order_id.length).toBeLessThanOrEqual(40);
+    expect(out.planned.client_order_id.length).toBeGreaterThanOrEqual(10);
     expect(forwardMock).not.toHaveBeenCalled();
   });
 
-  it("live forward uses retry client_order_id", async () => {
+  it("live forward uses short hashed client_order_id", async () => {
     const env = {
       BROKER_BRIDGE: {
         fetch: async () => new Response(JSON.stringify({
@@ -70,7 +72,8 @@ describe("catchupTraderExit", () => {
     expect(out.ok).toBe(true);
     expect(forwardMock).toHaveBeenCalledTimes(1);
     const order = forwardMock.mock.calls[0][1];
-    expect(order.client_order_id).toBe("tt-exit-DE-1-retry-abc");
+    expect(order.client_order_id.startsWith("ttex")).toBe(true);
+    expect(order.client_order_id.length).toBeLessThanOrEqual(40);
     expect(order.qty).toBe(0.5);
   });
 });

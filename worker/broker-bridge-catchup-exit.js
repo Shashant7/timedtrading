@@ -72,10 +72,24 @@ export async function catchupTraderExit(env, opts = {}) {
   }
 
   const userId = String(opts.user_id || manifest.user_id || env?.ADMIN_EMAIL || "operator").toLowerCase();
+  // Webull client_order_id must be 10–40 chars. `tt-exit-<full tradeId>-retry-…`
+  // overflows (DE catchup hit INVALID_PARAMETER on length). Hash like
+  // shortClientOrderId in broker-bridge-client.js.
+  let hex = "";
+  try {
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(`${tradeId}|exit|${retryNonce}`),
+    );
+    hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (_) {
+    hex = String(Date.now());
+  }
+  const clientOrderId = `ttex${hex.slice(0, 20)}`.slice(0, 40);
   const order = {
     user_id: userId,
     trade_id: tradeId,
-    client_order_id: `tt-exit-${tradeId}-retry-${retryNonce}`.slice(0, 64),
+    client_order_id: clientOrderId,
     ticker,
     side: "exit",
     qty,
