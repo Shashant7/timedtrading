@@ -235,17 +235,37 @@ export async function runMirrorRebuild(env, opts = {}) {
     // already_mirrored just won't fire.
   }
 
+  // Enrich scores from timed:latest when the scores blob has score:null
+  // stubs (outside-universe reconcile). Prefer live investor_score.
+  const scoresEnriched = { ...(scores || {}) };
   for (const pos of positions || []) {
     const t = String(pos.ticker || "").toUpperCase();
     if (!t || (tickerFilter && !tickerFilter.has(t))) continue;
     const latest = await kvJson(env, `timed:latest:${t}`);
     livePrices[t] = resolveCatchupLivePrice(pricesMap[t], latest);
+    const row = scoreRowFor(scoresEnriched, t);
+    const blobScore = row?.score ?? row?.investor_score;
+    const latestScore = Number(latest?.investor_score);
+    if ((blobScore == null || !Number.isFinite(Number(blobScore)))
+        && Number.isFinite(latestScore)) {
+      scoresEnriched[t] = {
+        ...row,
+        score: latestScore,
+        stage: row?.stage || latest?.investor_stage || pos.investor_stage || null,
+        _score_from_latest: true,
+      };
+    } else if (!row?.stage && (latest?.investor_stage || pos.investor_stage)) {
+      scoresEnriched[t] = {
+        ...row,
+        stage: latest?.investor_stage || pos.investor_stage,
+      };
+    }
   }
 
   const plannedFull = planMirrorRebuildOps({
     positions: positions || [],
     livePrices,
-    scores,
+    scores: scoresEnriched,
     brokerQtyByTicker,
     tickerFilter,
     force,

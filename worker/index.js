@@ -87964,13 +87964,27 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const baseTickers = (Array.isArray(tickerListResp) ? tickerListResp : []).map(t => typeof t === "string" ? t : t.ticker).filter(Boolean);
           const userTickers = await d1GetActiveUserTickersCached(env);
           const removedSet = new Set((await kvGetJSON(env.KV_TIMED, "timed:removed")) || []);
+          // 2026-07-30 — Always score OPEN investor positions even when they
+          // are missing from SECTOR_MAP (AMAT/CRDO/BNY/CF) or temporarily
+          // dropped from the canonical list. Without this, the outside-universe
+          // stub writes score:null + forced core_hold and sticks until the
+          // next full compute — breaking rebuild gates + Kanban thesis.
+          let _openPosTickersEarly = [];
+          try {
+            const _opRows = (await env.DB.prepare(
+              "SELECT DISTINCT ticker FROM investor_positions WHERE status = 'OPEN' AND total_shares > 0"
+            ).all())?.results || [];
+            _openPosTickersEarly = _opRows
+              .map((r) => String(r?.ticker || "").toUpperCase())
+              .filter(Boolean);
+          } catch (_) { _openPosTickersEarly = []; }
           // Phase 3.9j (2026-05-11) — exclude TradingView continuous futures
           // (ES1!, NQ1!, RTY1!, YM1!, GC1!) and synthetic CFD-style index
           // proxies (US500, US100, US30, US2000) from the Investor universe.
           // These don't fit the long-trend equity profile (rolling-contract
           // pricing, no thesis, no fundamentals). isInvestorEligibleTicker
           // is the same gate used in runInvestorDailyReplay (Phase 3.9h.2).
-          let tickerSyms = [...new Set([...baseTickers, ...userTickers])]
+          let tickerSyms = [...new Set([...baseTickers, ...userTickers, ..._openPosTickersEarly])]
             .filter(isInvestorEligibleTicker)
             .filter((t) => !removedSet.has(String(t).toUpperCase()));
           const _focusRaw = String(url.searchParams.get("focus") || "").trim();
@@ -87979,7 +87993,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             ? new Set(_focusRaw.split(",").map((s) => String(s || "").trim().toUpperCase()).filter(Boolean))
             : null;
           if (_focusSet?.size) {
-            tickerSyms = [..._focusSet]
+            // Focus path still unions open positions so owned names never
+            // regress to score:null stubs during a partial recompute.
+            tickerSyms = [...new Set([..._focusSet, ..._openPosTickersEarly])]
               .filter(isInvestorEligibleTicker)
               .filter((t) => !removedSet.has(t));
           }
@@ -88797,19 +88813,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const shares = Number(posRow.total_shares) || 0;
             const avgEntry = Number(posRow.avg_entry) || 0;
             if (shares <= 0 || avgEntry <= 0) continue;
+            // Preserve prior real score/thesis when this compute skipped the
+            // ticker (stale/no-price). Never clobber a known score with null.
+            const prev = prevScores?.[sym] && typeof prevScores[sym] === "object"
+              ? prevScores[sym] : {};
+            const prevScore = Number(prev.score);
+            const keepScore = Number.isFinite(prevScore) ? prevScore : null;
+            const keepStage = (prev._reconciled_outside_universe && prev.stage === "core_hold")
+              ? "core_hold"
+              : (String(prev.stage || "").trim() || "core_hold");
             investorResults[sym] = {
-              score: null,
-              components: null,
-              accumZone: null,
-              sector: SECTOR_MAP[sym] || "Unknown",
-              companyName: null,
-              rsRank: null,
-              rs: undefined,
-              stage: "core_hold",
-              stageReason: "Open position outside scored universe — reconciled from investor_positions table",
-              thesis: "Held position; not in current scoring universe. Position-aware management still active via /timed/ledger and lots.",
-              thesisInvalidation: null,
-              signals: undefined,
+              score: keepScore,
+              components: prev.components || null,
+              accumZone: prev.accumZone || null,
+              sector: SECTOR_MAP[sym] || prev.sector || "Unknown",
+              companyName: prev.companyName || null,
+              rsRank: prev.rsRank ?? null,
+              rs: prev.rs,
+              stage: keepStage,
+              stageReason: keepScore != null
+                ? `Open position skipped this compute — preserved prior score ${keepScore}; stage ${keepStage}`
+                : "Open position outside scored universe — reconciled from investor_positions table",
+              thesis: prev.thesis
+                || "Held position; not in current scoring universe. Position-aware management still active via /timed/ledger and lots.",
+              thesisInvalidation: prev.thesisInvalidation || null,
+              signals: prev.signals,
               position: {
                 owned: true,
                 shares,
@@ -88822,9 +88850,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 last_action_shares: posRow.last_action_shares || null,
                 last_action_reason: posRow.last_action_reason || null,
               },
-              _reconciled_outside_universe: true,
+              _reconciled_outside_universe: keepScore == null,
+              _preserved_prior_score: keepScore != null,
             };
-            allStages[sym] = { stage: "core_hold", reason: "outside_scored_universe" };
+            allStages[sym] = {
+              stage: keepStage,
+              reason: keepScore != null ? "preserved_prior_while_skipped" : "outside_scored_universe",
+            };
           }
 
           // Store in KV — bump reduce streaks for thesis-shift alert gating.
