@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **DE trader EXIT never placed (2026-07-30).** Model closed
+- [x] **DE trader EXIT never placed (2026-07-30).** Model closed
       `DE-1785351897700-5d1dzat80` (`sl_breached`); bridge audit stops at
       `review ok` (no `reducer_reconcile` / `place`). Roth still holds
       0.85444 DE. Root: mid-flight abort after review during positions
