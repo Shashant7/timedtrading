@@ -2209,6 +2209,8 @@ const ROUTES = [
   // 2026-07-24 — Catch up Long Term lots that wrote D1 but never hit the
   // bridge (DCA execute had no mirror path; research missing HMAC).
   ["POST", "/timed/admin/broker-bridge/catchup-investor", "POST /timed/admin/broker-bridge/catchup-investor"],
+  // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
+  ["POST", "/timed/admin/investor/dedupe-dca-lots", "POST /timed/admin/investor/dedupe-dca-lots"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
   ["POST", "/timed/admin/broker-bridge/notify/drain",     "POST /timed/admin/broker-bridge/notify/drain"],
   ["POST", "/timed/admin/broker-bridge/daily-digest",     "POST /timed/admin/broker-bridge/daily-digest"],
@@ -80962,6 +80964,10 @@ export default {
 
       // 2026-07-24 — Replay unmirrored investor lots (BUY/DCA_BUY/SELL) to the
       // bridge. Default dry_run=true. Dedupes by position_id + action day.
+      // 2026-07-30 — Adaptive thesis/price gates: buy/DCA catch-up only
+      // proceeds when stage still supports an add, score is above the DCA
+      // floor, and live price has not chased more than max_buy_drift_pct
+      // above the original lot print. Sells always proceed (risk reduction).
       if (routeKey === "POST /timed/admin/broker-bridge/catchup-investor") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -80969,6 +80975,14 @@ export default {
           const body = await req.json().catch(() => ({}));
           const dryRun = body?.dry_run !== false; // default true
           const hours = Math.min(168, Math.max(1, Number(body?.hours) || 72));
+          const force = body?.force === true;
+          const maxBuyDriftPct = Number.isFinite(Number(body?.max_buy_drift_pct))
+            ? Number(body.max_buy_drift_pct) : 5;
+          const minScoreBuy = Number.isFinite(Number(body?.min_score_buy))
+            ? Number(body.min_score_buy) : 30;
+          const tickerFilter = Array.isArray(body?.tickers)
+            ? new Set(body.tickers.map((t) => String(t || "").toUpperCase()).filter(Boolean))
+            : null;
           const sinceMs = Date.now() - hours * 3600000;
           const { results: lots } = await env.DB.prepare(
             `SELECT id, position_id, ticker, action, shares, price, ts, reason
@@ -80977,6 +80991,10 @@ export default {
              ORDER BY ts ASC`
           ).bind(sinceMs).all().catch(() => ({ results: [] }));
           const { readClientRing, forwardInvestorMirror } = await import("./broker-bridge-client.js");
+          const {
+            evaluateCatchupThesisGate,
+            resolveCatchupLivePrice,
+          } = await import("./investor-catchup-gates.js");
           const ring = await readClientRing(env);
           // Only skip lots that already placed successfully on the bridge.
           // Prior catch-up errors (e.g. oversized client_order_id) must retry.
@@ -80997,9 +81015,15 @@ export default {
                 && (r?.rh_order_id || r?.broker_order_id || r?.order_id))
               .map((r) => `${String(r.side || "").toLowerCase()}|${String(r.trade_id)}`),
           );
+          const scores = (await kvGetJSON(env.KV_TIMED, "timed:investor:scores")) || {};
+          const pricesBlob = (await kvGetJSON(env.KV_TIMED, "timed:prices")) || {};
+          const pricesMap = pricesBlob.prices || pricesBlob || {};
           const seen = new Set();
           const planned = [];
+          const skippedGates = [];
           for (const lot of (lots || [])) {
+            const ticker = String(lot.ticker || "").toUpperCase();
+            if (tickerFilter && !tickerFilter.has(ticker)) continue;
             const day = new Date(Number(lot.ts) || 0).toISOString().slice(0, 10);
             const dedupeKey = `${lot.position_id || lot.ticker}|${lot.action}|${day}`;
             if (seen.has(dedupeKey)) continue;
@@ -81012,10 +81036,33 @@ export default {
             // Legacy double-prefix trade_ids from the first catch-up attempt.
             if (mirroredOkIds.has(`${lotSide}|${tradeId}`)
                 || mirroredOkIds.has(`${lotSide}|inv-${tradeId}`)) continue;
-            const kind = lot.action === "SELL" ? "trim"
-              : lot.action === "DCA_BUY" ? "dca" : "add";
-            planned.push({
-              ticker: lot.ticker,
+            // Map full-exit SELLs to exit; partials to trim. Heuristic: reason
+            // containing INVALIDATION / EXIT / CLOSE → exit; else trim.
+            const reasonU = String(lot.reason || "").toUpperCase();
+            let kind;
+            if (lot.action === "SELL") {
+              kind = /INVALIDATION|EXIT|CLOSE|FULL/.test(reasonU) ? "exit" : "trim";
+            } else if (lot.action === "DCA_BUY") {
+              kind = "dca";
+            } else {
+              kind = "add";
+            }
+            const scoreRow = scores[ticker] || scores[String(lot.ticker || "").toUpperCase()] || {};
+            const latest = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`).catch(() => null);
+            const livePrice = resolveCatchupLivePrice(pricesMap[ticker], latest);
+            const gate = evaluateCatchupThesisGate({
+              kind,
+              lotPrice: Number(lot.price) || null,
+              livePrice,
+              stage: scoreRow?.stage || null,
+              score: scoreRow?.score ?? null,
+              accumZone: scoreRow?.accumZone || null,
+              maxBuyDriftPct,
+              minScoreBuy,
+              force,
+            });
+            const op = {
+              ticker,
               kind,
               shares: Number(lot.shares) || 0,
               price: Number(lot.price) || null,
@@ -81024,7 +81071,21 @@ export default {
               trade_id: tradeId,
               lot_id: lot.id,
               lot_ts: lot.ts,
-            });
+              live_price: livePrice,
+              stage: scoreRow?.stage || null,
+              score: scoreRow?.score ?? null,
+              drift_pct: gate.drift_pct,
+              gate_reason: gate.reason,
+            };
+            if (!gate.allow) {
+              skippedGates.push({
+                ...op,
+                skip_reason: gate.reason,
+                detail: gate.detail || null,
+              });
+              continue;
+            }
+            planned.push(op);
           }
           const results = [];
           if (!dryRun) {
@@ -81036,15 +81097,24 @@ export default {
             const retryNonce = String(Date.now());
             for (const op of planned) {
               const r = await forwardInvestorMirror(env, {
-                ...op,
+                ticker: op.ticker,
+                kind: op.kind,
+                shares: op.shares,
+                price: op.price,
+                position_id: op.position_id,
+                reason: op.reason,
                 source: "catchup_investor",
                 retry_nonce: retryNonce,
               });
               results.push({
                 ticker: op.ticker, kind: op.kind, trade_id: op.trade_id,
+                lot_id: op.lot_id,
                 ok: !!r?.ok, skip: r?.skip || null,
                 reject: r?.bridge_reject_reason || r?.error || null,
                 scaled_qty: r?.bridge_scaled_qty ?? null,
+                drift_pct: op.drift_pct,
+                stage: op.stage,
+                score: op.score,
               });
             }
           }
@@ -81052,13 +81122,135 @@ export default {
             ok: true,
             dry_run: dryRun,
             hours,
+            force,
+            max_buy_drift_pct: maxBuyDriftPct,
+            min_score_buy: minScoreBuy,
             candidate_lots: (lots || []).length,
             planned: planned.length,
             planned_ops: planned,
+            skipped_gates: skippedGates,
+            skipped_gates_count: skippedGates.length,
             results,
             note: dryRun
-              ? "Pass {\"dry_run\":false} to forward these ops to the bridge (places real broker orders, relational-scaled)."
-              : "Forwarded planned ops; inspect bridge:client:recent + broker fills.",
+              ? "Pass {\"dry_run\":false} to forward planned ops (thesis/price gates already applied). Use force:true to bypass gates. Optional tickers:[...], max_buy_drift_pct, min_score_buy."
+              : "Forwarded planned ops; inspect bridge:client:recent + broker fills. skipped_gates were NOT sent.",
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-07-30 — Reverse dual-worker DCA twin lots.
+      // Finds DCA_BUY pairs on the same position with identical shares/price/
+      // reason within 5s (the monolith+engine race fingerprint), keeps the
+      // earlier lot, deletes the later twin, reverses the share/cost bump on
+      // investor_positions, deletes the matching ledger row when present, and
+      // writes an ADJUSTMENT to restore investor cash.
+      if (routeKey === "POST /timed/admin/investor/dedupe-dca-lots") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const dryRun = body?.dry_run !== false;
+          const days = Math.min(60, Math.max(1, Number(body?.days) || 14));
+          const sinceMs = Date.now() - days * 86400000;
+          const { results: lots } = await env.DB.prepare(
+            `SELECT id, position_id, ticker, action, shares, price, value, ts, reason
+             FROM investor_lots
+             WHERE action = 'DCA_BUY' AND ts >= ?1
+             ORDER BY ts ASC`
+          ).bind(sinceMs).all().catch(() => ({ results: [] }));
+          const { findDuplicateDcaLotPairs } = await import("./investor-catchup-gates.js");
+          const pairs = findDuplicateDcaLotPairs(lots || [], 5000);
+          const tickerFilter = Array.isArray(body?.tickers)
+            ? new Set(body.tickers.map((t) => String(t || "").toUpperCase()).filter(Boolean))
+            : null;
+          const targets = tickerFilter
+            ? pairs.filter((p) => tickerFilter.has(p.ticker))
+            : pairs;
+          const results = [];
+          if (!dryRun) {
+            for (const p of targets) {
+              const row = { ...p, ok: false, steps: [] };
+              try {
+                const pos = await env.DB.prepare(
+                  "SELECT id, total_shares, cost_basis, dca_num_buys, dca_total_invested, status FROM investor_positions WHERE id = ?1"
+                ).bind(p.position_id).first();
+                if (!pos) {
+                  row.error = "position_missing";
+                  results.push(row);
+                  continue;
+                }
+                const shares = Number(p.shares) || 0;
+                const value = Number(p.value) || (shares * (Number(p.price) || 0));
+                const curShares = Number(pos.total_shares) || 0;
+                if (curShares + 1e-6 < shares) {
+                  row.error = "shares_insufficient_for_reverse";
+                  row.position_shares = curShares;
+                  results.push(row);
+                  continue;
+                }
+                const newShares = Math.max(0, curShares - shares);
+                const newCost = Math.max(0, (Number(pos.cost_basis) || 0) - value);
+                const newAvg = newShares > 0 ? newCost / newShares : 0;
+                const newDcaN = Math.max(0, (Number(pos.dca_num_buys) || 0) - 1);
+                const newDcaInv = Math.max(0, (Number(pos.dca_total_invested) || 0) - value);
+                const now = Date.now();
+                await env.DB.prepare(
+                  `UPDATE investor_positions SET
+                     total_shares = ?1, cost_basis = ?2, avg_entry = ?3,
+                     dca_num_buys = ?4, dca_total_invested = ?5, updated_at = ?6
+                   WHERE id = ?7`
+                ).bind(newShares, newCost, newAvg, newDcaN, newDcaInv, now, p.position_id).run();
+                row.steps.push("position_reversed");
+
+                const lotDel = await env.DB.prepare(
+                  "DELETE FROM investor_lots WHERE id = ?1"
+                ).bind(p.delete_id).run();
+                row.steps.push(`lot_deleted:${lotDel?.meta?.changes || 0}`);
+
+                // Delete matching ledger twin if present (same pos + qty + ~ts).
+                const led = await env.DB.prepare(
+                  `SELECT ledger_id FROM account_ledger
+                   WHERE mode = 'investor' AND event_type = 'DCA_BUY'
+                     AND position_id = ?1
+                     AND ABS(ts - ?2) < 2000
+                     AND ABS(COALESCE(qty,0) - ?3) < 0.0002
+                   ORDER BY ts DESC LIMIT 1`
+                ).bind(p.position_id, p.delete_ts, shares).first().catch(() => null);
+                // Cash is SUM(cash_delta)-based (d1GetLedgerBalance). Deleting
+                // a twin DCA_BUY ledger row already restores cash — do NOT also
+                // write an ADJUSTMENT or we double-credit. When no twin ledger
+                // exists, cash was only debited once (correct); position reverse
+                // alone is enough.
+                if (led?.ledger_id) {
+                  await env.DB.prepare(
+                    "DELETE FROM account_ledger WHERE ledger_id = ?1 AND mode = 'investor'"
+                  ).bind(led.ledger_id).run();
+                  row.steps.push(`ledger_deleted:${led.ledger_id}`);
+                } else {
+                  row.steps.push("ledger_none");
+                }
+                row.ok = true;
+                row.new_total_shares = newShares;
+                row.new_dca_num_buys = newDcaN;
+              } catch (e) {
+                row.error = String(e?.message || e).slice(0, 200);
+              }
+              results.push(row);
+            }
+          }
+          return sendJSON({
+            ok: true,
+            dry_run: dryRun,
+            days,
+            twin_pairs_found: pairs.length,
+            targets: targets.length,
+            planned: targets,
+            results,
+            note: dryRun
+              ? "Pass {\"dry_run\":false} to reverse share bumps and delete twin lots/ledger rows (cash restores via ledger delete; no ADJUSTMENT). Optional tickers:[...]."
+              : "Cleanup applied; verify investor_positions + History tab + cash (SUM of cash_delta).",
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
@@ -98865,12 +99057,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       if (_isWeekday && (_utcH === 19 || _utcH === 20) && _utcM === 30) vc.add("30 20 * * 1-5");
       if (_utcDay === 5 && (_utcH === 20 || _utcH === 21) && _utcM === 15) vc.add("15 21 * * 5");
       if (_isWeekday && (_utcH === 20 || _utcH === 21) && _utcM === 30)    vc.add("30 21 * * 1-5");
-      // 2026-07-29 — DCA slot at 11:30 AM ET (15:30 UTC EDT / 16:30 UTC EST).
-      // Kept separate from the 4:30 PM ET labels above (those still drive
-      // brief-eval + portfolio EOD snap). Do NOT overlap the two windows
-      // the way 20:30 used to add BOTH "30 20" and "30 21".
-      if (_isWeekday && _utcH === 15 && _utcM === 30) vc.add("30 15 * * 1-5");
-      if (_isWeekday && _utcH === 16 && _utcM === 30) vc.add("30 16 * * 1-5");
+      // 2026-07-30 — DCA slot at 3:45 PM ET (19:45 UTC EDT / 20:45 UTC EST).
+      // Near the old 4:30 PM end-of-day pullback intent, still inside RTH so
+      // Webull fractionals accept (~15 min buffer before 4:00 close). Kept
+      // separate from the 4:30 PM labels above (brief-eval + EOD snap).
+      if (_isWeekday && _utcH === 19 && _utcM === 45) vc.add("45 19 * * 1-5");
+      if (_isWeekday && _utcH === 20 && _utcM === 45) vc.add("45 20 * * 1-5");
     }
     if (_isHourly) {
       /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
@@ -99502,26 +99694,25 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
     }
 
-    // ── Investor Intelligence: daily DCA execution at 11:30 AM ET ──
+    // ── Investor Intelligence: daily DCA execution at 3:45 PM ET ──
     //
     // Phase 3.9k — DCA only (calendar-based, not signal-based). Signal-based
     // auto-rebalance runs during RTH (10:30 primary + hourly action passes).
     //
-    // 2026-07-29 — Moved from 4:30 PM ET → 11:30 AM ET. Webull rejects
-    // fractional share orders outside RTH ("Fractional shares trading is
-    // only available during regular trading hours: 9:30 a.m. - 4:00 p.m.").
-    // The 4:30 PM slot guaranteed every DCA mirror failed on Webull, which
-    // is exactly what the operator saw today (CRDO/PLTR/TWLO/… model book
-    // grew, broker stayed flat). 11:30 AM is mid-RTH so fractional places.
+    // 2026-07-29 — Moved off 4:30 PM ET (after RTH → Webull fractional reject).
+    // 2026-07-30 — Settled on 3:45 PM ET: same end-of-day pullback intent as
+    // the old 4:30 slot, ~15 min inside RTH so fractionals still place.
+    // Gate on isNyRegularMarketOpen() so early-close days (1 PM) no-op.
     //
     // Also: skip on tt-engine. The */5 virtual-cron registration runs on
     // BOTH monolith and engine; dual dispatch ~300ms apart was writing
     // duplicate lots + hammering Webull into PLACE_ORDER_REPEAT. Engine
     // owns scoring only — DCA stays on the monolith (or research when
     // that lane is externalized). Day-level KV lock is a second belt.
-    if (!_isDedicatedEngine && (vc.has("30 15 * * 1-5") || vc.has("30 16 * * 1-5"))) {
+    if (!_isDedicatedEngine && (vc.has("45 19 * * 1-5") || vc.has("45 20 * * 1-5"))) {
       const _dcaEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
-      if (_dcaEtH === 11) ctx.waitUntil((async () => {
+      const _dcaEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
+      if (_dcaEtH === 15 && _dcaEtM === 45 && isNyRegularMarketOpen()) ctx.waitUntil((async () => {
         try {
           const KV = env?.KV_TIMED;
           const _nyPartsDcaCron = new Date().toLocaleString("en-US", {
@@ -99539,7 +99730,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // (if any) sees the marker. 36h TTL covers DST edges.
             await KV.put(_dcaDoneKey, String(Date.now()), { expirationTtl: 36 * 3600 }).catch(() => {});
           }
-          console.log("[INVESTOR CRON] Checking DCA plans...");
+          console.log("[INVESTOR CRON] Checking DCA plans (15:45 ET)...");
           const dcaResp = await _selfDispatch(`/timed/investor/dca/execute`, { method: "POST" });
           const dcaData = await dcaResp.json().catch(() => ({}));
           console.log(`[INVESTOR CRON] DCA: ${dcaData.executed || 0} executed, ${dcaData.skipped || 0} skipped`);

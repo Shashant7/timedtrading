@@ -6,6 +6,54 @@
 
 ---
 
+## Adaptive catch-up: only replay when price + thesis still intact [2026-07-30]
+
+**Operator ask** after the silent DCA / duplicate-lot incident:
+> "Please do the cleanup and we should have a more intelligent and
+> adaptive way for a catch up. It should only attempt it when the price
+> and thesis is still relatively intact and makes sense."
+
+### Cleanup (live D1)
+
+Dual-worker race left twin `DCA_BUY` lots (~+295ms) on CRDO/CRS/CW/KO/
+NVDA/PLTR/TSM/TWLO/WTS. Reversed the later twin's share/cost/dca bump,
+deleted the twin lot + matching `account_ledger` DCA_BUY. Zero twin
+pairs remain. Investor cash is `100000 + SUM(cash_delta)` — deleting
+the twin debit restores cash; do **not** also insert an ADJUSTMENT
+(that double-credits).
+
+### Adaptive catch-up gates
+
+`POST /timed/admin/broker-bridge/catchup-investor` now evaluates each
+candidate via `evaluateCatchupThesisGate` (`worker/investor-catchup-gates.js`):
+
+| Gate | Buy/DCA | Sell/trim/exit |
+|---|---|---|
+| stage ∈ reduce/exited/research_avoid/low | block | allow |
+| score < `min_score_buy` (default 30) | block | allow |
+| zone exhausted (non-accumulate) | block | allow |
+| live > lot × (1 + `max_buy_drift_pct`/100), default 5% | block | allow |
+| no live price | block | allow |
+| `force:true` | bypass | bypass |
+
+Defaults: `dry_run:true`. Response includes `planned_ops` + `skipped_gates`.
+Twin cleanup API: `POST /timed/admin/investor/dedupe-dca-lots`.
+
+**Do not** blind-replay ADDs days later when price has chased or the
+stage flipped to reduce — that turns a missed fill into a chase.
+
+### portfolio_reconcile +18.6% after twin cleanup (false alarm)
+
+Sanity sweep at 9 PM ET fired `portfolio_reconcile` with
+`cash $7.2k + positions $132k = $139k` vs expected `$117k` (+$21.8k).
+Cause: twin-ledger DELETEs restored cash via SUM before the kept lots'
+missing `DCA_BUY` rows were back-filled. COO/ledger repair then wrote
+the kept-lot debits (−$24k). Re-sweep after heal: **status ok**,
+positions↔lots cost drift ≈ $0.28. Prefer re-running the sweep after
+cleanup+heal over chasing phantom inflation.
+
+---
+
 ## DCA adds silent on Discord/email/bell + duplicate lots + broker PLACE_ORDER_REPEAT [2026-07-29]
 
 **Operator report** with Model tab + History + Notifications screenshots:
@@ -78,8 +126,9 @@ no operator-facing alert fired.
 2. `scheduleInvestorBuyActionChannels` also sends email.
 3. `investorVerbFromNotification` accepts `LONG TERM ·` prefix.
 4. Email `TYPE_META` gains `position_open` / `position_add`.
-5. DCA cron: 11:30 AM ET (mid-RTH), skip on tt-engine, day-level KV
-   lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
+5. DCA cron: **3:45 PM ET** (end-of-day pullback intent, ~15m inside
+   RTH; gated by `isNyRegularMarketOpen` for early closes), skip on
+   tt-engine, day-level KV lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
 6. Source-contract tests for notify + claim + stable lot id; grammar
    tests for `LONG TERM ·` bell filter.
 
@@ -294,8 +343,9 @@ no operator-facing alert fired.
 2. `scheduleInvestorBuyActionChannels` also sends email.
 3. `investorVerbFromNotification` accepts `LONG TERM ·` prefix.
 4. Email `TYPE_META` gains `position_open` / `position_add`.
-5. DCA cron: 11:30 AM ET (mid-RTH), skip on tt-engine, day-level KV
-   lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
+5. DCA cron: **3:45 PM ET** (end-of-day pullback intent, ~15m inside
+   RTH; gated by `isNyRegularMarketOpen` for early closes), skip on
+   tt-engine, day-level KV lock `timed:cron:investor_dca_done:YYYY-MM-DD`.
 6. Source-contract tests for notify + claim + stable lot id; grammar
    tests for `LONG TERM ·` bell filter.
 
