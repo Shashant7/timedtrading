@@ -320,6 +320,16 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Fix: claim-before-write + stable same-day lot id; wire buy notify channels
   + email `position_open`/`position_add` templates; accept `LONG TERM ·` in
   the bell filter; move DCA to 11:30 AM ET; skip on tt-engine + day KV lock.
+- **Adaptive catch-up + DCA twin dedupe (2026-07-30)**:
+  `POST /timed/admin/broker-bridge/catchup-investor` must NOT blindly replay
+  buys days later. Gate on stage (block reduce/exited/research_avoid/low),
+  score (≥30), zone exhaustion, and live vs lot drift (default max +5%).
+  Sells/trims/exits always allowed. Defaults `dry_run:true`; `force:true`
+  bypasses. Twin-lot cleanup: `POST /timed/admin/investor/dedupe-dca-lots`
+  (keep earlier, reverse position, delete twin lot + matching ledger).
+  Cash is SUM(`cash_delta`) — deleting the twin ledger restores cash; do
+  not also write an ADJUSTMENT (double-credit). Helpers in
+  `worker/investor-catchup-gates.js`.
 - **PriceStream DO must OWN every symbol in `timed:prices` (2026-07-29 orphan clobber)**:
   Watchdog fired at 14:53 UTC: 43 symbols aged in lockstep at exactly 13m.
   DO owned 258/315 KV symbols; the 57 orphans (discovery / screener / theme

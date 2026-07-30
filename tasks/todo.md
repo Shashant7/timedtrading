@@ -22,6 +22,15 @@
 
 ### Active
 
+- [x] **Adaptive catch-up + DCA twin cleanup (2026-07-30).** Operator
+      ask: cleanup duplicate DCA lots and only catch up when price +
+      thesis still intact. Live D1: reversed 12 twin pairs
+      (CRDO/CRS/CW/KO/NVDA/PLTR/TSM/TWLO/WTS); zero twins remain.
+      `catchup-investor` gates buys on stage/score/exhaustion/+5% drift
+      (`worker/investor-catchup-gates.js`); sells always allowed.
+      `dedupe-dca-lots` admin route for future races (no ADJUSTMENT
+      double-credit). Branch: `cursor/investor-dca-ledger-dup-df0c`.
+
 - [x] **Post-execution audit — verify every reducer reached the broker
       (2026-07-27).** Operator ask after the KO trim was oversold:
       "post action we must check did our action result in what we
