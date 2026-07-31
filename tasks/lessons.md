@@ -6,6 +6,26 @@
 
 ---
 
+## tt-research missing Alpaca/TwelveData secrets [2026-07-31]
+
+**Symptom:** Health `cronFailures.ops` included
+`market_calendar_dynamic_fetch` (`missing_credentials`);
+`feeds.fundamentals.sample` showed SPY/QQQ/NVDA `present:false`. Bare
+curl to `/timed/admin/fundamentals?key=` returned `authentication_required`.
+
+**Root:** After research cutover, 22:00 runs on **tt-research**, but that
+worker lacked `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, and
+`TWELVEDATA_API_KEY` (monolith still had them). Calendar nightly
+tombstoned; fundamentals nightly wrote nothing. Admin GET fundamentals
+is Pro-session auth (`requireUser`), not API-key — use
+`POST /timed/admin/fundamentals/refresh?key=…` to heal.
+
+**Fix:** `wrangler secret put` the three keys on tt-research; refresh
+calendar + fundamentals; prioritize health-sample tickers in
+`refreshFundamentalsUniverse` so open positions cannot starve SPY/QQQ/NVDA.
+
+---
+
 ## Broker mismatch emails: false in_sync WARN + per-ticker spam [2026-07-31]
 
 **Symptom:** Several `[Timed Trading] Heads-up — …` emails: NVDA

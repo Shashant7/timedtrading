@@ -45529,6 +45529,14 @@ async function refreshFundamentalsUniverse(env, opts = {}) {
   const budget = Math.max(1, Math.min(120, Number(opts.budget) || Number(env?.FUNDAMENTALS_NIGHTLY_BUDGET) || 30));
   const maxAgeMs = (Number(opts.maxAgeDays) || 5) * 86400000;
   const now = Date.now();
+  // Explicit tickers (admin / health heal) bypass universe age filter.
+  const forcedTickers = Array.isArray(opts.tickers)
+    ? opts.tickers.map((t) => String(t || "").toUpperCase().trim()).filter((t) => /^[A-Z0-9._!-]{1,12}$/.test(t))
+    : [];
+  // Trust-spine health samples SPY/QQQ/NVDA — always keep these warm so
+  // /timed/health feeds.fundamentals doesn't stay red while open-position
+  // names consume the nightly budget.
+  const healthSampleTickers = ["SPY", "QQQ", "NVDA"];
 
   const positionTickers = new Set();
   if (db) {
@@ -45550,21 +45558,36 @@ async function refreshFundamentalsUniverse(env, opts = {}) {
     .filter(isInvestorEligibleTicker)
     .filter((t) => !/USD$/.test(t)); // crypto pairs have no fundamentals
 
-  // Age-check all candidates (cheap KV reads), then sort: positions first,
-  // then oldest snapshots.
+  // Age-check all candidates (cheap KV reads), then sort: forced → health
+  // samples → open positions → oldest snapshots.
   const candidates = [];
-  for (const t of new Set([...positionTickers, ...universe])) {
+  const seed = forcedTickers.length
+    ? forcedTickers
+    : [...healthSampleTickers, ...positionTickers, ...universe];
+  for (const t of new Set(seed)) {
     if (!isInvestorEligibleTicker(t) || /USD$/.test(t)) continue;
-    let asOf = 0;
-    try {
-      const snap = await kvGetJSON(KV, `timed:fundamentals_v7:${t}`);
-      asOf = Number(snap?.as_of) || 0;
-    } catch { /* treat as missing */ }
+    let snap = null;
+    try { snap = await kvGetJSON(KV, `timed:fundamentals_v7:${t}`); } catch { /* missing */ }
+    const asOf = Number(snap?.as_of) || 0;
     const age = now - asOf;
-    if (asOf > 0 && age < maxAgeMs) continue; // fresh enough
-    candidates.push({ ticker: t, asOf, isPosition: positionTickers.has(t) });
+    const isForced = forcedTickers.includes(t);
+    const isHealth = healthSampleTickers.includes(t);
+    const degenerate = isDegenerateFundamentalsSnapshot(snap);
+    // Skip fresh, non-degenerate snapshots unless explicitly forced.
+    if (!isForced && asOf > 0 && age < maxAgeMs && !degenerate) continue;
+    candidates.push({
+      ticker: t,
+      asOf,
+      isPosition: positionTickers.has(t),
+      isHealth,
+      isForced,
+    });
   }
-  candidates.sort((a, b) => (Number(b.isPosition) - Number(a.isPosition)) || (a.asOf - b.asOf));
+  candidates.sort((a, b) =>
+    (Number(b.isForced) - Number(a.isForced))
+    || (Number(b.isHealth) - Number(a.isHealth))
+    || (Number(b.isPosition) - Number(a.isPosition))
+    || (a.asOf - b.asOf));
 
   const targets = candidates.slice(0, budget);
   let refreshed = 0;
@@ -56929,10 +56952,15 @@ export default {
         try {
           const budget = Math.max(1, Math.min(120, Number(url.searchParams.get("budget")) || 80));
           const background = url.searchParams.get("background") === "1";
+          const tickersParam = String(url.searchParams.get("tickers") || "").trim();
+          const tickers = tickersParam
+            ? tickersParam.split(/[,+\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean)
+            : [];
+          const refreshOpts = { budget, ...(tickers.length ? { tickers } : {}) };
           if (background) {
             ctx.waitUntil((async () => {
               try {
-                const r = await refreshFundamentalsUniverse(env, { budget });
+                const r = await refreshFundamentalsUniverse(env, refreshOpts);
                 console.log(`[FUNDAMENTALS admin bg] candidates=${r.candidates ?? 0} refreshed=${r.refreshed ?? 0} failed=${r.failed ?? 0}`);
                 recordCronSuccess(env, "fundamentals_refresh").catch(() => {});
               } catch (e) {
@@ -56940,9 +56968,9 @@ export default {
                 recordCronFailure(env, { op: "fundamentals_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
               }
             })());
-            return sendJSON({ ok: true, status: "queued", budget }, 202, corsHeaders(env, req));
+            return sendJSON({ ok: true, status: "queued", budget, tickers }, 202, corsHeaders(env, req));
           }
-          const r = await refreshFundamentalsUniverse(env, { budget });
+          const r = await refreshFundamentalsUniverse(env, refreshOpts);
           recordCronSuccess(env, "fundamentals_refresh").catch(() => {});
           return sendJSON(r, 200, corsHeaders(env, req));
         } catch (e) {
