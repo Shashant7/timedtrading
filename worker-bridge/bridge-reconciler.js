@@ -575,6 +575,10 @@ async function _readOpenRowsForUser(env, userId, limit, brokerAccountId = null) 
   try {
     // Skip expired + rejected + mirror_suppressed rows — those are
     // terminal states the reconciler doesn't transition out of.
+    // 2026-07-31 — Also honor the mirror_suppressed COLUMN (auto-suppress
+    // after N drifts sets the flag but leaves sync_state=broker_orphan).
+    // Without this, suppressed orphans were re-scanned + re-emailed every
+    // cadence tick because only sync_state='mirror_suppressed' was skipped.
     // 2026-07-24 — ALSO match on broker_account_id: fan-out orders write
     // manifest rows with the mothership's base user_id (owner email),
     // while the reconciler iterates per-account users
@@ -585,6 +589,7 @@ async function _readOpenRowsForUser(env, userId, limit, brokerAccountId = null) 
        WHERE (user_id = ?1 OR (?3 IS NOT NULL AND broker_account_id = ?3))
          AND model_status IN ('OPEN','CLOSED')
          AND sync_state NOT IN ('expired','rejected','mirror_suppressed')
+         AND COALESCE(mirror_suppressed, 0) = 0
        ORDER BY COALESCE(sync_last_checked_at, 0) ASC
        LIMIT ?2
     `).bind(

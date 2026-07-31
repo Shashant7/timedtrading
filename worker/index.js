@@ -81246,7 +81246,13 @@ export default {
         if (authFail) return authFail;
         const body = await req.json().catch(() => ({}));
         const send = body?.send === true;
-        const drainRes = await _postBridge("/bridge/notify/drain", { limit: body?.limit || 200 });
+        // Forward send so the bridge can peek (leave queue intact) when
+        // the operator is only previewing. Live cron always send=true.
+        const drainRes = await _postBridge("/bridge/notify/drain", {
+          limit: body?.limit || 200,
+          send,
+          peek: !send,
+        });
         if (drainRes.kind !== "ok") {
           return new Response(drainRes.body || JSON.stringify({ ok: false, error: drainRes.kind }),
             { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders(env, req) } });

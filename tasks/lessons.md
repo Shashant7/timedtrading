@@ -6,6 +6,26 @@
 
 ---
 
+## Mirror Sync digests every 5 minutes + split emails [2026-07-31]
+
+**Symptom:** Two Mirror Sync digests (TWLO/PLTR, then NVDA) every ~5 min,
+severity CRITICAL / broker_orphan, even after digest coalescing shipped.
+
+**Root:**
+1. `DEDUP_WINDOW_MS.critical = 0` → every reconcile re-queued the same
+   chronic orphan (exit > 24h → critical via `_orphanSeverity`).
+2. Auto-suppress set `mirror_suppressed=1` but left `sync_state=broker_orphan`;
+   the SELECT only skipped `sync_state IN (…,'mirror_suppressed')`, so
+   suppressed rows kept re-entering the notify path.
+3. Cadence often makes 1 row eligible per */5 cycle → queue drips →
+   drain sends separate digests minutes apart.
+
+**Fix:** 24h critical dedup (escalate warn→critical once); skip
+`COALESCE(mirror_suppressed,0)=0` in reconciler read; peek-safe drain
+when `send=false`.
+
+---
+
 ## tt-research missing Alpaca/TwelveData secrets [2026-07-31]
 
 **Symptom:** Health `cronFailures.ops` included
