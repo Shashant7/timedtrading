@@ -115,8 +115,13 @@ export function buildFamilyAttributionReport({
   const stats = computeWindowStats(closed);
   const avgKeep = keepN > 0 ? Math.round((keepSum / keepN) * 1000) / 1000 : null;
   const avgMfe = mfeN > 0 ? Math.round((mfeSum / mfeN) * 100) / 100 : null;
-  const familyCapturePct = universeCapturePct != null && Number(universeCapturePct) >= 0
-    ? null // universe capture is global; family share reported separately
+  // Family closed win-rate (diagnostic). Do NOT compare to the ~4.8%
+  // discover-moves capture baseline — that is a different unit.
+  const familyWinRatePct = closed.length > 0
+    ? Math.round((closed.filter((c) => Number(c.pnl_pct) > 0).length / closed.length) * 1000) / 10
+    : null;
+  const beatsBaseline = universeCapturePct != null
+    ? Number(universeCapturePct) > baselineCapturePct
     : null;
 
   return {
@@ -130,11 +135,18 @@ export function buildFamilyAttributionReport({
     avg_mfe_pct: avgMfe,
     avg_mfe_keep_rate: avgKeep,
     vehicles,
+    family_win_rate_pct: familyWinRatePct,
     universe_capture_rate_pct: universeCapturePct,
     baseline_capture_rate_pct: baselineCapturePct,
-    beats_baseline_capture: universeCapturePct != null
-      ? Number(universeCapturePct) > baselineCapturePct
-      : null,
+    beats_baseline_capture: beatsBaseline,
+    // Widen only when family expectancy is positive AND MFE keep holds.
+    // Universe capture>4.8% is required when that KV summary is available.
+    widen_ready: closed.length >= 5
+      && avgKeep != null
+      && avgKeep >= 0.35
+      && (stats?.expectancy_pct != null && Number(stats.expectancy_pct) > 0)
+      && (stats?.profit_factor != null && Number(stats.profit_factor) >= 1)
+      && (beatsBaseline !== false),
     sample_closed: closed.slice(0, 12),
     generated_at: Date.now(),
   };

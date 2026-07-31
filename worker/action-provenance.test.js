@@ -3,6 +3,7 @@ import {
   compactTfTech,
   compactResearchRefs,
   compactTechnicalRefs,
+  compactSetupSliceRefs,
   buildTraderActionProvenance,
   enrichDecisionInputs,
 } from "./action-provenance.js";
@@ -22,7 +23,14 @@ const xlreTicker = {
   price: 41.2,
   sl: 39.8,
   tp: 43.1,
-  flags: { st_flip_bull: true, sq30_release: true },
+  flags: { st_flip_bull: true, sq30_release: true, ema21_reclaim: true },
+  setup_gates: { stack_full_confirm: { fires: true }, gate_runway_full: { fires: false } },
+  confluence_mode: "RIDE",
+  _model_play: { play_vehicle: "options", why: "confirm_stack_tier_a_ride_options_first", paper: true },
+  _sequence_queue_proposal: {
+    state: "queued", paper: true, size_mult: 0.1,
+    reason: "sequence_entry_ready+stack_full_confirm", family: "confirm_stack_ema21",
+  },
   tf_tech: {
     "30": { bias: "bull", rsi: { rsi: 42 }, supertrend: { direction: "up" }, ema21: 40.5 },
     D: { bias: "bull", rsi: { value: 55 }, st: { direction: "up" }, ema: { ema21: 40.1 } },
@@ -95,7 +103,7 @@ describe("buildTraderActionProvenance", () => {
       trade: { id: "XLRE-1", sl: 39.8, tp: 43.1, direction: "LONG" },
     });
     expect(inputs.engine).toBe("trader");
-    expect(inputs.provenance_v).toBe(1);
+    expect(inputs.provenance_v).toBe(2);
     expect(inputs.why.type).toBe("ENTRY");
     expect(inputs.why.thesis).toMatch(/Pullback Resume/);
     expect(inputs.technical.entry_path).toBe("confirm_stack_ema21");
@@ -104,6 +112,19 @@ describe("buildTraderActionProvenance", () => {
     expect(inputs.research.compounder.tier).toBe("growth_strong");
     expect(inputs.research.fair_value.fair_value).toBe(48);
     expect(inputs.event.rank).toBe(86);
+    expect(inputs.setup_gates.stack_full_confirm.fires).toBe(true);
+    expect(inputs.slice_family).toBe("confirm_stack_ema21");
+    expect(inputs.confirm_stack).toBe(true);
+    expect(inputs.play_vehicle).toBe("options");
+    expect(inputs.confluence_mode).toBe("RIDE");
+    expect(inputs.sequence_paper_queue.state).toBe("queued");
+  });
+
+  it("compactSetupSliceRefs extracts confirm-stack atoms", () => {
+    const slice = compactSetupSliceRefs(xlreTicker);
+    expect(slice.slice_family).toBe("confirm_stack_ema21");
+    expect(slice.setup_gates.stack_full_confirm.fires).toBe(true);
+    expect(slice.play_vehicle).toBe("options");
   });
 
   it("builds TRIM/EXIT why fields from event reasons", () => {
@@ -146,7 +167,8 @@ describe("enrichDecisionInputs", () => {
     expect(enriched.why.defend_reason).toBe("trail_cloud");
     expect(enriched.technical.rank).toBe(86);
     expect(enriched.research.compounder.dip_buy).toBe(true);
-    expect(enriched.provenance_v).toBe(1);
+    expect(enriched.provenance_v).toBe(2);
+    expect(enriched.slice_family).toBe("confirm_stack_ema21");
   });
 
   it("still returns event-core why when tickerData is missing", () => {

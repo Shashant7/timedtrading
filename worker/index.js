@@ -453,6 +453,9 @@ import { maybeStampSetupShadowOnPayload } from "./foundation/setup-shadow-stamp.
 import {
   stampConfirmStackThinSlice,
   paperQueueSizeMult,
+  hydrateConfirmStackSliceInputs,
+  thinSliceKvPatch,
+  applyConfirmStackOptionsFirstToMenu,
 } from "./foundation/confirm-stack-paper-queue.js";
 import { evaluateMoveEndingEnforce } from "./move-ending-enforce.js";
 import { handleSetupParityGateRoute } from "./foundation/setup-parity-gate.js";
@@ -26433,6 +26436,17 @@ async function processTradeSimulation(
             ? clamp(Number(_conviction.sizeMult) || 1, 0.5, 1.5)
             : 1.0;
           // Confirm-stack paper queue: sequence-proposed Queued entries stay tiny.
+          // Re-stamp from gates/sequences on tickerData in case KV lag missed it.
+          try {
+            const _daCfgPaper = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
+            const _thinEntry = stampConfirmStackThinSlice(tickerData, _daCfgPaper);
+            if (_thinEntry?._sequence_queue_proposal) {
+              tickerData._sequence_queue_proposal = _thinEntry._sequence_queue_proposal;
+            }
+            if (_thinEntry?._model_play && !tickerData.__model_play) {
+              tickerData._model_play = _thinEntry._model_play;
+            }
+          } catch (_) { /* */ }
           const _paperMult = paperQueueSizeMult(
             tickerData,
             tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
@@ -27177,8 +27191,28 @@ async function processTradeSimulation(
                 tickerData,
               });
               if (_vMenu) {
+                // Confirm-stack Tier-A RIDE: stamp options-first intent even
+                // while model-play sim fill stays gated (shares still book).
+                try {
+                  const _of = applyConfirmStackOptionsFirstToMenu(
+                    _vMenu,
+                    tickerData,
+                    tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+                  );
+                  if (_of.applied && _of.menu) {
+                    Object.assign(_vMenu, _of.menu);
+                    tickerData.__model_play = {
+                      ...(_modelPlayLineage(_vMenu) || {}),
+                      ...(_of.play || {}),
+                      paper: true,
+                    };
+                  } else {
+                    tickerData.__model_play = _modelPlayLineage(_vMenu);
+                  }
+                } catch (_) {
+                  tickerData.__model_play = _modelPlayLineage(_vMenu);
+                }
                 tickerData.__vehicle_menu = _vMenu;
-                tickerData.__model_play = _modelPlayLineage(_vMenu);
 
                 if (_isModelPlaySimEnabled(env, { isReplay }) && !isFuturesSym) {
                   const _letfSym = String(_vMenu.pick?.letf_ticker || "").toUpperCase();
@@ -41835,6 +41869,10 @@ async function d1InsertTradeEvent(env, tradeId, event, ctx = {}) {
     // we can always answer "why did the engine do X to Y at Z?" and "did our
     // change help?" without the "different calc then" confound. Engine-tagged
     // so trader and investor never blur. Best-effort — never block the ledger.
+    const _sliceGates = ctx.tickerData?.setup_gates
+      || ctx.tickerData?.setup_gate_shadow?.setup_gates
+      || decisionInputs?.setup_gates
+      || null;
     await d1InsertDecisionRecord(env, {
       engine: "trader",
       tradeId,
@@ -41845,8 +41883,11 @@ async function d1InsertTradeEvent(env, tradeId, event, ctx = {}) {
         event.conviction_tier
         ?? event.convictionTier
         ?? ctx.tickerData?.__conviction_tier
+        ?? decisionInputs?.technical?.conviction_tier
         ?? null,
       inputs: decisionInputs,
+      gateTrace: _sliceGates ? { setup_gates: _sliceGates } : null,
+      ticker: ctx.trade?.ticker || ctx.tickerData?.ticker || event.ticker || null,
     }).catch(() => {});
 
     return { ok: true, event_id: eventId };
@@ -103342,7 +103383,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               if (_playHydrate) result._model_play = _playHydrate;
               // Thin-slice stamps (sequence paper Queued + options-first intent)
               // before lifecycle resolve so Queued surfaces without capital entry.
+              // Hydrate gates/sequences from prior KV — D1 shadow often stamps
+              // after this write; without hydrate, entry_ready never proposes.
               try {
+                const _hydrated = hydrateConfirmStackSliceInputs(result, existing);
+                if (_hydrated !== result) {
+                  if (_hydrated.setup_gates) result.setup_gates = _hydrated.setup_gates;
+                  if (_hydrated.setup_gate_shadow) result.setup_gate_shadow = _hydrated.setup_gate_shadow;
+                  if (_hydrated.setup_sequences) result.setup_sequences = _hydrated.setup_sequences;
+                  if (_hydrated.setup_shadow_posture) result.setup_shadow_posture = _hydrated.setup_shadow_posture;
+                  if (_hydrated.setup_shadow != null) result.setup_shadow = _hydrated.setup_shadow;
+                  if (_hydrated.confirm_stack != null) result.confirm_stack = _hydrated.confirm_stack;
+                  if (_hydrated._sequence_queue_proposal) {
+                    result._sequence_queue_proposal = _hydrated._sequence_queue_proposal;
+                  }
+                }
                 const _thin = stampConfirmStackThinSlice(
                   result,
                   env._deepAuditConfig || result._env?._deepAuditConfig || {},
@@ -103352,6 +103407,10 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
                 if (_thin?._model_play) {
                   result._model_play = _thin._model_play;
+                }
+                if (_thin?.setup_gates?.stack_full_confirm?.fires === true
+                  || result.setup_gates?.stack_full_confirm?.fires === true) {
+                  result.confirm_stack = true;
                 }
               } catch (_) { /* */ }
               const _lc = resolveModelLifecycle({
@@ -104477,6 +104536,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const _D1_CHUNK = 40;
               let _d1Synced = 0;
               let _d1FpSkipped = 0;
+              // Shadow/thin-slice stamps land on D1 first; write the same
+              // fields back to KV + snapshot so Today / Phase B see them.
+              const _thinKvPatches = [];
               for (let _ci = 0; _ci < _d1Entries.length; _ci += _D1_CHUNK) {
                 const _chunk = _d1Entries.slice(_ci, _ci + _D1_CHUNK);
                 const _stmts = [];
@@ -104532,6 +104594,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         env._deepAuditConfig || {},
                       );
                     } catch (_) { /* */ }
+                    // Re-resolve lifecycle when paper Queued stamped after shadow.
+                    try {
+                      if (_plForD1?._sequence_queue_proposal) {
+                        const _lcThin = resolveModelLifecycle({
+                          ticker: _sym,
+                          kanban_stage: _plForD1.kanban_stage,
+                          open_trader: _d1SyncSet.has(_sym) && Array.isArray(_cachedAllTradesForTick)
+                            ? _cachedAllTradesForTick.some((t) => {
+                              const tk = String(t?.ticker || "").toUpperCase();
+                              const ts = String(t?.status || "").toUpperCase();
+                              return tk === _sym && (ts === "OPEN" || ts === "TP_HIT_TRIM");
+                            })
+                            : false,
+                          why: _plForD1.kanban_meta?.reason || _plForD1.setup_name || null,
+                          entry: _plForD1.price ?? _plForD1.close,
+                          sl: _plForD1.stop_loss ?? _plForD1.sl,
+                          tp1: _plForD1.tp1 ?? _plForD1.take_profit,
+                          play: _plForD1._model_play || null,
+                          sequence_queue_proposal: _plForD1._sequence_queue_proposal,
+                        });
+                        _plForD1 = {
+                          ..._plForD1,
+                          _model_lifecycle: modelLifecycleLineage(_lcThin),
+                        };
+                      }
+                    } catch (_) { /* */ }
+                    const _kvPatch = thinSliceKvPatch(_pl, _plForD1);
+                    if (_kvPatch) _thinKvPatches.push([_sym, _kvPatch, _plForD1]);
                   } catch (ss) {
                     console.warn(
                       `[SETUP_SHADOW] batch stamp failed for ${_sym}:`,
@@ -104598,6 +104688,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 }
               }
               console.log(`[SCORING] D1 ticker_latest batch sync: ${_d1Synced} written, ${_d1FpSkipped} fingerprint-skipped (${_d1SkippedUnchanged} unchanged-skipped of ${_d1TotalUniverse} universe)`);
+
+              // Write thin-slice / shadow fields back to timed:latest + snapshot
+              // so /timed/plays/today and ENTRY provenance see confirm-stack.
+              if (_thinKvPatches.length > 0) {
+                let _kvPatched = 0;
+                for (const [_sym, _patch] of _thinKvPatches) {
+                  try {
+                    if (snapshot[_sym] && typeof snapshot[_sym] === "object") {
+                      Object.assign(snapshot[_sym], _patch);
+                    }
+                    const _latest = await kvGetJSON(KV, `timed:latest:${_sym}`);
+                    if (_latest && typeof _latest === "object") {
+                      Object.assign(_latest, _patch);
+                      await kvPutJSON(KV, `timed:latest:${_sym}`, _latest);
+                      _kvPatched++;
+                    } else if (snapshot[_sym]) {
+                      await kvPutJSON(KV, `timed:latest:${_sym}`, snapshot[_sym]);
+                      _kvPatched++;
+                    }
+                  } catch (_) { /* non-critical */ }
+                }
+                try {
+                  await kvPutJSON(KV, "timed:all:snapshot", {
+                    data: snapshot,
+                    count: Object.keys(snapshot).length,
+                    built_at: Date.now(),
+                  });
+                } catch (_) { /* */ }
+                console.log(`[SCORING] Thin-slice KV write-back: ${_kvPatched}/${_thinKvPatches.length} tickers`);
+              }
             } catch (_d1Err) {
               console.warn("[SCORING] D1 batch sync failed:", String(_d1Err?.message || _d1Err).slice(0, 200));
             }

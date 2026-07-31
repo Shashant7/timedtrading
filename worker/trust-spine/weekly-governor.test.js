@@ -79,7 +79,10 @@ describe("family attribution", () => {
     expect(report.stats.wins).toBe(1);
     // (1.5/3 + -0.5/2) / 2 = (0.5 - 0.25) / 2 = 0.125
     expect(report.avg_mfe_keep_rate).toBe(0.125);
+    expect(report.family_win_rate_pct).toBe(50);
+    // 4.8% baseline is universe discover-moves capture, not family WR.
     expect(report.beats_baseline_capture).toBe(true);
+    expect(report.widen_ready).toBe(false); // need closed n>=5 + keep>=0.35 + +EV
     expect(report.vehicles.shares).toBe(2);
   });
 });

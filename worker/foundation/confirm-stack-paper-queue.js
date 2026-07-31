@@ -86,6 +86,70 @@ export function buildConfirmStackOptionsFirstPlay(payload = {}, daCfg = {}) {
   };
 }
 
+/**
+ * Copy prior-cycle shadow / gate / proposal fields onto a fresh scored payload
+ * so thin-slice stamping can see sequences even when D1 shadow runs later.
+ */
+export function hydrateConfirmStackSliceInputs(payload, prior = null) {
+  if (!payload || typeof payload !== "object") return payload;
+  const src = prior && typeof prior === "object" ? prior : null;
+  if (!src) return payload;
+  const keys = [
+    "setup_gates",
+    "setup_gate_shadow",
+    "setup_sequences",
+    "setup_shadow_posture",
+    "setup_shadow",
+    "confirm_stack",
+    "_sequence_queue_proposal",
+  ];
+  let out = null;
+  for (const k of keys) {
+    const cur = payload[k];
+    const missing = cur == null
+      || (k === "setup_sequences" && (!Array.isArray(cur) || cur.length === 0))
+      || (k === "setup_gates" && typeof cur === "object" && !Object.keys(cur).length);
+    if (!missing) continue;
+    if (src[k] == null) continue;
+    if (!out) out = { ...payload };
+    out[k] = src[k];
+  }
+  return out || payload;
+}
+
+/** Compact fields that must land on KV / snapshot after D1 shadow stamp. */
+export function thinSliceKvPatch(fromPayload = {}, stamped = {}) {
+  if (!stamped || typeof stamped !== "object") return null;
+  const keys = [
+    "setup_gates",
+    "setup_gate_shadow",
+    "setup_sequences",
+    "setup_shadow_posture",
+    "setup_shadow",
+    "setup_shadow_event_count",
+    "setup_shadow_as_of_ts",
+    "confirm_stack",
+    "_sequence_queue_proposal",
+    "_model_play",
+    "_model_lifecycle",
+  ];
+  const patch = {};
+  for (const k of keys) {
+    if (stamped[k] == null) continue;
+    const prev = fromPayload?.[k];
+    try {
+      if (JSON.stringify(prev) === JSON.stringify(stamped[k])) continue;
+    } catch {
+      if (prev === stamped[k]) continue;
+    }
+    patch[k] = stamped[k];
+  }
+  if (stamped.setup_gates?.stack_full_confirm?.fires === true) {
+    patch.confirm_stack = true;
+  }
+  return Object.keys(patch).length ? patch : null;
+}
+
 /** Apply proposal onto a payload copy (immutable-ish). */
 export function stampConfirmStackThinSlice(payload, daCfg = {}) {
   if (!payload || typeof payload !== "object") return payload;
@@ -102,6 +166,37 @@ export function stampConfirmStackThinSlice(payload, daCfg = {}) {
     }
   }
   return out;
+}
+
+/**
+ * Force vehicle-menu pick + __model_play to options when Tier-A RIDE confirm-stack.
+ * Sim fill stays gated — this stamps intent / counterfactual lineage only.
+ */
+export function applyConfirmStackOptionsFirstToMenu(menu, payload = {}, daCfg = {}) {
+  const play = buildConfirmStackOptionsFirstPlay(payload, daCfg);
+  if (!play) return { menu, play: null, applied: false };
+  if (!menu || typeof menu !== "object") {
+    return { menu, play, applied: true };
+  }
+  const entries = Array.isArray(menu.entries) ? menu.entries : [];
+  const optEntry = entries.find((e) => {
+    const v = String(e?.play_vehicle || e?.vehicle || "").toLowerCase();
+    return v === "options" || v === "option";
+  }) || null;
+  const next = {
+    ...menu,
+    pick: {
+      ...(menu.pick || {}),
+      vehicle: optEntry?.vehicle || "option",
+      play_vehicle: "options",
+      label: optEntry?.label || menu.pick?.label || "Options (confirm-stack Tier-A RIDE)",
+      suitability: optEntry?.suitability ?? menu.pick?.suitability ?? null,
+      why: play.why,
+      archetype: optEntry?.archetype || menu.pick?.archetype || null,
+      letf_ticker: null,
+    },
+  };
+  return { menu: next, play, applied: true };
 }
 
 /** Size mult to apply at entry when a paper proposal is active. */
