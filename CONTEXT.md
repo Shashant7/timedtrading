@@ -553,6 +553,14 @@ playbook in `skills/security-auth-patterns.md`)**
   the same account (investor ETH fills must not orphan closed trader
   rows). Drain coalesces queue items into **one** Mirror Sync digest per
   user via `buildMirrorSyncDigestEmail` (dark `emailLayout` brand).
+- **tt-research secret parity (2026-07-31)**: 22:00 research owns
+  `market_calendar_dynamic_fetch` + `fundamentals_refresh`. Missing
+  `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` / `TWELVEDATA_API_KEY` on
+  tt-research → calendar tombstone `missing_credentials` + empty
+  `timed:fundamentals_v7:{SPY,QQQ,NVDA}`. Copy those secrets from the
+  monolith; health samples are prioritized in the refresh budget.
+  `GET /timed/admin/fundamentals` needs a logged-in Pro session
+  (`authentication_required` from a bare `?key=` curl is expected).
 - **`recordCronFailure` signature**: always pass `{ op, error, caller }`.
   Legacy `recordCronFailure(env, "op", err)` used to page as
   `Cron Failure: unknown` with an empty body (2026-07-31). Adapter now
