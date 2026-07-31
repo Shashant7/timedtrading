@@ -546,6 +546,10 @@ playbook in `skills/security-auth-patterns.md`)**
   counting `timed:cron:failure:*` MUST read values and count only
   `count > 0` (key-count alone kept the watchdog red for hours after
   the 2026-06-09 proxy-auth incident healed).
+- **`recordCronFailure` signature**: always pass `{ op, error, caller }`.
+  Legacy `recordCronFailure(env, "op", err)` used to page as
+  `Cron Failure: unknown` with an empty body (2026-07-31). Adapter now
+  accepts both; prefer the object form.
 - **CI curl can get Cloudflare bot-challenged on timed-trading.com** —
   health probes must guard jq against non-JSON (challenge HTML) or the
   step dies with a jq parse error before paging. Permanent fix is a WAF

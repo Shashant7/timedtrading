@@ -56937,7 +56937,7 @@ export default {
                 recordCronSuccess(env, "fundamentals_refresh").catch(() => {});
               } catch (e) {
                 console.error("[FUNDAMENTALS admin bg] threw:", String(e?.message || e).slice(0, 200));
-                recordCronFailure(env, "fundamentals_refresh", e).catch(() => {});
+                recordCronFailure(env, { op: "fundamentals_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
               }
             })());
             return sendJSON({ ok: true, status: "queued", budget }, 202, corsHeaders(env, req));
@@ -80637,8 +80637,24 @@ export default {
         try {
           const Macro = await import("./macro/cross-asset-tracker.js");
           const result = await Macro.runMacroSnapshot(env);
+          if (result?.ok) {
+            await recordCronSuccess(env, "macro_cross_asset_refresh").catch(() => {});
+          } else {
+            await recordCronFailure(env, {
+              op: "macro_cross_asset_refresh",
+              error: result?.error || "unknown",
+              caller: "admin_macro_refresh",
+              skipDiscord: true,
+            }).catch(() => {});
+          }
           return sendJSON(result, result?.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
+          await recordCronFailure(env, {
+            op: "macro_cross_asset_refresh",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "admin_macro_refresh",
+            skipDiscord: true,
+          }).catch(() => {});
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
@@ -98732,7 +98748,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "universe_onboard_heal").catch(() => {});
         } catch (e) {
           console.warn("[UNIVERSE ONBOARD heal hourly] failed:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "universe_onboard_heal", e).catch(() => {});
+          recordCronFailure(env, { op: "universe_onboard_heal", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
       })());
       // X wire ingest — hourly Delta One. Weekdays US session always;
@@ -99493,7 +99509,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             })
             .catch((e) => {
               console.warn(`[INVESTOR DIGEST] Failed:`, String(e?.message || e).slice(0, 200));
-              return recordCronFailure(env, "investor_weekly_digest", e).catch(() => {});
+              return recordCronFailure(env, { op: "investor_weekly_digest", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
             })
         );
       }
@@ -100654,7 +100670,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "fundamentals_refresh").catch(() => {});
         } catch (e) {
           console.error("[FUNDAMENTALS nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "fundamentals_refresh", e).catch(() => {});
+          recordCronFailure(env, { op: "fundamentals_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
       })());
 
@@ -100667,7 +100683,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "ticker_metadata_hydrate").catch(() => {});
         } catch (e) {
           console.error("[META nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "ticker_metadata_hydrate", e).catch(() => {});
+          recordCronFailure(env, { op: "ticker_metadata_hydrate", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
       })());
 
@@ -100680,7 +100696,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "universe_onboard_nightly").catch(() => {});
         } catch (e) {
           console.error("[UNIVERSE ONBOARD nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "universe_onboard_nightly", e).catch(() => {});
+          recordCronFailure(env, { op: "universe_onboard_nightly", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
       })());
 
@@ -100694,7 +100710,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             recordCronSuccess(env, "ticker_metadata_mcap").catch(() => {});
           } catch (e) {
             console.error("[META mcap weekly] threw:", String(e?.message || e).slice(0, 200));
-            recordCronFailure(env, "ticker_metadata_mcap", e).catch(() => {});
+            recordCronFailure(env, { op: "ticker_metadata_mcap", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
           }
         })());
       }
@@ -100735,7 +100751,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "signal_outcome_resolver").catch(() => {});
         } catch (e) {
           console.error("[SIGNAL_OUTCOMES nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "signal_outcome_resolver", e).catch(() => {});
+          recordCronFailure(env, { op: "signal_outcome_resolver", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
         // B3 (2026-06-11) — refresh the measured FSD accuracy cache from
         // tonight's resolutions. CIO memory (Layer 15b) reads this so the
@@ -100786,7 +100802,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           }
         } catch (e) {
           console.error("[GUIDANCE nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "position_guidance", e).catch(() => {});
+          recordCronFailure(env, { op: "position_guidance", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
         // B5 (2026-06-11) — Nightly Edge Scorecard. Runs AFTER the resolver
         // so tonight's graded calls are included. Bleeding setups (90d
@@ -100829,14 +100845,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               recordCronSuccess(env, "weekly_governor").catch(() => {});
             } catch (ge) {
               console.error("[WEEKLY_GOVERNOR] threw:", String(ge?.message || ge).slice(0, 200));
-              recordCronFailure(env, "weekly_governor", ge).catch(() => {});
+              recordCronFailure(env, { op: "weekly_governor", error: String(ge?.message || ge).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
             }
           } else if (!card?.ok) {
             throw new Error(card?.hint || card?.error_kind || "scorecard_failed");
           }
         } catch (e) {
           console.error("[EDGE_SCORECARD nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "edge_scorecard", e).catch(() => {});
+          recordCronFailure(env, { op: "edge_scorecard", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
         try {
           const r = await backfillCioOutcomes(env, 1000);
@@ -100844,7 +100860,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "cio_outcome_backfill").catch(() => {});
         } catch (e) {
           console.error("[CIO_BACKFILL nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "cio_outcome_backfill", e).catch(() => {});
+          recordCronFailure(env, { op: "cio_outcome_backfill", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
         try {
           // Load the authority-relevant config keys (the */5 scoring
@@ -100872,7 +100888,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "cio_authority_eval").catch(() => {});
         } catch (e) {
           console.error("[CIO_AUTHORITY nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "cio_authority_eval", e).catch(() => {});
+          recordCronFailure(env, { op: "cio_authority_eval", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
         try {
           const bus = await _learnProcessProposals(env);
@@ -100887,7 +100903,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           recordCronSuccess(env, "learning_proposals").catch(() => {});
         } catch (e) {
           console.error("[LEARN_BUS nightly] threw:", String(e?.message || e).slice(0, 200));
-          recordCronFailure(env, "learning_proposals", e).catch(() => {});
+          recordCronFailure(env, { op: "learning_proposals", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
       })());
     }
