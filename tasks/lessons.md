@@ -6,6 +6,30 @@
 
 ---
 
+## Broker mismatch emails: false in_sync WARN + per-ticker spam [2026-07-31]
+
+**Symptom:** Several `[Timed Trading] Heads-up — …` emails: NVDA
+investor/trader showed Severity WARN with Sync state `in_sync` and
+Detail “model_closed and broker flat - consistent” (empty “What this
+means”). PLTR/TWLO trader showed real `broker_orphan` after Roth ETH
+rebuild fills.
+
+**Root:**
+1. `_persistRowUpdate` wrote DB but left in-memory `row.sync_state` /
+   `sync_note` stale; `emitDriftNotification(env, row, sev)` built the
+   email from the old fields while severity came from the new
+   classification → WARN + in_sync/consistent.
+2. Drain sent one SendGrid email per `bridge:notify:queue:*` item.
+3. Shared brokerage account: CLOSED trader rows saw investor OPEN
+   holdings as `broker_orphan`.
+
+**Fix:** Mutate in-memory row after persist; notify with classification
+fields; `shouldDispatchDriftNotification` skips in_sync/consistent;
+`claimedOpenEquityByTicker` + `claimed_elsewhere_qty` in `classifyDrift`;
+drain groups by user → `buildMirrorSyncDigestEmail` (branded digest).
+
+---
+
 ## Cron Failure: unknown with empty body = positional recordCronFailure [2026-07-31]
 
 **Symptom:** Discord `#system-alerts` showed `Cron Failure: unknown` with

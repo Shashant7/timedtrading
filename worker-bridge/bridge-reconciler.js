@@ -150,13 +150,37 @@ function _indexByTicker(positions) {
 }
 
 /**
+ * Qty claimed by OPEN equity manifest rows for the same ticker on this
+ * account. Used so CLOSED trader rows do not treat Investor holdings as
+ * broker_orphan (shared brokerage account — common after ETH rebuild).
+ *
+ * @param {Array<object>} rows  All scanned manifest rows for the account
+ * @returns {Map<string, number>} ticker → claimed qty
+ */
+export function claimedOpenEquityByTicker(rows) {
+  const out = new Map();
+  for (const r of rows || []) {
+    if (String(r?.instrument_type || "equity").toLowerCase() !== "equity") continue;
+    if (String(r?.model_status || "").toUpperCase() !== "OPEN") continue;
+    const ticker = String(r?.ticker || "").toUpperCase();
+    if (!ticker) continue;
+    const remaining = Number(r.broker_remaining_qty);
+    const intended = Number(r.model_intended_qty) || 0;
+    const claim = (Number.isFinite(remaining) && remaining > 0) ? remaining : intended;
+    if (!(claim > 0)) continue;
+    out.set(ticker, (out.get(ticker) || 0) + claim);
+  }
+  return out;
+}
+
+/**
  * Classify drift for a single open manifest row. Returns
  * { sync_state, drift_detected, severity, note, broker_state }.
  *
  * @param {object} row    Manifest row
  * @param {object} brokerState  { qty, avgCost } | null (null = ticker
  *                              not in broker positions)
- * @param {object} cfg    { tolerance, mode }
+ * @param {object} cfg    { tolerance, mode, claimed_elsewhere_qty? }
  */
 export function classifyDrift(row, brokerState, cfg = {}) {
   const tolerance = Number(cfg.tolerance) || TOLERANCE.trader_equity;
@@ -169,7 +193,12 @@ export function classifyDrift(row, brokerState, cfg = {}) {
     ? expectedBrokerQty
     : modelQty;
 
-  const brokerQty = Number(brokerState?.qty) || 0;
+  const rawBrokerQty = Number(brokerState?.qty) || 0;
+  const claimedElsewhere = Math.max(0, Number(cfg.claimed_elsewhere_qty) || 0);
+  // CLOSED rows only see residual after OPEN rows (other modes) claim.
+  const brokerQty = (modelStatus === "CLOSED" || modelStatus === "EXPIRED")
+    ? Math.max(0, rawBrokerQty - claimedElsewhere)
+    : rawBrokerQty;
   const brokerAvgCost = Number(brokerState?.avgCost) || 0;
 
   // Model has been CLOSED — either broker_orphan (broker still holds)
@@ -181,16 +210,27 @@ export function classifyDrift(row, brokerState, cfg = {}) {
         sync_state: SYNC_STATES.BROKER_ORPHAN,
         drift_detected: true,
         severity: _orphanSeverity(row),
-        note: `model_${modelStatus.toLowerCase()} but broker holds ${brokerQty}`,
-        broker_state: { qty: brokerQty, avgCost: brokerAvgCost, expected: 0 },
+        note: claimedElsewhere > 0
+          ? `model_${modelStatus.toLowerCase()} but broker holds ${brokerQty} residual (${rawBrokerQty} live, ${claimedElsewhere} claimed by open rows)`
+          : `model_${modelStatus.toLowerCase()} but broker holds ${brokerQty}`,
+        // qty = residual attributed to THIS closed row (not full account).
+        broker_state: {
+          qty: brokerQty, avgCost: brokerAvgCost, expected: 0,
+          account_qty: rawBrokerQty, claimed_elsewhere: claimedElsewhere,
+        },
       };
     }
     return {
       sync_state: SYNC_STATES.IN_SYNC,
       drift_detected: false,
       severity: "info",
-      note: `model_${modelStatus.toLowerCase()} and broker flat — consistent`,
-      broker_state: { qty: 0, avgCost: 0, expected: 0 },
+      note: claimedElsewhere > 0 && rawBrokerQty > 0
+        ? `model_${modelStatus.toLowerCase()} — broker qty claimed by open rows (${claimedElsewhere}); residual flat — consistent`
+        : `model_${modelStatus.toLowerCase()} and broker flat — consistent`,
+      broker_state: {
+        qty: 0, avgCost: 0, expected: 0,
+        account_qty: rawBrokerQty, claimed_elsewhere: claimedElsewhere,
+      },
     };
   }
 
@@ -639,6 +679,18 @@ async function _persistRowUpdate(env, row, classification) {
       newSuppressedAt,
       newSuppressedReason ? String(newSuppressedReason).slice(0, 200) : null,
     ).run();
+    // Keep the in-memory row aligned with what we just wrote.
+    // emitDriftNotification reads sync_state / sync_note from this object;
+    // leaving them stale produced WARN emails that said "in_sync …
+    // consistent" while severity was warn (NVDA 2026-07-31).
+    row.sync_state = newSyncState;
+    row.sync_note = noteShort;
+    row.sync_drift_count = newDriftCount;
+    if (heldQty !== null) row.broker_remaining_qty = heldQty;
+    if (filledUpdate !== null) row.broker_filled_qty = filledUpdate;
+    row.mirror_suppressed = newSuppressed;
+    row.mirror_suppressed_at = newSuppressedAt;
+    row.mirror_suppressed_reason = newSuppressedReason;
     return true;
   } catch (e) {
     console.warn(`[RECONCILER] persist failed for ${row.user_id}/${row.trade_id}:`,
@@ -867,6 +919,9 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
 
   const positionsByTicker = _indexByTicker(equityRes?.positions || equityRes?.results || []);
   const optionsByContract = _indexOptionsByContract(optionsRes?.positions || optionsRes?.results || []);
+  // OPEN-mode claims (investor + trader) so CLOSED rows don't orphan
+  // shares that belong to another mode on the same brokerage account.
+  const openClaimsByTicker = claimedOpenEquityByTicker(rows);
 
   // Per (mode × instrument) tolerance.
   function _tolerance(row) {
@@ -896,8 +951,16 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       // Equity (Trader or Investor). For Investor DCA-tracked rows
       // we also surface the aggregate filled / pending tranche count
       // in sync_note so MC can render it without parsing the JSON.
-      const brokerState = positionsByTicker.get(String(row.ticker || "").toUpperCase()) || null;
-      classification = classifyDrift(row, brokerState, { tolerance: _tolerance(row) });
+      const tickerKey = String(row.ticker || "").toUpperCase();
+      const brokerState = positionsByTicker.get(tickerKey) || null;
+      const modelStatus = String(row.model_status || "OPEN").toUpperCase();
+      const claimedElsewhere = (modelStatus === "CLOSED" || modelStatus === "EXPIRED")
+        ? (openClaimsByTicker.get(tickerKey) || 0)
+        : 0;
+      classification = classifyDrift(row, brokerState, {
+        tolerance: _tolerance(row),
+        claimed_elsewhere_qty: claimedElsewhere,
+      });
       if (isInvestor && row.dca_tranches) {
         const dca = aggregateDcaTranches(row);
         if (dca.pendingTranches > 0) {
@@ -968,7 +1031,14 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       const sev = classification.severity || "warn";
       if (sev === "warn" || sev === "critical") {
         try {
-          const dispatchRes = await emitDriftNotification(env, row, sev);
+          // Prefer classification fields even if persist somehow skipped
+          // the in-memory update — never email stale sync_state/note.
+          const notifyRow = {
+            ...row,
+            sync_state: classification.sync_state || row.sync_state,
+            sync_note: classification.note || row.sync_note,
+          };
+          const dispatchRes = await emitDriftNotification(env, notifyRow, sev);
           if (dispatchRes?.dispatched) {
             stats.notifications_dispatched = (stats.notifications_dispatched || 0) + 1;
           } else {

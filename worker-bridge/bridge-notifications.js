@@ -18,6 +18,11 @@
 // Operator Discord webhook is best-effort: the env var
 // BROKER_OPERATOR_DISCORD_WEBHOOK_URL is checked, and a failure to
 // post never blocks the reconcile cycle.
+//
+// 2026-07-31 — Drift emails:
+//   - Never notify on in_sync / "consistent" (false WARN noise).
+//   - Queue structured `event` fields so the main-worker drain can
+//     coalesce many tickers into ONE Mirror Sync digest email.
 
 import { listConnectedUsers } from "./bridge-storage.js";
 
@@ -26,6 +31,9 @@ const DEDUP_WINDOW_MS = {
   warn: 24 * 60 * 60 * 1000,   // one warn per trade per day
   critical: 0,                 // no dedup — every critical event fires
 };
+
+/** Sync states that are healthy / informational — never email immediately. */
+const NO_EMAIL_SYNC_STATES = new Set(["in_sync", "pending", ""]);
 
 /**
  * Decide whether a fresh drift event should dispatch a notification or
@@ -37,6 +45,15 @@ const DEDUP_WINDOW_MS = {
 export function shouldDispatchDriftNotification(row, severity) {
   const sev = String(severity || "").toLowerCase();
   if (!["info", "warn", "critical"].includes(sev)) return { dispatch: false, reason: "invalid_severity" };
+
+  // 2026-07-31 — Never page "model closed and broker flat — consistent"
+  // as WARN. That state is healthy; stale-row emits used to surface it.
+  const syncState = String(row?.sync_state || "").toLowerCase();
+  const note = String(row?.sync_note || "");
+  if (NO_EMAIL_SYNC_STATES.has(syncState) || /\bconsistent\b/i.test(note)) {
+    return { dispatch: false, reason: "in_sync_no_notify" };
+  }
+
   if (sev === "critical") return { dispatch: true, reason: "critical_no_dedup" };
   const lastTs = Number(row?.last_user_notified_at) || 0;
   const lastSev = String(row?.notification_severity || "").toLowerCase();
@@ -50,11 +67,30 @@ export function shouldDispatchDriftNotification(row, severity) {
   return { dispatch: true, reason: lastTs === 0 ? "first_emit" : "dedup_window_expired" };
 }
 
+/** Plain-language guidance for a sync state (compliance: no "you/your"). */
+export function meaningForSyncState(syncState) {
+  switch (String(syncState || "").toLowerCase()) {
+    case "partial_fill":
+      return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";
+    case "broker_orphan":
+      return "The model CLOSED this trade but the broker still holds a position. Close the leftover shares at the broker, or contact support.";
+    case "mothership_orphan":
+      return "The position was closed manually at the broker. The mirror is suppressed for this trade; no further actions will be sent.";
+    case "reconcile_error":
+      return "The bridge could not fetch broker positions on the last cycle. It will retry automatically; persistent failures escalate.";
+    case "expired":
+      return "This options trade has expired. The manifest is archived.";
+    case "untracked":
+      return "Broker holdings are not tied to an open model trade. Review Mission Control before acting.";
+    default:
+      return "Mirror sync needs attention. Review the broker connection in Mission Control.";
+  }
+}
+
 /**
- * Build a compact email body describing the drift event. Returns
- * { subject, text, html }. The actual SendGrid send happens on the
- * MAIN worker (bridge worker doesn't have SENDGRID_API_KEY) so this
- * function only renders content.
+ * Build a compact single-event email body (legacy / preview). Returns
+ * { subject, text, html }. The drain path prefers the consolidated
+ * digest in worker/email.js (`buildMirrorSyncDigestEmail`).
  */
 export function buildDriftEmailContent(row, severity) {
   const sev = String(severity || "").toUpperCase();
@@ -76,27 +112,58 @@ export function buildDriftEmailContent(row, severity) {
     `Detail:   ${note}`,
     "",
     "What this means:",
+    meaningForSyncState(syncState),
   ];
 
-  if (syncState === "partial_fill") {
-    lines.push("The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally (BROKER_PARTIAL_FILL_MODE=scale).");
-  } else if (syncState === "broker_orphan") {
-    lines.push("The model has CLOSED this trade but the broker still holds the position. Please close it manually at your broker or contact support.");
-  } else if (syncState === "mothership_orphan") {
-    lines.push("You closed this position manually at the broker. The mirror is suppressed for this trade; no further actions will be sent.");
-  } else if (syncState === "reconcile_error") {
-    lines.push("The bridge couldn't fetch your broker positions on the last cycle. We'll retry automatically; persistent failures will escalate.");
-  } else if (syncState === "expired") {
-    lines.push("This options trade has expired. Manifest archived.");
-  }
-
   const text = `${subject}\n\n${lines.join("\n")}\n\nReview: https://timed-trading.com/account/brokers\n`;
-  const html = `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.55;color:#1f2937;max-width:560px">
-    <h2 style="margin:0 0 10px;color:${sev === "CRITICAL" ? "#b91c1c" : "#a16207"}">${subject.replace(/^\[Timed Trading\] /, "")}</h2>
-    <pre style="background:#f3f4f6;padding:12px;border-radius:6px;font-family:Menlo,Monaco,monospace;font-size:12px;white-space:pre-wrap">${lines.join("\n")}</pre>
-    <p><a href="https://timed-trading.com/account/brokers" style="color:#2563eb">Review in Mission Control →</a></p>
+  // Preview fallback (dark brand tones). Production drain prefers
+  // worker/email.js `buildMirrorSyncDigestEmail` for the live send.
+  const accent = sev === "CRITICAL" ? "#ef4444" : "#f59e0b";
+  const html = `<div style="font-family:'Helvetica Neue',Arial,sans-serif;font-size:13px;line-height:1.55;color:#e5e7eb;max-width:560px;background:#0b0e11;padding:20px">
+    <div style="background:#111318;border:1px solid #1e2128;border-radius:12px;padding:24px 22px">
+      <h2 style="margin:0 0 12px;color:${accent};font-family:Georgia,serif;font-size:20px">${subject.replace(/^\[Timed Trading\] /, "")}</h2>
+      <pre style="background:#0b0e11;padding:12px;border-radius:8px;border:1px solid #1e2128;font-family:Menlo,Monaco,monospace;font-size:12px;white-space:pre-wrap;color:#9ca3af">${lines.join("\n")}</pre>
+      <p style="margin:14px 0 0"><a href="https://timed-trading.com/account/brokers" style="color:#00c853;font-weight:700;text-decoration:none">Review in Mission Control →</a></p>
+    </div>
   </div>`;
   return { subject, text, html };
+}
+
+/** Normalize a queued notify item into a digest event row. */
+export function notifyItemToEvent(item) {
+  if (!item || typeof item !== "object") return null;
+  const ev = item.event && typeof item.event === "object" ? item.event : null;
+  const ticker = String(ev?.ticker || item.ticker || "").toUpperCase();
+  const syncState = String(ev?.sync_state || item.sync_state || "").toLowerCase();
+  if (!ticker && !syncState) return null;
+  return {
+    severity: String(item.severity || "warn").toLowerCase(),
+    ticker: ticker || "—",
+    mode: String(ev?.mode || item.mode || "trader"),
+    instrument_type: String(ev?.instrument_type || item.instrument_type || "equity"),
+    options_structure: ev?.options_structure || item.options_structure || null,
+    sync_state: syncState || "unknown",
+    sync_note: String(ev?.sync_note || item.sync_note || ""),
+    trade_id: item.trade_id || ev?.trade_id || null,
+    broker_account_id: item.broker_account_id || ev?.broker_account_id || null,
+    broker_remaining_qty: ev?.broker_remaining_qty ?? item.broker_remaining_qty ?? null,
+    ts: item.ts || Date.now(),
+  };
+}
+
+/**
+ * Group drained queue items by recipient (user_email || user_id).
+ * Pure — used by the main-worker drain to coalesce into one email.
+ */
+export function groupNotifyItemsByUser(items) {
+  const map = new Map();
+  for (const item of items || []) {
+    const key = String(item?.user_email || item?.user_id || "").toLowerCase().trim();
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
 }
 
 /**
@@ -190,20 +257,30 @@ export async function emitDriftNotification(env, row, severity) {
       if (r.ok) channels.push("operator_discord");
     } catch (_) {}
   }
-  // Enqueue user-email payload in KV; the MAIN worker drains the queue
-  // on its own cron (it has SENDGRID_API_KEY + the unsubscribe HMAC
-  // secret bound). This indirection keeps secret surface area in one
-  // place and lets the email cron coalesce multiple events per user.
+  // Enqueue structured event + legacy content. Main-worker drain
+  // coalesces all events for a user into ONE Mirror Sync digest.
   const KV = env?.BRIDGE_KV;
   if (KV) {
     try {
       const queueKey = `bridge:notify:queue:${Date.now()}:${row.user_id}:${row.trade_id}`;
+      const event = {
+        ticker: row.ticker || null,
+        mode: row.mode || null,
+        instrument_type: row.instrument_type || null,
+        options_structure: row.options_structure || null,
+        sync_state: row.sync_state || null,
+        sync_note: row.sync_note || null,
+        trade_id: row.trade_id || null,
+        broker_account_id: row.broker_account_id || null,
+        broker_remaining_qty: row.broker_remaining_qty ?? null,
+      };
       await KV.put(queueKey, JSON.stringify({
         user_id: row.user_id,
         trade_id: row.trade_id,
         broker_account_id: row.broker_account_id,
         severity,
         ts: Date.now(),
+        event,
         content: buildDriftEmailContent(row, severity),
       }), { expirationTtl: 7 * 86400 });
       channels.push("user_email_queued");
@@ -365,38 +442,28 @@ export function renderDailyOwnerDigestEmail(digest) {
   const subject = `[Timed Trading] Your account today — ${digest.executed.length} trade${digest.executed.length === 1 ? "" : "s"}, ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`;
 
   const tradeLines = digest.executed.map(t => {
-    const et = new Date(Number(t.ts)).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York", hour12: false });
     const side = String(t.side || "").toUpperCase();
-    const value = t.estimated_value ? `$${Number(t.estimated_value).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : "?";
-    return `  ${et} ET   ${side.padEnd(5)} ${Number(t.qty) || "?"} sh  ${t.ticker} @ $${Number(t.price_target).toFixed(2)} = ${value}`;
+    const qty = Number(t.qty) || 0;
+    const px = t.price_target != null ? ` @ $${Number(t.price_target).toFixed(2)}` : "";
+    return `  ${side} ${qty} ${t.ticker}${px}`;
   });
-
-  const positionLines = (digest.positions || []).map(p => {
-    const ticker = String(p.contractDesc ?? p.symbol ?? p.ticker ?? "—").toUpperCase();
-    const qty = Number(p.position ?? p.qty ?? 0);
-    const avg = Number(p.avgCost ?? p.avg_cost ?? 0);
-    const upl = Number(p.unrealizedPnl ?? p.unrealized_pnl ?? 0);
-    const uplSign = upl >= 0 ? "+" : "";
-    return `  ${ticker.padEnd(5)} ${String(qty).padEnd(5)} sh   avg $${avg.toFixed(2)}   unrealized ${uplSign}$${Math.abs(upl).toFixed(0)}`;
+  const positionLines = (digest.positions || []).slice(0, 30).map(p => {
+    const qty = Number(p.qty ?? p.position ?? p.quantity) || 0;
+    const pnl = Number(p.unrealizedPnl ?? p.unrealized_pnl) || 0;
+    const sign = pnl >= 0 ? "+" : "";
+    return `  ${String(p.symbol || p.ticker || "?").toUpperCase()}  ${qty} sh  ${sign}$${pnl.toFixed(2)}`;
   });
-
-  const watchLines = (digest.open_trades || []).map(t => {
-    const left = `${t.ticker} (${t.mode}/${t.instrument_type}${t.options_structure ? ":" + t.options_structure : ""})`;
-    return `  • ${left.padEnd(34)} model ${t.model_intended_qty || "?"} | broker ${t.broker_remaining_qty || "?"} | ${t.sync_state}`;
-  });
+  const watchLines = (digest.open_trades || []).slice(0, 15).map(t =>
+    `  ${t.ticker} · ${t.mode}/${t.instrument_type}${t.options_structure ? `:${t.options_structure}` : ""} · ${t.sync_state}`,
+  );
 
   const text = [
     subject,
     "",
-    `Hi ${digest.user_display_name},`,
-    "",
-    `Here's what happened in your ${digest.broker} account${digest.broker_account_id ? ` ${digest.broker_account_id}` : ""} today.`,
-    "",
     "═══════════════════════════════════════════════",
-    `EXECUTED TRADES (${digest.executed.length})`,
+    `EXECUTED TODAY (${digest.executed.length})`,
     "═══════════════════════════════════════════════",
-    ...(tradeLines.length > 0 ? tradeLines : ["  (no trades today)"]),
-    "",
+    ...(tradeLines.length > 0 ? tradeLines : ["  (no fills)"]),
     digest.rejected_count > 0 ? `(${digest.rejected_count} order(s) rejected at preflight — see audit log)` : "",
     "",
     "═══════════════════════════════════════════════",
@@ -424,8 +491,8 @@ export function renderDailyOwnerDigestEmail(digest) {
       "SYSTEM HEALTH (sanity sweep)",
       "═══════════════════════════════════════════════",
       `  ${digest.sanity_summary.ok_count} checks ok · ${digest.sanity_summary.warn_count} warn · ${digest.sanity_summary.fail_count} fail${digest.sanity_summary.age_minutes != null ? ` (sweep ${digest.sanity_summary.age_minutes}min old)` : ""}`,
-      ...(digest.sanity_summary.failing_checks || []).map(c => `  ⛔ ${c.label} — ${c.anomaly}`),
-      ...(digest.sanity_summary.warning_checks || []).slice(0, 4).map(c => `  ⚠️ ${c.label} — ${c.anomaly}`),
+      ...(digest.sanity_summary.failing_checks || []).map(c => `  FAIL ${c.label} — ${c.anomaly}`),
+      ...(digest.sanity_summary.warning_checks || []).slice(0, 4).map(c => `  WARN ${c.label} — ${c.anomaly}`),
       "",
     ] : []),
     "═══════════════════════════════════════════════",
@@ -437,14 +504,14 @@ export function renderDailyOwnerDigestEmail(digest) {
     "",
     "— The Timed Trading System",
     "",
-    "You're receiving this because your broker account is connected to",
+    "This digest is sent because a broker account is connected to",
     "Timed Trading. To stop these digests: settings → email preferences",
     "→ daily account digest.",
   ].filter(Boolean).join("\n");
 
   const _esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6;color:#1f2937;max-width:640px">
-    <h2 style="margin:0 0 8px">Your account today</h2>
+    <h2 style="margin:0 0 8px">Account today</h2>
     <p style="color:#6b7280;margin:0 0 16px">${digest.broker}${digest.broker_account_id ? ` · ${_esc(digest.broker_account_id)}` : ""}</p>
     <div style="background:${digest.day_pnl.total >= 0 ? "#ecfdf5" : "#fef2f2"};border-left:4px solid ${digest.day_pnl.total >= 0 ? "#10b981" : "#ef4444"};padding:12px 14px;margin:0 0 14px;border-radius:4px">
       <div style="font-size:22px;font-weight:700;color:${digest.day_pnl.total >= 0 ? "#065f46" : "#991b1b"}">${totalSign}${totalUsd} (${totalSign}${pctOfEquity})</div>
@@ -457,11 +524,10 @@ export function renderDailyOwnerDigestEmail(digest) {
 }
 
 /**
- * Drain the bridge_notify queue and emit one digest payload per user
- * with their queued events appended to the body. Caller (main worker
- * email cron) is responsible for the actual SendGrid send.
+ * Drain the bridge_notify queue. Caller (main worker email cron)
+ * coalesces items per user into one Mirror Sync digest and sends.
  *
- * Returns Array<{user_id, severity, content, ...}> ready to send.
+ * Returns Array<{user_id, severity, event?, content, ...}> ready to send.
  */
 export async function drainNotifyQueue(env, { limit = 200 } = {}) {
   const KV = env?.BRIDGE_KV;
