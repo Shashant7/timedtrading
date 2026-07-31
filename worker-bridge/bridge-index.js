@@ -878,8 +878,11 @@ export default {
         if (operatorFail) return operatorFail;
         const body = await req.json().catch(() => ({}));
         const limit = Number(body?.limit) || 200;
-        const items = await drainNotifyQueue(env, { limit });
-        return json({ ok: true, count: items.length, items });
+        // peek=true when the main worker is previewing (send !== true) so
+        // we don't wipe the queue without delivering.
+        const peek = body?.peek === true || body?.send === false;
+        const items = await drainNotifyQueue(env, { limit, peek });
+        return json({ ok: true, count: items.length, items, peek: !!peek });
       }
 
       // 2026-06-01 — Phase E: daily owner digest preview/build. Returns

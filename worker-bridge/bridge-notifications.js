@@ -7,13 +7,14 @@
 //
 //   info     → bundled into the Daily Owner Email digest (no immediate dispatch)
 //   warn     → immediate email to user + in-app banner; dedup'd 1×/day/trade
-//   critical → immediate email + operator Discord webhook (no dedup)
+//   critical → immediate email + operator Discord (also dedup'd 1×/day/trade)
 //
 // Called from the reconciler (`bridge-reconciler.js`) whenever a drift
 // classification is persisted with severity ≥ warn. Dedup state lives
 // on the manifest row (`last_user_notified_at`, `notification_severity`)
 // so we don't spam the user with "still partial fill" emails every
-// 5 minutes.
+// 5 minutes. Critical used to bypass dedup and re-queued on every
+// */5 reconcile → Mirror Sync digests every 5 minutes (2026-07-31).
 //
 // Operator Discord webhook is best-effort: the env var
 // BROKER_OPERATOR_DISCORD_WEBHOOK_URL is checked, and a failure to
@@ -29,7 +30,7 @@ import { listConnectedUsers } from "./bridge-storage.js";
 const DEDUP_WINDOW_MS = {
   info: 24 * 60 * 60 * 1000,   // daily digest cadence
   warn: 24 * 60 * 60 * 1000,   // one warn per trade per day
-  critical: 0,                 // no dedup — every critical event fires
+  critical: 24 * 60 * 60 * 1000, // one critical per trade per day (chronic orphans)
 };
 
 /** Sync states that are healthy / informational — never email immediately. */
@@ -46,6 +47,11 @@ export function shouldDispatchDriftNotification(row, severity) {
   const sev = String(severity || "").toLowerCase();
   if (!["info", "warn", "critical"].includes(sev)) return { dispatch: false, reason: "invalid_severity" };
 
+  // Already auto-suppressed — operator was notified; stop the 5-min spam.
+  if (Number(row?.mirror_suppressed) === 1) {
+    return { dispatch: false, reason: "mirror_suppressed" };
+  }
+
   // 2026-07-31 — Never page "model closed and broker flat — consistent"
   // as WARN. That state is healthy; stale-row emits used to surface it.
   const syncState = String(row?.sync_state || "").toLowerCase();
@@ -54,13 +60,18 @@ export function shouldDispatchDriftNotification(row, severity) {
     return { dispatch: false, reason: "in_sync_no_notify" };
   }
 
-  if (sev === "critical") return { dispatch: true, reason: "critical_no_dedup" };
   const lastTs = Number(row?.last_user_notified_at) || 0;
   const lastSev = String(row?.notification_severity || "").toLowerCase();
   const window = DEDUP_WINDOW_MS[sev] || 0;
-  // Escalate-without-dedup: warn → critical always dispatches even if
-  // a warn was sent recently.
-  if (sev === "warn" && lastSev === "critical") return { dispatch: false, reason: "downgrade_from_critical_skipped" };
+  // Downgrade after critical: don't re-page as warn inside the window.
+  if (sev === "warn" && lastSev === "critical") {
+    return { dispatch: false, reason: "downgrade_from_critical_skipped" };
+  }
+  // Escalate warn → critical once inside the window (severity change).
+  if (sev === "critical" && lastSev === "warn" && lastTs > 0
+      && window > 0 && (Date.now() - lastTs) < window) {
+    return { dispatch: true, reason: "escalate_warn_to_critical" };
+  }
   if (window > 0 && lastTs > 0 && (Date.now() - lastTs) < window) {
     return { dispatch: false, reason: `dedup_within_${window / 1000}s` };
   }
@@ -529,7 +540,7 @@ export function renderDailyOwnerDigestEmail(digest) {
  *
  * Returns Array<{user_id, severity, event?, content, ...}> ready to send.
  */
-export async function drainNotifyQueue(env, { limit = 200 } = {}) {
+export async function drainNotifyQueue(env, { limit = 200, peek = false } = {}) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return [];
   try {
@@ -541,8 +552,8 @@ export async function drainNotifyQueue(env, { limit = 200 } = {}) {
       try {
         out.push(JSON.parse(raw));
       } catch (_) {}
-      // One-shot: delete after read.
-      await KV.delete(k.name).catch(() => {});
+      // One-shot delete after read — unless peek/preview (send=false).
+      if (!peek) await KV.delete(k.name).catch(() => {});
     }
     return out;
   } catch (e) {

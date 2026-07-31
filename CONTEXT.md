@@ -561,6 +561,11 @@ playbook in `skills/security-auth-patterns.md`)**
   monolith; health samples are prioritized in the refresh budget.
   `GET /timed/admin/fundamentals` needs a logged-in Pro session
   (`authentication_required` from a bare `?key=` curl is expected).
+- **Mirror Sync email spam (2026-07-31)**: Critical drift used to skip
+  dedup → every */5 reconcile re-queued orphans → digests every 5 min.
+  Dedup critical 24h like warn; skip `mirror_suppressed=1` rows (flag
+  was set but SQL only excluded `sync_state='mirror_suppressed'`). Drain
+  coalesces per user; split emails were cadence drip across drain ticks.
 - **`recordCronFailure` signature**: always pass `{ op, error, caller }`.
   Legacy `recordCronFailure(env, "op", err)` used to page as
   `Cron Failure: unknown` with an empty body (2026-07-31). Adapter now

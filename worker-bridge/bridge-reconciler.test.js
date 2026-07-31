@@ -112,3 +112,43 @@ describe("reconcileUser — fan-out user_id vs manifest base user_id", () => {
     expect(upd.args[3]).toBeNull();          // cumulative fills untouched
   });
 });
+
+describe("reconcileUser — mirror_suppressed column skip", () => {
+  it("does not scan rows with mirror_suppressed=1 (even if sync_state is broker_orphan)", async () => {
+    const suppressed = {
+      ...manifestRow,
+      ticker: "TWLO",
+      trade_id: "TWLO-1",
+      model_status: "CLOSED",
+      sync_state: "broker_orphan",
+      mirror_suppressed: 1,
+      broker_remaining_qty: 1,
+      model_intended_qty: 0,
+    };
+    const db = makeDb({ rows: [suppressed] });
+    // Override all() so the SQL COALESCE(mirror_suppressed)=0 filter is honored.
+    const origPrepare = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      const stmt = origPrepare(sql);
+      const origAll = stmt.all.bind(stmt);
+      stmt.all = async () => {
+        const r = await origAll();
+        if (/COALESCE\(mirror_suppressed/i.test(sql)) {
+          return {
+            results: (r.results || []).filter((row) => Number(row.mirror_suppressed || 0) === 0),
+          };
+        }
+        return r;
+      };
+      return stmt;
+    };
+    const stats = await reconcileUser(
+      { BRIDGE_DB: db },
+      perAccountUser,
+      { async getEquityPositions() { return { ok: true, positions: [{ symbol: "TWLO", qty: 1, avg_cost: 100 }] }; } },
+      {},
+    );
+    expect(stats.rows_scanned).toBe(0);
+    expect(stats.rows_drifting || 0).toBe(0);
+  });
+});

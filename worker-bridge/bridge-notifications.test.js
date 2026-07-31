@@ -34,6 +34,39 @@ describe("shouldDispatchDriftNotification — healthy states", () => {
     }, "warn");
     expect(r.dispatch).toBe(true);
   });
+
+  it("dedups critical within 24h (no 5-min spam)", () => {
+    const r = shouldDispatchDriftNotification({
+      sync_state: "broker_orphan",
+      sync_note: "model_closed but broker holds 1",
+      last_user_notified_at: Date.now() - 60_000,
+      notification_severity: "critical",
+    }, "critical");
+    expect(r.dispatch).toBe(false);
+    expect(r.reason).toMatch(/^dedup_within_/);
+  });
+
+  it("skips already-suppressed rows", () => {
+    const r = shouldDispatchDriftNotification({
+      sync_state: "broker_orphan",
+      sync_note: "model_closed but broker holds 1",
+      mirror_suppressed: 1,
+      last_user_notified_at: 0,
+    }, "critical");
+    expect(r.dispatch).toBe(false);
+    expect(r.reason).toBe("mirror_suppressed");
+  });
+
+  it("allows one escalate from warn to critical inside the window", () => {
+    const r = shouldDispatchDriftNotification({
+      sync_state: "broker_orphan",
+      sync_note: "model_closed but broker holds 1",
+      last_user_notified_at: Date.now() - 60_000,
+      notification_severity: "warn",
+    }, "critical");
+    expect(r.dispatch).toBe(true);
+    expect(r.reason).toBe("escalate_warn_to_critical");
+  });
 });
 
 describe("notify coalesce helpers", () => {
