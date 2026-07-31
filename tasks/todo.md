@@ -22,7 +22,7 @@
 
 ### Active
 
-- [ ] **Cron failure triage — unknown + macro SPY + D1 overload (2026-07-31).**
+- [x] **Cron failure triage — unknown + macro SPY + D1 overload (2026-07-31).**
       Discord system-alerts: COO calibration BLOCKED (D1 overloaded),
       `Cron Failure: unknown` with empty body, `macro_cross_asset_refresh`
       `benchmark_SPY_not_loaded`. Root: D1 storm at nightly +
