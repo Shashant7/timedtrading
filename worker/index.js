@@ -99606,17 +99606,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // Per-event investor alerts unchanged; this is the weekend review
         // in one email (holdings, the week's actions, graded calls,
         // accumulation radar). Deterministic — no LLM.
-        ctx.waitUntil(
-          sendInvestorWeeklyDigest(env)
-            .then((r) => {
-              console.log(`[INVESTOR DIGEST] Friday weekly: sent=${r.sent ?? 0}/${r.recipients ?? 0}`);
-              return recordCronSuccess(env, "investor_weekly_digest").catch(() => {});
-            })
-            .catch((e) => {
-              console.warn(`[INVESTOR DIGEST] Failed:`, String(e?.message || e).slice(0, 200));
-              return recordCronFailure(env, { op: "investor_weekly_digest", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
-            })
-        );
+        //
+        // 2026-08-01 — Skip on tt-engine. This block lives on the */5
+        // path; when ENGINE_ENABLED, both monolith and engine used to
+        // fire → duplicate "Week in Review" emails. sendInvestorWeeklyDigest
+        // also claims a per-week KV lock as defense-in-depth.
+        if (!_isDedicatedEngine) {
+          ctx.waitUntil(
+            sendInvestorWeeklyDigest(env)
+              .then((r) => {
+                console.log(`[INVESTOR DIGEST] Friday weekly: sent=${r.sent ?? 0}/${r.recipients ?? 0} skipped=${r.skipped || "no"}`);
+                return recordCronSuccess(env, "investor_weekly_digest").catch(() => {});
+              })
+              .catch((e) => {
+                console.warn(`[INVESTOR DIGEST] Failed:`, String(e?.message || e).slice(0, 200));
+                return recordCronFailure(env, { op: "investor_weekly_digest", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+              })
+          );
+        }
       }
     }
 

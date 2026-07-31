@@ -566,6 +566,11 @@ playbook in `skills/security-auth-patterns.md`)**
   Dedup critical 24h like warn; skip `mirror_suppressed=1` rows (flag
   was set but SQL only excluded `sync_state='mirror_suppressed'`). Drain
   coalesces per user; split emails were cadence drip across drain ticks.
+- **Week in Review duplicate emails (2026-08-01)**: Friday
+  `sendInvestorWeeklyDigest` sits on the */5 path with no send lock —
+  monolith + tt-engine both fired. Claim
+  `timed:investor:weekly-digest:sent:{YYYY-Www}` before send; skip the
+  digest on `_isDedicatedEngine`; dedupe opted-in emails.
 - **`recordCronFailure` signature**: always pass `{ op, error, caller }`.
   Legacy `recordCronFailure(env, "op", err)` used to page as
   `Cron Failure: unknown` with an empty body (2026-07-31). Adapter now
