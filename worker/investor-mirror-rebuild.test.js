@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   evaluateMirrorRebuildGate,
   rebuildSliceShares,
+  buildEthBuyExecution,
+  annotateRebuildExecution,
   REBUILD_MIN_VS_ENTRY_PCT,
   REBUILD_MAX_VS_ENTRY_PCT,
 } from "./investor-catchup-gates.js";
@@ -168,5 +170,49 @@ describe("planMirrorRebuildOps", () => {
       },
     });
     expect(out.planned.map((p) => p.ticker)).toEqual(["BBB", "AAA"]);
+  });
+});
+
+describe("buildEthBuyExecution / annotateRebuildExecution", () => {
+  it("builds LIMIT + GTC + ALL and floors to whole shares", () => {
+    const r = buildEthBuyExecution({ livePrice: 501.953, shares: 3.98446 });
+    expect(r.ok).toBe(true);
+    expect(r.shares).toBe(3);
+    expect(r.order_kind).toBe("limit");
+    expect(r.limit_price).toBe(501.95);
+    expect(r.tif).toBe("GTC");
+    expect(r.support_trading_session).toBe("ALL");
+  });
+
+  it("rejects sub-1 share ETH (Webull fractionals are RTH-only)", () => {
+    const r = buildEthBuyExecution({ livePrice: 2000, shares: 0.8 });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe("eth_whole_share_zero");
+  });
+
+  it("annotateRebuildExecution uses market/DAY/CORE in RTH", () => {
+    const { op } = annotateRebuildExecution(
+      { ticker: "NVDA", shares: 10.2, price: 195.15 },
+      { marketOpen: true },
+    );
+    expect(op.order_kind).toBe("market");
+    expect(op.tif).toBe("DAY");
+    expect(op.support_trading_session).toBe("CORE");
+    expect(op.eth).toBe(false);
+    expect(op.shares).toBe(10.2);
+  });
+
+  it("annotateRebuildExecution floors + stamps ETH fields outside RTH", () => {
+    const { op } = annotateRebuildExecution(
+      { ticker: "NVDA", shares: 10.24853, price: 195.15, notional_usd: 2000 },
+      { marketOpen: false },
+    );
+    expect(op.eth).toBe(true);
+    expect(op.shares).toBe(10);
+    expect(op.shares_frac).toBeCloseTo(10.24853, 5);
+    expect(op.order_kind).toBe("limit");
+    expect(op.limit_price).toBe(195.15);
+    expect(op.tif).toBe("GTC");
+    expect(op.support_trading_session).toBe("ALL");
   });
 });

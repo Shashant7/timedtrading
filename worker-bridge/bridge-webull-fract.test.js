@@ -30,6 +30,17 @@ describe("classifyWebullFractError — live HALO/RPG/RTX repro", () => {
       response: { error_code: "INSUFFICIENT_BUYING_POWER", message: "buying power too low" },
     });
     expect(r.isFractAgreementError).toBe(false);
+    expect(r.isFractHoursError).toBe(false);
+  });
+
+  it("detects fractional-outside-RTH hours reject (AMAT ETH 2026-07-30)", () => {
+    const r = classifyWebullFractError({
+      ok: false,
+      error: "You cannot place fractional share orders at this moment. Fractional shares trading is only available during regular trading hours: 9:30 a.m. - 4:00 p.m. ET (Business Day).",
+    });
+    expect(r.isFractHoursError).toBe(true);
+    expect(r.isFractAgreementError).toBe(false);
+    expect(r.errorCode).toBe("FRACTIONAL_OUTSIDE_RTH");
   });
 
   it("does NOT match a successful place (ok:true)", () => {

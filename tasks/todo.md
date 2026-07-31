@@ -22,6 +22,16 @@
 
 ### Active
 
+- [x] **ETH rebuild execution — LIMIT + GTC + ALL session (2026-07-30).**
+      After #1188 merge, Roth rebuild dry-run plans 12 names during ETH.
+      Webull needs `order_type=LIMIT`, `time_in_force=GTC`,
+      `support_trading_session=ALL`, and whole shares (fractionals are
+      RTH-only). Wire rebuild → forwardInvestorMirror → bridge →
+      `buildOrderBody`. Live ETH places: TWLO/PLTR/NVDA/BNY/EXEL
+      (whole-share GTC LIMIT ALL). Expensive names (AMAT/LLY/…) correctly
+      reject `account_too_small_for_one_share` until RTH fractionals.
+      Branch: `cursor/eth-limit-gtc-rebuild-df0c` (PR #1189).
+
 - [x] **Cron failure triage — unknown + macro SPY + D1 overload (2026-07-31).**
       Discord system-alerts: COO calibration BLOCKED (D1 overloaded),
       `Cron Failure: unknown` with empty body, `macro_cross_asset_refresh`

@@ -12,10 +12,12 @@
  */
 
 import { forwardInvestorMirror } from "./broker-bridge-client.js";
+import { isNyRegularMarketOpenStatic } from "./market-calendar.js";
 import {
   evaluateMirrorRebuildGate,
   rebuildSliceShares,
   resolveCatchupLivePrice,
+  annotateRebuildExecution,
   REBUILD_MIN_VS_ENTRY_PCT,
   REBUILD_MAX_VS_ENTRY_PCT,
   REBUILD_MIN_SCORE,
@@ -283,6 +285,27 @@ export async function runMirrorRebuild(env, opts = {}) {
     planned = planned.slice(0, maxOps);
   }
 
+  // Session-aware broker execution. Outside RTH (ETH/overnight) Webull
+  // needs LIMIT + GTC + support_trading_session=ALL, and rejects fractionals.
+  const marketOpen = opts.market_open != null
+    ? opts.market_open === true
+    : isNyRegularMarketOpenStatic();
+  const skipped = [...(plannedFull.skipped || [])];
+  const plannedExec = [];
+  for (const op of planned) {
+    const ann = annotateRebuildExecution(op, { marketOpen });
+    if (!ann.op) {
+      skipped.push({
+        ...op,
+        skip_reason: ann.skip_reason || "eth_exec_invalid",
+        detail: ann.detail || null,
+      });
+      continue;
+    }
+    plannedExec.push(ann.op);
+  }
+  planned = plannedExec;
+
   const results = [];
   if (!dryRun) {
     const retryNonce = String(Date.now());
@@ -291,11 +314,15 @@ export async function runMirrorRebuild(env, opts = {}) {
         ticker: op.ticker,
         kind: "dca",
         shares: op.shares,
-        price: op.price,
+        price: op.limit_price ?? op.price,
         position_id: op.position_id,
         reason: op.reason,
         source,
         retry_nonce: retryNonce,
+        order_kind: op.order_kind || null,
+        limit_price: op.limit_price ?? null,
+        tif: op.tif || null,
+        support_trading_session: op.support_trading_session || null,
       });
       results.push({
         ticker: op.ticker,
@@ -304,6 +331,11 @@ export async function runMirrorRebuild(env, opts = {}) {
         shares: op.shares,
         notional_usd: op.notional_usd,
         vs_entry_pct: op.vs_entry_pct,
+        order_kind: op.order_kind || null,
+        limit_price: op.limit_price ?? null,
+        tif: op.tif || null,
+        support_trading_session: op.support_trading_session || null,
+        eth: !!op.eth,
         ok: !!r?.ok,
         skip: r?.skip || null,
         reject: r?.bridge_reject_reason || r?.error || null,
@@ -318,6 +350,8 @@ export async function runMirrorRebuild(env, opts = {}) {
     ok: true,
     dry_run: dryRun,
     force,
+    market_open: marketOpen,
+    eth_execution: !marketOpen,
     min_vs_entry_pct: minVsEntryPct,
     max_vs_entry_pct: maxVsEntryPct,
     min_score: minScore,
@@ -327,8 +361,8 @@ export async function runMirrorRebuild(env, opts = {}) {
     open_positions: (positions || []).length,
     planned: planned.length,
     planned_ops: planned,
-    skipped: plannedFull.skipped,
-    skipped_count: plannedFull.skipped.length,
+    skipped,
+    skipped_count: skipped.length,
     truncated_ops: truncated,
     broker_qty_by_ticker: brokerQtyByTicker,
     results,

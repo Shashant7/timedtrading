@@ -92,8 +92,22 @@ export function buildOrderBody(user, order, { preview = false } = {}) {
       : String(qty),
     entrust_type: "QTY",
     time_in_force: String(order?.tif || "DAY").toUpperCase(),
-    support_trading_session: "CORE",
+    // CORE = RTH only. ALL = pre/post (ETH). NIGHT = overnight session.
+    // Default CORE so accidental ETH market orders don't slip through;
+    // rebuild / catch-up outside RTH must pass support_trading_session=ALL
+    // with LIMIT + GTC (Webull rejects MARKET in extended hours).
+    support_trading_session: (() => {
+      const raw = String(order?.support_trading_session || "CORE").toUpperCase();
+      return ["CORE", "ALL", "NIGHT", "ALL_DAY"].includes(raw) ? raw : "CORE";
+    })(),
   };
+  // Defensive: ALL/NIGHT session with MARKET + a usable limit → upgrade to
+  // LIMIT so ETH placement is not rejected / silently CORE-only.
+  if ((orderRow.support_trading_session === "ALL" || orderRow.support_trading_session === "NIGHT")
+      && orderType === "MARKET" && hasLimit) {
+    orderType = "LIMIT";
+    orderRow.order_type = "LIMIT";
+  }
   if (orderType === "LIMIT" || orderType === "STOP_LOSS_LIMIT") orderRow.limit_price = String(limitPrice);
   if (orderType === "STOP_LOSS" || orderType === "STOP_LOSS_LIMIT") orderRow.stop_price = String(stopPrice);
   return {

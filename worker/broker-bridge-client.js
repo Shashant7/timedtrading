@@ -206,6 +206,12 @@ export async function forwardInvestorMirror(env, op = {}) {
     ? Number(reducePctRaw)
     : null;
   try {
+    const orderKind = op?.order_kind || op?.order_type || null;
+    const limitPrice = Number(op?.limit_price);
+    const tif = op?.tif != null ? String(op.tif) : null;
+    const tradingSession = op?.support_trading_session != null
+      ? String(op.support_trading_session)
+      : null;
     const result = await forwardOrderToBridge(env, {
       user_id: userEmail,
       trade_id: tradeId,
@@ -225,6 +231,12 @@ export async function forwardInvestorMirror(env, op = {}) {
       vehicle: "equity_long",
       model_capital_usd: modelCapital,
       ...(reducePct != null ? { reduce_pct: reducePct } : {}),
+      // ETH / explicit limit path — Webull needs LIMIT + GTC + ALL session
+      // outside RTH. Omit when unset so RTH keeps planner defaults (market/DAY).
+      ...(orderKind ? { order_kind: String(orderKind) } : {}),
+      ...(Number.isFinite(limitPrice) && limitPrice > 0 ? { limit_price: limitPrice } : {}),
+      ...(tif ? { tif } : {}),
+      ...(tradingSession ? { support_trading_session: tradingSession } : {}),
     });
     return {
       ok: !!result?.ok,
@@ -232,7 +244,10 @@ export async function forwardInvestorMirror(env, op = {}) {
       trade_id: tradeId,
       side,
       qty,
-      bridge_reject_reason: result?.response?.reject_reason || null,
+      bridge_reject_reason: result?.response?.reject_reason
+        || result?.response?.error
+        || result?.error
+        || null,
       bridge_scaled_qty: result?.response?.scaling?.scaled_qty ?? null,
       bridge_scale_reason: result?.response?.scaling?.reason || null,
     };
