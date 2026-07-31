@@ -2892,6 +2892,186 @@ export async function sendInvestorReduceDigest(env, alerts) {
   return { ok: true, sent, recipients: opted.length };
 }
 
+/**
+ * Normalize a drained bridge-notify queue item into a digest event.
+ * Pure — used by notify/drain coalesce + tests.
+ */
+export function notifyItemToMirrorEvent(item) {
+  if (!item || typeof item !== "object") return null;
+  const ev = item.event && typeof item.event === "object" ? item.event : null;
+  const ticker = String(ev?.ticker || item.ticker || "").toUpperCase();
+  const syncState = String(ev?.sync_state || item.sync_state || "").toLowerCase();
+  const note = String(ev?.sync_note || item.sync_note || "");
+  // Defense: never surface healthy "consistent" / in_sync rows in a digest.
+  if (!ticker && !syncState) return null;
+  if (syncState === "in_sync" || syncState === "pending" || /\bconsistent\b/i.test(note)) {
+    return null;
+  }
+  return {
+    severity: String(item.severity || "warn").toLowerCase(),
+    ticker: ticker || "—",
+    mode: String(ev?.mode || item.mode || "trader"),
+    instrument_type: String(ev?.instrument_type || item.instrument_type || "equity"),
+    options_structure: ev?.options_structure || item.options_structure || null,
+    sync_state: syncState || "unknown",
+    sync_note: note,
+    trade_id: item.trade_id || ev?.trade_id || null,
+    broker_account_id: item.broker_account_id || ev?.broker_account_id || null,
+    broker_remaining_qty: ev?.broker_remaining_qty ?? item.broker_remaining_qty ?? null,
+    ts: item.ts || Date.now(),
+  };
+}
+
+/** Group drained notify items by recipient email / user_id. */
+export function groupMirrorNotifyItemsByUser(items) {
+  const map = new Map();
+  for (const item of items || []) {
+    const key = String(item?.user_email || item?.content?.to || item?.user_id || "")
+      .toLowerCase().trim();
+    if (!key) continue;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return map;
+}
+
+function _mirrorMeaning(syncState) {
+  switch (String(syncState || "").toLowerCase()) {
+    case "partial_fill":
+      return "The broker filled less than the model intended. Future TRIM/EXIT actions will be scaled proportionally.";
+    case "broker_orphan":
+      return "The model CLOSED this trade but the broker still holds a position. Close the leftover shares at the broker, or contact support.";
+    case "mothership_orphan":
+      return "The position was closed manually at the broker. The mirror is suppressed for this trade; no further actions will be sent.";
+    case "reconcile_error":
+      return "The bridge could not fetch broker positions on the last cycle. It will retry automatically; persistent failures escalate.";
+    case "expired":
+      return "This options trade has expired. The manifest is archived.";
+    case "untracked":
+      return "Broker holdings are not tied to an open model trade. Review Mission Control before acting.";
+    default:
+      return "Mirror sync needs attention. Review the broker connection in Mission Control.";
+  }
+}
+
+function _mirrorSevColor(sev) {
+  const s = String(sev || "").toLowerCase();
+  if (s === "critical") return BRAND.danger;
+  if (s === "warn") return BRAND.warning;
+  return BRAND.textMuted;
+}
+
+function _buildMirrorEventCard(ev) {
+  const sev = String(ev.severity || "warn").toUpperCase();
+  const color = _mirrorSevColor(ev.severity);
+  const ticker = _esc(ev.ticker || "—");
+  const mode = _esc(String(ev.mode || "trader"));
+  const inst = _esc(String(ev.instrument_type || "equity"));
+  const struct = ev.options_structure ? `:${_esc(ev.options_structure)}` : "";
+  const state = _esc(String(ev.sync_state || "unknown").replace(/_/g, " "));
+  const note = _esc(ev.sync_note || "");
+  const meaning = _esc(_mirrorMeaning(ev.sync_state));
+  return `<div style="margin:0 0 12px;padding:14px 16px;border:1px solid ${BRAND.border};border-radius:12px;background:${BRAND.dark}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:18px;font-weight:800;color:${BRAND.textPrimary};letter-spacing:0.02em">${ticker}</div>
+        <div style="font-size:11px;color:${BRAND.textMuted};margin-top:2px">${mode} · ${inst}${struct}</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:10px;font-weight:800;letter-spacing:0.08em;color:${color}">${_esc(sev)}</div>
+        <div style="font-size:12px;font-weight:700;color:${BRAND.textPrimary};margin-top:2px;text-transform:capitalize">${state}</div>
+      </div>
+    </div>
+    ${note ? `<div style="font-family:${EMAIL_FONT_MONO};font-size:12px;color:${BRAND.textSecondary};margin:0 0 8px;line-height:1.45">${note}</div>` : ""}
+    <div style="font-size:12px;color:${BRAND.textSecondary};line-height:1.5"><span style="color:${BRAND.textMuted};font-weight:700">What this means:</span> ${meaning}</div>
+  </div>`;
+}
+
+/**
+ * Build one consolidated Mirror Sync digest email from many drift events.
+ * Returns { subject, html, text, count, worstSeverity } or null when empty.
+ */
+export function buildMirrorSyncDigestEmail(events, opts = {}) {
+  const list = (Array.isArray(events) ? events : [])
+    .filter((e) => e && e.sync_state && e.sync_state !== "in_sync");
+  if (!list.length) return null;
+
+  const baseUrl = opts.baseUrl || "https://timed-trading.com";
+  const brokersUrl = `${baseUrl.replace(/\/$/, "")}/account/brokers`;
+  const nowLabel = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit",
+  });
+
+  const sevRank = { critical: 3, warn: 2, info: 1 };
+  let worst = "info";
+  for (const e of list) {
+    const s = String(e.severity || "warn").toLowerCase();
+    if ((sevRank[s] || 0) > (sevRank[worst] || 0)) worst = s;
+  }
+  const criticalN = list.filter((e) => String(e.severity).toLowerCase() === "critical").length;
+  const warnN = list.filter((e) => String(e.severity).toLowerCase() === "warn").length;
+  const tickers = [...new Set(list.map((e) => String(e.ticker || "").toUpperCase()).filter(Boolean))];
+  const headlineBits = [];
+  if (criticalN) headlineBits.push(`${criticalN} critical`);
+  if (warnN) headlineBits.push(`${warnN} warning${warnN === 1 ? "" : "s"}`);
+  const tickerHint = tickers.length <= 4
+    ? tickers.join(", ")
+    : `${tickers.slice(0, 3).join(", ")} +${tickers.length - 3}`;
+
+  const subjectPrefix = worst === "critical" ? "URGENT" : "Heads-up";
+  const subject = `[Timed Trading] ${subjectPrefix} — Mirror sync: ${list.length} issue${list.length === 1 ? "" : "s"} (${tickerHint})`;
+
+  const cards = list
+    .slice()
+    .sort((a, b) => (sevRank[String(b.severity).toLowerCase()] || 0) - (sevRank[String(a.severity).toLowerCase()] || 0))
+    .map(_buildMirrorEventCard)
+    .join("");
+
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary};font-family:${EMAIL_FONT_EDITORIAL}">Mirror Sync — ${_esc(nowLabel)} ET</h2>
+    <p style="margin:0 0 16px;color:${BRAND.textSecondary};font-size:13px;line-height:1.5">
+      ${_esc(headlineBits.join(" · ") || `${list.length} issue(s)`)} across ${_esc(String(tickers.length))} ticker${tickers.length === 1 ? "" : "s"}.
+      Model vs broker mismatch that needs a look — details below.
+    </p>
+    ${cards}
+    <p style="margin:16px 0 0;font-size:12px">
+      <a href="${_esc(brokersUrl)}" style="color:${BRAND.green};font-weight:700;text-decoration:none">Review in Mission Control →</a>
+    </p>
+  `;
+
+  const html = emailLayout(bodyHtml, {
+    preheader: `Mirror sync: ${list.length} issue${list.length === 1 ? "" : "s"} — ${tickerHint}`,
+  });
+
+  const textLines = [
+    subject,
+    "",
+    `Mirror Sync — ${nowLabel} ET`,
+    `${headlineBits.join(" · ") || `${list.length} issue(s)`}`,
+    "",
+    ...list.map((e) => {
+      const sev = String(e.severity || "warn").toUpperCase();
+      return [
+        `• ${e.ticker} (${e.mode}/${e.instrument_type}) — ${sev} · ${e.sync_state}`,
+        `  ${e.sync_note || ""}`,
+        `  ${_mirrorMeaning(e.sync_state)}`,
+        "",
+      ].join("\n");
+    }),
+    `Review: ${brokersUrl}`,
+  ];
+  return {
+    subject,
+    html,
+    text: textLines.join("\n"),
+    count: list.length,
+    worstSeverity: worst,
+    tickers,
+  };
+}
+
 /** @deprecated Replaced by sendInvestorQueueDigest (charts per ticker). Kept as no-op shim. */
 export async function sendInvestorSignalsDigest(env, alerts) {
   void env;

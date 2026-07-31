@@ -546,6 +546,13 @@ playbook in `skills/security-auth-patterns.md`)**
   counting `timed:cron:failure:*` MUST read values and count only
   `count > 0` (key-count alone kept the watchdog red for hours after
   the 2026-06-09 proxy-auth incident healed).
+- **Bridge mismatch emails (2026-07-31)**: Never email `in_sync` /
+  “consistent” rows. Persist must mutate in-memory manifest `row` before
+  `emitDriftNotification` (stale row + fresh severity → WARN saying
+  in_sync). CLOSED equity orphans subtract qty claimed by OPEN rows on
+  the same account (investor ETH fills must not orphan closed trader
+  rows). Drain coalesces queue items into **one** Mirror Sync digest per
+  user via `buildMirrorSyncDigestEmail` (dark `emailLayout` brand).
 - **`recordCronFailure` signature**: always pass `{ op, error, caller }`.
   Legacy `recordCronFailure(env, "op", err)` used to page as
   `Cron Failure: unknown` with an empty body (2026-07-31). Adapter now

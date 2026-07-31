@@ -81226,13 +81226,22 @@ export default {
         let parsed = null;
         try { parsed = JSON.parse(drainRes.body); } catch (_) { parsed = { ok: false, error: "drain_parse_failed" }; }
         if (send && parsed?.items) {
-          const { sendEmail } = await import("./email.js").catch(() => ({}));
+          const emailMod = await import("./email.js").catch(() => ({}));
+          const {
+            sendEmail,
+            buildMirrorSyncDigestEmail,
+            groupMirrorNotifyItemsByUser,
+            notifyItemToMirrorEvent,
+          } = emailMod;
           // 2026-06-01 — Direct-message escalation. When
           // BROKER_NOTIFY_DM_USER=true AND the user has linked Discord
           // (`users.discord_id` populated from the OAuth flow), we ALSO
           // DM them in addition to the email. The operator can opt in
           // once they've confirmed DMs land for one test user. Default
           // OFF so email-only behavior is unchanged.
+          //
+          // 2026-07-31 — Coalesce drained items into ONE Mirror Sync
+          // digest email per user (was: one email per ticker/row).
           //
           // Lookup is bounded: one D1 SELECT per unique user_email
           // (cached in-handler) so a 50-item drain costs N D1 reads
@@ -81258,20 +81267,39 @@ export default {
 
           let sent = 0;
           let dmSent = 0, dmSkipped = 0, dmFailed = 0;
-          for (const item of parsed.items) {
-            if (!item?.content || !item?.user_id) continue;
-            const userEmail = item?.user_email || (item?.content?.to) || item?.user_id || null;
-            if (!userEmail) continue;
-            // ── Email path (primary) ──────────────────────────────
+          let skippedHealthy = 0;
+          const byUser = typeof groupMirrorNotifyItemsByUser === "function"
+            ? groupMirrorNotifyItemsByUser(parsed.items)
+            : new Map();
+          const digests = [];
+          for (const [userEmail, items] of byUser) {
+            const events = [];
+            for (const item of items) {
+              const ev = typeof notifyItemToMirrorEvent === "function"
+                ? notifyItemToMirrorEvent(item)
+                : null;
+              if (!ev) { skippedHealthy++; continue; }
+              events.push(ev);
+            }
+            if (!events.length) continue;
+            const digest = typeof buildMirrorSyncDigestEmail === "function"
+              ? buildMirrorSyncDigestEmail(events, {
+                  baseUrl: env?.WORKER_URL || "https://timed-trading.com",
+                })
+              : null;
+            if (!digest) continue;
+            digests.push({ userEmail, digest, events });
+
+            // ── Email path (primary) — one digest per user ────────
             if (env?.SENDGRID_API_KEY) {
               try {
                 if (typeof sendEmail === "function") {
                   await sendEmail(env, {
                     to: userEmail,
-                    subject: item.content.subject,
-                    html: item.content.html,
-                    text: item.content.text,
-                    category: item.kind || "bridge_notify",
+                    subject: digest.subject,
+                    html: digest.html,
+                    text: digest.text,
+                    category: "bridge_mirror_sync_digest",
                   });
                   sent++;
                 }
@@ -81283,16 +81311,15 @@ export default {
             if (dmEnabled && env?.DISCORD_BOT_TOKEN) {
               const discordId = await _lookupDiscordId(userEmail);
               if (!discordId) { dmSkipped++; continue; }
-              // Build a compact embed mirroring the email content.
-              const sev = String(item?.severity || "info").toUpperCase();
+              const sev = String(digest.worstSeverity || "warn").toUpperCase();
               const color = sev === "CRITICAL" ? 15548997
                 : sev === "WARN" ? 16753920 : 3447003;
               const embed = {
-                title: String(item.content.subject || "Timed Trading").replace(/^\[Timed Trading\] /, ""),
+                title: String(digest.subject || "Timed Trading").replace(/^\[Timed Trading\] /, ""),
                 color,
-                description: String(item.content.text || "").slice(0, 1900),
-                timestamp: new Date(item?.ts || Date.now()).toISOString(),
-                footer: { text: `Severity: ${sev} · ${item.kind || "bridge_notify"}` },
+                description: String(digest.text || "").slice(0, 1900),
+                timestamp: new Date().toISOString(),
+                footer: { text: `Severity: ${sev} · bridge_mirror_sync_digest · ${events.length} issue(s)` },
               };
               const dmRes = await discordDmUser(env, discordId, { embeds: [embed] })
                 .catch(e => ({ ok: false, error: String(e?.message || e).slice(0, 200) }));
@@ -81301,7 +81328,10 @@ export default {
             }
           }
           parsed.sent_count = sent;
-          parsed.send_mode = "live";
+          parsed.send_mode = "digest";
+          parsed.digest_count = digests.length;
+          parsed.event_count = digests.reduce((n, d) => n + d.events.length, 0);
+          parsed.skipped_healthy = skippedHealthy;
           parsed.dm_enabled = dmEnabled;
           parsed.dm_sent = dmSent;
           parsed.dm_skipped_no_link = dmSkipped;
