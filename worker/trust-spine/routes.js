@@ -28,6 +28,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
 
     let readySetups = [];
     let confirmStackTickers = [];
+    let continuationTickers = [];
     try {
       const all = await kvGetJSON(KV, "timed:all:snapshot")
         || await kvGetJSON(KV, "timed:all:micro")
@@ -58,10 +59,24 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
         if (confirm || (reclaim && stFlip && squeeze)) {
           confirmStackTickers.push({ ticker: sym, ...t });
         }
+        // Momentum continuation thin slice (paper) — stamped flag or proposal.
+        if (
+          t?.momentum_continuation === true
+          || t?._sequence_queue_proposal?.family === "momentum_continuation"
+          || t?._continuation_detect?.fires === true
+        ) {
+          continuationTickers.push({ ticker: sym, ...t });
+        }
       }
     } catch { /* */ }
 
-    const queue = buildTodayPlaysQueue({ optionsPlays, readySetups, confirmStackTickers, limit });
+    const queue = buildTodayPlaysQueue({
+      optionsPlays,
+      readySetups,
+      confirmStackTickers,
+      continuationTickers,
+      limit,
+    });
     return sendJSON({ ok: true, ...queue }, 200, corsHeaders(env, req));
   }
 

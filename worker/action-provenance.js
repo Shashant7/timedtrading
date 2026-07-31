@@ -128,6 +128,10 @@ export function compactSetupSliceRefs(tickerData) {
     || tickerData.confirm_stack === true
     || tickerData._sequence_queue_proposal?.family === "confirm_stack_ema21"
     || tickerData._sequence_queue_proposal?.confirm_stack === true;
+  const continuationFires = tickerData.momentum_continuation === true
+    || tickerData._sequence_queue_proposal?.family === "momentum_continuation"
+    || tickerData._continuation_detect?.fires === true
+    || tickerData.slice_family === "momentum_continuation";
   const runwayFires = gatesRaw?.gate_runway_full?.fires === true;
   const setup_gates = (gatesRaw || stackFires || runwayFires)
     ? {
@@ -137,10 +141,14 @@ export function compactSetupSliceRefs(tickerData) {
     : null;
   const play = tickerData._model_play || tickerData.__model_play || null;
   const proposal = tickerData._sequence_queue_proposal || null;
+  const sliceFamily = stackFires
+    ? "confirm_stack_ema21"
+    : (continuationFires ? "momentum_continuation" : null);
   const out = {
     setup_gates,
     confirm_stack: stackFires || null,
-    slice_family: stackFires ? "confirm_stack_ema21" : null,
+    momentum_continuation: continuationFires || null,
+    slice_family: sliceFamily,
     play_vehicle: strOrNull(play?.play_vehicle || play?.vehicle || play?.executed_vehicle, 24),
     confluence_mode: strOrNull(
       tickerData.confluence_mode || tickerData._confluence?.mode || tickerData.confluence_verdict?.mode,
@@ -155,8 +163,8 @@ export function compactSetupSliceRefs(tickerData) {
         }
       : null,
   };
-  const hasAny = out.setup_gates || out.confirm_stack || out.play_vehicle
-    || out.confluence_mode || out.sequence_paper_queue;
+  const hasAny = out.setup_gates || out.confirm_stack || out.momentum_continuation
+    || out.play_vehicle || out.confluence_mode || out.sequence_paper_queue;
   return hasAny ? out : null;
 }
 
@@ -292,6 +300,7 @@ export function buildTraderActionProvenance(opts = {}) {
     // Top-level for Phase B / family attribution (also nested under technical historically).
     setup_gates: slice?.setup_gates || null,
     confirm_stack: slice?.confirm_stack || null,
+    momentum_continuation: slice?.momentum_continuation || null,
     slice_family: slice?.slice_family || null,
     play_vehicle: slice?.play_vehicle || null,
     confluence_mode: slice?.confluence_mode || null,
@@ -327,6 +336,7 @@ export function enrichDecisionInputs(baseInputs, opts = {}) {
     event: base.event || prov.event,
     setup_gates: base.setup_gates || prov.setup_gates || null,
     confirm_stack: base.confirm_stack ?? prov.confirm_stack ?? null,
+    momentum_continuation: base.momentum_continuation ?? prov.momentum_continuation ?? null,
     slice_family: base.slice_family || prov.slice_family || null,
     play_vehicle: base.play_vehicle || prov.play_vehicle || null,
     confluence_mode: base.confluence_mode || prov.confluence_mode || null,

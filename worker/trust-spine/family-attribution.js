@@ -5,6 +5,7 @@ import { computeWindowStats } from "../edge-scorecard.js";
 
 const DAY_MS = 86400000;
 const CONFIRM_STACK_FAMILY = "confirm_stack_ema21";
+const CONTINUATION_FAMILY = "momentum_continuation";
 
 /** Setup display names that historically correlate with confirm-stack fires. */
 const CONFIRM_STACK_SETUP_HINTS = new Set([
@@ -12,6 +13,13 @@ const CONFIRM_STACK_SETUP_HINTS = new Set([
   "tt reclaim long",
   "tt momentum push",
   "tt ath breakout",
+]);
+
+const CONTINUATION_SETUP_HINTS = new Set([
+  "tt ath breakout",
+  "tt momentum push",
+  "tt momentum",
+  "momentum",
 ]);
 
 function parseJson(raw) {
@@ -27,6 +35,14 @@ export function isConfirmStackDecision(row) {
   if (inputs.confirm_stack === true) return true;
   if (gates?.stack_full_confirm?.fires === true) return true;
   if (gates?.stack_full_confirm === true) return true;
+  return false;
+}
+
+export function isContinuationDecision(row) {
+  const inputs = parseJson(row?.inputs_json) || {};
+  if (inputs.slice_family === CONTINUATION_FAMILY) return true;
+  if (inputs.momentum_continuation === true) return true;
+  if (inputs.sequence_paper_queue?.family === CONTINUATION_FAMILY) return true;
   return false;
 }
 
@@ -65,6 +81,12 @@ export function buildFamilyAttributionReport({
         // Fallback: setup_name hint when provenance predates slice_family stamp.
         const setup = String(d.setup_name || d.inputs_json || "").toLowerCase();
         const hinted = [...CONFIRM_STACK_SETUP_HINTS].some((h) => setup.includes(h));
+        if (!hinted) continue;
+      }
+    } else if (family === CONTINUATION_FAMILY) {
+      if (!isContinuationDecision(d)) {
+        const setup = String(d.setup_name || d.inputs_json || "").toLowerCase();
+        const hinted = [...CONTINUATION_SETUP_HINTS].some((h) => setup.includes(h));
         if (!hinted) continue;
       }
     } else if (parseJson(d.inputs_json)?.slice_family !== family) {
@@ -223,4 +245,4 @@ export async function loadFamilyAttribution(env, opts = {}) {
   });
 }
 
-export { CONFIRM_STACK_FAMILY, DAY_MS };
+export { CONFIRM_STACK_FAMILY, CONTINUATION_FAMILY, DAY_MS };

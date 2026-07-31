@@ -68,6 +68,29 @@ describe("plays-today", () => {
     expect(p.sequence_entry_ready).toBe(true);
     expect(q.plays[0].ticker).toBe("NVDA");
   });
+
+  it("surfaces momentum continuation family separately from confirm-stack", () => {
+    const q = buildTodayPlaysQueue({
+      continuationTickers: [{
+        ticker: "DELL",
+        direction: "LONG",
+        confluence_mode: "RIDE",
+        momentum_continuation: true,
+        _sequence_queue_proposal: {
+          family: "momentum_continuation",
+          paper: true,
+          state: "queued",
+          size_mult: 0.1,
+        },
+        _model_lifecycle: { state: "queued", label: "Queued", why: "momentum_continuation" },
+        rank: 90,
+      }],
+      limit: 10,
+    });
+    expect(q.slices.momentum_continuation.count).toBe(1);
+    expect(q.slices.momentum_continuation.plays[0].ticker).toBe("DELL");
+    expect(q.slice.plays.some((p) => p.slice_family === "momentum_continuation")).toBe(true);
+  });
 });
 
 describe("scorecard", () => {

@@ -3475,11 +3475,17 @@
       // ─────────────────────────────────────────────────────────────
       // ─────────────────────────────────────────────────────────────
       // FamiliesStrip — Today board for structure families (2026-07-19)
-      // First family: confirm-stack EMA21 via /timed/plays/today slice.
+      // Families: confirm-stack EMA21 + momentum continuation via /timed/plays/today.
       // Cards match Ready / Growth Ideas (TTLaneCard + zone bar).
       // ─────────────────────────────────────────────────────────────
       function setupFamilyActionHint(p) {
         const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
+        if (p?.slice_family === "momentum_continuation" || p?.momentum_continuation) {
+          if (state === "queued") {
+            return "Continuation queued (paper) — impulse + alignment; size stays tiny until attribution clears.";
+          }
+          return "Momentum continuation — structure aligned with impulse; stalk follow-through, not a deep pullback.";
+        }
         if (p?.sequence_entry_ready) {
           return "Entry ready on the plan — size at the add zone.";
         }
@@ -3523,8 +3529,21 @@
                 ? await window.TTFetchCache.get(url, { ttlMs: 45000, maxAgeMs: 180000, fetchOpts: { credentials: "include" } })
                 : await fetchJsonRetry(url);
               if (!alive) return;
-              if (j?.ok) setSlice(j.slice || { plays: (j.plays || []).filter((p) => p.slice_family === "confirm_stack_ema21") });
-              else setSlice({ plays: [] });
+              if (j?.ok) {
+                const familyPlays = (j.slice?.plays)
+                  || [
+                    ...(j.slices?.confirm_stack_ema21?.plays || []),
+                    ...(j.slices?.momentum_continuation?.plays || []),
+                  ]
+                  || (j.plays || []).filter((p) =>
+                    p.slice_family === "confirm_stack_ema21"
+                    || p.slice_family === "momentum_continuation");
+                setSlice({
+                  ...(j.slice || {}),
+                  plays: familyPlays,
+                  slices: j.slices || null,
+                });
+              } else setSlice({ plays: [] });
             } catch (_) {
               if (alive) setSlice({ plays: [] });
             } finally {
@@ -3554,7 +3573,7 @@
           h("div", { className: "tt-sec-title" }, "FAMILIES"),
           h("h2", { className: "tt-ready__title" }, "Tracked structure families"),
           h("p", { className: "tt-ready__sub" },
-            "Confirm-stack first (trend flip + squeeze + reclaim). Stalk the add zone.",
+            "Confirm-stack (flip + squeeze + reclaim) and momentum continuation. Paper size until capture holds.",
           ),
         );
 
@@ -3625,13 +3644,22 @@
               const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
               const familyLabel = familyKey === "confirm_stack_ema21" || familyKey === "confirm_stack"
                 ? "Confirm-stack"
-                : familyKey.replace(/_/g, " ");
+                : familyKey === "momentum_continuation"
+                  ? "Continuation"
+                  : familyKey.replace(/_/g, " ");
               chipRow.push(h("span", {
                 key: "family",
                 className: "ds-chip ds-chip--sm",
                 title: "Family admission rule for this card",
                 style: { fontFamily: "var(--tt-font-mono)" },
               }, familyLabel));
+              if (p.momentum_continuation === true && familyKey !== "confirm_stack_ema21") {
+                chipRow.push(h("span", {
+                  key: "cont",
+                  className: "ds-chip ds-chip--sm ds-chip--accent",
+                  title: "Impulse + HTF alignment (paper continuation family)",
+                }, "Impulse on"));
+              }
               if (lifeLabel) {
                 chipRow.push(h("span", {
                   key: "life",

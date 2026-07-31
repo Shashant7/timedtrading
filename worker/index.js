@@ -457,6 +457,16 @@ import {
   thinSliceKvPatch,
   applyConfirmStackOptionsFirstToMenu,
 } from "./foundation/confirm-stack-paper-queue.js";
+import {
+  stampContinuationThinSlice,
+  continuationPaperSizeMult,
+  buildContinuationOptionsFirstPlay,
+} from "./foundation/continuation-paper-queue.js";
+import {
+  loadWeeklyMoveAutopsy,
+  refreshWeeklyMoveAutopsy,
+  WEEKLY_AUTOPSY_KV,
+} from "./discovery/weekly-move-autopsy.js";
 import { evaluateMoveEndingEnforce } from "./move-ending-enforce.js";
 import { handleSetupParityGateRoute } from "./foundation/setup-parity-gate.js";
 import { serializeSequenceTrailSnapshot } from "./foundation/sequence-snapshot.js";
@@ -2164,6 +2174,8 @@ const ROUTES = [
   // for CIO memory L9 to consume. Daily cron also runs POST automatically.
   ["GET",  "/timed/admin/discovery/coverage-gaps",        "GET /timed/admin/discovery/coverage-gaps"],
   ["POST", "/timed/admin/discovery/coverage-gaps/refresh","POST /timed/admin/discovery/coverage-gaps/refresh"],
+  ["GET",  "/timed/admin/discovery/weekly-move-autopsy",  "GET /timed/admin/discovery/weekly-move-autopsy"],
+  ["POST", "/timed/admin/discovery/weekly-move-autopsy/refresh", "POST /timed/admin/discovery/weekly-move-autopsy/refresh"],
   // 2026-05-28 — Discovery Phases 2/3/4a/5 + Promotion Queue.
   // Phase 4a — insider transactions.
   ["POST", "/timed/admin/discovery/insider/refresh",      "POST /timed/admin/discovery/insider/refresh"],
@@ -26446,14 +26458,24 @@ async function processTradeSimulation(
             if (_thinEntry?._model_play && !tickerData.__model_play) {
               tickerData._model_play = _thinEntry._model_play;
             }
+            const _contEntry = stampContinuationThinSlice(tickerData, _daCfgPaper);
+            if (_contEntry?._sequence_queue_proposal) {
+              tickerData._sequence_queue_proposal = _contEntry._sequence_queue_proposal;
+            }
+            if (_contEntry?.momentum_continuation) tickerData.momentum_continuation = true;
+            if (_contEntry?._model_play && !tickerData.__model_play) {
+              tickerData._model_play = _contEntry._model_play;
+            }
           } catch (_) { /* */ }
-          const _paperMult = paperQueueSizeMult(
-            tickerData,
-            tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
+          const _daCfgSz = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
+          const _paperMult = Math.min(
+            paperQueueSizeMult(tickerData, _daCfgSz),
+            continuationPaperSizeMult(tickerData, _daCfgSz),
           );
           if (_paperMult < 1) {
             tickerData.__paper_queue_size_mult = _paperMult;
-            console.log(`[PAPER_QUEUE] ${sym}: size × ${_paperMult} (confirm-stack sequence Queued)`);
+            const _fam = tickerData?._sequence_queue_proposal?.family || "paper";
+            console.log(`[PAPER_QUEUE] ${sym}: size × ${_paperMult} (${_fam} Queued)`);
           }
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined * _convSizeMult * _paperMult;
           let _liqCap = applyPullbackLiquidityCap({
@@ -27191,14 +27213,14 @@ async function processTradeSimulation(
                 tickerData,
               });
               if (_vMenu) {
-                // Confirm-stack Tier-A RIDE: stamp options-first intent even
+                // Confirm-stack / continuation Tier-A RIDE: options-first intent
                 // while model-play sim fill stays gated (shares still book).
                 try {
-                  const _of = applyConfirmStackOptionsFirstToMenu(
-                    _vMenu,
-                    tickerData,
-                    tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {},
-                  );
+                  const _daPlay = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
+                  const _of = applyConfirmStackOptionsFirstToMenu(_vMenu, tickerData, _daPlay);
+                  const _contPlay = (!_of.applied)
+                    ? buildContinuationOptionsFirstPlay(tickerData, _daPlay)
+                    : null;
                   if (_of.applied && _of.menu) {
                     Object.assign(_vMenu, _of.menu);
                     tickerData.__model_play = {
@@ -27206,6 +27228,20 @@ async function processTradeSimulation(
                       ...(_of.play || {}),
                       paper: true,
                     };
+                  } else if (_contPlay) {
+                    tickerData.__model_play = {
+                      ...(_modelPlayLineage(_vMenu) || {}),
+                      ..._contPlay,
+                      paper: true,
+                    };
+                    if (_vMenu.pick) {
+                      _vMenu.pick = {
+                        ..._vMenu.pick,
+                        play_vehicle: "options",
+                        vehicle: "option",
+                        why: _contPlay.why,
+                      };
+                    }
                   } else {
                     tickerData.__model_play = _modelPlayLineage(_vMenu);
                   }
@@ -41935,11 +41971,20 @@ async function d1InsertDecisionRecord(env, args = {}) {
       const confirmFires = gates?.stack_full_confirm?.fires === true
         || gates?.stack_full_confirm === true
         || inputs?.confirm_stack === true;
+      const continuationFires = inputs?.momentum_continuation === true
+        || inputs?.slice_family === "momentum_continuation"
+        || inputs?.sequence_paper_queue?.family === "momentum_continuation";
       if (confirmFires) {
         inputs = {
           ...(inputs && typeof inputs === "object" ? inputs : {}),
           slice_family: "confirm_stack_ema21",
           confirm_stack: true,
+        };
+      } else if (continuationFires) {
+        inputs = {
+          ...(inputs && typeof inputs === "object" ? inputs : {}),
+          slice_family: "momentum_continuation",
+          momentum_continuation: true,
         };
       }
     }
@@ -80573,6 +80618,44 @@ export default {
         }
       }
 
+      // GET /timed/admin/discovery/weekly-move-autopsy — ≥10% weekly capture scoreboard
+      // (plans/continuation-move-capture-slice.plan.md). Cached KV preferred.
+      if (routeKey === "GET /timed/admin/discovery/weekly-move-autopsy") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const force = String(url.searchParams.get("refresh") || "") === "1";
+          if (!force && KV) {
+            const cached = await kvGetJSON(KV, WEEKLY_AUTOPSY_KV);
+            if (cached?.ok) {
+              return sendJSON({ ok: true, cached: true, ...cached }, 200, corsHeaders(env, req));
+            }
+          }
+          const weeks = Number(url.searchParams.get("weeks")) || 8;
+          const report = await loadWeeklyMoveAutopsy(env, { weeks });
+          return sendJSON({ ok: !!report?.ok, cached: false, ...report }, report?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/discovery/weekly-move-autopsy/refresh — run + persist KV
+      if (routeKey === "POST /timed/admin/discovery/weekly-move-autopsy/refresh") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const weeks = Number(url.searchParams.get("weeks")) || 8;
+          const report = await refreshWeeklyMoveAutopsy(env, { weeks });
+          return sendJSON({
+            ok: !!report?.ok,
+            written_to: WEEKLY_AUTOPSY_KV,
+            ...report,
+          }, report?.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       // ═══════════════════════════════════════════════════════════════════════
       // Discovery Phases 2/3/4a/5 + Promotion Queue (2026-05-28).
       // See tasks/2026-05-28-discovery-phases-2-3-4a-5-plan.md
@@ -103404,10 +103487,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     result._sequence_queue_proposal = _hydrated._sequence_queue_proposal;
                   }
                 }
-                const _thin = stampConfirmStackThinSlice(
-                  result,
-                  env._deepAuditConfig || result._env?._deepAuditConfig || {},
-                );
+                const _daThin = env._deepAuditConfig || result._env?._deepAuditConfig || {};
+                const _thin = stampConfirmStackThinSlice(result, _daThin);
                 if (_thin?._sequence_queue_proposal) {
                   result._sequence_queue_proposal = _thin._sequence_queue_proposal;
                 }
@@ -103418,6 +103499,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   || result.setup_gates?.stack_full_confirm?.fires === true) {
                   result.confirm_stack = true;
                 }
+                // Continuation family (paper) — confirm-stack proposal wins if both.
+                const _cont = stampContinuationThinSlice(result, _daThin);
+                if (_cont?.momentum_continuation) result.momentum_continuation = true;
+                if (_cont?._continuation_detect) result._continuation_detect = _cont._continuation_detect;
+                if (_cont?._sequence_queue_proposal) {
+                  result._sequence_queue_proposal = _cont._sequence_queue_proposal;
+                }
+                if (_cont?._model_play) result._model_play = _cont._model_play;
               } catch (_) { /* */ }
               const _lc = resolveModelLifecycle({
                 ticker,
@@ -104595,10 +104684,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     });
                     if (_shadowStamp?.payload) _plForD1 = _shadowStamp.payload;
                     try {
-                      _plForD1 = stampConfirmStackThinSlice(
-                        _plForD1,
-                        env._deepAuditConfig || {},
-                      );
+                      const _daD1 = env._deepAuditConfig || {};
+                      _plForD1 = stampConfirmStackThinSlice(_plForD1, _daD1);
+                      _plForD1 = stampContinuationThinSlice(_plForD1, _daD1);
                     } catch (_) { /* */ }
                     // Re-resolve lifecycle when paper Queued stamped after shadow.
                     try {
