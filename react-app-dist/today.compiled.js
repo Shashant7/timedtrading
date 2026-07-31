@@ -1702,7 +1702,7 @@ function OpenPositionsPreview({
   }, h("span", null, label), items.length > 0 && h("span", {
     className: "tt-open-pos-col__count"
   }, String(items.length))), items.length ? h("div", {
-    className: hero ? null : "tt-open-pos-grid",
+    className: hero ? "tt-open-pos-col__chips" : "tt-open-pos-grid",
     style: hero ? null : {
       display: "grid",
       gridTemplateColumns: "repeat(auto-fill, minmax(158px, 1fr))",
@@ -7231,6 +7231,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1784833731865:164047930
+// cache-bust:1785515909655:797060691
 
-// cache-bust:1784833731865:164047930
+// cache-bust:1785515909655:797060691
