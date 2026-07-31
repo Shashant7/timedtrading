@@ -45,6 +45,17 @@ describe("recordCronFailure discord dedup", () => {
     expect(tomb.count).toBe(2);
   });
 
+  it("accepts legacy positional (env, op, err) without paging as unknown", async () => {
+    const env = makeEnv();
+    await recordCronFailure(env, "fundamentals_refresh", new Error("D1 DB is overloaded"));
+    expect(discordCalls).toBe(1);
+    const tomb = JSON.parse(kvStore.get("timed:cron:failure:fundamentals_refresh"));
+    expect(tomb.op).toBe("fundamentals_refresh");
+    expect(tomb.error).toContain("D1 DB is overloaded");
+    expect(tomb.caller).toBe("legacy_positional");
+    expect(kvStore.get("timed:cron:failure:unknown")).toBeUndefined();
+  });
+
   // A6 (2026-07-03): same failure shape with different counts must NOT
   // re-page unless the severity band escalates. The Jul 2 incident paged
   // twice within a minute (34% → 76%) purely because the count changed

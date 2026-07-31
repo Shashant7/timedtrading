@@ -344,7 +344,22 @@ export function cronErrorSeverityBand(error) {
   return pct >= 75 ? 3 : pct >= 50 ? 2 : pct >= 25 ? 1 : 0;
 }
 
-export async function recordCronFailure(env, opts) {
+export async function recordCronFailure(env, opts, maybeError) {
+  // Back-compat: several nightly lanes still call
+  //   recordCronFailure(env, "op_name", err)
+  // instead of the object form. Without this adapter those land as
+  // Discord "Cron Failure: unknown" with an empty `` body (ops noise,
+  // 2026-07-30 system-alerts).
+  if (typeof opts === "string") {
+    const err = maybeError;
+    opts = {
+      op: opts,
+      error: err?.message != null ? String(err.message) : String(err || ""),
+      caller: "legacy_positional",
+    };
+  } else if (opts == null || typeof opts !== "object") {
+    opts = { op: "unknown", error: String(opts || "") };
+  }
   const op = String(opts?.op || "unknown").slice(0, 64).replace(/[^a-z0-9_]/gi, "_");
   const error = String(opts?.error || "").slice(0, 500);
   const caller = String(opts?.caller || "").slice(0, 200) || null;
