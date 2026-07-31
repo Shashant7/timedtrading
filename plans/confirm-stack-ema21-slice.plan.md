@@ -7,16 +7,16 @@ todos:
     status: completed
   - id: slice-today-ui
     content: 'Surface Confirm-stack runners on Today via /timed/plays/today; lifecycle + play + confirm/runway chips; click → Right Rail.'
-    status: in_progress
+    status: completed
   - id: slice-sequence-propose
     content: 'Allow sequence entry_ready to propose Queued (tiny/paper size) for this family only — still not capital-scale.'
-    status: pending
+    status: completed
   - id: slice-options-first
     content: 'Tier-A RIDE on this family prefers options play_vehicle; stamp executed intent even while sim fill stays gated.'
-    status: pending
+    status: completed
   - id: slice-attribution
     content: 'Per-entry attribution join: decision_records + MFE keep + move capture label for confirm-stack family only.'
-    status: pending
+    status: completed
   - id: slice-widen
     content: 'Widen only if thin slice beats ~4.8% capture baseline and holds OOS; else autopsy which layer lied.'
     status: pending
@@ -72,11 +72,11 @@ North-star baseline: ~**4.8%** capture of qualifying moves (`docs/self-calibrati
 
 ## Implementation sequence
 
-1. **UI proof surface (this PR)** — Today strip from `/timed/plays/today` with lifecycle + play + confirm/runway. No capital behavior change.
-2. **Sequence may propose Queued** — family-only, tiny/paper, provenance stamped.
-3. **Options-first expression** — Tier-A RIDE stamps options as model play; sim fill stays gated until D1 persistence.
-4. **Attribution loop** — weekly join decision_records → trades → capture/MFE for this family.
-5. **Widen or autopsy** — if OOS fails, name the lying layer.
+1. **UI proof surface** — Today strip from `/timed/plays/today` with lifecycle + play + confirm/runway. Done.
+2. **Sequence may propose Queued** — family-only, tiny/paper; hydrate gates/sequences from prior KV + write shadow/thin-slice fields back to `timed:latest` + snapshot after D1 stamp. Done.
+3. **Options-first expression** — Tier-A RIDE stamps options as model play at scoring + entry menu override; sim fill stays gated. Done.
+4. **Attribution loop** — ENTRY `inputs_json` stamps `setup_gates` / `slice_family` / `play_vehicle`; CLI `scripts/confirm-stack-family-attribution.mjs` + admin API. Done (accrual ongoing).
+5. **Widen or autopsy** — if OOS fails / `widen_ready=false`, name the lying layer. Still gated on live sample.
 
 ## Done looks like
 

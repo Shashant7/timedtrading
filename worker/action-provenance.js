@@ -117,6 +117,49 @@ export function compactResearchRefs(tickerData) {
   return hasAny ? research : null;
 }
 
+/**
+ * Confirm-stack / play-vehicle slice for Phase B + family attribution.
+ * Compact on purpose — full setup_gates blobs blow the decision_records cap.
+ */
+export function compactSetupSliceRefs(tickerData) {
+  if (!tickerData || typeof tickerData !== "object") return null;
+  const gatesRaw = tickerData.setup_gates || tickerData.setup_gate_shadow?.setup_gates || null;
+  const stackFires = gatesRaw?.stack_full_confirm?.fires === true
+    || tickerData.confirm_stack === true
+    || tickerData._sequence_queue_proposal?.family === "confirm_stack_ema21"
+    || tickerData._sequence_queue_proposal?.confirm_stack === true;
+  const runwayFires = gatesRaw?.gate_runway_full?.fires === true;
+  const setup_gates = (gatesRaw || stackFires || runwayFires)
+    ? {
+        stack_full_confirm: { fires: stackFires || gatesRaw?.stack_full_confirm?.fires === true },
+        gate_runway_full: { fires: runwayFires },
+      }
+    : null;
+  const play = tickerData._model_play || tickerData.__model_play || null;
+  const proposal = tickerData._sequence_queue_proposal || null;
+  const out = {
+    setup_gates,
+    confirm_stack: stackFires || null,
+    slice_family: stackFires ? "confirm_stack_ema21" : null,
+    play_vehicle: strOrNull(play?.play_vehicle || play?.vehicle || play?.executed_vehicle, 24),
+    confluence_mode: strOrNull(
+      tickerData.confluence_mode || tickerData._confluence?.mode || tickerData.confluence_verdict?.mode,
+      16,
+    ),
+    sequence_paper_queue: proposal?.paper
+      ? {
+          state: strOrNull(proposal.state, 24),
+          size_mult: numOrNull(proposal.size_mult),
+          reason: strOrNull(proposal.reason, 80),
+          family: strOrNull(proposal.family, 40),
+        }
+      : null,
+  };
+  const hasAny = out.setup_gates || out.confirm_stack || out.play_vehicle
+    || out.confluence_mode || out.sequence_paper_queue;
+  return hasAny ? out : null;
+}
+
 /** Core TA / setup / path context at action time. */
 export function compactTechnicalRefs(tickerData, trade = null) {
   if (!tickerData && !trade) return null;
@@ -157,6 +200,8 @@ export function compactTechnicalRefs(tickerData, trade = null) {
           sq30_release: !!d.flags.sq30_release,
           momentum_elite: !!d.flags.momentum_elite,
           quality_compounder_dip: !!d.flags.quality_compounder_dip,
+          ema21_reclaim: !!d.flags.ema21_reclaim,
+          squeeze_release: !!d.flags.squeeze_release,
         }
       : null,
     learning_policy: d.__learning_policy
@@ -216,6 +261,7 @@ export function buildTraderActionProvenance(opts = {}) {
   const why = compactActionWhy(event, extras);
   const technical = compactTechnicalRefs(tickerData, trade);
   const research = compactResearchRefs(tickerData);
+  const slice = compactSetupSliceRefs(tickerData);
 
   // Preserve common event scalars (price/rank/setup/…) for backward compat
   // with thin meta consumers, without dumping unbounded blobs.
@@ -238,11 +284,18 @@ export function buildTraderActionProvenance(opts = {}) {
 
   return {
     engine: "trader",
-    provenance_v: 1,
+    provenance_v: 2,
     why,
     technical,
     research,
     event: eventCore,
+    // Top-level for Phase B / family attribution (also nested under technical historically).
+    setup_gates: slice?.setup_gates || null,
+    confirm_stack: slice?.confirm_stack || null,
+    slice_family: slice?.slice_family || null,
+    play_vehicle: slice?.play_vehicle || null,
+    confluence_mode: slice?.confluence_mode || null,
+    sequence_paper_queue: slice?.sequence_paper_queue || null,
     ...extras.overlay,
   };
 }
@@ -267,11 +320,17 @@ export function enrichDecisionInputs(baseInputs, opts = {}) {
   return {
     ...base,
     engine: base.engine || "trader",
-    provenance_v: 1,
+    provenance_v: Math.max(Number(base.provenance_v) || 0, Number(prov.provenance_v) || 0, 1),
     why: { ...prov.why, ...pickDefined(base.why) },
     technical: base.technical || prov.technical,
     research: base.research || prov.research,
     event: base.event || prov.event,
+    setup_gates: base.setup_gates || prov.setup_gates || null,
+    confirm_stack: base.confirm_stack ?? prov.confirm_stack ?? null,
+    slice_family: base.slice_family || prov.slice_family || null,
+    play_vehicle: base.play_vehicle || prov.play_vehicle || null,
+    confluence_mode: base.confluence_mode || prov.confluence_mode || null,
+    sequence_paper_queue: base.sequence_paper_queue || prov.sequence_paper_queue || null,
   };
 }
 

@@ -4,6 +4,9 @@ import {
   buildConfirmStackOptionsFirstPlay,
   stampConfirmStackThinSlice,
   paperQueueSizeMult,
+  hydrateConfirmStackSliceInputs,
+  thinSliceKvPatch,
+  applyConfirmStackOptionsFirstToMenu,
 } from "./confirm-stack-paper-queue.js";
 
 describe("confirm-stack paper queue", () => {
@@ -52,5 +55,45 @@ describe("confirm-stack paper queue", () => {
       _sequence_queue_proposal: { paper: true, size_mult: 0.1 },
     }, {})).toBe(0.1);
     expect(paperQueueSizeMult({}, {})).toBe(1);
+  });
+
+  it("hydrateConfirmStackSliceInputs copies gates/sequences from prior KV", () => {
+    const prior = {
+      setup_gates: { stack_full_confirm: { fires: true } },
+      setup_sequences: [{ status: "entry_ready" }],
+    };
+    const out = hydrateConfirmStackSliceInputs({ kanban_stage: "setup_watch" }, prior);
+    expect(out.setup_gates.stack_full_confirm.fires).toBe(true);
+    expect(out.setup_sequences[0].status).toBe("entry_ready");
+    const stamped = stampConfirmStackThinSlice(out, {});
+    expect(stamped._sequence_queue_proposal?.state).toBe("queued");
+  });
+
+  it("thinSliceKvPatch returns only changed shadow/proposal fields", () => {
+    const patch = thinSliceKvPatch(
+      { price: 10 },
+      {
+        price: 10,
+        setup_gates: { stack_full_confirm: { fires: true } },
+        _sequence_queue_proposal: { state: "queued", paper: true },
+      },
+    );
+    expect(patch.setup_gates.stack_full_confirm.fires).toBe(true);
+    expect(patch.confirm_stack).toBe(true);
+    expect(patch._sequence_queue_proposal.state).toBe("queued");
+  });
+
+  it("applyConfirmStackOptionsFirstToMenu forces options pick", () => {
+    const menu = {
+      entries: [
+        { vehicle: "shares", play_vehicle: "shares", label: "Buy shares", suitability: 80 },
+        { vehicle: "option", play_vehicle: "options", label: "Calls", suitability: 60 },
+      ],
+      pick: { vehicle: "shares", play_vehicle: "shares", suitability: 80 },
+    };
+    const { menu: next, applied } = applyConfirmStackOptionsFirstToMenu(menu, readyPayload, {});
+    expect(applied).toBe(true);
+    expect(next.pick.play_vehicle).toBe("options");
+    expect(next.pick.why).toMatch(/confirm_stack/);
   });
 });
