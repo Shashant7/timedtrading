@@ -6,6 +6,32 @@
 
 ---
 
+## Cron Failure: unknown with empty body = positional recordCronFailure [2026-07-31]
+
+**Symptom:** Discord `#system-alerts` showed `Cron Failure: unknown` with
+an empty body alongside `macro_cross_asset_refresh` /
+`benchmark_SPY_not_loaded` and COO Nightly Calibration BLOCKED
+(`D1 DB is overloaded`).
+
+**Root:**
+1. D1 overload during the 22:00 UTC research mega-batch made
+   `loadDailyCandles(SPY)` return empty (query `.catch` → []) →
+   `benchmark_SPY_not_loaded` even though SPY D candles exist (~1667 rows).
+2. Nightly lanes called `recordCronFailure(env, "fundamentals_refresh", e)`
+   (positional). The API only reads `opts.op` / `opts.error` → op defaults
+   to `"unknown"`, error empty → Discord noise.
+
+**Fix:** Accept legacy positional form in `recordCronFailure`; convert
+call sites to `{ op, error, caller }`. Admin `POST /timed/admin/macro/refresh`
+heals the macro tombstone on success.
+
+**Do not** treat `market_calendar_dynamic_fetch` / `missing_credentials` as
+critical — Alpaca calendar keys missing → static holiday table fallback
+(`skipDiscord`). Re-bind `ALPACA_API_KEY_ID` / `ALPACA_API_SECRET_KEY` if
+dynamic holidays are desired.
+
+---
+
 ## Open investor positions stubbed with score:null [2026-07-30]
 
 **Symptom:** All 20 OPEN Long Term names in `timed:investor:scores`

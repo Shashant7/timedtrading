@@ -22,6 +22,14 @@
 
 ### Active
 
+- [ ] **Cron failure triage — unknown + macro SPY + D1 overload (2026-07-31).**
+      Discord system-alerts: COO calibration BLOCKED (D1 overloaded),
+      `Cron Failure: unknown` with empty body, `macro_cross_asset_refresh`
+      `benchmark_SPY_not_loaded`. Root: D1 storm at nightly +
+      `recordCronFailure(env, "op", err)` positional calls mapping to
+      op=`unknown`. Fix adapter + call sites; re-run macro refresh;
+      clear stale tombstones. Branch: `cursor/cron-failure-unknown-fix-df0c`.
+
 - [x] **Roth mirror rebuild — avg_entry band + thesis (2026-07-30).**
       After orphan mark_closed, don't force expired DCA catch-up.
       Rebuild only OPEN investor positions where live is within
