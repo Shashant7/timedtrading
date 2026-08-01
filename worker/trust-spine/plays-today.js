@@ -2,14 +2,17 @@
 //
 // Thin slices:
 //   - confirm_stack_ema21 (plans/confirm-stack-ema21-slice.plan.md)
+//   - tt_cloud_pivot (plans/tt-cloud-pivot-slice.plan.md)
 //   - momentum_continuation (plans/continuation-move-capture-slice.plan.md)
 // Experts (sequence, character, RIDE, conviction) are inputs/chips — not modes.
 
 import { hasMomentumContinuation } from "../foundation/continuation-paper-queue.js";
+import { hasTtCloudPivot } from "../foundation/tt-cloud-pivot.js";
 
 const MODE_RANK = { RIDE: 0, READY: 1, DRIFT: 2, FADE: 3, WAIT: 4, UNKNOWN: 5 };
 const PLAY_LABELS = { shares: "Shares", letf: "Leveraged ETF", options: "Options" };
 const CONFIRM_FAMILY = "confirm_stack_ema21";
+const CLOUD_PIVOT_FAMILY = "tt_cloud_pivot";
 const CONTINUATION_FAMILY = "momentum_continuation";
 
 function playPriority(item) {
@@ -18,11 +21,14 @@ function playPriority(item) {
   const tierBoost = tier === "A" ? 0 : tier === "B" ? 10 : 20;
   const score = Number(item?.confluence_score || item?.score || 0);
   const familyBoost = item?.slice_family === CONFIRM_FAMILY ? -200
+    : item?.slice_family === CLOUD_PIVOT_FAMILY ? -190
     : item?.slice_family === CONTINUATION_FAMILY ? -180
     : 0;
   const confirmBoost = item?.confirm_stack === true ? -50 : 0;
+  const cloudBoost = item?.tt_cloud_pivot === true ? -45 : 0;
   const contBoost = item?.momentum_continuation === true ? -40 : 0;
-  return (MODE_RANK[mode] ?? 5) * 1000 + tierBoost * 10 - score + familyBoost + confirmBoost + contBoost;
+  return (MODE_RANK[mode] ?? 5) * 1000 + tierBoost * 10 - score
+    + familyBoost + confirmBoost + cloudBoost + contBoost;
 }
 
 function boolGate(gates, key) {
@@ -50,6 +56,9 @@ export function extractSliceFields(t = {}) {
   const posture = t.setup_shadow_posture?.posture || t.setup_shadow_posture || null;
   const confluenceMode = t.confluence_mode || t._confluence?.mode || t.confluence?.mode || null;
   const paperQ = t._sequence_queue_proposal || null;
+  const cloudPivot = t.tt_cloud_pivot === true
+    || paperQ?.family === CLOUD_PIVOT_FAMILY
+    || hasTtCloudPivot(t, {});
   const continuation = t.momentum_continuation === true
     || paperQ?.family === CONTINUATION_FAMILY
     || hasMomentumContinuation(t, {});
@@ -66,6 +75,7 @@ export function extractSliceFields(t = {}) {
     play_label: playVehicle ? (PLAY_LABELS[playVehicle] || playVehicle) : null,
     play_why: play?.why || play?.label || null,
     confirm_stack: confirm,
+    tt_cloud_pivot: cloudPivot || null,
     momentum_continuation: continuation || null,
     runway_full: runway,
     setup_gate_shadow: t.setup_gate_shadow === true,
@@ -82,6 +92,8 @@ export function extractSliceFields(t = {}) {
       size_mult: paperQ.size_mult ?? 0.1,
       reason: paperQ.reason || null,
       family: paperQ.family || null,
+      session: paperQ.session || null,
+      trigger: paperQ.trigger || null,
     } : null,
   };
 }
@@ -97,9 +109,20 @@ export function isConfirmStackFamily(t = {}, slice = null) {
   return reclaim && stFlip && squeeze;
 }
 
+export function isCloudPivotFamily(t = {}, slice = null) {
+  const s = slice || extractSliceFields(t);
+  if (s.confirm_stack === true) return false; // confirm-stack wins
+  if (s.tt_cloud_pivot === true) return true;
+  if (s.sequence_paper_queue?.family === CLOUD_PIVOT_FAMILY) return true;
+  return hasTtCloudPivot(t, {});
+}
+
 export function isContinuationFamily(t = {}, slice = null) {
   const s = slice || extractSliceFields(t);
   if (s.confirm_stack === true) return false; // confirm-stack wins
+  if (s.tt_cloud_pivot === true || s.sequence_paper_queue?.family === CLOUD_PIVOT_FAMILY) {
+    return false; // cloud pivot preferred over continuation
+  }
   if (s.momentum_continuation === true) return true;
   if (s.sequence_paper_queue?.family === CONTINUATION_FAMILY) return true;
   return hasMomentumContinuation(t, {});
@@ -107,7 +130,15 @@ export function isContinuationFamily(t = {}, slice = null) {
 
 function resolveFamily(t, slice) {
   if (isConfirmStackFamily(t, slice)) return CONFIRM_FAMILY;
+  if (isCloudPivotFamily(t, slice)) return CLOUD_PIVOT_FAMILY;
   if (isContinuationFamily(t, slice)) return CONTINUATION_FAMILY;
+  return null;
+}
+
+function familyKind(family) {
+  if (family === CONFIRM_FAMILY) return "confirm_stack";
+  if (family === CLOUD_PIVOT_FAMILY) return "tt_cloud_pivot";
+  if (family === CONTINUATION_FAMILY) return "momentum_continuation";
   return null;
 }
 
@@ -122,6 +153,7 @@ export function buildTodayPlaysQueue({
   optionsPlays = [],
   readySetups = [],
   confirmStackTickers = [],
+  cloudPivotTickers = [],
   continuationTickers = [],
   limit = 20,
 } = {}) {
@@ -132,8 +164,7 @@ export function buildTodayPlaysQueue({
     const slice = extractSliceFields(p);
     const family = resolveFamily(p, slice);
     pushPlay(items, {
-      kind: family === CONFIRM_FAMILY ? "confirm_stack"
-        : family === CONTINUATION_FAMILY ? "momentum_continuation" : "options",
+      kind: familyKind(family) || "options",
       slice_family: family,
       ticker: String(p.ticker).toUpperCase(),
       direction: p.direction || null,
@@ -144,6 +175,7 @@ export function buildTodayPlaysQueue({
       archetype: p.primary_archetype || p.archetype || null,
       headline: p.headline || p.label || null,
       confirm_stack: slice.confirm_stack,
+      tt_cloud_pivot: slice.tt_cloud_pivot,
       momentum_continuation: slice.momentum_continuation,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
@@ -162,8 +194,7 @@ export function buildTodayPlaysQueue({
     const slice = extractSliceFields(s);
     const family = resolveFamily(s, slice);
     pushPlay(items, {
-      kind: family === CONFIRM_FAMILY ? "confirm_stack"
-        : family === CONTINUATION_FAMILY ? "momentum_continuation" : "setup",
+      kind: familyKind(family) || "setup",
       slice_family: family,
       ticker: String(s.ticker).toUpperCase(),
       direction: s.direction || s.trigger_dir || null,
@@ -174,6 +205,7 @@ export function buildTodayPlaysQueue({
       archetype: s.setup_name || s.entry_path || null,
       headline: s.setup_name || s.ticker,
       confirm_stack: slice.confirm_stack,
+      tt_cloud_pivot: slice.tt_cloud_pivot,
       momentum_continuation: slice.momentum_continuation,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
@@ -203,6 +235,7 @@ export function buildTodayPlaysQueue({
       archetype: s.setup_name || s.entry_path || CONFIRM_FAMILY,
       headline: slice.lifecycle?.why || s.setup_name || "Confirm-stack EMA21",
       confirm_stack: true,
+      tt_cloud_pivot: slice.tt_cloud_pivot,
       momentum_continuation: slice.momentum_continuation,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
@@ -214,6 +247,41 @@ export function buildTodayPlaysQueue({
       sequence_posture: slice.sequence_posture,
       sequence_paper_queue: slice.sequence_paper_queue,
       source: "confirm_stack_scan",
+    });
+  }
+
+  for (const s of cloudPivotTickers || []) {
+    if (!s?.ticker) continue;
+    const slice = extractSliceFields(s);
+    if (!isCloudPivotFamily(s, slice)) continue;
+    pushPlay(items, {
+      kind: "tt_cloud_pivot",
+      slice_family: CLOUD_PIVOT_FAMILY,
+      ticker: String(s.ticker).toUpperCase(),
+      direction: s.direction || s.trigger_dir || slice.sequence_paper_queue?.direction || null,
+      mode: slice.lifecycle?.state || s.kanban_stage || "watching",
+      confluence_mode: slice.confluence_mode || s.confluence_mode || null,
+      confluence_score: s.rank ?? s.score ?? null,
+      conviction_tier: slice.conviction_tier || s.__conviction_tier || null,
+      archetype: s.setup_name || s.entry_path || CLOUD_PIVOT_FAMILY,
+      headline: slice.lifecycle?.why
+        || slice.sequence_paper_queue?.reason
+        || s.setup_name
+        || "Cloud Pivot",
+      confirm_stack: false,
+      tt_cloud_pivot: true,
+      momentum_continuation: slice.momentum_continuation,
+      runway_full: slice.runway_full,
+      lifecycle: slice.lifecycle,
+      play_vehicle: slice.play_vehicle,
+      play_label: slice.play_label,
+      play_why: slice.play_why,
+      business_character: slice.business_character,
+      sequence_entry_ready: slice.sequence_entry_ready,
+      sequence_posture: slice.sequence_posture,
+      sequence_paper_queue: slice.sequence_paper_queue,
+      session: slice.sequence_paper_queue?.session || s._cloud_pivot_detect?.session || null,
+      source: "cloud_pivot_scan",
     });
   }
 
@@ -233,6 +301,7 @@ export function buildTodayPlaysQueue({
       archetype: s.setup_name || s.entry_path || CONTINUATION_FAMILY,
       headline: slice.lifecycle?.why || s.setup_name || "Momentum continuation",
       confirm_stack: false,
+      tt_cloud_pivot: false,
       momentum_continuation: true,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
@@ -250,7 +319,13 @@ export function buildTodayPlaysQueue({
   for (const it of items) it.priority = playPriority(it);
 
   items.sort((a, b) => a.priority - b.priority);
-  const kindRank = { confirm_stack: 0, momentum_continuation: 1, options: 2, setup: 3 };
+  const kindRank = {
+    confirm_stack: 0,
+    tt_cloud_pivot: 1,
+    momentum_continuation: 2,
+    options: 3,
+    setup: 4,
+  };
   const seen = new Set();
   const deduped = [];
   for (const it of items) {
@@ -271,8 +346,9 @@ export function buildTodayPlaysQueue({
   }
 
   const confirmPlays = deduped.filter((p) => p.slice_family === CONFIRM_FAMILY);
+  const cloudPlays = deduped.filter((p) => p.slice_family === CLOUD_PIVOT_FAMILY);
   const contPlays = deduped.filter((p) => p.slice_family === CONTINUATION_FAMILY);
-  const familyPlays = [...confirmPlays, ...contPlays];
+  const familyPlays = [...confirmPlays, ...cloudPlays, ...contPlays];
 
   return {
     generated_at: Date.now(),
@@ -284,7 +360,7 @@ export function buildTodayPlaysQueue({
       label: "Confirm-stack EMA21 runners",
       count: confirmPlays.length,
       plays: familyPlays,
-      note: "Thin-slice families: confirm-stack + momentum continuation. Capture/MFE attribution is the widen gate.",
+      note: "Thin-slice families: confirm-stack + cloud pivot + momentum continuation. Capture/MFE attribution is the widen gate.",
     },
     slices: {
       [CONFIRM_FAMILY]: {
@@ -292,6 +368,12 @@ export function buildTodayPlaysQueue({
         label: "Confirm-stack EMA21",
         count: confirmPlays.length,
         plays: confirmPlays,
+      },
+      [CLOUD_PIVOT_FAMILY]: {
+        family: CLOUD_PIVOT_FAMILY,
+        label: "Cloud Pivot",
+        count: cloudPlays.length,
+        plays: cloudPlays,
       },
       [CONTINUATION_FAMILY]: {
         family: CONTINUATION_FAMILY,

@@ -380,6 +380,9 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   Family attribution: `GET /timed/admin/trust-spine/family-attribution`.
   Confirm-stack thin slice: sequence `entry_ready` → paper Queued (0.1×);
   move-ending/conviction auto-promote only after family n≥30 + keep≥0.35.
+  `tt_cloud_pivot` thin slice (not ripster_*): 10m 5/12 curl + 34/50 + 1H MTF,
+  paper Queued 0.1×; exit when 10m candle loses 5/12. Priority:
+  confirm-stack > cloud pivot > momentum_continuation.
 
 **Ledger summary is mode-aware (2026-07-22)**
 - `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.

@@ -28,6 +28,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
 
     let readySetups = [];
     let confirmStackTickers = [];
+    let cloudPivotTickers = [];
     let continuationTickers = [];
     try {
       const all = await kvGetJSON(KV, "timed:all:snapshot")
@@ -59,6 +60,14 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
         if (confirm || (reclaim && stFlip && squeeze)) {
           confirmStackTickers.push({ ticker: sym, ...t });
         }
+        // Cloud Pivot thin slice (paper) — 10m 5/12 curl family.
+        if (
+          t?.tt_cloud_pivot === true
+          || t?._sequence_queue_proposal?.family === "tt_cloud_pivot"
+          || t?._cloud_pivot_detect?.fires === true
+        ) {
+          cloudPivotTickers.push({ ticker: sym, ...t });
+        }
         // Momentum continuation thin slice (paper) — stamped flag or proposal.
         if (
           t?.momentum_continuation === true
@@ -74,6 +83,7 @@ export async function handleTrustSpineRoutes(routeKey, ctx) {
       optionsPlays,
       readySetups,
       confirmStackTickers,
+      cloudPivotTickers,
       continuationTickers,
       limit,
     });

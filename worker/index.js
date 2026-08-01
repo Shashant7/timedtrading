@@ -463,6 +463,13 @@ import {
   buildContinuationOptionsFirstPlay,
 } from "./foundation/continuation-paper-queue.js";
 import {
+  stampTtCloudPivotThinSlice,
+  cloudPivotPaperSizeMult,
+  buildCloudPivotOptionsFirstPlay,
+  evaluateTtCloudPivotExit,
+  CLOUD_PIVOT_FAMILY,
+} from "./foundation/tt-cloud-pivot.js";
+import {
   loadWeeklyMoveAutopsy,
   refreshWeeklyMoveAutopsy,
   WEEKLY_AUTOPSY_KV,
@@ -12172,6 +12179,30 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
     const _regimeConfirms = (direction === "LONG" && _regimeForExit >= 1) || (direction === "SHORT" && _regimeForExit <= -1);
     const _daMinHoldRegimeH = Number(tickerData?._env?._deepAuditConfig?.deep_audit_min_hold_regime_exit_hours) || 0;
     const _regimeExitMinAge = positionAgeMin >= Math.max(240, _daMinHoldRegimeH * 60);
+
+    // TT Cloud Pivot family exit (anti-giveback 5/12) — before swing/ripster
+    // force paths dominate short-hold paper entries.
+    try {
+      const _cpDec = evaluateTtCloudPivotExit({
+        tickerData,
+        openPosition,
+        direction,
+        currentPrice,
+        pnlPct,
+        positionAgeMin,
+        trimmedPct: currentTrimPct,
+        daCfg: tickerData?._env?._deepAuditConfig || {},
+      });
+      if (openPosition?.__tradeRef && typeof openPosition.__tradeRef === "object"
+        && openPosition.tt_cloud_pivot_pending_5_12 != null) {
+        openPosition.__tradeRef.tt_cloud_pivot_pending_5_12 = openPosition.tt_cloud_pivot_pending_5_12;
+      }
+      if (_cpDec?.stage === "exit" || _cpDec?.stage === "trim" || _cpDec?.stage === "defend") {
+        tickerData.__exit_reason = _cpDec.reason;
+        tickerData.__exit_family = CLOUD_PIVOT_FAMILY;
+        return _cpDec.stage;
+      }
+    } catch (_) { /* never break manage path */ }
 
     // ─────────────────────────────────────────────────────────────────────────
     // PIPELINE EXIT ENGINE DISPATCH (tt_core / ripster_core / legacy)
@@ -26466,11 +26497,21 @@ async function processTradeSimulation(
             if (_contEntry?._model_play && !tickerData.__model_play) {
               tickerData._model_play = _contEntry._model_play;
             }
+            const _cpEntry = stampTtCloudPivotThinSlice(tickerData, _daCfgPaper);
+            if (_cpEntry?._sequence_queue_proposal) {
+              tickerData._sequence_queue_proposal = _cpEntry._sequence_queue_proposal;
+            }
+            if (_cpEntry?.tt_cloud_pivot) tickerData.tt_cloud_pivot = true;
+            if (_cpEntry?._cloud_pivot_detect) tickerData._cloud_pivot_detect = _cpEntry._cloud_pivot_detect;
+            if (_cpEntry?._model_play && !tickerData.__model_play) {
+              tickerData._model_play = _cpEntry._model_play;
+            }
           } catch (_) { /* */ }
           const _daCfgSz = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
           const _paperMult = Math.min(
             paperQueueSizeMult(tickerData, _daCfgSz),
             continuationPaperSizeMult(tickerData, _daCfgSz),
+            cloudPivotPaperSizeMult(tickerData, _daCfgSz),
           );
           if (_paperMult < 1) {
             tickerData.__paper_queue_size_mult = _paperMult;
@@ -27218,9 +27259,13 @@ async function processTradeSimulation(
                 try {
                   const _daPlay = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
                   const _of = applyConfirmStackOptionsFirstToMenu(_vMenu, tickerData, _daPlay);
-                  const _contPlay = (!_of.applied)
+                  const _cpPlay = (!_of.applied)
+                    ? buildCloudPivotOptionsFirstPlay(tickerData, _daPlay)
+                    : null;
+                  const _contPlay = (!_of.applied && !_cpPlay)
                     ? buildContinuationOptionsFirstPlay(tickerData, _daPlay)
                     : null;
+                  const _forcedPlay = _of.applied ? _of.play : (_cpPlay || _contPlay);
                   if (_of.applied && _of.menu) {
                     Object.assign(_vMenu, _of.menu);
                     tickerData.__model_play = {
@@ -27228,10 +27273,10 @@ async function processTradeSimulation(
                       ...(_of.play || {}),
                       paper: true,
                     };
-                  } else if (_contPlay) {
+                  } else if (_forcedPlay) {
                     tickerData.__model_play = {
                       ...(_modelPlayLineage(_vMenu) || {}),
-                      ..._contPlay,
+                      ..._forcedPlay,
                       paper: true,
                     };
                     if (_vMenu.pick) {
@@ -27239,11 +27284,19 @@ async function processTradeSimulation(
                         ..._vMenu.pick,
                         play_vehicle: "options",
                         vehicle: "option",
-                        why: _contPlay.why,
+                        why: _forcedPlay.why,
                       };
                     }
                   } else {
                     tickerData.__model_play = _modelPlayLineage(_vMenu);
+                  }
+                  // Persist family on the trade for cloud-pivot exit path.
+                  if (tickerData._sequence_queue_proposal?.family === CLOUD_PIVOT_FAMILY
+                    || tickerData.tt_cloud_pivot
+                    || tickerData.__model_play?.family === CLOUD_PIVOT_FAMILY) {
+                    tickerData.__entry_family = CLOUD_PIVOT_FAMILY;
+                    trade.slice_family = CLOUD_PIVOT_FAMILY;
+                    trade.entry_family = CLOUD_PIVOT_FAMILY;
                   }
                 } catch (_) {
                   tickerData.__model_play = _modelPlayLineage(_vMenu);
@@ -41971,6 +42024,9 @@ async function d1InsertDecisionRecord(env, args = {}) {
       const confirmFires = gates?.stack_full_confirm?.fires === true
         || gates?.stack_full_confirm === true
         || inputs?.confirm_stack === true;
+      const cloudPivotFires = inputs?.tt_cloud_pivot === true
+        || inputs?.slice_family === "tt_cloud_pivot"
+        || inputs?.sequence_paper_queue?.family === "tt_cloud_pivot";
       const continuationFires = inputs?.momentum_continuation === true
         || inputs?.slice_family === "momentum_continuation"
         || inputs?.sequence_paper_queue?.family === "momentum_continuation";
@@ -41979,6 +42035,12 @@ async function d1InsertDecisionRecord(env, args = {}) {
           ...(inputs && typeof inputs === "object" ? inputs : {}),
           slice_family: "confirm_stack_ema21",
           confirm_stack: true,
+        };
+      } else if (cloudPivotFires) {
+        inputs = {
+          ...(inputs && typeof inputs === "object" ? inputs : {}),
+          slice_family: "tt_cloud_pivot",
+          tt_cloud_pivot: true,
         };
       } else if (continuationFires) {
         inputs = {
@@ -46833,6 +46895,10 @@ const TRADE_EXIT_REASON_DISPLAY_MAP = {
   ripster_5_12_lost: "10-min 5/12 EMA cloud crossed against the position — exited as momentum starts to flip",
   ripster_5_12_pending: "10-min 5/12 EMA cloud cross was forming — exit triggered as the bar closed against us",
   ripster_5_12_defend_trim: "10-min 5/12 EMA cloud lost on the position side — full exit after defensive trim path",
+  tt_cloud_pivot_5_12_pending: "Cloud Pivot — 10-min 5/12 cloud cross forming against the position; defending while the bar confirms",
+  tt_cloud_pivot_5_12_close_trim: "Cloud Pivot — 10-min candle lost the 5/12 ride; trimming to lock the move",
+  tt_cloud_pivot_5_12_close_exit: "Cloud Pivot — 10-min candle closed through 5/12; exiting to avoid giveback",
+  tt_cloud_pivot_34_50_mtf_exit: "Cloud Pivot — 10-min and 1H 34/50 bias both flipped against the position; exiting",
   KANBAN_EXIT: "Engine exit lane triggered — model recommends closing the position",
 };
 
@@ -47312,6 +47378,10 @@ function createTradeClosedEmbed(
   exitReasonMap.ripster_5_12_lost = "10-min 5/12 EMA cloud crossed against the position — exited as momentum starts to flip";
   exitReasonMap.ripster_5_12_pending = "10-min 5/12 EMA cloud cross was forming — exit triggered as the bar closed against us";
   exitReasonMap.ripster_5_12_defend_trim = "10-min 5/12 EMA cloud lost on the position side — full exit after defensive trim path";
+  exitReasonMap.tt_cloud_pivot_5_12_pending = "Cloud Pivot — 10-min 5/12 cloud cross forming against the position; defending while the bar confirms";
+  exitReasonMap.tt_cloud_pivot_5_12_close_trim = "Cloud Pivot — 10-min candle lost the 5/12 ride; trimming to lock the move";
+  exitReasonMap.tt_cloud_pivot_5_12_close_exit = "Cloud Pivot — 10-min candle closed through 5/12; exiting to avoid giveback";
+  exitReasonMap.tt_cloud_pivot_34_50_mtf_exit = "Cloud Pivot — 10-min and 1H 34/50 bias both flipped against the position; exiting";
   const rawReason = exitReason || "";
   // Fallback: strip 'ripster' / 'saty' indicator-author jargon entirely
   // (was previously rewritten as 'TT ' which still looked odd).
@@ -103514,6 +103584,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   result._sequence_queue_proposal = _cont._sequence_queue_proposal;
                 }
                 if (_cont?._model_play) result._model_play = _cont._model_play;
+                // Cloud pivot (paper) — preferred over continuation; confirm-stack still wins.
+                const _cp = stampTtCloudPivotThinSlice(result, _daThin);
+                if (_cp?.tt_cloud_pivot) result.tt_cloud_pivot = true;
+                if (_cp?._cloud_pivot_detect) result._cloud_pivot_detect = _cp._cloud_pivot_detect;
+                if (_cp?._sequence_queue_proposal) {
+                  result._sequence_queue_proposal = _cp._sequence_queue_proposal;
+                }
+                if (_cp?._model_play) result._model_play = _cp._model_play;
               } catch (_) { /* */ }
               const _lc = resolveModelLifecycle({
                 ticker,
@@ -104694,6 +104772,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                       const _daD1 = env._deepAuditConfig || {};
                       _plForD1 = stampConfirmStackThinSlice(_plForD1, _daD1);
                       _plForD1 = stampContinuationThinSlice(_plForD1, _daD1);
+                      _plForD1 = stampTtCloudPivotThinSlice(_plForD1, _daD1);
                     } catch (_) { /* */ }
                     // Re-resolve lifecycle when paper Queued stamped after shadow.
                     try {
