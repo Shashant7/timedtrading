@@ -454,11 +454,14 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   (W/L + outcome_pct). Multi-vehicle sim fill code exists (`model-play-sim.js`)
   but is **default OFF** (`deep_audit_model_play_sim_enabled`) until D1
   persists vehicle fills; without the flag book still fills shares.
-  **Thin slice (not flag-flip):** Confirm-stack EMA21 runners — one family
-  end-to-end under lifecycle + play UI. Plan:
-  [`plans/confirm-stack-ema21-slice.plan.md`](plans/confirm-stack-ema21-slice.plan.md).
-  Today strip + `/timed/plays/today` slice. Widen only if capture/MFE beats
-  ~4.8% baseline OOS.
+  **Thin slices (not flag-flip):** Confirm-stack EMA21 + **momentum
+  continuation** (paper Queued) under lifecycle + play UI. Plans:
+  [`plans/confirm-stack-ema21-slice.plan.md`](plans/confirm-stack-ema21-slice.plan.md),
+  [`plans/continuation-move-capture-slice.plan.md`](plans/continuation-move-capture-slice.plan.md).
+  Today `/timed/plays/today` `slices.*`. Scoreboard:
+  `GET /timed/admin/discovery/weekly-move-autopsy` (≥10% weeks TOUCHED/
+  PARTIAL/MISSED; canary NBIS/BE/DELL/MU). Widen only if capture/MFE beats
+  ~4.8% baseline OOS. Freeze net-new defensive gates without capture before/after.
 - PML / CTO horizon tuned 20 → **10 sessions** (~2 weeks), env `CTO_HORIZON_BARS`.
   Close magnets + a 20-day window made every level read "highly likely"; a
   ~2-week horizon differentiates them. Keep `cto-service.js` HORIZON_BARS and

@@ -881,6 +881,12 @@ function MarketPulseTile({
 }
 function setupFamilyActionHint(p) {
   const state = String(p?.lifecycle?.state || p?.mode || "").toLowerCase();
+  if (p?.slice_family === "momentum_continuation" || p?.momentum_continuation) {
+    if (state === "queued") {
+      return "Continuation queued (paper) — impulse + alignment; size stays tiny until attribution clears.";
+    }
+    return "Momentum continuation — structure aligned with impulse; stalk follow-through, not a deep pullback.";
+  }
   if (p?.sequence_entry_ready) {
     return "Entry ready on the plan — size at the add zone.";
   }
@@ -930,9 +936,14 @@ function SetupFamiliesStrip({
           }
         }) : await fetchJsonRetry(url);
         if (!alive) return;
-        if (j?.ok) setSlice(j.slice || {
-          plays: (j.plays || []).filter(p => p.slice_family === "confirm_stack_ema21")
-        });else setSlice({
+        if (j?.ok) {
+          const familyPlays = j.slice?.plays || [...(j.slices?.confirm_stack_ema21?.plays || []), ...(j.slices?.momentum_continuation?.plays || [])] || (j.plays || []).filter(p => p.slice_family === "confirm_stack_ema21" || p.slice_family === "momentum_continuation");
+          setSlice({
+            ...(j.slice || {}),
+            plays: familyPlays,
+            slices: j.slices || null
+          });
+        } else setSlice({
           plays: []
         });
       } catch (_) {
@@ -978,7 +989,7 @@ function SetupFamiliesStrip({
     className: "tt-ready__title"
   }, "Tracked structure families"), h("p", {
     className: "tt-ready__sub"
-  }, "Confirm-stack first (trend flip + squeeze + reclaim). Stalk the add zone."));
+  }, "Confirm-stack (flip + squeeze + reclaim) and momentum continuation. Paper size until capture holds."));
   if (!window._ttIsPro) {
     return wrap(h(React.Fragment, null, head, h("div", {
       className: "tt-ready__locked",
@@ -1038,7 +1049,7 @@ function SetupFamiliesStrip({
     const biasLabel = modelDir === "SHORT" ? "Bearish" : modelDir === "LONG" ? "Bullish" : "Neutral";
     const chipRow = [];
     const familyKey = String(p.slice_family || p.kind || "confirm_stack_ema21");
-    const familyLabel = familyKey === "confirm_stack_ema21" || familyKey === "confirm_stack" ? "Confirm-stack" : familyKey.replace(/_/g, " ");
+    const familyLabel = familyKey === "confirm_stack_ema21" || familyKey === "confirm_stack" ? "Confirm-stack" : familyKey === "momentum_continuation" ? "Continuation" : familyKey.replace(/_/g, " ");
     chipRow.push(h("span", {
       key: "family",
       className: "ds-chip ds-chip--sm",
@@ -1047,6 +1058,13 @@ function SetupFamiliesStrip({
         fontFamily: "var(--tt-font-mono)"
       }
     }, familyLabel));
+    if (p.momentum_continuation === true && familyKey !== "confirm_stack_ema21") {
+      chipRow.push(h("span", {
+        key: "cont",
+        className: "ds-chip ds-chip--sm ds-chip--accent",
+        title: "Impulse + HTF alignment (paper continuation family)"
+      }, "Impulse on"));
+    }
     if (lifeLabel) {
       chipRow.push(h("span", {
         key: "life",
@@ -7231,6 +7249,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1785515909655:797060691
+// cache-bust:1785542197761:884611217
 
-// cache-bust:1785515909655:797060691
+// cache-bust:1785542197761:884611217

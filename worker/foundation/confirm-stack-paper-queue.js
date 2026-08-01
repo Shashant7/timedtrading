@@ -129,6 +129,8 @@ export function thinSliceKvPatch(fromPayload = {}, stamped = {}) {
     "setup_shadow_event_count",
     "setup_shadow_as_of_ts",
     "confirm_stack",
+    "momentum_continuation",
+    "_continuation_detect",
     "_sequence_queue_proposal",
     "_model_play",
     "_model_lifecycle",

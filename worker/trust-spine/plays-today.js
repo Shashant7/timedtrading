@@ -1,21 +1,28 @@
 // Trust Spine — unified Today's Plays queue (server-side priority sort).
 //
-// Thin slice (plans/confirm-stack-ema21-slice.plan.md): Confirm-stack EMA21
-// runners are first-class queue items. Experts (sequence, character, RIDE,
-// conviction) are inputs/chips — not competing modes.
+// Thin slices:
+//   - confirm_stack_ema21 (plans/confirm-stack-ema21-slice.plan.md)
+//   - momentum_continuation (plans/continuation-move-capture-slice.plan.md)
+// Experts (sequence, character, RIDE, conviction) are inputs/chips — not modes.
+
+import { hasMomentumContinuation } from "../foundation/continuation-paper-queue.js";
 
 const MODE_RANK = { RIDE: 0, READY: 1, DRIFT: 2, FADE: 3, WAIT: 4, UNKNOWN: 5 };
 const PLAY_LABELS = { shares: "Shares", letf: "Leveraged ETF", options: "Options" };
+const CONFIRM_FAMILY = "confirm_stack_ema21";
+const CONTINUATION_FAMILY = "momentum_continuation";
 
 function playPriority(item) {
   const mode = String(item?.confluence_mode || item?.mode || "UNKNOWN").toUpperCase();
   const tier = String(item?.conviction_tier || item?.tier || "C").toUpperCase();
   const tierBoost = tier === "A" ? 0 : tier === "B" ? 10 : 20;
   const score = Number(item?.confluence_score || item?.score || 0);
-  // Confirm-stack family sorts ahead of generic ready/options noise.
-  const familyBoost = item?.slice_family === "confirm_stack_ema21" ? -200 : 0;
+  const familyBoost = item?.slice_family === CONFIRM_FAMILY ? -200
+    : item?.slice_family === CONTINUATION_FAMILY ? -180
+    : 0;
   const confirmBoost = item?.confirm_stack === true ? -50 : 0;
-  return (MODE_RANK[mode] ?? 5) * 1000 + tierBoost * 10 - score + familyBoost + confirmBoost;
+  const contBoost = item?.momentum_continuation === true ? -40 : 0;
+  return (MODE_RANK[mode] ?? 5) * 1000 + tierBoost * 10 - score + familyBoost + confirmBoost + contBoost;
 }
 
 function boolGate(gates, key) {
@@ -43,6 +50,9 @@ export function extractSliceFields(t = {}) {
   const posture = t.setup_shadow_posture?.posture || t.setup_shadow_posture || null;
   const confluenceMode = t.confluence_mode || t._confluence?.mode || t.confluence?.mode || null;
   const paperQ = t._sequence_queue_proposal || null;
+  const continuation = t.momentum_continuation === true
+    || paperQ?.family === CONTINUATION_FAMILY
+    || hasMomentumContinuation(t, {});
 
   return {
     lifecycle: life ? {
@@ -56,6 +66,7 @@ export function extractSliceFields(t = {}) {
     play_label: playVehicle ? (PLAY_LABELS[playVehicle] || playVehicle) : null,
     play_why: play?.why || play?.label || null,
     confirm_stack: confirm,
+    momentum_continuation: continuation || null,
     runway_full: runway,
     setup_gate_shadow: t.setup_gate_shadow === true,
     business_character: character?.archetype || null,
@@ -70,6 +81,7 @@ export function extractSliceFields(t = {}) {
       paper: paperQ.paper !== false,
       size_mult: paperQ.size_mult ?? 0.1,
       reason: paperQ.reason || null,
+      family: paperQ.family || null,
     } : null,
   };
 }
@@ -78,7 +90,6 @@ export function extractSliceFields(t = {}) {
 export function isConfirmStackFamily(t = {}, slice = null) {
   const s = slice || extractSliceFields(t);
   if (s.confirm_stack === true) return true;
-  // Fallback: live EMA reclaim + ST flip + squeeze flags when gates missing.
   const flags = t.flags || {};
   const reclaim = !!(flags.ema21_reclaim || t.__pullback_confirmed || flags.ripster_reclaim);
   const stFlip = !!(flags.st_flip_bull || flags.st_flip_bear || flags.supertrend_flip);
@@ -86,13 +97,32 @@ export function isConfirmStackFamily(t = {}, slice = null) {
   return reclaim && stFlip && squeeze;
 }
 
+export function isContinuationFamily(t = {}, slice = null) {
+  const s = slice || extractSliceFields(t);
+  if (s.confirm_stack === true) return false; // confirm-stack wins
+  if (s.momentum_continuation === true) return true;
+  if (s.sequence_paper_queue?.family === CONTINUATION_FAMILY) return true;
+  return hasMomentumContinuation(t, {});
+}
+
+function resolveFamily(t, slice) {
+  if (isConfirmStackFamily(t, slice)) return CONFIRM_FAMILY;
+  if (isContinuationFamily(t, slice)) return CONTINUATION_FAMILY;
+  return null;
+}
+
+function pushPlay(items, base) {
+  items.push({ ...base, priority: 0 });
+}
+
 /**
- * Merge options plays + ready setups + confirm-stack family into one queue.
+ * Merge options plays + ready setups + family scans into one queue.
  */
 export function buildTodayPlaysQueue({
   optionsPlays = [],
   readySetups = [],
   confirmStackTickers = [],
+  continuationTickers = [],
   limit = 20,
 } = {}) {
   const items = [];
@@ -100,10 +130,11 @@ export function buildTodayPlaysQueue({
   for (const p of optionsPlays || []) {
     if (!p?.ticker) continue;
     const slice = extractSliceFields(p);
-    const family = isConfirmStackFamily(p, slice);
-    items.push({
-      kind: family ? "confirm_stack" : "options",
-      slice_family: family ? "confirm_stack_ema21" : null,
+    const family = resolveFamily(p, slice);
+    pushPlay(items, {
+      kind: family === CONFIRM_FAMILY ? "confirm_stack"
+        : family === CONTINUATION_FAMILY ? "momentum_continuation" : "options",
+      slice_family: family,
       ticker: String(p.ticker).toUpperCase(),
       direction: p.direction || null,
       mode: p.confluence_mode || p.mode || null,
@@ -113,6 +144,7 @@ export function buildTodayPlaysQueue({
       archetype: p.primary_archetype || p.archetype || null,
       headline: p.headline || p.label || null,
       confirm_stack: slice.confirm_stack,
+      momentum_continuation: slice.momentum_continuation,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
       play_vehicle: slice.play_vehicle || "options",
@@ -121,7 +153,6 @@ export function buildTodayPlaysQueue({
       business_character: slice.business_character,
       sequence_entry_ready: slice.sequence_entry_ready,
       sequence_posture: slice.sequence_posture,
-      priority: 0,
       source: "options_all",
     });
   }
@@ -129,10 +160,11 @@ export function buildTodayPlaysQueue({
   for (const s of readySetups || []) {
     if (!s?.ticker) continue;
     const slice = extractSliceFields(s);
-    const family = isConfirmStackFamily(s, slice);
-    items.push({
-      kind: family ? "confirm_stack" : "setup",
-      slice_family: family ? "confirm_stack_ema21" : null,
+    const family = resolveFamily(s, slice);
+    pushPlay(items, {
+      kind: family === CONFIRM_FAMILY ? "confirm_stack"
+        : family === CONTINUATION_FAMILY ? "momentum_continuation" : "setup",
+      slice_family: family,
       ticker: String(s.ticker).toUpperCase(),
       direction: s.direction || s.trigger_dir || null,
       mode: s.kanban_stage || s.stage || slice.lifecycle?.state || "READY",
@@ -142,6 +174,7 @@ export function buildTodayPlaysQueue({
       archetype: s.setup_name || s.entry_path || null,
       headline: s.setup_name || s.ticker,
       confirm_stack: slice.confirm_stack,
+      momentum_continuation: slice.momentum_continuation,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
       play_vehicle: slice.play_vehicle,
@@ -150,28 +183,27 @@ export function buildTodayPlaysQueue({
       business_character: slice.business_character,
       sequence_entry_ready: slice.sequence_entry_ready,
       sequence_posture: slice.sequence_posture,
-      priority: 0,
       source: "ready_setups",
     });
   }
 
-  // Explicit confirm-stack scan (may include watching/queued, not only ready).
   for (const s of confirmStackTickers || []) {
     if (!s?.ticker) continue;
     const slice = extractSliceFields(s);
     if (!isConfirmStackFamily(s, slice)) continue;
-    items.push({
+    pushPlay(items, {
       kind: "confirm_stack",
-      slice_family: "confirm_stack_ema21",
+      slice_family: CONFIRM_FAMILY,
       ticker: String(s.ticker).toUpperCase(),
       direction: s.direction || s.trigger_dir || null,
       mode: slice.lifecycle?.state || s.kanban_stage || "watching",
       confluence_mode: slice.confluence_mode || s.confluence_mode || null,
       confluence_score: s.rank ?? s.score ?? null,
       conviction_tier: slice.conviction_tier || s.__conviction_tier || null,
-      archetype: s.setup_name || s.entry_path || "confirm_stack_ema21",
+      archetype: s.setup_name || s.entry_path || CONFIRM_FAMILY,
       headline: slice.lifecycle?.why || s.setup_name || "Confirm-stack EMA21",
       confirm_stack: true,
+      momentum_continuation: slice.momentum_continuation,
       runway_full: slice.runway_full,
       lifecycle: slice.lifecycle,
       play_vehicle: slice.play_vehicle,
@@ -181,23 +213,55 @@ export function buildTodayPlaysQueue({
       sequence_entry_ready: slice.sequence_entry_ready,
       sequence_posture: slice.sequence_posture,
       sequence_paper_queue: slice.sequence_paper_queue,
-      priority: 0,
       source: "confirm_stack_scan",
+    });
+  }
+
+  for (const s of continuationTickers || []) {
+    if (!s?.ticker) continue;
+    const slice = extractSliceFields(s);
+    if (!isContinuationFamily(s, slice)) continue;
+    pushPlay(items, {
+      kind: "momentum_continuation",
+      slice_family: CONTINUATION_FAMILY,
+      ticker: String(s.ticker).toUpperCase(),
+      direction: s.direction || s.trigger_dir || slice.sequence_paper_queue?.direction || null,
+      mode: slice.lifecycle?.state || s.kanban_stage || "watching",
+      confluence_mode: slice.confluence_mode || s.confluence_mode || null,
+      confluence_score: s.rank ?? s.score ?? null,
+      conviction_tier: slice.conviction_tier || s.__conviction_tier || null,
+      archetype: s.setup_name || s.entry_path || CONTINUATION_FAMILY,
+      headline: slice.lifecycle?.why || s.setup_name || "Momentum continuation",
+      confirm_stack: false,
+      momentum_continuation: true,
+      runway_full: slice.runway_full,
+      lifecycle: slice.lifecycle,
+      play_vehicle: slice.play_vehicle,
+      play_label: slice.play_label,
+      play_why: slice.play_why,
+      business_character: slice.business_character,
+      sequence_entry_ready: slice.sequence_entry_ready,
+      sequence_posture: slice.sequence_posture,
+      sequence_paper_queue: slice.sequence_paper_queue,
+      source: "continuation_scan",
     });
   }
 
   for (const it of items) it.priority = playPriority(it);
 
   items.sort((a, b) => a.priority - b.priority);
+  const kindRank = { confirm_stack: 0, momentum_continuation: 1, options: 2, setup: 3 };
   const seen = new Set();
   const deduped = [];
   for (const it of items) {
-    // Prefer confirm_stack kind over options/setup for same ticker.
     const key = it.ticker;
     if (seen.has(key)) {
       const prevIdx = deduped.findIndex((x) => x.ticker === key);
-      if (prevIdx >= 0 && it.kind === "confirm_stack" && deduped[prevIdx].kind !== "confirm_stack") {
-        deduped[prevIdx] = it;
+      if (prevIdx >= 0) {
+        const prev = deduped[prevIdx];
+        if ((kindRank[it.kind] ?? 9) < (kindRank[prev.kind] ?? 9)) {
+          deduped[prevIdx] = it;
+        }
       }
       continue;
     }
@@ -206,17 +270,35 @@ export function buildTodayPlaysQueue({
     if (deduped.length >= limit) break;
   }
 
-  const family = deduped.filter((p) => p.slice_family === "confirm_stack_ema21");
+  const confirmPlays = deduped.filter((p) => p.slice_family === CONFIRM_FAMILY);
+  const contPlays = deduped.filter((p) => p.slice_family === CONTINUATION_FAMILY);
+  const familyPlays = [...confirmPlays, ...contPlays];
+
   return {
     generated_at: Date.now(),
     count: deduped.length,
     plays: deduped,
+    // Backward-compat: `slice` remains confirm-stack primary.
     slice: {
-      family: "confirm_stack_ema21",
+      family: CONFIRM_FAMILY,
       label: "Confirm-stack EMA21 runners",
-      count: family.length,
-      plays: family,
-      note: "Thin-slice proof family. Experts are chips (sequence, character, play, conviction) — not modes. Capture/MFE attribution is the widen gate, not flag flips.",
+      count: confirmPlays.length,
+      plays: familyPlays,
+      note: "Thin-slice families: confirm-stack + momentum continuation. Capture/MFE attribution is the widen gate.",
+    },
+    slices: {
+      [CONFIRM_FAMILY]: {
+        family: CONFIRM_FAMILY,
+        label: "Confirm-stack EMA21",
+        count: confirmPlays.length,
+        plays: confirmPlays,
+      },
+      [CONTINUATION_FAMILY]: {
+        family: CONTINUATION_FAMILY,
+        label: "Momentum continuation",
+        count: contPlays.length,
+        plays: contPlays,
+      },
     },
   };
 }
