@@ -131,6 +131,8 @@ export function thinSliceKvPatch(fromPayload = {}, stamped = {}) {
     "confirm_stack",
     "momentum_continuation",
     "_continuation_detect",
+    "tt_cloud_pivot",
+    "_cloud_pivot_detect",
     "_sequence_queue_proposal",
     "_model_play",
     "_model_lifecycle",

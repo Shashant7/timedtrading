@@ -128,6 +128,10 @@ export function compactSetupSliceRefs(tickerData) {
     || tickerData.confirm_stack === true
     || tickerData._sequence_queue_proposal?.family === "confirm_stack_ema21"
     || tickerData._sequence_queue_proposal?.confirm_stack === true;
+  const cloudPivotFires = tickerData.tt_cloud_pivot === true
+    || tickerData._sequence_queue_proposal?.family === "tt_cloud_pivot"
+    || tickerData._cloud_pivot_detect?.fires === true
+    || tickerData.slice_family === "tt_cloud_pivot";
   const continuationFires = tickerData.momentum_continuation === true
     || tickerData._sequence_queue_proposal?.family === "momentum_continuation"
     || tickerData._continuation_detect?.fires === true
@@ -141,12 +145,15 @@ export function compactSetupSliceRefs(tickerData) {
     : null;
   const play = tickerData._model_play || tickerData.__model_play || null;
   const proposal = tickerData._sequence_queue_proposal || null;
+  // Priority: confirm-stack > tt_cloud_pivot > momentum_continuation.
   const sliceFamily = stackFires
     ? "confirm_stack_ema21"
-    : (continuationFires ? "momentum_continuation" : null);
+    : (cloudPivotFires ? "tt_cloud_pivot"
+      : (continuationFires ? "momentum_continuation" : null));
   const out = {
     setup_gates,
     confirm_stack: stackFires || null,
+    tt_cloud_pivot: cloudPivotFires || null,
     momentum_continuation: continuationFires || null,
     slice_family: sliceFamily,
     play_vehicle: strOrNull(play?.play_vehicle || play?.vehicle || play?.executed_vehicle, 24),
@@ -163,7 +170,8 @@ export function compactSetupSliceRefs(tickerData) {
         }
       : null,
   };
-  const hasAny = out.setup_gates || out.confirm_stack || out.momentum_continuation
+  const hasAny = out.setup_gates || out.confirm_stack || out.tt_cloud_pivot
+    || out.momentum_continuation
     || out.play_vehicle || out.confluence_mode || out.sequence_paper_queue;
   return hasAny ? out : null;
 }
@@ -300,6 +308,7 @@ export function buildTraderActionProvenance(opts = {}) {
     // Top-level for Phase B / family attribution (also nested under technical historically).
     setup_gates: slice?.setup_gates || null,
     confirm_stack: slice?.confirm_stack || null,
+    tt_cloud_pivot: slice?.tt_cloud_pivot || null,
     momentum_continuation: slice?.momentum_continuation || null,
     slice_family: slice?.slice_family || null,
     play_vehicle: slice?.play_vehicle || null,
@@ -336,6 +345,7 @@ export function enrichDecisionInputs(baseInputs, opts = {}) {
     event: base.event || prov.event,
     setup_gates: base.setup_gates || prov.setup_gates || null,
     confirm_stack: base.confirm_stack ?? prov.confirm_stack ?? null,
+    tt_cloud_pivot: base.tt_cloud_pivot ?? prov.tt_cloud_pivot ?? null,
     momentum_continuation: base.momentum_continuation ?? prov.momentum_continuation ?? null,
     slice_family: base.slice_family || prov.slice_family || null,
     play_vehicle: base.play_vehicle || prov.play_vehicle || null,

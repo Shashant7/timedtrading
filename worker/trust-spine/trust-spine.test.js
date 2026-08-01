@@ -91,6 +91,42 @@ describe("plays-today", () => {
     expect(q.slices.momentum_continuation.plays[0].ticker).toBe("DELL");
     expect(q.slice.plays.some((p) => p.slice_family === "momentum_continuation")).toBe(true);
   });
+
+  it("surfaces tt_cloud_pivot family ahead of momentum continuation", () => {
+    const q = buildTodayPlaysQueue({
+      cloudPivotTickers: [{
+        ticker: "AMD",
+        direction: "LONG",
+        confluence_mode: "RIDE",
+        tt_cloud_pivot: true,
+        _sequence_queue_proposal: {
+          family: "tt_cloud_pivot",
+          paper: true,
+          state: "queued",
+          size_mult: 0.1,
+          session: "midday_curl",
+          reason: "tt_cloud_pivot:midday_curl+5_12_cross_up",
+        },
+        _model_lifecycle: { state: "queued", label: "Queued", why: "tt_cloud_pivot" },
+        rank: 88,
+      }],
+      continuationTickers: [{
+        ticker: "AMD",
+        direction: "LONG",
+        momentum_continuation: true,
+        _sequence_queue_proposal: {
+          family: "momentum_continuation",
+          paper: true,
+          state: "queued",
+        },
+      }],
+      limit: 10,
+    });
+    expect(q.slices.tt_cloud_pivot.count).toBe(1);
+    expect(q.slices.tt_cloud_pivot.plays[0].ticker).toBe("AMD");
+    expect(q.slices.momentum_continuation.count).toBe(0);
+    expect(q.slice.plays.some((p) => p.slice_family === "tt_cloud_pivot")).toBe(true);
+  });
 });
 
 describe("scorecard", () => {
