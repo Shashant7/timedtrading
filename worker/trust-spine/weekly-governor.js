@@ -155,7 +155,7 @@ export async function runWeeklyGovernor(env, opts = {}) {
   }
 
   const db = env?.DB;
-  const KV = env?.KV || env?.TICKER_KV;
+  const KV = env?.KV_TIMED || env?.KV || env?.TICKER_KV;
   const now = Date.now();
 
   // Edge scorecard from KV (nightly B5) or opts override.

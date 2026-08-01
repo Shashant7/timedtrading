@@ -383,6 +383,11 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   `tt_cloud_pivot` thin slice (not ripster_*): 10m 5/12 curl + 34/50 + 1H MTF,
   paper Queued 0.1×; exit when 10m candle loses 5/12. Priority:
   confirm-stack > cloud pivot > momentum_continuation.
+  Calibration trust loop: SI **Run Analysis** = trusted live scope
+  `live-trades` (newest closed trades); autopsy PK is `scope::trade_id`.
+  Reports stamp `data_quality` + provenance; SL/TP Apply blocked when
+  MFE/MAE ATR coverage is too low. Promoted runs are challengers only.
+  Plan: `plans/calibration-trust-loop.plan.md`.
 
 **Ledger summary is mode-aware (2026-07-22)**
 - `/timed/ledger/summary?mode=trader|investor` must not ignore `mode`.
