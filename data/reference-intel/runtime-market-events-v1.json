@@ -40680,13 +40680,13 @@
       "served_by_colo": "MIA",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 44.5568
+        "sql_duration_ms": 49.321
       },
-      "duration": 44.5568,
+      "duration": 49.321,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4323094528,
+      "size_after": 4323467264,
       "rows_read": 4519,
       "rows_written": 0,
       "total_attempts": 1
