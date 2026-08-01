@@ -2277,6 +2277,66 @@ export async function getEmailOptedInUsers(env, prefKey) {
   }
 }
 
+/** ISO week key in America/New_York (YYYY-Www) for weekly email idempotency. */
+export function investorWeeklyDigestWeekKey(nowMs = Date.now()) {
+  const et = new Date(new Date(nowMs).toLocaleString("en-US", { timeZone: "America/New_York" }));
+  // ISO week: Thursday-based year, Monday start.
+  const day = et.getDay() || 7; // Mon=1 … Sun=7
+  et.setDate(et.getDate() + 4 - day);
+  const yearStart = new Date(et.getFullYear(), 0, 1);
+  const week = Math.ceil((((et - yearStart) / 86400000) + 1) / 7);
+  return `${et.getFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * Claim a once-per-week send lock in KV. Returns { ok, reason?, claim? }.
+ * Two workers racing (monolith + tt-engine on the five-minute cron) both
+ * used to send the Week in Review — this makes exactly one winner.
+ */
+export async function claimInvestorWeeklyDigestLock(env, nowMs = Date.now()) {
+  const KV = env?.KV_TIMED || env?.KV;
+  if (!KV) return { ok: true, reason: "no_kv", week: investorWeeklyDigestWeekKey(nowMs) };
+  const week = investorWeeklyDigestWeekKey(nowMs);
+  const lockKey = `timed:investor:weekly-digest:sent:${week}`;
+  try {
+    const existing = await KV.get(lockKey);
+    if (existing) {
+      return { ok: false, reason: "already_sent", week, prior: existing.slice(0, 200) };
+    }
+    const claim = JSON.stringify({
+      claimed_at: nowMs,
+      status: "pending",
+      nonce: `${nowMs}-${Math.random().toString(36).slice(2, 10)}`,
+    });
+    await KV.put(lockKey, claim, { expirationTtl: 14 * 86400 });
+    // Brief settle — loser of a dual-write sees the other nonce.
+    await new Promise((r) => setTimeout(r, 75));
+    const winner = await KV.get(lockKey);
+    if (winner && winner !== claim) {
+      return { ok: false, reason: "lost_race", week };
+    }
+    return { ok: true, week, claim, lockKey };
+  } catch (e) {
+    // Fail-open on KV errors so a digest still goes out (prefer one extra
+    // over silence). Caller may still send.
+    return { ok: true, reason: "lock_error", week, error: String(e?.message || e).slice(0, 120) };
+  }
+}
+
+export async function markInvestorWeeklyDigestSent(env, lock, result = {}) {
+  const KV = env?.KV_TIMED || env?.KV;
+  if (!KV || !lock?.lockKey) return;
+  try {
+    await KV.put(lock.lockKey, JSON.stringify({
+      claimed_at: lock.claimed_at || Date.now(),
+      status: "sent",
+      sent_at: Date.now(),
+      sent: result.sent ?? null,
+      recipients: result.recipients ?? null,
+    }), { expirationTtl: 14 * 86400 });
+  } catch (_) { /* best-effort */ }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // D5 (2026-06-11) — Weekly Investor Digest (operator-requested cadence:
 // per-event alerts stay; this adds the Friday-close weekly summary).
@@ -2292,10 +2352,28 @@ export async function sendInvestorWeeklyDigest(env) {
   const KV = env?.KV_TIMED || env?.KV;
   if (!db) return { ok: false, error: "no_db" };
 
-  const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
-  if (!opted.length) return { ok: true, sent: 0, recipients: 0 };
-
   const now = Date.now();
+  const lock = await claimInvestorWeeklyDigestLock(env, now);
+  if (!lock.ok) {
+    console.log(`[INVESTOR DIGEST] skip week=${lock.week} reason=${lock.reason}`);
+    return { ok: true, sent: 0, recipients: 0, skipped: lock.reason, week: lock.week };
+  }
+
+  const optedRaw = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
+  // Dedupe by email — duplicate users rows must not double-send.
+  const seen = new Set();
+  const opted = [];
+  for (const u of optedRaw) {
+    const email = String(u?.email || "").toLowerCase().trim();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    opted.push(u);
+  }
+  if (!opted.length) {
+    await markInvestorWeeklyDigestSent(env, { ...lock, claimed_at: now }, { sent: 0, recipients: 0 });
+    return { ok: true, sent: 0, recipients: 0, week: lock.week };
+  }
+
   const weekAgo = now - 7 * 86400000;
   const fmtUsd = (n) => Number.isFinite(Number(n)) ? `$${Number(n).toFixed(2)}` : "—";
   const fmtPct = (n) => Number.isFinite(Number(n)) ? `${Number(n) >= 0 ? "+" : ""}${Number(n).toFixed(1)}%` : "—";
@@ -2435,8 +2513,10 @@ export async function sendInvestorWeeklyDigest(env) {
       console.warn(`[INVESTOR DIGEST] send failed for ${user.email}:`, String(e?.message || e).slice(0, 120));
     }
   }
-  console.log(`[INVESTOR DIGEST] weekly digest sent=${sent}/${opted.length}`);
-  return { ok: true, sent, recipients: opted.length };
+  console.log(`[INVESTOR DIGEST] weekly digest sent=${sent}/${opted.length} week=${lock.week}`);
+  const out = { ok: true, sent, recipients: opted.length, week: lock.week };
+  await markInvestorWeeklyDigestSent(env, { ...lock, claimed_at: now }, out);
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

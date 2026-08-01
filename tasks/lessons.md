@@ -6,6 +6,22 @@
 
 ---
 
+## Duplicate Investor Week in Review emails [2026-08-01]
+
+**Symptom:** Two identical `[LONG TERM · WEEKLY] Week in Review` emails
+on Friday after the close.
+
+**Root:** `sendInvestorWeeklyDigest` is invoked from the Friday 4:15 PM
+ET block on the `*/5` cron path with no idempotency lock. When
+`ENGINE_ENABLED` is on, both the monolith and tt-engine run that path →
+two SendGrid sends. Opted-in user query also had no email dedupe.
+
+**Fix:** Claim `timed:investor:weekly-digest:sent:{YYYY-Www}` (race
+settle) inside `sendInvestorWeeklyDigest`; skip the digest cron arm on
+`_isDedicatedEngine`; dedupe recipients by lowercase email.
+
+---
+
 ## Mirror Sync digests every 5 minutes + split emails [2026-07-31]
 
 **Symptom:** Two Mirror Sync digests (TWLO/PLTR, then NVDA) every ~5 min,
