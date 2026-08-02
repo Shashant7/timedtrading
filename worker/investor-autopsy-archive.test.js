@@ -94,6 +94,28 @@ describe("investor-autopsy-archive", () => {
     expect(trade.pnl).toBeNull();
   });
 
+  it("keeps OPEN positions OPEN even when partial SELL trim lots exist", () => {
+    const trade = mapInvestorPositionToAutopsyTrade(
+      {
+        id: "inv-TWLO-auto-1",
+        ticker: "TWLO",
+        status: "OPEN",
+        avg_entry: 100,
+        total_shares: 30,
+        first_entry_ts: 1783000904358,
+        closed_at: null,
+      },
+      [
+        { action: "BUY", shares: 50, price: 100, ts: 1783000904358, reason: "investor_buy" },
+        { action: "SELL", shares: 20, price: 110, ts: 1783100000000, reason: "investor_trim" },
+      ],
+    );
+    expect(trade.status).toBe("OPEN");
+    expect(trade.exit_ts).toBeNull();
+    expect(trade.pnl).toBeNull();
+    expect(trade.trimmed_pct).toBeGreaterThan(0);
+  });
+
   it("maps MNST loser correctly", () => {
     const trade = mapInvestorPositionToAutopsyTrade(
       { id: "inv-pos-MNST-2025-07-01", ticker: "MNST", status: "CLOSED", avg_entry: 63.54, first_entry_ts: 1751400000000 },

@@ -77,11 +77,14 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
 
   const entryTs = num(firstBuy?.ts) ?? num(pos.first_entry_ts) ?? num(pos.created_at);
   const entryPrice = num(firstBuy?.price) ?? num(pos.avg_entry);
+  // Prefer original BUY size for closed-book P&L; fall back to remaining shares.
   const shares = num(firstBuy?.shares) ?? num(pos.total_shares);
   const notional = num(firstBuy?.value) ?? (entryPrice != null && shares != null ? entryPrice * shares : null);
 
+  // Trust position.status. OPEN books often have partial SELL lots (trims)
+  // that must NOT mark the trade closed for autopsy grading.
   const posStatus = String(pos.status || "").toUpperCase();
-  const isClosed = posStatus === "CLOSED" || lastSell != null || num(pos.closed_at) != null;
+  const isClosed = posStatus === "CLOSED";
 
   let exitTs = null;
   let exitPrice = null;
@@ -89,6 +92,9 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
   let pnl = null;
   let pnlPct = null;
   let status = "OPEN";
+  const trimmedPct = (!isClosed && sellLots.length)
+    ? Math.min(1, sellLots.reduce((s, l) => s + (num(l.shares, 0) || 0), 0) / Math.max(shares || 1, 1e-9))
+    : 0;
 
   if (isClosed && lastSell) {
     exitTs = num(lastSell.ts) ?? num(pos.closed_at);
@@ -104,6 +110,8 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
     exitTs = num(pos.closed_at);
     exitReason = "investor_closed";
     status = "FLAT";
+  } else {
+    status = "OPEN";
   }
 
   return {
@@ -125,7 +133,7 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
     pnlPct,
     shares,
     notional,
-    trimmed_pct: 0,
+    trimmed_pct: trimmedPct || 0,
     setup_name: "Investor Long Term",
     setupName: "Investor Long Term",
     entry_path: "investor_long_term",
