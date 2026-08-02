@@ -435,8 +435,9 @@ function computeSuperTrendSegments(data, period = 10, multiplier = 3) {
   }
   return segments;
 }
-function computeTDSequential(data, prepComp = 4, leadComp = 2) {
-  const markers = [];
+function computeTDSequentialStacks(data, prepComp = 4, leadComp = 2) {
+  const setup9 = [];
+  const countdown13 = [];
   let bullPrep = 0,
     bearPrep = 0;
   let bullLead = null,
@@ -450,21 +451,21 @@ function computeTDSequential(data, prepComp = 4, leadComp = 2) {
     const bullPrepDone = bullPrep === 9;
     const bearPrepDone = bearPrep === 9;
     if (bullPrep >= 1 && bullPrep <= 9) {
-      markers.push({
+      setup9.push({
         time: data[i].time,
-        position: 'belowBar',
-        color: bullPrep === 9 ? '#089981' : 'rgba(8,153,129,0.65)',
-        shape: 'circle',
+        position: "belowBar",
+        color: bullPrep === 9 ? "#089981" : "rgba(8,153,129,0.70)",
+        shape: "circle",
         text: String(bullPrep),
         size: 0
       });
     }
     if (bearPrep >= 1 && bearPrep <= 9) {
-      markers.push({
+      setup9.push({
         time: data[i].time,
-        position: 'aboveBar',
-        color: bearPrep === 9 ? '#f23645' : 'rgba(242,54,69,0.65)',
-        shape: 'circle',
+        position: "aboveBar",
+        color: bearPrep === 9 ? "#f23645" : "rgba(242,54,69,0.70)",
+        shape: "circle",
         text: String(bearPrep),
         size: 0
       });
@@ -480,13 +481,13 @@ function computeTDSequential(data, prepComp = 4, leadComp = 2) {
     if (bullLead !== null && i >= leadComp && data[i].close < data[i - leadComp].low) {
       bullLead++;
       if (bullLead <= 13) {
-        markers.push({
+        countdown13.push({
           time: data[i].time,
-          position: 'belowBar',
-          color: bullLead === 13 ? '#2962ff' : 'rgba(41,98,255,0.65)',
-          shape: 'circle',
-          text: String(bullLead),
-          size: 0
+          position: "belowBar",
+          color: bullLead === 13 ? "#2962ff" : "rgba(41,98,255,0.75)",
+          shape: "circle",
+          text: bullLead === 13 ? "13" : String(bullLead),
+          size: 1
         });
       }
       if (bullLead >= 13) bullLead = null;
@@ -494,19 +495,28 @@ function computeTDSequential(data, prepComp = 4, leadComp = 2) {
     if (bearLead !== null && i >= leadComp && data[i].close > data[i - leadComp].high) {
       bearLead++;
       if (bearLead <= 13) {
-        markers.push({
+        countdown13.push({
           time: data[i].time,
-          position: 'aboveBar',
-          color: bearLead === 13 ? '#ff5d00' : 'rgba(255,93,0,0.65)',
-          shape: 'circle',
-          text: String(bearLead),
-          size: 0
+          position: "aboveBar",
+          color: bearLead === 13 ? "#ff5d00" : "rgba(255,93,0,0.75)",
+          shape: "circle",
+          text: bearLead === 13 ? "13" : String(bearLead),
+          size: 1
         });
       }
       if (bearLead >= 13) bearLead = null;
     }
   }
-  return markers;
+  return {
+    setup9,
+    countdown13
+  };
+}
+function collectTdMarkers(tdStacks, showTd9, showTd13) {
+  const out = [];
+  if (showTd9 && tdStacks?.setup9) out.push(...tdStacks.setup9);
+  if (showTd13 && tdStacks?.countdown13) out.push(...tdStacks.countdown13);
+  return out;
 }
 function findBarTime(mapped, tsMs) {
   if (!mapped?.length || !Number.isFinite(tsMs)) return null;
@@ -533,13 +543,13 @@ function findBarTime(mapped, tsMs) {
   return null;
 }
 const CLOUD_CONFIG = [{
-  key: 'cloud7789',
-  s: 77,
+  key: 'cloud7289',
+  s: 72,
   l: 89,
   color: '#B0BEC5',
   bullFill: 'rgba(176,190,197,0.42)',
   bearFill: 'rgba(120,144,156,0.34)',
-  label: '77-89'
+  label: '72-89'
 }, {
   key: 'cloud3450',
   s: 34,
@@ -565,7 +575,7 @@ const CLOUD_CONFIG = [{
   bearFill: 'rgba(66,165,245,0.30)',
   label: '5-12'
 }];
-const INDICATOR_KEYS = ["cloud512", "cloud2021", "cloud3450", "cloud7789", "ema233", "superTrend", "tdSeq", "phase", "rsi"];
+const INDICATOR_KEYS = ["cloud512", "cloud2021", "cloud3450", "cloud7289", "ema233", "superTrend", "td9", "td13", "phase", "rsi"];
 const EMA233_COLOR = "#E0E0E0";
 function AutopsyChart({
   ticker,
@@ -600,10 +610,11 @@ function AutopsyChart({
     cloud512: true,
     cloud2021: true,
     cloud3450: true,
-    cloud7789: true,
+    cloud7289: true,
     ema233: true,
     superTrend: true,
-    tdSeq: false,
+    td9: true,
+    td13: true,
     phase: true,
     rsi: true
   });
@@ -1162,8 +1173,8 @@ function AutopsyChart({
         });
       } catch (_) {}
       subSeriesRef.current.rsi = rsiSeries;
-      const tdData = computeTDSequential(mapped);
-      allData.tdSeq = tdData;
+      const tdStacks = computeTDSequentialStacks(mapped);
+      allData.tdStacks = tdStacks;
       indicatorDataRef.current = allData;
       emaSeriesRef.current = allSeries;
       applyPaneMargins(showIndicators);
@@ -1246,7 +1257,7 @@ function AutopsyChart({
         code: "X"
       }].filter(pt => pt.time != null && Number.isFinite(pt.price) && pt.price > 0);
       tradeMarkersRef.current = tradeMarkers;
-      const markers = [...tradeMarkers, ...(showIndicators.tdSeq ? tdData : [])];
+      const markers = [...tradeMarkers, ...collectTdMarkers(tdStacks, showIndicators.td9, showIndicators.td13)];
       markers.sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
       try {
         candleSeries.setMarkers(markers);
@@ -1419,9 +1430,9 @@ function AutopsyChart({
         subs.rsi.setData(showIndicators.rsi ? data.rsi : []);
       } catch (_) {}
     }
-    if (seriesRef.current && data.tdSeq) {
+    if (seriesRef.current && data.tdStacks) {
       const tm = tradeMarkersRef.current || [];
-      const td = showIndicators.tdSeq ? data.tdSeq : [];
+      const td = collectTdMarkers(data.tdStacks, showIndicators.td9, showIndicators.td13);
       const all = [...tm, ...td].sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
       try {
         seriesRef.current.setMarkers(all);
@@ -1482,10 +1493,11 @@ function AutopsyChart({
       cloud512: "5-12",
       cloud2021: "20-21",
       cloud3450: "34-50",
-      cloud7789: "77-89",
+      cloud7289: "72-89",
       ema233: "233",
       superTrend: "ST",
-      tdSeq: "TD",
+      td9: "TD9",
+      td13: "TD13",
       phase: "Phase",
       rsi: "RSI"
     };
@@ -1493,10 +1505,11 @@ function AutopsyChart({
       cloud512: "#90CAF9",
       cloud2021: "#EF5350",
       cloud3450: "#FFF59D",
-      cloud7789: "#B0BEC5",
+      cloud7289: "#B0BEC5",
       ema233: EMA233_COLOR,
       superTrend: "#f97316",
-      tdSeq: "#2962ff",
+      td9: "#089981",
+      td13: "#2962ff",
       phase: "#a78bfa",
       rsi: "#F472B6"
     };
@@ -3204,6 +3217,6 @@ function App({
     user: user
   })));
 })();
-// cache-bust:1785689985761:15359296
+// cache-bust:1785690622166:363131907
 
-// cache-bust:1785689985761:15359296
+// cache-bust:1785690622166:363131907
