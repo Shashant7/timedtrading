@@ -227,21 +227,88 @@
         return out;
       }
       function computeRSI(data, period = 14) {
+        // Wilder RSI (14) — smoother than a simple rolling window.
         const out = [];
+        if (!data?.length) return out;
+        let avgGain = 0;
+        let avgLoss = 0;
         for (let i = 0; i < data.length; i++) {
-          if (i < period) {
+          if (i === 0) {
             out.push({ time: data[i].time, value: 50 });
             continue;
           }
-          let gains = 0, losses = 0;
-          for (let j = i - period + 1; j <= i; j++) {
-            const chg = data[j].close - (j > 0 ? data[j - 1].close : data[j].close);
-            if (chg > 0) gains += chg; else losses -= chg;
+          const chg = data[i].close - data[i - 1].close;
+          const gain = Math.max(chg, 0);
+          const loss = Math.max(-chg, 0);
+          if (i < period) {
+            avgGain += gain;
+            avgLoss += loss;
+            out.push({ time: data[i].time, value: 50 });
+            continue;
           }
-          const avgGain = gains / period, avgLoss = losses / period;
+          if (i === period) {
+            avgGain = (avgGain + gain) / period;
+            avgLoss = (avgLoss + loss) / period;
+          } else {
+            avgGain = (avgGain * (period - 1) + gain) / period;
+            avgLoss = (avgLoss * (period - 1) + loss) / period;
+          }
           const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
           const rsi = 100 - (100 / (1 + rs));
           out.push({ time: data[i].time, value: Math.max(0, Math.min(100, rsi)) });
+        }
+        return out;
+      }
+
+      function computeATRSeries(data, period = 14) {
+        const out = [];
+        if (!data?.length) return out;
+        const trs = [];
+        for (let i = 0; i < data.length; i++) {
+          const h = data[i].high;
+          const l = data[i].low;
+          const prevC = i > 0 ? data[i - 1].close : data[i].close;
+          trs.push(Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC)));
+        }
+        let atr = null;
+        for (let i = 0; i < trs.length; i++) {
+          if (i < period) {
+            out.push(NaN);
+            continue;
+          }
+          if (i === period) {
+            let seed = 0;
+            for (let j = i - period + 1; j <= i; j++) seed += trs[j];
+            atr = seed / period;
+          } else {
+            atr = ((atr * (period - 1)) + trs[i]) / period;
+          }
+          out.push(atr);
+        }
+        return out;
+      }
+
+      // TT / Saty Phase Oscillator: ((close - EMA21) / (3 * ATR14)) * 100, EMA(3) smoothed.
+      function computePhaseOscSeries(data) {
+        const ema21 = computeEMA(data, 21, "close");
+        const atr = computeATRSeries(data, 14);
+        const raw = [];
+        for (let i = 0; i < data.length; i++) {
+          const a = atr[i];
+          const e = ema21[i]?.value;
+          if (Number.isFinite(a) && a > 0 && Number.isFinite(e)) {
+            raw.push(((data[i].close - e) / (3.0 * a)) * 100.0);
+          } else {
+            raw.push(0);
+          }
+        }
+        const k = 2 / (3 + 1);
+        let ema = null;
+        const out = [];
+        for (let i = 0; i < data.length; i++) {
+          const v = raw[i];
+          ema = ema == null ? v : (v * k + ema * (1 - k));
+          out.push({ time: data[i].time, value: ema });
         }
         return out;
       }
@@ -390,15 +457,16 @@
       }
 
       // ── Interactive Chart (TradingView Lightweight Charts) ───────────────────
-      // Cloud config matching TradingView EMA Clouds Pine Script
+      // EMA cloud colors for autopsy analysis (draw wider bands first).
       const CLOUD_CONFIG = [
-        { key: 'cloud180200', s: 180, l: 200, color: '#05bed5', bullFill: 'rgba(5,190,213,0.35)', bearFill: 'rgba(230,81,0,0.35)', label: '180-200' },
-        { key: 'cloud7289', s: 72, l: 89, color: '#009688', bullFill: 'rgba(0,150,136,0.35)', bearFill: 'rgba(240,98,146,0.35)', label: '72-89' },
-        { key: 'cloud3450', s: 34, l: 50, color: '#2196f3', bullFill: 'rgba(33,150,243,0.30)', bearFill: 'rgba(255,183,77,0.30)', label: '34-50' },
-        { key: 'cloud512', s: 5, l: 12, color: '#4caf50', bullFill: 'rgba(3,97,3,0.55)', bearFill: 'rgba(136,14,79,0.55)', label: '5-12' },
+        { key: 'cloud7789', s: 77, l: 89, color: '#B0BEC5', bullFill: 'rgba(176,190,197,0.42)', bearFill: 'rgba(120,144,156,0.34)', label: '77-89' },
+        { key: 'cloud3450', s: 34, l: 50, color: '#FFF59D', bullFill: 'rgba(255,245,157,0.42)', bearFill: 'rgba(255,213,79,0.32)', label: '34-50' },
+        { key: 'cloud2021', s: 20, l: 21, color: '#EF5350', bullFill: 'rgba(239,83,80,0.36)', bearFill: 'rgba(198,40,40,0.30)', label: '20-21' },
+        { key: 'cloud512', s: 5, l: 12, color: '#90CAF9', bullFill: 'rgba(144,202,249,0.42)', bearFill: 'rgba(66,165,245,0.30)', label: '5-12' },
       ];
-      const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
-      function AutopsyChart({ ticker, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height = 360 }) {
+      const INDICATOR_KEYS = ["cloud512", "cloud2021", "cloud3450", "cloud7789", "ema233", "superTrend", "tdSeq", "phase", "rsi"];
+      const EMA233_COLOR = "#E0E0E0";
+      function AutopsyChart({ ticker, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height = 380 }) {
         const containerRef = useRef(null);
         const chartRef = useRef(null);
         const seriesRef = useRef(null);
@@ -407,14 +475,38 @@
         const cloudAreaRef = useRef([]);
         const cloudCanvasRef = useRef(null);
         const emaSeriesRef = useRef([]);
+        const subSeriesRef = useRef({ ema233: null, phase: null, rsi: null });
         const indicatorDataRef = useRef(null);
         const showIndicatorsRef = useRef(null);
         const tradeMarkersRef = useRef([]);
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
-        const [tf, setTf] = useState("15");
-        const [showIndicators, setShowIndicators] = useState({ cloud512: true, cloud3450: true, cloud7289: true, cloud180200: true, superTrend: true, tdSeq: false });
+        const [tf, setTf] = useState("10");
+        const [showIndicators, setShowIndicators] = useState({
+          cloud512: true, cloud2021: true, cloud3450: true, cloud7789: true,
+          ema233: true, superTrend: true, tdSeq: false, phase: true, rsi: true,
+        });
         showIndicatorsRef.current = showIndicators;
+
+        const applyPaneMargins = useCallback((si) => {
+          const chart = chartRef.current;
+          if (!chart) return;
+          const showPhase = !!si?.phase;
+          const showRsi = !!si?.rsi;
+          const subCount = (showPhase ? 1 : 0) + (showRsi ? 1 : 0);
+          const bottomMain = subCount === 0 ? 0.08 : (subCount === 1 ? 0.28 : 0.42);
+          try {
+            chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: 0.03, bottom: bottomMain } });
+          } catch (_) {}
+          if (showPhase && showRsi) {
+            try { chart.priceScale("phase").applyOptions({ scaleMargins: { top: 0.60, bottom: 0.22 }, borderVisible: false }); } catch (_) {}
+            try { chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.80, bottom: 0.02 }, borderVisible: false }); } catch (_) {}
+          } else if (showPhase) {
+            try { chart.priceScale("phase").applyOptions({ scaleMargins: { top: 0.74, bottom: 0.02 }, borderVisible: false }); } catch (_) {}
+          } else if (showRsi) {
+            try { chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.74, bottom: 0.02 }, borderVisible: false }); } catch (_) {}
+          }
+        }, []);
 
         const drawCloudFills = useCallback(() => {
           const canvas = cloudCanvasRef.current;
@@ -593,7 +685,7 @@
           const asOfMs = exitMs
             ? exitMs + threeDaysMs
             : (entryMs || Date.now());
-          const limit = 3000; // Max supported by API; covers ~77 trading days of 15m bars
+          const limit = 3000; // Max supported by API; covers ~50 trading days of 10m bars
           const container = containerRef.current;
           const initialWidth = Math.max(container.clientWidth || 400, 200);
           const chartH = container.clientHeight > 50 ? container.clientHeight : height;
@@ -617,7 +709,7 @@
             },
             rightPriceScale: {
               borderColor: "rgba(38,50,95,0.5)",
-              scaleMargins: { top: 0.08, bottom: 0.08 },
+              scaleMargins: { top: 0.03, bottom: 0.42 },
               autoScale: true,
             },
             timeScale: {
@@ -739,10 +831,71 @@
               s.setData(showIndicators.superTrend ? seg.data : []);
               allSeries.push(s);
             }
+
+            // EMA 233 line on the main pane
+            const ema233Data = computeEMA(mapped, 233, "close");
+            allData.ema233 = ema233Data;
+            const ema233Series = chart.addLineSeries({
+              color: EMA233_COLOR,
+              lineWidth: 2,
+              title: "233",
+              lastValueVisible: false,
+              priceLineVisible: false,
+              crosshairMarkerVisible: false,
+            });
+            ema233Series.setData(showIndicators.ema233 ? ema233Data : []);
+            allSeries.push(ema233Series);
+            subSeriesRef.current.ema233 = ema233Series;
+
+            // Phase Oscillator sub-pane (stacked via priceScale margins)
+            const phaseData = computePhaseOscSeries(mapped);
+            allData.phase = phaseData;
+            const phaseHist = phaseData.map((p) => ({
+              time: p.time,
+              value: p.value,
+              color: p.value >= 0 ? "rgba(167,139,250,0.55)" : "rgba(244,114,182,0.50)",
+            }));
+            const phaseSeries = chart.addHistogramSeries({
+              priceScaleId: "phase",
+              priceFormat: { type: "price", precision: 1, minMove: 0.1 },
+              lastValueVisible: true,
+              priceLineVisible: false,
+              base: 0,
+            });
+            phaseSeries.setData(showIndicators.phase ? phaseHist : []);
+            try {
+              phaseSeries.createPriceLine({ price: 61.8, color: "rgba(167,139,250,0.35)", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: "" });
+              phaseSeries.createPriceLine({ price: -61.8, color: "rgba(244,114,182,0.35)", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: "" });
+              phaseSeries.createPriceLine({ price: 0, color: "rgba(148,163,184,0.35)", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: false, title: "" });
+            } catch (_) {}
+            subSeriesRef.current.phase = phaseSeries;
+
+            // RSI(14) sub-pane
+            const rsiData = computeRSI(mapped, 14);
+            allData.rsi = rsiData;
+            const rsiSeries = chart.addLineSeries({
+              color: "#F472B6",
+              lineWidth: 1.5,
+              priceScaleId: "rsi",
+              priceFormat: { type: "price", precision: 1, minMove: 0.1 },
+              lastValueVisible: true,
+              priceLineVisible: false,
+              crosshairMarkerVisible: false,
+              title: "RSI",
+            });
+            rsiSeries.setData(showIndicators.rsi ? rsiData : []);
+            try {
+              rsiSeries.createPriceLine({ price: 70, color: "rgba(239,68,68,0.45)", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: "" });
+              rsiSeries.createPriceLine({ price: 30, color: "rgba(34,197,94,0.45)", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: "" });
+              rsiSeries.createPriceLine({ price: 50, color: "rgba(148,163,184,0.25)", lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted, axisLabelVisible: false, title: "" });
+            } catch (_) {}
+            subSeriesRef.current.rsi = rsiSeries;
+
             const tdData = computeTDSequential(mapped);
             allData.tdSeq = tdData;
             indicatorDataRef.current = allData;
             emaSeriesRef.current = allSeries;
+            applyPaneMargins(showIndicators);
 
             // Add entry/exit price lines (thicker, solid, prominent labels)
             for (const pl of priceLinesRef.current) {
@@ -844,11 +997,8 @@
                 chart.timeScale().setVisibleRange({ from: visibleFrom, to: visibleTo });
               } catch (_) {}
             }
-            // Let autoScale handle price range — just ensure margins are generous enough
-            // to show execution lines without clipping
-            try {
-              chart.priceScale("right").applyOptions({ autoScale: true, scaleMargins: { top: 0.08, bottom: 0.08 } });
-            } catch (_) {}
+            // Keep main/sub-pane margins so Phase + RSI stay stacked under price.
+            applyPaneMargins(showIndicators);
             requestAnimationFrame(() => {
               if (chartRef.current && containerRef.current) {
                 if (!hasTradeRange) chartRef.current.timeScale().scrollToPosition(-3, false);
@@ -856,6 +1006,7 @@
                 const h = containerRef.current.clientHeight;
                 if (w > 0 && h > 0) chartRef.current.resize(w, h);
               }
+              applyPaneMargins(showIndicatorsRef.current);
               drawCloudFills();
             });
             setTimeout(() => {
@@ -928,6 +1079,7 @@
             executionOverlayRef.current = [];
             emaSeriesRef.current = [];
             cloudAreaRef.current = [];
+            subSeriesRef.current = { ema233: null, phase: null, rsi: null };
             if (cloudCanvasRef.current) {
               try { cloudCanvasRef.current.remove(); } catch (_) {}
               cloudCanvasRef.current = null;
@@ -936,7 +1088,7 @@
             chartRef.current = null;
             seriesRef.current = null;
           };
-        }, [ticker, tf, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
+        }, [ticker, tf, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles, applyPaneMargins]);
 
         useEffect(() => {
           const series = emaSeriesRef.current;
@@ -960,14 +1112,30 @@
               }
             }
           }
+          const subs = subSeriesRef.current || {};
+          if (subs.ema233 && data.ema233) {
+            try { subs.ema233.setData(showIndicators.ema233 ? data.ema233 : []); } catch (_) {}
+          }
+          if (subs.phase && data.phase) {
+            const hist = data.phase.map((p) => ({
+              time: p.time,
+              value: p.value,
+              color: p.value >= 0 ? "rgba(167,139,250,0.55)" : "rgba(244,114,182,0.50)",
+            }));
+            try { subs.phase.setData(showIndicators.phase ? hist : []); } catch (_) {}
+          }
+          if (subs.rsi && data.rsi) {
+            try { subs.rsi.setData(showIndicators.rsi ? data.rsi : []); } catch (_) {}
+          }
           if (seriesRef.current && data.tdSeq) {
             const tm = tradeMarkersRef.current || [];
             const td = showIndicators.tdSeq ? data.tdSeq : [];
             const all = [...tm, ...td].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
             try { seriesRef.current.setMarkers(all); } catch (_) {}
           }
+          applyPaneMargins(showIndicators);
           requestAnimationFrame(drawCloudFills);
-        }, [showIndicators, drawCloudFills]);
+        }, [showIndicators, drawCloudFills, applyPaneMargins]);
 
         const toggleIndicator = (key) => {
           setShowIndicators(prev => ({ ...prev, [key]: !prev[key] }));
@@ -978,7 +1146,7 @@
             <div className="shrink-0 px-3 py-2 flex items-center justify-between border-b border-white/[0.04]">
               <span className="text-[13px] font-semibold text-[#14b8a6]">{ticker}</span>
               <div className="flex items-center gap-0.5 sm:gap-1">
-                {["5", "15", "30", "60", "D"].map(t => (
+                {["5", "10", "30", "60", "D"].map(t => (
                   <button
                     key={t}
                     onClick={() => setTf(t)}
@@ -989,7 +1157,7 @@
                 ))}
               </div>
             </div>
-            <div ref={containerRef} style={{ minHeight: 180, minWidth: 200, width: "100%", height: "100%" }} className="w-full flex-1 min-h-0">
+            <div ref={containerRef} style={{ minHeight: 220, minWidth: 200, width: "100%", height: "100%" }} className="w-full flex-1 min-h-0">
               {error && !loading && (
                 <div className="flex items-center justify-center h-full text-[#6b7280] text-[13px]">{error}</div>
               )}
@@ -999,12 +1167,18 @@
                 </div>
               )}
             </div>
-            <div className="shrink-0 px-2 sm:px-3 py-2 flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] sm:text-[11px] text-[#9ca3af]">
+            <div className="shrink-0 px-2 sm:px-3 py-2 flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] sm:text-[11px] text-[#9ca3af]">
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#60a5fa]" /> Entry</span>
               <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 rounded bg-[#f59e0b]" /> Exit</span>
               {INDICATOR_KEYS.map(key => {
-                const labels = { cloud512: "5-12", cloud3450: "34-50", cloud7289: "72-89", cloud180200: "180-200", superTrend: "ST", tdSeq: "TD" };
-                const colors = { cloud512: "#4caf50", cloud3450: "#2196f3", cloud7289: "#009688", cloud180200: "#05bed5", superTrend: "#f97316", tdSeq: "#2962ff" };
+                const labels = {
+                  cloud512: "5-12", cloud2021: "20-21", cloud3450: "34-50", cloud7789: "77-89",
+                  ema233: "233", superTrend: "ST", tdSeq: "TD", phase: "Phase", rsi: "RSI",
+                };
+                const colors = {
+                  cloud512: "#90CAF9", cloud2021: "#EF5350", cloud3450: "#FFF59D", cloud7789: "#B0BEC5",
+                  ema233: EMA233_COLOR, superTrend: "#f97316", tdSeq: "#2962ff", phase: "#a78bfa", rsi: "#F472B6",
+                };
                 const on = showIndicators[key];
                 return (
                   <button key={key} type="button" onClick={() => toggleIndicator(key)} className={`flex items-center gap-1 sm:gap-1.5 rounded px-1.5 py-1 sm:py-0.5 -m-0.5 hover:bg-white/[0.06] transition-all ${on ? "opacity-100" : "opacity-45"}`} title={on ? "Hide" : "Show"}>
@@ -1529,7 +1703,7 @@
                 </div>
 
                 {/* ══════════ 3. CHART + CLASSIFICATIONS (side-by-side) ══════════ */}
-                <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-1.5 -mt-1" style={{ minHeight: "250px" }}>
+                <div className="flex-1 min-h-0 flex flex-col md:flex-row gap-1.5 -mt-1" style={{ minHeight: "380px" }}>
                   {/* Chart — 2/3 */}
                   <div className="flex-[2] min-w-0 h-full">
                     <AutopsyChart
@@ -1540,7 +1714,7 @@
                       entryTs={chartEntryTs}
                       exitTs={chartExitTs}
                       trimTs={chartTrimTs}
-                      height={250}
+                      height={380}
                     />
                   </div>
 
