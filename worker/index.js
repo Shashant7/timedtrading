@@ -974,6 +974,12 @@ import {
   buildTradeAutopsyReadModel,
 } from "./read-models.js";
 import {
+  shouldIncludeOpenAutopsyTrades,
+  loadInvestorAutopsyTradesFromDb,
+  normalizeImportedInvestorTrades,
+  persistInvestorAutopsyArchive,
+} from "./investor-autopsy-archive.js";
+import {
   sendEmail,
   sendWelcomeEmail,
   sendSubscriptionEmail,
@@ -1883,6 +1889,7 @@ const ROUTES = [
   ["GET", "/timed/admin/trade-autopsy/trades", "GET /timed/admin/trade-autopsy/trades"],
   ["GET", "/timed/admin/trade-autopsy/annotations", "GET /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/trade-autopsy/annotations", "POST /timed/admin/trade-autopsy/annotations"],
+  ["POST", "/timed/admin/trade-autopsy/archive-investor", "POST /timed/admin/trade-autopsy/archive-investor"],
   ["POST", "/timed/admin/trade-autopsy/correct-entry", "POST /timed/admin/trade-autopsy/correct-entry"],
   ["POST", "/timed/admin/trade-autopsy/correct-all-entries", "POST /timed/admin/trade-autopsy/correct-all-entries"],
   ["POST", "/timed/admin/trade-autopsy/correct-exit", "POST /timed/admin/trade-autopsy/correct-exit"],
@@ -67607,6 +67614,16 @@ export default {
 
           // If we have an archive run_id, read from the immutable backtest_run_trades archive
           if (archiveRunId) {
+            // Investor / long-term autopsy books include OPEN rows (opened-in-month
+            // grading). Trader archives still hide OPEN unless include_open=1.
+            const includeOpenParam = url.searchParams.get("include_open");
+            const includeOpen = shouldIncludeOpenAutopsyTrades({
+              runId: archiveRunId,
+              includeOpen: includeOpenParam === "1" || includeOpenParam === "true",
+            });
+            const statusSql = includeOpen
+              ? `brt.status IS NULL OR brt.status NOT IN ('TP_HIT_TRIM')`
+              : `brt.status NOT IN ('OPEN', 'TP_HIT_TRIM')`;
             // V11 (2026-04-22): added brt.rank, brt.rr, brt.entry_path, brt.max_*
             // and brt.rank_trace_json. Prefer brt over da for these fields (brt
             // is the immutable per-run archive; da is the signal shadow).
@@ -67628,11 +67645,15 @@ export default {
                  LEFT JOIN backtest_run_direction_accuracy da
                    ON da.run_id = brt.run_id
                   AND da.trade_id = brt.trade_id
-               WHERE brt.run_id = ?1 AND brt.status NOT IN ('OPEN', 'TP_HIT_TRIM')
+               WHERE brt.run_id = ?1 AND (${statusSql})
                ORDER BY brt.entry_ts DESC`
             ).bind(archiveRunId).all();
             source = "archive";
-            const trades = (rows || []).map(r => ({
+            const trades = (rows || []).map(r => {
+              const entryPath = r.brt_entry_path ?? r.da_entry_path ?? null;
+              const isInvestor = String(entryPath || "").includes("investor")
+                || String(archiveRunId).toLowerCase().includes("investor");
+              return {
               trade_id: r.trade_id, run_id: r.run_id, ticker: r.ticker, direction: r.direction,
               status: r.status, entry_ts: r.entry_ts, exit_ts: r.exit_ts, trim_ts: r.trim_ts,
               entry_price: r.entry_price, exit_price: r.exit_price, pnl: r.pnl, pnl_pct: r.pnl_pct,
@@ -67643,7 +67664,7 @@ export default {
               rank: r.brt_rank ?? null,
               rr: r.brt_rr ?? null,
               signal_snapshot_json: r.signal_snapshot_json, exit_snapshot_json: r.exit_snapshot_json,
-              entry_path: r.brt_entry_path ?? r.da_entry_path ?? null,
+              entry_path: entryPath,
               consensus_direction: r.consensus_direction,
               max_favorable_excursion: r.brt_mfe ?? r.da_mfe ?? null,
               max_adverse_excursion: r.brt_mae ?? r.da_mae ?? null,
@@ -67652,8 +67673,10 @@ export default {
               execution_profile_name: r.execution_profile_name, execution_profile_confidence: r.execution_profile_confidence,
               market_state: r.market_state, execution_profile_json: r.execution_profile_json,
               rvol_best: r.rvol_best ?? null, entry_quality_score: r.entry_quality_score ?? null,
+              mode: isInvestor ? "investor" : "trader",
+              horizon: isInvestor ? "long_term" : "short_term",
               ...deriveEffectiveExecution(r),
-            }));
+            };});
             const archiveRunRow = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.run_id = ?1`).bind(archiveRunId).first().catch(() => null);
             const archiveRun = parseRunRecord(archiveRunRow);
             const readModel = buildTradeAutopsyReadModel({
@@ -67759,6 +67782,7 @@ export default {
             }, 200, corsHeaders(env, req));
           }
           if (all) {
+            const runId = String(url.searchParams.get("run_id") || "").trim();
               const { results } = await db.prepare(
               `SELECT trade_id, classification, notes, entry_grade, trade_management, updated_at
                FROM trade_autopsy_annotations`
@@ -67773,7 +67797,28 @@ export default {
                   updatedAt: r.updated_at,
                 };
             }
-            return sendJSON({ ok: true, annotations: map }, 200, corsHeaders(env, req));
+            // Overlay run-scoped archive annotations when reviewing a historical book.
+            if (runId) {
+              try {
+                await d1EnsureBacktestRunsSchema(env);
+                const { results: archived } = await db.prepare(
+                  `SELECT trade_id, classification, notes, updated_at
+                     FROM backtest_run_annotations
+                    WHERE run_id = ?1`,
+                ).bind(runId).all();
+                for (const r of archived || []) {
+                  const prev = map[r.trade_id] || {};
+                  map[r.trade_id] = {
+                    classification: r.classification ?? prev.classification ?? "",
+                    notes: r.notes ?? prev.notes ?? null,
+                    entry_grade: prev.entry_grade || [],
+                    trade_management: prev.trade_management || [],
+                    updatedAt: r.updated_at ?? prev.updatedAt ?? null,
+                  };
+                }
+              } catch {}
+            }
+            return sendJSON({ ok: true, annotations: map, run_id: runId || null }, 200, corsHeaders(env, req));
           }
           return sendJSON({ ok: false, error: "missing trade_id or all=1" }, 400, corsHeaders(env, req));
         } catch (e) {
@@ -67781,7 +67826,7 @@ export default {
         }
       }
 
-      // POST /timed/admin/trade-autopsy/annotations — body: { trade_id, classification?, notes? }
+      // POST /timed/admin/trade-autopsy/annotations — body: { trade_id, classification?, notes?, run_id? }
       if (routeKey === "POST /timed/admin/trade-autopsy/annotations") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -67793,6 +67838,7 @@ export default {
           if (!tradeId || typeof tradeId !== "string") {
             return sendJSON({ ok: false, error: "missing trade_id" }, 400, corsHeaders(env, req));
           }
+          const runId = String(body?.run_id || body?.runId || url.searchParams.get("run_id") || "").trim();
           const classification = String(body?.classification ?? "").trim();
           const notes = body?.notes != null ? String(body.notes) : null;
           const normalizeTagArray = (value) => {
@@ -67803,8 +67849,15 @@ export default {
           const tradeManagement = normalizeTagArray(body?.trade_management);
           const now = Date.now();
           await d1EnsureLearningSchema(env);
+          await d1EnsureBacktestRunsSchema(env);
           if (!classification && !notes && entryGrade.length === 0 && tradeManagement.length === 0) {
             await db.prepare(`DELETE FROM trade_autopsy_annotations WHERE trade_id = ?`).bind(tradeId).run();
+            if (runId) {
+              try {
+                await db.prepare(`DELETE FROM backtest_run_annotations WHERE run_id = ?1 AND trade_id = ?2`)
+                  .bind(runId, tradeId).run();
+              } catch {}
+            }
             return sendJSON({ ok: true, deleted: true }, 200, corsHeaders(env, req));
           }
           await db.prepare(
@@ -67824,9 +67877,74 @@ export default {
             tradeManagement.length ? JSON.stringify(tradeManagement) : null,
             now,
           ).run();
-          return sendJSON({ ok: true }, 200, corsHeaders(env, req));
+          // Dual-write run-scoped archive so historical books keep grades after reset.
+          if (runId) {
+            try {
+              await db.prepare(
+                `INSERT INTO backtest_run_annotations (run_id, trade_id, classification, notes, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(run_id, trade_id) DO UPDATE SET
+                   classification=excluded.classification,
+                   notes=excluded.notes,
+                   updated_at=excluded.updated_at`,
+              ).bind(runId, tradeId, classification, notes, now).run();
+            } catch (e) {
+              console.warn("[TRADE_AUTOPSY] run-scoped annotation write failed:", String(e?.message || e).slice(0, 120));
+            }
+          }
+          return sendJSON({ ok: true, run_id: runId || null }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/archive-investor
+      // Archive investor positions opened in a month into backtest_run_trades for Trade Autopsy.
+      // Body: { run_id, month: "YYYY-MM", include_open?: true, trades?: [...], source?: string }
+      // If `trades` is omitted, loads from this env's investor_positions by first_entry_ts.
+      if (routeKey === "POST /timed/admin/trade-autopsy/archive-investor") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await d1EnsureBacktestRunsSchema(env);
+          const body = await req.json().catch(() => ({}));
+          const runId = String(body?.run_id || body?.runId || "").trim();
+          const month = String(body?.month || "").trim();
+          if (!runId) return sendJSON({ ok: false, error: "run_id_required" }, 400, corsHeaders(env, req));
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+            return sendJSON({ ok: false, error: "month_must_be_YYYY-MM" }, 400, corsHeaders(env, req));
+          }
+          const includeOpen = body?.include_open !== false && body?.includeOpen !== false;
+          let trades;
+          let source = String(body?.source || "").trim() || null;
+          if (Array.isArray(body?.trades) && body.trades.length) {
+            trades = normalizeImportedInvestorTrades(body.trades);
+            source = source || "import_payload";
+          } else {
+            trades = await loadInvestorAutopsyTradesFromDb(db, { month, includeOpen });
+            source = source || "investor_positions";
+          }
+          if (!trades.length) {
+            return sendJSON({
+              ok: false,
+              error: "no_investor_positions_in_month",
+              run_id: runId,
+              month,
+              include_open: includeOpen,
+            }, 404, corsHeaders(env, req));
+          }
+          const result = await persistInvestorAutopsyArchive(env, {
+            runId,
+            month,
+            trades,
+            source,
+            archiveTrade: d1ArchiveRunTrade,
+          });
+          return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }
       }
 
