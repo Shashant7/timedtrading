@@ -169,4 +169,16 @@ TIMED_API_BASE="$API_BASE" TIMED_API_KEY="$API_KEY" \
   node "$REPO_ROOT/scripts/investor-accuracy-report.mjs" --days=400 2>/dev/null | tee "$ART_DIR/report.md" || \
   log "WARN: accuracy report failed"
 
+# Archive opened-in-month investor positions into Trade Autopsy (includes OPEN).
+# Enables per-trade grading at /trade-autopsy.html?run_id=$RUN_ID on this env.
+if [[ -n "${MONTH:-}" ]]; then
+  log "=== Archive investor positions → Trade Autopsy (month=$MONTH) ==="
+  ARCH_BODY=$(jq -n --arg rid "$RUN_ID" --arg month "$MONTH" \
+    '{run_id:$rid, month:$month, include_open:true, source:"investor-slice"}')
+  ARCH_RESP=$(curl -sS -m 120 -X POST "$API_BASE/timed/admin/trade-autopsy/archive-investor?key=$API_KEY" \
+    -H "Content-Type: application/json" -H "X-API-Key: $API_KEY" \
+    -d "$ARCH_BODY" 2>&1) || true
+  log "archive-investor: $(echo "$ARCH_RESP" | jq -c '{ok, count, autopsy_url, error}' 2>/dev/null || echo "$ARCH_RESP" | head -c 200)"
+fi
+
 log "=== Investor slice $RUN_ID complete · artifacts=$ART_DIR ==="
