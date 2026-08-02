@@ -259,27 +259,94 @@ function computeEMA(data, period, source = 'close') {
 }
 function computeRSI(data, period = 14) {
   const out = [];
+  if (!data?.length) return out;
+  let avgGain = 0;
+  let avgLoss = 0;
   for (let i = 0; i < data.length; i++) {
-    if (i < period) {
+    if (i === 0) {
       out.push({
         time: data[i].time,
         value: 50
       });
       continue;
     }
-    let gains = 0,
-      losses = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      const chg = data[j].close - (j > 0 ? data[j - 1].close : data[j].close);
-      if (chg > 0) gains += chg;else losses -= chg;
+    const chg = data[i].close - data[i - 1].close;
+    const gain = Math.max(chg, 0);
+    const loss = Math.max(-chg, 0);
+    if (i < period) {
+      avgGain += gain;
+      avgLoss += loss;
+      out.push({
+        time: data[i].time,
+        value: 50
+      });
+      continue;
     }
-    const avgGain = gains / period,
-      avgLoss = losses / period;
+    if (i === period) {
+      avgGain = (avgGain + gain) / period;
+      avgLoss = (avgLoss + loss) / period;
+    } else {
+      avgGain = (avgGain * (period - 1) + gain) / period;
+      avgLoss = (avgLoss * (period - 1) + loss) / period;
+    }
     const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
     const rsi = 100 - 100 / (1 + rs);
     out.push({
       time: data[i].time,
       value: Math.max(0, Math.min(100, rsi))
+    });
+  }
+  return out;
+}
+function computeATRSeries(data, period = 14) {
+  const out = [];
+  if (!data?.length) return out;
+  const trs = [];
+  for (let i = 0; i < data.length; i++) {
+    const h = data[i].high;
+    const l = data[i].low;
+    const prevC = i > 0 ? data[i - 1].close : data[i].close;
+    trs.push(Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC)));
+  }
+  let atr = null;
+  for (let i = 0; i < trs.length; i++) {
+    if (i < period) {
+      out.push(NaN);
+      continue;
+    }
+    if (i === period) {
+      let seed = 0;
+      for (let j = i - period + 1; j <= i; j++) seed += trs[j];
+      atr = seed / period;
+    } else {
+      atr = (atr * (period - 1) + trs[i]) / period;
+    }
+    out.push(atr);
+  }
+  return out;
+}
+function computePhaseOscSeries(data) {
+  const ema21 = computeEMA(data, 21, "close");
+  const atr = computeATRSeries(data, 14);
+  const raw = [];
+  for (let i = 0; i < data.length; i++) {
+    const a = atr[i];
+    const e = ema21[i]?.value;
+    if (Number.isFinite(a) && a > 0 && Number.isFinite(e)) {
+      raw.push((data[i].close - e) / (3.0 * a) * 100.0);
+    } else {
+      raw.push(0);
+    }
+  }
+  const k = 2 / (3 + 1);
+  let ema = null;
+  const out = [];
+  for (let i = 0; i < data.length; i++) {
+    const v = raw[i];
+    ema = ema == null ? v : v * k + ema * (1 - k);
+    out.push({
+      time: data[i].time,
+      value: ema
     });
   }
   return out;
@@ -368,8 +435,9 @@ function computeSuperTrendSegments(data, period = 10, multiplier = 3) {
   }
   return segments;
 }
-function computeTDSequential(data, prepComp = 4, leadComp = 2) {
-  const markers = [];
+function computeTDSequentialStacks(data, prepComp = 4, leadComp = 2) {
+  const setup9 = [];
+  const countdown13 = [];
   let bullPrep = 0,
     bearPrep = 0;
   let bullLead = null,
@@ -383,21 +451,21 @@ function computeTDSequential(data, prepComp = 4, leadComp = 2) {
     const bullPrepDone = bullPrep === 9;
     const bearPrepDone = bearPrep === 9;
     if (bullPrep >= 1 && bullPrep <= 9) {
-      markers.push({
+      setup9.push({
         time: data[i].time,
-        position: 'belowBar',
-        color: bullPrep === 9 ? '#089981' : 'rgba(8,153,129,0.65)',
-        shape: 'circle',
+        position: "belowBar",
+        color: bullPrep === 9 ? "#089981" : "rgba(8,153,129,0.70)",
+        shape: "circle",
         text: String(bullPrep),
         size: 0
       });
     }
     if (bearPrep >= 1 && bearPrep <= 9) {
-      markers.push({
+      setup9.push({
         time: data[i].time,
-        position: 'aboveBar',
-        color: bearPrep === 9 ? '#f23645' : 'rgba(242,54,69,0.65)',
-        shape: 'circle',
+        position: "aboveBar",
+        color: bearPrep === 9 ? "#f23645" : "rgba(242,54,69,0.70)",
+        shape: "circle",
         text: String(bearPrep),
         size: 0
       });
@@ -413,13 +481,13 @@ function computeTDSequential(data, prepComp = 4, leadComp = 2) {
     if (bullLead !== null && i >= leadComp && data[i].close < data[i - leadComp].low) {
       bullLead++;
       if (bullLead <= 13) {
-        markers.push({
+        countdown13.push({
           time: data[i].time,
-          position: 'belowBar',
-          color: bullLead === 13 ? '#2962ff' : 'rgba(41,98,255,0.65)',
-          shape: 'circle',
-          text: String(bullLead),
-          size: 0
+          position: "belowBar",
+          color: bullLead === 13 ? "#2962ff" : "rgba(41,98,255,0.75)",
+          shape: "circle",
+          text: bullLead === 13 ? "13" : String(bullLead),
+          size: 1
         });
       }
       if (bullLead >= 13) bullLead = null;
@@ -427,19 +495,28 @@ function computeTDSequential(data, prepComp = 4, leadComp = 2) {
     if (bearLead !== null && i >= leadComp && data[i].close > data[i - leadComp].high) {
       bearLead++;
       if (bearLead <= 13) {
-        markers.push({
+        countdown13.push({
           time: data[i].time,
-          position: 'aboveBar',
-          color: bearLead === 13 ? '#ff5d00' : 'rgba(255,93,0,0.65)',
-          shape: 'circle',
-          text: String(bearLead),
-          size: 0
+          position: "aboveBar",
+          color: bearLead === 13 ? "#ff5d00" : "rgba(255,93,0,0.75)",
+          shape: "circle",
+          text: bearLead === 13 ? "13" : String(bearLead),
+          size: 1
         });
       }
       if (bearLead >= 13) bearLead = null;
     }
   }
-  return markers;
+  return {
+    setup9,
+    countdown13
+  };
+}
+function collectTdMarkers(tdStacks, showTd9, showTd13) {
+  const out = [];
+  if (showTd9 && tdStacks?.setup9) out.push(...tdStacks.setup9);
+  if (showTd13 && tdStacks?.countdown13) out.push(...tdStacks.countdown13);
+  return out;
 }
 function findBarTime(mapped, tsMs) {
   if (!mapped?.length || !Number.isFinite(tsMs)) return null;
@@ -466,39 +543,40 @@ function findBarTime(mapped, tsMs) {
   return null;
 }
 const CLOUD_CONFIG = [{
-  key: 'cloud180200',
-  s: 180,
-  l: 200,
-  color: '#05bed5',
-  bullFill: 'rgba(5,190,213,0.35)',
-  bearFill: 'rgba(230,81,0,0.35)',
-  label: '180-200'
-}, {
   key: 'cloud7289',
   s: 72,
   l: 89,
-  color: '#009688',
-  bullFill: 'rgba(0,150,136,0.35)',
-  bearFill: 'rgba(240,98,146,0.35)',
+  color: '#B0BEC5',
+  bullFill: 'rgba(176,190,197,0.42)',
+  bearFill: 'rgba(120,144,156,0.34)',
   label: '72-89'
 }, {
   key: 'cloud3450',
   s: 34,
   l: 50,
-  color: '#2196f3',
-  bullFill: 'rgba(33,150,243,0.30)',
-  bearFill: 'rgba(255,183,77,0.30)',
+  color: '#FFF59D',
+  bullFill: 'rgba(255,245,157,0.42)',
+  bearFill: 'rgba(255,213,79,0.32)',
   label: '34-50'
+}, {
+  key: 'cloud2021',
+  s: 20,
+  l: 21,
+  color: '#EF5350',
+  bullFill: 'rgba(239,83,80,0.36)',
+  bearFill: 'rgba(198,40,40,0.30)',
+  label: '20-21'
 }, {
   key: 'cloud512',
   s: 5,
   l: 12,
-  color: '#4caf50',
-  bullFill: 'rgba(3,97,3,0.55)',
-  bearFill: 'rgba(136,14,79,0.55)',
+  color: '#90CAF9',
+  bullFill: 'rgba(144,202,249,0.42)',
+  bearFill: 'rgba(66,165,245,0.30)',
   label: '5-12'
 }];
-const INDICATOR_KEYS = ["cloud512", "cloud3450", "cloud7289", "cloud180200", "superTrend", "tdSeq"];
+const INDICATOR_KEYS = ["cloud512", "cloud2021", "cloud3450", "cloud7289", "ema233", "superTrend", "td9", "td13", "phase", "rsi"];
+const EMA233_COLOR = "#E0E0E0";
 function AutopsyChart({
   ticker,
   entryPrice,
@@ -507,7 +585,7 @@ function AutopsyChart({
   entryTs,
   exitTs,
   trimTs,
-  height = 360
+  height = 380
 }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
@@ -517,21 +595,87 @@ function AutopsyChart({
   const cloudAreaRef = useRef([]);
   const cloudCanvasRef = useRef(null);
   const emaSeriesRef = useRef([]);
+  const subSeriesRef = useRef({
+    ema233: null,
+    phase: null,
+    rsi: null
+  });
   const indicatorDataRef = useRef(null);
   const showIndicatorsRef = useRef(null);
   const tradeMarkersRef = useRef([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [tf, setTf] = useState("15");
+  const [tf, setTf] = useState("10");
   const [showIndicators, setShowIndicators] = useState({
     cloud512: true,
+    cloud2021: true,
     cloud3450: true,
     cloud7289: true,
-    cloud180200: true,
+    ema233: true,
     superTrend: true,
-    tdSeq: false
+    td9: true,
+    td13: true,
+    phase: true,
+    rsi: true
   });
   showIndicatorsRef.current = showIndicators;
+  const applyPaneMargins = useCallback(si => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const showPhase = !!si?.phase;
+    const showRsi = !!si?.rsi;
+    const subCount = (showPhase ? 1 : 0) + (showRsi ? 1 : 0);
+    const bottomMain = subCount === 0 ? 0.08 : subCount === 1 ? 0.28 : 0.42;
+    try {
+      chart.priceScale("right").applyOptions({
+        autoScale: true,
+        scaleMargins: {
+          top: 0.03,
+          bottom: bottomMain
+        }
+      });
+    } catch (_) {}
+    if (showPhase && showRsi) {
+      try {
+        chart.priceScale("phase").applyOptions({
+          scaleMargins: {
+            top: 0.60,
+            bottom: 0.22
+          },
+          borderVisible: false
+        });
+      } catch (_) {}
+      try {
+        chart.priceScale("rsi").applyOptions({
+          scaleMargins: {
+            top: 0.80,
+            bottom: 0.02
+          },
+          borderVisible: false
+        });
+      } catch (_) {}
+    } else if (showPhase) {
+      try {
+        chart.priceScale("phase").applyOptions({
+          scaleMargins: {
+            top: 0.74,
+            bottom: 0.02
+          },
+          borderVisible: false
+        });
+      } catch (_) {}
+    } else if (showRsi) {
+      try {
+        chart.priceScale("rsi").applyOptions({
+          scaleMargins: {
+            top: 0.74,
+            bottom: 0.02
+          },
+          borderVisible: false
+        });
+      } catch (_) {}
+    }
+  }, []);
   const drawCloudFills = useCallback(() => {
     const canvas = cloudCanvasRef.current;
     const chart = chartRef.current;
@@ -745,8 +889,8 @@ function AutopsyChart({
       rightPriceScale: {
         borderColor: "rgba(38,50,95,0.5)",
         scaleMargins: {
-          top: 0.08,
-          bottom: 0.08
+          top: 0.03,
+          bottom: 0.42
         },
         autoScale: true
       },
@@ -926,10 +1070,114 @@ function AutopsyChart({
         s.setData(showIndicators.superTrend ? seg.data : []);
         allSeries.push(s);
       }
-      const tdData = computeTDSequential(mapped);
-      allData.tdSeq = tdData;
+      const ema233Data = computeEMA(mapped, 233, "close");
+      allData.ema233 = ema233Data;
+      const ema233Series = chart.addLineSeries({
+        color: EMA233_COLOR,
+        lineWidth: 2,
+        title: "233",
+        lastValueVisible: false,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false
+      });
+      ema233Series.setData(showIndicators.ema233 ? ema233Data : []);
+      allSeries.push(ema233Series);
+      subSeriesRef.current.ema233 = ema233Series;
+      const phaseData = computePhaseOscSeries(mapped);
+      allData.phase = phaseData;
+      const phaseHist = phaseData.map(p => ({
+        time: p.time,
+        value: p.value,
+        color: p.value >= 0 ? "rgba(167,139,250,0.55)" : "rgba(244,114,182,0.50)"
+      }));
+      const phaseSeries = chart.addHistogramSeries({
+        priceScaleId: "phase",
+        priceFormat: {
+          type: "price",
+          precision: 1,
+          minMove: 0.1
+        },
+        lastValueVisible: true,
+        priceLineVisible: false,
+        base: 0
+      });
+      phaseSeries.setData(showIndicators.phase ? phaseHist : []);
+      try {
+        phaseSeries.createPriceLine({
+          price: 61.8,
+          color: "rgba(167,139,250,0.35)",
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: ""
+        });
+        phaseSeries.createPriceLine({
+          price: -61.8,
+          color: "rgba(244,114,182,0.35)",
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: ""
+        });
+        phaseSeries.createPriceLine({
+          price: 0,
+          color: "rgba(148,163,184,0.35)",
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: false,
+          title: ""
+        });
+      } catch (_) {}
+      subSeriesRef.current.phase = phaseSeries;
+      const rsiData = computeRSI(mapped, 14);
+      allData.rsi = rsiData;
+      const rsiSeries = chart.addLineSeries({
+        color: "#F472B6",
+        lineWidth: 1.5,
+        priceScaleId: "rsi",
+        priceFormat: {
+          type: "price",
+          precision: 1,
+          minMove: 0.1
+        },
+        lastValueVisible: true,
+        priceLineVisible: false,
+        crosshairMarkerVisible: false,
+        title: "RSI"
+      });
+      rsiSeries.setData(showIndicators.rsi ? rsiData : []);
+      try {
+        rsiSeries.createPriceLine({
+          price: 70,
+          color: "rgba(239,68,68,0.45)",
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: ""
+        });
+        rsiSeries.createPriceLine({
+          price: 30,
+          color: "rgba(34,197,94,0.45)",
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: ""
+        });
+        rsiSeries.createPriceLine({
+          price: 50,
+          color: "rgba(148,163,184,0.25)",
+          lineWidth: 1,
+          lineStyle: LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: ""
+        });
+      } catch (_) {}
+      subSeriesRef.current.rsi = rsiSeries;
+      const tdStacks = computeTDSequentialStacks(mapped);
+      allData.tdStacks = tdStacks;
       indicatorDataRef.current = allData;
       emaSeriesRef.current = allSeries;
+      applyPaneMargins(showIndicators);
       for (const pl of priceLinesRef.current) {
         try {
           candleSeries.removePriceLine(pl);
@@ -1009,7 +1257,7 @@ function AutopsyChart({
         code: "X"
       }].filter(pt => pt.time != null && Number.isFinite(pt.price) && pt.price > 0);
       tradeMarkersRef.current = tradeMarkers;
-      const markers = [...tradeMarkers, ...(showIndicators.tdSeq ? tdData : [])];
+      const markers = [...tradeMarkers, ...collectTdMarkers(tdStacks, showIndicators.td9, showIndicators.td13)];
       markers.sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
       try {
         candleSeries.setMarkers(markers);
@@ -1044,15 +1292,7 @@ function AutopsyChart({
           });
         } catch (_) {}
       }
-      try {
-        chart.priceScale("right").applyOptions({
-          autoScale: true,
-          scaleMargins: {
-            top: 0.08,
-            bottom: 0.08
-          }
-        });
-      } catch (_) {}
+      applyPaneMargins(showIndicators);
       requestAnimationFrame(() => {
         if (chartRef.current && containerRef.current) {
           if (!hasTradeRange) chartRef.current.timeScale().scrollToPosition(-3, false);
@@ -1060,6 +1300,7 @@ function AutopsyChart({
           const h = containerRef.current.clientHeight;
           if (w > 0 && h > 0) chartRef.current.resize(w, h);
         }
+        applyPaneMargins(showIndicatorsRef.current);
         drawCloudFills();
       });
       setTimeout(() => {
@@ -1130,6 +1371,11 @@ function AutopsyChart({
       executionOverlayRef.current = [];
       emaSeriesRef.current = [];
       cloudAreaRef.current = [];
+      subSeriesRef.current = {
+        ema233: null,
+        phase: null,
+        rsi: null
+      };
       if (cloudCanvasRef.current) {
         try {
           cloudCanvasRef.current.remove();
@@ -1140,7 +1386,7 @@ function AutopsyChart({
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, [ticker, tf, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles]);
+  }, [ticker, tf, entryPrice, trimPrice, exitPrice, entryTs, exitTs, trimTs, height, mapCandles, applyPaneMargins]);
   useEffect(() => {
     const series = emaSeriesRef.current;
     const data = indicatorDataRef.current;
@@ -1163,16 +1409,38 @@ function AutopsyChart({
         }
       }
     }
-    if (seriesRef.current && data.tdSeq) {
+    const subs = subSeriesRef.current || {};
+    if (subs.ema233 && data.ema233) {
+      try {
+        subs.ema233.setData(showIndicators.ema233 ? data.ema233 : []);
+      } catch (_) {}
+    }
+    if (subs.phase && data.phase) {
+      const hist = data.phase.map(p => ({
+        time: p.time,
+        value: p.value,
+        color: p.value >= 0 ? "rgba(167,139,250,0.55)" : "rgba(244,114,182,0.50)"
+      }));
+      try {
+        subs.phase.setData(showIndicators.phase ? hist : []);
+      } catch (_) {}
+    }
+    if (subs.rsi && data.rsi) {
+      try {
+        subs.rsi.setData(showIndicators.rsi ? data.rsi : []);
+      } catch (_) {}
+    }
+    if (seriesRef.current && data.tdStacks) {
       const tm = tradeMarkersRef.current || [];
-      const td = showIndicators.tdSeq ? data.tdSeq : [];
+      const td = collectTdMarkers(data.tdStacks, showIndicators.td9, showIndicators.td13);
       const all = [...tm, ...td].sort((a, b) => a.time < b.time ? -1 : a.time > b.time ? 1 : 0);
       try {
         seriesRef.current.setMarkers(all);
       } catch (_) {}
     }
+    applyPaneMargins(showIndicators);
     requestAnimationFrame(drawCloudFills);
-  }, [showIndicators, drawCloudFills]);
+  }, [showIndicators, drawCloudFills, applyPaneMargins]);
   const toggleIndicator = key => {
     setShowIndicators(prev => ({
       ...prev,
@@ -1187,14 +1455,14 @@ function AutopsyChart({
     className: "text-[13px] font-semibold text-[#14b8a6]"
   }, ticker), React.createElement("div", {
     className: "flex items-center gap-0.5 sm:gap-1"
-  }, ["5", "15", "30", "60", "D"].map(t => React.createElement("button", {
+  }, ["5", "10", "30", "60", "D"].map(t => React.createElement("button", {
     key: t,
     onClick: () => setTf(t),
     className: `px-2.5 py-1.5 sm:px-2 sm:py-1 rounded text-[11px] font-medium ${tf === t ? "bg-white/10 text-white" : "text-[#6b7280] hover:text-white"}`
   }, t === "D" ? "1D" : t + "m")))), React.createElement("div", {
     ref: containerRef,
     style: {
-      minHeight: 180,
+      minHeight: 220,
       minWidth: 200,
       width: "100%",
       height: "100%"
@@ -1211,7 +1479,7 @@ function AutopsyChart({
       height: 24
     }
   }))), React.createElement("div", {
-    className: "shrink-0 px-2 sm:px-3 py-2 flex flex-wrap items-center gap-x-2 sm:gap-x-4 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] sm:text-[11px] text-[#9ca3af]"
+    className: "shrink-0 px-2 sm:px-3 py-2 flex flex-wrap items-center gap-x-2 sm:gap-x-3 gap-y-1 border-t border-white/[0.04] bg-white/[0.02] text-[10px] sm:text-[11px] text-[#9ca3af]"
   }, React.createElement("span", {
     className: "flex items-center gap-1.5"
   }, React.createElement("span", {
@@ -1223,19 +1491,27 @@ function AutopsyChart({
   }), " Exit"), INDICATOR_KEYS.map(key => {
     const labels = {
       cloud512: "5-12",
+      cloud2021: "20-21",
       cloud3450: "34-50",
       cloud7289: "72-89",
-      cloud180200: "180-200",
+      ema233: "233",
       superTrend: "ST",
-      tdSeq: "TD"
+      td9: "TD9",
+      td13: "TD13",
+      phase: "Phase",
+      rsi: "RSI"
     };
     const colors = {
-      cloud512: "#4caf50",
-      cloud3450: "#2196f3",
-      cloud7289: "#009688",
-      cloud180200: "#05bed5",
+      cloud512: "#90CAF9",
+      cloud2021: "#EF5350",
+      cloud3450: "#FFF59D",
+      cloud7289: "#B0BEC5",
+      ema233: EMA233_COLOR,
       superTrend: "#f97316",
-      tdSeq: "#2962ff"
+      td9: "#089981",
+      td13: "#2962ff",
+      phase: "#a78bfa",
+      rsi: "#F472B6"
     };
     const on = showIndicators[key];
     return React.createElement("button", {
@@ -2040,7 +2316,7 @@ function AutopsyModal({
   })()))), React.createElement("div", {
     className: "flex-1 min-h-0 flex flex-col md:flex-row gap-1.5 -mt-1",
     style: {
-      minHeight: "250px"
+      minHeight: "380px"
     }
   }, React.createElement("div", {
     className: "flex-[2] min-w-0 h-full"
@@ -2052,7 +2328,7 @@ function AutopsyModal({
     entryTs: chartEntryTs,
     exitTs: chartExitTs,
     trimTs: chartTrimTs,
-    height: 250
+    height: 380
   })), !readonly ? React.createElement("div", {
     className: "flex-1 min-w-[220px] max-w-[300px] shrink-0 tt-card px-2.5 py-2 flex flex-col gap-2 overflow-y-auto h-full"
   }, React.createElement("div", null, React.createElement("div", {
@@ -2941,6 +3217,6 @@ function App({
     user: user
   })));
 })();
-// cache-bust:1785686869222:812499113
+// cache-bust:1785690622166:363131907
 
-// cache-bust:1785686869222:812499113
+// cache-bust:1785690622166:363131907
