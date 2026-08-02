@@ -7228,7 +7228,8 @@ function AnalysisAutomationBar({
   onLoadProposals,
   onApplyProposal,
   lastRunAt,
-  runStatus
+  runStatus,
+  report
 }) {
   const runId = snapshot?.run_id;
   const [, setTick] = useState(0);
@@ -7309,7 +7310,38 @@ function AnalysisAutomationBar({
     style: {
       color: "var(--ds-text-body)"
     }
-  }, "How to use this page:"), " click ", React.createElement("em", null, "Run Analysis"), " to refresh the audit from the latest closed-trade ledger. Review the recommendations + proposals. Click ", React.createElement("em", null, "Apply"), " on the ones you trust; the engine picks them up on the next 5-min scoring cycle.")), runStatus && React.createElement("div", {
+  }, "How to use this page:"), " click ", React.createElement("em", null, "Run Analysis"), " for a ", React.createElement("strong", null, "trusted live"), " autopsy (newest closed trades, scope ", React.createElement("code", {
+    style: {
+      fontFamily: "var(--tt-font-mono)",
+      fontSize: 11
+    }
+  }, "live-trades"), "). Review the Trust strip \u2014 SL/TP only apply when MFE/MAE ATR coverage clears. Promoted backtests are challengers, not the Apply source.")), report && (report.data_quality || report.calibration_provenance) && React.createElement("div", {
+    className: "si-card",
+    style: {
+      marginTop: 8
+    }
+  }, React.createElement("div", {
+    className: "si-card__eyebrow"
+  }, "Trust \u2014 what this report can tune"), React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 12,
+      marginTop: 8,
+      fontSize: 12,
+      fontFamily: "var(--tt-font-mono)"
+    }
+  }, React.createElement("span", null, "scope: ", report.scope_id || report.calibration_provenance?.scope_id || "?"), React.createElement("span", null, "source: ", report.calibration_provenance?.source || "?"), React.createElement("span", null, "live: ", String(report.calibration_provenance?.live_only ?? false)), React.createElement("span", null, "mutable: ", String(report.calibration_provenance?.production_mutable ?? false)), React.createElement("span", null, "n: ", report.data_quality?.trade_count ?? report.trade_count ?? "?"), React.createElement("span", null, "VIX: ", report.data_quality?.vix_coverage_pct ?? report.vix_coverage?.known_pct ?? "?", "%"), React.createElement("span", null, "regime: ", report.data_quality?.regime_known_pct ?? "?", "%"), React.createElement("span", null, "MFE-ATR: ", report.data_quality?.mfe_atr_coverage_pct ?? "?", "%"), React.createElement("span", {
+    style: {
+      color: report.sl_tp_calibration?.trusted || report.recommendations?.trust?.sltp_trusted ? "var(--tt-success)" : "var(--tt-danger)"
+    }
+  }, "SL/TP: ", report.sl_tp_calibration?.trusted || report.recommendations?.trust?.sltp_trusted ? "trusted" : "blocked")), Array.isArray(report.calibration_provenance?.apply_block_reasons) && report.calibration_provenance.apply_block_reasons.length > 0 && React.createElement("div", {
+    style: {
+      marginTop: 6,
+      fontSize: 11,
+      color: "var(--ds-text-muted)"
+    }
+  }, "Blocks: ", report.calibration_provenance.apply_block_reasons.join(", "))), runStatus && React.createElement("div", {
     style: {
       padding: "10px 14px",
       borderRadius: 8,
@@ -7741,28 +7773,14 @@ function App() {
     preCalibReportIdRef.current = reportId;
     const _runStartMs = Date.now();
     try {
-      let scopeArgs = {
-        analysis_only: true
+      const scopeArgs = {
+        analysis_only: true,
+        trust_mode: "live",
+        live_only: true,
+        scope_id: "live-trades",
+        scope_kind: "live",
+        force_reseed: true
       };
-      try {
-        const seedRes = await fetch(`${API_BASE}/timed/admin/calibration/seed-from-promoted`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({}),
-          credentials: "include"
-        });
-        const seedData = await seedRes.json().catch(() => ({}));
-        if (seedData?.ok && seedData?.scope_id) {
-          scopeArgs = {
-            analysis_only: true,
-            scope_id: seedData.scope_id,
-            source_run_id: seedData.scope_id,
-            scope_kind: "promoted_run"
-          };
-        }
-      } catch (_) {}
       const res = await fetch(`${API_BASE}/timed/calibration/run`, {
         method: "POST",
         headers: {
@@ -7778,12 +7796,14 @@ function App() {
         setRecs(data.report?.recommendations);
         setReportId(data.report?.report_id || reportId);
         setLastRunAt(Date.now());
-        const _recCount = data.report?.recommendations?.length || 0;
-        const _tradeCount = data.report?.trade_count || data.report?.sample?.closed || 0;
+        const _dq = data.report?.data_quality || {};
+        const _prov = data.report?.calibration_provenance || {};
+        const _tradeCount = data.report?.trade_count || _dq.trade_count || 0;
+        const _sltpOk = data.report?.sl_tp_calibration?.trusted === true || data.report?.recommendations?.trust?.sltp_trusted === true;
         setRunStatus({
           kind: "ok",
-          message: `Analysis complete — ${_recCount} recommendation${_recCount === 1 ? "" : "s"} from ${_tradeCount} closed trade${_tradeCount === 1 ? "" : "s"}.`,
-          detail: `${(_elapsedMs / 1000).toFixed(1)}s`
+          message: `Trusted live analysis — ${_tradeCount} closed trades · VIX ${_dq.vix_coverage_pct ?? "?"}% · MFE-ATR ${_dq.mfe_atr_coverage_pct ?? "?"}% · SL/TP ${_sltpOk ? "trusted" : "untrusted (not applyable)"}.`,
+          detail: `${(_elapsedMs / 1000).toFixed(1)}s · ${_prov.source || "live_trades"}`
         });
         fetchData();
       } else if (!data.ok) {
@@ -7811,7 +7831,7 @@ function App() {
     try {
       let applyId = id;
       if (report && (report.diagnostic_only || report.diagnosticOnly)) {
-        setAppliedMsg("Re-running as promotion candidate so apply can persist…");
+        setAppliedMsg("Re-running trusted live as promotion candidate so apply can persist…");
         const runRes = await fetch(`${API_BASE}/timed/calibration/run`, {
           method: "POST",
           headers: {
@@ -7819,8 +7839,11 @@ function App() {
           },
           body: JSON.stringify({
             analysis_only: false,
-            source_run_id: report.source_run_id || null,
-            scope_kind: "global"
+            trust_mode: "live",
+            live_only: true,
+            scope_id: "live-trades",
+            scope_kind: "live",
+            force_reseed: true
           }),
           credentials: "include"
         });
@@ -8014,7 +8037,8 @@ function App() {
     onLoadProposals: fetchProposals,
     onApplyProposal: applyProposal,
     lastRunAt: lastRunAt,
-    runStatus: runStatus
+    runStatus: runStatus,
+    report: report
   }), React.createElement(UnifiedAnalysisTab, {
     report: report,
     recs: recs,
@@ -8056,6 +8080,6 @@ const siApp = _AuthGate ? React.createElement(_AuthGate, {
   user: user
 })) : React.createElement(App, null);
 ReactDOM.createRoot(document.getElementById("root")).render(siApp);
-// cache-bust:1785591753020:376959286
+// cache-bust:1785610514382:183123981
 
-// cache-bust:1785591753020:376959286
+// cache-bust:1785610514382:183123981

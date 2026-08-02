@@ -470,6 +470,18 @@ import {
   CLOUD_PIVOT_FAMILY,
 } from "./foundation/tt-cloud-pivot.js";
 import {
+  scopedAutopsyId,
+  promotedScopeId,
+  computeCalibrationDataQuality,
+  buildCalibrationProvenance,
+  evaluateApplyDataQuality,
+  resolveExcursions,
+  pctToAtr,
+  LIVE_AUTOPSY_SCOPE,
+  LIVE_SCOPE_KIND,
+  PROMOTED_SCOPE_KIND,
+} from "./calibration/trusted-autopsy.js";
+import {
   loadWeeklyMoveAutopsy,
   refreshWeeklyMoveAutopsy,
   WEEKLY_AUTOPSY_KV,
@@ -36078,11 +36090,25 @@ async function autopsyTradesServerSide(env) {
 async function runCalibrationAnalysis(env, options = {}) {
   const db = env?.DB;
   if (!db) throw new Error("no_db");
-  const scopeId = options.scopeId != null ? String(options.scopeId) : null;
-  const sourceRunId = options.sourceRunId != null ? String(options.sourceRunId) : null;
-  const scopeKind = options.scopeKind != null ? String(options.scopeKind) : "legacy";
+  const trustLive = options.trustLive === true
+    || options.liveOnly === true
+    || String(options.scopeKind || "") === "live"
+    || String(options.trustMode || "") === "live";
+  let scopeId = options.scopeId != null ? String(options.scopeId) : null;
+  let sourceRunId = options.sourceRunId != null ? String(options.sourceRunId) : null;
+  let scopeKind = options.scopeKind != null ? String(options.scopeKind) : "legacy";
   const diagnosticOnly = options.diagnosticOnly ? 1 : 0;
-  const liveOnly = options.liveOnly === true || scopeKind === "live";
+  let liveOnly = trustLive || scopeKind === "live";
+  let seedMeta = { ok: null, error: null, source: null, query: null, excursion: null };
+
+  // Trusted live path: stable scope, always live-only, never mixed default.
+  if (trustLive) {
+    scopeId = scopeId && scopeId !== "default" && scopeId !== "global"
+      ? scopeId
+      : LIVE_AUTOPSY_SCOPE;
+    scopeKind = LIVE_SCOPE_KIND;
+    liveOnly = true;
+  }
 
   const movesResp = scopeId
     ? await db.prepare(`SELECT * FROM calibration_moves WHERE scope_id = ?1`).bind(scopeId).all()
@@ -36093,58 +36119,79 @@ async function runCalibrationAnalysis(env, options = {}) {
   const moves = movesResp?.results || [];
   let allTradesRaw = tradesResp?.results || [];
 
-  // 2026-06-02 — Auto-seed when the autopsy table is empty for this
-  // scope. Operator screenshot showed "Promotion run failed:
-  // no_trade_data" because the UI re-runs with scope_kind="global" but
-  // no scope_id, defaulting backend to "default" — which has no rows
-  // because seeding had only ever populated scope_id = <source_run_id>.
-  // Now we try once to seed from the latest promoted dataset (using
-  // THIS scope_id as the seed target) before giving up. Idempotent:
-  // seed wipes + repopulates only the requested scope.
-  if (!allTradesRaw.length && scopeId) {
-    // Auto-seed attempt 1: from promoted backtest dataset (preferred when
-    // available — it has more samples + intraday MFE/MAE).
-    if (!liveOnly) {
-      try {
-        console.log(`[CALIBRATION] no autopsy rows for scope_id=${scopeId} — auto-seeding from latest promoted dataset`);
-        const seedRes = await d1SeedCalibrationAutopsyFromPromoted(env, { scopeId });
-        if (seedRes?.ok) {
-          tradesResp = await db.prepare(`SELECT * FROM calibration_trade_autopsy WHERE scope_id = ?1`).bind(scopeId).all();
-          allTradesRaw = tradesResp?.results || [];
-          console.log(`[CALIBRATION] promoted-dataset auto-seed produced ${allTradesRaw.length} rows`);
-        } else {
-          console.warn(`[CALIBRATION] promoted-dataset seed unavailable (${seedRes?.error || "?"}); falling back to live trades`);
-        }
-      } catch (seedErr) {
-        console.warn(`[CALIBRATION] promoted-dataset seed threw: ${String(seedErr?.message || seedErr).slice(0, 200)}; falling back to live trades`);
-      }
-    }
-    // Auto-seed attempt 2: from LIVE trades. The user mandate is
-    // "self-learning" — calibration must work without a backtest
-    // promotion step. Reads closed trades (WIN/LOSS) from the live
-    // `trades` table, computes per-trade autopsy fields (same shape
-    // as the promoted seeder), inserts under the same scope_id.
+  // Re-seed trusted live on every analysis when forceReseed or empty —
+  // keeps newest closed trades in the autopsy window.
+  const forceReseed = options.forceReseed === true || trustLive;
+  if (scopeId && (forceReseed || !allTradesRaw.length)) {
     let _liveSeedErr = null;
-    if (!allTradesRaw.length) {
+    if (liveOnly || trustLive) {
       try {
-        const liveSeedRes = await d1SeedCalibrationAutopsyFromLiveTrades(env, { scopeId, liveOnly });
+        console.log(`[CALIBRATION] seeding trusted live autopsy scope_id=${scopeId}`);
+        const liveSeedRes = await d1SeedCalibrationAutopsyFromLiveTrades(env, {
+          scopeId,
+          liveOnly: true,
+          limit: Number(options.limit) || 500,
+          sinceMs: Number(options.sinceMs) || 0,
+        });
+        seedMeta = {
+          ok: !!liveSeedRes?.ok,
+          error: liveSeedRes?.ok ? null : (liveSeedRes?.error || "unknown"),
+          source: "live_trades",
+          query: liveSeedRes?.query || null,
+          excursion: liveSeedRes?.excursion || null,
+        };
         if (liveSeedRes?.ok) {
           tradesResp = await db.prepare(`SELECT * FROM calibration_trade_autopsy WHERE scope_id = ?1`).bind(scopeId).all();
           allTradesRaw = tradesResp?.results || [];
-          console.log(`[CALIBRATION] live-trades auto-seed produced ${allTradesRaw.length} rows`);
+          console.log(`[CALIBRATION] live-trades seed produced ${allTradesRaw.length} rows`);
         } else {
           _liveSeedErr = liveSeedRes?.error || "unknown";
-          console.warn(`[CALIBRATION] live-trades seed failed: ${_liveSeedErr}`);
         }
       } catch (liveErr) {
         _liveSeedErr = String(liveErr?.message || liveErr).slice(0, 200);
-        console.warn(`[CALIBRATION] live-trades seed threw: ${_liveSeedErr}`);
+        seedMeta = { ok: false, error: _liveSeedErr, source: "live_trades" };
+      }
+    } else if (!allTradesRaw.length) {
+      // Challenger / promoted path only when not trust-live.
+      try {
+        console.log(`[CALIBRATION] no autopsy rows for scope_id=${scopeId} — auto-seeding promoted challenger`);
+        const seedRes = await d1SeedCalibrationAutopsyFromPromoted(env, { scopeId });
+        seedMeta = {
+          ok: !!seedRes?.ok,
+          error: seedRes?.ok ? null : (seedRes?.error || "unknown"),
+          source: "promoted_trades",
+          excursion: seedRes?.excursion || null,
+        };
+        if (seedRes?.ok) {
+          if (seedRes.scope_id && seedRes.scope_id !== scopeId) {
+            scopeId = seedRes.scope_id;
+            scopeKind = PROMOTED_SCOPE_KIND;
+          }
+          if (seedRes.source_run_id) sourceRunId = seedRes.source_run_id;
+          tradesResp = await db.prepare(`SELECT * FROM calibration_trade_autopsy WHERE scope_id = ?1`).bind(scopeId).all();
+          allTradesRaw = tradesResp?.results || [];
+        }
+      } catch (seedErr) {
+        seedMeta = { ok: false, error: String(seedErr?.message || seedErr).slice(0, 200), source: "promoted_trades" };
+      }
+      if (!allTradesRaw.length) {
+        try {
+          const liveSeedRes = await d1SeedCalibrationAutopsyFromLiveTrades(env, { scopeId, liveOnly: false });
+          if (liveSeedRes?.ok) {
+            tradesResp = await db.prepare(`SELECT * FROM calibration_trade_autopsy WHERE scope_id = ?1`).bind(scopeId).all();
+            allTradesRaw = tradesResp?.results || [];
+            seedMeta = { ok: true, source: "live_trades_fallback", query: liveSeedRes.query, excursion: liveSeedRes.excursion };
+          } else {
+            _liveSeedErr = liveSeedRes?.error || "unknown";
+          }
+        } catch (liveErr) {
+          _liveSeedErr = String(liveErr?.message || liveErr).slice(0, 200);
+        }
       }
     }
     if (!allTradesRaw.length) {
-      // Surface a more useful error with the actual seed-failure reason.
       throw new Error(scopeId
-        ? `no_trade_data (scope_id=${scopeId}; live-trades seeder returned: ${_liveSeedErr || "no_data"}. Check that the trades table has closed rows: SELECT COUNT(*) FROM trades WHERE status IN ('WIN','LOSS','FLAT'))`
+        ? `no_trade_data (scope_id=${scopeId}; seeder returned: ${seedMeta.error || _liveSeedErr || "no_data"})`
         : "no_trade_data");
     }
   }
@@ -36453,14 +36500,19 @@ async function runCalibrationAnalysis(env, options = {}) {
   const rawTpTrim = Math.round(percentile(allMFEs, 50) * 100) / 100;
   const rawTpExit = Math.round(percentile(allMFEs, 75) * 100) / 100;
   const rawTpRunner = Math.round(percentile(allMFEs, 90) * 100) / 100;
+  const _earlyDataQuality = computeCalibrationDataQuality(trades);
+  const sltpTrusted = _earlyDataQuality.sltp_recommendations_trusted === true;
   const slTP = {
     winner_mae: { p50: percentile(winnerMAEs, 50), p75: percentile(winnerMAEs, 75), p90: percentile(winnerMAEs, 90) },
     trade_mfe: { p50: percentile(allMFEs, 50), p75: percentile(allMFEs, 75), p90: percentile(allMFEs, 90) },
     move_mfe: moves.length ? { p50: percentile(moveMFEs, 50), p75: percentile(moveMFEs, 75), p90: percentile(moveMFEs, 90) } : null,
-    recommended_sl_atr: Math.max(rawSl, 0.3),
-    recommended_tp_trim_atr: Math.max(rawTpTrim, 1.5),
-    recommended_tp_exit_atr: Math.max(rawTpExit, 2.5),
-    recommended_tp_runner_atr: Math.max(rawTpRunner, 3.5),
+    // Never present floor defaults as actionable when ATR excursions are missing.
+    recommended_sl_atr: sltpTrusted ? Math.max(rawSl, 0.3) : null,
+    recommended_tp_trim_atr: sltpTrusted ? Math.max(rawTpTrim, 1.5) : null,
+    recommended_tp_exit_atr: sltpTrusted ? Math.max(rawTpExit, 2.5) : null,
+    recommended_tp_runner_atr: sltpTrusted ? Math.max(rawTpRunner, 3.5) : null,
+    trusted: sltpTrusted,
+    untrusted_reason: sltpTrusted ? null : "mfe_mae_atr_coverage_below_floor",
     raw: { sl_atr: rawSl, tp_trim: rawTpTrim, tp_exit: rawTpExit, tp_runner: rawTpRunner },
   };
 
@@ -36804,18 +36856,18 @@ async function runCalibrationAnalysis(env, options = {}) {
   const recommendations = {
     signal_weights: newSignalWeights,
     sl_atr: slTP.recommended_sl_atr,
-    tp_tiers: {
+    tp_tiers: sltpTrusted ? {
       trim: slTP.recommended_tp_trim_atr,
       exit: slTP.recommended_tp_exit_atr,
       runner: slTP.recommended_tp_runner_atr,
-    },
+    } : null,
     rank_threshold: bestRankCutoff,
     path_adjustments: pathAdjustments,
     wfo_verdict: wfoSummary.verdict,
     adaptive_rank_weights: adaptiveRankWeights,
     adaptive_entry_gates: adaptiveEntryGates,
     adaptive_regime_gates: adaptiveRegimeGates,
-    adaptive_sl_tp: adaptiveSLTP,
+    adaptive_sl_tp: sltpTrusted ? adaptiveSLTP : null,
     execution_profile_overrides: executionProfileOverrides,
     profiles_summary: {
       winner_moves: winnerMoveProfiles.length,
@@ -36823,6 +36875,12 @@ async function runCalibrationAnalysis(env, options = {}) {
       loser_trades: loserTradeProfiles.length,
       execution_profiles: Object.keys(executionProfileAnalysis.by_profile).length,
       execution_profile_market_cells: Object.keys(executionProfileAnalysis.by_profile_market_state).length,
+    },
+    trust: {
+      sltp_trusted: sltpTrusted,
+      path_trusted: _earlyDataQuality.path_recommendations_trusted,
+      regime_trusted: _earlyDataQuality.regime_filters_trusted,
+      sltp_untrusted_reason: slTP.untrusted_reason,
     },
   };
 
@@ -37072,15 +37130,31 @@ async function runCalibrationAnalysis(env, options = {}) {
     console.warn("[CALIBRATION] intelligence context failed (non-blocking):", String(intelErr?.message || intelErr).slice(0, 200));
   }
 
+  const dataQuality = computeCalibrationDataQuality(trades);
+  const calibrationProvenance = buildCalibrationProvenance({
+    scopeId,
+    scopeKind,
+    source: seedMeta.source || (liveOnly ? "live_trades" : "mixed_or_legacy"),
+    liveOnly,
+    sourceRunId,
+    seedOk: seedMeta.ok,
+    seedError: seedMeta.error,
+    excursionSource: seedMeta.excursion || null,
+    query: seedMeta.query || null,
+    dataQuality,
+    scoringVersion: typeof SCORING_VERSION !== "undefined" ? SCORING_VERSION : null,
+    engineGitSha: env?.ENGINE_GIT_SHA || null,
+    configHash: env?._configHash || null,
+  });
+
   const reportJson = {
     scope_id: scopeId,
     source_run_id: sourceRunId,
     scope_kind: scopeKind,
     diagnostic_only: !!diagnosticOnly,
-    calibration_provenance: {
-      live_only: liveOnly,
-      source: liveOnly ? "live_trades" : "mixed_or_legacy",
-    },
+    trade_count: trades.length,
+    data_quality: dataQuality,
+    calibration_provenance: calibrationProvenance,
     system_health: systemHealth,
     entry_paths: pathReport,
     signal_ic: signalIC,
@@ -42767,6 +42841,7 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
   if (!db) return { ok: false, error: "no_db" };
 
   await d1EnsureCalibrationSchema(env);
+  try { await d1EnsureBacktestRunsSchema(env); } catch (_) { /* */ }
 
   // Resolve dataset (requested → active → most recent)
   let dataset = null;
@@ -42784,9 +42859,12 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
   }
   if (!dataset?.dataset_id) return { ok: false, error: "no_dataset" };
 
+  // Always isolate promoted autopsy under a promoted:* scope so it cannot
+  // collide with live-trades rows (PK is global trade_id).
   const scopeId = options.scopeId
     ? String(options.scopeId)
-    : (dataset.source_run_id || dataset.dataset_id);
+    : promotedScopeId(dataset.source_run_id || dataset.dataset_id);
+  const sourceRunId = dataset.source_run_id ? String(dataset.source_run_id) : null;
 
   const promotedRows = (await db.prepare(
     `SELECT trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price,
@@ -42798,6 +42876,21 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
 
   if (!promotedRows.length) return { ok: false, error: "no_promoted_trades" };
 
+  // Enrich MFE/MAE + regime from archived run when available.
+  const archiveByTrade = new Map();
+  if (sourceRunId) {
+    try {
+      const arch = (await db.prepare(
+        `SELECT trade_id, max_favorable_excursion, max_adverse_excursion, regime_combined, market_state
+           FROM backtest_run_direction_accuracy
+          WHERE run_id = ?1`,
+      ).bind(sourceRunId).all())?.results || [];
+      for (const a of arch) {
+        if (a?.trade_id) archiveByTrade.set(String(a.trade_id), a);
+      }
+    } catch (_) { /* archive table may be empty */ }
+  }
+
   // Wipe prior rows for this scope so re-seeding is idempotent.
   await db.prepare(
     `DELETE FROM calibration_trade_autopsy WHERE scope_id = ?1`
@@ -42805,6 +42898,8 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
 
   const inserts = [];
   const classCounts = {};
+  let trueExcursionN = 0;
+  let approxExcursionN = 0;
   for (const r of promotedRows) {
     const ticker = String(r.ticker || "").toUpperCase();
     const direction = String(r.direction || "LONG").toUpperCase();
@@ -42817,14 +42912,19 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
     if (!entryTs || !exitTs || !entryPrice || !exitPrice) continue;
 
     const isLong = direction === "LONG";
-    // Approximate MFE/MAE using entry/exit only — without intraday candles
-    // we can't compute true excursions, so use the actual realized move as
-    // a lower bound for the favorable side and treat losses as MAE.
-    const moveAbs = Math.abs(exitPrice - entryPrice) / entryPrice * 100;
-    const mfePct = pnlPct > 0 ? Math.max(pnlPct, moveAbs) : 0;
-    const maePct = pnlPct < 0 ? Math.max(Math.abs(pnlPct), moveAbs) : 0;
-    // R-multiple proxy: assume 1R = 1.5% (matches ETF/setup average from
-    // ATR-based sizing in the worker).
+    const arch = archiveByTrade.get(String(r.trade_id)) || null;
+    const exc = resolveExcursions({
+      max_favorable_excursion: arch?.max_favorable_excursion,
+      max_adverse_excursion: arch?.max_adverse_excursion,
+    }, pnlPct, entryPrice, exitPrice);
+    if (exc.source === "ledger") trueExcursionN++;
+    else approxExcursionN++;
+    const mfePct = exc.mfePct;
+    const maePct = exc.maePct;
+    // Without per-trade ATR% on promoted rows, leave ATR units 0 — data_quality
+    // will mark SL/TP recommendations untrusted until candle autopsy fills them.
+    const mfeAtr = 0;
+    const maeAtr = 0;
     const rMultiple = pnlPct / 1.5;
     const exitEfficiency = mfePct > 0 ? Math.max(0, pnlPct) / mfePct : 0;
 
@@ -42841,9 +42941,12 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
     const slPrice = isLong
       ? entryPrice - (entryPrice * 0.015)
       : entryPrice + (entryPrice * 0.015);
+    const regime = String(arch?.regime_combined || "unknown");
+    const autopsyPk = scopedAutopsyId(scopeId, r.trade_id);
+    if (!autopsyPk) continue;
 
     inserts.push(db.prepare(
-      `INSERT INTO calibration_trade_autopsy
+      `INSERT OR REPLACE INTO calibration_trade_autopsy
         (trade_id, ticker, direction, entry_ts, exit_ts, entry_price, exit_price, sl_price,
          pnl_pct, r_multiple, mfe_pct, mfe_atr, mae_pct, mae_atr, exit_efficiency, sl_hit_before_mfe,
          time_to_mfe_min, optimal_hold_min, classification, manual_classification, manual_notes,
@@ -42854,21 +42957,21 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,
                ?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38)`
     ).bind(
-      r.trade_id, ticker, direction, entryTs, exitTs, entryPrice, exitPrice,
+      autopsyPk, ticker, direction, entryTs, exitTs, entryPrice, exitPrice,
       Math.round(slPrice * 100) / 100,
       pnlPct, Math.round(rMultiple * 100) / 100,
-      Math.round(mfePct * 100) / 100, 0,
-      Math.round(maePct * 100) / 100, 0,
+      Math.round(mfePct * 100) / 100, mfeAtr,
+      Math.round(maePct * 100) / 100, maeAtr,
       Math.round(exitEfficiency * 100) / 100,
       maePct > 1.5 ? 1 : 0,
       Math.max(0, Math.round((exitTs - entryTs) / 60000)),
       Math.max(0, Math.round((exitTs - entryTs) / 60000)),
       classification, null, null,
-      null, // entry_signals_json
+      JSON.stringify({ excursion_source: exc.source === "ledger" ? "backtest_archive" : exc.source, source_trade_id: r.trade_id }),
       setupName,
       Number(r.rank) || 0,
-      "unknown",
-      null, null, null, null,
+      regime,
+      null, null, arch?.market_state || null, null,
       null, null, null, null,
       null, null, null,
       scopeId,
@@ -42876,7 +42979,6 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
     ));
   }
 
-  // Batch insert
   for (let i = 0; i < inserts.length; i += 500) {
     await db.batch(inserts.slice(i, i + 500));
   }
@@ -42884,9 +42986,13 @@ async function d1SeedCalibrationAutopsyFromPromoted(env, options = {}) {
   return {
     ok: true,
     scope_id: scopeId,
+    scope_kind: PROMOTED_SCOPE_KIND,
     dataset_id: dataset.dataset_id,
+    source_run_id: sourceRunId,
     autopsy_count: inserts.length,
     classifications: classCounts,
+    excursion: { true_n: trueExcursionN, approx_n: approxExcursionN },
+    production_mutable: false,
   };
 }
 
@@ -42910,43 +43016,61 @@ async function d1SeedCalibrationAutopsyFromLiveTrades(env, options = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db" };
   await d1EnsureCalibrationSchema(env);
-  const scopeId = options.scopeId ? String(options.scopeId) : "live-trades-default";
+  const scopeId = options.scopeId ? String(options.scopeId) : LIVE_AUTOPSY_SCOPE;
   const sinceMs = Number(options.sinceMs) || 0;
   const limit = Math.max(1, Math.min(2000, Number(options.limit) || 500));
-  const liveOnly = options.liveOnly === true;
+  // Trusted live path always excludes backtest run_id rows.
+  const liveOnly = options.liveOnly !== false;
 
   const whereParts = ["t.status IN ('WIN', 'LOSS', 'FLAT')", "t.entry_ts IS NOT NULL", "t.exit_ts IS NOT NULL", "t.entry_price > 0", "t.exit_price > 0"];
   const binds = [];
   if (sinceMs > 0) { whereParts.push("t.entry_ts >= ?"); binds.push(sinceMs); }
   if (liveOnly) whereParts.push("(t.run_id IS NULL OR t.run_id = '')");
-  // `rank` is a SQLite reserved keyword (window function); quote it.
-  // Also surface the actual D1 error instead of swallowing it.
   let liveRows = [];
   let queryErr = null;
   try {
+    // Newest closed trades first — oldest-500 was biasing calibration to stale book.
     const q = await db.prepare(
       `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price,
               t.pnl, t.pnl_pct, t."rank" AS rank, t.rr, t.status, t.setup_name, t.setup_grade, t.exit_reason,
-              da.signal_snapshot_json
+              t.max_favorable_excursion, t.max_adverse_excursion,
+              da.signal_snapshot_json, da.regime_combined, da.market_state,
+              da.max_favorable_excursion AS da_mfe, da.max_adverse_excursion AS da_mae
        FROM trades t
        LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
-       WHERE ${whereParts.join(" AND ")} ORDER BY t.entry_ts ASC LIMIT ?`
+       WHERE ${whereParts.join(" AND ")} ORDER BY t.entry_ts DESC LIMIT ?`
     ).bind(...binds, limit).all();
     liveRows = q?.results || [];
   } catch (e) {
+    // Fallback without optional columns if schema lags.
     queryErr = String(e?.message || e).slice(0, 200);
+    try {
+      const q2 = await db.prepare(
+        `SELECT t.trade_id, t.ticker, t.direction, t.entry_ts, t.exit_ts, t.entry_price, t.exit_price,
+                t.pnl, t.pnl_pct, t."rank" AS rank, t.rr, t.status, t.setup_name, t.setup_grade, t.exit_reason,
+                da.signal_snapshot_json
+         FROM trades t
+         LEFT JOIN direction_accuracy da ON da.trade_id = t.trade_id
+         WHERE ${whereParts.join(" AND ")} ORDER BY t.entry_ts DESC LIMIT ?`
+      ).bind(...binds, limit).all();
+      liveRows = q2?.results || [];
+      queryErr = null;
+    } catch (e2) {
+      queryErr = String(e2?.message || e2).slice(0, 200);
+    }
   }
 
   if (!liveRows.length) {
     return { ok: false, error: queryErr ? `live_trades_query_failed:${queryErr}` : "no_live_trades_closed" };
   }
 
-  // Wipe prior rows for this scope so re-seeding is idempotent.
   await db.prepare(`DELETE FROM calibration_trade_autopsy WHERE scope_id = ?1`).bind(scopeId).run();
   const historicalVix = await loadHistoricalVixSeries(db);
 
   const inserts = [];
   const classCounts = {};
+  let trueExcursionN = 0;
+  let approxExcursionN = 0;
   for (const r of liveRows) {
     const ticker = String(r.ticker || "").toUpperCase();
     const direction = String(r.direction || "LONG").toUpperCase();
@@ -42959,10 +43083,26 @@ async function d1SeedCalibrationAutopsyFromLiveTrades(env, options = {}) {
     if (!entryTs || !exitTs || !entryPrice || !exitPrice) continue;
 
     const isLong = direction === "LONG";
-    const moveAbs = Math.abs(exitPrice - entryPrice) / entryPrice * 100;
-    const mfePct = pnlPct > 0 ? Math.max(pnlPct, moveAbs) : 0;
-    const maePct = pnlPct < 0 ? Math.max(Math.abs(pnlPct), moveAbs) : 0;
-    const rMultiple = pnlPct / 1.5; // 1R ≈ 1.5% proxy
+    const exc = resolveExcursions({
+      max_favorable_excursion: r.max_favorable_excursion ?? r.da_mfe,
+      max_adverse_excursion: r.max_adverse_excursion ?? r.da_mae,
+    }, pnlPct, entryPrice, exitPrice);
+    if (exc.source === "ledger") trueExcursionN++;
+    else approxExcursionN++;
+    const mfePct = exc.mfePct;
+    const maePct = exc.maePct;
+    let atrPct = null;
+    let lineageVix = null;
+    let regime = String(r.regime_combined || "").trim() || null;
+    try {
+      const snapshot = r.signal_snapshot_json ? JSON.parse(r.signal_snapshot_json) : null;
+      lineageVix = snapshot?.lineage?.vix_at_entry ?? snapshot?.vix_at_entry ?? null;
+      atrPct = Number(snapshot?.atr_pct ?? snapshot?.lineage?.atr_pct ?? snapshot?.daily_atr_pct);
+      if (!regime) regime = snapshot?.regime_combined || snapshot?.lineage?.regime_combined || null;
+    } catch (_) {}
+    const mfeAtr = pctToAtr(mfePct, atrPct);
+    const maeAtr = pctToAtr(maePct, atrPct);
+    const rMultiple = pnlPct / 1.5;
     const exitEfficiency = mfePct > 0 ? Math.max(0, pnlPct) / mfePct : 0;
     const slPrice = isLong ? entryPrice - (entryPrice * 0.015) : entryPrice + (entryPrice * 0.015);
 
@@ -42973,12 +43113,9 @@ async function d1SeedCalibrationAutopsyFromLiveTrades(env, options = {}) {
     else if (status === "LOSS") classification = "bad_entry";
     else classification = "noise_trade";
     classCounts[classification] = (classCounts[classification] || 0) + 1;
-    let lineageVix = null;
-    try {
-      const snapshot = r.signal_snapshot_json ? JSON.parse(r.signal_snapshot_json) : null;
-      lineageVix = snapshot?.lineage?.vix_at_entry ?? snapshot?.vix_at_entry ?? null;
-    } catch (_) {}
     const historicalVixAtEntry = resolveHistoricalVixAtTs(entryTs, historicalVix, lineageVix);
+    const autopsyPk = scopedAutopsyId(scopeId, r.trade_id);
+    if (!autopsyPk) continue;
 
     inserts.push(db.prepare(
       `INSERT OR REPLACE INTO calibration_trade_autopsy
@@ -42992,34 +43129,51 @@ async function d1SeedCalibrationAutopsyFromLiveTrades(env, options = {}) {
        VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,
                ?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33,?34,?35,?36,?37,?38)`
     ).bind(
-      r.trade_id, ticker, direction, entryTs, exitTs, entryPrice, exitPrice,
+      autopsyPk, ticker, direction, entryTs, exitTs, entryPrice, exitPrice,
       Math.round(slPrice * 100) / 100,
       Math.round(pnlPct * 100) / 100, Math.round(rMultiple * 100) / 100,
-      Math.round(mfePct * 100) / 100, 0,
-      Math.round(maePct * 100) / 100, 0,
+      Math.round(mfePct * 100) / 100, mfeAtr,
+      Math.round(maePct * 100) / 100, maeAtr,
       Math.round(exitEfficiency * 100) / 100,
       maePct > 1.5 ? 1 : 0,
       Math.max(0, Math.round((exitTs - entryTs) / 60000)),
       Math.max(0, Math.round((exitTs - entryTs) / 60000)),
       classification, null, null,
-      null, // entry_signals_json
-      String(r.setup_name || "unknown"), Number(r.rank) || null, null,
-      null, null, null, null, // exec_profile + market_state
-      historicalVixAtEntry.level, null, null, null, null, null, null, // vix/scores/state/completion/phase/flags
+      JSON.stringify({
+        excursion_source: exc.source,
+        source_trade_id: r.trade_id,
+        atr_pct: Number.isFinite(atrPct) ? atrPct : null,
+      }),
+      String(r.setup_name || "unknown"), Number(r.rank) || null, regime || "unknown",
+      null, null, r.market_state || null, null,
+      historicalVixAtEntry.level, null, null, null, null, null, null,
       scopeId, Date.now(),
     ));
   }
 
   if (inserts.length > 0) {
-    await db.batch(inserts);
+    // Batch in chunks for D1 limits
+    for (let i = 0; i < inserts.length; i += 100) {
+      await db.batch(inserts.slice(i, i + 100));
+    }
   }
 
   return {
     ok: true,
     scope_id: scopeId,
+    scope_kind: LIVE_SCOPE_KIND,
     source: "live_trades",
+    live_only: liveOnly,
     autopsy_count: inserts.length,
     classifications: classCounts,
+    excursion: { true_n: trueExcursionN, approx_n: approxExcursionN },
+    production_mutable: true,
+    query: {
+      live_only: liveOnly,
+      since_ms: sinceMs || null,
+      limit,
+      order: "entry_ts_desc",
+    },
   };
 }
 
@@ -80215,15 +80369,47 @@ export default {
           const KV = env?.KV_TIMED;
           if (!db) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
           const body = await req.json().catch(() => ({}));
-          const scopeId = body.scope_id != null ? String(body.scope_id) : "default";
+          const trustMode = body.trust_mode != null ? String(body.trust_mode) : null;
+          const scopeKindIn = body.scope_kind != null ? String(body.scope_kind) : null;
+          const scopeIdIn = body.scope_id != null ? String(body.scope_id) : null;
+          const explicitPromoted = trustMode === "promoted"
+            || (scopeKindIn && scopeKindIn.includes("promoted"));
+          // Trusted live when asked, or when SI/default call omits scope
+          // (legacy "default"/"global"). Explicit scope_id from calibrate.js
+          // / promoted challenger is preserved.
+          const defaultScopeCall = !scopeIdIn || scopeIdIn === "default" || scopeIdIn === "global";
+          const trustLive = !explicitPromoted && (
+            trustMode === "live"
+            || body.live_only === true
+            || scopeKindIn === "live"
+            || (trustMode == null && defaultScopeCall && !scopeKindIn)
+          );
+          const scopeId = trustLive
+            ? (scopeIdIn && scopeIdIn !== "default" && scopeIdIn !== "global"
+              ? scopeIdIn
+              : LIVE_AUTOPSY_SCOPE)
+            : (scopeIdIn || "default");
           const sourceRunId = body.source_run_id != null ? String(body.source_run_id) : null;
-          const scopeKind = body.scope_kind != null ? String(body.scope_kind) : "legacy";
+          const scopeKind = trustLive
+            ? LIVE_SCOPE_KIND
+            : (scopeKindIn || "legacy");
           const diagnosticOnly = body.analysis_only !== false;
-          const liveOnly = body.live_only === true || scopeKind === "live";
+          const liveOnly = trustLive || body.live_only === true || scopeKind === "live";
           await d1EnsureCalibrationSchema(env);
           await d1EnsureLearningSchema(env);
-          if (KV) writeCalibrationStatus(KV, "running_analysis", "Running analysis on uploaded data…", { started_at: Date.now(), step: 4, scope_id: scopeId, scope_kind: scopeKind, source_run_id: sourceRunId, diagnostic_only: diagnosticOnly });
-          const report = await runCalibrationAnalysis(env, { scopeId, sourceRunId, scopeKind, diagnosticOnly, liveOnly });
+          if (KV) writeCalibrationStatus(KV, "running_analysis", trustLive ? "Running trusted live analysis…" : "Running analysis…", { started_at: Date.now(), step: 4, scope_id: scopeId, scope_kind: scopeKind, source_run_id: sourceRunId, diagnostic_only: diagnosticOnly, trust_live: trustLive });
+          const report = await runCalibrationAnalysis(env, {
+            scopeId,
+            sourceRunId,
+            scopeKind,
+            diagnosticOnly,
+            liveOnly,
+            trustLive,
+            trustMode,
+            forceReseed: trustLive || body.force_reseed === true,
+            limit: body.limit,
+            sinceMs: body.since_ms,
+          });
           if (report && body.hindsight_oracle) {
             const row = await db.prepare(`SELECT report_json FROM calibration_report WHERE report_id = ?1`).bind(report.report_id).first();
             const reportJson = row?.report_json ? JSON.parse(row.report_json) : {};
@@ -84058,17 +84244,25 @@ export default {
           }
           const reportJson = JSON.parse(row.report_json || "{}");
           const provenance = reportJson.calibration_provenance || {};
-          const vixCoveragePct = Number(reportJson?.vix_coverage?.known_pct);
+          const vixCoveragePct = Number(
+            reportJson?.data_quality?.vix_coverage_pct
+            ?? reportJson?.vix_coverage?.known_pct,
+          );
           const minVixCoveragePct = Number(env?.CALIB_MIN_VIX_COVERAGE_PCT) || 80;
           const minTradeCount = 80;
           const wfoVerdict = String(reportJson?.wfo_summary?.verdict || "").toUpperCase();
-          if (row.scope_kind !== "live" || provenance.live_only !== true) {
+          if (row.scope_kind !== "live" || provenance.live_only !== true || provenance.production_mutable === false) {
             return sendJSON({
               ok: false,
               error: "calibration_scope_not_live",
-              message: "Only live-only calibration reports may update production model_config.",
+              message: "Only trusted live calibration reports may update production model_config. Run Analysis with trust_mode=live first.",
               report_id: reportId,
               scope_kind: row.scope_kind || null,
+              provenance: {
+                live_only: provenance.live_only,
+                source: provenance.source,
+                production_mutable: provenance.production_mutable,
+              },
             }, 409, corsHeaders(env, req));
           }
           if (!Number.isFinite(vixCoveragePct) || vixCoveragePct < minVixCoveragePct) {
@@ -84100,8 +84294,24 @@ export default {
           const recs = JSON.parse(row.recommendations_json || "{}");
           const applied = [];
           const clamped = [];
+          const skipped = [];
           const now = Date.now();
           const tradeCount = Number(row.trade_count) || 0;
+          // Block floor-default SL/TP when ATR excursions were never measured.
+          const allowSltpApply = recs?.trust?.sltp_trusted === true
+            || reportJson?.sl_tp_calibration?.trusted === true
+            || reportJson?.data_quality?.sltp_recommendations_trusted === true;
+          if (!allowSltpApply) {
+            skipped.push({
+              keys: ["calibrated_sl_atr", "calibrated_tp_tiers", "adaptive_sl_tp"],
+              reason: "sltp_data_untrusted",
+              message: "SL/TP not applied — MFE/MAE ATR coverage too low (floor defaults from zeros)",
+              data_quality: {
+                mfe_atr_coverage_pct: reportJson?.data_quality?.mfe_atr_coverage_pct,
+                mae_atr_coverage_pct: reportJson?.data_quality?.mae_atr_coverage_pct,
+              },
+            });
+          }
 
           // ── Calibration Sanity: established baselines and hard bounds ──
           // Baseline = proven v1 values; bounds = absolute extremes we never cross.
@@ -84204,15 +84414,17 @@ export default {
             ).bind(JSON.stringify(recs.tf_weights), now).run();
             applied.push("consensus_tf_weights");
           }
-          if (recs.sl_atr != null) {
+          if (recs.sl_atr != null && allowSltpApply) {
             const sanitizedSl = blendVal(recs.sl_atr, BASELINE.sl_atr, "sl_atr");
             await db.prepare(
               `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
                VALUES ('calibrated_sl_atr', ?1, 'Calibration SL in ATR multiples (sanitized)', ?2, 'calibration')`
             ).bind(String(sanitizedSl), now).run();
             applied.push("calibrated_sl_atr");
+          } else if (recs.sl_atr != null && !allowSltpApply) {
+            skipped.push({ key: "calibrated_sl_atr", reason: "sltp_data_untrusted" });
           }
-          if (recs.tp_tiers) {
+          if (recs.tp_tiers && allowSltpApply) {
             const sanitizedTp = {
               trim:   blendVal(recs.tp_tiers.trim,   BASELINE.tp_tiers.trim,   "tp_trim_atr"),
               exit:   blendVal(recs.tp_tiers.exit,   BASELINE.tp_tiers.exit,   "tp_exit_atr"),
@@ -84225,6 +84437,8 @@ export default {
                VALUES ('calibrated_tp_tiers', ?1, 'Calibration TP tiers in ATR multiples (sanitized)', ?2, 'calibration')`
             ).bind(JSON.stringify(sanitizedTp), now).run();
             applied.push("calibrated_tp_tiers");
+          } else if (recs.tp_tiers && !allowSltpApply) {
+            skipped.push({ key: "calibrated_tp_tiers", reason: "sltp_data_untrusted" });
           }
           if (recs.rank_threshold != null) {
             const sanitizedRank = clampVal(recs.rank_threshold, "rank_min");
@@ -84317,13 +84531,15 @@ export default {
             ).bind(JSON.stringify(recs.adaptive_regime_gates), now).run();
             applied.push("adaptive_regime_gates");
           }
-          if (recs.adaptive_sl_tp) {
+          if (recs.adaptive_sl_tp && allowSltpApply) {
             const sanitizedAdaptiveSLTP = sanitizeSLTP(recs.adaptive_sl_tp);
             await db.prepare(
               `INSERT OR REPLACE INTO model_config (config_key, config_value, description, updated_at, updated_by)
                VALUES ('adaptive_sl_tp', ?1, 'Per-state SL/TP in ATR multiples (sanitized)', ?2, 'calibration')`
             ).bind(JSON.stringify(sanitizedAdaptiveSLTP), now).run();
             applied.push("adaptive_sl_tp");
+          } else if (recs.adaptive_sl_tp && !allowSltpApply) {
+            skipped.push({ key: "adaptive_sl_tp", reason: "sltp_data_untrusted" });
           }
 
           // Extract and store hindsight oracle golden profiles from report_json
@@ -84379,7 +84595,24 @@ export default {
           if (clamped.length > 0) {
             console.log(`[CALIBRATION APPLY] Sanity clamped ${clamped.length} values (${tradeCount} trades, lr=${learningRate.toFixed(2)}):`, JSON.stringify(clamped));
           }
-          return sendJSON({ ok: true, applied, sanity: { learning_rate: Math.round(learningRate * 100) / 100, trade_count: tradeCount, clamped } }, 200, corsHeaders(env, req));
+          return sendJSON({
+            ok: true,
+            applied,
+            skipped,
+            data_quality: reportJson.data_quality || null,
+            provenance: {
+              live_only: provenance.live_only,
+              source: provenance.source,
+              scope_kind: row.scope_kind,
+              production_mutable: provenance.production_mutable,
+            },
+            sanity: {
+              learning_rate: Math.round(learningRate * 100) / 100,
+              trade_count: tradeCount,
+              clamped,
+              sltp_applied: allowSltpApply,
+            },
+          }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

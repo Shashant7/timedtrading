@@ -5779,7 +5779,7 @@ function _ageLabel(ms) {
   if (ageH < 24) return "OK";
   return "STALE";
 }
-function AnalysisAutomationBar({ isAdmin, snapshot, proposals, proposalsLoading, proposalApplying, proposalApplied, onRunAnalysis, running, onLoadProposals, onApplyProposal, lastRunAt, runStatus }) {
+function AnalysisAutomationBar({ isAdmin, snapshot, proposals, proposalsLoading, proposalApplying, proposalApplied, onRunAnalysis, running, onLoadProposals, onApplyProposal, lastRunAt, runStatus, report }) {
   const runId = snapshot?.run_id;
   // Tick every 30s so the "Last run X ago" label stays accurate
   // without forcing a re-fetch.
@@ -5821,9 +5821,34 @@ function AnalysisAutomationBar({ isAdmin, snapshot, proposals, proposalsLoading,
         <div style={{fontSize: "var(--ds-fs-meta)", color: "var(--ds-text-muted)", lineHeight: 1.55, marginTop: 4}}>
           <strong style={{color:"var(--ds-text-body)"}}>What it does:</strong> Calibration analyses recent closed trades, computes optimal thresholds, and writes them to <code style={{fontFamily:"var(--tt-font-mono)", fontSize: 11, color: "var(--ds-text-body)"}}>model_config</code> as <code style={{fontFamily:"var(--tt-font-mono)", fontSize: 11}}>deep_audit_*</code> keys. The next scoring cron reads those keys and adjusts entry gates, SL/TP geometry, sizing weights, and exit rules accordingly. Nothing changes until you click <strong>Apply</strong> on a recommendation or proposal.<br/>
           <strong style={{color:"var(--ds-text-body)"}}>Where it shows up:</strong> the <em>Effective model_config</em> table on this tab lists every active key with its last-updated timestamp. The Engine tab's live KPIs reflect the same keys driving scoring decisions in real time.<br/>
-          <strong style={{color:"var(--ds-text-body)"}}>How to use this page:</strong> click <em>Run Analysis</em> to refresh the audit from the latest closed-trade ledger. Review the recommendations + proposals. Click <em>Apply</em> on the ones you trust; the engine picks them up on the next 5-min scoring cycle.
+          <strong style={{color:"var(--ds-text-body)"}}>How to use this page:</strong> click <em>Run Analysis</em> for a <strong>trusted live</strong> autopsy (newest closed trades, scope <code style={{fontFamily:"var(--tt-font-mono)", fontSize:11}}>live-trades</code>). Review the Trust strip — SL/TP only apply when MFE/MAE ATR coverage clears. Promoted backtests are challengers, not the Apply source.
         </div>
       </div>
+
+      {/* Trust strip — data quality from latest report */}
+      {report && (report.data_quality || report.calibration_provenance) && (
+        <div className="si-card" style={{marginTop: 8}}>
+          <div className="si-card__eyebrow">Trust — what this report can tune</div>
+          <div style={{display:"flex", flexWrap:"wrap", gap:12, marginTop:8, fontSize:12, fontFamily:"var(--tt-font-mono)"}}>
+            <span>scope: {report.scope_id || report.calibration_provenance?.scope_id || "?"}</span>
+            <span>source: {report.calibration_provenance?.source || "?"}</span>
+            <span>live: {String(report.calibration_provenance?.live_only ?? false)}</span>
+            <span>mutable: {String(report.calibration_provenance?.production_mutable ?? false)}</span>
+            <span>n: {report.data_quality?.trade_count ?? report.trade_count ?? "?"}</span>
+            <span>VIX: {report.data_quality?.vix_coverage_pct ?? report.vix_coverage?.known_pct ?? "?"}%</span>
+            <span>regime: {report.data_quality?.regime_known_pct ?? "?"}%</span>
+            <span>MFE-ATR: {report.data_quality?.mfe_atr_coverage_pct ?? "?"}%</span>
+            <span style={{color: (report.sl_tp_calibration?.trusted || report.recommendations?.trust?.sltp_trusted) ? "var(--tt-success)" : "var(--tt-danger)"}}>
+              SL/TP: {(report.sl_tp_calibration?.trusted || report.recommendations?.trust?.sltp_trusted) ? "trusted" : "blocked"}
+            </span>
+          </div>
+          {Array.isArray(report.calibration_provenance?.apply_block_reasons) && report.calibration_provenance.apply_block_reasons.length > 0 && (
+            <div style={{marginTop:6, fontSize:11, color:"var(--ds-text-muted)"}}>
+              Blocks: {report.calibration_provenance.apply_block_reasons.join(", ")}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Run-status toast (auto-dismissed after 6s, set by parent) */}
       {runStatus && (
@@ -6189,33 +6214,17 @@ function App() {
     preCalibReportIdRef.current = reportId;
     const _runStartMs = Date.now();
     try {
-      // V15 P0.7.71: when there's an active promoted backtest, seed
-      // calibration_trade_autopsy from it first so the Analysis runs against
-      // the *current* run (which includes V15 admission matrix / exit
-      // doctrine / ETF profile / cluster throttle / market internals).
-      // Without this the page recomputes from stale `trades`-table-only data
-      // and produces months-old recommendations.
-      let scopeArgs = { analysis_only: true };
-      try {
-        const seedRes = await fetch(`${API_BASE}/timed/admin/calibration/seed-from-promoted`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-          credentials: "include",
-        });
-        const seedData = await seedRes.json().catch(() => ({}));
-        if (seedData?.ok && seedData?.scope_id) {
-          scopeArgs = {
-            analysis_only: true,
-            scope_id: seedData.scope_id,
-            source_run_id: seedData.scope_id,
-            scope_kind: "promoted_run",
-          };
-        }
-      } catch (_) {
-        // Best-effort; if seed fails (no promoted dataset, no auth) fall
-        // back to the legacy global-scope run.
-      }
+      // Trusted live self-tune path (plans/calibration-trust-loop.plan.md).
+      // Always reseeds newest closed live trades into scope live-trades.
+      // Promoted backtests are challengers only — not the Apply source.
+      const scopeArgs = {
+        analysis_only: true,
+        trust_mode: "live",
+        live_only: true,
+        scope_id: "live-trades",
+        scope_kind: "live",
+        force_reseed: true,
+      };
       const res = await fetch(`${API_BASE}/timed/calibration/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(scopeArgs), credentials: "include" });
       const data = await res.json();
       const _elapsedMs = Date.now() - _runStartMs;
@@ -6224,12 +6233,15 @@ function App() {
         setRecs(data.report?.recommendations);
         setReportId(data.report?.report_id || reportId);
         setLastRunAt(Date.now());
-        const _recCount = (data.report?.recommendations?.length) || 0;
-        const _tradeCount = data.report?.trade_count || data.report?.sample?.closed || 0;
+        const _dq = data.report?.data_quality || {};
+        const _prov = data.report?.calibration_provenance || {};
+        const _tradeCount = data.report?.trade_count || _dq.trade_count || 0;
+        const _sltpOk = data.report?.sl_tp_calibration?.trusted === true
+          || data.report?.recommendations?.trust?.sltp_trusted === true;
         setRunStatus({
           kind: "ok",
-          message: `Analysis complete — ${_recCount} recommendation${_recCount === 1 ? "" : "s"} from ${_tradeCount} closed trade${_tradeCount === 1 ? "" : "s"}.`,
-          detail: `${(_elapsedMs / 1000).toFixed(1)}s`,
+          message: `Trusted live analysis — ${_tradeCount} closed trades · VIX ${_dq.vix_coverage_pct ?? "?"}% · MFE-ATR ${_dq.mfe_atr_coverage_pct ?? "?"}% · SL/TP ${_sltpOk ? "trusted" : "untrusted (not applyable)"}.`,
+          detail: `${(_elapsedMs / 1000).toFixed(1)}s · ${_prov.source || "live_trades"}`,
         });
         fetchData();
       } else if (!data.ok) {
@@ -6270,11 +6282,18 @@ function App() {
       // If we know the loaded report is diagnostic-only, re-run as a
       // promotion candidate first so the apply has live deltas.
       if (report && (report.diagnostic_only || report.diagnosticOnly)) {
-        setAppliedMsg("Re-running as promotion candidate so apply can persist…");
+        setAppliedMsg("Re-running trusted live as promotion candidate so apply can persist…");
         const runRes = await fetch(`${API_BASE}/timed/calibration/run`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ analysis_only: false, source_run_id: report.source_run_id || null, scope_kind: "global" }),
+          body: JSON.stringify({
+            analysis_only: false,
+            trust_mode: "live",
+            live_only: true,
+            scope_id: "live-trades",
+            scope_kind: "live",
+            force_reseed: true,
+          }),
           credentials: "include",
         });
         const runData = await runRes.json();
@@ -6432,6 +6451,7 @@ function App() {
                   onApplyProposal={applyProposal}
                   lastRunAt={lastRunAt}
                   runStatus={runStatus}
+                  report={report}
                 />
                 <UnifiedAnalysisTab report={report} recs={recs} reportId={reportId} onApply={handleApply} applying={applying} appliedMsg={appliedMsg} />
                 <details className="si-card si-card--glass">

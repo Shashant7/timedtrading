@@ -250,7 +250,7 @@ export async function loadFamilyAttribution(env, opts = {}) {
 
   let universeCapturePct = null;
   try {
-    const kv = env.KV || env.TICKER_KV;
+    const kv = env.KV_TIMED || env.KV || env.TICKER_KV;
     if (kv?.get) {
       const raw = await kv.get("timed:discovery:coverage-gaps-summary");
       const j = raw ? JSON.parse(raw) : null;
