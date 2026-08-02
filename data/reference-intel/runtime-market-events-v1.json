@@ -40671,6 +40671,15 @@
         "surprise_pct": null,
         "spy_reaction_pct": null,
         "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-11-20",
+        "event_type": "macro",
+        "event_name": "Monthly Options Expiration (OpEx)",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": null,
+        "sector_reaction_pct": null
       }
     ],
     "success": true,
@@ -40680,14 +40689,14 @@
       "served_by_colo": "MIA",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 39.9811
+        "sql_duration_ms": 40.3414
       },
-      "duration": 39.9811,
+      "duration": 40.3414,
       "changes": 0,
-      "last_row_id": 25141,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4138717184,
-      "rows_read": 4519,
+      "size_after": 4139413504,
+      "rows_read": 4520,
       "rows_written": 0,
       "total_attempts": 1
     }
