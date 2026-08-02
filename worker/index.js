@@ -68024,6 +68024,7 @@ export default {
             ok: anyOk,
             month,
             include_open: includeOpen,
+            mapper: "investor-status-v2",
             books,
           }, anyOk ? 200 : 404, corsHeaders(env, req));
         } catch (e) {
