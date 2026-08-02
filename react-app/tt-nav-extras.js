@@ -313,6 +313,8 @@
     { href: "/research-desk.html",         label: "Research Desk" },
     { href: "/brand-kit.html",             label: "Brand Kit" },
   ];
+  // Shared with tt-bottom-nav.js mobile Admin sheet (same destinations).
+  try { window.TT_ADMIN_NAV_LINKS = ADMIN_LINKS; } catch (_) {}
 
   function injectAdminMenu() {
     if (!isAdminUser()) return;
