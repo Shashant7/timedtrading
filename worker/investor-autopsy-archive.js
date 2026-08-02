@@ -21,14 +21,25 @@ export function monthRangeMs(monthStr) {
 export function isInvestorAutopsyRunId(runId) {
   const id = String(runId || "").trim().toLowerCase();
   if (!id) return false;
-  return id.startsWith("investor-slice-") || id.includes("investor");
+  return id.startsWith("investor-slice-")
+    || id.includes("investor")
+    || id.includes("long-term")
+    || id.includes("long_term");
+}
+
+export function isLiveAutopsyRunId(runId) {
+  const id = String(runId || "").trim().toLowerCase();
+  return id.startsWith("live-") || id.includes("live-trades") || id.includes("live-month");
 }
 
 export function shouldIncludeOpenAutopsyTrades({ runId, includeOpen, tags } = {}) {
   if (includeOpen === true || includeOpen === 1 || includeOpen === "1") return true;
-  if (isInvestorAutopsyRunId(runId)) return true;
+  if (isInvestorAutopsyRunId(runId) || isLiveAutopsyRunId(runId)) return true;
   const tagList = Array.isArray(tags) ? tags : [];
-  if (tagList.some((t) => String(t).toLowerCase() === "investor" || String(t).toLowerCase() === "long_term")) {
+  if (tagList.some((t) => {
+    const s = String(t).toLowerCase();
+    return s === "investor" || s === "long_term" || s === "live" || s === "include_open";
+  })) {
     return true;
   }
   return false;
@@ -265,34 +276,131 @@ export function normalizeImportedInvestorTrades(trades) {
 }
 
 export function buildInvestorAutopsyRunMeta({ runId, month, tradeCount, source }) {
+  return buildAutopsyRunMeta({
+    runId,
+    month,
+    tradeCount,
+    source: source || "investor_positions",
+    mode: "investor",
+    horizon: "long_term",
+  });
+}
+
+export function buildAutopsyRunMeta({
+  runId,
+  month,
+  tradeCount,
+  source,
+  mode = "investor",
+  horizon = "long_term",
+  live = false,
+} = {}) {
   const { startDate, endDate } = monthRangeMs(month);
+  const isInvestor = String(mode).toLowerCase() === "investor" || horizon === "long_term";
+  const tags = [
+    isInvestor ? "investor" : "trader",
+    isInvestor ? "long_term" : "short_term",
+    "trade-autopsy",
+    month,
+    "include_open",
+  ];
+  if (live || isLiveAutopsyRunId(runId)) tags.push("live");
+  const labelHorizon = isInvestor ? "Long Term" : "Short Term";
+  const labelLive = (live || isLiveAutopsyRunId(runId)) ? "live " : "";
   return {
     run_id: runId,
     label: runId,
-    description: `Investor (long-term) positions opened in ${month} — Trade Autopsy grading book`,
+    description: `${labelLive}${labelHorizon} positions opened in ${month} — Trade Autopsy grading book`,
     start_date: startDate,
     end_date: endDate,
-    tags: ["investor", "long_term", "trade-autopsy", month],
+    tags,
     params: {
-      horizon: "long_term",
-      mode: "investor",
-      source: source || "investor_positions",
+      horizon: isInvestor ? "long_term" : "short_term",
+      mode: isInvestor ? "investor" : "trader",
+      source: source || (isInvestor ? "investor_positions" : "trades_live"),
       opened_in_month: month,
       trade_count: tradeCount,
+      live: !!(live || isLiveAutopsyRunId(runId)),
     },
     status: "completed",
+    mode: isInvestor ? "investor" : "trader",
+    horizon: isInvestor ? "long_term" : "short_term",
   };
 }
 
 /**
- * Persist investor autopsy trades into backtest_runs / metrics / backtest_run_trades.
+ * Live short-term trades opened in month (run_id IS NULL on the trades table).
+ * includeOpen=true keeps still-OPEN positions (default true).
+ */
+export async function loadLiveTraderAutopsyTradesFromDb(db, { month, includeOpen = true } = {}) {
+  const { startMs, endMsExclusive } = monthRangeMs(month);
+  const { results: rows } = await db.prepare(
+    `SELECT trade_id, ticker, direction, status, entry_ts, exit_ts, trim_ts,
+            entry_price, exit_price, pnl, pnl_pct, exit_reason,
+            trimmed_pct, trim_price, setup_name, setup_grade, risk_budget,
+            shares, notional, entry_path, max_favorable_excursion, max_adverse_excursion,
+            rank, rr, rank_trace_json
+       FROM trades
+      WHERE (run_id IS NULL OR run_id = '')
+        AND entry_ts >= ?1 AND entry_ts < ?2
+      ORDER BY entry_ts ASC, ticker ASC`,
+  ).bind(startMs, endMsExclusive).all();
+
+  const out = [];
+  for (const r of rows || []) {
+    const status = String(r.status || "").toUpperCase();
+    if (!includeOpen && (status === "OPEN" || status === "TP_HIT_TRIM")) continue;
+    out.push({
+      trade_id: r.trade_id,
+      id: r.trade_id,
+      ticker: r.ticker,
+      direction: r.direction || "LONG",
+      status,
+      entry_ts: r.entry_ts,
+      entry_price: r.entry_price,
+      entryPrice: r.entry_price,
+      exit_ts: r.exit_ts,
+      exit_price: r.exit_price,
+      exitPrice: r.exit_price,
+      exit_reason: r.exit_reason,
+      exitReason: r.exit_reason,
+      pnl: r.pnl,
+      pnl_pct: r.pnl_pct,
+      pnlPct: r.pnl_pct,
+      trimmed_pct: r.trimmed_pct,
+      trim_ts: r.trim_ts,
+      trim_price: r.trim_price,
+      setup_name: r.setup_name,
+      setup_grade: r.setup_grade,
+      risk_budget: r.risk_budget,
+      shares: r.shares,
+      notional: r.notional,
+      entry_path: r.entry_path || "live_short_term",
+      entryPath: r.entry_path || "live_short_term",
+      max_favorable_excursion: r.max_favorable_excursion,
+      max_adverse_excursion: r.max_adverse_excursion,
+      rank: r.rank,
+      rr: r.rr,
+      rank_trace_json: r.rank_trace_json,
+      mode: "trader",
+      horizon: "short_term",
+    });
+  }
+  return out;
+}
+
+/**
+ * Persist autopsy trades into backtest_runs / metrics / backtest_run_trades.
  * `archiveTrade(env, runId, trade)` should be the worker's d1ArchiveRunTrade (or equivalent).
  */
-export async function persistInvestorAutopsyArchive(env, {
+export async function persistAutopsyArchive(env, {
   runId,
   month,
   trades,
   source = "investor_positions",
+  mode = "investor",
+  horizon = "long_term",
+  live = false,
   archiveTrade,
 } = {}) {
   const db = env?.DB;
@@ -302,11 +410,14 @@ export async function persistInvestorAutopsyArchive(env, {
   if (typeof archiveTrade !== "function") throw new Error("archiveTrade_required");
 
   const list = Array.isArray(trades) ? trades : [];
-  const meta = buildInvestorAutopsyRunMeta({
+  const meta = buildAutopsyRunMeta({
     runId: rid,
     month,
     tradeCount: list.length,
     source,
+    mode,
+    horizon,
+    live,
   });
   const summary = summarizeAutopsyTrades(list);
   const now = Date.now();
@@ -332,11 +443,11 @@ export async function persistInvestorAutopsyArchive(env, {
     1440,
     0,
     summary.total_tickers_traded,
-    0,
+    meta.mode === "trader" ? 1 : 0,
     1,
     0,
     "completed",
-    `investor autopsy archive · opened in ${month} · n=${list.length}`,
+    `${meta.mode} autopsy archive · opened in ${month} · n=${list.length}${meta.params.live ? " · live" : ""}`,
     0,
     0,
     0,
@@ -345,10 +456,11 @@ export async function persistInvestorAutopsyArchive(env, {
     JSON.stringify({
       runId: rid,
       label: meta.label,
-      horizon: "long_term",
-      mode: "investor",
+      horizon: meta.horizon,
+      mode: meta.mode,
       opened_in_month: month,
       source,
+      live: meta.params.live,
     }),
     JSON.stringify(summary),
     now,
@@ -396,8 +508,19 @@ export async function persistInvestorAutopsyArchive(env, {
     ok: true,
     run_id: rid,
     month,
+    mode: meta.mode,
+    horizon: meta.horizon,
     count: list.length,
     summary,
     autopsy_url: autopsyUrl,
   };
+}
+
+/** @deprecated use persistAutopsyArchive — kept for existing callers */
+export async function persistInvestorAutopsyArchive(env, opts = {}) {
+  return persistAutopsyArchive(env, {
+    ...opts,
+    mode: opts.mode || "investor",
+    horizon: opts.horizon || "long_term",
+  });
 }

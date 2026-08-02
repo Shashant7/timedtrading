@@ -976,7 +976,9 @@ import {
 import {
   shouldIncludeOpenAutopsyTrades,
   loadInvestorAutopsyTradesFromDb,
+  loadLiveTraderAutopsyTradesFromDb,
   normalizeImportedInvestorTrades,
+  persistAutopsyArchive,
   persistInvestorAutopsyArchive,
 } from "./investor-autopsy-archive.js";
 import {
@@ -1890,6 +1892,7 @@ const ROUTES = [
   ["GET", "/timed/admin/trade-autopsy/annotations", "GET /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/trade-autopsy/annotations", "POST /timed/admin/trade-autopsy/annotations"],
   ["POST", "/timed/admin/trade-autopsy/archive-investor", "POST /timed/admin/trade-autopsy/archive-investor"],
+  ["POST", "/timed/admin/trade-autopsy/archive-live-month", "POST /timed/admin/trade-autopsy/archive-live-month"],
   ["POST", "/timed/admin/trade-autopsy/correct-entry", "POST /timed/admin/trade-autopsy/correct-entry"],
   ["POST", "/timed/admin/trade-autopsy/correct-all-entries", "POST /timed/admin/trade-autopsy/correct-all-entries"],
   ["POST", "/timed/admin/trade-autopsy/correct-exit", "POST /timed/admin/trade-autopsy/correct-exit"],
@@ -67651,8 +67654,11 @@ export default {
             source = "archive";
             const trades = (rows || []).map(r => {
               const entryPath = r.brt_entry_path ?? r.da_entry_path ?? null;
-              const isInvestor = String(entryPath || "").includes("investor")
-                || String(archiveRunId).toLowerCase().includes("investor");
+              const runBlob = `${archiveRunId || ""} ${entryPath || ""}`.toLowerCase();
+              const isInvestor = runBlob.includes("investor")
+                || runBlob.includes("long-term")
+                || runBlob.includes("long_term")
+                || runBlob.includes("investor_long");
               return {
               trade_id: r.trade_id, run_id: r.run_id, ticker: r.ticker, direction: r.direction,
               status: r.status, entry_ts: r.entry_ts, exit_ts: r.exit_ts, trim_ts: r.trim_ts,
@@ -67940,9 +67946,86 @@ export default {
             month,
             trades,
             source,
+            live: String(runId).toLowerCase().startsWith("live-"),
             archiveTrade: d1ArchiveRunTrade,
           });
           return sendJSON(result, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-autopsy/archive-live-month
+      // Archive live (run_id IS NULL) short-term trades and/or investor positions
+      // opened in a calendar month for Trade Autopsy grading feedback.
+      // Body: { month: "YYYY-MM", mode?: "trader"|"investor"|"both", include_open?: true,
+      //         trader_run_id?, investor_run_id? }
+      if (routeKey === "POST /timed/admin/trade-autopsy/archive-live-month") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await d1EnsureBacktestRunsSchema(env);
+          const body = await req.json().catch(() => ({}));
+          const month = String(body?.month || "").trim();
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+            return sendJSON({ ok: false, error: "month_must_be_YYYY-MM" }, 400, corsHeaders(env, req));
+          }
+          const mode = String(body?.mode || "both").trim().toLowerCase();
+          if (!["trader", "investor", "both"].includes(mode)) {
+            return sendJSON({ ok: false, error: "mode_must_be_trader_investor_or_both" }, 400, corsHeaders(env, req));
+          }
+          const includeOpen = body?.include_open !== false && body?.includeOpen !== false;
+          const traderRunId = String(body?.trader_run_id || body?.traderRunId || `live-short-term-${month}`).trim();
+          const investorRunId = String(body?.investor_run_id || body?.investorRunId || `live-long-term-${month}`).trim();
+          const books = [];
+
+          if (mode === "trader" || mode === "both") {
+            const trades = await loadLiveTraderAutopsyTradesFromDb(db, { month, includeOpen });
+            if (!trades.length) {
+              books.push({ ok: false, mode: "trader", run_id: traderRunId, error: "no_live_trader_trades_in_month", count: 0 });
+            } else {
+              const result = await persistAutopsyArchive(env, {
+                runId: traderRunId,
+                month,
+                trades,
+                source: "trades_live",
+                mode: "trader",
+                horizon: "short_term",
+                live: true,
+                archiveTrade: d1ArchiveRunTrade,
+              });
+              books.push(result);
+            }
+          }
+
+          if (mode === "investor" || mode === "both") {
+            const trades = await loadInvestorAutopsyTradesFromDb(db, { month, includeOpen });
+            if (!trades.length) {
+              books.push({ ok: false, mode: "investor", run_id: investorRunId, error: "no_investor_positions_in_month", count: 0 });
+            } else {
+              const result = await persistAutopsyArchive(env, {
+                runId: investorRunId,
+                month,
+                trades,
+                source: "investor_positions_live",
+                mode: "investor",
+                horizon: "long_term",
+                live: true,
+                archiveTrade: d1ArchiveRunTrade,
+              });
+              books.push(result);
+            }
+          }
+
+          const anyOk = books.some((b) => b?.ok);
+          return sendJSON({
+            ok: anyOk,
+            month,
+            include_open: includeOpen,
+            books,
+          }, anyOk ? 200 : 404, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
         }

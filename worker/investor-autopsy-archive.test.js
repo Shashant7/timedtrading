@@ -2,11 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   monthRangeMs,
   isInvestorAutopsyRunId,
+  isLiveAutopsyRunId,
   shouldIncludeOpenAutopsyTrades,
   mapInvestorPositionToAutopsyTrade,
   summarizeAutopsyTrades,
   normalizeImportedInvestorTrades,
   buildInvestorAutopsyRunMeta,
+  buildAutopsyRunMeta,
 } from "./investor-autopsy-archive.js";
 
 describe("investor-autopsy-archive", () => {
@@ -20,13 +22,34 @@ describe("investor-autopsy-archive", () => {
     expect(1751400000000).toBeLessThan(r.endMsExclusive);
   });
 
-  it("detects investor autopsy run ids and include-open policy", () => {
+  it("detects investor/live autopsy run ids and include-open policy", () => {
     expect(isInvestorAutopsyRunId("investor-slice-2025-07-post890")).toBe(true);
+    expect(isInvestorAutopsyRunId("live-long-term-2026-07")).toBe(true);
     expect(isInvestorAutopsyRunId("phase-c-slice-2025-07-v1")).toBe(false);
+    expect(isLiveAutopsyRunId("live-short-term-2026-07")).toBe(true);
     expect(shouldIncludeOpenAutopsyTrades({ runId: "investor-slice-2025-07-post890" })).toBe(true);
+    expect(shouldIncludeOpenAutopsyTrades({ runId: "live-short-term-2026-07" })).toBe(true);
     expect(shouldIncludeOpenAutopsyTrades({ runId: "phase-c-slice-2025-07-v1" })).toBe(false);
     expect(shouldIncludeOpenAutopsyTrades({ runId: "phase-c-slice-2025-07-v1", includeOpen: true })).toBe(true);
     expect(shouldIncludeOpenAutopsyTrades({ tags: ["investor"] })).toBe(true);
+  });
+
+  it("builds live short-term run metadata", () => {
+    const meta = buildAutopsyRunMeta({
+      runId: "live-short-term-2026-07",
+      month: "2026-07",
+      tradeCount: 32,
+      source: "trades_live",
+      mode: "trader",
+      horizon: "short_term",
+      live: true,
+    });
+    expect(meta.mode).toBe("trader");
+    expect(meta.horizon).toBe("short_term");
+    expect(meta.tags).toContain("live");
+    expect(meta.tags).toContain("include_open");
+    expect(meta.start_date).toBe("2026-07-01");
+    expect(meta.end_date).toBe("2026-07-31");
   });
 
   it("maps closed investor position to WIN/LOSS with entry/exit from lots", () => {

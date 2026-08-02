@@ -2323,7 +2323,7 @@ function App({
       const qs = new URLSearchParams({
         run_id: effectiveRunId
       });
-      if (/investor/i.test(effectiveRunId)) qs.set("include_open", "1");
+      if (/investor|long-term|long_term|^live-/i.test(effectiveRunId)) qs.set("include_open", "1");
       return `${base}?${qs.toString()}`;
     }
     if (filterRunId === RUN_FILTER_LIVE) return `${base}?live=1`;
@@ -2348,12 +2348,12 @@ function App({
   const buildTradesUrl = useCallback((runId, liveOnly = false) => {
     const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
     const rid = String(runId || "").trim();
-    const isInvestorBook = /investor/i.test(rid);
+    const includeOpenBook = /investor|long-term|long_term|^live-/i.test(rid);
     if (rid) {
       const qs = new URLSearchParams({
         run_id: rid
       });
-      if (isInvestorBook) qs.set("include_open", "1");
+      if (includeOpenBook) qs.set("include_open", "1");
       return `${base}?${qs.toString()}`;
     }
     if (liveOnly) return `${base}?live=1`;
@@ -2806,10 +2806,13 @@ function App({
       className: "px-4 py-2.5 font-medium text-white"
     }, React.createElement("div", {
       className: "flex items-center gap-1.5"
-    }, React.createElement("span", null, t.ticker), (t.horizon === "long_term" || t.mode === "investor" || /investor/i.test(String(t.run_id || ""))) && React.createElement("span", {
+    }, React.createElement("span", null, t.ticker), (t.horizon === "long_term" || t.mode === "investor" || /investor|long-term|long_term/i.test(String(t.run_id || ""))) && React.createElement("span", {
       className: "text-[9px] font-semibold tracking-wide text-[#94a3b8] px-1 py-0.5 rounded bg-white/[0.04]",
       title: "Long Term / Investor Mode"
-    }, "LT"))), React.createElement("td", {
+    }, "LT"), (t.horizon === "short_term" || t.mode === "trader" || /short-term|short_term/i.test(String(t.run_id || ""))) && !(t.horizon === "long_term" || t.mode === "investor" || /investor|long-term|long_term/i.test(String(t.run_id || ""))) && React.createElement("span", {
+      className: "text-[9px] font-semibold tracking-wide text-[#94a3b8] px-1 py-0.5 rounded bg-white/[0.04]",
+      title: "Short Term / Active Trader"
+    }, "ST"))), React.createElement("td", {
       className: "px-4 py-2.5 text-[#9ca3af]"
     }, t.direction || "—"), React.createElement("td", {
       className: "px-4 py-2.5 text-[#9ca3af]"
@@ -2861,9 +2864,11 @@ function App({
       className: "text-[14px] font-semibold text-white"
     }, t.ticker), React.createElement("span", {
       className: "text-[11px] text-[#6b7280] px-1.5 py-0.5 rounded bg-white/[0.04]"
-    }, t.direction || "—"), (t.horizon === "long_term" || t.mode === "investor" || /investor/i.test(String(t.run_id || ""))) && React.createElement("span", {
+    }, t.direction || "—"), (t.horizon === "long_term" || t.mode === "investor" || /investor|long-term|long_term/i.test(String(t.run_id || ""))) && React.createElement("span", {
       className: "text-[9px] font-semibold tracking-wide text-[#94a3b8] px-1 py-0.5 rounded bg-white/[0.04]"
-    }, "LT")), React.createElement("span", {
+    }, "LT"), (t.horizon === "short_term" || t.mode === "trader" || /short-term|short_term/i.test(String(t.run_id || ""))) && !(t.horizon === "long_term" || t.mode === "investor" || /investor|long-term|long_term/i.test(String(t.run_id || ""))) && React.createElement("span", {
+      className: "text-[9px] font-semibold tracking-wide text-[#94a3b8] px-1 py-0.5 rounded bg-white/[0.04]"
+    }, "ST")), React.createElement("span", {
       className: `text-[14px] font-semibold ${Number(t.pnl) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
     }, fmtUsd(t.pnl))), React.createElement("div", {
       className: "flex items-center gap-3 text-[11px] text-[#6b7280]"
@@ -2941,6 +2946,6 @@ function App({
     user: user
   })));
 })();
-// cache-bust:1785686869222:812499113
+// cache-bust:1785687725200:190838736
 
-// cache-bust:1785686869222:812499113
+// cache-bust:1785687725200:190838736
