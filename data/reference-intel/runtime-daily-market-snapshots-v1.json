@@ -4119,13 +4119,13 @@
       "served_by_colo": "MIA",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 5.191
+        "sql_duration_ms": 3.4046
       },
-      "duration": 5.191,
+      "duration": 3.4046,
       "changes": 0,
-      "last_row_id": 0,
+      "last_row_id": 422687,
       "changed_db": false,
-      "size_after": 4139413504,
+      "size_after": 3970846720,
       "rows_read": 274,
       "rows_written": 0,
       "total_attempts": 1
