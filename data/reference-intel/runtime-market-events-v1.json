@@ -41056,7 +41056,7 @@
         "event_name": "CIFR Earnings",
         "impact": "high",
         "surprise_pct": 13.33,
-        "spy_reaction_pct": null,
+        "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
       {
@@ -41082,7 +41082,7 @@
         "event_type": "earnings",
         "event_name": "CAT Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 30.52,
         "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
@@ -41091,7 +41091,7 @@
         "event_type": "earnings",
         "event_name": "MRK Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 52.43,
         "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
@@ -41118,7 +41118,7 @@
         "event_type": "earnings",
         "event_name": "MCD Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 0.78,
         "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
@@ -41163,7 +41163,7 @@
         "event_type": "earnings",
         "event_name": "PFE Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": 11.37,
         "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
@@ -41172,7 +41172,7 @@
         "event_type": "earnings",
         "event_name": "SPOT Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -6.27,
         "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
@@ -41190,7 +41190,7 @@
         "event_type": "earnings",
         "event_name": "CIFR Earnings",
         "impact": "high",
-        "surprise_pct": null,
+        "surprise_pct": -172.19,
         "spy_reaction_pct": 1.42,
         "sector_reaction_pct": null
       },
@@ -41243,6 +41243,276 @@
         "date": "2026-08-04",
         "event_type": "earnings",
         "event_name": "ZETA Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AACG Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ACAD Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ACEL Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ACMTA Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ACNT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ACRE Earnings",
+        "impact": "high",
+        "surprise_pct": 120.59,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ACUT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ADM Earnings",
+        "impact": "high",
+        "surprise_pct": 26.46,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AFG Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AGNT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AHCO Earnings",
+        "impact": "high",
+        "surprise_pct": -65.4,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AIN Earnings",
+        "impact": "high",
+        "surprise_pct": 15.15,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AIZ Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ALGT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ALIT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AME Earnings",
+        "impact": "high",
+        "surprise_pct": 3.83,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AMWL Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ANGI Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ANGX Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AOMR Earnings",
+        "impact": "high",
+        "surprise_pct": 10.48,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "APO Earnings",
+        "impact": "high",
+        "surprise_pct": -3.9,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "APPS Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "APTV Earnings",
+        "impact": "high",
+        "surprise_pct": 11.64,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ARDT Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "AROC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ARVN Earnings",
+        "impact": "high",
+        "surprise_pct": 783.99,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ARWR Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ASMB Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ATEC Earnings",
+        "impact": "high",
+        "surprise_pct": null,
+        "spy_reaction_pct": 1.42,
+        "sector_reaction_pct": null
+      },
+      {
+        "date": "2026-08-04",
+        "event_type": "earnings",
+        "event_name": "ATKR Earnings",
         "impact": "high",
         "surprise_pct": null,
         "spy_reaction_pct": 1.42,
@@ -41337,14 +41607,14 @@
       "served_by_colo": "MIA",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 36.8787
+        "sql_duration_ms": 58.4237
       },
-      "duration": 36.8787,
+      "duration": 58.4237,
       "changes": 0,
-      "last_row_id": 32463,
+      "last_row_id": 76699847,
       "changed_db": false,
-      "size_after": 4168634368,
-      "rows_read": 4592,
+      "size_after": 4306804736,
+      "rows_read": 4622,
       "rows_written": 0,
       "total_attempts": 1
     }
