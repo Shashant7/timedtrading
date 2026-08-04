@@ -1856,14 +1856,85 @@ function AutopsyModal({
       "15m": "15"
     };
     const allTFs = ["15m", "30m", "1H", "4H", "D", "W"];
+    const renderInvestorDecisionPanel = (inv, label, accentColor) => {
+      if (!inv || typeof inv !== "object") return null;
+      const comps = inv.components && typeof inv.components === "object" ? inv.components : null;
+      const accumSigs = Array.isArray(inv.accum_zone?.signals) ? inv.accum_zone.signals : [];
+      const h4 = inv.h4_timing || null;
+      const h4Label = h4 ? h4.is4hBull === true ? "4H Bull" : h4.is4hBear === true ? "4H Bear" : Number(h4.stDir) > 0 ? "4H Bull" : Number(h4.stDir) < 0 ? "4H Bear" : "4H Flat" : null;
+      const h4Color = h4?.is4hBull === true || Number(h4?.stDir) > 0 ? "#22c55e" : h4?.is4hBear === true || Number(h4?.stDir) < 0 ? "#ef4444" : "#9ca3af";
+      const compEntries = comps ? Object.entries(comps).filter(([, v]) => v != null && v !== "").slice(0, 12) : [];
+      return React.createElement("div", {
+        className: "flex-1 min-w-0"
+      }, React.createElement("div", {
+        className: "text-[8px] font-bold uppercase tracking-widest mb-1",
+        style: {
+          color: accentColor + "b3"
+        }
+      }, label), React.createElement("div", {
+        className: "rounded-md border border-white/[0.06] bg-white/[0.02] p-2 space-y-1.5"
+      }, React.createElement("div", {
+        className: "flex flex-wrap items-center gap-1"
+      }, inv.score != null && React.createElement(Pill, {
+        color: accentColor
+      }, "Score ", Number(inv.score).toFixed(0)), inv.stage && React.createElement(Pill, {
+        color: "#a78bfa"
+      }, inv.stage), inv.action_tier && React.createElement(Pill, {
+        color: "#14b8a6"
+      }, inv.action_tier), h4Label && React.createElement(Pill, {
+        color: h4Color
+      }, h4Label), inv.fsd?.isPick && React.createElement(Pill, {
+        color: "#38F2A1"
+      }, "FSD ", inv.fsd.tier || "pick"), inv.market_health != null && React.createElement(Pill, {
+        color: "#60a5fa"
+      }, "Mkt ", Number(inv.market_health).toFixed(0))), inv.reason && React.createElement("div", {
+        className: "text-[10px] text-[#d1d5db]"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase text-[8px] font-bold mr-1"
+      }, "Reason"), String(inv.reason).replace(/_/g, " ")), inv.stage_reason && React.createElement("div", {
+        className: "text-[10px] text-[#9ca3af]"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase text-[8px] font-bold mr-1"
+      }, "Stage"), String(inv.stage_reason)), accumSigs.length > 0 && React.createElement("div", {
+        className: "flex flex-wrap gap-1"
+      }, accumSigs.slice(0, 8).map(s => React.createElement("span", {
+        key: String(s),
+        className: "text-[9px] px-1.5 py-0.5 rounded bg-white/[0.04] text-[#9ca3af]"
+      }, String(s).replace(/_/g, " ")))), compEntries.length > 0 && React.createElement("div", {
+        className: "grid grid-cols-2 sm:grid-cols-3 gap-1 pt-0.5"
+      }, compEntries.map(([k, v]) => {
+        const n = Number(v);
+        const c = Number.isFinite(n) ? n > 0 ? "#22c55e" : n < 0 ? "#ef4444" : "#9ca3af" : "#9ca3af";
+        return React.createElement("div", {
+          key: k,
+          className: "flex items-center justify-between gap-1 px-1.5 py-0.5 rounded bg-black/20 text-[9px]"
+        }, React.createElement("span", {
+          className: "text-[#6b7280] truncate"
+        }, k.replace(/([A-Z])/g, " $1").trim()), React.createElement("span", {
+          className: "font-semibold tabular-nums",
+          style: {
+            color: c
+          }
+        }, Number.isFinite(n) ? n : String(v)));
+      })), inv.auto_rebalance?.breach_label && React.createElement("div", {
+        className: "text-[10px] text-[#fca5a5]"
+      }, React.createElement("span", {
+        className: "text-[#6b7280] uppercase text-[8px] font-bold mr-1"
+      }, "Breach"), inv.auto_rebalance.breach_label, inv.auto_rebalance.breach_pct != null ? ` (${Number(inv.auto_rebalance.breach_pct).toFixed(1)}%)` : ""), React.createElement("div", {
+        className: "text-[8px] text-[#4b5563]"
+      }, "From decision_records \xB7 investor path does not store full EMA/ST TF grid")));
+    };
     const renderSignalTable = (snapRaw, lineageData, label, accentColor) => {
+      let parsed = null;
       let parsedTf = null;
       try {
-        const parsed = typeof snapRaw === "string" ? JSON.parse(snapRaw) : snapRaw;
+        parsed = typeof snapRaw === "string" ? JSON.parse(snapRaw) : snapRaw;
         parsedTf = parsed?.tf && typeof parsed.tf === "object" ? parsed.tf : null;
       } catch (_) {
+        parsed = null;
         parsedTf = null;
       }
+      const investorPanel = parsed?.investor ? renderInvestorDecisionPanel(parsed.investor, label, accentColor) : null;
       const snapMap = {};
       if (parsedTf) {
         allTFs.forEach(tf => {
@@ -1877,24 +1948,27 @@ function AutopsyModal({
       const hasTD = lineageData?.td_counts;
       const hasRsiDiv = lineageData?.rsi_divergence;
       const hasPhaseDiv = lineageData?.phase_divergence;
-      if (!hasSnap && !hasTD && !hasRsiDiv && !hasPhaseDiv) return React.createElement("div", {
-        className: "flex-1 min-w-0"
-      }, React.createElement("div", {
-        className: "text-[8px] font-bold uppercase tracking-widest mb-1",
-        style: {
-          color: accentColor + "b3"
-        }
-      }, label), React.createElement("div", {
-        className: "text-[9px] text-[#4b5563] italic py-4 text-center"
-      }, "No snapshot data captured"));
+      if (!hasSnap && !hasTD && !hasRsiDiv && !hasPhaseDiv) {
+        if (investorPanel) return investorPanel;
+        return React.createElement("div", {
+          className: "flex-1 min-w-0"
+        }, React.createElement("div", {
+          className: "text-[8px] font-bold uppercase tracking-widest mb-1",
+          style: {
+            color: accentColor + "b3"
+          }
+        }, label), React.createElement("div", {
+          className: "text-[9px] text-[#4b5563] italic py-4 text-center"
+        }, "No snapshot data captured"));
+      }
       return React.createElement("div", {
-        className: "flex-1 min-w-0"
-      }, React.createElement("div", {
+        className: "flex-1 min-w-0 space-y-2"
+      }, investorPanel, React.createElement("div", null, React.createElement("div", {
         className: "text-[8px] font-bold uppercase tracking-widest mb-1",
         style: {
           color: accentColor + "b3"
         }
-      }, label), React.createElement("table", {
+      }, investorPanel ? `${label} · TF grid` : label), React.createElement("table", {
         className: "text-[11px] w-full",
         style: {
           borderSpacing: 0
@@ -2052,7 +2126,7 @@ function AutopsyModal({
         }, "U")) : React.createElement("span", {
           className: "text-[#4b5563]"
         }, emptyGlyph)));
-      }))));
+      })))));
     };
     return React.createElement("div", {
       className: "flex flex-col lg:flex-row gap-3 mb-2"
@@ -2624,7 +2698,7 @@ function App({
   const buildTradesUrl = useCallback((runId, liveOnly = false) => {
     const base = `${API_BASE}/timed/admin/trade-autopsy/trades`;
     const rid = String(runId || "").trim();
-    const isInvestorBook = /investor/i.test(rid);
+    const isInvestorBook = /investor|long[-_]?term/i.test(rid);
     if (rid) {
       const qs = new URLSearchParams({
         run_id: rid
@@ -3217,6 +3291,6 @@ function App({
     user: user
   })));
 })();
-// cache-bust:1785691561508:52399520
+// cache-bust:1785819882956:657711554
 
-// cache-bust:1785691561508:52399520
+// cache-bust:1785819882956:657711554

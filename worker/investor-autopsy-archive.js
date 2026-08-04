@@ -21,7 +21,11 @@ export function monthRangeMs(monthStr) {
 export function isInvestorAutopsyRunId(runId) {
   const id = String(runId || "").trim().toLowerCase();
   if (!id) return false;
-  return id.startsWith("investor-slice-") || id.includes("investor");
+  // live-long-term-YYYY-MM books are investor grading archives too.
+  return id.startsWith("investor-slice-")
+    || id.includes("investor")
+    || id.includes("long-term")
+    || id.includes("long_term");
 }
 
 export function shouldIncludeOpenAutopsyTrades({ runId, includeOpen, tags } = {}) {
@@ -32,6 +36,249 @@ export function shouldIncludeOpenAutopsyTrades({ runId, includeOpen, tags } = {}
     return true;
   }
   return false;
+}
+
+function parseJsonObject(raw) {
+  if (raw == null) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasRenderableTfSnapshot(snapRaw) {
+  const snap = parseJsonObject(snapRaw);
+  if (!snap?.tf || typeof snap.tf !== "object") return false;
+  return Object.keys(snap.tf).length > 0;
+}
+
+/**
+ * Map investor decision_records.inputs_json into a Trade Autopsy signal
+ * snapshot shape. Investor never wrote trader-style direction_accuracy rows;
+ * decision_records are the durable ENTRY/EXIT signal capture for long-term.
+ */
+export function buildInvestorSignalSnapshotFromDecision(inputs = {}, { eventType = "ENTRY" } = {}) {
+  const inp = inputs && typeof inputs === "object" ? inputs : {};
+  const h4 = inp.h4_timing && typeof inp.h4_timing === "object" ? inp.h4_timing : null;
+  const tf = {};
+  if (h4) {
+    let supertrend = null;
+    if (h4.is4hBull === true) supertrend = 1;
+    else if (h4.is4hBear === true) supertrend = -1;
+    else if (Number.isFinite(Number(h4.stDir))) {
+      // Prefer explicit bull/bear flags; fall back to stDir sign.
+      const d = Number(h4.stDir);
+      supertrend = d > 0 ? 1 : d < 0 ? -1 : 0;
+    }
+    let stSlope = null;
+    if (h4.stSlopeUp === true) stSlope = 1;
+    else if (h4.stSlopeDn === true) stSlope = -1;
+    else if (Number.isFinite(Number(h4.stSlope)) && Number(h4.stSlope) !== 0) {
+      stSlope = Number(h4.stSlope) > 0 ? 1 : -1;
+    }
+    tf["4H"] = {
+      bias: null,
+      signals: {
+        ...(supertrend != null ? { supertrend } : {}),
+        ...(stSlope != null ? { st_slope: stSlope } : {}),
+      },
+    };
+  }
+
+  const components = inp.components && typeof inp.components === "object" ? inp.components : null;
+  const accum = inp.accum_zone && typeof inp.accum_zone === "object" ? inp.accum_zone : null;
+  const fsd = inp.fsd && typeof inp.fsd === "object" ? inp.fsd : null;
+
+  return {
+    source: "investor_decision_records",
+    event_type: String(eventType || "ENTRY").toUpperCase(),
+    avg_bias: null,
+    tf,
+    investor: {
+      reason: inp.reason || null,
+      stage: inp.stage || null,
+      stage_reason: inp.stage_reason || null,
+      score: num(inp.score),
+      action_tier: inp.action_tier || null,
+      sim_eligible: inp.sim_eligible ?? null,
+      components,
+      accum_zone: accum,
+      fsd,
+      h4_timing: h4,
+      market_health: num(inp.market_health),
+      thesis: inp.thesis || null,
+      primary_invalidation: inp.primary_invalidation || null,
+      auto_rebalance: inp.auto_rebalance || null,
+      price: num(inp.price),
+      shares: num(inp.shares),
+      ts: num(inp.ts),
+    },
+    lineage: {
+      source: "investor_decision_records",
+      regime_class: null,
+      volatility_tier: null,
+      vix_at_entry: null,
+    },
+  };
+}
+
+/**
+ * Load ENTRY/EXIT decision_records for investor position ids and attach
+ * signal_snapshot_json / exit_snapshot_json when missing.
+ */
+export async function hydrateInvestorAutopsySignalsFromDecisions(db, trades) {
+  const list = Array.isArray(trades) ? trades : [];
+  if (!db || !list.length) return list;
+
+  const needIds = [];
+  for (const t of list) {
+    const id = String(t?.trade_id || t?.id || "").trim();
+    if (!id) continue;
+    const needEntry = !hasRenderableTfSnapshot(t.signal_snapshot_json) && !parseJsonObject(t.signal_snapshot_json)?.investor;
+    const needExit = !hasRenderableTfSnapshot(t.exit_snapshot_json) && !parseJsonObject(t.exit_snapshot_json)?.investor;
+    if (needEntry || needExit) needIds.push(id);
+  }
+  const uniq = [...new Set(needIds)];
+  if (!uniq.length) return list;
+
+  const byPosition = new Map(); // position_id -> { ENTRY, EXIT }
+  const CHUNK = 40;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const chunk = uniq.slice(i, i + CHUNK);
+    const ph = chunk.map((_, idx) => `?${idx + 1}`).join(",");
+    let rows = [];
+    try {
+      const res = await db.prepare(
+        `SELECT event_type, trade_id, ts, inputs_json,
+                json_extract(inputs_json, '$.position_id') AS position_id
+           FROM decision_records
+          WHERE engine = 'investor'
+            AND event_type IN ('ENTRY', 'EXIT', 'TRIM', 'ADD')
+            AND json_extract(inputs_json, '$.position_id') IN (${ph})
+          ORDER BY ts ASC`,
+      ).bind(...chunk).all();
+      rows = res?.results || [];
+    } catch (e) {
+      // Older D1 without json_extract — fall back to LIKE scan per id.
+      for (const id of chunk) {
+        try {
+          const res = await db.prepare(
+            `SELECT event_type, trade_id, ts, inputs_json
+               FROM decision_records
+              WHERE engine = 'investor'
+                AND event_type IN ('ENTRY', 'EXIT', 'TRIM', 'ADD')
+                AND inputs_json LIKE ?1
+              ORDER BY ts ASC
+              LIMIT 20`,
+          ).bind(`%"position_id":"${id}"%`).all();
+          for (const row of res?.results || []) {
+            rows.push({ ...row, position_id: id });
+          }
+        } catch (_) { /* ignore */ }
+      }
+    }
+    for (const row of rows) {
+      const pid = String(row.position_id || "").trim();
+      if (!pid) continue;
+      const et = String(row.event_type || "").toUpperCase();
+      const inputs = parseJsonObject(row.inputs_json) || {};
+      const bucket = byPosition.get(pid) || {};
+      if (et === "ENTRY" && !bucket.ENTRY) bucket.ENTRY = inputs;
+      if ((et === "EXIT" || et === "TRIM") && !bucket.EXIT) bucket.EXIT = inputs;
+      // Prefer last EXIT if multiple.
+      if (et === "EXIT") bucket.EXIT = inputs;
+      byPosition.set(pid, bucket);
+    }
+  }
+
+  for (const t of list) {
+    const id = String(t?.trade_id || t?.id || "").trim();
+    const bucket = byPosition.get(id);
+    if (!bucket) continue;
+    if (bucket.ENTRY && !hasRenderableTfSnapshot(t.signal_snapshot_json) && !parseJsonObject(t.signal_snapshot_json)?.investor) {
+      t.signal_snapshot_json = JSON.stringify(buildInvestorSignalSnapshotFromDecision(bucket.ENTRY, { eventType: "ENTRY" }));
+    }
+    if (bucket.EXIT && !hasRenderableTfSnapshot(t.exit_snapshot_json) && !parseJsonObject(t.exit_snapshot_json)?.investor) {
+      t.exit_snapshot_json = JSON.stringify(buildInvestorSignalSnapshotFromDecision(bucket.EXIT, { eventType: "EXIT" }));
+    }
+  }
+  return list;
+}
+
+/**
+ * For archived trader books, brda may be empty while live direction_accuracy
+ * still has the entry/exit snapshots (live-short-term-2026-07 case).
+ */
+export async function hydrateAutopsySignalsFromDirectionAccuracy(db, trades) {
+  const list = Array.isArray(trades) ? trades : [];
+  if (!db || !list.length) return list;
+
+  const needIds = list
+    .filter((t) => !hasRenderableTfSnapshot(t?.signal_snapshot_json) || !hasRenderableTfSnapshot(t?.exit_snapshot_json))
+    .map((t) => String(t?.trade_id || t?.id || "").trim())
+    .filter(Boolean);
+  const uniq = [...new Set(needIds)];
+  if (!uniq.length) return list;
+
+  const byId = new Map();
+  const CHUNK = 80;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const chunk = uniq.slice(i, i + CHUNK);
+    const ph = chunk.map((_, idx) => `?${idx + 1}`).join(",");
+    try {
+      const { results } = await db.prepare(
+        `SELECT trade_id, signal_snapshot_json, exit_snapshot_json, entry_path,
+                max_favorable_excursion, max_adverse_excursion, tf_stack_json, ts
+           FROM direction_accuracy
+          WHERE trade_id IN (${ph})
+          ORDER BY COALESCE(ts, 0) DESC`,
+      ).bind(...chunk).all();
+      for (const row of results || []) {
+        const id = String(row.trade_id || "").trim();
+        if (!id || byId.has(id)) continue; // first = newest
+        byId.set(id, row);
+      }
+    } catch (_) { /* table missing — noop */ }
+  }
+
+  for (const t of list) {
+    const id = String(t?.trade_id || t?.id || "").trim();
+    const da = byId.get(id);
+    if (!da) continue;
+    if (!hasRenderableTfSnapshot(t.signal_snapshot_json) && da.signal_snapshot_json) {
+      t.signal_snapshot_json = da.signal_snapshot_json;
+    }
+    if (!hasRenderableTfSnapshot(t.exit_snapshot_json) && da.exit_snapshot_json) {
+      t.exit_snapshot_json = da.exit_snapshot_json;
+    }
+    if (!t.entry_path && da.entry_path) t.entry_path = da.entry_path;
+    if (t.max_favorable_excursion == null && da.max_favorable_excursion != null) {
+      t.max_favorable_excursion = da.max_favorable_excursion;
+    }
+    if (t.max_adverse_excursion == null && da.max_adverse_excursion != null) {
+      t.max_adverse_excursion = da.max_adverse_excursion;
+    }
+    if (!t.tf_stack_json && da.tf_stack_json) t.tf_stack_json = da.tf_stack_json;
+  }
+  return list;
+}
+
+/**
+ * Fill missing autopsy signal snapshots for a trade list.
+ * Trader path → direction_accuracy; investor path → decision_records.
+ */
+export async function hydrateAutopsyTradeSignals(db, trades, { runId } = {}) {
+  const list = Array.isArray(trades) ? trades : [];
+  if (!db || !list.length) return list;
+  await hydrateAutopsySignalsFromDirectionAccuracy(db, list);
+  if (isInvestorAutopsyRunId(runId) || list.some((t) => String(t?.entry_path || "").includes("investor") || t?.mode === "investor")) {
+    await hydrateInvestorAutopsySignalsFromDecisions(db, list);
+  }
+  return list;
 }
 
 function num(v, fallback = null) {
