@@ -68,6 +68,18 @@ import { notifyDiscord } from "../alerts.js";
 
 const COO_KV_PREFIX = "coo:actions";
 
+// Transient D1 queue errors — safe to retry after a short backoff.
+// Same class that BLOCKED Nightly Calibration during the 22:00 mega-batch
+// (2026-07-31 / 2026-08-03): "D1 DB is overloaded. Requests queued for too long."
+export function isTransientD1Error(err) {
+  const e = String(err || "").toLowerCase();
+  return e.includes("d1_error")
+    || e.includes("overloaded")
+    || e.includes("queued for too long")
+    || e.includes("network connection lost")
+    || e.includes("sqlite_busy");
+}
+
 // P1.8 (2026-06-09) — prefer the cron's in-process dispatcher
 // (env._selfDispatch, set in worker/index.js scheduled()) over a real
 // network self-fetch. In-process avoids Cloudflare loopback rejection
@@ -158,34 +170,62 @@ export async function runCooCalibrationCycle(env, options = {}) {
   // 1. Run the calibration as promotion candidate (analysis_only=false)
   //    so apply has live deltas. The auto-seed inside runCalibrationAnalysis
   //    handles the no-autopsy-rows case.
-  let runRes;
-  try {
-    const r = await _dispatch(env, `/timed/calibration/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        scope_id: options.scopeId || `coo-auto-${new Date().toISOString().slice(0, 10)}`,
-        analysis_only: false,
-        scope_kind: "live",
-        live_only: true,
-      }),
-    });
-    runRes = await r.json();
-    if (!runRes?.ok) {
-      await recordAction(env, {
-        tier: "tier3", kind: "calibration", target: "run", applied: false,
-        reason: `run failed: ${runRes?.error || "unknown"}`,
-      });
-      const outcome = { ok: false, error: runRes?.error || "run_failed" };
-      await _notifyCalibrationCycle(env, null, outcome);
-      return outcome;
+  //
+  // 2026-08-04 — Retry transient D1 overload. Nightly mega-batch + monolith
+  // 22:00 lanes share one D1; a single failed /calibration/run used to page
+  // Discord BLOCKED even though a retry 15–90s later would succeed.
+  const runBody = {
+    scope_id: options.scopeId || `coo-auto-${new Date().toISOString().slice(0, 10)}`,
+    analysis_only: false,
+    scope_kind: "live",
+    live_only: true,
+  };
+  const backoffsMs = Array.isArray(options.backoffsMs) && options.backoffsMs.length
+    ? options.backoffsMs
+    : [0, 15000, 45000, 90000];
+
+  let runRes = null;
+  let lastRunError = null;
+  let attempts = 0;
+  for (let i = 0; i < backoffsMs.length; i++) {
+    attempts = i + 1;
+    if (backoffsMs[i] > 0) {
+      console.log(`[COO calibration] retry attempt ${attempts} after ${backoffsMs[i]}ms (last=${lastRunError})`);
+      await new Promise((r) => setTimeout(r, backoffsMs[i]));
     }
-  } catch (e) {
+    try {
+      const r = await _dispatch(env, `/timed/calibration/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(runBody),
+      });
+      runRes = await r.json().catch(() => ({}));
+      if (runRes?.ok) break;
+      lastRunError = runRes?.error || `status_${r.status || 0}`;
+      if (!isTransientD1Error(lastRunError)) break;
+      runRes = null;
+    } catch (e) {
+      lastRunError = String(e?.message || e).slice(0, 200);
+      if (!isTransientD1Error(lastRunError)) {
+        await recordAction(env, {
+          tier: "tier3", kind: "calibration", target: "run", applied: false,
+          reason: `run threw: ${lastRunError}`,
+        });
+        const outcome = { ok: false, error: lastRunError, attempts };
+        await _notifyCalibrationCycle(env, null, outcome);
+        return outcome;
+      }
+      runRes = null;
+    }
+  }
+
+  if (!runRes?.ok) {
+    const err = lastRunError || runRes?.error || "run_failed";
     await recordAction(env, {
       tier: "tier3", kind: "calibration", target: "run", applied: false,
-      reason: `run threw: ${String(e?.message || e).slice(0, 200)}`,
+      reason: `run failed after ${attempts} attempt(s): ${err}`,
     });
-    const outcome = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    const outcome = { ok: false, error: err, attempts };
     await _notifyCalibrationCycle(env, null, outcome);
     return outcome;
   }
