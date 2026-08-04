@@ -499,6 +499,103 @@ export function applyInvestor4hStageGate(stageResult, tickerData, ctx = {}) {
 }
 
 /**
+ * Build a Trade Autopsy–compatible TF signal map from timed:latest tf_tech.
+ * Investor entries historically only stored score/stage provenance; without
+ * this grid, Autopsy shows "No snapshot data captured" for long-term books.
+ */
+export function extractInvestorTfSignalMap(tickerData) {
+  const tfTech = tickerData?.tf_tech;
+  if (!tfTech || typeof tfTech !== "object") return null;
+  const normalizeTfLabel = (rawTf) => {
+    const raw = String(rawTf || "").trim();
+    if (!raw) return null;
+    const up = raw.toUpperCase();
+    if (up === "10" || up === "10M") return "10m";
+    if (up === "15" || up === "15M") return "15m";
+    if (up === "30" || up === "30M") return "30m";
+    if (up === "60" || up === "1H" || up === "1HR") return "1H";
+    if (up === "240" || up === "4H" || up === "4HR") return "4H";
+    if (up === "D" || up === "1D") return "D";
+    if (up === "W" || up === "1W") return "W";
+    if (up === "M" || up === "1M") return "M";
+    return raw;
+  };
+  const out = {};
+  for (const [rawTf, tfData] of Object.entries(tfTech)) {
+    const tfLabel = normalizeTfLabel(rawTf);
+    if (!tfLabel || !tfData || typeof tfData !== "object") continue;
+    const ema = tfData.ema || {};
+    const st = tfData.supertrend || {};
+    const signals = {};
+    const ema5Above48 =
+      typeof tfData.ema5above48 === "boolean"
+        ? tfData.ema5above48
+        : (typeof ema.ema5above48 === "boolean" ? ema.ema5above48 : null);
+    if (tfData.emaCross13_48_up === true || ema.cross13_48_up === true) signals.ema_cross = 1;
+    else if (tfData.emaCross13_48_dn === true || ema.cross13_48_dn === true) signals.ema_cross = -1;
+    else if (typeof ema5Above48 === "boolean") signals.ema_cross = ema5Above48 ? 1 : -1;
+
+    const stDir = Number.isFinite(Number(tfData.stDir))
+      ? Number(tfData.stDir)
+      : (Number.isFinite(Number(st.dir)) ? Number(st.dir) : null);
+    if (Number.isFinite(stDir)) {
+      // Bundle convention in many paths: -1 bull / +1 bear. Investor 4H helper
+      // uses STANDARD (+1 bull). Prefer explicit slope/bull flags when present.
+      if (tfData.stBull === true || st.bull === true) signals.supertrend = 1;
+      else if (tfData.stBear === true || st.bear === true) signals.supertrend = -1;
+      else {
+        // timed:latest tf_tech uses Pine ST convention: -1 bull / +1 bear
+        // (same as resolveInvestor4hTiming). Map to Autopsy +1/-1.
+        signals.supertrend = stDir < 0 ? 1 : stDir > 0 ? -1 : 0;
+      }
+    }
+    if (tfData.stSlopeUp === true || st.slopeUp === true) signals.st_slope = 1;
+    else if (tfData.stSlopeDn === true || st.slopeDn === true) signals.st_slope = -1;
+
+    const emaDepth = Number.isFinite(Number(tfData.emaDepth))
+      ? Number(tfData.emaDepth)
+      : (Number.isFinite(Number(ema.depth)) ? Number(ema.depth) : null);
+    if (emaDepth != null) signals.ema_depth = emaDepth;
+
+    const emaStructure = Number.isFinite(Number(tfData.emaStructure))
+      ? Number(tfData.emaStructure)
+      : (Number.isFinite(Number(ema.structure)) ? Number(ema.structure) : null);
+    if (emaStructure != null) {
+      signals.ema_structure = emaStructure > 0 ? 1 : emaStructure < 0 ? -1 : 0;
+    }
+
+    const rsi = Number.isFinite(Number(tfData.rsi))
+      ? Number(tfData.rsi)
+      : (Number.isFinite(Number(tfData?.rsi?.r5)) ? Number(tfData.rsi.r5) : null);
+    if (rsi != null) signals.rsi = rsi;
+
+    if (Object.keys(signals).length) {
+      out[tfLabel] = { bias: null, signals };
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/** Merge live tickerData TF grid (+ h4) into decision inputs for Autopsy. */
+export function enrichInvestorDecisionInputsWithTickerData(inputs, tickerData) {
+  if (!inputs || typeof inputs !== "object") return inputs;
+  const td = tickerData && typeof tickerData === "object" ? tickerData : null;
+  if (!td) return inputs;
+  const next = { ...inputs };
+  if (!next.tf) {
+    const tf = extractInvestorTfSignalMap(td);
+    if (tf) next.tf = tf;
+  }
+  if (!next.h4_timing) {
+    try {
+      const h4 = resolveInvestor4hTiming(td);
+      if (h4) next.h4_timing = h4;
+    } catch (_) { /* optional */ }
+  }
+  return next;
+}
+
+/**
  * Compact score→provenance snapshot for the self-calibrating loop.
  * Captures the signals/scores/thesis that led to an ENTRY/ADD so later
  * calibration can attribute outcomes without replaying the full book.
@@ -507,6 +604,10 @@ export function compactInvestorScoreProvenance(scoreRow = {}, extras = {}) {
   const row = scoreRow && typeof scoreRow === "object" ? scoreRow : {};
   const compounder = row.compounder || extras.compounder || null;
   const fv = row.fairValue || row.fair_value || extras.fairValue || null;
+  const tfFromTd = extras.tickerData ? extractInvestorTfSignalMap(extras.tickerData) : null;
+  const h4FromTd = extras.tickerData
+    ? (() => { try { return resolveInvestor4hTiming(extras.tickerData); } catch (_) { return null; } })()
+    : null;
   return {
     stage: row.stage ?? extras.stage ?? null,
     stage_reason: row.stageReason ?? row.stage_reason ?? extras.stageReason ?? null,
@@ -553,7 +654,8 @@ export function compactInvestorScoreProvenance(scoreRow = {}, extras = {}) {
       ?? extras.timing_primary
       ?? null,
     timing_playbook: row.timing_playbook ?? extras.timing_playbook ?? null,
-    h4_timing: row.h4_timing || extras.h4_timing || null,
+    h4_timing: row.h4_timing || extras.h4_timing || h4FromTd || null,
+    tf: extras.tf || tfFromTd || null,
     action_tier: row.actionTier || row.action_tier || extras.actionTier || null,
     sim_eligible: row.simEligible ?? row.sim_eligible ?? extras.simEligible ?? null,
     kanban_lane: row.kanbanLane || row.kanban_lane || null,
@@ -578,11 +680,15 @@ export function buildInvestorDecisionInputs(opts = {}) {
         score: opts.score,
         components: opts.components,
         accumZone: opts.accumZone ?? opts.accum_zone,
+        tickerData: opts.tickerData,
       })
     : null;
   const h4 = opts.h4
     || scoreProv?.h4_timing
     || (opts.tickerData ? resolveInvestor4hTiming(opts.tickerData) : null);
+  const tf = opts.tf
+    || scoreProv?.tf
+    || (opts.tickerData ? extractInvestorTfSignalMap(opts.tickerData) : null);
   return {
     engine: "investor",
     action: opts.action || null,
@@ -623,6 +729,7 @@ export function buildInvestorDecisionInputs(opts = {}) {
     timing_playbook: opts.timing_playbook ?? scoreProv?.timing_playbook ?? null,
     timing_overlay: opts.timing || opts.timing_overlay || null,
     h4_timing: h4,
+    tf: tf || null,
     kanban_lane: opts.kanbanLane ?? opts.kanban_lane ?? scoreProv?.kanban_lane ?? null,
     cio_reasoning: opts.cioReasoning ?? opts.cio_reasoning ?? scoreProv?.cio_reasoning ?? null,
     market_health: opts.marketHealth ?? opts.market_health ?? null,

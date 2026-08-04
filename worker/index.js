@@ -42170,20 +42170,164 @@ async function d1InsertDecisionRecord(env, args = {}) {
   }
 }
 
+/**
+ * Persist investor ENTRY/EXIT signal snapshots onto direction_accuracy so
+ * Trade Autopsy (and future monthly archives) see TF grids without a
+ * special-case hydrate. trade_id = investor position id.
+ */
+async function d1UpsertInvestorAutopsySignals(env, {
+  positionId,
+  ticker,
+  ts,
+  eventType,
+  inputs,
+  entryPrice,
+  exitPrice,
+  status,
+  exitReason,
+} = {}) {
+  const db = env?.DB;
+  const pid = String(positionId || "").trim();
+  if (!db || !pid || !inputs) return { ok: false, skipped: true };
+  try {
+    await d1EnsureLearningSchema(env);
+    const { buildInvestorSignalSnapshotFromDecision } = await import("./investor-autopsy-archive.js");
+    const et = String(eventType || "").toUpperCase();
+    const snap = buildInvestorSignalSnapshotFromDecision(inputs, { eventType: et });
+    let snapJson = null;
+    try { snapJson = JSON.stringify(snap); } catch (_) { snapJson = null; }
+    if (!snapJson) return { ok: false, skipped: true, reason: "snap_encode_failed" };
+
+    const sym = String(ticker || inputs.ticker || "").toUpperCase() || null;
+    const when = Number(ts || inputs.ts) || Date.now();
+    const path = "investor_long_term";
+
+    if (et === "ENTRY" || et === "ADD") {
+      // DCA / scale-in also fire ENTRY (or ADD). Never clobber the first
+      // Autopsy entry snapshot — prefer existing signal_snapshot_json.
+      const entryPx = Number.isFinite(Number(entryPrice ?? inputs.price))
+        ? Number(entryPrice ?? inputs.price)
+        : null;
+      await db.prepare(
+        `INSERT INTO direction_accuracy
+           (trade_id, ticker, ts, traded_direction, entry_path, entry_price,
+            signal_snapshot_json, status, direction_source)
+         VALUES (?1, ?2, ?3, 'LONG', ?4, ?5, ?6, ?7, 'investor')
+         ON CONFLICT(trade_id) DO UPDATE SET
+           ticker = COALESCE(direction_accuracy.ticker, excluded.ticker),
+           ts = COALESCE(direction_accuracy.ts, excluded.ts),
+           entry_path = COALESCE(direction_accuracy.entry_path, excluded.entry_path),
+           entry_price = COALESCE(direction_accuracy.entry_price, excluded.entry_price),
+           signal_snapshot_json = COALESCE(direction_accuracy.signal_snapshot_json, excluded.signal_snapshot_json),
+           status = CASE
+             WHEN direction_accuracy.status = 'CLOSED' THEN direction_accuracy.status
+             ELSE COALESCE(excluded.status, direction_accuracy.status)
+           END,
+           direction_source = COALESCE(direction_accuracy.direction_source, excluded.direction_source)`,
+      ).bind(
+        pid,
+        sym,
+        when,
+        path,
+        entryPx,
+        snapJson,
+        status || "OPEN",
+      ).run();
+      return { ok: true, event: et };
+    }
+
+    if (et === "EXIT" || et === "TRIM") {
+      const st = status || (et === "EXIT" ? "CLOSED" : "OPEN");
+      await db.prepare(
+        `UPDATE direction_accuracy
+            SET exit_snapshot_json = ?1,
+                exit_ts = COALESCE(exit_ts, ?2),
+                exit_price = COALESCE(exit_price, ?3),
+                exit_reason = COALESCE(?4, exit_reason),
+                status = CASE WHEN ?5 = 'CLOSED' THEN 'CLOSED' ELSE status END
+          WHERE trade_id = ?6`,
+      ).bind(
+        snapJson,
+        when,
+        Number.isFinite(Number(exitPrice ?? inputs.price)) ? Number(exitPrice ?? inputs.price) : null,
+        exitReason || inputs.reason || null,
+        st,
+        pid,
+      ).run();
+      // If ENTRY was never logged (legacy / missed path), still create a row.
+      await db.prepare(
+        `INSERT OR IGNORE INTO direction_accuracy
+           (trade_id, ticker, ts, traded_direction, entry_path, exit_snapshot_json,
+            exit_ts, exit_price, exit_reason, status, direction_source)
+         VALUES (?1, ?2, ?3, 'LONG', ?4, ?5, ?3, ?6, ?7, ?8, 'investor')`,
+      ).bind(
+        pid,
+        sym,
+        when,
+        path,
+        snapJson,
+        Number.isFinite(Number(exitPrice ?? inputs.price)) ? Number(exitPrice ?? inputs.price) : null,
+        exitReason || inputs.reason || null,
+        st,
+      ).run();
+      return { ok: true, event: et };
+    }
+    return { ok: false, skipped: true, reason: "unsupported_event" };
+  } catch (e) {
+    console.warn("[INVESTOR_AUTOPSY] signal persist failed:", String(e?.message || e).slice(0, 160));
+    return { ok: false, error: String(e?.message || e).slice(0, 160) };
+  }
+}
+
 /** Version-pinned investor provenance (decision_records, engine=investor). Best-effort. */
 async function recordInvestorDecision(env, args = {}) {
   if (!env?.DB) return { ok: false, skipped: true, reason: "no_db" };
-  const inputs = args.inputs ?? (args.inputCtx ? buildInvestorDecisionInputs(args.inputCtx) : null);
-  return d1InsertDecisionRecord(env, {
+  let inputs = args.inputs ?? (args.inputCtx ? buildInvestorDecisionInputs(args.inputCtx) : null);
+  const ticker = args.ticker || inputs?.ticker;
+  const positionId = args.positionId || inputs?.position_id;
+  const eventType = args.eventType;
+
+  // 2026-08-04 — Always stamp TF grid onto decision inputs for Trade Autopsy.
+  // Call sites that omit tickerData still get timed:latest enrichment here.
+  if (inputs && !inputs.tf && ticker && env?.KV_TIMED) {
+    try {
+      const { enrichInvestorDecisionInputsWithTickerData } = await import("./investor.js");
+      let td = args.inputCtx?.tickerData || null;
+      if (!td) {
+        td = await kvGetJSON(env.KV_TIMED, `timed:latest:${String(ticker).toUpperCase()}`).catch(() => null);
+      }
+      if (td) inputs = enrichInvestorDecisionInputsWithTickerData(inputs, td);
+    } catch (_) { /* best-effort */ }
+  }
+
+  const result = await d1InsertDecisionRecord(env, {
     engine: "investor",
     tradeId: args.tradeId ?? args.lotId ?? args.positionId,
     ticker: args.ticker,
-    eventType: args.eventType,
+    eventType,
     ts: args.ts,
     reason: args.reason,
     inputs,
     gateTrace: args.gateTrace ?? inputs?.gate_trace ?? null,
   });
+
+  // Mirror into direction_accuracy so archive GET + grading UI work without
+  // a special hydrate for every future investor book.
+  try {
+    await d1UpsertInvestorAutopsySignals(env, {
+      positionId,
+      ticker,
+      ts: args.ts,
+      eventType,
+      inputs,
+      entryPrice: args.inputCtx?.price,
+      exitPrice: args.inputCtx?.price,
+      status: String(eventType || "").toUpperCase() === "EXIT" ? "CLOSED" : "OPEN",
+      exitReason: args.reason,
+    });
+  } catch (_) { /* best-effort */ }
+
+  return result;
 }
 
 /** Investor TRIM/EXIT partial sells — rich provenance (Trust Spine foundation). */
@@ -67945,6 +68089,9 @@ export default {
               include_open: includeOpen,
             }, 404, corsHeaders(env, req));
           }
+          // Stamp TF/decision snapshots onto trades before persist so brda
+          // rows are self-contained (future Autopsy GETs don't need hydrate).
+          await hydrateAutopsyTradeSignals(db, trades, { runId });
           const result = await persistInvestorAutopsyArchive(env, {
             runId,
             month,
@@ -93472,16 +93619,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 note: `DCA ${pos.ticker} ${shares.toFixed(4)}sh @$${price.toFixed(2)} (${dcaGate.reason})`,
               }).catch(e => console.error("[LEDGER] investor DCA_BUY failed:", e));
 
+              const _dcaTd = await kvGetJSON(env.KV_TIMED, `timed:latest:${String(pos.ticker || "").toUpperCase()}`).catch(() => null);
               await recordInvestorDecision(env, {
                 lotId,
                 positionId: pos.id,
                 ticker: pos.ticker,
-                eventType: "ENTRY",
+                // ADD so DA upsert never treats a scale-in as a fresh ENTRY replace.
+                eventType: "ADD",
                 ts: now,
                 reason: lotReason,
                 inputCtx: {
                   action: "BUY",
-                  event: "ENTRY",
+                  event: "ADD",
                   lotId,
                   positionId: pos.id,
                   ticker: pos.ticker,
@@ -93494,6 +93643,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   dipBuy: dipBuy?.isDip === true,
                   dipSignals: dipBuy?.signals || [],
                   marketHealth: marketHealthScore,
+                  tickerData: _dcaTd,
                   autoRebalance: { kind: "dca", dca_reason: dcaGate.reason },
                 },
               }).catch((e) => console.warn("[DECISION_RECORDS] dca failed:", String(e?.message || e).slice(0, 120)));
@@ -94047,6 +94197,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   cioReasoning: _cioAddReasoning,
                   stage: t.stage,
                   score: t.score,
+                  tickerData: _tdAdd || _tdAddGate,
                 });
                 await env.DB.prepare(
                   "UPDATE investor_positions SET entry_provenance_json = COALESCE(entry_provenance_json, ?1), updated_at = ?2 WHERE id = ?3"
@@ -94060,12 +94211,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 lotId,
                 positionId: t.existing.id,
                 ticker: t.ticker,
-                eventType: "ENTRY",
+                eventType: "ADD",
                 ts: now,
                 reason: `auto_rebalance_${t.stage}`,
                 inputCtx: {
                   action: "BUY",
-                  event: "ENTRY",
+                  event: "ADD",
                   lotId,
                   positionId: t.existing.id,
                   ticker: t.ticker,
@@ -94252,6 +94403,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 cioReasoning: _cioOpenReasoning,
                 stage: t.stage,
                 score: t.score,
+                // Stamp live TF grid at entry for Trade Autopsy / calibration.
+                tickerData: _tdOpen,
               });
               let _openProvJson = null;
               try { _openProvJson = JSON.stringify(_openProvenance).slice(0, 16000); } catch (_) { _openProvJson = null; }
@@ -94499,12 +94652,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (!price || price <= 0 || !(Number(pos.total_shares) > 0)) continue;
 
             const scoreData = scores[sym] || scores[pos.ticker] || {};
-            let latestTickerData = null;
-            let breach = resolvePrimaryInvalidationBreach(price, scoreData, null);
-            if (!breach) {
-              latestTickerData = await kvGetJSON(env.KV_TIMED, `timed:latest:${sym}`).catch(() => null);
-              breach = resolvePrimaryInvalidationBreach(price, scoreData, latestTickerData);
-            }
+            // Always load tickerData so EXIT decision_records + direction_accuracy
+            // get a TF signal snapshot for Trade Autopsy (not only when breach
+            // resolution needs the fallback).
+            let latestTickerData = await kvGetJSON(env.KV_TIMED, `timed:latest:${sym}`).catch(() => null);
+            let breach = resolvePrimaryInvalidationBreach(price, scoreData, latestTickerData);
             if (!breach) continue;
 
             // Min-hold guard — skip the invalidation exit on a freshly opened
@@ -94970,13 +95122,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               note: `Auto-trim ${trimShares}sh ${pos.ticker} @$${price.toFixed(2)} (reduce stage, P&L $${pnl.toFixed(2)})`,
             }).catch(e => console.error("[LEDGER] auto-reduce failed:", e));
 
+            const _reduceTd = await kvGetJSON(env.KV_TIMED, `timed:latest:${String(pos.ticker || "").toUpperCase()}`).catch(() => null);
             recordInvestorTrimDecision(env, {
               lotId, positionId: pos.id, ticker: pos.ticker, ts: now,
               price, shares: trimShares, value: sellValue, pnl,
+              // Full close → EXIT so direction_accuracy status flips CLOSED.
+              eventType: remaining <= 0.0001 ? "EXIT" : "TRIM",
               reason: _isInvScoreExit ? "PRIMARY_INVALIDATION_BREACH" : "auto_reduce",
               stage: data?.stage, stageReason: data?.stageReason, score: data?.score,
               components: data?.components, accumZone: data?.accumZone,
               remaining,
+              tickerData: _reduceTd,
               marketHealth: marketScore,
               autoRebalance: {
                 kind: _isInvScoreExit ? "invalidation_trim" : "auto_reduce_stage",

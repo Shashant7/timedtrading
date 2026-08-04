@@ -4,6 +4,8 @@ import { describe, it, expect } from "vitest";
 import {
   buildInvestorDecisionInputs,
   compactInvestorScoreProvenance,
+  extractInvestorTfSignalMap,
+  enrichInvestorDecisionInputsWithTickerData,
 } from "./investor.js";
 
 const cfScoreRow = {
@@ -71,5 +73,56 @@ describe("buildInvestorDecisionInputs", () => {
     expect(inputs.timing_primary).toBe("TOP");
     expect(inputs.cio_reasoning).toMatch(/Quality compounder/);
     expect(inputs.dip_buy).toBe(true);
+  });
+
+  it("stamps TF grid from tickerData for Trade Autopsy", () => {
+    const tickerData = {
+      tf_tech: {
+        "4H": { stDir: 1, stBull: true, stSlopeUp: true, ema5above48: true, rsi: 55 },
+        D: { stDir: 1, stBull: true, emaCross13_48_up: true },
+        "15": { stDir: -1, ema5above48: false },
+      },
+    };
+    const inputs = buildInvestorDecisionInputs({
+      action: "BUY",
+      event: "ENTRY",
+      ticker: "NBIS",
+      ts: 1784134955515,
+      price: 100,
+      shares: 10,
+      positionId: "inv-NBIS-auto-1",
+      reason: "auto_entry_accumulate",
+      scoreRow: cfScoreRow,
+      tickerData,
+    });
+    expect(inputs.tf["4H"].signals.supertrend).toBe(1);
+    expect(inputs.tf.D.signals.ema_cross).toBe(1);
+    expect(inputs.tf["15m"].signals.supertrend).toBe(1); // Pine stDir -1 → bull
+    expect(inputs.h4_timing).toBeTruthy();
+  });
+});
+
+describe("extractInvestorTfSignalMap / enrich", () => {
+  it("maps tf_tech into Autopsy signal shape (Pine stDir)", () => {
+    const tf = extractInvestorTfSignalMap({
+      tf_tech: {
+        "240": { stDir: -1, ema5above48: true }, // Pine bull
+        W: { stDir: 1 }, // Pine bear
+      },
+    });
+    expect(tf["4H"].signals.supertrend).toBe(1);
+    expect(tf.W.signals.supertrend).toBe(-1);
+  });
+
+  it("enriches missing tf/h4 without overwriting existing", () => {
+    const base = { ticker: "NBIS", score: 70, tf: { D: { signals: { ema_cross: 1 } } } };
+    const next = enrichInvestorDecisionInputsWithTickerData(base, {
+      tf_tech: {
+        "4H": { stDir: 1, stBull: true, stSlopeUp: true },
+        D: { stDir: 1, ema5above48: false },
+      },
+    });
+    expect(next.tf.D.signals.ema_cross).toBe(1); // preserved
+    expect(next.h4_timing).toBeTruthy();
   });
 });

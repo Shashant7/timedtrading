@@ -64,8 +64,10 @@ function hasRenderableTfSnapshot(snapRaw) {
 export function buildInvestorSignalSnapshotFromDecision(inputs = {}, { eventType = "ENTRY" } = {}) {
   const inp = inputs && typeof inputs === "object" ? inputs : {};
   const h4 = inp.h4_timing && typeof inp.h4_timing === "object" ? inp.h4_timing : null;
-  const tf = {};
-  if (h4) {
+  // Prefer full TF grid stamped at decision time (future entries); fall back
+  // to 4H-only from h4_timing for older decision_records.
+  const tf = (inp.tf && typeof inp.tf === "object") ? { ...inp.tf } : {};
+  if (h4 && !tf["4H"]) {
     let supertrend = null;
     if (h4.is4hBull === true) supertrend = 1;
     else if (h4.is4hBear === true) supertrend = -1;
@@ -342,6 +344,21 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
     status = "FLAT";
   }
 
+  // Prefer stamped entry_provenance_json (includes TF grid for post-2026-08 entries).
+  let signalSnapshot = null;
+  const prov = pos.entry_provenance_json || pos.entryProvenanceJson || null;
+  if (prov) {
+    try {
+      const parsed = typeof prov === "string" ? JSON.parse(prov) : prov;
+      if (parsed && typeof parsed === "object") {
+        signalSnapshot = buildInvestorSignalSnapshotFromDecision(
+          { ...parsed, reason: parsed.stage_reason || parsed.reason || "investor_entry" },
+          { eventType: "ENTRY" },
+        );
+      }
+    } catch (_) { signalSnapshot = null; }
+  }
+
   return {
     trade_id: tradeId,
     id: tradeId,
@@ -370,6 +387,8 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
     mode: "investor",
     investor_stage: pos.investor_stage || null,
     thesis: pos.thesis || null,
+    signal_snapshot_json: signalSnapshot ? JSON.stringify(signalSnapshot) : null,
+    entry_provenance_json: typeof prov === "string" ? prov : (prov ? JSON.stringify(prov) : null),
   };
 }
 
@@ -430,7 +449,8 @@ export async function loadInvestorAutopsyTradesFromDb(db, { month, includeOpen =
   const { startMs, endMsExclusive } = monthRangeMs(month);
   const { results: positions } = await db.prepare(
     `SELECT id, ticker, status, avg_entry, total_shares, cost_basis,
-            first_entry_ts, closed_at, investor_stage, thesis, created_at
+            first_entry_ts, closed_at, investor_stage, thesis, created_at,
+            entry_provenance_json
        FROM investor_positions
       WHERE first_entry_ts >= ?1 AND first_entry_ts < ?2
       ORDER BY first_entry_ts ASC, ticker ASC`,
@@ -634,9 +654,15 @@ export async function persistInvestorAutopsyArchive(env, {
 
   // Replace prior archive rows for this run so re-imports are idempotent.
   await db.prepare(`DELETE FROM backtest_run_trades WHERE run_id = ?1`).bind(rid).run();
+  try {
+    await db.prepare(`DELETE FROM backtest_run_direction_accuracy WHERE run_id = ?1`).bind(rid).run();
+  } catch (_) { /* brda table may be missing on older envs */ }
 
+  let brdaCount = 0;
   for (const trade of list) {
     await archiveTrade(env, rid, trade);
+    const wrote = await archiveInvestorAutopsyDirectionAccuracy(db, rid, trade);
+    if (wrote) brdaCount += 1;
   }
 
   return {
@@ -644,7 +670,54 @@ export async function persistInvestorAutopsyArchive(env, {
     run_id: rid,
     month,
     count: list.length,
+    brda_count: brdaCount,
     summary,
     autopsy_url: autopsyUrl,
   };
+}
+
+/**
+ * Persist Autopsy signal snapshots into backtest_run_direction_accuracy so
+ * future investor books are self-contained (no on-read hydrate required).
+ */
+export async function archiveInvestorAutopsyDirectionAccuracy(db, runId, trade) {
+  if (!db || !runId || !trade) return false;
+  const tradeId = String(trade.trade_id || trade.id || "").trim();
+  if (!tradeId) return false;
+  const entrySnap = trade.signal_snapshot_json
+    || (trade.signal_snapshot ? (() => {
+      try { return JSON.stringify(trade.signal_snapshot); } catch (_) { return null; }
+    })() : null);
+  const exitSnap = trade.exit_snapshot_json
+    || (trade.exit_snapshot ? (() => {
+      try { return JSON.stringify(trade.exit_snapshot); } catch (_) { return null; }
+    })() : null);
+  if (!entrySnap && !exitSnap) return false;
+  const ticker = String(trade.ticker || "").toUpperCase() || null;
+  let ts = Number(trade.entry_ts);
+  if (!Number.isFinite(ts) || ts <= 0) ts = Date.now();
+  if (ts < 1e12) ts = ts * 1000;
+  const entryPath = trade.entry_path || "investor_long_term";
+  const exitReason = trade.exit_reason || null;
+  try {
+    await db.prepare(
+      `INSERT OR REPLACE INTO backtest_run_direction_accuracy
+         (run_id, trade_id, ticker, ts, signal_snapshot_json, exit_snapshot_json,
+          entry_path, exit_reason)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+    ).bind(
+      String(runId),
+      tradeId,
+      ticker,
+      ts,
+      entrySnap,
+      exitSnap,
+      entryPath,
+      exitReason,
+    ).run();
+    return true;
+  } catch (e) {
+    console.warn("[INVESTOR_AUTOPSY] brda archive failed:", String(e?.message || e).slice(0, 140));
+    return false;
+  }
 }
