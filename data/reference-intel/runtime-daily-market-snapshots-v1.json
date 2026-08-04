@@ -4113,18 +4113,18 @@
       },
       {
         "date": "2026-08-03",
-        "vix_close": 17.9,
+        "vix_close": 17.85,
         "vix_state": "normal",
-        "spy_pct": 0.72,
-        "qqq_pct": 0.65,
-        "iwm_pct": -0.48,
-        "offense_avg_pct": 1.29,
-        "defense_avg_pct": -0.59,
+        "spy_pct": 1.42,
+        "qqq_pct": 1.74,
+        "iwm_pct": 1.7,
+        "offense_avg_pct": 1.73,
+        "defense_avg_pct": -0.11,
         "sector_rotation": "risk_on",
         "regime_overall": "risk_on",
-        "regime_score": 14,
-        "btc_pct": -1.38,
-        "eth_pct": -2.21
+        "regime_score": 32,
+        "btc_pct": 0.36,
+        "eth_pct": -0.88
       }
     ],
     "success": true,
@@ -4134,13 +4134,13 @@
       "served_by_colo": "MIA",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 4.9627
+        "sql_duration_ms": 3.2794
       },
-      "duration": 4.9627,
+      "duration": 3.2794,
       "changes": 0,
-      "last_row_id": 76367885,
+      "last_row_id": 32463,
       "changed_db": false,
-      "size_after": 4100530176,
+      "size_after": 4168634368,
       "rows_read": 275,
       "rows_written": 0,
       "total_attempts": 1
