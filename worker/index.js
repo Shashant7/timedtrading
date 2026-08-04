@@ -978,6 +978,8 @@ import {
   loadInvestorAutopsyTradesFromDb,
   normalizeImportedInvestorTrades,
   persistInvestorAutopsyArchive,
+  hydrateAutopsyTradeSignals,
+  isInvestorAutopsyRunId,
 } from "./investor-autopsy-archive.js";
 import {
   sendEmail,
@@ -67652,7 +67654,7 @@ export default {
             const trades = (rows || []).map(r => {
               const entryPath = r.brt_entry_path ?? r.da_entry_path ?? null;
               const isInvestor = String(entryPath || "").includes("investor")
-                || String(archiveRunId).toLowerCase().includes("investor");
+                || isInvestorAutopsyRunId(archiveRunId);
               return {
               trade_id: r.trade_id, run_id: r.run_id, ticker: r.ticker, direction: r.direction,
               status: r.status, entry_ts: r.entry_ts, exit_ts: r.exit_ts, trim_ts: r.trim_ts,
@@ -67677,6 +67679,14 @@ export default {
               horizon: isInvestor ? "long_term" : "short_term",
               ...deriveEffectiveExecution(r),
             };});
+            // 2026-08-04 — Archive rows often lack brda snapshots:
+            //   • live-short-term → hydrate from live direction_accuracy
+            //   • live-long-term / investor → hydrate from decision_records
+            try {
+              await hydrateAutopsyTradeSignals(db, trades, { runId: archiveRunId });
+            } catch (hydErr) {
+              console.warn("[trade-autopsy] signal hydrate failed:", String(hydErr?.message || hydErr).slice(0, 160));
+            }
             const archiveRunRow = await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id WHERE r.run_id = ?1`).bind(archiveRunId).first().catch(() => null);
             const archiveRun = parseRunRecord(archiveRunRow);
             const readModel = buildTradeAutopsyReadModel({

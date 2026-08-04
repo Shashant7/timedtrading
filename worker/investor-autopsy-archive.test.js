@@ -7,6 +7,9 @@ import {
   summarizeAutopsyTrades,
   normalizeImportedInvestorTrades,
   buildInvestorAutopsyRunMeta,
+  buildInvestorSignalSnapshotFromDecision,
+  hydrateInvestorAutopsySignalsFromDecisions,
+  hydrateAutopsySignalsFromDirectionAccuracy,
 } from "./investor-autopsy-archive.js";
 
 describe("investor-autopsy-archive", () => {
@@ -22,11 +25,107 @@ describe("investor-autopsy-archive", () => {
 
   it("detects investor autopsy run ids and include-open policy", () => {
     expect(isInvestorAutopsyRunId("investor-slice-2025-07-post890")).toBe(true);
+    expect(isInvestorAutopsyRunId("live-long-term-2026-07")).toBe(true);
     expect(isInvestorAutopsyRunId("phase-c-slice-2025-07-v1")).toBe(false);
     expect(shouldIncludeOpenAutopsyTrades({ runId: "investor-slice-2025-07-post890" })).toBe(true);
+    expect(shouldIncludeOpenAutopsyTrades({ runId: "live-long-term-2026-07" })).toBe(true);
     expect(shouldIncludeOpenAutopsyTrades({ runId: "phase-c-slice-2025-07-v1" })).toBe(false);
     expect(shouldIncludeOpenAutopsyTrades({ runId: "phase-c-slice-2025-07-v1", includeOpen: true })).toBe(true);
     expect(shouldIncludeOpenAutopsyTrades({ tags: ["investor"] })).toBe(true);
+  });
+
+  it("builds investor signal snapshot from decision_records inputs", () => {
+    const snap = buildInvestorSignalSnapshotFromDecision({
+      reason: "auto_entry_accumulate",
+      stage: "accumulate",
+      stage_reason: "compounder_dip_buy",
+      score: 75,
+      components: { weeklyTrend: 17, monthlyTrend: 20 },
+      accum_zone: { signals: ["monthly_trend_bullish"] },
+      h4_timing: { timeframe: "4H", stDir: -1, is4hBull: true, is4hBear: false },
+      fsd: { isPick: true, tier: "core" },
+    }, { eventType: "ENTRY" });
+    expect(snap.source).toBe("investor_decision_records");
+    expect(snap.investor.score).toBe(75);
+    expect(snap.tf["4H"].signals.supertrend).toBe(1);
+    expect(snap.investor.accum_zone.signals).toContain("monthly_trend_bullish");
+  });
+
+  it("hydrates missing snapshots from mocked decision_records", async () => {
+    const trades = [
+      { trade_id: "inv-NBIS-auto-1", ticker: "NBIS", signal_snapshot_json: null, exit_snapshot_json: null },
+    ];
+    const db = {
+      prepare(sql) {
+        return {
+          bind() { return this; },
+          async all() {
+            if (String(sql).includes("decision_records")) {
+              return {
+                results: [
+                  {
+                    event_type: "ENTRY",
+                    position_id: "inv-NBIS-auto-1",
+                    inputs_json: JSON.stringify({
+                      position_id: "inv-NBIS-auto-1",
+                      score: 75,
+                      stage: "accumulate",
+                      reason: "auto_entry_accumulate",
+                      h4_timing: { is4hBull: true, stDir: 1 },
+                      components: { weeklyTrend: 10 },
+                    }),
+                  },
+                  {
+                    event_type: "EXIT",
+                    position_id: "inv-NBIS-auto-1",
+                    inputs_json: JSON.stringify({
+                      position_id: "inv-NBIS-auto-1",
+                      score: 70,
+                      stage: "watch",
+                      reason: "PRIMARY_INVALIDATION_BREACH",
+                      auto_rebalance: { breach_label: "Weekly ATR support", breach_pct: -9.4 },
+                    }),
+                  },
+                ],
+              };
+            }
+            return { results: [] };
+          },
+        };
+      },
+    };
+    await hydrateInvestorAutopsySignalsFromDecisions(db, trades);
+    const entry = JSON.parse(trades[0].signal_snapshot_json);
+    const exit = JSON.parse(trades[0].exit_snapshot_json);
+    expect(entry.investor.score).toBe(75);
+    expect(exit.investor.reason).toBe("PRIMARY_INVALIDATION_BREACH");
+  });
+
+  it("hydrates trader archives from direction_accuracy fallback", async () => {
+    const trades = [
+      { trade_id: "AMZN-1", signal_snapshot_json: null, exit_snapshot_json: null },
+    ];
+    const db = {
+      prepare() {
+        return {
+          bind() { return this; },
+          async all() {
+            return {
+              results: [{
+                trade_id: "AMZN-1",
+                signal_snapshot_json: JSON.stringify({ tf: { D: { bias: 0.5, signals: { ema_cross: 1 } } } }),
+                exit_snapshot_json: JSON.stringify({ tf: { D: { bias: -0.2, signals: { ema_cross: -1 } } } }),
+                entry_path: "ripster_cloud",
+                ts: 100,
+              }],
+            };
+          },
+        };
+      },
+    };
+    await hydrateAutopsySignalsFromDirectionAccuracy(db, trades);
+    expect(JSON.parse(trades[0].signal_snapshot_json).tf.D.signals.ema_cross).toBe(1);
+    expect(JSON.parse(trades[0].exit_snapshot_json).tf.D.signals.ema_cross).toBe(-1);
   });
 
   it("maps closed investor position to WIN/LOSS with entry/exit from lots", () => {
