@@ -898,6 +898,7 @@ import {
   investorEntryFloorAdjustment,
   computeInvestorSimEligible,
   investor4hCapitalDeploymentBlock,
+  investorLtfEntryStabilizationBlock,
   resolveInvestor4hTiming,
   buildInvestorDecisionInputs,
   compactInvestorScoreProvenance,
@@ -94043,6 +94044,41 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   gateTrace: [{ gate: "st_opposing_slope", decision: "reject", reason: _h4Block.reason, h4: _h4Block }],
                 },
                 gateTrace: [{ gate: "st_opposing_slope", decision: "reject", reason: _h4Block.reason }],
+              }).catch(() => {});
+              continue;
+            }
+            // 2026-08-04 — July LT autopsy: HTF score ≠ timed entry. Require
+            // 10m ST / 5-12 cloud / FVG stabilization before deploying capital.
+            const _ltfBlock = investorLtfEntryStabilizationBlock(
+              _tdAddGate || { ticker: t.ticker },
+              _invRebalCfg,
+            );
+            if (_ltfBlock) {
+              skipped.push({
+                ticker: t.ticker,
+                reason: "ltf_not_stabilized",
+                detail: _ltfBlock.reason,
+                ltf: _ltfBlock,
+              });
+              recordInvestorDecision(env, {
+                lotId: `admit-${t.ticker}-${now}`,
+                ticker: t.ticker,
+                eventType: "ADMIT_REJECT",
+                ts: now,
+                reason: _ltfBlock.reason,
+                inputCtx: {
+                  event: "ADMIT_REJECT",
+                  ticker: t.ticker,
+                  ts: now,
+                  score: t.score,
+                  stage: t.stage,
+                  stageReason: _scoreRowTier.stageReason || scores[t.ticker]?.stageReason,
+                  actionTier: _execTier,
+                  tickerData: _tdAddGate,
+                  marketHealth: marketScore,
+                  gateTrace: [{ gate: "ltf_entry_stabilize", decision: "reject", reason: _ltfBlock.reason, ltf: _ltfBlock }],
+                },
+                gateTrace: [{ gate: "ltf_entry_stabilize", decision: "reject", reason: _ltfBlock.reason }],
               }).catch(() => {});
               continue;
             }
