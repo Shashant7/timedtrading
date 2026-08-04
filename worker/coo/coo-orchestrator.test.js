@@ -17,6 +17,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   getRecentCooActions,
+  isTransientD1Error,
   runCooCalibrationCycle,
   runMoveDiscoveryCycle,
   runScreenerAutoPromote,
@@ -157,6 +158,56 @@ describe("COO orchestrator — calibration", () => {
       path: "/timed/calibration/run",
       body: { analysis_only: false, scope_kind: "live", live_only: true },
     });
+  });
+
+  it("recognizes transient D1 overload errors", () => {
+    expect(isTransientD1Error("D1_ERROR: D1 DB is overloaded. Requests queued for too long.")).toBe(true);
+    expect(isTransientD1Error("SQLITE_BUSY")).toBe(true);
+    expect(isTransientD1Error("no_report_id")).toBe(false);
+  });
+
+  it("retries calibration/run on D1 overload then succeeds", async () => {
+    let calls = 0;
+    const env = makeEnv({
+      TIMED_API_KEY: "test-key",
+      _selfDispatch: async () => {
+        calls += 1;
+        if (calls < 3) {
+          return new Response(JSON.stringify({
+            ok: false,
+            error: "D1_ERROR: D1 DB is overloaded. Requests queued for too long.",
+          }));
+        }
+        return new Response(JSON.stringify({
+          ok: true,
+          report: {
+            report_id: "cal-retry",
+            trade_classifications: { total_trades_after_exclusion: 40 },
+            vix_coverage: { known_pct: 88 },
+            wfo_summary: { verdict: "PASS" },
+          },
+        }));
+      },
+    });
+    const result = await runCooCalibrationCycle(env, { backoffsMs: [0, 1, 1, 1] });
+    expect(result.ok).toBe(true);
+    expect(result.report_id).toBe("cal-retry");
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry non-transient calibration failures", async () => {
+    let calls = 0;
+    const env = makeEnv({
+      TIMED_API_KEY: "test-key",
+      _selfDispatch: async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ ok: false, error: "no_admin_key" }));
+      },
+    });
+    const result = await runCooCalibrationCycle(env, { backoffsMs: [0, 1, 1] });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("no_admin_key");
+    expect(calls).toBe(1);
   });
 });
 
