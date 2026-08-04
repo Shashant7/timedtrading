@@ -10,6 +10,7 @@ import {
   buildInvestorSignalSnapshotFromDecision,
   hydrateInvestorAutopsySignalsFromDecisions,
   hydrateAutopsySignalsFromDirectionAccuracy,
+  archiveInvestorAutopsyDirectionAccuracy,
 } from "./investor-autopsy-archive.js";
 
 describe("investor-autopsy-archive", () => {
@@ -49,6 +50,69 @@ describe("investor-autopsy-archive", () => {
     expect(snap.investor.score).toBe(75);
     expect(snap.tf["4H"].signals.supertrend).toBe(1);
     expect(snap.investor.accum_zone.signals).toContain("monthly_trend_bullish");
+  });
+
+  it("prefers full TF grid stamped at decision time over h4-only fallback", () => {
+    const snap = buildInvestorSignalSnapshotFromDecision({
+      score: 80,
+      tf: {
+        "4H": { bias: null, signals: { supertrend: 1, st_slope: 1, ema_cross: 1 } },
+        D: { bias: null, signals: { supertrend: 1, ema_cross: 1 } },
+      },
+      h4_timing: { is4hBull: false, is4hBear: true, stDir: 1 },
+    }, { eventType: "ENTRY" });
+    expect(snap.tf["4H"].signals.supertrend).toBe(1); // stamped tf wins
+    expect(snap.tf.D.signals.ema_cross).toBe(1);
+  });
+
+  it("maps entry_provenance_json into signal_snapshot_json", () => {
+    const trade = mapInvestorPositionToAutopsyTrade(
+      {
+        id: "inv-NBIS-auto-1",
+        ticker: "NBIS",
+        status: "OPEN",
+        avg_entry: 100,
+        total_shares: 10,
+        first_entry_ts: 1751400000000,
+        entry_provenance_json: JSON.stringify({
+          stage: "accumulate",
+          score: 75,
+          tf: { "4H": { signals: { supertrend: 1, ema_cross: 1 } }, D: { signals: { ema_cross: 1 } } },
+          h4_timing: { is4hBull: true },
+        }),
+      },
+      [{ action: "BUY", shares: 10, price: 100, value: 1000, ts: 1751400000000 }],
+    );
+    const snap = JSON.parse(trade.signal_snapshot_json);
+    expect(snap.tf["4H"].signals.supertrend).toBe(1);
+    expect(snap.tf.D.signals.ema_cross).toBe(1);
+  });
+
+  it("archives brda rows from trade snapshots", async () => {
+    const binds = [];
+    const db = {
+      prepare(sql) {
+        return {
+          bind(...args) {
+            binds.push({ sql: String(sql), args });
+            return this;
+          },
+          async run() { return { success: true }; },
+        };
+      },
+    };
+    const ok = await archiveInvestorAutopsyDirectionAccuracy(db, "live-long-term-2026-08", {
+      trade_id: "inv-NBIS-auto-1",
+      ticker: "NBIS",
+      entry_ts: 1751400000000,
+      entry_path: "investor_long_term",
+      signal_snapshot_json: JSON.stringify({ tf: { D: { signals: { ema_cross: 1 } } } }),
+      exit_snapshot_json: null,
+    });
+    expect(ok).toBe(true);
+    expect(binds.some((b) => b.sql.includes("backtest_run_direction_accuracy"))).toBe(true);
+    expect(binds[0].args[0]).toBe("live-long-term-2026-08");
+    expect(binds[0].args[1]).toBe("inv-NBIS-auto-1");
   });
 
   it("hydrates missing snapshots from mocked decision_records", async () => {
