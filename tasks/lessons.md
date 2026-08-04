@@ -4988,3 +4988,37 @@ Meta-lesson: "scanned 0 / no rows / no error" from a best-effort
 subsystem is not evidence of health. Verify each pipeline with one
 positive observation (a row actually scanned, a fill actually recorded)
 before trusting its silence.
+
+## 2026-08-04 — July LT autopsy: investor entries mistimed (no LTF confluence)
+
+Operator graded first 5 July long-term trades (`live-long-term-2026-07`):
+NBIS, AMD, IESC (Jul 1), TWLO, MU (Jul 2). Shared theme: **entries rushed** —
+HTF score / accumulate stage fired without 10m ST, 5-12 cloud curl, or FVG
+balance confluence.
+
+Per-trade notes (operator):
+1. **NBIS** — Hourly bearish FVG held; ST flipped + sloping down; 10m very
+   bearish; 5-12 never curled. No reversal confirmation. Exit at Daily ATR
+   −161.8% was late — prefer breach of Daily ATR −100.
+2. **AMD** — Hourly bearish preparation / lead-up; 4H phase leaving + ST
+   flip; 10m 5-12 no curl; entered during stabilizing then further drop.
+   Mid-bearish count → long is poor.
+3. **IESC** — Unwarranted; still bearish across pretty much all TFs.
+4. **TWLO** — Entry OK; should have trimmed when price failed recent swing
+   high and breached well beyond entry.
+5. **MU** — Gap down; never established over 5-12 / no curl; ST bearish +
+   sloping. Failed 233 EMA and couldn't clear it — 10m 233 reject was a
+   better exit than waiting for support.
+
+**Engine gap**: Investor capital deploy only had 4H ST *slope* + score/stage
+gates. No 10m ST, Ripster 5-12, or daily FVG veto on new opens (trader already
+uses LTF ST).
+
+**Fix**: `investorLtfEntryStabilizationBlock()` on auto-rebalance admit
+(new open + add). Blocks: 10m+30m ST both bearish; 10m ST bearish+sloping;
+5-12 bear without crossUp curl; opposing daily FVG without LTF reclaim;
+hourly bear prep + unreclaimed 10m. Config:
+`deep_audit_investor_ltf_entry_gate_enabled` (default on).
+
+Exit refinements (ATR −100 preference, swing-high trim, 233 EMA reject) are
+still open follow-ups — this change is the entry-timing floor.
