@@ -40,7 +40,11 @@ export function replayInvestorLots(lots) {
       costBasis += value;
       if (id) {
         byLotId.set(id, {
+          action,
+          shares,
+          price,
           avgEntryAfter: totalShares > 0 ? costBasis / totalShares : 0,
+          heldAfter: totalShares,
         });
       }
       continue;
@@ -49,7 +53,17 @@ export function replayInvestorLots(lots) {
     if (action !== "SELL") continue;
 
     if (totalShares <= 0) {
-      if (id) byLotId.set(id, { avgEntryAtSell: 0, realizedPnl: null, realizedPnlPct: null });
+      if (id) {
+        byLotId.set(id, {
+          action,
+          shares,
+          price,
+          avgEntryAtSell: 0,
+          realizedPnl: null,
+          realizedPnlPct: null,
+          heldAfter: 0,
+        });
+      }
       continue;
     }
 
@@ -67,11 +81,15 @@ export function replayInvestorLots(lots) {
 
     if (id) {
       byLotId.set(id, {
+        action,
+        shares: sellShares,
+        price,
         avgEntryAtSell,
         costBasisSold,
         realizedPnl,
         realizedPnlPct,
         avgEntryAfter: totalShares > 0 ? costBasis / totalShares : 0,
+        heldAfter: totalShares,
       });
     }
   }
