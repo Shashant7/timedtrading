@@ -899,6 +899,8 @@ import {
   computeInvestorSimEligible,
   investor4hCapitalDeploymentBlock,
   investorLtfEntryStabilizationBlock,
+  resolveInvestorFailedEntryReclaim,
+  parseInvestorPositionNotes,
   resolveInvestor4hTiming,
   buildInvestorDecisionInputs,
   compactInvestorScoreProvenance,
@@ -94802,6 +94804,169 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             console.log(`[AUTO-REBALANCE] ${sym} primary invalidation breach: close $${price.toFixed(2)} < $${breach.price.toFixed(2)} (${breach.label}) → full exit`);
           }
 
+          // ── Failed entry-reclaim exit (movie / sequence) ──
+          // MTZ Jul 2: hard drop → nearly BE → reject → model still waited for
+          // Weekly ATR. Arm after underwater, fire on reject confluence.
+          const failedReclaimExits = [];
+          const _frcMinHoldMs = Math.max(
+            0,
+            Number(_invRebalCfg.investor_failed_reclaim_min_hold_hours
+              ?? _invRebalCfg.invalidation_min_hold_hours) || 0,
+          ) * 3600 * 1000;
+          const _frcExitPct = Math.min(1, Math.max(0.05, Number(_invRebalCfg.investor_failed_reclaim_exit_pct) || 1));
+          for (const pos of (_skipTrims ? [] : existingPos)) {
+            const sym = String(pos.ticker || "").toUpperCase();
+            if (_addedThisRun.has(sym)) continue;
+            if (eventReducedTickers.has(pos.ticker) || eventReducedTickers.has(sym)) continue;
+            if (!(Number(pos.total_shares) > 0)) continue;
+            const pf = priceMap[sym] || priceMap[pos.ticker];
+            const price = pf ? Number(pf.p) : null;
+            if (!price || price <= 0) continue;
+
+            const _openedMs = Number(pos.first_entry_ts || 0);
+            if (_frcMinHoldMs > 0 && _openedMs > 0 && (now - _openedMs) < _frcMinHoldMs) continue;
+
+            const notesObj = parseInvestorPositionNotes(pos.notes);
+            const latestTickerData = await kvGetJSON(env.KV_TIMED, `timed:latest:${sym}`).catch(() => null);
+            const frc = resolveInvestorFailedEntryReclaim({
+              avgEntry: pos.avg_entry,
+              price,
+              tickerData: latestTickerData,
+              priorState: notesObj._failed_reclaim || null,
+              cfg: _invRebalCfg,
+              now,
+            });
+
+            // Persist arm / clear state even when not firing (sequence memory).
+            if (JSON.stringify(frc.state) !== JSON.stringify(notesObj._failed_reclaim || null)) {
+              try {
+                const nextNotes = { ...notesObj };
+                if (frc.state) nextNotes._failed_reclaim = frc.state;
+                else delete nextNotes._failed_reclaim;
+                await env.DB.prepare(
+                  "UPDATE investor_positions SET notes = ?1, updated_at = ?2 WHERE id = ?3",
+                ).bind(JSON.stringify(nextNotes).slice(0, 16000), now, pos.id).run();
+                pos.notes = JSON.stringify(nextNotes);
+              } catch (_) { /* notes stamp must not block */ }
+            }
+
+            if (!frc.fire) continue;
+
+            const totalShares = Number(pos.total_shares);
+            const trimShares = Math.floor(totalShares * _frcExitPct * 10000) / 10000;
+            if (!(trimShares > 0)) continue;
+            const remaining = Math.max(0, totalShares - trimShares);
+            const sellValue = trimShares * price;
+            const avgEntry = Number(pos.avg_entry) || 0;
+            const pnl = sellValue - (trimShares * avgEntry);
+            const lotId = `lot-${sym}-failed-reclaim-${now}`;
+            const trimReason = "FAILED_ENTRY_RECLAIM";
+            const scoreData = scores[sym] || scores[pos.ticker] || {};
+            const fullClose = remaining <= 0.0001;
+
+            if (fullClose) {
+              await env.DB.prepare(
+                "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1, investor_stage = 'exited', notes = ?2 WHERE id = ?3",
+              ).bind(now, JSON.stringify({ ...notesObj, _failed_reclaim: null, _failed_reclaim_fired: { ts: now, reject: frc.reject, detail: frc.detail } }).slice(0, 16000), pos.id).run();
+            } else {
+              const newCost = Math.max(0, (Number(pos.cost_basis) || 0) - (trimShares * avgEntry));
+              await env.DB.prepare(
+                "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3, notes = ?4 WHERE id = ?5",
+              ).bind(
+                remaining,
+                newCost,
+                now,
+                JSON.stringify({ ...notesObj, _failed_reclaim: null, _failed_reclaim_fired: { ts: now, reject: frc.reject, detail: frc.detail } }).slice(0, 16000),
+                pos.id,
+              ).run();
+              pos.total_shares = remaining;
+              pos.cost_basis = newCost;
+            }
+
+            await env.DB.prepare(
+              "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)",
+            ).bind(lotId, pos.id, sym, trimShares, price, sellValue, now, trimReason).run();
+
+            const prevBal = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: fullClose ? "EXIT" : "TRIM",
+              position_id: pos.id, ticker: sym, direction: "LONG",
+              qty: trimShares, price, cash_delta: sellValue,
+              realized_pnl: pnl, balance: prevBal + sellValue,
+              note: `Failed reclaim ${fullClose ? "exit" : "trim"} ${trimShares}sh ${sym} @$${price.toFixed(2)} (${frc.reject}, P&L $${pnl.toFixed(2)})`,
+            }).catch((e) => console.error("[LEDGER] failed-reclaim exit failed:", e));
+
+            recordInvestorDecision(env, {
+              lotId,
+              positionId: pos.id,
+              ticker: sym,
+              eventType: fullClose ? "EXIT" : "TRIM",
+              ts: now,
+              reason: trimReason,
+              inputCtx: {
+                action: "SELL",
+                event: fullClose ? "EXIT" : "TRIM",
+                lotId,
+                positionId: pos.id,
+                ticker: sym,
+                ts: now,
+                price,
+                shares: trimShares,
+                value: sellValue,
+                reason: trimReason,
+                stage: scoreData.stage,
+                stageReason: scoreData.stageReason,
+                score: scoreData.score,
+                components: scoreData.components,
+                accumZone: scoreData.accumZone,
+                tickerData: latestTickerData,
+                marketHealth: marketScore,
+                autoRebalance: {
+                  kind: "failed_entry_reclaim",
+                  reject: frc.reject,
+                  detail: frc.detail,
+                  pnl,
+                },
+              },
+            }).catch(() => {});
+
+            eventReducedTickers.add(pos.ticker);
+            failedReclaimExits.push({
+              ticker: sym,
+              shares: trimShares,
+              price,
+              pnl: Math.round(pnl * 100) / 100,
+              reject: frc.reject,
+              detail: frc.detail,
+              closed: fullClose,
+            });
+            queueBackground(_bridgeMirrorInvestor({
+              kind: fullClose ? "exit" : "trim",
+              ticker: sym,
+              shares: trimShares,
+              price,
+              position_id: pos.id,
+              reason: "investor_failed_entry_reclaim",
+              reduce_pct: _frcExitPct,
+            }));
+            scheduleInvestorLotActionChannels(env, env?.KV_TIMED, {
+              ticker: sym,
+              shares: trimShares,
+              price,
+              value: sellValue,
+              pnl: Math.round(pnl * 100) / 100,
+              remaining: fullClose ? 0 : remaining,
+              reason: trimReason,
+              closed: fullClose,
+              lot_id: lotId,
+              ts: now,
+              stage: scoreData?.stage ?? (fullClose ? "exited" : "reduce"),
+              score: scoreData?.score ?? null,
+              stageReason: "failed_entry_reclaim",
+            }, { collect: _rebalDigestTrims });
+            console.log(`[AUTO-REBALANCE] ${sym} failed entry reclaim (${frc.reject}): ${fullClose ? "full exit" : "trim"} @$${price.toFixed(2)}`);
+          }
+
           const cioHeldThroughEvent = [];
           for (const pos of (_skipTrims ? [] : existingPos)) {
             if (_addedThisRun.has(String(pos.ticker || "").toUpperCase())) {
@@ -95445,6 +95610,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             addedTo: added.length,
             eventReducedCount: eventReduced.length,
             invalidationExitCount: invalidationExits.length,
+            failedReclaimExitCount: failedReclaimExits.length,
             fsdRemovalExitCount: fsdRemovalExits.length,
             reducedCount: reduced.length,
             exhaustionTrimmedCount: exhaustionTrimmed.length,
@@ -95466,6 +95632,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             added,
             eventReduced,
             invalidationExits,
+            failedReclaimExits,
             fsdRemovalExits,
             reduced,
             exhaustionTrimmed,

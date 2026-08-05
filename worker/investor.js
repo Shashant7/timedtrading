@@ -150,6 +150,18 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   // LTF 233s (better shorts). Require reclaim / break-through + gaining.
   investor_ltf_require_233_reclaim: true,
   investor_ltf_233_near_pct: 0.15, // "near or below" band (% of ema233)
+
+  // 2026-08-05 — Failed entry-reclaim exit (MTZ Jul 2 movie). After an
+  // underwater episode, if price nearly recovers to entry then rejects
+  // (giveback / fail 10m 233 / fail 5-12), exit instead of riding all the
+  // way to Weekly ATR support. Sequence > single frame.
+  investor_failed_reclaim_exit_enabled: true,
+  investor_failed_reclaim_arm_dd_pct: 3,       // must have been ≥3% underwater
+  investor_failed_reclaim_be_band_pct: 1.5,    // recovery high within 1.5% of entry
+  investor_failed_reclaim_giveback_pct: 1.5,   // pullback from recovery high
+  investor_failed_reclaim_rescue_pct: 2,       // clear arm if +2% above entry
+  investor_failed_reclaim_exit_pct: 1.0,       // 1.0 = full exit (MTZ pattern)
+  investor_failed_reclaim_min_hold_hours: 18,  // align with invalidation min-hold
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -355,7 +367,133 @@ export function loadInvestorConfig(daCfg) {
   else if (ltf233 === "false") cfg.investor_ltf_require_233_reclaim = false;
   const near233 = Number(daCfg.deep_audit_investor_ltf_233_near_pct);
   if (Number.isFinite(near233) && near233 >= 0 && near233 <= 2) cfg.investor_ltf_233_near_pct = near233;
+  const frcEn = daCfg.deep_audit_investor_failed_reclaim_exit_enabled;
+  if (frcEn === true || frcEn === false) cfg.investor_failed_reclaim_exit_enabled = frcEn;
+  else if (frcEn === "true") cfg.investor_failed_reclaim_exit_enabled = true;
+  else if (frcEn === "false") cfg.investor_failed_reclaim_exit_enabled = false;
+  const frcArm = Number(daCfg.deep_audit_investor_failed_reclaim_arm_dd_pct);
+  if (Number.isFinite(frcArm) && frcArm > 0 && frcArm <= 25) cfg.investor_failed_reclaim_arm_dd_pct = frcArm;
+  const frcBe = Number(daCfg.deep_audit_investor_failed_reclaim_be_band_pct);
+  if (Number.isFinite(frcBe) && frcBe > 0 && frcBe <= 10) cfg.investor_failed_reclaim_be_band_pct = frcBe;
+  const frcGb = Number(daCfg.deep_audit_investor_failed_reclaim_giveback_pct);
+  if (Number.isFinite(frcGb) && frcGb > 0 && frcGb <= 15) cfg.investor_failed_reclaim_giveback_pct = frcGb;
+  const frcExit = Number(daCfg.deep_audit_investor_failed_reclaim_exit_pct);
+  if (Number.isFinite(frcExit) && frcExit > 0 && frcExit <= 1) cfg.investor_failed_reclaim_exit_pct = frcExit;
   return cfg;
+}
+
+/** Parse investor_positions.notes JSON blob (best-effort). */
+export function parseInvestorPositionNotes(notes) {
+  if (notes == null) return {};
+  if (typeof notes === "object" && !Array.isArray(notes)) return { ...notes };
+  if (typeof notes !== "string" || !notes.trim()) return {};
+  try {
+    const parsed = JSON.parse(notes);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Sequence detector: underwater → near-breakeven recovery → reject.
+ * Pure. Returns { fire, state, reason, reject, pnlPct } for auto-rebalance.
+ *
+ * MTZ Jul 2: dropped hard, nearly back to entry, rejected at 233/clouds, then
+ * the model waited for Weekly ATR — the movie said exit on the reject.
+ */
+export function resolveInvestorFailedEntryReclaim({
+  avgEntry,
+  price,
+  tickerData = null,
+  priorState = null,
+  cfg = DEFAULT_INVESTOR_CONFIG,
+  now = Date.now(),
+} = {}) {
+  if (cfg?.investor_failed_reclaim_exit_enabled === false) {
+    return { fire: false, state: null, reason: null, reject: null, pnlPct: null };
+  }
+  const entry = Number(avgEntry);
+  const px = Number(price);
+  if (!(entry > 0) || !(px > 0)) {
+    return { fire: false, state: priorState || null, reason: null, reject: null, pnlPct: null };
+  }
+
+  const armDd = Math.abs(Number(cfg.investor_failed_reclaim_arm_dd_pct) || 3);
+  const beBand = Math.abs(Number(cfg.investor_failed_reclaim_be_band_pct) || 1.5);
+  const giveback = Math.abs(Number(cfg.investor_failed_reclaim_giveback_pct) || 1.5);
+  const rescue = Math.abs(Number(cfg.investor_failed_reclaim_rescue_pct) || 2);
+
+  const pnlPct = ((px - entry) / entry) * 100;
+  let state = priorState && typeof priorState === "object" ? { ...priorState } : null;
+
+  // Thesis rescued — clear arm.
+  if (pnlPct >= rescue) {
+    return { fire: false, state: null, reason: "cleared_above_entry", reject: null, pnlPct };
+  }
+
+  // Arm after a meaningful underwater episode.
+  if ((!state || !state.armed) && pnlPct <= -armDd) {
+    state = {
+      armed: true,
+      armed_ts: Number(now) || Date.now(),
+      mae_pct: Math.round(pnlPct * 100) / 100,
+      high_since_arm: px,
+      saw_near_be: false,
+    };
+  }
+
+  if (!state?.armed) {
+    return { fire: false, state, reason: null, reject: null, pnlPct };
+  }
+
+  // Track recovery high + whether we tagged the breakeven band.
+  const high = Math.max(Number(state.high_since_arm) || px, px);
+  state.high_since_arm = high;
+  state.mae_pct = Math.min(Number(state.mae_pct) || 0, Math.round(pnlPct * 100) / 100);
+  const distFromEntryAtHigh = ((high - entry) / entry) * 100; // negative if still below
+  if (distFromEntryAtHigh >= -beBand) state.saw_near_be = true;
+
+  if (!state.saw_near_be) {
+    return { fire: false, state, reason: "armed_waiting_be_tag", reject: null, pnlPct };
+  }
+
+  // Reject confirmation from the movie (any one is enough).
+  const givebackFromHighPct = high > 0 ? ((high - px) / high) * 100 : 0;
+  const tf10 = tickerData?.tf_tech?.["10"] || tickerData?.tf_tech?.["10m"] || null;
+  const e233 = Number(tf10?.ema?.ema233 ?? tf10?.ema?.e233);
+  const fail233 = Number.isFinite(e233) && e233 > 0 && px < e233;
+  const c512 = tf10?.ripster?.c5_12 || null;
+  const failCloud = !!(c512 && (c512.crossDn === true || (c512.bear === true && c512.crossUp !== true)));
+  const failGiveback = givebackFromHighPct >= giveback;
+  // Still below entry — reject, not a successful reclaim through.
+  const stillBelowEntry = px < entry;
+
+  let reject = null;
+  if (stillBelowEntry && failGiveback) reject = "giveback_from_recovery_high";
+  else if (stillBelowEntry && fail233) reject = "fail_10m_233";
+  else if (stillBelowEntry && failCloud) reject = "fail_10m_5_12";
+
+  if (!reject) {
+    return { fire: false, state, reason: "armed_near_be_no_reject", reject: null, pnlPct };
+  }
+
+  return {
+    fire: true,
+    state,
+    reason: "FAILED_ENTRY_RECLAIM",
+    reject,
+    pnlPct,
+    detail: {
+      mae_pct: state.mae_pct,
+      high_since_arm: state.high_since_arm,
+      giveback_from_high_pct: Math.round(givebackFromHighPct * 100) / 100,
+      fail233,
+      failCloud,
+      entry,
+      price: px,
+    },
+  };
 }
 
 /**

@@ -14,6 +14,8 @@ Entries are mistimed. Investor deploy was not using:
 
 Long-term horizon does **not** excuse rushing the first print — wait for stabilization.
 
+**Management (movie):** after a bad entry goes underwater then nearly recovers to breakeven and rejects, exit on that sequence — do not wait for Weekly ATR support.
+
 ## Per-trade
 
 | Date | Ticker | Verdict | Notes |
@@ -23,6 +25,7 @@ Long-term horizon does **not** excuse rushing the first print — wait for stabi
 | Jul 1 | IESC | Bad entry | Bearish on nearly all TFs. |
 | Jul 2 | TWLO | Entry OK; manage better | Trim when failed swing high and breached well beyond entry. |
 | Jul 2 | MU | Bad entry; exit nuance | Gap down; no 5-12 establish/curl; ST bear+slope. Failed 233 EMA — 10m 233 reject as exit vs waiting for support. |
+| Jul 2 | MTZ | Bad entry; late exit (movie) | Same under-233 / bad LTF entry. Hard drop → nearly BE → reject at 233/clouds — should exit on reject, not wait for Weekly ATR support. |
 
 ## Engine response
 
@@ -34,4 +37,5 @@ Long-term horizon does **not** excuse rushing the first print — wait for stabi
 3. **Open**: Swing-high failure trim for investor (TWLO).
 4. **Open**: 10m 233 EMA reject as optional early exit / management cue (MU).
 5. **Done**: LTF EMA-233 reclaim/break-through as leading timing (IESC Jul 2, AMD Jul 1).
-6. **Open**: Continue grading remaining July LT trades for more themes.
+6. **Done**: Failed entry-reclaim exit (MTZ movie — underwater → near BE → reject).
+7. **Open**: Continue grading remaining July LT trades for more themes.
