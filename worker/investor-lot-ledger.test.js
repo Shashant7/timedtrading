@@ -11,9 +11,27 @@ describe("replayInvestorLots", () => {
     expect(r.totalShares).toBeCloseTo(5, 6);
     expect(r.costBasis).toBeCloseTo(500, 6);
     expect(r.avgEntry).toBeCloseTo(100, 6);
+    const buy = r.byLotId.get("b1");
+    expect(buy.heldAfter).toBeCloseTo(10, 6);
     const sell = r.byLotId.get("s1");
     expect(sell.realizedPnl).toBeCloseTo(50, 6);
     expect(sell.realizedPnlPct).toBeCloseTo(10, 6);
+    expect(sell.heldAfter).toBeCloseTo(5, 6);
+  });
+
+  it("tracks running heldAfter across DCA + partial trims", () => {
+    const lots = [
+      { id: "b1", action: "BUY", shares: 38.06, price: 131.37, value: 5000, ts: 1 },
+      { id: "s1", action: "SELL", shares: 1.9, price: 128, value: 243.2, ts: 2 },
+      { id: "d1", action: "DCA_BUY", shares: 16.21, price: 123.41, value: 2000, ts: 3 },
+      { id: "s2", action: "SELL", shares: 5.22, price: 126.55, value: 660.6, ts: 4 },
+    ];
+    const r = replayInvestorLots(lots);
+    expect(r.byLotId.get("b1").heldAfter).toBeCloseTo(38.06, 4);
+    expect(r.byLotId.get("s1").heldAfter).toBeCloseTo(36.16, 4);
+    expect(r.byLotId.get("d1").heldAfter).toBeCloseTo(52.37, 4);
+    expect(r.byLotId.get("s2").heldAfter).toBeCloseTo(47.15, 4);
+    expect(r.totalShares).toBeCloseTo(47.15, 4);
   });
 
   it("matches IWM-style trim band (~few % not 110%)", () => {

@@ -61484,12 +61484,26 @@ export default {
             //     exit_price = lot price, exit_ts = lot ts.
             //     Status forced to WIN/LOSS based on the realized PnL so
             //     the autopsy modal renders the closed-trade UI.
+            // 2026-08-05 — Also stamp held_after + position_held_now so
+            // Context→History can reconcile current shares and so a
+            // partial trim no longer reads as "0 held after".
             const trades = page.map(r => {
-              const isSell = String(r.action || "").toUpperCase() === "SELL";
-              const isBuy  = String(r.action || "").toUpperCase() === "BUY";
+              const actionU = String(r.action || "").toUpperCase();
+              const isSell = actionU === "SELL";
+              const isBuy  = actionU === "BUY";
               const lotPrice = Number(r.price) || 0;
               const lotShares = Number(r.shares) || 0;
-              const lotReplay = replayByPos[r.position_id]?.byLotId?.get(r.lot_id) || null;
+              const posReplay = replayByPos[r.position_id] || null;
+              const lotReplay = posReplay?.byLotId?.get(String(r.lot_id)) || null;
+              const heldAfter = Number.isFinite(Number(lotReplay?.heldAfter))
+                ? Number(lotReplay.heldAfter)
+                : null;
+              const positionHeldNow = Number.isFinite(Number(posReplay?.totalShares))
+                ? Number(posReplay.totalShares)
+                : (Number(r.total_shares) || 0);
+              const positionAvgEntry = Number.isFinite(Number(posReplay?.avgEntry))
+                ? Number(posReplay.avgEntry)
+                : (Number(r.avg_entry) || 0);
               const avgEntryAtSell = Number(lotReplay?.avgEntryAtSell) || 0;
               const realizedPnl = isSell
                 ? (Number.isFinite(Number(lotReplay?.realizedPnl))
@@ -61501,6 +61515,9 @@ export default {
                   ? Number(lotReplay.realizedPnlPct)
                   : (avgEntryAtSell > 0 ? ((lotPrice - avgEntryAtSell) / avgEntryAtSell) * 100 : null))
                 : null;
+              const lotRole = isSell
+                ? ((heldAfter != null && heldAfter > 0.0001) ? "TRIM" : "EXIT")
+                : (actionU === "DCA_BUY" ? "DCA" : "ENTRY");
               // For SELL lots, surface BOTH legs so Trade Autopsy can render
               // the entry/exit markers and P&L correctly.
               const sellShape = {
@@ -61535,10 +61552,17 @@ export default {
                 shares: lotShares,
                 value: r.value || (lotShares * lotPrice),
                 reason: r.reason,
+                exit_reason: isSell ? (r.reason || null) : null,
                 investor_stage: r.investor_stage,
                 total_shares: r.total_shares,
                 cost_basis: r.cost_basis,
                 avg_entry: r.avg_entry,
+                held_after: heldAfter,
+                position_held_now: positionHeldNow,
+                position_avg_entry: positionAvgEntry,
+                position_status: r.status || null,
+                lot_role: lotRole,
+                _source_mode: "investor",
                 pnl: realizedPnl,
                 pnl_pct: realizedPnlPct,
                 // Setup name for the ledger row — investor lots don't have a
@@ -61548,7 +61572,35 @@ export default {
                   : `investor_${String(r.action || "lot").toLowerCase()}`,
               };
             });
-            return sendJSON({ ok: true, mode: "investor", count: trades.length, hasMore, trades }, 200, corsHeaders(env, req));
+            // Position summary for the ticker (held-now reconciliation).
+            let positionSummary = null;
+            if (positionIds.length > 0) {
+              const primaryPid = positionIds[0];
+              const primaryReplay = replayByPos[primaryPid];
+              const primaryRow = page.find((r) => r.position_id === primaryPid) || page[0];
+              positionSummary = {
+                position_id: primaryPid,
+                held_now: Number.isFinite(Number(primaryReplay?.totalShares))
+                  ? Number(primaryReplay.totalShares)
+                  : (Number(primaryRow?.total_shares) || 0),
+                avg_entry: Number.isFinite(Number(primaryReplay?.avgEntry))
+                  ? Number(primaryReplay.avgEntry)
+                  : (Number(primaryRow?.avg_entry) || 0),
+                cost_basis: Number.isFinite(Number(primaryReplay?.costBasis))
+                  ? Number(primaryReplay.costBasis)
+                  : (Number(primaryRow?.cost_basis) || 0),
+                status: primaryRow?.status || null,
+                stage: primaryRow?.investor_stage || null,
+              };
+            }
+            return sendJSON({
+              ok: true,
+              mode: "investor",
+              count: trades.length,
+              hasMore,
+              trades,
+              position: positionSummary,
+            }, 200, corsHeaders(env, req));
           } catch (e) {
             const msg = (e?.message || String(e));
             if (msg.includes("no such table")) {
@@ -62193,8 +62245,91 @@ export default {
                     pnl, pnl_pct, status, setup_name, setup_grade, exit_reason
                FROM trades WHERE trade_id = ?1 LIMIT 1`,
           ).bind(tradeId).first();
+          // 2026-08-05 — Investor History rows use lot ids as trade_id.
+          // When the trader trades table misses, rebuild a position-level
+          // receipt from investor_lots so Held after / reason stay truthful
+          // for partial trims (e.g. PLTR PRE_EARNINGS_RISK_REDUCTION).
           if (!tradeRow) {
-            return sendJSON({ ok: false, error: "trade_not_found", trade_id: tradeId }, 404, corsHeaders(env, req));
+            const focusLot = await db.prepare(
+              `SELECT id, position_id, ticker, action, shares, price, value, ts, reason
+                 FROM investor_lots WHERE id = ?1 LIMIT 1`,
+            ).bind(tradeId).first().catch(() => null);
+            if (!focusLot?.position_id) {
+              return sendJSON({ ok: false, error: "trade_not_found", trade_id: tradeId }, 404, corsHeaders(env, req));
+            }
+            const posRow = await db.prepare(
+              `SELECT id, ticker, status, total_shares, cost_basis, avg_entry, investor_stage
+                 FROM investor_positions WHERE id = ?1 LIMIT 1`,
+            ).bind(focusLot.position_id).first().catch(() => null);
+            const lotsRes = await db.prepare(
+              `SELECT id, position_id, ticker, action, shares, price, value, ts, reason
+                 FROM investor_lots
+                WHERE position_id = ?1
+                ORDER BY ts ASC, id ASC`,
+            ).bind(focusLot.position_id).all().catch(() => ({ results: [] }));
+            const lots = lotsRes?.results || [];
+            const replay = replayInvestorLots(lots);
+            const events = [];
+            for (const lot of lots) {
+              const actionU = String(lot.action || "").toUpperCase();
+              const lotId = String(lot.id || "");
+              const meta = replay.byLotId.get(lotId) || {};
+              const shares = Number(lot.shares) || 0;
+              const price = Number(lot.price) || 0;
+              const value = Number(lot.value) || (shares * price);
+              const heldAfter = Number.isFinite(Number(meta.heldAfter))
+                ? Number(meta.heldAfter)
+                : null;
+              let type = "ENTRY";
+              if (actionU === "DCA_BUY") type = "ADD";
+              else if (actionU === "SELL") {
+                type = (heldAfter != null && heldAfter > 0.0001) ? "TRIM" : "EXIT";
+              } else if (actionU === "BUY") {
+                type = "ENTRY";
+              } else {
+                type = actionU || "ENTRY";
+              }
+              events.push({
+                type,
+                ts: Number(lot.ts) || 0,
+                shares,
+                price,
+                value,
+                realized_pnl: Number.isFinite(Number(meta.realizedPnl)) ? Number(meta.realizedPnl) : 0,
+                note: lot.reason || null,
+                reason: lot.reason || null,
+                held_after: heldAfter,
+                action: actionU,
+                lot_id: lotId,
+                source: "investor_lots",
+                focus: lotId === String(tradeId),
+              });
+            }
+            const firstBuy = lots.find((l) => {
+              const a = String(l.action || "").toUpperCase();
+              return a === "BUY" || a === "DCA_BUY";
+            });
+            return sendJSON({
+              ok: true,
+              mode: "investor",
+              trade_id: tradeId,
+              focus_lot_id: tradeId,
+              ticker: String(focusLot.ticker || posRow?.ticker || "").toUpperCase(),
+              direction: "LONG",
+              position_id: focusLot.position_id,
+              entry_ts: Number(firstBuy?.ts) || Number(focusLot.ts) || 0,
+              entry_price: Number(firstBuy?.price) || Number(posRow?.avg_entry) || 0,
+              total_shares_at_entry: Number(firstBuy?.shares) || 0,
+              trimmed_pct: 0,
+              status: posRow?.status || (replay.totalShares > 0.0001 ? "OPEN" : "CLOSED"),
+              position_held_now: replay.totalShares,
+              position_avg_entry: replay.avgEntry,
+              position_cost_basis: replay.costBasis,
+              investor_stage: posRow?.investor_stage || null,
+              events,
+              event_count: events.length,
+              data_source: "investor_lots",
+            }, 200, corsHeaders(env, req));
           }
           const ticker = tradeRow.ticker;
           const direction = String(tradeRow.direction || "LONG").toUpperCase();
@@ -62406,12 +62541,91 @@ export default {
           .bind(tradeId)
           .first();
 
+        // 2026-08-05 — Investor History clicks pass lot ids. Resolve those
+        // into a trade-like record so the public ledger fallback works.
         if (!tradeRow) {
-          return sendJSON(
-            { ok: false, error: "not_found", trade_id: tradeId },
-            404,
-            corsHeaders(env, req),
-          );
+          const focusLot = await db.prepare(
+            `SELECT id, position_id, ticker, action, shares, price, value, ts, reason
+               FROM investor_lots WHERE id = ?1 LIMIT 1`,
+          ).bind(tradeId).first().catch(() => null);
+          if (!focusLot?.position_id) {
+            return sendJSON(
+              { ok: false, error: "not_found", trade_id: tradeId },
+              404,
+              corsHeaders(env, req),
+            );
+          }
+          const posRow = await db.prepare(
+            `SELECT id, ticker, status, total_shares, cost_basis, avg_entry, investor_stage
+               FROM investor_positions WHERE id = ?1 LIMIT 1`,
+          ).bind(focusLot.position_id).first().catch(() => null);
+          const lotsRes = await db.prepare(
+            `SELECT id, position_id, action, shares, price, value, ts, reason
+               FROM investor_lots WHERE position_id = ?1 ORDER BY ts ASC, id ASC`,
+          ).bind(focusLot.position_id).all().catch(() => ({ results: [] }));
+          const lots = lotsRes?.results || [];
+          const replay = replayInvestorLots(lots);
+          const meta = replay.byLotId.get(String(focusLot.id)) || {};
+          const actionU = String(focusLot.action || "").toUpperCase();
+          const isSell = actionU === "SELL";
+          const lotPrice = Number(focusLot.price) || 0;
+          const lotShares = Number(focusLot.shares) || 0;
+          const heldAfter = Number.isFinite(Number(meta.heldAfter)) ? Number(meta.heldAfter) : null;
+          const avgEntryAtSell = Number(meta.avgEntryAtSell) || 0;
+          const realizedPnl = isSell && Number.isFinite(Number(meta.realizedPnl))
+            ? Number(meta.realizedPnl)
+            : null;
+          const realizedPnlPct = isSell && Number.isFinite(Number(meta.realizedPnlPct))
+            ? Number(meta.realizedPnlPct)
+            : null;
+          const firstBuy = lots.find((l) => {
+            const a = String(l.action || "").toUpperCase();
+            return a === "BUY" || a === "DCA_BUY";
+          });
+          const trade = {
+            trade_id: focusLot.id,
+            position_id: focusLot.position_id,
+            ticker: String(focusLot.ticker || posRow?.ticker || "").toUpperCase(),
+            direction: "LONG",
+            action: focusLot.action,
+            entry_ts: isSell ? focusLot.ts : (Number(firstBuy?.ts) || focusLot.ts),
+            entry_price: isSell
+              ? (avgEntryAtSell > 0 ? avgEntryAtSell : lotPrice)
+              : lotPrice,
+            exit_ts: isSell ? focusLot.ts : null,
+            exit_price: isSell ? lotPrice : null,
+            exit_reason: isSell ? (focusLot.reason || null) : null,
+            reason: focusLot.reason || null,
+            shares: lotShares,
+            value: Number(focusLot.value) || (lotShares * lotPrice),
+            status: isSell
+              ? (realizedPnl == null ? "FLAT" : (realizedPnl >= 0 ? "WIN" : "LOSS"))
+              : (posRow?.status || (replay.totalShares > 0.0001 ? "OPEN" : "CLOSED")),
+            pnl: realizedPnl,
+            pnl_pct: realizedPnlPct,
+            held_after: heldAfter,
+            position_held_now: replay.totalShares,
+            position_avg_entry: replay.avgEntry,
+            position_cost_basis: replay.costBasis,
+            position_status: posRow?.status || null,
+            total_shares: posRow?.total_shares ?? replay.totalShares,
+            avg_entry: posRow?.avg_entry ?? replay.avgEntry,
+            cost_basis: posRow?.cost_basis ?? replay.costBasis,
+            investor_stage: posRow?.investor_stage || null,
+            lot_role: isSell
+              ? ((heldAfter != null && heldAfter > 0.0001) ? "TRIM" : "EXIT")
+              : (actionU === "DCA_BUY" ? "DCA" : "ENTRY"),
+            _source_mode: "investor",
+            setup_name: posRow?.investor_stage
+              ? `investor_${actionU.toLowerCase()}_${String(posRow.investor_stage).toLowerCase()}`
+              : `investor_${actionU.toLowerCase()}`,
+          };
+          return sendJSON({
+            ok: true,
+            trade,
+            events: [],
+            mode: "investor",
+          }, 200, corsHeaders(env, req));
         }
 
         const eventsRows = await db

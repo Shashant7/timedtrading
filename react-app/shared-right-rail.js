@@ -722,6 +722,49 @@
       const d = new Date(ms);
       return d.toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
     }
+    // Display labels for investor lot / trim reasons. Keep raw codes in
+    // D1; only the History list + Trade Review modal use this map.
+    const LOT_REASON_LABELS = {
+      PRE_CPI_RISK_REDUCTION: "Pre-CPI risk reduction",
+      PRE_PPI_RISK_REDUCTION: "Pre-PPI risk reduction",
+      PRE_FOMC_RISK_REDUCTION: "Pre-FOMC risk reduction",
+      PRE_FOMC_RISK_REDUCTION_MATERIAL: "Pre-FOMC risk reduction",
+      PRE_PCE_RISK_REDUCTION: "Pre-PCE risk reduction",
+      PRE_NFP_RISK_REDUCTION: "Pre-NFP risk reduction",
+      PRE_EARNINGS_RISK_REDUCTION: "Pre-earnings risk reduction",
+      MFE_SAFETY_TRIM: "Profit lock trim",
+      PHASE_LEAVE_100: "Momentum fade trim",
+      RUNNER_PEAK_TRAIL: "Peak trail trim",
+      PROFIT_PROTECT_TRIM: "Profit protect trim",
+      SOFT_FUSE_TRIM: "Momentum weaken trim",
+      SOFT_FUSE_CLOUD_TRIM: "Cloud-hold partial trim",
+      FAILED_ENTRY_RECLAIM: "Failed entry reclaim",
+      MFE_EXTENSION_TRIM: "Extension profit trim",
+      Investor_Sell_Accumulate: "Investor sell accumulate",
+      investor_sell_accumulate: "Investor sell accumulate",
+      auto_entry_accumulate: "Initial accumulate entry",
+      dca_pullback: "DCA on pullback",
+      replay_dca: "DCA add",
+    };
+    function _humanizeLotReason(reason, opts) {
+      const raw = String(reason || "").trim();
+      if (!raw) return "";
+      if (LOT_REASON_LABELS[raw]) return LOT_REASON_LABELS[raw];
+      const titled = raw
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+      const max = Number(opts?.max) || 0;
+      if (max > 0 && titled.length > max) return titled.slice(0, max - 1) + "…";
+      return titled;
+    }
+    function _fmtSharesExact(s) {
+      const n = Number(s);
+      if (!Number.isFinite(n)) return "—";
+      if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+      return n.toFixed(2);
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Signal Radar — wraps window.TickerSpiderChartFactory (ticker-spider-chart.js)
@@ -5236,10 +5279,13 @@
           setAutopsyModalProfile(null);
           setAutopsyEvents(null);
           const _tid = t.trade_id || t.id || "";
+          const _isInvestorLot = t._source_mode === "investor" || String(t.action || "").toUpperCase().match(/^(BUY|SELL|DCA_BUY)$/);
           // 2026-05-27 (PR #324) — Kick off event-log fetch in parallel
           // with the trade record fetch. Non-blocking — the receipt
           // renders from trade.history if events isn't back yet, and
           // hot-swaps when events lands.
+          // 2026-08-05 — Investor lot ids resolve to a full position
+          // receipt (BUY/DCA/TRIM/EXIT) with held_after + reason.
           if (_tid) {
             fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}/events`)
               .then(r => r.ok ? r.json() : null)
@@ -5275,43 +5321,61 @@
             setAutopsyModalData({ ...t, ...(rec || {}) });
             setAutopsyModalLoading(false);
           };
-          fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
-            .then(r => r.ok ? r.json() : Promise.reject(new Error(`status_${r.status}`)))
-            .then(d => {
-              const allTrades = Array.isArray(d?.trades) ? d.trades : [];
-              const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
-              if (match) {
-                finalizeWith(match);
-                return;
-              }
-              if (d?.trade) {
-                finalizeWith(d.trade);
-                return;
-              }
-              throw new Error("no_match_in_admin_response");
-            })
-            .catch((_adminErr) => {
-              // Admin fetch failed or returned no match — try the public
-              // ledger endpoint as a fallback.
-              if (!_tid) {
-                setAutopsyModalData(t);
-                setAutopsyModalLoading(false);
-                return;
-              }
+          // Investor lots are not in the trader autopsy admin list —
+          // hydrate from the public ledger (lot → position shape) and
+          // keep the History-row stub as the immediate baseline.
+          if (_isInvestorLot) {
+            finalizeWith(t);
+            if (_tid) {
               fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`)
-                .then(r => r.ok ? r.json() : Promise.reject(new Error(`ledger_status_${r.status}`)))
+                .then(r => r.ok ? r.json() : null)
                 .then(d => {
-                  // Public ledger returns { ok: true, trade: {...} } or top-level fields.
-                  const rec = d?.trade || d?.row || (d?.ok ? d : null);
+                  const rec = d?.trade || null;
                   if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
-                    finalizeWith(rec);
-                  } else {
-                    setAutopsyModalData(t);
-                    setAutopsyModalLoading(false);
+                    setAutopsyModalData((prev) => ({ ...(prev || t), ...rec, _source_mode: "investor" }));
                   }
                 })
-                .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
-            });
+                .catch(() => { /* keep stub */ });
+            }
+          } else {
+            fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`)
+              .then(r => r.ok ? r.json() : Promise.reject(new Error(`status_${r.status}`)))
+              .then(d => {
+                const allTrades = Array.isArray(d?.trades) ? d.trades : [];
+                const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
+                if (match) {
+                  finalizeWith(match);
+                  return;
+                }
+                if (d?.trade) {
+                  finalizeWith(d.trade);
+                  return;
+                }
+                throw new Error("no_match_in_admin_response");
+              })
+              .catch((_adminErr) => {
+                // Admin fetch failed or returned no match — try the public
+                // ledger endpoint as a fallback.
+                if (!_tid) {
+                  setAutopsyModalData(t);
+                  setAutopsyModalLoading(false);
+                  return;
+                }
+                fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`)
+                  .then(r => r.ok ? r.json() : Promise.reject(new Error(`ledger_status_${r.status}`)))
+                  .then(d => {
+                    // Public ledger returns { ok: true, trade: {...} } or top-level fields.
+                    const rec = d?.trade || d?.row || (d?.ok ? d : null);
+                    if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
+                      finalizeWith(rec);
+                    } else {
+                      setAutopsyModalData(t);
+                      setAutopsyModalLoading(false);
+                    }
+                  })
+                  .catch(() => { setAutopsyModalData(t); setAutopsyModalLoading(false); });
+              });
+          }
           // /timed/profile/:ticker legitimately 404s for tickers without a
           // behavioral profile yet (most freshly-onboarded tickers). Catch
           // the rejection AND swallow the response error so the browser
@@ -5343,12 +5407,28 @@
         function renderAutopsyOverlay() {
           if (!autopsyModal) return null;
           const mt = autopsyModalData || autopsyModal;
-          const _dir = String(mt.direction || "").toUpperCase();
+          const _isInvestorModal = mt._source_mode === "investor"
+            || (autopsyEvents && autopsyEvents.mode === "investor")
+            || !!String(mt.action || "").toUpperCase().match(/^(BUY|SELL|DCA_BUY)$/);
+          const _dir = String(mt.direction || "LONG").toUpperCase();
           const _ticker = String(mt.ticker || "").toUpperCase();
           const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
           const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
           const _status = String(mt.status || "").toUpperCase();
-          const _isOpenStatus = _status === "OPEN" || _status === "TP_HIT_TRIM" || (!_status && !(mt.exit_ts ?? mt.exitTs));
+          const _posHeldNow = Number(
+            autopsyEvents?.position_held_now ?? mt.position_held_now ?? mt.total_shares,
+          );
+          const _posAvgEntry = Number(
+            autopsyEvents?.position_avg_entry ?? mt.position_avg_entry ?? mt.avg_entry,
+          );
+          const _posStatus = String(
+            autopsyEvents?.status || mt.position_status || mt.status || "",
+          ).toUpperCase();
+          const _investorStillOpen = _isInvestorModal
+            && (Number.isFinite(_posHeldNow) ? _posHeldNow > 0.0001 : (_posStatus === "OPEN"));
+          const _isOpenStatus = _isInvestorModal
+            ? _investorStillOpen
+            : (_status === "OPEN" || _status === "TP_HIT_TRIM" || (!_status && !(mt.exit_ts ?? mt.exitTs)));
           // V15 P0.7.144 (2026-05-13) — live PnL for open positions.
           // Previously the modal showed "$0.00" for OPEN trades because
           // pnl is only set on close. Now we mark-to-market against the
@@ -5357,12 +5437,28 @@
           // pnl as-is.
           const _shares = Number(mt.shares || mt.quantity) || 0;
           const _trimPctMt = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+          const _lotRole = String(mt.lot_role || "").toUpperCase()
+            || (String(mt.action || "").toUpperCase() === "SELL"
+              ? ((Number.isFinite(Number(mt.held_after)) && Number(mt.held_after) > 0.0001) ? "TRIM" : "EXIT")
+              : (String(mt.action || "").toUpperCase() === "DCA_BUY" ? "DCA" : "ENTRY"));
+          const _lotReason = _humanizeLotReason(mt.reason || mt.exit_reason || mt.exitReason || "");
           const _liveCurrentPx = (() => {
             const live = Number(ticker?._live_price);
             if (Number.isFinite(live) && live > 0) return live;
             return Number(ticker?.price ?? ticker?.close) || 0;
           })();
           const _livePnl = (() => {
+            // Investor lot rows: show THIS lot's realized P&L for sells;
+            // for open buys, mark the full position to market.
+            if (_isInvestorModal) {
+              if (String(mt.action || "").toUpperCase() === "SELL") {
+                return Number(mt.pnl || mt.realized_pnl) || 0;
+              }
+              if (_investorStillOpen && _posAvgEntry > 0 && _liveCurrentPx > 0 && _posHeldNow > 0) {
+                return (_liveCurrentPx - _posAvgEntry) * _posHeldNow;
+              }
+              return Number(mt.pnl || mt.realized_pnl) || 0;
+            }
             if (!_isOpenStatus) return Number(mt.pnl || mt.realized_pnl) || 0;
             if (!(_entry > 0) || !(_liveCurrentPx > 0) || !(_shares > 0)) return 0;
             const dirMul = _dir === "SHORT" ? -1 : 1;
@@ -5370,6 +5466,15 @@
             return (_liveCurrentPx - _entry) * remShares * dirMul;
           })();
           const _livePnlPct = (() => {
+            if (_isInvestorModal) {
+              if (String(mt.action || "").toUpperCase() === "SELL") {
+                return Number(mt.pnlPct || mt.pnl_pct) || 0;
+              }
+              if (_investorStillOpen && _posAvgEntry > 0 && _liveCurrentPx > 0) {
+                return ((_liveCurrentPx - _posAvgEntry) / _posAvgEntry) * 100;
+              }
+              return Number(mt.pnlPct || mt.pnl_pct) || 0;
+            }
             if (!_isOpenStatus) return Number(mt.pnlPct || mt.pnl_pct) || 0;
             if (!(_entry > 0) || !(_liveCurrentPx > 0)) return 0;
             const dirMul = _dir === "SHORT" ? -1 : 1;
@@ -5379,18 +5484,22 @@
           const _pnlPct = _livePnlPct;
           const _grade = mt.setup_grade || mt.setupGrade || "";
           const _riskBudget = mt.risk_budget || mt.riskBudget || "";
-          const _exitReasonRaw = mt.exitReason || mt.exit_reason || "";
+          const _exitReasonRaw = mt.exitReason || mt.exit_reason || mt.reason || "";
           // 2026-06-22 — A trade can be OPEN while still carrying a stored
           // exit_ts/exit_price/exit_reason — either an administratively
           // REVERSED_ stale exit (e.g. MU stale-premarket print) or a stale
           // orphan exit on an open row. In both cases the exit is NOT real:
           // suppress the Exit pill, the Exit-context reason, and the chart's
           // exit marker so the receipt matches the open-position truth.
+          // 2026-08-05 — Investor trims also suppress the fake same-timestamp
+          // Entry/Exit pair; the position receipt below is the source of truth.
           const _exitWasReversed = _exitReasonRaw.startsWith("REVERSED_");
-          const _suppressExit = _isOpenStatus || _exitWasReversed;
-          const _exitReason = _suppressExit ? "" : _exitReasonRaw;
-          const _exitTs = _suppressExit ? null : (mt.exit_ts ?? mt.exitTs ?? null);
-          const _exitPx = _suppressExit ? 0 : _exit;
+          const _suppressExit = _isInvestorModal
+            ? (_lotRole === "TRIM" || _lotRole === "ENTRY" || _lotRole === "DCA" || _investorStillOpen)
+            : (_isOpenStatus || _exitWasReversed);
+          const _exitReason = _suppressExit && !_isInvestorModal ? "" : _exitReasonRaw;
+          const _exitTs = (_suppressExit && !_isInvestorModal) ? null : (mt.exit_ts ?? mt.exitTs ?? null);
+          const _exitPx = (_suppressExit && !_isInvestorModal) ? 0 : _exit;
           const _mfe = Number(mt.max_favorable_excursion);
           const _mae = Number(mt.max_adverse_excursion);
           const _entryPath = mt.entry_path || "";
@@ -5428,7 +5537,9 @@
               >
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] shrink-0" style={{ background: "var(--tt-bg-surface, #0B1410)" }}>
                   <h2 className="text-[15px] font-semibold text-white truncate mr-2">
-                    {_ticker} {_dir} — Trade Review
+                    {_isInvestorModal
+                      ? `${_ticker} Investor — Position`
+                      : `${_ticker} ${_dir} — Trade Review`}
                   </h2>
                   <button onClick={closeAutopsyModal} className="p-2 -mr-1 rounded-md text-[#6E867D] hover:text-white hover:bg-white/[0.06] shrink-0">✕</button>
                 </div>
@@ -5437,40 +5548,77 @@
                 ) : (
                   <div className="p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
                     <div className="flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0">
-                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30">
-                        <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
-                        <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.entry_ts)} @ {fmtUsd(_entry)}</span>
-                      </div>
-                      {!_suppressExit && (_exitPx > 0 || _exitTs) && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
-                          <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
-                          <span className="text-[13px] font-semibold text-white truncate">{_formatDate(_exitTs)} @ {_exitPx > 0 ? fmtUsd(_exitPx) : "\u2014"}</span>
-                        </div>
-                      )}
-                      {_isOpenStatus && _liveCurrentPx > 0 && (
-                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30">
-                          <span className="text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0">Live</span>
-                          <span className="text-[13px] font-semibold text-white truncate">{fmtUsd(_liveCurrentPx)}</span>
-                        </div>
-                      )}
-                      {(() => {
-                        const _sh = Number(mt.shares ?? mt.quantity ?? 0);
-                        if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
-                        const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
-                        const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
-                        const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
-                        return (
+                      {_isInvestorModal ? (
+                        <>
                           <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30">
-                            <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">Shares</span>
-                            <span className="text-[13px] font-semibold text-white">{Math.round(_sh)}</span>
-                            {_trimmed > 0 && <span className="text-[11px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>}
+                            <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">{_lotRole || "LOT"}</span>
+                            <span className="text-[13px] font-semibold text-white truncate">
+                              {_fmtSharesExact(_shares)} sh
+                              {(String(mt.action || "").toUpperCase() === "SELL" ? _exit : _entry) > 0
+                                ? ` @ ${fmtUsd(String(mt.action || "").toUpperCase() === "SELL" ? (_exit || _entry) : _entry)}`
+                                : ""}
+                              {" · "}{_formatDate(mt.entry_ts || mt.exit_ts)}
+                            </span>
                           </div>
-                        );
-                      })()}
+                          {Number.isFinite(_posHeldNow) && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30">
+                              <span className="text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0">Held now</span>
+                              <span className="text-[13px] font-semibold text-white truncate">
+                                {_fmtSharesExact(_posHeldNow)} sh
+                                {_posAvgEntry > 0 ? ` · avg ${fmtUsd(_posAvgEntry)}` : ""}
+                              </span>
+                            </div>
+                          )}
+                          {_lotReason && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.1]">
+                              <span className="text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wider shrink-0">Reason</span>
+                              <span className="text-[12px] font-medium text-white truncate">{_lotReason}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30">
+                            <span className="text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0">Entry</span>
+                            <span className="text-[13px] font-semibold text-white truncate">{_formatDate(mt.entry_ts)} @ {fmtUsd(_entry)}</span>
+                          </div>
+                          {!_suppressExit && (_exitPx > 0 || _exitTs) && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#f59e0b]/15 border border-[#f59e0b]/30">
+                              <span className="text-[10px] font-semibold text-[#f59e0b] uppercase tracking-wider shrink-0">Exit</span>
+                              <span className="text-[13px] font-semibold text-white truncate">{_formatDate(_exitTs)} @ {_exitPx > 0 ? fmtUsd(_exitPx) : "\u2014"}</span>
+                            </div>
+                          )}
+                          {_isOpenStatus && _liveCurrentPx > 0 && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30">
+                              <span className="text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0">Live</span>
+                              <span className="text-[13px] font-semibold text-white truncate">{fmtUsd(_liveCurrentPx)}</span>
+                            </div>
+                          )}
+                          {(() => {
+                            const _sh = Number(mt.shares ?? mt.quantity ?? 0);
+                            if (!_sh || !Number.isFinite(_sh) || _sh <= 0) return null;
+                            const _trimPct = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+                            const _trimmed = Math.round(_sh * Math.min(_trimPct, 1));
+                            const _remaining = Math.max(0, Math.round(_sh) - _trimmed);
+                            return (
+                              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30">
+                                <span className="text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0">Shares</span>
+                                <span className="text-[13px] font-semibold text-white">{_fmtSharesExact(_sh)}</span>
+                                {_trimmed > 0 && <span className="text-[11px] text-[#a78bfa]/70">({_trimmed} trimmed · {_remaining} left)</span>}
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
                       <div className="flex items-center gap-3">
-                        <div className="text-[12px] text-[#8AA39A]">P&L: <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span></div>
+                        <div className="text-[12px] text-[#8AA39A]">
+                          {_isInvestorModal && String(mt.action || "").toUpperCase() === "SELL" ? "Lot P&L: " : "P&L: "}
+                          <span className={_pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"}>{fmtUsd(_pnl)}</span>
+                        </div>
                         {_pnlPct ? <span className={`text-[11px] ${_statusCls}`}>({_pnlPct > 0 ? "+" : ""}{_pnlPct.toFixed(2)}%)</span> : null}
-                        {_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>}
+                        {_isInvestorModal
+                          ? <span className="text-[12px] font-semibold text-[#93b8f7]">{_investorStillOpen ? "OPEN" : "CLOSED"}</span>
+                          : (_status && <span className={`text-[12px] font-semibold ${_statusCls}`}>{_status}</span>)}
                       </div>
                     </div>
 
@@ -5523,7 +5671,9 @@
                             price: Number(ev.price) || 0,
                             value: Number(ev.value) || 0,
                             realized_pnl: Number(ev.realized_pnl) || 0,
-                            reason: ev.note || null,
+                            reason: ev.reason || ev.note || null,
+                            held_after: Number.isFinite(Number(ev.held_after)) ? Number(ev.held_after) : null,
+                            focus: !!ev.focus,
                           });
                         }
                         // Sort + render below.
@@ -5533,74 +5683,103 @@
                       // PR #323 fallback chain — only runs when ledgerEvents
                       // didn't return any rows (load failure OR account_ledger
                       // has no entries for this trade).
-
-                      // 1) Entry — synthesized row. The history array doesn't
-                      // include the initial entry (only trims + exits), so we
-                      // reconstruct it from the trade record.
-                      if (events.length === 0 && initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
-                        events.push({
-                          type: "ENTRY",
-                          ts: entryTsRaw,
-                          shares: initialShares,
-                          price: entryPx,
-                          value: initialShares * entryPx,
-                          realized_pnl: 0,
-                          reason: mt.setup_name || mt.setupName || mt.entry_path || mt.entryPath || null,
-                        });
-                      }
-
-                      // 2) Trims + Exit from trade.history (only when ledgerEvents
-                      // didn't populate the receipt).
-                      if (!ledgerEvents || ledgerEvents.length === 0) {
-                        const hist = Array.isArray(mt.history) ? mt.history : [];
-                        for (const h of hist) {
-                          const t = String(h?.type || "").toUpperCase();
-                          if (t !== "TRIM" && t !== "EXIT") continue;
+                      // Skip for investor lots: synthesizing ENTRY+EXIT from a
+                      // single SELL row falsely ends at 0 held after a trim.
+                      if (!_isInvestorModal) {
+                        // 1) Entry — synthesized row. The history array doesn't
+                        // include the initial entry (only trims + exits), so we
+                        // reconstruct it from the trade record.
+                        if (events.length === 0 && initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
                           events.push({
-                            type: t,
-                            ts: Number(h.timestamp ?? h.ts ?? 0),
-                            shares: Number(h.shares ?? 0),
-                            price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
-                            value: Number(h.value ?? (Number(h.shares) * Number(h.price)) ?? 0),
-                            realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
-                            reason: h.reason_human || h.reason || h.note || null,
-                            pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null,
+                            type: "ENTRY",
+                            ts: entryTsRaw,
+                            shares: initialShares,
+                            price: entryPx,
+                            value: initialShares * entryPx,
+                            realized_pnl: 0,
+                            reason: mt.setup_name || mt.setupName || mt.entry_path || mt.entryPath || null,
                           });
                         }
-                      }
 
-                      // 3) Fallback for older records that didn't accumulate
-                      // history but have a single trim_price + exit_price
-                      // on the trade record itself. Synthesize a row for
-                      // each so old trades still render the log.
-                      if ((!ledgerEvents || ledgerEvents.length === 0) && events.length <= 1) {
-                        const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
-                        const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
-                        const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
-                        if (trimPx > 0 && trimPctFrac > 0 && trimTs > 0) {
-                          const trimShares = initialShares * trimPctFrac;
-                          events.push({
-                            type: "TRIM",
-                            ts: trimTs,
-                            shares: trimShares,
-                            price: trimPx,
-                            value: trimShares * trimPx,
-                            realized_pnl: (trimPx - entryPx) * trimShares * dirMul,
-                            reason: "Trim (legacy record)",
-                          });
+                        // 2) Trims + Exit from trade.history (only when ledgerEvents
+                        // didn't populate the receipt).
+                        if (!ledgerEvents || ledgerEvents.length === 0) {
+                          const hist = Array.isArray(mt.history) ? mt.history : [];
+                          for (const h of hist) {
+                            const t = String(h?.type || "").toUpperCase();
+                            if (t !== "TRIM" && t !== "EXIT") continue;
+                            events.push({
+                              type: t,
+                              ts: Number(h.timestamp ?? h.ts ?? 0),
+                              shares: Number(h.shares ?? 0),
+                              price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
+                              value: Number(h.value ?? (Number(h.shares) * Number(h.price)) ?? 0),
+                              realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
+                              reason: h.reason_human || h.reason || h.note || null,
+                              pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null,
+                            });
+                          }
                         }
-                        const exitPxF = Number(mt.exit_price ?? mt.exitPrice ?? 0);
-                        const exitTsF = Number(mt.exit_ts ?? mt.exitTs ?? 0);
-                        if (exitPxF > 0 && exitTsF > 0) {
-                          const remShares = initialShares * (1 - Math.min(trimPctFrac, 1));
+
+                        // 3) Fallback for older records that didn't accumulate
+                        // history but have a single trim_price + exit_price
+                        // on the trade record itself. Synthesize a row for
+                        // each so old trades still render the log.
+                        if ((!ledgerEvents || ledgerEvents.length === 0) && events.length <= 1) {
+                          const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
+                          const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
+                          const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
+                          if (trimPx > 0 && trimPctFrac > 0 && trimTs > 0) {
+                            const trimShares = initialShares * trimPctFrac;
+                            events.push({
+                              type: "TRIM",
+                              ts: trimTs,
+                              shares: trimShares,
+                              price: trimPx,
+                              value: trimShares * trimPx,
+                              realized_pnl: (trimPx - entryPx) * trimShares * dirMul,
+                              reason: "Trim (legacy record)",
+                            });
+                          }
+                          const exitPxF = Number(mt.exit_price ?? mt.exitPrice ?? 0);
+                          const exitTsF = Number(mt.exit_ts ?? mt.exitTs ?? 0);
+                          if (exitPxF > 0 && exitTsF > 0) {
+                            const remShares = initialShares * (1 - Math.min(trimPctFrac, 1));
+                            events.push({
+                              type: "EXIT",
+                              ts: exitTsF,
+                              shares: remShares,
+                              price: exitPxF,
+                              value: remShares * exitPxF,
+                              realized_pnl: Number(mt.pnl ?? mt.realized_pnl ?? 0) || ((exitPxF - entryPx) * remShares * dirMul),
+                              reason: mt.exit_reason || null,
+                            });
+                          }
+                        }
+                      } else if (events.length === 0) {
+                        // Investor fallback while events load / if lookup fails:
+                        // show the single lot with held_after when known — never
+                        // invent a matching ENTRY+EXIT that zeros the position.
+                        const actionU = String(mt.action || "").toUpperCase();
+                        const heldAfterKnown = Number.isFinite(Number(mt.held_after))
+                          ? Number(mt.held_after)
+                          : (Number.isFinite(_posHeldNow) ? _posHeldNow : null);
+                        const type = actionU === "SELL"
+                          ? ((heldAfterKnown != null && heldAfterKnown > 0.0001) ? "TRIM" : "EXIT")
+                          : (actionU === "DCA_BUY" ? "ADD" : "ENTRY");
+                        const px = actionU === "SELL"
+                          ? (Number(mt.exit_price) || entryPx)
+                          : entryPx;
+                        if (initialShares > 0 && px > 0 && entryTsRaw > 0) {
                           events.push({
-                            type: "EXIT",
-                            ts: exitTsF,
-                            shares: remShares,
-                            price: exitPxF,
-                            value: remShares * exitPxF,
-                            realized_pnl: Number(mt.pnl ?? mt.realized_pnl ?? 0) || ((exitPxF - entryPx) * remShares * dirMul),
-                            reason: mt.exit_reason || null,
+                            type,
+                            ts: entryTsRaw,
+                            shares: initialShares,
+                            price: px,
+                            value: initialShares * px,
+                            realized_pnl: Number(mt.pnl || 0) || 0,
+                            reason: mt.reason || mt.exit_reason || null,
+                            held_after: heldAfterKnown,
                           });
                         }
                       }
@@ -5613,8 +5792,12 @@
                       let cumPnl = 0;
                       const displayRows = events.map((ev) => {
                         const sh = Number(ev.shares) || 0;
-                        if (ev.type === "ENTRY") runningShares += sh;
+                        if (ev.type === "ENTRY" || ev.type === "ADD") runningShares += sh;
                         else runningShares = Math.max(0, runningShares - sh);
+                        // Prefer authoritative held_after from investor lot replay.
+                        if (Number.isFinite(Number(ev.held_after))) {
+                          runningShares = Number(ev.held_after);
+                        }
                         cumPnl += Number(ev.realized_pnl) || 0;
                         return { ...ev, running_shares: runningShares, cum_pnl: cumPnl };
                       });
@@ -5623,11 +5806,12 @@
                       // OPEN trades, also show the unrealized PnL as a final
                       // 'OPEN POSITION' row so users see what's still at risk.
                       const realizedTotal = cumPnl;
-                      const unrealized = _isOpenStatus && _liveCurrentPx > 0 && runningShares > 0 && entryPx > 0
-                        ? (_liveCurrentPx - entryPx) * runningShares * dirMul
+                      const avgForUnreal = _isInvestorModal && _posAvgEntry > 0 ? _posAvgEntry : entryPx;
+                      const unrealized = _isOpenStatus && _liveCurrentPx > 0 && runningShares > 0 && avgForUnreal > 0
+                        ? (_liveCurrentPx - avgForUnreal) * runningShares * dirMul
                         : 0;
 
-                      const typeChipCls = (t) => t === "ENTRY"
+                      const typeChipCls = (t) => t === "ENTRY" || t === "ADD"
                         ? "bg-[#60a5fa]/15 text-[#60a5fa] border-[#60a5fa]/40"
                         : t === "EXIT"
                           ? "bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/40"
@@ -5642,24 +5826,23 @@
                           timeZone: "America/New_York",
                         });
                       };
-                      const _fmtShares = (s) => {
-                        const n = Number(s);
-                        if (!Number.isFinite(n)) return "—";
-                        return n >= 100 ? Math.round(n).toString() : n.toFixed(2);
-                      };
+                      const _fmtShares = (s) => _fmtSharesExact(s);
 
                       return (
                         <div className="rounded-lg border border-white/[0.08] bg-white/[0.015] shrink-0">
                           <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06]">
-                            <span className="text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]">Event Log · Receipt</span>
+                            <span className="text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]">
+                              {_isInvestorModal ? "Position Lot Ledger" : "Event Log · Receipt"}
+                            </span>
                             <span className="text-[10px] text-[#6E867D]">{displayRows.length} event{displayRows.length === 1 ? "" : "s"}</span>
                           </div>
                           <div style={{ overflowX: "auto" }}>
-                            <table className="w-full text-[12px] tabular-nums" style={{ fontVariantNumeric: "tabular-nums", borderCollapse: "collapse", minWidth: 560 }}>
+                            <table className="w-full text-[12px] tabular-nums" style={{ fontVariantNumeric: "tabular-nums", borderCollapse: "collapse", minWidth: _isInvestorModal ? 640 : 560 }}>
                               <thead>
                                 <tr className="text-[10px] uppercase tracking-wider text-[#6E867D]">
                                   <th className="text-left px-3 py-1.5 font-medium">When (ET)</th>
                                   <th className="text-left px-2 py-1.5 font-medium">Event</th>
+                                  <th className="text-left px-2 py-1.5 font-medium">Reason</th>
                                   <th className="text-right px-2 py-1.5 font-medium">Shares</th>
                                   <th className="text-right px-2 py-1.5 font-medium">Price</th>
                                   <th className="text-right px-2 py-1.5 font-medium">Value</th>
@@ -5669,46 +5852,48 @@
                               </thead>
                               <tbody>
                                 {displayRows.map((r, i) => {
-                                  const pnlCls = r.type === "ENTRY"
+                                  const pnlCls = (r.type === "ENTRY" || r.type === "ADD")
                                     ? "text-[#6E867D]"
                                     : r.realized_pnl >= 0
                                       ? "text-[#22c55e]"
                                       : "text-[#ef4444]";
+                                  const reasonLabel = _humanizeLotReason(r.reason);
                                   return (
-                                    <React.Fragment key={`evlog-${i}`}>
-                                      <tr className="border-t border-white/[0.04]">
-                                        <td className="px-3 py-2 text-[#8AA39A] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
-                                        <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
-                                        <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
-                                        <td className="px-2 py-2 text-right text-white">{Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"}</td>
-                                        <td className="px-2 py-2 text-right text-[#8AA39A]">{Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"}</td>
-                                        <td className={`px-2 py-2 text-right font-semibold ${pnlCls}`}>{r.type === "ENTRY" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)}</td>
-                                        <td className="px-3 py-2 text-right text-[#6E867D]">{_fmtShares(r.running_shares)}</td>
-                                      </tr>
-                                      {r.reason && (
-                                        <tr className="border-t-0">
-                                          <td colSpan="7" className="px-3 pb-2 -mt-1 text-[10px] text-[#6E867D] italic">↳ {String(r.reason).replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())}</td>
-                                        </tr>
-                                      )}
-                                    </React.Fragment>
+                                    <tr
+                                      key={`evlog-${i}`}
+                                      className={`border-t border-white/[0.04]${r.focus ? " bg-[#a78bfa]/[0.08]" : ""}`}
+                                    >
+                                      <td className="px-3 py-2 text-[#8AA39A] whitespace-nowrap">{_fmtDateShort(r.ts)}</td>
+                                      <td className="px-2 py-2"><span className={`inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`}>{r.type}</span></td>
+                                      <td className="px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px]" title={reasonLabel || ""}>
+                                        {reasonLabel || <span className="text-[#6E867D]">—</span>}
+                                      </td>
+                                      <td className="px-2 py-2 text-right text-white">{_fmtShares(r.shares)}</td>
+                                      <td className="px-2 py-2 text-right text-white">{Number.isFinite(r.price) && r.price > 0 ? fmtUsd(r.price) : "—"}</td>
+                                      <td className="px-2 py-2 text-right text-[#8AA39A]">{Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"}</td>
+                                      <td className={`px-2 py-2 text-right font-semibold ${pnlCls}`}>{(r.type === "ENTRY" || r.type === "ADD") ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)}</td>
+                                      <td className="px-3 py-2 text-right text-[#6E867D] font-semibold">{_fmtShares(r.running_shares)}</td>
+                                    </tr>
                                   );
                                 })}
                                 {/* Total realized row */}
                                 <tr className="border-t border-white/[0.12] bg-white/[0.02]">
-                                  <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold" colSpan="5">Total realized</td>
+                                  <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold" colSpan="6">
+                                    {_isInvestorModal ? "Position realized" : "Total realized"}
+                                  </td>
                                   <td className={`px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)}</td>
-                                  <td className="px-3 py-2 text-right text-[11px] text-[#6E867D]">{_fmtShares(runningShares)} held</td>
+                                  <td className="px-3 py-2 text-right text-[11px] text-[#CFDED6] font-semibold">{_fmtShares(runningShares)} held</td>
                                 </tr>
                                 {_isOpenStatus && unrealized !== 0 && (
                                   <tr className="bg-[#22c55e]/[0.04]">
-                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]" colSpan="5">Unrealized (mark-to-market @ {fmtUsd(_liveCurrentPx)})</td>
+                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]" colSpan="6">Unrealized (mark-to-market @ {fmtUsd(_liveCurrentPx)})</td>
                                     <td className={`px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{(unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)}</td>
                                     <td className="px-3 py-2 text-right text-[10px] text-[#6E867D]">open</td>
                                   </tr>
                                 )}
                                 {_isOpenStatus && unrealized !== 0 && (
                                   <tr className="border-t border-white/[0.12]">
-                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-white font-bold" colSpan="5">Net P&amp;L (realized + open)</td>
+                                    <td className="px-3 py-2 text-[11px] uppercase tracking-wider text-white font-bold" colSpan="6">Net P&amp;L (realized + open)</td>
                                     <td className={`px-2 py-2 text-right text-[14px] font-bold ${(realizedTotal + unrealized) >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`}>{((realizedTotal + unrealized) >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)}</td>
                                     <td className="px-3 py-2"></td>
                                   </tr>
@@ -6900,15 +7085,29 @@
                 fetch(`${API_BASE}/timed/ledger/trades?${buildQs("investor")}`, { cache: "no-store" }),
               ]);
               const parse = async (settled) => {
-                if (settled.status !== "fulfilled" || !settled.value.ok) return [];
+                if (settled.status !== "fulfilled" || !settled.value.ok) return { trades: [], position: null };
                 try {
                   const json = await settled.value.json();
-                  if (!json.ok) return [];
-                  return Array.isArray(json.trades) ? json.trades : [];
-                } catch { return []; }
+                  if (!json.ok) return { trades: [], position: null };
+                  return {
+                    trades: Array.isArray(json.trades) ? json.trades : [],
+                    position: json.position || null,
+                  };
+                } catch { return { trades: [], position: null }; }
               };
-              const traderTrades = (await parse(traderRes)).map(t => ({ ...t, _source_mode: "trader" }));
-              const investorTrades = (await parse(investorRes)).map(t => ({ ...t, _source_mode: "investor" }));
+              const traderParsed = await parse(traderRes);
+              const investorParsed = await parse(investorRes);
+              const traderTrades = traderParsed.trades.map(t => ({ ...t, _source_mode: "trader" }));
+              const invPos = investorParsed.position;
+              const investorTrades = investorParsed.trades.map(t => ({
+                ...t,
+                _source_mode: "investor",
+                // Stamp position summary onto every lot so the History
+                // header can reconcile held-now even after sort/merge.
+                position_held_now: t.position_held_now ?? invPos?.held_now ?? t.total_shares,
+                position_avg_entry: t.position_avg_entry ?? invPos?.avg_entry ?? t.avg_entry,
+                position_status: t.position_status ?? invPos?.status ?? null,
+              }));
               // Drop archived; combine; sort newest-first by entry_ts.
               const merged = [...traderTrades, ...investorTrades]
                 .filter(t => String(t.status || "").toUpperCase() !== "ARCHIVED")
@@ -12118,6 +12317,20 @@
                         const traderRealized = traderClosed.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
                         const invSells = invTrades.filter(t => String(t.action || "").toUpperCase() === "SELL");
                         const invRealized = invSells.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+                        const invHeldNow = (() => {
+                          for (const t of invTrades) {
+                            const n = Number(t.position_held_now ?? t.total_shares);
+                            if (Number.isFinite(n)) return n;
+                          }
+                          return null;
+                        })();
+                        const invAvgEntry = (() => {
+                          for (const t of invTrades) {
+                            const n = Number(t.position_avg_entry ?? t.avg_entry);
+                            if (Number.isFinite(n) && n > 0) return n;
+                          }
+                          return null;
+                        })();
                         const fmtUsdHdr = (n) => Number.isFinite(n)
                           ? (n >= 0 ? "+" : "−") + "$" + Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })
                           : "—";
@@ -12155,6 +12368,19 @@
                             )}
                             {invTrades.length > 0 && (
                               <>
+                                {Number.isFinite(invHeldNow) && (
+                                  <div style={{ padding: "var(--ds-space-2)", background: invHeldNow > 0 ? "rgba(56,242,161,0.08)" : "rgba(255,255,255,0.03)", border: `1px solid ${invHeldNow > 0 ? "rgba(56,242,161,0.35)" : "var(--ds-stroke)"}`, borderRadius: "var(--ds-radius-sm)", gridColumn: "span 1" }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>INVESTOR · HELD NOW</div>
+                                    <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 16, fontWeight: 700, color: invHeldNow > 0 ? "var(--ds-accent)" : "var(--ds-text-body)", marginTop: 2 }}>
+                                      {_fmtSharesExact(invHeldNow)} <span style={{ fontSize: 10, fontWeight: 500, color: "var(--ds-text-muted)" }}>sh</span>
+                                    </div>
+                                    <div style={{ fontSize: 10, color: "var(--ds-text-muted)", marginTop: 2 }}>
+                                      {invHeldNow > 0 && Number.isFinite(invAvgEntry)
+                                        ? `avg $${invAvgEntry.toFixed(2)}`
+                                        : (invHeldNow > 0 ? "open position" : "fully exited")}
+                                    </div>
+                                  </div>
+                                )}
                                 <div style={{ padding: "var(--ds-space-2)", background: "rgba(167,139,250,0.06)", border: "1px solid rgba(167,139,250,0.20)", borderRadius: "var(--ds-radius-sm)" }}>
                                   <div style={{ fontSize: 9, fontWeight: 700, color: "var(--ds-text-faint)", letterSpacing: "0.05em" }}>INVESTOR · LOTS</div>
                                   <div style={{ fontFamily: "var(--tt-font-mono)", fontSize: 14, fontWeight: 700, color: "var(--ds-text-body)", marginTop: 2 }}>{invTrades.length}</div>
@@ -12208,10 +12434,14 @@
                               const action = String(t.action || "").toUpperCase();
                               const isSell = isInvestor && action === "SELL";
                               const isBuy = isInvestor && (action === "BUY" || action === "DCA_BUY");
-                              const investorLabel = isSell ? "SELL"
+                              const lotRole = String(t.lot_role || "").toUpperCase();
+                              const investorLabel = isSell
+                                ? (lotRole === "TRIM" || (Number.isFinite(Number(t.held_after)) && Number(t.held_after) > 0.0001) ? "TRIM" : "SELL")
                                 : action === "DCA_BUY" ? "DCA"
                                 : "BUY";
                               const lotShares = Number(t.shares);
+                              const heldAfter = Number(t.held_after);
+                              const reasonLabel = isInvestor ? _humanizeLotReason(t.reason || t.exit_reason, { max: 28 }) : "";
                               const entryPx = Number(t.entry_price ?? t.price);
                               const exitPx = Number(t.exit_price);
                               const trimmedPct = Number(t.trimmed_pct);
@@ -12243,13 +12473,18 @@
                               } else if (isSell) {
                                 const validPct = Number.isFinite(pnlPct);
                                 rightSlot = (
-                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
+                                  <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline", flexWrap: "wrap", justifyContent: "flex-end" }}>
                                     <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", fontSize: 10.5 }}>
                                       {Number.isFinite(lotShares) ? lotShares.toFixed(2) + " sh" : "—"}
                                     </span>
                                     {validPct && (
                                       <span className={`ds-chip ds-chip--sm ${pnlPct >= 0 ? "ds-chip--up" : "ds-chip--dn"}`} style={{ fontFamily: "var(--tt-font-mono)" }}>
                                         {pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(2)}% realized
+                                      </span>
+                                    )}
+                                    {Number.isFinite(heldAfter) && (
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }}>
+                                        → {_fmtSharesExact(heldAfter)} held
                                       </span>
                                     )}
                                   </span>
@@ -12316,12 +12551,13 @@
                                 <div key={`tr-${i}-${t._source_mode || "x"}`}
                                   onClick={() => _openAutopsy(t)}
                                   title={isInvestor
-                                    ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(entryPx) ? entryPx.toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${t.reason ? " — " + t.reason : ""}`
+                                    ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(isSell ? exitPx : entryPx) ? (isSell ? exitPx : entryPx).toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${Number.isFinite(heldAfter) ? ` · held after ${_fmtSharesExact(heldAfter)}` : ""}${t.reason ? " — " + _humanizeLotReason(t.reason) : ""}`
                                     : "Click to open Trade Autopsy"}
                                   style={{
                                     display: "flex",
                                     alignItems: "center",
                                     justifyContent: "space-between",
+                                    gap: 8,
                                     padding: "8px 10px",
                                     background: "var(--ds-bg-glass)",
                                     borderRadius: "var(--ds-radius-xs)",
@@ -12334,13 +12570,14 @@
                                   onMouseEnter={(e) => { e.currentTarget.style.background = "var(--ds-bg-elevated)"; }}
                                   onMouseLeave={(e) => { e.currentTarget.style.background = "var(--ds-bg-glass)"; }}
                                 >
-                                  <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)" }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "var(--ds-space-2)", minWidth: 0, flex: "1 1 auto" }}>
                                     {isInvestor ? (
                                       <span className="ds-chip ds-chip--sm" style={{
                                         fontFamily: "var(--tt-font-mono)",
                                         background: isSell ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
                                         color: isSell ? "#fda4af" : "#86efac",
                                         borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)",
+                                        flexShrink: 0,
                                       }}>
                                         INV {investorLabel}
                                       </span>
@@ -12356,7 +12593,12 @@
                                         )}
                                       </>
                                     )}
-                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)" }}>{dt.toLocaleDateString()}</span>
+                                    <span style={{ color: "var(--ds-text-muted)", fontFamily: "var(--tt-font-mono)", flexShrink: 0 }}>{dt.toLocaleDateString()}</span>
+                                    {isInvestor && reasonLabel && (
+                                      <span style={{ color: "var(--ds-text-body)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={_humanizeLotReason(t.reason || t.exit_reason)}>
+                                        {reasonLabel}
+                                      </span>
+                                    )}
                                     {t.setup_name && !isInvestor && (
                                       <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10 }} title={`Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`}>
                                         {/* 2026-05-30 (P5) — Use shared _formatPath helper which strips
@@ -12368,8 +12610,13 @@
                                         · {(_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)}
                                       </span>
                                     )}
+                                    {isBuy && Number.isFinite(heldAfter) && (
+                                      <span style={{ color: "var(--ds-text-faint)", fontFamily: "var(--tt-font-mono)", fontSize: 10, flexShrink: 0 }}>
+                                        → {_fmtSharesExact(heldAfter)} held
+                                      </span>
+                                    )}
                                   </div>
-                                  {rightSlot}
+                                  <div style={{ flexShrink: 0 }}>{rightSlot}</div>
                                 </div>
                               );
                             })}
