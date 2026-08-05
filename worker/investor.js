@@ -146,6 +146,10 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   investor_ltf_entry_gate_enabled: true,
   investor_ltf_require_cloud_not_bear: true,
   investor_ltf_block_opposing_daily_fvg: true,
+  // 2026-08-05 — LTF EMA-233 as leading timing: IESC/AMD July longs sat under
+  // LTF 233s (better shorts). Require reclaim / break-through + gaining.
+  investor_ltf_require_233_reclaim: true,
+  investor_ltf_233_near_pct: 0.15, // "near or below" band (% of ema233)
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -345,6 +349,12 @@ export function loadInvestorConfig(daCfg) {
   if (ltfFvg === true || ltfFvg === false) cfg.investor_ltf_block_opposing_daily_fvg = ltfFvg;
   else if (ltfFvg === "true") cfg.investor_ltf_block_opposing_daily_fvg = true;
   else if (ltfFvg === "false") cfg.investor_ltf_block_opposing_daily_fvg = false;
+  const ltf233 = daCfg.deep_audit_investor_ltf_require_233_reclaim;
+  if (ltf233 === true || ltf233 === false) cfg.investor_ltf_require_233_reclaim = ltf233;
+  else if (ltf233 === "true") cfg.investor_ltf_require_233_reclaim = true;
+  else if (ltf233 === "false") cfg.investor_ltf_require_233_reclaim = false;
+  const near233 = Number(daCfg.deep_audit_investor_ltf_233_near_pct);
+  if (Number.isFinite(near233) && near233 >= 0 && near233 <= 2) cfg.investor_ltf_233_near_pct = near233;
   return cfg;
 }
 
@@ -489,6 +499,56 @@ export function isInvestorLtfEntryGateEnabled(cfg = DEFAULT_INVESTOR_CONFIG) {
 }
 
 /**
+ * Leading-LTF EMA-233 snapshot for investor capital timing.
+ * Returns per-TF rows only when ema233 is present (needs ≥233 bars on that TF).
+ */
+export function resolveInvestorLtfEma233Snapshot(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
+  const price = Number(tickerData?._live_price || tickerData?.price);
+  if (!(price > 0)) return { price: null, rows: [], aboveCount: 0, nearOrBelowCount: 0, reclaimingCount: 0 };
+  const nearPct = Number.isFinite(Number(cfg?.investor_ltf_233_near_pct))
+    ? Number(cfg.investor_ltf_233_near_pct)
+    : 0.15;
+  const frames = [
+    ["10", tickerData?.tf_tech?.["10"] || tickerData?.tf_tech?.["10m"]],
+    ["30", tickerData?.tf_tech?.["30"] || tickerData?.tf_tech?.["30m"]],
+    ["1H", tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"]],
+  ];
+  const rows = [];
+  for (const [label, tf] of frames) {
+    if (!tf || typeof tf !== "object") continue;
+    const e233 = Number(tf?.ema?.ema233 ?? tf?.ema?.e233 ?? tf?.e233);
+    if (!(Number.isFinite(e233) && e233 > 0)) continue;
+    const distPct = ((price - e233) / e233) * 100;
+    const above = price > e233;
+    const nearOrBelow = distPct <= nearPct; // at/below or just barely through
+    const momentum = Number(tf?.ema?.momentum);
+    const structure = Number(tf?.ema?.structure);
+    const stSlope = Number(tf?.stSlope);
+    const gaining = (Number.isFinite(momentum) && momentum > 0)
+      || (Number.isFinite(structure) && structure > 0)
+      || tf?.stSlopeUp === true
+      || (Number.isFinite(stSlope) && stSlope > 0);
+    const reclaiming = above && gaining;
+    rows.push({
+      tf: label,
+      ema233: Math.round(e233 * 100) / 100,
+      distPct: Math.round(distPct * 100) / 100,
+      above,
+      nearOrBelow,
+      gaining,
+      reclaiming,
+    });
+  }
+  return {
+    price,
+    rows,
+    aboveCount: rows.filter((r) => r.above).length,
+    nearOrBelowCount: rows.filter((r) => r.nearOrBelow).length,
+    reclaimingCount: rows.filter((r) => r.reclaiming).length,
+  };
+}
+
+/**
  * LTF stabilization veto for investor NEW opens / scale-ins.
  * Long-term thesis can still be fine while 10m ST + 5-12 cloud say "still
  * breaking" — July 2026 LT autopsy (NBIS/AMD/IESC/MU) was rushed entries with
@@ -497,6 +557,10 @@ export function isInvestorLtfEntryGateEnabled(cfg = DEFAULT_INVESTOR_CONFIG) {
  * ST rule (operator 2026-08-05): slope matters, not direction alone.
  * Bearish-but-flat ST is fine — most reversals still show a bearish 30m ST
  * that has gone flat. Only actively sloping-down 10m ST vetoes.
+ *
+ * EMA-233 rule (operator 2026-08-05, IESC/AMD): LTF is leading — look for
+ * gaining reclaim / break-through of EMA-233. Near/below on most LTFs is
+ * short territory, not a long entry.
  *
  * Pine stDir: -1 bull / +1 bear (same as resolveInvestor4hTiming).
  */
@@ -555,6 +619,43 @@ export function investorLtfEntryStabilizationBlock(tickerData, cfg = DEFAULT_INV
           fvg_D: {
             inBearGap: !!fvgD.inBearGap,
             activeBear: Number(fvgD.activeBear) || 0,
+          },
+        };
+      }
+    }
+  }
+
+  // Leading LTF EMA-233 reclaim (IESC Jul 2 / AMD Jul 1 pattern).
+  // Need ≥2 LTFs with ema233 present; skip soft if scoring hasn't warmed yet.
+  if (cfg.investor_ltf_require_233_reclaim !== false) {
+    const snap233 = resolveInvestorLtfEma233Snapshot(tickerData, cfg);
+    if (snap233.rows.length >= 2) {
+      const majorityNearOrBelow = snap233.nearOrBelowCount >= 2;
+      const hasReclaimLeadership = snap233.reclaimingCount >= 1
+        && snap233.aboveCount >= 1;
+      // All / most LTFs parked near-or-below 233 with no gaining reclaim →
+      // short-side setup, not a long entry.
+      if (majorityNearOrBelow && !hasReclaimLeadership) {
+        return {
+          reason: "ltf_below_233_ema",
+          ema233: {
+            nearOrBelowCount: snap233.nearOrBelowCount,
+            aboveCount: snap233.aboveCount,
+            reclaimingCount: snap233.reclaimingCount,
+            rows: snap233.rows,
+          },
+        };
+      }
+      // Prefer gaining break-through: if nothing is reclaiming and fewer than
+      // 2 LTFs are clearly above, wait for LTF leadership.
+      if (snap233.reclaimingCount < 1 && snap233.aboveCount < 2) {
+        return {
+          reason: "ltf_233_not_reclaimed",
+          ema233: {
+            nearOrBelowCount: snap233.nearOrBelowCount,
+            aboveCount: snap233.aboveCount,
+            reclaimingCount: snap233.reclaimingCount,
+            rows: snap233.rows,
           },
         };
       }

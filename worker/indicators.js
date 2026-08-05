@@ -4743,6 +4743,10 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         priceAboveEma21,
         ema21: Number.isFinite(b.e21) ? Math.round(b.e21 * 100) / 100 : undefined,
         ema200: Number.isFinite(b.e200) ? Math.round(b.e200 * 100) / 100 : undefined,
+        // 2026-08-05 — Investor LTF leading gate (IESC/AMD July LT autopsy):
+        // longs want LTF reclaim / break through EMA-233, not sit under it.
+        ema233: Number.isFinite(b.e233) ? Math.round(b.e233 * 100) / 100 : undefined,
+        priceAboveEma233: Number.isFinite(b.px) && Number.isFinite(b.e233) ? b.px >= b.e233 : null,
       },
       stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,

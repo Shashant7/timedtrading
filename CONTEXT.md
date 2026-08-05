@@ -896,6 +896,7 @@ Structural vintage bumped to **2026-07-07** (July Sector Allocation): Industrial
 - **Trader EXIT can die after review with no place (2026-07-30)**: DE `sl_breached` reached bridge `review ok` then vanished (no `reducer_reconcile`/`place`). Cause: abort during post-review `getEquityPositions` + `markManifestModelClosed` only on `place.ok` left manifest OPEN/`in_sync` + 24h `tt-exit-*` claim blocked retry. Fix: stamp CLOSED after EXIT clears review; `releaseOrderIdempotency` on fail; 28s reducer client timeout; `POST /timed/admin/broker-bridge/catchup-exit`.
 
 - **Investor LT entries need LTF stabilization (2026-08-04)**: July autopsy (NBIS/AMD/IESC/MU) — HTF score alone opened into bearish 10m ST / no 5-12 curl / opposing FVG. Gate: `investorLtfEntryStabilizationBlock` (10m slope-down / 5-12 curl / FVG — bearish-flat ST OK, incl. 30m); toggle `deep_audit_investor_ltf_entry_gate_enabled`.
+- **Investor LTF EMA-233 reclaim (2026-08-05)**: IESC/AMD July — LTFs near/below 233 are short territory. Gate requires gaining reclaim/break-through on leading LTFs (`resolveInvestorLtfEma233Snapshot`); score cron fetches ≥280 bars on 10/30/60 and stamps `tf_tech.*.ema.ema233`.
 
 ## Full Lessons
 

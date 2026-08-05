@@ -4623,9 +4623,9 @@ function hasPayloadChangedMeaningfully(existing, newPayload) {
 /** TF bundle limits shared by rescore-ticker + post-close stale sweep. */
 const RESCORE_TF_CONFIGS = [
   { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
-  { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
-  { tf: "30", limit: 100 }, { tf: "15", limit: 120 },
-  { tf: "10", limit: 100 }, { tf: "M", limit: 250 },
+  { tf: "240", limit: 250 }, { tf: "60", limit: 280 },
+  { tf: "30", limit: 280 }, { tf: "15", limit: 120 },
+  { tf: "10", limit: 280 }, { tf: "M", limit: 250 },
 ];
 
 /**
@@ -103653,8 +103653,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // Pre-fetch ALL timeframes for this ticker in a single D1 batch call.
             // This reduces 9 D1 subrequests to 1, critical for staying under the
             // 1000 subrequests/invocation limit with 140+ tickers.
-            // COST OPTIMIZATION: Reduced candle limits to match actual indicator needs.
-            // EMA-233 meaningful on D/4H only. Sub-hourly TFs need ~100 candles max.
+            // COST OPTIMIZATION: candle limits match indicator needs.
+            // 2026-08-05 — LTF (10/30/60) raised to ≥250 so EMA-233 is computable
+            // for investor leading-entry reclaim gates (was ~100 → e233 always NaN).
             // 1m candles REMOVED — only used for optional TD Sequential chart overlay,
             // not core scoring. Saves ~1.9M D1 queries/month.
             //
@@ -103670,9 +103671,9 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // well within the D1 plan.
             const tfConfigs = [
               { tf: "W", limit: 300 }, { tf: "D", limit: 250 },
-              { tf: "240", limit: 250 }, { tf: "60", limit: 150 },
-              { tf: "30", limit: 100 }, { tf: "15", limit: 120 },
-              { tf: "10", limit: 100 },
+              { tf: "240", limit: 250 }, { tf: "60", limit: 280 },
+              { tf: "30", limit: 280 }, { tf: "15", limit: 120 },
+              { tf: "10", limit: 280 },
               { tf: "M", limit: 250 },
             ];
             let candleCache = await d1GetCandlesAllTfs(env, ticker, tfConfigs);
