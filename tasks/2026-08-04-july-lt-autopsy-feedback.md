@@ -10,6 +10,7 @@ Entries are mistimed. Investor deploy was not using:
 - 10m Ripster 5-12 cloud (establish above / curl)
 - Fair value gaps (hourly/daily) as balance / momentum confluence
 - Mid-bearish / bear-prep context on the hourly
+- LTF price vs **EMA-233** (near/below = short territory; want reclaim + gaining)
 
 Long-term horizon does **not** excuse rushing the first print — wait for stabilization.
 
@@ -32,4 +33,5 @@ Long-term horizon does **not** excuse rushing the first print — wait for stabi
 2. **Open**: Prefer Daily ATR −100 as tactical invalidation when in-band (NBIS).
 3. **Open**: Swing-high failure trim for investor (TWLO).
 4. **Open**: 10m 233 EMA reject as optional early exit / management cue (MU).
-5. **Open**: Continue grading remaining July LT trades for more themes.
+5. **Done**: LTF EMA-233 reclaim/break-through as leading timing (IESC Jul 2, AMD Jul 1).
+6. **Open**: Continue grading remaining July LT trades for more themes.

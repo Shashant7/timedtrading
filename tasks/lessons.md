@@ -5028,3 +5028,12 @@ Operator: bearish-but-flat ST is fine; most reversals still show a bearish
 30m ST that has gone flat. Do **not** veto on ST direction alone or on
 "both 10m+30m bearish". Only actively sloping-down 10m ST blocks; 5-12 curl
 + FVG reclaim remain the confluence checks.
+
+
+### Correction (2026-08-05) — LTF EMA-233 is leading
+Operator (IESC Jul 2, AMD Jul 1): all LTFs near/below their 233 EMA → better
+shorts, not longs. Investor entries should wait for LTFs that are **gaining
+and reclaiming / breaking through** EMA-233. Implemented via
+`resolveInvestorLtfEma233Snapshot` + `ltf_below_233_ema` /
+`ltf_233_not_reclaimed` in `investorLtfEntryStabilizationBlock`. Requires
+scoring to persist `tf_tech.*.ema.ema233` (candle limits 10/30/60 ≥280).
