@@ -741,6 +741,8 @@
       FAILED_ENTRY_RECLAIM: "Failed entry reclaim",
       Investor_Sell_Accumulate: "Investor sell accumulate",
       investor_sell_accumulate: "Investor sell accumulate",
+      auto_entry_accumulate: "Initial accumulate entry",
+      dca_pullback: "DCA on pullback",
       replay_dca: "DCA add",
     };
     function _humanizeLotReason(reason, opts) {
