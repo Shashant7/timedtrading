@@ -370,11 +370,22 @@ export function detectCompounderDipBuy(tickerData, timing = null, accumZone = nu
     signals.push("weekly_pullback_monthly_intact");
   }
 
-  if (tfW?.ema?.priceAboveEma21 === true && price != null) {
-    const ema21 = num(tfW?.ema?.e21 || tfW?.ema21);
+  // Live print near Weekly 21, OR week-low test that has reclaimed (CAT-style
+  // Weekly Breakout Retest — bounce already left the tight proximity band).
+  if (price != null) {
+    const ema21 = num(tfW?.ema?.e21 || tfW?.ema?.ema21 || tfW?.ema21);
+    const weekLow = num(tickerData?.week_low ?? tickerData?.wl ?? tfW?.low);
     if (ema21 != null && ema21 > 0) {
       const dist = ((price - ema21) / ema21) * 100;
-      if (dist >= 0 && dist <= 6) {
+      const lowDist = weekLow != null && weekLow > 0
+        ? ((weekLow - ema21) / ema21) * 100
+        : null;
+      const liveNear = dist >= 0 && dist <= 6 && tfW?.ema?.priceAboveEma21 !== false;
+      const weekLowTest = lowDist != null
+        && lowDist >= -5
+        && lowDist <= 3.5
+        && price >= ema21 * 0.97;
+      if (liveNear || weekLowTest) {
         signals.push("near_weekly_ema21");
       }
     }
