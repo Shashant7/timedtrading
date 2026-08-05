@@ -833,6 +833,8 @@
       FAILED_ENTRY_RECLAIM: "Failed entry reclaim",
       Investor_Sell_Accumulate: "Investor sell accumulate",
       investor_sell_accumulate: "Investor sell accumulate",
+      auto_entry_accumulate: "Initial accumulate entry",
+      dca_pullback: "DCA on pullback",
       replay_dca: "DCA add"
     };
     function _humanizeLotReason(reason, opts) {
@@ -19932,4 +19934,4 @@
   };
 })();
 
-// cache-bust:1785894563015:715078577
+// cache-bust:1785896912333:151047606
