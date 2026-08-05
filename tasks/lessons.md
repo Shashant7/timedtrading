@@ -5022,3 +5022,9 @@ hourly bear prep + unreclaimed 10m. Config:
 
 Exit refinements (ATR −100 preference, swing-high trim, 233 EMA reject) are
 still open follow-ups — this change is the entry-timing floor.
+
+### Correction (2026-08-05) — ST slope, not direction
+Operator: bearish-but-flat ST is fine; most reversals still show a bearish
+30m ST that has gone flat. Do **not** veto on ST direction alone or on
+"both 10m+30m bearish". Only actively sloping-down 10m ST blocks; 5-12 curl
++ FVG reclaim remain the confluence checks.
