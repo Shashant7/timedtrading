@@ -141,8 +141,8 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
 
   // 2026-08-04 — LTF stabilization gate for NEW investor opens (July LT autopsy
   // feedback: NBIS/AMD/IESC/MU). HTF score alone was enough to fire capital into
-  // still-bearish 10m ST + unbroken 5-12 clouds / opposing daily FVG. Block new
-  // opens until LTF shows stabilization confluence. Scale-ins use the same gate.
+  // sloping-down 10m ST + uncurled 5-12 / opposing daily FVG. Slope matters —
+  // bearish-but-flat ST (incl. 30m into reversals) is allowed. Scale-ins too.
   investor_ltf_entry_gate_enabled: true,
   investor_ltf_require_cloud_not_bear: true,
   investor_ltf_block_opposing_daily_fvg: true,
@@ -492,38 +492,28 @@ export function isInvestorLtfEntryGateEnabled(cfg = DEFAULT_INVESTOR_CONFIG) {
  * LTF stabilization veto for investor NEW opens / scale-ins.
  * Long-term thesis can still be fine while 10m ST + 5-12 cloud say "still
  * breaking" — July 2026 LT autopsy (NBIS/AMD/IESC/MU) was rushed entries with
- * no curl / ST still bearish / opposing FVG. Returns a block descriptor or null.
+ * no curl / ST still sloping down / opposing FVG. Returns a block descriptor or null.
+ *
+ * ST rule (operator 2026-08-05): slope matters, not direction alone.
+ * Bearish-but-flat ST is fine — most reversals still show a bearish 30m ST
+ * that has gone flat. Only actively sloping-down 10m ST vetoes.
  *
  * Pine stDir: -1 bull / +1 bear (same as resolveInvestor4hTiming).
  */
 export function investorLtfEntryStabilizationBlock(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
   if (!isInvestorLtfEntryGateEnabled(cfg)) return null;
   const tf10 = tickerData?.tf_tech?.["10"] || tickerData?.tf_tech?.["10m"] || null;
-  const tf30 = tickerData?.tf_tech?.["30"] || tickerData?.tf_tech?.["30m"] || null;
-  const tf1H = tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"] || null;
 
   const stDir10 = Number(tf10?.stDir);
-  const stDir30 = Number(tf30?.stDir);
   const stSlope10 = Number(tf10?.stSlope);
   const stSlopeDn10 = tf10?.stSlopeDn === true
     || (Number.isFinite(stSlope10) && stSlope10 < 0);
-  const stBear10 = tf10?.stBear === true || stDir10 === 1;
-  const stBear30 = tf30?.stBear === true || stDir30 === 1;
 
-  // Hard: both leading LTFs still bearish — breakdown, not dip (trader parity).
-  if (stBear10 && stBear30) {
+  // Hard: 10m ST actively sloping down — still breaking, not stabilizing.
+  // Bearish-but-flat (common into a reversal, incl. 30m) is allowed.
+  if (stSlopeDn10) {
     return {
-      reason: "ltf_st_both_bearish",
-      stDir10: Number.isFinite(stDir10) ? stDir10 : null,
-      stDir30: Number.isFinite(stDir30) ? stDir30 : null,
-      stSlopeDn10,
-    };
-  }
-
-  // Hard: 10m ST bearish AND actively sloping down — no stabilization yet.
-  if (stBear10 && stSlopeDn10) {
-    return {
-      reason: "ltf_st_bearish_sloping",
+      reason: "ltf_st_sloping_down",
       stDir10: Number.isFinite(stDir10) ? stDir10 : null,
       stSlopeDn10: true,
       stSlope10: Number.isFinite(stSlope10) ? stSlope10 : null,
@@ -552,16 +542,14 @@ export function investorLtfEntryStabilizationBlock(tickerData, cfg = DEFAULT_INV
     }
   }
 
-  // Soft HTF balance: daily bearish FVG still holding → wait for reclaim /
-  // balance (operator: hourly/daily FVG as confluence for needing balance).
+  // Soft HTF balance: daily bearish FVG still holding → wait for 5-12 curl /
+  // reclaim. Do NOT require ST direction flip — flat-bearish ST is normal.
   if (cfg.investor_ltf_block_opposing_daily_fvg !== false) {
     const fvgD = tickerData?.fvg_D || tickerData?.fvg?.D || null;
     const inBearGap = !!(fvgD && (fvgD.inBearGap === true || Number(fvgD.activeBear) > 0));
     if (inBearGap) {
-      // If LTF already flipped bull + cloud curled, allow (balance in progress).
-      const stBull10 = tf10?.stBull === true || stDir10 === -1;
-      const cloudOk = !c512 || c512.bull === true || c512.crossUp === true;
-      if (!(stBull10 && cloudOk)) {
+      const cloudOk = !!(c512 && (c512.bull === true || c512.crossUp === true));
+      if (!cloudOk) {
         return {
           reason: "opposing_daily_fvg",
           fvg_D: {
@@ -571,19 +559,6 @@ export function investorLtfEntryStabilizationBlock(tickerData, cfg = DEFAULT_INV
         };
       }
     }
-  }
-
-  // Hourly still in clear bear preparation without LTF reclaim.
-  const c512h = tf1H?.ripster?.c5_12 || null;
-  const stDir1H = Number(tf1H?.stDir);
-  const hourlyBear = (tf1H?.stBear === true || stDir1H === 1)
-    && (c512h?.bear === true || c512h?.crossDn === true || c512h?.below === true);
-  if (hourlyBear && stBear10) {
-    return {
-      reason: "hourly_bear_prep_ltf_unreclaimed",
-      stDir10: Number.isFinite(stDir10) ? stDir10 : null,
-      stDir1H: Number.isFinite(stDir1H) ? stDir1H : null,
-    };
   }
 
   return null;
