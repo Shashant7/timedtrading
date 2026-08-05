@@ -5037,3 +5037,13 @@ and reclaiming / breaking through** EMA-233. Implemented via
 `resolveInvestorLtfEma233Snapshot` + `ltf_below_233_ema` /
 `ltf_233_not_reclaimed` in `investorLtfEntryStabilizationBlock`. Requires
 scoring to persist `tf_tech.*.ema.ema233` (candle limits 10/30/60 ≥280).
+
+
+### Correction (2026-08-05) — MTZ movie: exit on failed BE reclaim
+Operator (MTZ Jul 2): after a hard drop the name nearly returned to breakeven,
+rejected (233 / clouds), and the model still waited for Weekly ATR support.
+Frame-by-frame invalidation misses the **sequence**. Fix:
+`resolveInvestorFailedEntryReclaim` arms after ≥3% underwater, tags a near-BE
+recovery high, fires `FAILED_ENTRY_RECLAIM` on giveback / fail-10m-233 /
+fail-5-12 while still below entry. Default full exit; toggle
+`deep_audit_investor_failed_reclaim_exit_enabled`.
