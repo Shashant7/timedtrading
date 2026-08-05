@@ -5059,3 +5059,15 @@ sustained hold-below; reclaim clears arm. (2) `detectDailyEma21Test` +
 `INVESTOR_STRUCTURAL_ANCHORS.ANET.daily_ema21_respect` for entry memory.
 (3) `MFE_EXTENSION_TRIM` when peak ≥10% above entry. Published copy already said
 "closes below"; live mark alone was the frame bug.
+
+### Correction (2026-08-05) — CAT Weekly Breakout Retest miss
+Operator: Weekly 21 EMA + Weekly ST tested near ~$800 after premium drawdown;
+franchise/fundamental growth history; self-note Aug 1 "Breakout retest
+Catepillar Play." Model had bought Jun 24 @ $987.85 and full-exited Jul 7
+`PRIMARY_INVALIDATION_BREACH` @ $917.31 — then never re-entered the Aug reclaim
+to ~$876. Root: no week-low Weekly EMA(21)/ST confluence admit path; live
+`near_weekly_supertrend` (3%) and compounder `near_weekly_ema21` both key off
+the **current print**, which had already bounced outside the band. Loss
+cooldown (5d) expired Jul 12 — not the blocker. Fix: `detectWeeklyBreakoutRetest`
+(week-low test + reclaim → `weekly_breakout_retest`), CAT structural anchors,
+compounder week-low acceptance. See `tasks/2026-08-05-cat-weekly-breakout-retest.md`.

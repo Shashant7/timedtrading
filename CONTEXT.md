@@ -900,6 +900,7 @@ Structural vintage bumped to **2026-07-07** (July Sector Allocation): Industrial
 
 - **Investor failed entry-reclaim exit (2026-08-05)**: MTZ Jul 2 movie — underwater → near BE → reject should exit, not ride to Weekly ATR. `resolveInvestorFailedEntryReclaim` + auto-rebalance reducer; state in `investor_positions.notes._failed_reclaim`.
 - **Investor invalidation movie + ANET Daily 21 memory (2026-08-05)**: ANET Jul 16 wick through Weekly ATR at 2pm while support held — do not full-exit on live mark alone. `resolvePrimaryInvalidationMovie` requires close/hold-below confirm; reclaim clears arm. Daily EMA(21) test/reclaim is an accum signal; `INVESTOR_STRUCTURAL_ANCHORS.ANET` stamps respect. `MFE_EXTENSION_TRIM` banks ~25% after ≥10% peak (171→190).
+- **CAT Weekly Breakout Retest (2026-08-05)**: Flat after Jul 7 `PRIMARY_INVALIDATION_BREACH` @ $917; Aug week-low ~$805 held Weekly 21 + Weekly ST then reclaimed to ~$876 — missed because accum zone used **live** proximity only (bounce already outside 3%). `detectWeeklyBreakoutRetest` uses week-low + reclaim; `INVESTOR_STRUCTURAL_ANCHORS.CAT`; compounder `near_weekly_ema21` accepts week-low test. See `tasks/2026-08-05-cat-weekly-breakout-retest.md`.
 
 ## Full Lessons
 
