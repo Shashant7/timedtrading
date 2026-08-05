@@ -831,6 +831,7 @@
       SOFT_FUSE_TRIM: "Momentum weaken trim",
       SOFT_FUSE_CLOUD_TRIM: "Cloud-hold partial trim",
       FAILED_ENTRY_RECLAIM: "Failed entry reclaim",
+      MFE_EXTENSION_TRIM: "Extension profit trim",
       Investor_Sell_Accumulate: "Investor sell accumulate",
       investor_sell_accumulate: "Investor sell accumulate",
       auto_entry_accumulate: "Initial accumulate entry",
@@ -19934,4 +19935,4 @@
   };
 })();
 
-// cache-bust:1785897256595:124330025
+// cache-bust:1785897383509:759089875
