@@ -26,6 +26,9 @@ Long-term horizon does **not** excuse rushing the first print — wait for stabi
 ## Engine response
 
 1. **Done (this PR)**: `investorLtfEntryStabilizationBlock` on auto-rebalance admit.
+   - **Correction 2026-08-05**: ST veto is **slope-down only**. Bearish-but-flat
+     ST is allowed (incl. bearish-flat 30m into most reversals). Do not require
+     30m bullish. Confluence remains 5-12 curl + opposing daily FVG reclaim.
 2. **Open**: Prefer Daily ATR −100 as tactical invalidation when in-band (NBIS).
 3. **Open**: Swing-high failure trim for investor (TWLO).
 4. **Open**: 10m 233 EMA reject as optional early exit / management cue (MU).
