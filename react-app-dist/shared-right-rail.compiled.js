@@ -816,6 +816,42 @@
         hour12: true
       });
     }
+    const LOT_REASON_LABELS = {
+      PRE_CPI_RISK_REDUCTION: "Pre-CPI risk reduction",
+      PRE_PPI_RISK_REDUCTION: "Pre-PPI risk reduction",
+      PRE_FOMC_RISK_REDUCTION: "Pre-FOMC risk reduction",
+      PRE_FOMC_RISK_REDUCTION_MATERIAL: "Pre-FOMC risk reduction",
+      PRE_PCE_RISK_REDUCTION: "Pre-PCE risk reduction",
+      PRE_NFP_RISK_REDUCTION: "Pre-NFP risk reduction",
+      PRE_EARNINGS_RISK_REDUCTION: "Pre-earnings risk reduction",
+      MFE_SAFETY_TRIM: "Profit lock trim",
+      PHASE_LEAVE_100: "Momentum fade trim",
+      RUNNER_PEAK_TRAIL: "Peak trail trim",
+      PROFIT_PROTECT_TRIM: "Profit protect trim",
+      SOFT_FUSE_TRIM: "Momentum weaken trim",
+      SOFT_FUSE_CLOUD_TRIM: "Cloud-hold partial trim",
+      FAILED_ENTRY_RECLAIM: "Failed entry reclaim",
+      Investor_Sell_Accumulate: "Investor sell accumulate",
+      investor_sell_accumulate: "Investor sell accumulate",
+      auto_entry_accumulate: "Initial accumulate entry",
+      dca_pullback: "DCA on pullback",
+      replay_dca: "DCA add"
+    };
+    function _humanizeLotReason(reason, opts) {
+      const raw = String(reason || "").trim();
+      if (!raw) return "";
+      if (LOT_REASON_LABELS[raw]) return LOT_REASON_LABELS[raw];
+      const titled = raw.replace(/_/g, " ").replace(/\s+/g, " ").trim().replace(/\b\w/g, c => c.toUpperCase());
+      const max = Number(opts?.max) || 0;
+      if (max > 0 && titled.length > max) return titled.slice(0, max - 1) + "…";
+      return titled;
+    }
+    function _fmtSharesExact(s) {
+      const n = Number(s);
+      if (!Number.isFinite(n)) return "—";
+      if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+      return n.toFixed(2);
+    }
     const SpiderChartImpl = typeof window !== "undefined" && window.TickerSpiderChartFactory ? window.TickerSpiderChartFactory({
       React
     }) : null;
@@ -6674,6 +6710,7 @@
         setAutopsyModalProfile(null);
         setAutopsyEvents(null);
         const _tid = t.trade_id || t.id || "";
+        const _isInvestorLot = t._source_mode === "investor" || String(t.action || "").toUpperCase().match(/^(BUY|SELL|DCA_BUY)$/);
         if (_tid) {
           fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}/events`).then(r => r.ok ? r.json() : null).then(d => {
             if (d?.ok && Array.isArray(d.events) && d.events.length > 0) {
@@ -6689,37 +6726,53 @@
           });
           setAutopsyModalLoading(false);
         };
-        fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`status_${r.status}`))).then(d => {
-          const allTrades = Array.isArray(d?.trades) ? d.trades : [];
-          const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
-          if (match) {
-            finalizeWith(match);
-            return;
+        if (_isInvestorLot) {
+          finalizeWith(t);
+          if (_tid) {
+            fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`).then(r => r.ok ? r.json() : null).then(d => {
+              const rec = d?.trade || null;
+              if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
+                setAutopsyModalData(prev => ({
+                  ...(prev || t),
+                  ...rec,
+                  _source_mode: "investor"
+                }));
+              }
+            }).catch(() => {});
           }
-          if (d?.trade) {
-            finalizeWith(d.trade);
-            return;
-          }
-          throw new Error("no_match_in_admin_response");
-        }).catch(_adminErr => {
-          if (!_tid) {
-            setAutopsyModalData(t);
-            setAutopsyModalLoading(false);
-            return;
-          }
-          fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`ledger_status_${r.status}`))).then(d => {
-            const rec = d?.trade || d?.row || (d?.ok ? d : null);
-            if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
-              finalizeWith(rec);
-            } else {
+        } else {
+          fetch(`${API_BASE}/timed/admin/trade-autopsy/trades?key=${encodeURIComponent(window._ttApiKey || "")}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`status_${r.status}`))).then(d => {
+            const allTrades = Array.isArray(d?.trades) ? d.trades : [];
+            const match = _tid ? allTrades.find(tr => String(tr.trade_id || "") === String(_tid)) : null;
+            if (match) {
+              finalizeWith(match);
+              return;
+            }
+            if (d?.trade) {
+              finalizeWith(d.trade);
+              return;
+            }
+            throw new Error("no_match_in_admin_response");
+          }).catch(_adminErr => {
+            if (!_tid) {
               setAutopsyModalData(t);
               setAutopsyModalLoading(false);
+              return;
             }
-          }).catch(() => {
-            setAutopsyModalData(t);
-            setAutopsyModalLoading(false);
+            fetch(`${API_BASE}/timed/ledger/trades/${encodeURIComponent(_tid)}`).then(r => r.ok ? r.json() : Promise.reject(new Error(`ledger_status_${r.status}`))).then(d => {
+              const rec = d?.trade || d?.row || (d?.ok ? d : null);
+              if (rec && (rec.entry_price != null || rec.entry_ts != null)) {
+                finalizeWith(rec);
+              } else {
+                setAutopsyModalData(t);
+                setAutopsyModalLoading(false);
+              }
+            }).catch(() => {
+              setAutopsyModalData(t);
+              setAutopsyModalLoading(false);
+            });
           });
-        });
+        }
         if (_tk) fetch(`${API_BASE}/timed/profile/${encodeURIComponent(_tk)}`, {
           cache: "no-store"
         }).then(r => {
@@ -6736,20 +6789,36 @@
       function renderAutopsyOverlay() {
         if (!autopsyModal) return null;
         const mt = autopsyModalData || autopsyModal;
-        const _dir = String(mt.direction || "").toUpperCase();
+        const _isInvestorModal = mt._source_mode === "investor" || autopsyEvents && autopsyEvents.mode === "investor" || !!String(mt.action || "").toUpperCase().match(/^(BUY|SELL|DCA_BUY)$/);
+        const _dir = String(mt.direction || "LONG").toUpperCase();
         const _ticker = String(mt.ticker || "").toUpperCase();
         const _entry = Number(mt.entryPrice || mt.entry_price) || 0;
         const _exit = Number(mt.exitPrice || mt.exit_price) || 0;
         const _status = String(mt.status || "").toUpperCase();
-        const _isOpenStatus = _status === "OPEN" || _status === "TP_HIT_TRIM" || !_status && !(mt.exit_ts ?? mt.exitTs);
+        const _posHeldNow = Number(autopsyEvents?.position_held_now ?? mt.position_held_now ?? mt.total_shares);
+        const _posAvgEntry = Number(autopsyEvents?.position_avg_entry ?? mt.position_avg_entry ?? mt.avg_entry);
+        const _posStatus = String(autopsyEvents?.status || mt.position_status || mt.status || "").toUpperCase();
+        const _investorStillOpen = _isInvestorModal && (Number.isFinite(_posHeldNow) ? _posHeldNow > 0.0001 : _posStatus === "OPEN");
+        const _isOpenStatus = _isInvestorModal ? _investorStillOpen : _status === "OPEN" || _status === "TP_HIT_TRIM" || !_status && !(mt.exit_ts ?? mt.exitTs);
         const _shares = Number(mt.shares || mt.quantity) || 0;
         const _trimPctMt = Number(mt.trimmed_pct || mt.trimmedPct || 0);
+        const _lotRole = String(mt.lot_role || "").toUpperCase() || (String(mt.action || "").toUpperCase() === "SELL" ? Number.isFinite(Number(mt.held_after)) && Number(mt.held_after) > 0.0001 ? "TRIM" : "EXIT" : String(mt.action || "").toUpperCase() === "DCA_BUY" ? "DCA" : "ENTRY");
+        const _lotReason = _humanizeLotReason(mt.reason || mt.exit_reason || mt.exitReason || "");
         const _liveCurrentPx = (() => {
           const live = Number(ticker?._live_price);
           if (Number.isFinite(live) && live > 0) return live;
           return Number(ticker?.price ?? ticker?.close) || 0;
         })();
         const _livePnl = (() => {
+          if (_isInvestorModal) {
+            if (String(mt.action || "").toUpperCase() === "SELL") {
+              return Number(mt.pnl || mt.realized_pnl) || 0;
+            }
+            if (_investorStillOpen && _posAvgEntry > 0 && _liveCurrentPx > 0 && _posHeldNow > 0) {
+              return (_liveCurrentPx - _posAvgEntry) * _posHeldNow;
+            }
+            return Number(mt.pnl || mt.realized_pnl) || 0;
+          }
           if (!_isOpenStatus) return Number(mt.pnl || mt.realized_pnl) || 0;
           if (!(_entry > 0) || !(_liveCurrentPx > 0) || !(_shares > 0)) return 0;
           const dirMul = _dir === "SHORT" ? -1 : 1;
@@ -6757,6 +6826,15 @@
           return (_liveCurrentPx - _entry) * remShares * dirMul;
         })();
         const _livePnlPct = (() => {
+          if (_isInvestorModal) {
+            if (String(mt.action || "").toUpperCase() === "SELL") {
+              return Number(mt.pnlPct || mt.pnl_pct) || 0;
+            }
+            if (_investorStillOpen && _posAvgEntry > 0 && _liveCurrentPx > 0) {
+              return (_liveCurrentPx - _posAvgEntry) / _posAvgEntry * 100;
+            }
+            return Number(mt.pnlPct || mt.pnl_pct) || 0;
+          }
           if (!_isOpenStatus) return Number(mt.pnlPct || mt.pnl_pct) || 0;
           if (!(_entry > 0) || !(_liveCurrentPx > 0)) return 0;
           const dirMul = _dir === "SHORT" ? -1 : 1;
@@ -6766,12 +6844,12 @@
         const _pnlPct = _livePnlPct;
         const _grade = mt.setup_grade || mt.setupGrade || "";
         const _riskBudget = mt.risk_budget || mt.riskBudget || "";
-        const _exitReasonRaw = mt.exitReason || mt.exit_reason || "";
+        const _exitReasonRaw = mt.exitReason || mt.exit_reason || mt.reason || "";
         const _exitWasReversed = _exitReasonRaw.startsWith("REVERSED_");
-        const _suppressExit = _isOpenStatus || _exitWasReversed;
-        const _exitReason = _suppressExit ? "" : _exitReasonRaw;
-        const _exitTs = _suppressExit ? null : mt.exit_ts ?? mt.exitTs ?? null;
-        const _exitPx = _suppressExit ? 0 : _exit;
+        const _suppressExit = _isInvestorModal ? _lotRole === "TRIM" || _lotRole === "ENTRY" || _lotRole === "DCA" || _investorStillOpen : _isOpenStatus || _exitWasReversed;
+        const _exitReason = _suppressExit && !_isInvestorModal ? "" : _exitReasonRaw;
+        const _exitTs = _suppressExit && !_isInvestorModal ? null : mt.exit_ts ?? mt.exitTs ?? null;
+        const _exitPx = _suppressExit && !_isInvestorModal ? 0 : _exit;
         const _mfe = Number(mt.max_favorable_excursion);
         const _mae = Number(mt.max_adverse_excursion);
         const _entryPath = mt.entry_path || "";
@@ -6818,7 +6896,7 @@
           }
         }, React.createElement("h2", {
           className: "text-[15px] font-semibold text-white truncate mr-2"
-        }, _ticker, " ", _dir, " \u2014 Trade Review"), React.createElement("button", {
+        }, _isInvestorModal ? `${_ticker} Investor — Position` : `${_ticker} ${_dir} — Trade Review`), React.createElement("button", {
           onClick: closeAutopsyModal,
           className: "p-2 -mr-1 rounded-md text-[#6E867D] hover:text-white hover:bg-white/[0.06] shrink-0"
         }, "\u2715")), autopsyModalLoading ? React.createElement("div", {
@@ -6830,7 +6908,25 @@
           className: "p-3 md:p-4 flex-1 min-h-0 overflow-y-auto flex flex-col gap-3"
         }, React.createElement("div", {
           className: "flex flex-col sm:flex-row flex-wrap items-start sm:items-center gap-2 sm:gap-3 shrink-0"
-        }, React.createElement("div", {
+        }, _isInvestorModal ? React.createElement(React.Fragment, null, React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#a78bfa]/15 border border-[#a78bfa]/30"
+        }, React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0"
+        }, _lotRole || "LOT"), React.createElement("span", {
+          className: "text-[13px] font-semibold text-white truncate"
+        }, _fmtSharesExact(_shares), " sh", (String(mt.action || "").toUpperCase() === "SELL" ? _exit : _entry) > 0 ? ` @ ${fmtUsd(String(mt.action || "").toUpperCase() === "SELL" ? _exit || _entry : _entry)}` : "", " · ", _formatDate(mt.entry_ts || mt.exit_ts))), Number.isFinite(_posHeldNow) && React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#22c55e]/15 border border-[#22c55e]/30"
+        }, React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#22c55e] uppercase tracking-wider shrink-0"
+        }, "Held now"), React.createElement("span", {
+          className: "text-[13px] font-semibold text-white truncate"
+        }, _fmtSharesExact(_posHeldNow), " sh", _posAvgEntry > 0 ? ` · avg ${fmtUsd(_posAvgEntry)}` : "")), _lotReason && React.createElement("div", {
+          className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.1]"
+        }, React.createElement("span", {
+          className: "text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wider shrink-0"
+        }, "Reason"), React.createElement("span", {
+          className: "text-[12px] font-medium text-white truncate"
+        }, _lotReason))) : React.createElement(React.Fragment, null, React.createElement("div", {
           className: "flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#60a5fa]/15 border border-[#60a5fa]/30"
         }, React.createElement("span", {
           className: "text-[10px] font-semibold text-[#60a5fa] uppercase tracking-wider shrink-0"
@@ -6860,18 +6956,20 @@
             className: "text-[10px] font-semibold text-[#a78bfa] uppercase tracking-wider shrink-0"
           }, "Shares"), React.createElement("span", {
             className: "text-[13px] font-semibold text-white"
-          }, Math.round(_sh)), _trimmed > 0 && React.createElement("span", {
+          }, _fmtSharesExact(_sh)), _trimmed > 0 && React.createElement("span", {
             className: "text-[11px] text-[#a78bfa]/70"
           }, "(", _trimmed, " trimmed \xB7 ", _remaining, " left)"));
-        })(), React.createElement("div", {
+        })()), React.createElement("div", {
           className: "flex items-center gap-3"
         }, React.createElement("div", {
           className: "text-[12px] text-[#8AA39A]"
-        }, "P&L: ", React.createElement("span", {
+        }, _isInvestorModal && String(mt.action || "").toUpperCase() === "SELL" ? "Lot P&L: " : "P&L: ", React.createElement("span", {
           className: _pnl >= 0 ? "text-[#22c55e] font-semibold" : "text-[#ef4444] font-semibold"
         }, fmtUsd(_pnl))), _pnlPct ? React.createElement("span", {
           className: `text-[11px] ${_statusCls}`
-        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null, _status && React.createElement("span", {
+        }, "(", _pnlPct > 0 ? "+" : "", _pnlPct.toFixed(2), "%)") : null, _isInvestorModal ? React.createElement("span", {
+          className: "text-[12px] font-semibold text-[#93b8f7]"
+        }, _investorStillOpen ? "OPEN" : "CLOSED") : _status && React.createElement("span", {
           className: `text-[12px] font-semibold ${_statusCls}`
         }, _status))), (() => {
           const events = [];
@@ -6889,67 +6987,88 @@
                 price: Number(ev.price) || 0,
                 value: Number(ev.value) || 0,
                 realized_pnl: Number(ev.realized_pnl) || 0,
-                reason: ev.note || null
+                reason: ev.reason || ev.note || null,
+                held_after: Number.isFinite(Number(ev.held_after)) ? Number(ev.held_after) : null,
+                focus: !!ev.focus
               });
             }
             events.sort((a, b) => Number(a.ts) - Number(b.ts));
           }
-          if (events.length === 0 && initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
-            events.push({
-              type: "ENTRY",
-              ts: entryTsRaw,
-              shares: initialShares,
-              price: entryPx,
-              value: initialShares * entryPx,
-              realized_pnl: 0,
-              reason: mt.setup_name || mt.setupName || mt.entry_path || mt.entryPath || null
-            });
-          }
-          if (!ledgerEvents || ledgerEvents.length === 0) {
-            const hist = Array.isArray(mt.history) ? mt.history : [];
-            for (const h of hist) {
-              const t = String(h?.type || "").toUpperCase();
-              if (t !== "TRIM" && t !== "EXIT") continue;
+          if (!_isInvestorModal) {
+            if (events.length === 0 && initialShares > 0 && entryPx > 0 && entryTsRaw > 0) {
               events.push({
-                type: t,
-                ts: Number(h.timestamp ?? h.ts ?? 0),
-                shares: Number(h.shares ?? 0),
-                price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
-                value: Number(h.value ?? Number(h.shares) * Number(h.price) ?? 0),
-                realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
-                reason: h.reason_human || h.reason || h.note || null,
-                pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null
+                type: "ENTRY",
+                ts: entryTsRaw,
+                shares: initialShares,
+                price: entryPx,
+                value: initialShares * entryPx,
+                realized_pnl: 0,
+                reason: mt.setup_name || mt.setupName || mt.entry_path || mt.entryPath || null
               });
             }
-          }
-          if ((!ledgerEvents || ledgerEvents.length === 0) && events.length <= 1) {
-            const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
-            const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
-            const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
-            if (trimPx > 0 && trimPctFrac > 0 && trimTs > 0) {
-              const trimShares = initialShares * trimPctFrac;
-              events.push({
-                type: "TRIM",
-                ts: trimTs,
-                shares: trimShares,
-                price: trimPx,
-                value: trimShares * trimPx,
-                realized_pnl: (trimPx - entryPx) * trimShares * dirMul,
-                reason: "Trim (legacy record)"
-              });
+            if (!ledgerEvents || ledgerEvents.length === 0) {
+              const hist = Array.isArray(mt.history) ? mt.history : [];
+              for (const h of hist) {
+                const t = String(h?.type || "").toUpperCase();
+                if (t !== "TRIM" && t !== "EXIT") continue;
+                events.push({
+                  type: t,
+                  ts: Number(h.timestamp ?? h.ts ?? 0),
+                  shares: Number(h.shares ?? 0),
+                  price: Number(h.price ?? h.trim_price ?? h.exit_price ?? 0),
+                  value: Number(h.value ?? Number(h.shares) * Number(h.price) ?? 0),
+                  realized_pnl: Number(h.pnl_realized ?? h.pnl_dollar ?? 0),
+                  reason: h.reason_human || h.reason || h.note || null,
+                  pnl_pct: h.pnl_pct != null ? Number(h.pnl_pct) : null
+                });
+              }
             }
-            const exitPxF = Number(mt.exit_price ?? mt.exitPrice ?? 0);
-            const exitTsF = Number(mt.exit_ts ?? mt.exitTs ?? 0);
-            if (exitPxF > 0 && exitTsF > 0) {
-              const remShares = initialShares * (1 - Math.min(trimPctFrac, 1));
+            if ((!ledgerEvents || ledgerEvents.length === 0) && events.length <= 1) {
+              const trimPx = Number(mt.trim_price ?? mt.trimPrice ?? 0);
+              const trimTs = Number(mt.trim_ts ?? mt.trimTs ?? 0);
+              const trimPctFrac = Number(mt.trimmed_pct ?? mt.trimmedPct ?? 0);
+              if (trimPx > 0 && trimPctFrac > 0 && trimTs > 0) {
+                const trimShares = initialShares * trimPctFrac;
+                events.push({
+                  type: "TRIM",
+                  ts: trimTs,
+                  shares: trimShares,
+                  price: trimPx,
+                  value: trimShares * trimPx,
+                  realized_pnl: (trimPx - entryPx) * trimShares * dirMul,
+                  reason: "Trim (legacy record)"
+                });
+              }
+              const exitPxF = Number(mt.exit_price ?? mt.exitPrice ?? 0);
+              const exitTsF = Number(mt.exit_ts ?? mt.exitTs ?? 0);
+              if (exitPxF > 0 && exitTsF > 0) {
+                const remShares = initialShares * (1 - Math.min(trimPctFrac, 1));
+                events.push({
+                  type: "EXIT",
+                  ts: exitTsF,
+                  shares: remShares,
+                  price: exitPxF,
+                  value: remShares * exitPxF,
+                  realized_pnl: Number(mt.pnl ?? mt.realized_pnl ?? 0) || (exitPxF - entryPx) * remShares * dirMul,
+                  reason: mt.exit_reason || null
+                });
+              }
+            }
+          } else if (events.length === 0) {
+            const actionU = String(mt.action || "").toUpperCase();
+            const heldAfterKnown = Number.isFinite(Number(mt.held_after)) ? Number(mt.held_after) : Number.isFinite(_posHeldNow) ? _posHeldNow : null;
+            const type = actionU === "SELL" ? heldAfterKnown != null && heldAfterKnown > 0.0001 ? "TRIM" : "EXIT" : actionU === "DCA_BUY" ? "ADD" : "ENTRY";
+            const px = actionU === "SELL" ? Number(mt.exit_price) || entryPx : entryPx;
+            if (initialShares > 0 && px > 0 && entryTsRaw > 0) {
               events.push({
-                type: "EXIT",
-                ts: exitTsF,
-                shares: remShares,
-                price: exitPxF,
-                value: remShares * exitPxF,
-                realized_pnl: Number(mt.pnl ?? mt.realized_pnl ?? 0) || (exitPxF - entryPx) * remShares * dirMul,
-                reason: mt.exit_reason || null
+                type,
+                ts: entryTsRaw,
+                shares: initialShares,
+                price: px,
+                value: initialShares * px,
+                realized_pnl: Number(mt.pnl || 0) || 0,
+                reason: mt.reason || mt.exit_reason || null,
+                held_after: heldAfterKnown
               });
             }
           }
@@ -6959,7 +7078,10 @@
           let cumPnl = 0;
           const displayRows = events.map(ev => {
             const sh = Number(ev.shares) || 0;
-            if (ev.type === "ENTRY") runningShares += sh;else runningShares = Math.max(0, runningShares - sh);
+            if (ev.type === "ENTRY" || ev.type === "ADD") runningShares += sh;else runningShares = Math.max(0, runningShares - sh);
+            if (Number.isFinite(Number(ev.held_after))) {
+              runningShares = Number(ev.held_after);
+            }
             cumPnl += Number(ev.realized_pnl) || 0;
             return {
               ...ev,
@@ -6968,8 +7090,9 @@
             };
           });
           const realizedTotal = cumPnl;
-          const unrealized = _isOpenStatus && _liveCurrentPx > 0 && runningShares > 0 && entryPx > 0 ? (_liveCurrentPx - entryPx) * runningShares * dirMul : 0;
-          const typeChipCls = t => t === "ENTRY" ? "bg-[#60a5fa]/15 text-[#60a5fa] border-[#60a5fa]/40" : t === "EXIT" ? "bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/40" : "bg-[#a78bfa]/15 text-[#a78bfa] border-[#a78bfa]/40";
+          const avgForUnreal = _isInvestorModal && _posAvgEntry > 0 ? _posAvgEntry : entryPx;
+          const unrealized = _isOpenStatus && _liveCurrentPx > 0 && runningShares > 0 && avgForUnreal > 0 ? (_liveCurrentPx - avgForUnreal) * runningShares * dirMul : 0;
+          const typeChipCls = t => t === "ENTRY" || t === "ADD" ? "bg-[#60a5fa]/15 text-[#60a5fa] border-[#60a5fa]/40" : t === "EXIT" ? "bg-[#f59e0b]/15 text-[#f59e0b] border-[#f59e0b]/40" : "bg-[#a78bfa]/15 text-[#a78bfa] border-[#a78bfa]/40";
           const _fmtDateShort = ts => {
             if (!Number.isFinite(ts) || ts <= 0) return "—";
             const t = ts < 1e12 ? ts * 1000 : ts;
@@ -6982,18 +7105,14 @@
               timeZone: "America/New_York"
             });
           };
-          const _fmtShares = s => {
-            const n = Number(s);
-            if (!Number.isFinite(n)) return "—";
-            return n >= 100 ? Math.round(n).toString() : n.toFixed(2);
-          };
+          const _fmtShares = s => _fmtSharesExact(s);
           return React.createElement("div", {
             className: "rounded-lg border border-white/[0.08] bg-white/[0.015] shrink-0"
           }, React.createElement("div", {
             className: "flex items-center justify-between px-3 py-2 border-b border-white/[0.06]"
           }, React.createElement("span", {
             className: "text-[11px] font-semibold text-[#8AA39A] uppercase tracking-[0.14em]"
-          }, "Event Log \xB7 Receipt"), React.createElement("span", {
+          }, _isInvestorModal ? "Position Lot Ledger" : "Event Log · Receipt"), React.createElement("span", {
             className: "text-[10px] text-[#6E867D]"
           }, displayRows.length, " event", displayRows.length === 1 ? "" : "s")), React.createElement("div", {
             style: {
@@ -7004,7 +7123,7 @@
             style: {
               fontVariantNumeric: "tabular-nums",
               borderCollapse: "collapse",
-              minWidth: 560
+              minWidth: _isInvestorModal ? 640 : 560
             }
           }, React.createElement("thead", null, React.createElement("tr", {
             className: "text-[10px] uppercase tracking-wider text-[#6E867D]"
@@ -7013,6 +7132,8 @@
           }, "When (ET)"), React.createElement("th", {
             className: "text-left px-2 py-1.5 font-medium"
           }, "Event"), React.createElement("th", {
+            className: "text-left px-2 py-1.5 font-medium"
+          }, "Reason"), React.createElement("th", {
             className: "text-right px-2 py-1.5 font-medium"
           }, "Shares"), React.createElement("th", {
             className: "text-right px-2 py-1.5 font-medium"
@@ -7023,11 +7144,11 @@
           }, "P&L"), React.createElement("th", {
             className: "text-right px-3 py-1.5 font-medium"
           }, "Held after"))), React.createElement("tbody", null, displayRows.map((r, i) => {
-            const pnlCls = r.type === "ENTRY" ? "text-[#6E867D]" : r.realized_pnl >= 0 ? "text-[#22c55e]" : "text-[#ef4444]";
-            return React.createElement(React.Fragment, {
-              key: `evlog-${i}`
-            }, React.createElement("tr", {
-              className: "border-t border-white/[0.04]"
+            const pnlCls = r.type === "ENTRY" || r.type === "ADD" ? "text-[#6E867D]" : r.realized_pnl >= 0 ? "text-[#22c55e]" : "text-[#ef4444]";
+            const reasonLabel = _humanizeLotReason(r.reason);
+            return React.createElement("tr", {
+              key: `evlog-${i}`,
+              className: `border-t border-white/[0.04]${r.focus ? " bg-[#a78bfa]/[0.08]" : ""}`
             }, React.createElement("td", {
               className: "px-3 py-2 text-[#8AA39A] whitespace-nowrap"
             }, _fmtDateShort(r.ts)), React.createElement("td", {
@@ -7035,6 +7156,11 @@
             }, React.createElement("span", {
               className: `inline-block px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wider ${typeChipCls(r.type)}`
             }, r.type)), React.createElement("td", {
+              className: "px-2 py-2 text-[11px] text-[#CFDED6] max-w-[180px]",
+              title: reasonLabel || ""
+            }, reasonLabel || React.createElement("span", {
+              className: "text-[#6E867D]"
+            }, "\u2014")), React.createElement("td", {
               className: "px-2 py-2 text-right text-white"
             }, _fmtShares(r.shares)), React.createElement("td", {
               className: "px-2 py-2 text-right text-white"
@@ -7042,28 +7168,23 @@
               className: "px-2 py-2 text-right text-[#8AA39A]"
             }, Number.isFinite(r.value) && r.value > 0 ? fmtUsd(r.value) : "—"), React.createElement("td", {
               className: `px-2 py-2 text-right font-semibold ${pnlCls}`
-            }, r.type === "ENTRY" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)), React.createElement("td", {
-              className: "px-3 py-2 text-right text-[#6E867D]"
-            }, _fmtShares(r.running_shares))), r.reason && React.createElement("tr", {
-              className: "border-t-0"
-            }, React.createElement("td", {
-              colSpan: "7",
-              className: "px-3 pb-2 -mt-1 text-[10px] text-[#6E867D] italic"
-            }, "\u21B3 ", String(r.reason).replace(/_/g, " ").toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase()))));
+            }, r.type === "ENTRY" || r.type === "ADD" ? "—" : (r.realized_pnl >= 0 ? "+" : "") + fmtUsd(r.realized_pnl)), React.createElement("td", {
+              className: "px-3 py-2 text-right text-[#6E867D] font-semibold"
+            }, _fmtShares(r.running_shares)));
           }), React.createElement("tr", {
             className: "border-t border-white/[0.12] bg-white/[0.02]"
           }, React.createElement("td", {
             className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A] font-semibold",
-            colSpan: "5"
-          }, "Total realized"), React.createElement("td", {
+            colSpan: "6"
+          }, _isInvestorModal ? "Position realized" : "Total realized"), React.createElement("td", {
             className: `px-2 py-2 text-right text-[13px] font-bold ${realizedTotal >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
           }, (realizedTotal >= 0 ? "+" : "") + fmtUsd(realizedTotal)), React.createElement("td", {
-            className: "px-3 py-2 text-right text-[11px] text-[#6E867D]"
+            className: "px-3 py-2 text-right text-[11px] text-[#CFDED6] font-semibold"
           }, _fmtShares(runningShares), " held")), _isOpenStatus && unrealized !== 0 && React.createElement("tr", {
             className: "bg-[#22c55e]/[0.04]"
           }, React.createElement("td", {
             className: "px-3 py-2 text-[11px] uppercase tracking-wider text-[#8AA39A]",
-            colSpan: "5"
+            colSpan: "6"
           }, "Unrealized (mark-to-market @ ", fmtUsd(_liveCurrentPx), ")"), React.createElement("td", {
             className: `px-2 py-2 text-right text-[12px] font-semibold ${unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
           }, (unrealized >= 0 ? "+" : "") + fmtUsd(unrealized)), React.createElement("td", {
@@ -7072,7 +7193,7 @@
             className: "border-t border-white/[0.12]"
           }, React.createElement("td", {
             className: "px-3 py-2 text-[11px] uppercase tracking-wider text-white font-bold",
-            colSpan: "5"
+            colSpan: "6"
           }, "Net P&L (realized + open)"), React.createElement("td", {
             className: `px-2 py-2 text-right text-[14px] font-bold ${realizedTotal + unrealized >= 0 ? "text-[#22c55e]" : "text-[#ef4444]"}`
           }, (realizedTotal + unrealized >= 0 ? "+" : "") + fmtUsd(realizedTotal + unrealized)), React.createElement("td", {
@@ -8193,22 +8314,40 @@
               cache: "no-store"
             })]);
             const parse = async settled => {
-              if (settled.status !== "fulfilled" || !settled.value.ok) return [];
+              if (settled.status !== "fulfilled" || !settled.value.ok) return {
+                trades: [],
+                position: null
+              };
               try {
                 const json = await settled.value.json();
-                if (!json.ok) return [];
-                return Array.isArray(json.trades) ? json.trades : [];
+                if (!json.ok) return {
+                  trades: [],
+                  position: null
+                };
+                return {
+                  trades: Array.isArray(json.trades) ? json.trades : [],
+                  position: json.position || null
+                };
               } catch {
-                return [];
+                return {
+                  trades: [],
+                  position: null
+                };
               }
             };
-            const traderTrades = (await parse(traderRes)).map(t => ({
+            const traderParsed = await parse(traderRes);
+            const investorParsed = await parse(investorRes);
+            const traderTrades = traderParsed.trades.map(t => ({
               ...t,
               _source_mode: "trader"
             }));
-            const investorTrades = (await parse(investorRes)).map(t => ({
+            const invPos = investorParsed.position;
+            const investorTrades = investorParsed.trades.map(t => ({
               ...t,
-              _source_mode: "investor"
+              _source_mode: "investor",
+              position_held_now: t.position_held_now ?? invPos?.held_now ?? t.total_shares,
+              position_avg_entry: t.position_avg_entry ?? invPos?.avg_entry ?? t.avg_entry,
+              position_status: t.position_status ?? invPos?.status ?? null
             }));
             const merged = [...traderTrades, ...investorTrades].filter(t => String(t.status || "").toUpperCase() !== "ARCHIVED").sort((a, b) => Number(b.entry_ts || 0) - Number(a.entry_ts || 0));
             if (!cancelled) setLedgerTrades(merged);
@@ -14656,6 +14795,20 @@
           const traderRealized = traderClosed.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
           const invSells = invTrades.filter(t => String(t.action || "").toUpperCase() === "SELL");
           const invRealized = invSells.reduce((s, t) => s + (Number(t.pnl) || 0), 0);
+          const invHeldNow = (() => {
+            for (const t of invTrades) {
+              const n = Number(t.position_held_now ?? t.total_shares);
+              if (Number.isFinite(n)) return n;
+            }
+            return null;
+          })();
+          const invAvgEntry = (() => {
+            for (const t of invTrades) {
+              const n = Number(t.position_avg_entry ?? t.avg_entry);
+              if (Number.isFinite(n) && n > 0) return n;
+            }
+            return null;
+          })();
           const fmtUsdHdr = n => Number.isFinite(n) ? (n >= 0 ? "+" : "−") + "$" + Math.abs(n).toLocaleString("en-US", {
             maximumFractionDigits: 0
           }) : "—";
@@ -14757,7 +14910,42 @@
               color: "var(--ds-text-muted)",
               marginTop: 2
             }
-          }, "active"))), invTrades.length > 0 && React.createElement(React.Fragment, null, React.createElement("div", {
+          }, "active"))), invTrades.length > 0 && React.createElement(React.Fragment, null, Number.isFinite(invHeldNow) && React.createElement("div", {
+            style: {
+              padding: "var(--ds-space-2)",
+              background: invHeldNow > 0 ? "rgba(56,242,161,0.08)" : "rgba(255,255,255,0.03)",
+              border: `1px solid ${invHeldNow > 0 ? "rgba(56,242,161,0.35)" : "var(--ds-stroke)"}`,
+              borderRadius: "var(--ds-radius-sm)",
+              gridColumn: "span 1"
+            }
+          }, React.createElement("div", {
+            style: {
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--ds-text-faint)",
+              letterSpacing: "0.05em"
+            }
+          }, "INVESTOR \xB7 HELD NOW"), React.createElement("div", {
+            style: {
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 16,
+              fontWeight: 700,
+              color: invHeldNow > 0 ? "var(--ds-accent)" : "var(--ds-text-body)",
+              marginTop: 2
+            }
+          }, _fmtSharesExact(invHeldNow), " ", React.createElement("span", {
+            style: {
+              fontSize: 10,
+              fontWeight: 500,
+              color: "var(--ds-text-muted)"
+            }
+          }, "sh")), React.createElement("div", {
+            style: {
+              fontSize: 10,
+              color: "var(--ds-text-muted)",
+              marginTop: 2
+            }
+          }, invHeldNow > 0 && Number.isFinite(invAvgEntry) ? `avg $${invAvgEntry.toFixed(2)}` : invHeldNow > 0 ? "open position" : "fully exited")), React.createElement("div", {
             style: {
               padding: "var(--ds-space-2)",
               background: "rgba(167,139,250,0.06)",
@@ -14862,8 +15050,13 @@
           const action = String(t.action || "").toUpperCase();
           const isSell = isInvestor && action === "SELL";
           const isBuy = isInvestor && (action === "BUY" || action === "DCA_BUY");
-          const investorLabel = isSell ? "SELL" : action === "DCA_BUY" ? "DCA" : "BUY";
+          const lotRole = String(t.lot_role || "").toUpperCase();
+          const investorLabel = isSell ? lotRole === "TRIM" || Number.isFinite(Number(t.held_after)) && Number(t.held_after) > 0.0001 ? "TRIM" : "SELL" : action === "DCA_BUY" ? "DCA" : "BUY";
           const lotShares = Number(t.shares);
+          const heldAfter = Number(t.held_after);
+          const reasonLabel = isInvestor ? _humanizeLotReason(t.reason || t.exit_reason, {
+            max: 28
+          }) : "";
           const entryPx = Number(t.entry_price ?? t.price);
           const exitPx = Number(t.exit_price);
           const trimmedPct = Number(t.trimmed_pct);
@@ -14889,7 +15082,9 @@
               style: {
                 display: "inline-flex",
                 gap: 6,
-                alignItems: "baseline"
+                alignItems: "baseline",
+                flexWrap: "wrap",
+                justifyContent: "flex-end"
               }
             }, React.createElement("span", {
               style: {
@@ -14902,7 +15097,13 @@
               style: {
                 fontFamily: "var(--tt-font-mono)"
               }
-            }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "% realized"));
+            }, pnlPct >= 0 ? "+" : "", pnlPct.toFixed(2), "% realized"), Number.isFinite(heldAfter) && React.createElement("span", {
+              style: {
+                color: "var(--ds-text-faint)",
+                fontFamily: "var(--tt-font-mono)",
+                fontSize: 10
+              }
+            }, "\u2192 ", _fmtSharesExact(heldAfter), " held"));
           } else if (!isInvestor && isClosed) {
             const validPct = Number.isFinite(pnlPct);
             rightSlot = React.createElement("span", {
@@ -14999,11 +15200,12 @@
           return React.createElement("div", {
             key: `tr-${i}-${t._source_mode || "x"}`,
             onClick: () => _openAutopsy(t),
-            title: isInvestor ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(entryPx) ? entryPx.toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${t.reason ? " — " + t.reason : ""}` : "Click to open Trade Autopsy",
+            title: isInvestor ? `Investor lot ${investorLabel}: ${lotShares ? lotShares.toFixed(2) + " sh" : ""} @ $${Number.isFinite(isSell ? exitPx : entryPx) ? (isSell ? exitPx : entryPx).toFixed(2) : "?"}${isSell && Number.isFinite(pnlAbs) ? ` · realized $${pnlAbs.toFixed(2)}` : ""}${Number.isFinite(heldAfter) ? ` · held after ${_fmtSharesExact(heldAfter)}` : ""}${t.reason ? " — " + _humanizeLotReason(t.reason) : ""}` : "Click to open Trade Autopsy",
             style: {
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
+              gap: 8,
               padding: "8px 10px",
               background: "var(--ds-bg-glass)",
               borderRadius: "var(--ds-radius-xs)",
@@ -15023,7 +15225,9 @@
             style: {
               display: "flex",
               alignItems: "center",
-              gap: "var(--ds-space-2)"
+              gap: "var(--ds-space-2)",
+              minWidth: 0,
+              flex: "1 1 auto"
             }
           }, isInvestor ? React.createElement("span", {
             className: "ds-chip ds-chip--sm",
@@ -15031,7 +15235,8 @@
               fontFamily: "var(--tt-font-mono)",
               background: isSell ? "rgba(248,113,113,0.12)" : "rgba(52,211,153,0.12)",
               color: isSell ? "#fda4af" : "#86efac",
-              borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)"
+              borderColor: isSell ? "rgba(248,113,113,0.30)" : "rgba(52,211,153,0.30)",
+              flexShrink: 0
             }
           }, "INV ", investorLabel) : React.createElement(React.Fragment, null, React.createElement("span", {
             className: `ds-chip ds-chip--sm ${String(t.direction || "").toUpperCase() === "SHORT" ? "ds-chip--dn" : "ds-chip--up"}`,
@@ -15049,16 +15254,37 @@
           }, status)), React.createElement("span", {
             style: {
               color: "var(--ds-text-muted)",
-              fontFamily: "var(--tt-font-mono)"
+              fontFamily: "var(--tt-font-mono)",
+              flexShrink: 0
             }
-          }, dt.toLocaleDateString()), t.setup_name && !isInvestor && React.createElement("span", {
+          }, dt.toLocaleDateString()), isInvestor && reasonLabel && React.createElement("span", {
+            style: {
+              color: "var(--ds-text-body)",
+              fontSize: 11,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap"
+            },
+            title: _humanizeLotReason(t.reason || t.exit_reason)
+          }, reasonLabel), t.setup_name && !isInvestor && React.createElement("span", {
             style: {
               color: "var(--ds-text-faint)",
               fontFamily: "var(--tt-font-mono)",
               fontSize: 10
             },
             title: `Setup: ${t.setup_name}${t.setup_grade ? " · grade " + t.setup_grade : ""}`
-          }, "\xB7 ", (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24))), rightSlot);
+          }, "\xB7 ", (_formatPath(t.setup_name) || String(t.setup_name)).slice(0, 24)), isBuy && Number.isFinite(heldAfter) && React.createElement("span", {
+            style: {
+              color: "var(--ds-text-faint)",
+              fontFamily: "var(--tt-font-mono)",
+              fontSize: 10,
+              flexShrink: 0
+            }
+          }, "\u2192 ", _fmtSharesExact(heldAfter), " held")), React.createElement("div", {
+            style: {
+              flexShrink: 0
+            }
+          }, rightSlot));
         }))), candlePerf && Object.keys(candlePerf).length > 0 && React.createElement(Panel, {
           title: "Performance"
         }, React.createElement("div", {
@@ -19708,4 +19934,4 @@
   };
 })();
 
-// cache-bust:1785819882956:657711554
+// cache-bust:1785896912333:151047606
