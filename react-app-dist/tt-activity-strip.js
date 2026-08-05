@@ -296,6 +296,8 @@
     PRE_PCE_RISK_REDUCTION: "Pre-PCE risk reduction",
     PRE_NFP_RISK_REDUCTION: "Pre-NFP risk reduction",
     PRE_EARNINGS_RISK_REDUCTION: "Pre-earnings risk reduction",
+    MFE_EXTENSION_TRIM: "Extension profit trim",
+    FAILED_ENTRY_RECLAIM: "Failed entry reclaim exit",
     MFE_SAFETY_TRIM: "Profit lock trim",
     PHASE_LEAVE_100: "Momentum fade trim",
     RUNNER_PEAK_TRAIL: "Peak trail trim",
@@ -797,4 +799,4 @@
   else mount();
 })();
 
-// cache-bust:1785819882956:657711554
+// cache-bust:1785895219016:177012204

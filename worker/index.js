@@ -886,6 +886,8 @@ import {
   normalizeInvestorRsFields,
   backfillInvestorRelativeStrength,
   resolvePrimaryInvalidationBreach,
+  resolvePrimaryInvalidationMovie,
+  resolveInvestorMfeExtensionTrim,
   resolveStickyPrimaryInvalidation,
   isStructuralInvestorReduce,
   isImmediateInvestorReduce,
@@ -47576,6 +47578,8 @@ function createTradeTrimmedEmbed(
     doctrine_giveback_force_exit: "Trade gave back too much from its peak — trimming defensively per exit doctrine",
     etf_stagnant_exit: "ETF position stalled with no meaningful move — closing to free up capital for better setups",
     PRE_EARNINGS_RISK_REDUCTION: "Reduced exposure ahead of earnings because overnight gaps can overwhelm normal stops",
+    MFE_EXTENSION_TRIM: "Position extended hard from entry — banking a slice into strength so a later pullback does not erase the whole move",
+    FAILED_ENTRY_RECLAIM: "Failed reclaim after an underwater episode — exiting on the reject instead of waiting for a deeper support break",
     PRE_EARNINGS_FORCE_EXIT: "Closed the position ahead of earnings because gap risk outweighed holding through the event",
     PRE_CPI_RISK_REDUCTION: "Reduced exposure ahead of CPI because the release can sharply reprice open positions",
     PRE_PPI_RISK_REDUCTION: "Reduced exposure ahead of PPI because the release can sharply reprice open positions",
@@ -94670,17 +94674,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             }
           }
 
-          // ── Primary invalidation breach: full exit ──
-          // The UI shows "Exit remainder if price closes below $X". Wire that
-          // floor into live execution so model holdings match operator guidance.
-          // No CIO gate, no 2-session confirm — immediate full close.
-          // 2026-06-22 — Long-horizon min-hold for price-invalidation exits.
-          // The Investor lane must not round-trip a position the same session
-          // it opened on a fleeting intraday tick below the floor (operator:
-          // LITE opened 10:00 ET, invalidation-exited 11:00 ET at -0.67%, then
-          // rallied). Defer the exit until the position has been held long
-          // enough that a confirmed daily close has printed since entry.
+          // ── Primary invalidation breach: full exit (MOVIE) ──
+          // The UI shows "Exit remainder if price closes below $X".
+          // 2026-06-22 — min-hold so entry-day ticks can't round-trip.
+          // 2026-08-05 (ANET Jul 16) — live mark alone is a FRAME (wick
+          // through Weekly ATR while support reclaimed by 2pm). Require
+          // resolvePrimaryInvalidationMovie confirm (session/daily close
+          // or sustained hold-below) before full exit.
           const _invMinHoldMs = Math.max(0, Number(_invRebalCfg.invalidation_min_hold_hours) || 0) * 3600 * 1000;
+          const _invMarketOpen = isNyRegularMarketOpen(new Date(now));
           const invalidationExits = [];
           for (const pos of (_skipTrims ? [] : existingPos)) {
             const sym = String(pos.ticker || "").toUpperCase();
@@ -94695,6 +94697,39 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // resolution needs the fallback).
             let latestTickerData = await kvGetJSON(env.KV_TIMED, `timed:latest:${sym}`).catch(() => null);
             let breach = resolvePrimaryInvalidationBreach(price, scoreData, latestTickerData);
+            const notesObj = parseInvestorPositionNotes(pos.notes);
+            const movie = resolvePrimaryInvalidationMovie({
+              breach,
+              price,
+              priorState: notesObj._inv_movie || null,
+              tickerData: latestTickerData,
+              cfg: _invRebalCfg,
+              now,
+              marketOpen: _invMarketOpen,
+            });
+
+            // Persist arm / clear so the sequence survives cron ticks.
+            if (JSON.stringify(movie.state) !== JSON.stringify(notesObj._inv_movie || null)) {
+              try {
+                const nextNotes = { ...notesObj };
+                if (movie.state) nextNotes._inv_movie = movie.state;
+                else delete nextNotes._inv_movie;
+                await env.DB.prepare(
+                  "UPDATE investor_positions SET notes = ?1, updated_at = ?2 WHERE id = ?3",
+                ).bind(JSON.stringify(nextNotes).slice(0, 16000), now, pos.id).run();
+                pos.notes = JSON.stringify(nextNotes);
+              } catch (e) {
+                console.warn(`[AUTO-REBALANCE] ${sym} inv-movie notes persist failed:`, String(e?.message || e).slice(0, 120));
+              }
+            }
+
+            if (!movie.fire) {
+              if (breach && movie.deferReason) {
+                console.log(`[AUTO-REBALANCE] ${sym} invalidation DEFERRED (${movie.deferReason}) — live $${price.toFixed(2)} vs floor $${breach.price.toFixed(2)} (${breach.label}); waiting for close/hold-below movie.`);
+              }
+              continue;
+            }
+            breach = movie.breach || breach;
             if (!breach) continue;
 
             // Min-hold guard — skip the invalidation exit on a freshly opened
@@ -94716,8 +94751,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const trimReason = "PRIMARY_INVALIDATION_BREACH";
 
             await env.DB.prepare(
-              "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1, investor_stage = 'exited' WHERE id = ?2"
-            ).bind(now, pos.id).run();
+              "UPDATE investor_positions SET status = 'CLOSED', total_shares = 0, closed_at = ?1, updated_at = ?1, investor_stage = 'exited', notes = ?3 WHERE id = ?2"
+            ).bind(now, pos.id, JSON.stringify({ ...parseInvestorPositionNotes(pos.notes), _inv_movie: null, _inv_movie_fired: { ts: now, confirm: movie.confirm, breach } }).slice(0, 16000)).run();
 
             await env.DB.prepare(
               "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)"
@@ -94729,7 +94764,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               position_id: pos.id, ticker: sym, direction: "LONG",
               qty: trimShares, price, cash_delta: sellValue,
               realized_pnl: pnl, balance: prevBal + sellValue,
-              note: `Invalidation exit ${trimShares}sh ${sym} @$${price.toFixed(2)} (below $${breach.price.toFixed(2)} ${breach.label}, P&L $${pnl.toFixed(2)})`,
+              note: `Invalidation exit ${trimShares}sh ${sym} @$${price.toFixed(2)} (below $${breach.price.toFixed(2)} ${breach.label}, confirm=${movie.confirm || "n/a"}, P&L $${pnl.toFixed(2)})`,
             }).catch(e => console.error("[LEDGER] invalidation exit failed:", e));
 
             recordInvestorDecision(env, {
@@ -94763,6 +94798,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   breach_price: breach.price,
                   breach_label: breach.label,
                   breach_pct: breach.breachPct,
+                  confirm: movie.confirm,
                   pnl,
                 },
               },
@@ -94777,6 +94813,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               invalidationPrice: breach.price,
               invalidationLabel: breach.label,
               breachPct: breach.breachPct,
+              confirm: movie.confirm,
             });
             queueBackground(_bridgeMirrorInvestor({
               kind: "exit", ticker: sym, shares: trimShares,
@@ -94801,7 +94838,96 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               score: scoreData?.score ?? null,
               stageReason: scoreData?.stageReason ?? "primary_invalidation_breach",
             }, { collect: _rebalDigestTrims });
-            console.log(`[AUTO-REBALANCE] ${sym} primary invalidation breach: close $${price.toFixed(2)} < $${breach.price.toFixed(2)} (${breach.label}) → full exit`);
+            console.log(`[AUTO-REBALANCE] ${sym} primary invalidation breach (${movie.confirm}): close $${price.toFixed(2)} < $${breach.price.toFixed(2)} (${breach.label}) → full exit`);
+          }
+
+          // ── MFE extension trim (ANET Jul: 171→190 with no profit bank) ──
+          const mfeExtensionTrims = [];
+          const _mfeMinHoldMs = Math.max(0, Number(_invRebalCfg.investor_mfe_extension_min_hold_hours) || 0) * 3600 * 1000;
+          for (const pos of (_skipTrims ? [] : existingPos)) {
+            const sym = String(pos.ticker || "").toUpperCase();
+            if (_addedThisRun.has(sym)) continue;
+            if (eventReducedTickers.has(pos.ticker) || eventReducedTickers.has(sym)) continue;
+            const shares = Number(pos.total_shares);
+            if (!(shares > 0)) continue;
+            const pf = priceMap[sym] || priceMap[pos.ticker];
+            const price = pf ? Number(pf.p) : null;
+            if (!price || price <= 0) continue;
+            const _openedMs = Number(pos.first_entry_ts || 0);
+            if (_mfeMinHoldMs > 0 && _openedMs > 0 && (now - _openedMs) < _mfeMinHoldMs) continue;
+
+            const peakPrice = Math.max(Number(pos.peak_price) || 0, price, Number(pos.avg_entry) || 0);
+            if (peakPrice > (Number(pos.peak_price) || 0)) {
+              await env.DB.prepare(
+                "UPDATE investor_positions SET peak_price = ?1, updated_at = ?2 WHERE id = ?3",
+              ).bind(peakPrice, now, pos.id).run().catch(() => {});
+              pos.peak_price = peakPrice;
+            }
+
+            const notesObj = parseInvestorPositionNotes(pos.notes);
+            const mfe = resolveInvestorMfeExtensionTrim({
+              avgEntry: pos.avg_entry,
+              price,
+              peakPrice,
+              priorTrimmed: !!notesObj._mfe_extension_trim,
+              cfg: _invRebalCfg,
+            });
+            if (!mfe.fire) continue;
+
+            const trimShares = Math.max(0, shares * Number(mfe.trimPct));
+            if (!(trimShares > 0.0001)) continue;
+            const sellValue = trimShares * price;
+            const costBasis = Number(pos.cost_basis) || 0;
+            const avgEntry = Number(pos.avg_entry) || 0;
+            const costSold = avgEntry > 0 ? avgEntry * trimShares : costBasis * (trimShares / shares);
+            const pnl = sellValue - costSold;
+            const newShares = Math.max(0, shares - trimShares);
+            const newCost = Math.max(0, costBasis - costSold);
+            const lotId = `lot-${sym}-mfeext-${now}`;
+            const trimReason = "MFE_EXTENSION_TRIM";
+            const nextNotes = {
+              ...notesObj,
+              _mfe_extension_trim: { ts: now, peak: peakPrice, peak_pct: mfe.peakPct, trim_pct: mfe.trimPct },
+            };
+
+            await env.DB.prepare(
+              "UPDATE investor_positions SET total_shares = ?1, cost_basis = ?2, updated_at = ?3, peak_price = ?4, notes = ?5 WHERE id = ?6",
+            ).bind(newShares, newCost, now, peakPrice, JSON.stringify(nextNotes).slice(0, 16000), pos.id).run();
+            pos.total_shares = newShares;
+            pos.cost_basis = newCost;
+            pos.notes = JSON.stringify(nextNotes);
+
+            await env.DB.prepare(
+              "INSERT INTO investor_lots (id, position_id, ticker, action, shares, price, value, ts, reason, created_at) VALUES (?1, ?2, ?3, 'SELL', ?4, ?5, ?6, ?7, ?8, ?7)",
+            ).bind(lotId, pos.id, sym, trimShares, price, sellValue, now, trimReason).run();
+
+            const prevBal = await d1GetLedgerBalance(env, "investor");
+            d1InsertLedgerEntry(env, {
+              mode: "investor", ts: now, event_type: "TRIM",
+              position_id: pos.id, ticker: sym, direction: "LONG",
+              qty: trimShares, price, cash_delta: sellValue,
+              realized_pnl: pnl, balance: prevBal + sellValue,
+              note: `MFE extension trim ${trimShares.toFixed(4)}sh ${sym} @$${price.toFixed(2)} (peak +${mfe.peakPct}% / $${peakPrice.toFixed(2)})`,
+            }).catch(e => console.error("[LEDGER] mfe extension trim failed:", e));
+
+            eventReducedTickers.add(pos.ticker);
+            mfeExtensionTrims.push({
+              ticker: sym, shares: trimShares, price,
+              pnl: Math.round(pnl * 100) / 100, peakPct: mfe.peakPct,
+            });
+            queueBackground(_bridgeMirrorInvestor({
+              kind: "trim", ticker: sym, shares: trimShares,
+              price, position_id: pos.id,
+              reason: "investor_mfe_extension_trim",
+              reduce_pct: Number(mfe.trimPct),
+            }));
+            scheduleInvestorLotActionChannels(env, env?.KV_TIMED, {
+              ticker: sym, shares: trimShares, price, value: sellValue,
+              pnl: Math.round(pnl * 100) / 100, remaining: newShares,
+              reason: trimReason, closed: false, lot_id: lotId, ts: now,
+              stage: "accumulate", score: null, stageReason: "mfe_extension_trim",
+            }, { collect: _rebalDigestTrims });
+            console.log(`[AUTO-REBALANCE] ${sym} MFE extension trim: peak +${mfe.peakPct}% → sold ${trimShares.toFixed(2)}sh @$${price.toFixed(2)}`);
           }
 
           // ── Failed entry-reclaim exit (movie / sequence) ──
@@ -95611,6 +95737,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             eventReducedCount: eventReduced.length,
             invalidationExitCount: invalidationExits.length,
             failedReclaimExitCount: failedReclaimExits.length,
+            mfeExtensionTrimCount: mfeExtensionTrims.length,
             fsdRemovalExitCount: fsdRemovalExits.length,
             reducedCount: reduced.length,
             exhaustionTrimmedCount: exhaustionTrimmed.length,
@@ -95633,6 +95760,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             eventReduced,
             invalidationExits,
             failedReclaimExits,
+            mfeExtensionTrims,
             fsdRemovalExits,
             reduced,
             exhaustionTrimmed,
