@@ -5047,3 +5047,15 @@ Frame-by-frame invalidation misses the **sequence**. Fix:
 recovery high, fires `FAILED_ENTRY_RECLAIM` on giveback / fail-10m-233 /
 fail-5-12 while still below entry. Default full exit; toggle
 `deep_audit_investor_failed_reclaim_exit_enabled`.
+
+### Correction (2026-08-05) — ANET: invalidation movie + Daily 21 memory
+Operator (ANET Jul 6–16): entry slightly chased the open peak despite a solid
+Daily EMA(21) overnight test; price rallied ~190 with no profit bank; Jul 16
+`PRIMARY_INVALIDATION_BREACH` at 2:02pm was a **wick through Weekly ATR** while
+support reclaimed/held — PLTR was held through a similar path, ANET was not.
+Fixes: (1) `resolvePrimaryInvalidationMovie` — arm on live breach, fire only on
+session/daily close below floor, prior close already below + still below, or
+sustained hold-below; reclaim clears arm. (2) `detectDailyEma21Test` +
+`INVESTOR_STRUCTURAL_ANCHORS.ANET.daily_ema21_respect` for entry memory.
+(3) `MFE_EXTENSION_TRIM` when peak ≥10% above entry. Published copy already said
+"closes below"; live mark alone was the frame bug.

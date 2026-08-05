@@ -162,6 +162,34 @@ export const DEFAULT_INVESTOR_CONFIG = Object.freeze({
   investor_failed_reclaim_rescue_pct: 2,       // clear arm if +2% above entry
   investor_failed_reclaim_exit_pct: 1.0,       // 1.0 = full exit (MTZ pattern)
   investor_failed_reclaim_min_hold_hours: 18,  // align with invalidation min-hold
+
+  // 2026-08-05 — Primary invalidation MOVIE (ANET Jul 16). Published rule is
+  // "exit if price CLOSES below $X". Live mark alone is a frame (wick through
+  // Weekly ATR at 2pm while support reclaimed). Require a confirmed session /
+  // daily close below the floor, or a sustained hold-below without reclaim.
+  investor_invalidation_movie_enabled: true,
+  investor_invalidation_reclaim_buffer_pct: 0.15, // clear arm once back above floor by this %
+  investor_invalidation_hold_below_minutes: 180,  // sustained hold-below (RTH) without reclaim
+  // MFE extension trim — ANET rallied ~171 → ~190 (~11%) with only a tiny
+  // event-risk cut; bank a slice into strength instead of giving it all back.
+  investor_mfe_extension_trim_enabled: true,
+  investor_mfe_extension_peak_pct: 10,         // peak ≥10% above avg entry
+  investor_mfe_extension_trim_pct: 0.25,       // sell 25% of shares
+  investor_mfe_extension_min_hold_hours: 24,
+});
+
+/**
+ * Operator / autopsy-stamped structural anchors per ticker.
+ * Complements learning_json; used when timed:latest has no profile blob yet.
+ * ANET Jul 2026: Daily 21 EMA held overnight test + next-day open rally.
+ */
+export const INVESTOR_STRUCTURAL_ANCHORS = Object.freeze({
+  ANET: Object.freeze({
+    daily_ema21_respect: true,
+    updated: "2026-08-05",
+    source: "july_lt_autopsy",
+    note: "Recently respected Daily EMA(21) — night-before test held; next-day open rally. Prefer that timing over chasing the open peak.",
+  }),
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -379,6 +407,22 @@ export function loadInvestorConfig(daCfg) {
   if (Number.isFinite(frcGb) && frcGb > 0 && frcGb <= 15) cfg.investor_failed_reclaim_giveback_pct = frcGb;
   const frcExit = Number(daCfg.deep_audit_investor_failed_reclaim_exit_pct);
   if (Number.isFinite(frcExit) && frcExit > 0 && frcExit <= 1) cfg.investor_failed_reclaim_exit_pct = frcExit;
+  const invMovie = daCfg.deep_audit_investor_invalidation_movie_enabled;
+  if (invMovie === true || invMovie === false) cfg.investor_invalidation_movie_enabled = invMovie;
+  else if (invMovie === "true") cfg.investor_invalidation_movie_enabled = true;
+  else if (invMovie === "false") cfg.investor_invalidation_movie_enabled = false;
+  const invHold = Number(daCfg.deep_audit_investor_invalidation_hold_below_minutes);
+  if (Number.isFinite(invHold) && invHold >= 30 && invHold <= 1440) {
+    cfg.investor_invalidation_hold_below_minutes = invHold;
+  }
+  const mfeEn = daCfg.deep_audit_investor_mfe_extension_trim_enabled;
+  if (mfeEn === true || mfeEn === false) cfg.investor_mfe_extension_trim_enabled = mfeEn;
+  else if (mfeEn === "true") cfg.investor_mfe_extension_trim_enabled = true;
+  else if (mfeEn === "false") cfg.investor_mfe_extension_trim_enabled = false;
+  const mfePeak = Number(daCfg.deep_audit_investor_mfe_extension_peak_pct);
+  if (Number.isFinite(mfePeak) && mfePeak >= 5 && mfePeak <= 40) {
+    cfg.investor_mfe_extension_peak_pct = mfePeak;
+  }
   return cfg;
 }
 
@@ -2361,6 +2405,28 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
       mrSignals.push("daily_above_ema21");
       mrConfidence += 12;
     }
+    // 2b. Daily EMA(21) test + reclaim (ANET Jul 6) — solid long-horizon
+    // timing when the night-before / open test holds and price rallies.
+    const d21Test = detectDailyEma21Test(tickerData);
+    if (d21Test.reclaimed) {
+      mrBonus.push("daily_ema21_test_reclaim");
+      mrConfidence += 16;
+    } else if (d21Test.tested) {
+      mrBonus.push("daily_ema21_test");
+      mrConfidence += 8;
+    }
+    // Ticker memory: names that recently respected Daily 21 (ANET) get a
+    // small extra boost when the test is active.
+    const _symU = String(tickerData?.ticker || "").toUpperCase();
+    const anchors = tickerData?.learning?.structural_anchors
+      || tickerData?.profile?.learning?.structural_anchors
+      || tickerData?.structural_anchors
+      || INVESTOR_STRUCTURAL_ANCHORS[_symU]
+      || null;
+    if (anchors?.daily_ema21_respect && (d21Test.tested || d21Test.reclaimed)) {
+      mrBonus.push("memory_daily_ema21_respect");
+      mrConfidence += 6;
+    }
     // 3. Monthly bull (Pine convention -1 = bull)
     if (mb?.supertrend_dir === -1) {
       mrSignals.push("monthly_supertrend_bull");
@@ -2933,6 +2999,213 @@ export function resolvePrimaryInvalidationBreach(livePrice, scoreData = null, ti
     price: invPx,
     label: String(inv?.label || "Invalidation"),
     breachPct: Math.round(((px - invPx) / invPx) * 10000) / 100,
+  };
+}
+
+/**
+ * Best-effort completed daily close from ticker payload.
+ * During RTH this is typically the prior session close; outside RTH the live
+ * mark (`p`) is already today's RTH close per the price pipeline.
+ */
+export function resolveInvestorDailyClosePx(tickerData, livePrice, marketOpen) {
+  const live = Number(livePrice);
+  if (!marketOpen && live > 0) return live;
+  const candidates = [
+    tickerData?.prev_close,
+    tickerData?.previous_close,
+    tickerData?.pc,
+    tickerData?._live_prev_close,
+    tickerData?.tf_tech?.D?.prevClose,
+    tickerData?.tf_tech?.D?.prev_close,
+    tickerData?.tf_tech?.D?.close,
+    tickerData?.close,
+  ];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/**
+ * ANET Jul 16 movie: wick-through ≠ thesis break.
+ * Arm on live breach; fire only on confirmed close below the floor, or a
+ * sustained hold-below without reclaim. Clear the arm when price reclaims.
+ *
+ * @returns {{ fire:boolean, state:object|null, deferReason:string|null, confirm:string|null, breach:object|null }}
+ */
+export function resolvePrimaryInvalidationMovie({
+  breach = null,
+  price,
+  priorState = null,
+  tickerData = null,
+  cfg = DEFAULT_INVESTOR_CONFIG,
+  now = Date.now(),
+  marketOpen = false,
+} = {}) {
+  const px = Number(price);
+  if (!(px > 0)) {
+    return { fire: false, state: priorState || null, deferReason: "no_price", confirm: null, breach: null };
+  }
+
+  // Legacy tick path (feature off) — preserve pre-ANET behavior.
+  if (cfg?.investor_invalidation_movie_enabled === false) {
+    return {
+      fire: !!breach,
+      state: null,
+      deferReason: breach ? null : "no_breach",
+      confirm: breach ? "legacy_tick" : null,
+      breach: breach || null,
+    };
+  }
+
+  const reclaimBuf = Math.max(0, Number(cfg.investor_invalidation_reclaim_buffer_pct) || 0.15) / 100;
+  const holdMin = Math.max(30, Number(cfg.investor_invalidation_hold_below_minutes) || 180);
+  const holdMs = holdMin * 60 * 1000;
+
+  // No live breach — if we were armed, treat reclaim as clearing the movie.
+  if (!breach) {
+    if (priorState?.armed) {
+      return { fire: false, state: null, deferReason: "reclaimed_above_floor", confirm: null, breach: null };
+    }
+    return { fire: false, state: null, deferReason: "no_breach", confirm: null, breach: null };
+  }
+
+  const invPx = Number(breach.price);
+  if (!(invPx > 0)) {
+    return { fire: false, state: null, deferReason: "bad_floor", confirm: null, breach };
+  }
+
+  // Soft reclaim buffer: live slightly above the printed floor clears the arm.
+  if (px >= invPx * (1 + reclaimBuf)) {
+    return { fire: false, state: null, deferReason: "reclaimed_above_floor", confirm: null, breach };
+  }
+
+  const ts = Number(now) || Date.now();
+  let state = priorState && typeof priorState === "object" ? { ...priorState } : null;
+  if (!state?.armed) {
+    state = {
+      armed: true,
+      armed_ts: ts,
+      inv_price: invPx,
+      inv_label: String(breach.label || ""),
+      breach_low: px,
+      last_below_ts: ts,
+    };
+  } else {
+    state.armed = true;
+    state.inv_price = invPx;
+    state.inv_label = String(breach.label || state.inv_label || "");
+    state.breach_low = Math.min(Number(state.breach_low) || px, px);
+    state.last_below_ts = ts;
+    if (!Number(state.armed_ts)) state.armed_ts = ts;
+  }
+
+  const dailyClose = resolveInvestorDailyClosePx(tickerData, px, !!marketOpen);
+  const closeConfirmed = Number.isFinite(dailyClose) && dailyClose > 0 && dailyClose < invPx;
+
+  // Outside RTH the mark is the session RTH close — that IS close discipline.
+  if (!marketOpen && px < invPx) {
+    return { fire: true, state, deferReason: null, confirm: "session_close_mark", breach };
+  }
+
+  // Prior/completed daily close already below floor and live still below —
+  // thesis broken yesterday; don't wait for another full session.
+  if (marketOpen && closeConfirmed && px < invPx) {
+    return { fire: true, state, deferReason: null, confirm: "prior_daily_close", breach };
+  }
+
+  // Sustained hold-below without reclaim (RTH movie of a real break).
+  const belowForMs = ts - Number(state.armed_ts || ts);
+  if (px < invPx && belowForMs >= holdMs) {
+    return { fire: true, state, deferReason: null, confirm: "sustained_hold_below", breach };
+  }
+
+  return {
+    fire: false,
+    state,
+    deferReason: marketOpen ? "awaiting_close_or_hold_below" : "awaiting_confirm",
+    confirm: null,
+    breach,
+  };
+}
+
+/**
+ * Daily EMA(21) test / reclaim — solid investor entry timing (ANET Jul 6).
+ * Night-before or same-session test of Daily 21 that holds and rallies.
+ */
+export function detectDailyEma21Test(tickerData, opts = {}) {
+  const bandPct = Math.max(0.1, Number(opts.bandPct) || 1.5);
+  const price = Number(tickerData?._live_price || tickerData?.price);
+  const ema21 = Number(
+    tickerData?.tf_tech?.D?.ema?.ema21
+    ?? tickerData?.ema_map?.D?.ema21
+    ?? tickerData?.tf_tech?.D?.ema21,
+  );
+  if (!(price > 0) || !(ema21 > 0)) {
+    return { tested: false, reclaimed: false, ema21: null, distPct: null, signal: null };
+  }
+  const distPct = ((price - ema21) / ema21) * 100;
+  const dayLow = Number(
+    tickerData?.day_low ?? tickerData?.dl ?? tickerData?.tf_tech?.D?.low ?? tickerData?.low,
+  );
+  const touchedFromLow = Number.isFinite(dayLow) && dayLow > 0
+    && dayLow <= ema21 * (1 + bandPct / 100)
+    && dayLow >= ema21 * (1 - (bandPct / 100) * 2);
+  const nearNow = Math.abs(distPct) <= bandPct;
+  const above = price >= ema21;
+  const priceAboveFlag = tickerData?.tf_tech?.D?.ema?.priceAboveEma21;
+  const tested = !!(touchedFromLow || (nearNow && above) || (nearNow && priceAboveFlag === true));
+  const reclaimed = !!(tested && above && (priceAboveFlag !== false));
+  return {
+    tested,
+    reclaimed,
+    ema21,
+    distPct: Math.round(distPct * 100) / 100,
+    signal: reclaimed ? "daily_ema21_test_reclaim" : (tested ? "daily_ema21_test" : null),
+  };
+}
+
+/**
+ * Trim into strength when MFE/peak extends hard (ANET ~171→190) without a
+ * meaningful profit bank. One-shot via notes._mfe_extension_trim.
+ */
+export function resolveInvestorMfeExtensionTrim({
+  avgEntry,
+  price,
+  peakPrice = 0,
+  priorTrimmed = false,
+  cfg = DEFAULT_INVESTOR_CONFIG,
+} = {}) {
+  if (cfg?.investor_mfe_extension_trim_enabled === false) {
+    return { fire: false, reason: null, peakPct: null, trimPct: null };
+  }
+  if (priorTrimmed) {
+    return { fire: false, reason: "already_trimmed", peakPct: null, trimPct: null };
+  }
+  const entry = Number(avgEntry);
+  const px = Number(price);
+  const peak = Math.max(Number(peakPrice) || 0, px, entry);
+  if (!(entry > 0) || !(px > 0)) {
+    return { fire: false, reason: null, peakPct: null, trimPct: null };
+  }
+  const peakPct = ((peak - entry) / entry) * 100;
+  const need = Math.abs(Number(cfg.investor_mfe_extension_peak_pct) || 10);
+  if (peakPct < need) {
+    return { fire: false, reason: "peak_below_threshold", peakPct, trimPct: null };
+  }
+  // Still extended — don't trim only after a full giveback to entry.
+  const livePct = ((px - entry) / entry) * 100;
+  if (livePct < need * 0.5) {
+    return { fire: false, reason: "gave_back_too_much", peakPct, trimPct: null };
+  }
+  const trimPct = Math.min(0.5, Math.max(0.1, Number(cfg.investor_mfe_extension_trim_pct) || 0.25));
+  return {
+    fire: true,
+    reason: "MFE_EXTENSION_TRIM",
+    peakPct: Math.round(peakPct * 100) / 100,
+    trimPct,
+    peak,
   };
 }
 
