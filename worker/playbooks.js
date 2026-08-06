@@ -118,9 +118,12 @@ export function updateArmedPlaybooks({ frames = null, prior = [], now = Date.now
 
   const liveByPlaybook = {};
 
-  // 1) Advance existing entries.
+  // 1) Advance existing entries. Entries from an older schema version are
+  //    discarded (fresh start): v1's day-1 output was structurally bogus
+  //    (hair-trigger invalidations) and must not block v2 re-arming.
   for (const entry of Array.isArray(prior) ? prior : []) {
     if (!entry || !entry.playbook || !PLAYBOOK_DEFS[entry.playbook]) continue;
+    if (Number(entry.v) !== PLAYBOOKS_VERSION) continue;
     const def = PLAYBOOK_DEFS[entry.playbook];
     const e = { ...entry };
 
