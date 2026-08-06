@@ -101500,10 +101500,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
 
       // ── Context ledger rotating refresh (Phase 1, 2026-08-06) ──
-      // ~1/24 of the universe per hour keyed off the UTC hour, so every
-      // ticker's facts (structural tests resolving, new position events,
-      // moves) + rollup refresh once a day without a D1 storm. Small slice
-      // ≈ 13 tickers × ~6 D1 queries — well inside the subrequest budget.
+      // One universe slice per hour so every ticker's facts (structural
+      // tests resolving, new position events, moves) + rollup refresh once
+      // a day without a D1 storm. This lane only executes while the
+      // "investor-session" virtual cron is registered (weekdays UTC 8-23 +
+      // 0-1 ⇒ 18 active hours), so the slice is keyed by the position
+      // WITHIN those active hours — a raw UTC-hour key would leave the
+      // 02:00-07:00 slices permanently unrefreshed. ≈ 18 tickers × ~6 D1
+      // queries per pass — well inside the subrequest budget.
       // Reversible via CONTEXT_LEDGER_REFRESH=off.
       if (_isHourly && String(env.CONTEXT_LEDGER_REFRESH || "on").toLowerCase() !== "off") {
         ctx.waitUntil((async () => {
@@ -101511,14 +101515,16 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const universe = (await env.KV_TIMED?.get("timed:tickers", "json")) || [];
             const list = (Array.isArray(universe) ? universe : []).map((t) => String(t).toUpperCase()).filter(Boolean);
             if (!list.length) return;
-            const sliceLen = Math.ceil(list.length / 24);
+            const ACTIVE_HOURS = 18; // UTC 8..23 (16) + 0..1 (2)
             const hour = new Date().getUTCHours();
-            const chunk = list.slice(hour * sliceLen, (hour + 1) * sliceLen);
+            const activeIdx = hour >= 8 ? hour - 8 : hour + 16; // 8→0 … 23→15, 0→16, 1→17
+            const sliceLen = Math.ceil(list.length / ACTIVE_HOURS);
+            const chunk = list.slice(activeIdx * sliceLen, (activeIdx + 1) * sliceLen);
             if (!chunk.length) return;
             const Ledger = await import("./context-ledger.js");
             await Ledger.ensureContextFactsTable(env.DB);
             const r = await Ledger.runContextBackfill(env, { tickers: chunk, days: 45, max: chunk.length });
-            console.log(`[CONTEXT_LEDGER] hourly refresh h=${hour}: ${r.processed} ticker(s), +${r.inserted} fact(s), ${r.errors.length} error(s)`);
+            console.log(`[CONTEXT_LEDGER] hourly refresh idx=${activeIdx}: ${r.processed} ticker(s), +${r.inserted} fact(s), ${r.errors.length} error(s)`);
           } catch (e) {
             console.warn("[CONTEXT_LEDGER] hourly refresh failed:", String(e?.message || e).slice(0, 150));
           }
