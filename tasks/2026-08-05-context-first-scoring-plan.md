@@ -154,6 +154,21 @@ _armed_playbooks: [{
 
 ---
 
+## Status (2026-08-06)
+
+**Phase 0 SHIPPED + backfilled**: `worker/context-ledger.js` +
+`worker/discovery/optimal-window.js` + admin routes
+(`POST /timed/admin/context/backfill`, `GET /timed/admin/context/:ticker`).
+Production `ticker_context_facts` holds **9,826 facts across 309 tickers**
+(4,648 moves / 4,458 structural tests / 720 position events). Rollups stamped
+to `learning_json.context` + KV `timed:context:<T>`. Verified: CAT shows
+entry 987.85 → invalidation exit 917.31 and the week-of-Jul-27 low-776 test
+of Weekly ST 813.59 resolved HELD; derived anchors give CAT + ANET their
+respect memory from data (ANET D_EMA21 15/15 held). Investor mid-position
+sells labeled TRIM (PLTR open position shows no false exit).
+**Next**: Phase 1 shadow — `worker/frames.js` digest + `worker/playbooks.js`
+arming, stamped by the scorer behind `deep_audit_context_scoring_shadow`.
+
 ## 3. Tonight — use the data we already have (no new scores needed)
 
 Order matters; all read-only against live behavior:
