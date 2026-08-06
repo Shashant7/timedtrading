@@ -22,6 +22,8 @@
 
 ### Active
 
+- [x] **Investor Aug 5 trim mirror resync (2026-08-06, ops).** Accepted Roth broker qty as post-trim baseline on `mirror_trade_manifest` for PLTR(2)/NVDA(1)/CRS·WTS·IWM·GE(0); released trader NVDA orphan claim; reconcile clean. No model qty change, no forced sells. Skill: `skills/broker-bridge.md`.
+
 - [x] **ETH rebuild execution — LIMIT + GTC + ALL session (2026-07-30).**
       After #1188 merge, Roth rebuild dry-run plans 12 names during ETH.
       Webull needs `order_type=LIMIT`, `time_in_force=GTC`,
