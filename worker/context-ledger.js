@@ -491,7 +491,7 @@ async function loadCandles(db, ticker, tf, limit) {
 }
 
 /** Backfill one ticker: build facts from D1 history, append, rollup, persist. */
-export async function backfillTickerContext(env, ticker, { days = 180, now = Date.now() } = {}) {
+export async function backfillTickerContext(env, ticker, { days = 180, now = Date.now(), discoveryMoves = [] } = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, error: "no_db" };
   const sym = String(ticker || "").toUpperCase();
@@ -531,12 +531,19 @@ export async function backfillTickerContext(env, ticker, { days = 180, now = Dat
   const { inserted } = await appendContextFacts(db, facts);
 
   // Window from ALL known move facts (not only this pass) so it stabilizes.
+  // Weekly moves alone cap durations at ~5 days; merge Move Discovery's
+  // multi-window (3-20d) ATR-scaled moves so the window reflects how long
+  // this ticker's moves actually take to develop.
   const allFacts = await readContextFacts(db, sym, { sinceTs: now - 400 * DAY_MS, limit: 1000 });
   const moveDurations = allFacts
     .filter((f) => f.kind === "move")
-    .map((f) => Number(f.payload?.days))
-    .filter((n) => Number.isFinite(n) && n > 0);
-  const win = computeOptimalWindow(moveDurations.map((d) => ({ duration_days: d })));
+    .map((f) => ({ duration_days: Number(f.payload?.days) }))
+    .filter((m) => Number.isFinite(m.duration_days) && m.duration_days > 0);
+  for (const m of discoveryMoves || []) {
+    const d = Number(m.window ?? m.duration_days);
+    if (Number.isFinite(d) && d > 0) moveDurations.push({ duration_days: d });
+  }
+  const win = computeOptimalWindow(moveDurations);
 
   const rollup = rollupTickerContext({
     ticker: sym, facts: allFacts, windowDays: win.window_days, leadinDays: win.leadin_days, now,
@@ -561,9 +568,20 @@ export async function backfillTickerContext(env, ticker, { days = 180, now = Dat
 export async function runContextBackfill(env, { tickers = [], days = 180, max = 100, jitterMs = 60 } = {}) {
   const out = { ok: true, processed: 0, inserted: 0, errors: [], results: [] };
   const list = tickers.slice(0, Math.max(1, Math.min(Number(max) || 100, 400)));
+
+  // One KV read for the whole batch: discovery moves grouped by ticker.
+  let discoveryByTicker = {};
+  try {
+    const report = await env?.KV_TIMED?.get("timed:move-discovery", "json");
+    for (const m of report?.moves || []) {
+      const t = String(m.ticker || "").toUpperCase();
+      if (t) (discoveryByTicker[t] = discoveryByTicker[t] || []).push(m);
+    }
+  } catch { discoveryByTicker = {}; }
+
   for (const t of list) {
     try {
-      const r = await backfillTickerContext(env, t, { days });
+      const r = await backfillTickerContext(env, t, { days, discoveryMoves: discoveryByTicker[String(t).toUpperCase()] || [] });
       out.processed += 1;
       if (r.ok) {
         out.inserted += r.facts_inserted || 0;
