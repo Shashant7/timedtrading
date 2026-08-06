@@ -5072,3 +5072,17 @@ the **current print**, which had already bounced outside the band. Loss
 cooldown (5d) expired Jul 12 — not the blocker. Fix: `detectWeeklyBreakoutRetest`
 (week-low test + reclaim → `weekly_breakout_retest`), CAT structural anchors,
 compounder week-low acceptance. See `tasks/2026-08-05-cat-weekly-breakout-retest.md`.
+### Lesson (2026-08-06) — context shadow day 1: verify payload fields + read the report card
+Phase 1 shadow's first session produced 83 invalidations / 0 triggers — all
+four causes were engineering, not market: (1) trigger logic read
+`week_low`/`day_low`/`tf_tech.*.low` which DO NOT exist on scored payloads
+(they were referenced from an unmerged branch) — never code against payload
+fields without checking a LIVE payload first; (2) a playbook that arms on
+"below" must not invalidate on "below" — invalidation needs a deep fixed
+level, band breaches are the setup, not the failure; (3) tt-feed's merge
+lane races the scoring write on `timed:latest` (whole-JSON last-writer-wins)
+— any state machine riding the payload needs idempotent side effects (key
+records on armed_ts, INSERT OR IGNORE); (4) hour-keyed cron slices leave
+permanent holes when peak-RTH invocations run out of budget — use a KV
+cursor so failures lag instead of skip. The shadow report card surfaced all
+of this in one session, which is exactly why shadow-first exists.

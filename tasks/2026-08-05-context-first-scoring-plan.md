@@ -193,9 +193,37 @@ the exact CAT miss). Wiring:
 - Tests: `worker/playbooks.test.js` (17 tests — CAT approach→arm→trigger,
   fast-bounce same-cycle trigger, cooldown/expiry/invalidations, memory
   gates) + existing `worker/context-ledger.test.js`.
-**Next**: run the shadow 3–5 sessions; review the report card; then Phase 2
-(investor context component + trajectory-aware accum zone) behind
-`deep_audit_context_scoring_investor_enabled`.
+**Day-1 shadow session (2026-08-06) — report card caught 4 real bugs**
+(83 invalidations / 0 triggers; WDC "invalidated" then +6.4%, STX +7.9%):
+1. Triggers depended on `week_low`/`day_low` payload fields that DO NOT
+   exist on this branch's payloads → `touched` never true → "reclaiming"
+   unreachable → zero triggers possible. Fix (v2): static states only
+   (below/testing/approaching/above); a trigger is a TRANSITION
+   (last_state testing|below → approaching|above) tracked on the armed
+   entry, plus a ledger fast path (fresh held/pending structural_test
+   fact + price already above the band ⇒ arm-and-trigger same cycle).
+2. `daily_ema21_reclaim` armed on "below" AND invalidated on "below" —
+   the 13:36-13:41 UTC flood was names dipping 2.25% under the daily EMA
+   at the open, the exact dip the play exists to wait through. Fix:
+   invalidation uses a DEEP fixed level stamped at arm time (weekly −8%,
+   daily −6%); band breaches keep the playbook armed.
+3. Duplicate events (DUOL invalidated twice, 5 min apart): the feed's
+   merge lane races the scoring write on `timed:latest` (last-writer-wins)
+   and can clobber a resolved status. Fix: decision_id keyed on
+   armed_ts + kind (INSERT OR IGNORE collapses re-emits); actual
+   transition time in `inputs.event_ts`.
+4. Hour-keyed refresh slices left permanent holes (slots 14/15/18/19 UTC
+   skipped during peak RTH — hourly cron budget exhaustion). Fix: KV
+   cursor `timed:context:refresh-cursor` — failed passes leave the cursor
+   in place and the next hour retries (lag instead of holes).
+Cleanup: day-1 CONTEXT_SHADOW rows purged (structurally bogus);
+`PLAYBOOKS_VERSION=2` discards v1 armed entries so bogus dormants don't
+block re-arming. Verified live post-fix: CAT armed `weekly_breakout_retest`
+conf 85 while testing W_EMA21 at −0.61%; DUOL daily reclaim armed in
+"below" without churning out.
+**Next**: run the shadow 3–5 sessions from 08-07; review the report card;
+then Phase 2 (investor context component + trajectory-aware accum zone)
+behind `deep_audit_context_scoring_investor_enabled`.
 
 ## 3. Tonight — use the data we already have (no new scores needed)
 

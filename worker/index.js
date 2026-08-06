@@ -57368,12 +57368,15 @@ export default {
             const fwdPct = (inputs.kind === "triggered" && trigPx > 0 && nowPx > 0)
               ? Math.round(((nowPx - trigPx) / trigPx) * 10000) / 100
               : null;
+            // Records are keyed on armed_ts for idempotency; the actual
+            // transition time is inputs.event_ts (fall back to row ts).
+            const evTs = Number(inputs.event_ts) || Number(r.ts);
             const acted = (entriesByTicker[t] || []).some(
-              (ets) => ets >= Number(r.ts) - 3600000 && ets <= Number(r.ts) + 3 * 86400000,
+              (ets) => ets >= evTs - 3600000 && ets <= evTs + 3 * 86400000,
             );
             return {
               ticker: t,
-              ts: Number(r.ts),
+              ts: evTs,
               kind: inputs.kind || null,
               playbook: inputs.playbook || null,
               anchor: inputs.anchor || null,
@@ -101500,31 +101503,36 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       })());
 
       // ── Context ledger rotating refresh (Phase 1, 2026-08-06) ──
-      // One universe slice per hour so every ticker's facts (structural
-      // tests resolving, new position events, moves) + rollup refresh once
-      // a day without a D1 storm. This lane only executes while the
-      // "investor-session" virtual cron is registered (weekdays UTC 8-23 +
-      // 0-1 ⇒ 18 active hours), so the slice is keyed by the position
-      // WITHIN those active hours — a raw UTC-hour key would leave the
-      // 02:00-07:00 slices permanently unrefreshed. ≈ 18 tickers × ~6 D1
-      // queries per pass — well inside the subrequest budget.
-      // Reversible via CONTEXT_LEDGER_REFRESH=off.
+      // One universe slice per hourly tick so every ticker's facts
+      // (structural tests resolving, new position events, moves) + rollup
+      // refresh roughly daily without a D1 storm. Day-1 lesson: hour-keyed
+      // slices left permanent holes — during peak RTH the hourly cron's
+      // budget ran out and slots 14/15/18/19 UTC silently skipped. A KV
+      // CURSOR replaces the hour key: each successful pass advances it, a
+      // failed/evicted pass leaves it in place and the NEXT hour picks up
+      // where it left off (lag instead of holes). ≈ 18 tickers × ~6 D1
+      // queries per pass. Reversible via CONTEXT_LEDGER_REFRESH=off.
       if (_isHourly && String(env.CONTEXT_LEDGER_REFRESH || "on").toLowerCase() !== "off") {
         ctx.waitUntil((async () => {
           try {
-            const universe = (await env.KV_TIMED?.get("timed:tickers", "json")) || [];
+            const KVc = env.KV_TIMED;
+            const universe = (await KVc?.get("timed:tickers", "json")) || [];
             const list = (Array.isArray(universe) ? universe : []).map((t) => String(t).toUpperCase()).filter(Boolean);
             if (!list.length) return;
-            const ACTIVE_HOURS = 18; // UTC 8..23 (16) + 0..1 (2)
-            const hour = new Date().getUTCHours();
-            const activeIdx = hour >= 8 ? hour - 8 : hour + 16; // 8→0 … 23→15, 0→16, 1→17
-            const sliceLen = Math.ceil(list.length / ACTIVE_HOURS);
-            const chunk = list.slice(activeIdx * sliceLen, (activeIdx + 1) * sliceLen);
-            if (!chunk.length) return;
+            const SLICE = 18;
+            const cursorRaw = await KVc.get("timed:context:refresh-cursor");
+            const start = ((Number(cursorRaw) || 0) % list.length + list.length) % list.length;
+            const chunk = [];
+            for (let i = 0; i < Math.min(SLICE, list.length); i++) {
+              chunk.push(list[(start + i) % list.length]);
+            }
             const Ledger = await import("./context-ledger.js");
             await Ledger.ensureContextFactsTable(env.DB);
             const r = await Ledger.runContextBackfill(env, { tickers: chunk, days: 45, max: chunk.length });
-            console.log(`[CONTEXT_LEDGER] hourly refresh idx=${activeIdx}: ${r.processed} ticker(s), +${r.inserted} fact(s), ${r.errors.length} error(s)`);
+            // Advance only after the pass completed — a mid-pass eviction
+            // leaves the cursor for the next hour to retry.
+            await KVc.put("timed:context:refresh-cursor", String((start + chunk.length) % list.length));
+            console.log(`[CONTEXT_LEDGER] hourly refresh cursor=${start}→${(start + chunk.length) % list.length}: ${r.processed} ticker(s), +${r.inserted} fact(s), ${r.errors.length} error(s)`);
           } catch (e) {
             console.warn("[CONTEXT_LEDGER] hourly refresh failed:", String(e?.message || e).slice(0, 150));
           }
@@ -105450,12 +105458,18 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           ctx.waitUntil((async () => {
             let ok = 0;
             for (const { ticker: _csT, ev } of contextShadowEvents) {
+              // Idempotency (day-1 lesson): the feed's merge lane races the
+              // scoring write on timed:latest, so a resolved playbook status
+              // can be clobbered and the SAME transition re-emitted a cycle
+              // later. Keying decision_id on armed_ts + kind (not event ts)
+              // makes duplicates collapse via INSERT OR IGNORE; the actual
+              // transition time lives in inputs.event_ts.
               const r = await d1InsertDecisionRecord(env, {
                 engine: "trader",
-                tradeId: `${_csT}-ctx-${ev.playbook}`,
+                tradeId: `${_csT}-ctx-${ev.playbook}-${ev.kind}`,
                 ticker: _csT,
                 eventType: "CONTEXT_SHADOW",
-                ts: ev.ts,
+                ts: ev.armed_ts || ev.ts,
                 reason: `${ev.kind}:${ev.playbook}${ev.confluence ? "+confluence" : ""}@${ev.level}`,
                 inputs: {
                   shadow: true,
@@ -105466,6 +105480,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   level: ev.level,
                   confidence: ev.confidence,
                   confluence: ev.confluence,
+                  event_ts: ev.ts,
+                  armed_ts: ev.armed_ts || null,
                 },
               });
               if (r?.ok) ok++;
