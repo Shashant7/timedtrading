@@ -57,11 +57,17 @@ function resolveTouchLow(td = {}, tf) {
 }
 
 /**
- * Classify price vs one anchor level.
+ * Classify price vs one anchor level. STATIC states only — day-1 shadow
+ * lesson (2026-08-06): session lows are NOT on the scored payload, so any
+ * state that depends on "the low touched earlier" (the old "reclaiming")
+ * could never occur and no playbook ever triggered. Reclaims are now
+ * TRANSITIONS detected by the playbook state machine (last_state → state),
+ * with the ledger's structural_test facts covering touches the 5-min
+ * print never saw.
+ *
  * States (support-role):
- *   below       — price under the level
- *   testing     — low touched the band and price is still inside it
- *   reclaiming  — low touched the band, price back above the band (bounce)
+ *   below       — price under the level beyond the band
+ *   testing     — price inside the band around the level
  *   approaching — above the level, inside the approach zone
  *   above       — comfortably above
  */
@@ -74,10 +80,8 @@ export function classifyAnchorState({ price, level, low, bandPct, approachPct })
     && lowDistPct >= -bandPct * 1.5;
   let state;
   if (distPct < -bandPct * 1.5) state = "below";
-  else if (touched && distPct <= bandPct) state = "testing";
-  else if (touched && distPct > bandPct) state = "reclaiming";
-  else if (distPct >= 0 && distPct <= approachPct) state = "approaching";
-  else if (distPct < 0) state = "testing"; // inside the band from below, no low data
+  else if (distPct <= bandPct) state = "testing";
+  else if (distPct <= approachPct) state = "approaching";
   else state = "above";
   return {
     state,
