@@ -2066,6 +2066,7 @@ Diagnosis chain:
 6. "SL 0.00" label visible at bottom of the rendered SVG
 
 Three defenses, each independently sufficient to prevent the bug:
+- **Investor trim email ≠ broker fill — resync manifest to broker post-trim baseline (2026-08-06):** Aug 5 MFE Extension trims (PLTR/NVDA/CRS/WTS/IWM/GE) booked on the model/email but all bridge mirrors rejected (`mirror_suppressed` / `no_manifest_for_trade` / `no_broker_position`). To restore future mirroring without forcing sells or changing paper `investor_positions` qty: set `mirror_trade_manifest` OPEN + unsuppressed with `broker_remaining_qty = model_intended_qty = live Roth qty` (0 when flat — never leave intended>0 with rem=0 or reconcile re-orphans), INSERT missing trade_ids, release competing CLOSED orphans' `broker_remaining_qty` claim, then `POST /timed/admin/broker-bridge/reconcile`. See `skills/broker-bridge.md` → "Accept broker qty as post-trim baseline".
 - **email.js**: skip `sl`/`tp` entirely for EXIT emails (no live stop to draw); require `> 0` for all annotation values at URL-encode time
 - **chart-svg.js**: `_toPositivePrice(v)` helper requires `Number.isFinite(v) && v > 0` for any annotation
 - **chart-svg.js**: outlier filter excludes any annotation more than 30% off the price midpoint (defense against stored stale SL/TP values from old trades)

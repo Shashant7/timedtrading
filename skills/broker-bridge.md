@@ -588,6 +588,43 @@ Possible response shapes:
 
 ---
 
+## Accept broker qty as post-trim baseline (no forced sell)
+
+**When:** Investor (or trader) model booked TRIM/REDUCE in
+`account_ledger` / email, but bridge audit shows
+`mirror_suppressed` / `no_manifest_for_trade` / `no_broker_position`
+and the operator wants **future** mirrors to work without forcing a
+broker sell or changing paper `investor_positions.total_shares`.
+
+**Meaning:** Treat current Roth (or target account) holdings as
+`broker_remaining_qty` after the missed trim. Manifest
+`model_intended_qty` is the broker baseline (not paper model size).
+
+`mirror_trade_manifest` lives in the same D1 as the main ledger
+(`timed-trading-ledger` / `BRIDGE_DB`).
+
+```bash
+cd /workspace/worker
+# 1) For tickers WITH broker shares: OPEN + unsuppress + rem=intended=broker_qty
+# 2) For tickers with ZERO broker shares: OPEN + intended=0 + rem=0 + filled=0
+#    (rem=0 with intended>0 → mothership_orphan on next reconcile)
+# 3) Release competing CLOSED orphans that claim the same shares
+#    (set their broker_remaining_qty=0, sync_state=in_sync)
+# 4) INSERT missing trade_id rows for no_manifest_for_trade rejects
+# 5) Force reconcile:
+curl -sS -X POST \
+  "https://timed-trading-ingest.shashant.workers.dev/timed/admin/broker-bridge/reconcile?key=$TIMED_TRADING_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"shashant@gmail.com"}'
+```
+
+Expect reconcile `rows_drifting: 0` and the target rows
+`sync_state=in_sync`, `mirror_suppressed=0`, `model_status=OPEN`.
+Paper model qty is intentionally left alone — adds/trims later scale
+through the bridge against live broker holdings.
+
+---
+
 ## Operator audit log
 
 The main worker keeps a ring buffer of the last N orders sent to the
