@@ -22,6 +22,17 @@
 
 ### Active
 
+- [ ] **Context-first scoring (2026-08-05/06).** Plan:
+      [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).
+      Phase 0 (ticker context ledger + optimal window) SHIPPED + backfilled
+      (9,826 facts / 309 tickers). Phase 1 (frame digest + armed playbooks,
+      SHADOW) SHIPPED — scorer stamps `_context`/`_frames`/`_armed_playbooks`,
+      transitions → `decision_records` CONTEXT_SHADOW, hourly rotating ledger
+      refresh, report at `GET /timed/admin/context/shadow-report`. NEXT:
+      review the shadow report after 3–5 sessions, then Phase 2 (investor
+      context component) behind `deep_audit_context_scoring_investor_enabled`.
+      Branch: `cursor/context-first-scoring-plan-dbdd`.
+
 - [x] **ETH rebuild execution — LIMIT + GTC + ALL session (2026-07-30).**
       After #1188 merge, Roth rebuild dry-run plans 12 names during ETH.
       Webull needs `order_type=LIMIT`, `time_in_force=GTC`,

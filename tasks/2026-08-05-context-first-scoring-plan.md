@@ -166,8 +166,36 @@ entry 987.85 → invalidation exit 917.31 and the week-of-Jul-27 low-776 test
 of Weekly ST 813.59 resolved HELD; derived anchors give CAT + ANET their
 respect memory from data (ANET D_EMA21 15/15 held). Investor mid-position
 sells labeled TRIM (PLTR open position shows no false exit).
-**Next**: Phase 1 shadow — `worker/frames.js` digest + `worker/playbooks.js`
-arming, stamped by the scorer behind `deep_audit_context_scoring_shadow`.
+**Phase 1 SHIPPED (shadow)**: `worker/frames.js` (frame digest: anchor
+trajectory states approaching/testing/reclaiming/below, ledger respect
+memory, journey slope, position recency) + `worker/playbooks.js` (armed
+lifecycle: armed → triggered | invalidated | expired, one-shot with
+cooldown; `weekly_breakout_retest` [CAT class, W_EMA21 + W_ST confluence]
+and `daily_ema21_reclaim` [ANET class, respect required]; a fast bounce
+that reaches "reclaiming" between cycles arms AND triggers same-cycle —
+the exact CAT miss). Wiring:
+- 5-min scorer stamps `_context` / `_frames` / `_armed_playbooks` on every
+  payload (KV context re-read only when payload copy >6h old; mirrors onto
+  the unchanged-payload branch like `_journey`). Kill switch:
+  `deep_audit_context_scoring_shadow=false` in model_config (key registered
+  in REPLAY_DA_KEYS). Scoring is OOH-gated (4 AM–8 PM ET) so stamps appear
+  from the 08:00 UTC tick onward.
+- Playbook transitions land in `decision_records` as
+  `event_type=CONTEXT_SHADOW` (trade_id `<T>-ctx-<playbook>`), batch-written
+  post-loop via waitUntil. SHADOW ONLY — no capital.
+- Hourly rotating ledger refresh (inside the investor-session hourly lane):
+  1/18 of the universe per ACTIVE hour (UTC 8–23 + 0–1), so facts resolve
+  and rollups refresh daily. Reversible via CONTEXT_LEDGER_REFRESH=off.
+- Report card: `GET /timed/admin/context/shadow-report?days=N` — per
+  playbook triggered/invalidated counts, forward return vs current price,
+  positive rate, and whether the live engines actually acted (±3d entry
+  match). Promotion to Phase 2 requires 3–5 sessions of sane output here.
+- Tests: `worker/playbooks.test.js` (17 tests — CAT approach→arm→trigger,
+  fast-bounce same-cycle trigger, cooldown/expiry/invalidations, memory
+  gates) + existing `worker/context-ledger.test.js`.
+**Next**: run the shadow 3–5 sessions; review the report card; then Phase 2
+(investor context component + trajectory-aware accum zone) behind
+`deep_audit_context_scoring_investor_enabled`.
 
 ## 3. Tonight — use the data we already have (no new scores needed)
 
