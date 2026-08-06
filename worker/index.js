@@ -490,6 +490,8 @@ import { evaluateMoveEndingEnforce } from "./move-ending-enforce.js";
 import { handleSetupParityGateRoute } from "./foundation/setup-parity-gate.js";
 import { serializeSequenceTrailSnapshot } from "./foundation/sequence-snapshot.js";
 import { DECISION_RECORDS_DDL, computeConfigHash, buildDecisionRecord, loadDeepAuditConfigFromDb } from "./decision-records.js";
+import { buildFrameDigest } from "./frames.js";
+import { updateArmedPlaybooks } from "./playbooks.js";
 import { buildTraderActionProvenance, enrichDecisionInputs } from "./action-provenance.js";
 import { fuseConviction } from "./conviction.js";
 import { resolveAutonomyConfig, evaluateRungGates } from "./trust-spine/autonomy-ladder.js";
@@ -2075,6 +2077,8 @@ const ROUTES = [
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
   // Ticker Context Ledger (context-first scoring Phase 0)
   ["POST", "/timed/admin/context/backfill", "POST /timed/admin/context/backfill"],
+  // Phase 1 shadow report card — must match BEFORE the :ticker catch-all
+  ["GET", "/timed/admin/context/shadow-report", "GET /timed/admin/context/shadow-report"],
   ["GET", (p) => /^\/timed\/admin\/context\/[A-Z0-9._!-]+$/i.test(p), "GET /timed/admin/context/:ticker"],
   // Phase-I backtest orchestrator (worker-cron-driven, no VM needed).
   // See: worker/backtest-orchestrator.js + tasks/worker-cron-orchestrator-2026-04-22.md
@@ -57309,6 +57313,116 @@ export default {
         }
       }
 
+      // Context-first Phase 1 — shadow report card. Grades every recorded
+      // CONTEXT_SHADOW playbook transition: forward return since trigger
+      // (vs current price) and whether the live engines actually acted.
+      // This is the promotion evidence — capital only after 3-5 sessions
+      // of sane output here.
+      if (routeKey === "GET /timed/admin/context/shadow-report") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const days = Math.max(1, Math.min(30, Number(url.searchParams.get("days")) || 7));
+          const sinceTs = Date.now() - days * 86400000;
+          const rows = (await env.DB.prepare(
+            `SELECT ticker, ts, reason, conviction_tier, inputs_json
+               FROM decision_records
+              WHERE event_type = 'CONTEXT_SHADOW' AND ts >= ?1
+              ORDER BY ts DESC LIMIT 500`,
+          ).bind(sinceTs).all())?.results || [];
+
+          // Actual engine activity in the same window (acted-on check).
+          const [tradeRows, lotRows] = await Promise.all([
+            env.DB.prepare(
+              `SELECT ticker, entry_ts FROM trades
+                WHERE entry_ts >= ?1 AND (run_id IS NULL OR run_id = '') LIMIT 400`,
+            ).bind(sinceTs).all().then((r) => r?.results || []).catch(() => []),
+            env.DB.prepare(
+              `SELECT ticker, ts FROM investor_lots
+                WHERE ts >= ?1 AND action = 'BUY' LIMIT 400`,
+            ).bind(sinceTs).all().then((r) => r?.results || []).catch(() => []),
+          ]);
+          const entriesByTicker = {};
+          for (const r of [...tradeRows, ...lotRows]) {
+            const t = String(r.ticker || "").toUpperCase();
+            const ts = Number(r.entry_ts ?? r.ts);
+            if (t && Number.isFinite(ts)) (entriesByTicker[t] = entriesByTicker[t] || []).push(ts);
+          }
+
+          // Current price per distinct ticker (one KV read each).
+          const priceByTicker = {};
+          for (const t of [...new Set(rows.map((r) => String(r.ticker || "").toUpperCase()))]) {
+            try {
+              const snap = await kvGetJSON(env.KV_TIMED, `timed:latest:${t}`);
+              const p = Number(snap?._live_price ?? snap?.price ?? snap?.close);
+              if (p > 0) priceByTicker[t] = p;
+            } catch { /* per-ticker best-effort */ }
+          }
+
+          const signals = rows.map((r) => {
+            let inputs = {};
+            try { inputs = JSON.parse(r.inputs_json) || {}; } catch { /* keep {} */ }
+            const t = String(r.ticker || "").toUpperCase();
+            const trigPx = Number(inputs.price) || null;
+            const nowPx = priceByTicker[t] || null;
+            const fwdPct = (inputs.kind === "triggered" && trigPx > 0 && nowPx > 0)
+              ? Math.round(((nowPx - trigPx) / trigPx) * 10000) / 100
+              : null;
+            const acted = (entriesByTicker[t] || []).some(
+              (ets) => ets >= Number(r.ts) - 3600000 && ets <= Number(r.ts) + 3 * 86400000,
+            );
+            return {
+              ticker: t,
+              ts: Number(r.ts),
+              kind: inputs.kind || null,
+              playbook: inputs.playbook || null,
+              anchor: inputs.anchor || null,
+              confluence: inputs.confluence === true,
+              confidence: inputs.confidence ?? null,
+              trigger_price: trigPx,
+              price_now: nowPx,
+              fwd_pct: fwdPct,
+              acted,
+            };
+          });
+
+          const byPlaybook = {};
+          for (const s of signals) {
+            const key = s.playbook || "unknown";
+            const g = (byPlaybook[key] = byPlaybook[key] || {
+              triggered: 0, invalidated: 0, acted: 0, fwd: [],
+            });
+            if (s.kind === "triggered") {
+              g.triggered += 1;
+              if (s.acted) g.acted += 1;
+              if (s.fwd_pct != null) g.fwd.push(s.fwd_pct);
+            } else if (s.kind === "invalidated") {
+              g.invalidated += 1;
+            }
+          }
+          const summary = {};
+          for (const [k, g] of Object.entries(byPlaybook)) {
+            const sorted = [...g.fwd].sort((a, b) => a - b);
+            summary[k] = {
+              triggered: g.triggered,
+              invalidated: g.invalidated,
+              acted_on: g.acted,
+              fwd_n: sorted.length,
+              fwd_median_pct: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
+              fwd_positive_rate: sorted.length
+                ? Math.round((sorted.filter((v) => v > 0).length / sorted.length) * 100)
+                : null,
+            };
+          }
+
+          return sendJSON({
+            ok: true, days, signals_n: signals.length, summary, signals,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "GET /timed/admin/context/:ticker") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -101385,6 +101499,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       })());
 
+      // ── Context ledger rotating refresh (Phase 1, 2026-08-06) ──
+      // One universe slice per hour so every ticker's facts (structural
+      // tests resolving, new position events, moves) + rollup refresh once
+      // a day without a D1 storm. This lane only executes while the
+      // "investor-session" virtual cron is registered (weekdays UTC 8-23 +
+      // 0-1 ⇒ 18 active hours), so the slice is keyed by the position
+      // WITHIN those active hours — a raw UTC-hour key would leave the
+      // 02:00-07:00 slices permanently unrefreshed. ≈ 18 tickers × ~6 D1
+      // queries per pass — well inside the subrequest budget.
+      // Reversible via CONTEXT_LEDGER_REFRESH=off.
+      if (_isHourly && String(env.CONTEXT_LEDGER_REFRESH || "on").toLowerCase() !== "off") {
+        ctx.waitUntil((async () => {
+          try {
+            const universe = (await env.KV_TIMED?.get("timed:tickers", "json")) || [];
+            const list = (Array.isArray(universe) ? universe : []).map((t) => String(t).toUpperCase()).filter(Boolean);
+            if (!list.length) return;
+            const ACTIVE_HOURS = 18; // UTC 8..23 (16) + 0..1 (2)
+            const hour = new Date().getUTCHours();
+            const activeIdx = hour >= 8 ? hour - 8 : hour + 16; // 8→0 … 23→15, 0→16, 1→17
+            const sliceLen = Math.ceil(list.length / ACTIVE_HOURS);
+            const chunk = list.slice(activeIdx * sliceLen, (activeIdx + 1) * sliceLen);
+            if (!chunk.length) return;
+            const Ledger = await import("./context-ledger.js");
+            await Ledger.ensureContextFactsTable(env.DB);
+            const r = await Ledger.runContextBackfill(env, { tickers: chunk, days: 45, max: chunk.length });
+            console.log(`[CONTEXT_LEDGER] hourly refresh idx=${activeIdx}: ${r.processed} ticker(s), +${r.inserted} fact(s), ${r.errors.length} error(s)`);
+          } catch (e) {
+            console.warn("[CONTEXT_LEDGER] hourly refresh failed:", String(e?.message || e).slice(0, 150));
+          }
+        })());
+      }
+
       if (_isHourly && _candleHealActive) ctx.waitUntil((async () => {
         try {
           await _runCandleSessionHeal("Hourly sweep", [0, 40, 80, 120, 160, 200, 240]);
@@ -103728,6 +103874,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         // score_keyframes after the loop.
         const journeyKeyframeRows = [];
 
+        // ── Context-first scoring Phase 1 (SHADOW) ──
+        // Playbook trigger/invalidate transitions collected during the loop,
+        // batch-written to decision_records (event_type CONTEXT_SHADOW)
+        // after the loop. See tasks/2026-08-05-context-first-scoring-plan.md.
+        const contextShadowEvents = [];
+
         // ── Phase 7: Scoring delta instrumentation ──
         // Tracks what actually changed per ticker to inform adaptive scoring.
         let deltaScoreChanged = 0, deltaStageChanged = 0, deltaPriceChanged = 0, deltaNoChange = 0;
@@ -105160,6 +105312,48 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               // The chain must never break scoring.
             }
 
+            // ── Context-first scoring Phase 1 (SHADOW) ──
+            // Attach the compact context rollup (ledger memory: anchor
+            // respect, last entry/exit, move stats), build the frame digest,
+            // and advance the armed-playbook state machine. Shadow only —
+            // trigger events land in decision_records, no capital moves.
+            // Kill switch: model_config deep_audit_context_scoring_shadow=false.
+            try {
+              const _ctxShadowOn = String(env._deepAuditConfig?.deep_audit_context_scoring_shadow ?? "true") !== "false";
+              if (_ctxShadowOn) {
+                // The rollup refreshes ~daily (hourly rotating cron); re-read
+                // KV only when the payload copy is missing or >6h old.
+                let _ctxRollup = existing?._context || null;
+                if (!_ctxRollup || (now - (Number(_ctxRollup.updated) || 0)) > 6 * 3600 * 1000) {
+                  const _kvCtx = await kvGetJSON(KV, `timed:context:${ticker}`);
+                  if (_kvCtx) _ctxRollup = _kvCtx;
+                }
+                if (_ctxRollup) {
+                  result._context = _ctxRollup;
+                  const _fd = buildFrameDigest({ td: result, context: _ctxRollup, now });
+                  result._frames = _fd;
+                  const _pb = updateArmedPlaybooks({
+                    frames: _fd,
+                    prior: existing?._armed_playbooks || [],
+                    now,
+                  });
+                  result._armed_playbooks = _pb.armed;
+                  // The "unchanged payload" branch persists `existing` —
+                  // mirror the shadow state there so armed entries survive
+                  // no-change ticks (same pattern as `_journey` above).
+                  if (existing && typeof existing === "object") {
+                    existing._context = _ctxRollup;
+                    existing._frames = _fd;
+                    existing._armed_playbooks = _pb.armed;
+                  }
+                  for (const _ev of _pb.events) contextShadowEvents.push({ ticker, ev: _ev });
+                }
+              }
+            } catch (_ctxErr) {
+              // Shadow must never break scoring.
+              console.warn(`[CONTEXT_SHADOW] ${ticker} failed:`, String(_ctxErr?.message || _ctxErr).slice(0, 120));
+            }
+
             // ── Delta instrumentation (Phase 7) ──
             const _htfDelta = Math.abs((Number(result?.htf_score) || 0) - (Number(existing?.htf_score) || 0));
             const _ltfDelta = Math.abs((Number(result?.ltf_score) || 0) - (Number(existing?.ltf_score) || 0));
@@ -105246,6 +105440,38 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               .then((r) => console.log(`[JOURNEY] persisted ${r.inserted}/${journeyKeyframeRows.length} keyframe(s)`))
               .catch((e) => console.warn("[JOURNEY] persist failed:", String(e?.message || e).slice(0, 150))),
           );
+        }
+
+        // ── Context-first Phase 1: persist shadow playbook transitions ──
+        // Version-pinned provenance rows; the shadow report card reads these
+        // back (GET /timed/admin/context/shadow-report) to grade forward
+        // returns before any capital promotion.
+        if (contextShadowEvents.length > 0) {
+          ctx.waitUntil((async () => {
+            let ok = 0;
+            for (const { ticker: _csT, ev } of contextShadowEvents) {
+              const r = await d1InsertDecisionRecord(env, {
+                engine: "trader",
+                tradeId: `${_csT}-ctx-${ev.playbook}`,
+                ticker: _csT,
+                eventType: "CONTEXT_SHADOW",
+                ts: ev.ts,
+                reason: `${ev.kind}:${ev.playbook}${ev.confluence ? "+confluence" : ""}@${ev.level}`,
+                inputs: {
+                  shadow: true,
+                  playbook: ev.playbook,
+                  kind: ev.kind,
+                  anchor: ev.anchor,
+                  price: ev.price,
+                  level: ev.level,
+                  confidence: ev.confidence,
+                  confluence: ev.confluence,
+                },
+              });
+              if (r?.ok) ok++;
+            }
+            console.log(`[CONTEXT_SHADOW] recorded ${ok}/${contextShadowEvents.length} playbook transition(s)`);
+          })());
         }
 
         // ── Freshness Doctrine: universe summary + same-tick heal lane ──
