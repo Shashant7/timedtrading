@@ -57324,12 +57324,21 @@ export default {
         try {
           const days = Math.max(1, Math.min(30, Number(url.searchParams.get("days")) || 7));
           const sinceTs = Date.now() - days * 86400000;
-          const rows = (await env.DB.prepare(
+          // Row ts is the ARMING time (idempotency key); a weekly playbook
+          // can trigger up to 21 days after arming, so widen the SQL window
+          // and filter on the actual transition time (inputs.event_ts) below.
+          const rowsRaw = (await env.DB.prepare(
             `SELECT ticker, ts, reason, conviction_tier, inputs_json
                FROM decision_records
               WHERE event_type = 'CONTEXT_SHADOW' AND ts >= ?1
-              ORDER BY ts DESC LIMIT 500`,
-          ).bind(sinceTs).all())?.results || [];
+              ORDER BY ts DESC LIMIT 800`,
+          ).bind(sinceTs - 30 * 86400000).all())?.results || [];
+          const rows = rowsRaw.filter((r) => {
+            try {
+              const inp = JSON.parse(r.inputs_json) || {};
+              return (Number(inp.event_ts) || Number(r.ts)) >= sinceTs;
+            } catch { return Number(r.ts) >= sinceTs; }
+          }).slice(0, 500);
 
           // Actual engine activity in the same window (acted-on check).
           const [tradeRows, lotRows] = await Promise.all([
