@@ -13,6 +13,10 @@ export const REPLAY_DA_KEYS = [
   // Slice B — conviction fusion. Default absent => OFF (shadow-stamped only).
   // Flip ON only after corpus walk-forward validation (Slice E).
   "deep_audit_conviction_fusion_enabled",
+  // Context-first scoring Phase 1 (2026-08-06) — frame digest + armed
+  // playbooks shadow stamping. Default absent => ON (shadow only, no
+  // capital); set "false" in model_config to kill-switch.
+  "deep_audit_context_scoring_shadow",
   // Slice B Part 2 — bleeder guard: shield soft force/fast-cut exits when
   // structure holds. Default absent => OFF. Never shields hard SL/max-loss.
   "deep_audit_bleeder_shield_enabled",
