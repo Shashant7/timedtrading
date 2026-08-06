@@ -37,6 +37,30 @@ describe("buildPositionEventFacts (CAT history)", () => {
   it("fact ids are deterministic (idempotent backfill)", () => {
     expect(facts[0].fact_id).toBe(contextFactId("CAT", "position_event", "lot:lot-CAT-auto-1782309789719"));
   });
+
+  it("labels a mid-position sell as TRIM, final sell of a CLOSED position as EXIT", () => {
+    const f2 = buildPositionEventFacts({
+      ticker: "PLTR",
+      investorLots: [
+        { id: "l1", position_id: "p1", action: "BUY", shares: 100, price: 100, ts: 1000 },
+        { id: "l2", position_id: "p1", action: "SELL", shares: 25, price: 130, ts: 2000, reason: "MFE_EXTENSION_TRIM" },
+        { id: "l3", position_id: "p1", action: "SELL", shares: 75, price: 120, ts: 3000, reason: "PRIMARY_INVALIDATION_BREACH" },
+      ],
+      investorPositions: [{ id: "p1", avg_entry: 100, status: "CLOSED" }],
+    });
+    expect(f2.find((f) => f.payload.reason === "MFE_EXTENSION_TRIM").payload.event).toBe("TRIM");
+    expect(f2.find((f) => f.payload.reason === "PRIMARY_INVALIDATION_BREACH").payload.event).toBe("EXIT");
+
+    const open = buildPositionEventFacts({
+      ticker: "PLTR",
+      investorLots: [
+        { id: "l1", position_id: "p1", action: "BUY", shares: 100, price: 100, ts: 1000 },
+        { id: "l2", position_id: "p1", action: "SELL", shares: 25, price: 130, ts: 2000, reason: "MFE_EXTENSION_TRIM" },
+      ],
+      investorPositions: [{ id: "p1", avg_entry: 100, status: "OPEN" }],
+    });
+    expect(open.find((f) => f.payload.reason === "MFE_EXTENSION_TRIM").payload.event).toBe("TRIM");
+  });
 });
 
 describe("detectStructuralTestFacts", () => {

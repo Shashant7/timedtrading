@@ -152,6 +152,17 @@ export function buildPositionEventFacts({ ticker, trades = [], investorLots = []
     }
   }
 
+  // A SELL is an EXIT only when it is the final sell of a CLOSED position;
+  // earlier sells are TRIMs (PLTR MFE_EXTENSION_TRIM must not read as an exit).
+  const lastSellTsByPos = {};
+  for (const lot of investorLots || []) {
+    if (String(lot.action || "").toUpperCase() !== "SELL") continue;
+    const ts = Number(lot.ts);
+    const pid = lot.position_id;
+    if (!pid || !Number.isFinite(ts)) continue;
+    if (!(pid in lastSellTsByPos) || ts > lastSellTsByPos[pid]) lastSellTsByPos[pid] = ts;
+  }
+
   for (const lot of investorLots || []) {
     const id = lot.id;
     const ts = Number(lot.ts);
@@ -164,6 +175,12 @@ export function buildPositionEventFacts({ ticker, trades = [], investorLots = []
     if (action === "SELL" && avgEntry > 0 && price > 0) {
       pnlPct = Math.round(((price - avgEntry) / avgEntry) * 10000) / 100;
     }
+    let event = "ENTRY";
+    if (action !== "BUY") {
+      const isFinalSell = String(pos.status || "").toUpperCase() === "CLOSED"
+        && ts === lastSellTsByPos[lot.position_id];
+      event = isFinalSell ? "EXIT" : "TRIM";
+    }
     facts.push({
       fact_id: contextFactId(sym, "position_event", `lot:${id}`),
       ticker: sym,
@@ -172,7 +189,7 @@ export function buildPositionEventFacts({ ticker, trades = [], investorLots = []
       source: "investor_lots",
       payload: {
         lane: "investor",
-        event: action === "BUY" ? "ENTRY" : "EXIT",
+        event,
         action,
         price,
         shares: Number(lot.shares) || null,
