@@ -2073,6 +2073,9 @@ const ROUTES = [
   ["POST", "/timed/admin/backfill-market-events", "POST /timed/admin/backfill-market-events"],
   ["POST", "/timed/admin/market-events/bulk-seed", "POST /timed/admin/market-events/bulk-seed"],
   ["GET", "/timed/admin/market-events/coverage", "GET /timed/admin/market-events/coverage"],
+  // Ticker Context Ledger (context-first scoring Phase 0)
+  ["POST", "/timed/admin/context/backfill", "POST /timed/admin/context/backfill"],
+  ["GET", (p) => /^\/timed\/admin\/context\/[A-Z0-9._!-]+$/i.test(p), "GET /timed/admin/context/:ticker"],
   // Phase-I backtest orchestrator (worker-cron-driven, no VM needed).
   // See: worker/backtest-orchestrator.js + tasks/worker-cron-orchestrator-2026-04-22.md
   ["POST", "/timed/admin/backtest/enqueue", "POST /timed/admin/backtest/enqueue"],
@@ -57271,6 +57274,54 @@ export default {
           return await Logos.serveLogo(env, rawTicker, corsHeaders(env, req));
         } catch (e) {
           return new Response(null, { status: 500, headers: corsHeaders(env, req) });
+        }
+      }
+
+      // ──────────────────────────────────────────────────────────────────
+      // Ticker Context Ledger (Phase 0 — context-first scoring plan,
+      // tasks/2026-08-05-context-first-scoring-plan.md). Immutable facts
+      // backfill + read. Chunked (max per call) to stay under the
+      // subrequest budget — the caller loops through the universe.
+      // ──────────────────────────────────────────────────────────────────
+      if (routeKey === "POST /timed/admin/context/backfill") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Ledger = await import("./context-ledger.js");
+          await Ledger.ensureContextFactsTable(env.DB);
+          const tickersParam = String(url.searchParams.get("tickers") || "").trim();
+          let tickers;
+          if (tickersParam) {
+            tickers = tickersParam.split(",").map((t) => t.trim().toUpperCase()).filter(Boolean);
+          } else {
+            const universe = (await env.KV_TIMED?.get("timed:tickers", "json")) || [];
+            const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+            tickers = (Array.isArray(universe) ? universe : []).map((t) => String(t).toUpperCase()).slice(offset);
+          }
+          const max = Math.max(1, Math.min(120, Number(url.searchParams.get("max")) || 40));
+          const days = Math.max(30, Math.min(365, Number(url.searchParams.get("days")) || 180));
+          const result = await Ledger.runContextBackfill(env, { tickers, days, max });
+          const offsetIn = Math.max(0, Number(url.searchParams.get("offset")) || 0);
+          const nextOffset = tickersParam ? null : (result.processed + result.errors.length < tickers.length ? offsetIn + max : null);
+          return sendJSON({ ...result, next_offset: nextOffset }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/context/:ticker") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const Ledger = await import("./context-ledger.js");
+          await Ledger.ensureContextFactsTable(env.DB);
+          const sym = url.pathname.split("/timed/admin/context/")[1].toUpperCase();
+          const limit = Math.min(1000, Number(url.searchParams.get("limit")) || 200);
+          const facts = await Ledger.readContextFacts(env.DB, sym, { limit });
+          const rollup = (await env.KV_TIMED?.get(`timed:context:${sym}`, "json")) || null;
+          return sendJSON({ ok: true, ticker: sym, rollup, facts_n: facts.length, facts }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
 
