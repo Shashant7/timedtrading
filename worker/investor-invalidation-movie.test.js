@@ -5,6 +5,8 @@ import {
   resolvePrimaryInvalidationBreach,
   resolvePrimaryInvalidationMovie,
   detectDailyEma21Test,
+  detectWeeklyBreakoutRetest,
+  detectAccumulationZone,
   resolveInvestorMfeExtensionTrim,
   INVESTOR_STRUCTURAL_ANCHORS,
 } from "./investor.js";
@@ -120,6 +122,41 @@ describe("detectDailyEma21Test", () => {
 
   it("keeps ANET structural anchor in memory map", () => {
     expect(INVESTOR_STRUCTURAL_ANCHORS.ANET.daily_ema21_respect).toBe(true);
+  });
+});
+
+describe("detectWeeklyBreakoutRetest (CAT)", () => {
+  const catBounce = {
+    ticker: "CAT",
+    price: 876.54,
+    week_low: 804.57,
+    st_support: { W: 810 },
+    weekly_bundle: { ema21: 808 },
+    tf_tech: { W: { ema: { ema21: 808, priceAboveEma21: true }, low: 804.57 } },
+  };
+
+  it("flags week-low EMA21 + Weekly ST confluence after bounce", () => {
+    const r = detectWeeklyBreakoutRetest(catBounce);
+    expect(r.emaTested).toBe(true);
+    expect(r.stTested).toBe(true);
+    expect(r.emaReclaimed).toBe(true);
+    expect(r.confluence).toBe(true);
+    expect(r.signal).toBe("weekly_breakout_retest");
+  });
+
+  it("puts accum zone in weekly_breakout_retest with CAT memory", () => {
+    const z = detectAccumulationZone(catBounce);
+    expect(z.inZone).toBe(true);
+    expect(z.zoneType).toBe("weekly_breakout_retest");
+    expect(z.signals).toContain("weekly_breakout_retest");
+    expect(z.signals).toContain("memory_weekly_breakout_retest");
+    expect(z.confidence).toBeGreaterThanOrEqual(40);
+  });
+
+  it("keeps CAT structural anchors in memory map", () => {
+    expect(INVESTOR_STRUCTURAL_ANCHORS.CAT.weekly_breakout_retest).toBe(true);
+    expect(INVESTOR_STRUCTURAL_ANCHORS.CAT.weekly_ema21_respect).toBe(true);
+    expect(INVESTOR_STRUCTURAL_ANCHORS.CAT.weekly_st_respect).toBe(true);
   });
 });
 

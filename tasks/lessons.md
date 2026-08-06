@@ -2066,6 +2066,7 @@ Diagnosis chain:
 6. "SL 0.00" label visible at bottom of the rendered SVG
 
 Three defenses, each independently sufficient to prevent the bug:
+- **Investor trim email ≠ broker fill — resync manifest to broker post-trim baseline (2026-08-06):** Aug 5 MFE Extension trims (PLTR/NVDA/CRS/WTS/IWM/GE) booked on the model/email but all bridge mirrors rejected (`mirror_suppressed` / `no_manifest_for_trade` / `no_broker_position`). To restore future mirroring without forcing sells or changing paper `investor_positions` qty: set `mirror_trade_manifest` OPEN + unsuppressed with `broker_remaining_qty = model_intended_qty = live Roth qty` (0 when flat — never leave intended>0 with rem=0 or reconcile re-orphans), INSERT missing trade_ids, release competing CLOSED orphans' `broker_remaining_qty` claim, then `POST /timed/admin/broker-bridge/reconcile`. See `skills/broker-bridge.md` → "Accept broker qty as post-trim baseline".
 - **email.js**: skip `sl`/`tp` entirely for EXIT emails (no live stop to draw); require `> 0` for all annotation values at URL-encode time
 - **chart-svg.js**: `_toPositivePrice(v)` helper requires `Number.isFinite(v) && v > 0` for any annotation
 - **chart-svg.js**: outlier filter excludes any annotation more than 30% off the price midpoint (defense against stored stale SL/TP values from old trades)
@@ -5059,3 +5060,15 @@ sustained hold-below; reclaim clears arm. (2) `detectDailyEma21Test` +
 `INVESTOR_STRUCTURAL_ANCHORS.ANET.daily_ema21_respect` for entry memory.
 (3) `MFE_EXTENSION_TRIM` when peak ≥10% above entry. Published copy already said
 "closes below"; live mark alone was the frame bug.
+
+### Correction (2026-08-05) — CAT Weekly Breakout Retest miss
+Operator: Weekly 21 EMA + Weekly ST tested near ~$800 after premium drawdown;
+franchise/fundamental growth history; self-note Aug 1 "Breakout retest
+Catepillar Play." Model had bought Jun 24 @ $987.85 and full-exited Jul 7
+`PRIMARY_INVALIDATION_BREACH` @ $917.31 — then never re-entered the Aug reclaim
+to ~$876. Root: no week-low Weekly EMA(21)/ST confluence admit path; live
+`near_weekly_supertrend` (3%) and compounder `near_weekly_ema21` both key off
+the **current print**, which had already bounced outside the band. Loss
+cooldown (5d) expired Jul 12 — not the blocker. Fix: `detectWeeklyBreakoutRetest`
+(week-low test + reclaim → `weekly_breakout_retest`), CAT structural anchors,
+compounder week-low acceptance. See `tasks/2026-08-05-cat-weekly-breakout-retest.md`.

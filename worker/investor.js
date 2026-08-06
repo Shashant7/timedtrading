@@ -190,6 +190,14 @@ export const INVESTOR_STRUCTURAL_ANCHORS = Object.freeze({
     source: "july_lt_autopsy",
     note: "Recently respected Daily EMA(21) — night-before test held; next-day open rally. Prefer that timing over chasing the open peak.",
   }),
+  CAT: Object.freeze({
+    weekly_ema21_respect: true,
+    weekly_st_respect: true,
+    weekly_breakout_retest: true,
+    updated: "2026-08-05",
+    source: "cat_weekly_breakout_retest",
+    note: "Franchise industrial: Weekly Breakout Retest at Weekly EMA(21) + Weekly SuperTrend (~$800) after premium drawdown. Prior inv cut Jul 7 @ invalidation missed the Aug reclaim — prefer week-low test + reclaim over chasing the bounce mid-candle.",
+  }),
 });
 
 /** Reduce reasons where the model should execute without CIO / 2-day deferral. */
@@ -2504,7 +2512,7 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
     }
   }
 
-  // Weekly SuperTrend support proximity
+  // Weekly SuperTrend support proximity (live print — week-low test handled below)
   const wStLine = tickerData.st_support?.W;
   if (wStLine && wStLine > 0) {
     const distFromWST = Math.abs(price - wStLine) / wStLine;
@@ -2512,6 +2520,37 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
       signals.push("near_weekly_supertrend");
       confidence += 25;
     }
+  }
+
+  // ── Weekly Breakout Retest (CAT Aug 2026) ──
+  // Week-low test of Weekly EMA(21) and/or Weekly ST, then reclaim. Live
+  // proximity alone misses this — by the time the candle is mid-reclaim the
+  // print is already 5–10% above the anchors.
+  const wRetest = detectWeeklyBreakoutRetest(tickerData);
+  const _azSymU = String(tickerData?.ticker || "").toUpperCase();
+  const _azAnchors = tickerData?.learning?.structural_anchors
+    || tickerData?.profile?.learning?.structural_anchors
+    || tickerData?.structural_anchors
+    || INVESTOR_STRUCTURAL_ANCHORS[_azSymU]
+    || null;
+  if (wRetest.emaTested) {
+    signals.push(wRetest.emaReclaimed ? "weekly_ema21_test_reclaim" : "weekly_ema21_test");
+    confidence += wRetest.emaReclaimed ? 25 : 15;
+  }
+  if (wRetest.stTested && !signals.includes("near_weekly_supertrend")) {
+    signals.push("near_weekly_supertrend");
+    confidence += 25;
+  }
+  if (wRetest.confluence) {
+    signals.push("weekly_breakout_retest");
+    confidence += 20;
+  }
+  if (
+    (_azAnchors?.weekly_breakout_retest || _azAnchors?.weekly_ema21_respect)
+    && (wRetest.confluence || (wRetest.emaTested && wRetest.emaReclaimed))
+  ) {
+    signals.push("memory_weekly_breakout_retest");
+    confidence += 10;
   }
 
   // ── Oversold Bounce Setup ──
@@ -2592,9 +2631,11 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
 
   confidence = Math.max(0, Math.min(100, confidence));
   const inZone = confidence >= 40 && signals.length >= 2;
-  const zoneType = signals.length > 0 ? signals[0] : "none";
+  const zoneType = wRetest.confluence
+    ? "weekly_breakout_retest"
+    : (signals.length > 0 ? signals[0] : "none");
 
-  return { inZone, zoneType, confidence, signals };
+  return { inZone, zoneType, confidence, signals, weeklyBreakoutRetest: wRetest };
 }
 
 
@@ -3127,6 +3168,100 @@ export function resolvePrimaryInvalidationMovie({
     deferReason: marketOpen ? "awaiting_close_or_hold_below" : "awaiting_confirm",
     confirm: null,
     breach,
+  };
+}
+
+/**
+ * Weekly Breakout Retest — week-low test of Weekly EMA(21) and/or Weekly
+ * SuperTrend, ideally both (confluence), with price reclaiming. CAT Aug 2026:
+ * low ~$800–810 held both anchors after the premium drawdown; live print at
+ * $876 already left the 3% proximity band, so week-low must drive the test.
+ */
+export function detectWeeklyBreakoutRetest(tickerData, opts = {}) {
+  const bandPct = Math.max(0.5, Number(opts.bandPct) || 3.5);
+  const stBandPct = Math.max(0.5, Number(opts.stBandPct) || 3.5);
+  const price = Number(tickerData?._live_price || tickerData?.price);
+  const ema21 = Number(
+    tickerData?.weekly_bundle?.ema21
+    ?? tickerData?.tf_tech?.W?.ema?.ema21
+    ?? tickerData?.tf_tech?.W?.ema?.e21
+    ?? tickerData?.ema_map?.W?.ema21,
+  );
+  const wSt = Number(
+    tickerData?.st_support?.W
+    ?? tickerData?.weekly_bundle?.supertrend_line
+    ?? tickerData?.tf_tech?.W?.atr?.st
+    ?? tickerData?.tf_tech?.W?.supertrend?.line
+    ?? tickerData?.tf_tech?.W?.stLine,
+  );
+  const weekLow = Number(
+    tickerData?.week_low
+    ?? tickerData?.wl
+    ?? tickerData?.tf_tech?.W?.low
+    ?? tickerData?.weekly_bundle?.low
+    ?? tickerData?.weekly_bundle?.l
+    ?? tickerData?.weekly_bundle?.px_low,
+  );
+  const empty = {
+    emaTested: false,
+    emaReclaimed: false,
+    stTested: false,
+    confluence: false,
+    ema21: Number.isFinite(ema21) && ema21 > 0 ? ema21 : null,
+    wSt: Number.isFinite(wSt) && wSt > 0 ? wSt : null,
+    weekLow: Number.isFinite(weekLow) && weekLow > 0 ? weekLow : null,
+    distEmaPct: null,
+    distStPct: null,
+    signal: null,
+  };
+  if (!(price > 0)) return empty;
+
+  const lowRef = Number.isFinite(weekLow) && weekLow > 0 ? weekLow : price;
+  let emaTested = false;
+  let emaReclaimed = false;
+  let distEmaPct = null;
+  if (Number.isFinite(ema21) && ema21 > 0) {
+    distEmaPct = ((price - ema21) / ema21) * 100;
+    const lowDistPct = ((lowRef - ema21) / ema21) * 100;
+    const touchedLow = lowRef <= ema21 * (1 + bandPct / 100)
+      && lowRef >= ema21 * (1 - (bandPct / 100) * 1.5);
+    const nearNow = Math.abs(distEmaPct) <= bandPct;
+    const nearLow = Math.abs(lowDistPct) <= bandPct;
+    emaTested = !!(touchedLow || nearLow || (nearNow && price >= ema21 * 0.97));
+    const aboveFlag = tickerData?.tf_tech?.W?.ema?.priceAboveEma21;
+    emaReclaimed = !!(emaTested && price >= ema21 && aboveFlag !== false);
+  }
+
+  let stTested = false;
+  let distStPct = null;
+  if (Number.isFinite(wSt) && wSt > 0) {
+    distStPct = ((price - wSt) / wSt) * 100;
+    const lowDistSt = ((lowRef - wSt) / wSt) * 100;
+    const touchedSt = lowRef <= wSt * (1 + stBandPct / 100)
+      && lowRef >= wSt * (1 - (stBandPct / 100) * 1.5);
+    const nearStLow = Math.abs(lowDistSt) <= stBandPct;
+    const nearStNow = Math.abs(distStPct) <= stBandPct;
+    stTested = !!(touchedSt || nearStLow || nearStNow);
+  }
+
+  const confluence = !!(emaTested && stTested && (emaReclaimed || price >= (ema21 || 0)));
+  let signal = null;
+  if (confluence) signal = "weekly_breakout_retest";
+  else if (emaReclaimed) signal = "weekly_ema21_test_reclaim";
+  else if (emaTested) signal = "weekly_ema21_test";
+  else if (stTested) signal = "near_weekly_supertrend";
+
+  return {
+    emaTested,
+    emaReclaimed,
+    stTested,
+    confluence,
+    ema21: Number.isFinite(ema21) && ema21 > 0 ? ema21 : null,
+    wSt: Number.isFinite(wSt) && wSt > 0 ? wSt : null,
+    weekLow: Number.isFinite(weekLow) && weekLow > 0 ? weekLow : null,
+    distEmaPct: distEmaPct != null ? Math.round(distEmaPct * 100) / 100 : null,
+    distStPct: distStPct != null ? Math.round(distStPct * 100) / 100 : null,
+    signal,
   };
 }
 
