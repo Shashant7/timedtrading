@@ -606,22 +606,22 @@ broker sell or changing paper `investor_positions.total_shares`.
 ```bash
 cd /workspace/worker
 # 1) For tickers WITH broker shares: OPEN + unsuppress + rem=intended=broker_qty
-# 2) For tickers with ZERO broker shares: OPEN + intended=0 + rem=0 + filled=0
-#    (rem=0 with intended>0 → mothership_orphan on next reconcile)
+# 2) For tickers with ZERO broker shares: BYPASS — do NOT leave OPEN.
+#    Set CLOSED + rem=intended=0 + mirror_suppressed=1
+#    reason=bypass_no_broker_position (skip mirror until a broker fill exists)
 # 3) Release competing CLOSED orphans that claim the same shares
 #    (set their broker_remaining_qty=0, sync_state=in_sync)
-# 4) INSERT missing trade_id rows for no_manifest_for_trade rejects
-# 5) Force reconcile:
+# 4) Force reconcile:
 curl -sS -X POST \
   "https://timed-trading-ingest.shashant.workers.dev/timed/admin/broker-bridge/reconcile?key=$TIMED_TRADING_API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"user_id":"shashant@gmail.com"}'
 ```
 
-Expect reconcile `rows_drifting: 0` and the target rows
-`sync_state=in_sync`, `mirror_suppressed=0`, `model_status=OPEN`.
-Paper model qty is intentionally left alone — adds/trims later scale
-through the bridge against live broker holdings.
+Expect held names: `in_sync` / unsuppressed / `OPEN`.
+Flat names: `in_sync` / **suppressed** / `CLOSED` (`bypass_no_broker_position`).
+Paper model qty is intentionally left alone — only names with live
+broker shares participate in subsequent trim/exit mirrors.
 
 ---
 
