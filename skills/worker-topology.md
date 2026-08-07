@@ -67,9 +67,17 @@ curl -s https://tt-feed.shashant.workers.dev/feed/health | jq
 
 - `watchdog.yml` (GitHub Actions, every 30 min) checks health + feed age +
   scoring freshness. It tolerates Cloudflare bot-challenge HTML (warns,
-  doesn't fail) and counts only ACTIVE tombstones (`count > 0`).
+  doesn't fail) and counts only ACTIVE tombstones (`count > 0`). On price
+  staleness it also self-heals via `POST /feed/run-once`.
+- `feed-keepalive.yml` (every 5 min) is a Cloudflare Cron Trigger backup:
+  if `tt-feed` health shows `prices_age_sec > 180` during an active feed
+  window, it kicks `/feed/run-once`. Needs `TIMED_API_KEY` repo secret.
 - Cron execution check: `wrangler tail tt-engine --format pretty` during a
-  */5 boundary, or read the run markers in KV (`skills/kv-inspection.md`).
+  */5 boundary, or read `cron:last_5min_tick` age on `/timed/health`
+  (`cronTickAgeMin`). If that climbs for hours while `/feed/run-once`
+  still works, Cron Triggers have silently stopped — redeploy workers +
+  rely on `feed-keepalive` until CF resumes dispatch.
+- Manual feed tick: `curl -X POST https://tt-feed.shashant.workers.dev/feed/run-once -H "X-API-Key: $TIMED_API_KEY"`
 
 ## BINDING PARITY — role workers need EVERY binding their lanes use (2026-06-15)
 

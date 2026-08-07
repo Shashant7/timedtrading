@@ -21,6 +21,8 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Feed cron silent stop + keepalive (2026-08-07).** CF Cron Triggers stopped dispatching ~14:53 ET (heartbeat/scoring/REST feed frozen; `/feed/run-once` still worked). Redeployed tt-feed/engine/monolith; added `feed-keepalive.yml` + watchdog self-heal. Branch: `cursor/feed-cron-selfheal-df0c`.
+
 
 - [ ] **Context-first scoring (2026-08-05/06).** Plan:
       [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).
