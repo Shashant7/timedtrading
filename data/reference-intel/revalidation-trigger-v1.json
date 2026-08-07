@@ -1,14 +1,14 @@
 {
-  "generated_at_utc": "2026-08-06T08:51:48.074986+00:00",
-  "refresh_cycle_ts": "20260806-085127",
+  "generated_at_utc": "2026-08-07T00:16:22.064328+00:00",
+  "refresh_cycle_ts": "20260807-001600",
   "runtime_source_mode": "fresh_export",
-  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260806-085127.json",
+  "baseline_selection_file": "data/reference-intel/history/reference-selection-20260807-001600.json",
   "candidate_selection_file": "data/reference-intel/reference-selection-v1.json",
   "alerts": {
     "reference_drift_alert": false,
     "cio_drift_alert": true,
     "validation_gates_pass": true,
-    "matrix_go_no_go_pass": false,
+    "matrix_go_no_go_pass": true,
     "cio_drift_monitor_ok": true,
     "matrix_run_ok": true
   },
