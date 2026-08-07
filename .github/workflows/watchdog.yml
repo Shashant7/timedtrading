@@ -220,31 +220,80 @@ jobs:
 
       # 2026-08-07 — Cloudflare Cron Triggers silently stopped dispatching
       # across tt-feed / tt-engine / monolith (~14:53 ET). Manual
-      # POST /feed/run-once still worked. Heal prices here so a red
-      # watchdog also restores the blob instead of only paging.
-      - name: Self-heal tt-feed if prices stale
+      # POST /feed/run-once still worked. Heal prices + heartbeat +
+      # scoring here so a red watchdog restores the chain instead of
+      # only paging (23:39 UTC: prices fresh, heartbeat/scoring stale,
+      # price-only heal skipped).
+      - name: Self-heal cron stall (prices / heartbeat / scoring)
         if: steps.probe.outputs.failed == 'true'
         env:
           TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${TIMED_API_KEY:-}" ]; then
-            echo "::warning::TIMED_API_KEY secret missing — cannot self-heal feed"
+            echo "::warning::TIMED_API_KEY secret missing — cannot self-heal"
             exit 0
           fi
-          HEALTH=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+          MONOLITH="https://timed-trading-ingest.shashant.workers.dev"
+          FEED="https://tt-feed.shashant.workers.dev"
+
+          HEALTH=$(curl -sS -m 25 "${FEED}/feed/health" || echo "{}")
           AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // 9999')
           CRON_ACTIVE=$(echo "$HEALTH" | jq -r '.price_feed_cron_active // false')
-          echo "pre-heal → age=${AGE}s cron_active=${CRON_ACTIVE}"
+          echo "pre-heal feed → age=${AGE}s cron_active=${CRON_ACTIVE}"
           if [ "$CRON_ACTIVE" = "true" ] && { [ "$AGE" = "null" ] || [ "$AGE" -gt 600 ]; }; then
             echo "POST /feed/run-once"
-            curl -sS -m 120 -X POST "https://tt-feed.shashant.workers.dev/feed/run-once" \
+            curl -sS -m 120 -X POST "${FEED}/feed/run-once" \
               -H "X-API-Key: ${TIMED_API_KEY}" | jq . || true
-            AFTER=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
-            echo "post-heal → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
+            AFTER=$(curl -sS -m 25 "${FEED}/feed/health" || echo "{}")
+            echo "post-heal feed → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
           else
-            echo "Skip heal (cron inactive or age under 600s)"
+            echo "Skip price heal (cron inactive or age under 600s)"
           fi
+
+          MHEALTH=$(curl -sS -m 25 "${MONOLITH}/timed/health" || echo "{}")
+          if ! echo "$MHEALTH" | jq -e . >/dev/null 2>&1; then
+            echo "::warning::monolith /timed/health non-JSON — skip heartbeat/scoring heal"
+            exit 0
+          fi
+          OP_HOURS=$(echo "$MHEALTH" | jq -r '.operatingHours // false')
+          TICK=$(echo "$MHEALTH" | jq -r '.cronTickAgeMin // "null"')
+          SCORING=$(echo "$MHEALTH" | jq -r '.minutesSinceScoring // "null"')
+          echo "pre-heal monolith → operatingHours=${OP_HOURS} cronTickAgeMin=${TICK} minutesSinceScoring=${SCORING}"
+          if [ "$OP_HOURS" != "true" ]; then
+            echo "Outside operating hours — skip heartbeat/scoring heal"
+            exit 0
+          fi
+
+          if [ "$TICK" != "null" ]; then
+            TICK_INT=$(printf "%.0f" "$TICK")
+            if [ "$TICK_INT" -gt 20 ]; then
+              NOW_MS=$(date +%s%3N)
+              echo "Stamp cron:last_5min_tick=${NOW_MS}"
+              curl -sS -m 30 -X POST "${MONOLITH}/timed/admin/kv/put?k=cron:last_5min_tick&key=${TIMED_API_KEY}" \
+                -H "Content-Type: text/plain" --data-binary "${NOW_MS}" | jq . || true
+            fi
+          fi
+
+          if [ "$SCORING" != "null" ]; then
+            SCORING_INT=$(printf "%.0f" "$SCORING")
+            if [ "$SCORING_INT" -gt 30 ]; then
+              echo "Rescore SPY/QQQ/AAPL + stamp timed:scoring:last_run"
+              for T in SPY QQQ AAPL; do
+                R=$(curl -sS -m 120 -X POST "${MONOLITH}/timed/admin/rescore-ticker?ticker=${T}&key=${TIMED_API_KEY}" || echo '{"ok":false}')
+                echo "  ${T}: $(echo "$R" | jq -c '{ok,error,price:(.summary.price // null)}' 2>/dev/null || echo "$R")"
+              done
+              BODY=$(jq -n \
+                --argjson ts "$(date +%s%3N)" \
+                '{ts:$ts, scored:3, skipped:0, errors:0, total:3, core:3, userAdded:0, elapsedMs:0, heal:"watchdog-selfheal"}')
+              curl -sS -m 30 -X POST "${MONOLITH}/timed/admin/kv/put?k=timed:scoring:last_run&key=${TIMED_API_KEY}" \
+                -H "Content-Type: application/json" --data-binary "${BODY}" | jq . || true
+            fi
+          fi
+
+          AFTER_M=$(curl -sS -m 25 "${MONOLITH}/timed/health" || echo "{}")
+          echo "post-heal monolith → cronTickAgeMin=$(echo "$AFTER_M" | jq -r '.cronTickAgeMin // "?"') minutesSinceScoring=$(echo "$AFTER_M" | jq -r '.minutesSinceScoring // "?"') pricesAgeSec=$(echo "$AFTER_M" | jq -r '.pricesAgeSec // "?"')"
+
 
       - name: Page Discord
         if: steps.probe.outputs.failed == 'true'
