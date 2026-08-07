@@ -218,6 +218,34 @@ jobs:
             echo "failed=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # 2026-08-07 — Cloudflare Cron Triggers silently stopped dispatching
+      # across tt-feed / tt-engine / monolith (~14:53 ET). Manual
+      # POST /feed/run-once still worked. Heal prices here so a red
+      # watchdog also restores the blob instead of only paging.
+      - name: Self-heal tt-feed if prices stale
+        if: steps.probe.outputs.failed == 'true'
+        env:
+          TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TIMED_API_KEY:-}" ]; then
+            echo "::warning::TIMED_API_KEY secret missing — cannot self-heal feed"
+            exit 0
+          fi
+          HEALTH=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+          AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // 9999')
+          CRON_ACTIVE=$(echo "$HEALTH" | jq -r '.price_feed_cron_active // false')
+          echo "pre-heal → age=${AGE}s cron_active=${CRON_ACTIVE}"
+          if [ "$CRON_ACTIVE" = "true" ] && { [ "$AGE" = "null" ] || [ "$AGE" -gt 600 ]; }; then
+            echo "POST /feed/run-once"
+            curl -sS -m 120 -X POST "https://tt-feed.shashant.workers.dev/feed/run-once" \
+              -H "X-API-Key: ${TIMED_API_KEY}" | jq . || true
+            AFTER=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+            echo "post-heal → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
+          else
+            echo "Skip heal (cron inactive or age under 600s)"
+          fi
+
       - name: Page Discord
         if: steps.probe.outputs.failed == 'true'
         env:

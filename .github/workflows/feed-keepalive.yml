@@ -1,0 +1,68 @@
+name: Feed keepalive
+
+# Backup for Cloudflare Cron Triggers silently stopping (2026-08-07).
+# Every 5 minutes during the feed window, probe tt-feed health and
+# POST /feed/run-once when timed:prices is stale. Complements the
+# Health watchdog (*/30) with a tighter heal cadence.
+#
+# Requires repo secret TIMED_API_KEY (same key as tt-feed /feed/run-once).
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feed-keepalive
+  cancel-in-progress: true
+
+jobs:
+  kick:
+    name: kick tt-feed if stale
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe + heal
+        env:
+          TIMED_API_KEY: ${{ secrets.TIMED_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TIMED_API_KEY:-}" ]; then
+            echo "::error::TIMED_API_KEY secret missing"
+            exit 1
+          fi
+
+          HEALTH=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+          if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
+            echo "::warning::tt-feed /feed/health non-JSON — attempting run-once anyway"
+            AGE=9999
+            CRON_ACTIVE="true"
+            OP_HOURS="true"
+          else
+            AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // 9999')
+            CRON_ACTIVE=$(echo "$HEALTH" | jq -r '.price_feed_cron_active // false')
+            OP_HOURS=$(echo "$HEALTH" | jq -r '.operating_hours // false')
+            echo "tt-feed → age=${AGE}s cron_active=${CRON_ACTIVE} operating_hours=${OP_HOURS} source=$(echo "$HEALTH" | jq -r '.source // "?"')"
+          fi
+
+          # Only heal when the feed window claims it should be active.
+          if [ "$CRON_ACTIVE" != "true" ] && [ "$OP_HOURS" != "true" ]; then
+            echo "Quiet window — skip"
+            exit 0
+          fi
+
+          # Heal when blob is >3 min stale (normal */1 cadence is ~60s).
+          if [ "$AGE" = "null" ] || [ "$AGE" -gt 180 ]; then
+            echo "Prices stale (${AGE}s) — POST /feed/run-once"
+            RESP=$(curl -sS -m 120 -X POST "https://tt-feed.shashant.workers.dev/feed/run-once" \
+              -H "X-API-Key: ${TIMED_API_KEY}" || echo '{"ok":false}')
+            echo "$RESP" | jq . || echo "$RESP"
+            echo "$RESP" | jq -e '.ok == true' >/dev/null
+            AFTER=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+            echo "after → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
+          else
+            echo "Prices fresh enough (${AGE}s) — no kick"
+          fi
