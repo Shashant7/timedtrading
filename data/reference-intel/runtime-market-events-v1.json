@@ -42669,13 +42669,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 54.9649
+        "sql_duration_ms": 49.9728
       },
-      "duration": 54.9649,
+      "duration": 49.9728,
       "changes": 0,
-      "last_row_id": 25731,
+      "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4579946496,
+      "size_after": 4358602752,
       "rows_read": 4740,
       "rows_written": 0,
       "total_attempts": 1
