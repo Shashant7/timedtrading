@@ -6,13 +6,15 @@
 // Condenses the ticker's recent "movie" into a fixed, tiny feature block
 // (`_frames`) that rides the scored payload. Zero extra candle loops on the
 // hot path: everything derives from data ALREADY on the payload (tf_tech,
-// journey ring, week/day lows) plus the compact context rollup produced by
+// journey ring) plus the compact context rollup produced by
 // worker/context-ledger.js (anchors respect, recent tests, move stats).
 //
 // The digest answers, per anchor: where is price relative to the level
-// RIGHT NOW and what just happened (approaching / testing / reclaiming /
-// below / above)? Combined with ledger respect memory this is exactly the
-// input the CAT Weekly-Breakout-Retest playbook needed and never had.
+// RIGHT NOW (below / testing / approaching / above)? Combined with ledger
+// respect memory this is exactly the input the CAT Weekly-Breakout-Retest
+// playbook needed and never had. Reclaims are transitions detected by
+// worker/playbooks.js across cycles, plus the ledger's structural_test
+// facts for touches the 5-min print never saw.
 
 const DAY_MS = 86400000;
 
@@ -48,22 +50,13 @@ export function resolveAnchorLevels(td = {}) {
   return { W_EMA21: wEma21, W_ST: wSt, D_EMA21: dEma21 };
 }
 
-/** Session low used to detect a "touch" per timeframe. */
-function resolveTouchLow(td = {}, tf) {
-  if (tf === "W") {
-    return num(td?.week_low) ?? num(td?.wl) ?? num(td?.tf_tech?.W?.low);
-  }
-  return num(td?.day_low) ?? num(td?.dl) ?? num(td?.tf_tech?.D?.low);
-}
-
 /**
  * Classify price vs one anchor level. STATIC states only — day-1 shadow
  * lesson (2026-08-06): session lows are NOT on the scored payload, so any
- * state that depends on "the low touched earlier" (the old "reclaiming")
- * could never occur and no playbook ever triggered. Reclaims are now
- * TRANSITIONS detected by the playbook state machine (last_state → state),
- * with the ledger's structural_test facts covering touches the 5-min
- * print never saw.
+ * state that depends on "the low touched earlier" could never occur and no
+ * playbook ever triggered. Reclaims are TRANSITIONS detected by the
+ * playbook state machine (last_state → state), with the ledger's
+ * structural_test facts covering touches the 5-min print never saw.
  *
  * States (support-role):
  *   below       — price under the level beyond the band
@@ -71,13 +64,9 @@ function resolveTouchLow(td = {}, tf) {
  *   approaching — above the level, inside the approach zone
  *   above       — comfortably above
  */
-export function classifyAnchorState({ price, level, low, bandPct, approachPct }) {
+export function classifyAnchorState({ price, level, bandPct, approachPct }) {
   if (!(price > 0) || !(level > 0)) return null;
   const distPct = ((price - level) / level) * 100;
-  const lowDistPct = low > 0 ? ((low - level) / level) * 100 : null;
-  const touched = lowDistPct != null
-    && lowDistPct <= bandPct
-    && lowDistPct >= -bandPct * 1.5;
   let state;
   if (distPct < -bandPct * 1.5) state = "below";
   else if (distPct <= bandPct) state = "testing";
@@ -86,8 +75,6 @@ export function classifyAnchorState({ price, level, low, bandPct, approachPct })
   return {
     state,
     dist_pct: Math.round(distPct * 100) / 100,
-    low_dist_pct: lowDistPct != null ? Math.round(lowDistPct * 100) / 100 : null,
-    touched,
   };
 }
 
@@ -110,7 +97,6 @@ export function buildFrameDigest({ td = {}, context = null, now = Date.now() } =
     const cls = classifyAnchorState({
       price,
       level,
-      low: resolveTouchLow(td, spec.tf),
       bandPct: spec.bandPct,
       approachPct: spec.approachPct,
     });
