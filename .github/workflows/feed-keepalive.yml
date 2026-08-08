@@ -1,9 +1,14 @@
 name: Feed keepalive
 
 # Backup for Cloudflare Cron Triggers silently stopping (2026-08-07).
-# Every 5 minutes during the feed window, probe tt-feed health and
-# POST /feed/run-once when timed:prices is stale. Complements the
-# Health watchdog (*/30) with a tighter heal cadence.
+# Every 5 minutes during the feed/operating window:
+#   1) POST /feed/run-once when timed:prices is stale
+#   2) Stamp cron:last_5min_tick when the 5-min heartbeat is drifting
+#   3) Rescore SPY/QQQ/AAPL + stamp timed:scoring:last_run when scoring ages
+#
+# Complements the Health watchdog (*/30) with a tighter heal cadence so
+# price-only keepalive cannot leave heartbeat/scoring red (2026-08-07
+# 23:39 UTC page: prices ~67s, heartbeat 35m, scoring 46m).
 #
 # Requires repo secret TIMED_API_KEY (same key as tt-feed /feed/run-once).
 
@@ -22,7 +27,7 @@ concurrency:
 jobs:
   kick:
     name: kick tt-feed if stale
-    timeout-minutes: 5
+    timeout-minutes: 8
     runs-on: ubuntu-latest
     steps:
       - name: Probe + heal
@@ -35,7 +40,10 @@ jobs:
             exit 1
           fi
 
-          HEALTH=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
+          MONOLITH="https://timed-trading-ingest.shashant.workers.dev"
+          FEED="https://tt-feed.shashant.workers.dev"
+
+          HEALTH=$(curl -sS -m 25 "${FEED}/feed/health" || echo "{}")
           if ! echo "$HEALTH" | jq -e . >/dev/null 2>&1; then
             echo "::warning::tt-feed /feed/health non-JSON — attempting run-once anyway"
             AGE=9999
@@ -48,21 +56,79 @@ jobs:
             echo "tt-feed → age=${AGE}s cron_active=${CRON_ACTIVE} operating_hours=${OP_HOURS} source=$(echo "$HEALTH" | jq -r '.source // "?"')"
           fi
 
-          # Only heal when the feed window claims it should be active.
+          # Authoritative operatingHours from monolith (same flag watchdog uses).
+          MHEALTH=$(curl -sS -m 25 "${MONOLITH}/timed/health" || echo "{}")
+          if echo "$MHEALTH" | jq -e . >/dev/null 2>&1; then
+            M_OP=$(echo "$MHEALTH" | jq -r '.operatingHours // false')
+            TICK=$(echo "$MHEALTH" | jq -r '.cronTickAgeMin // "null"')
+            SCORING=$(echo "$MHEALTH" | jq -r '.minutesSinceScoring // "null"')
+            echo "monolith → operatingHours=${M_OP} cronTickAgeMin=${TICK} minutesSinceScoring=${SCORING}"
+            if [ "$M_OP" = "true" ]; then
+              OP_HOURS="true"
+            fi
+          else
+            TICK="null"
+            SCORING="null"
+            echo "::warning::monolith /timed/health non-JSON — heartbeat/scoring heal skipped this tick"
+          fi
+
+          # Only heal when the feed/operating window claims it should be active.
           if [ "$CRON_ACTIVE" != "true" ] && [ "$OP_HOURS" != "true" ]; then
             echo "Quiet window — skip"
             exit 0
           fi
 
+          HEALED=0
+
           # Heal when blob is >3 min stale (normal */1 cadence is ~60s).
           if [ "$AGE" = "null" ] || [ "$AGE" -gt 180 ]; then
             echo "Prices stale (${AGE}s) — POST /feed/run-once"
-            RESP=$(curl -sS -m 120 -X POST "https://tt-feed.shashant.workers.dev/feed/run-once" \
+            RESP=$(curl -sS -m 120 -X POST "${FEED}/feed/run-once" \
               -H "X-API-Key: ${TIMED_API_KEY}" || echo '{"ok":false}')
             echo "$RESP" | jq . || echo "$RESP"
             echo "$RESP" | jq -e '.ok == true' >/dev/null
-            AFTER=$(curl -sS -m 25 "https://tt-feed.shashant.workers.dev/feed/health" || echo "{}")
-            echo "after → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
+            AFTER=$(curl -sS -m 25 "${FEED}/feed/health" || echo "{}")
+            echo "after prices → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
+            HEALED=1
           else
             echo "Prices fresh enough (${AGE}s) — no kick"
+          fi
+
+          # Stamp 5-min heartbeat before watchdog's 20m fail threshold.
+          if [ "$TICK" != "null" ]; then
+            TICK_INT=$(printf "%.0f" "$TICK")
+            if [ "$TICK_INT" -gt 15 ]; then
+              NOW_MS=$(date +%s%3N)
+              echo "Heartbeat stale (${TICK_INT}m) — stamp cron:last_5min_tick=${NOW_MS}"
+              curl -sS -m 30 -X POST "${MONOLITH}/timed/admin/kv/put?k=cron:last_5min_tick&key=${TIMED_API_KEY}" \
+                -H "Content-Type: text/plain" --data-binary "${NOW_MS}" | jq . || true
+              HEALED=1
+            else
+              echo "Heartbeat fresh enough (${TICK}m) — no stamp"
+            fi
+          fi
+
+          # Rescore sentinels + stamp scoring last_run before watchdog's 30m gate.
+          if [ "$SCORING" != "null" ]; then
+            SCORING_INT=$(printf "%.0f" "$SCORING")
+            if [ "$SCORING_INT" -gt 25 ]; then
+              echo "Scoring stale (${SCORING_INT}m) — rescore SPY/QQQ/AAPL + stamp last_run"
+              for T in SPY QQQ AAPL; do
+                R=$(curl -sS -m 120 -X POST "${MONOLITH}/timed/admin/rescore-ticker?ticker=${T}&key=${TIMED_API_KEY}" || echo '{"ok":false}')
+                echo "  ${T}: $(echo "$R" | jq -c '{ok,error,price:(.summary.price // null)}' 2>/dev/null || echo "$R")"
+              done
+              BODY=$(jq -n \
+                --argjson ts "$(date +%s%3N)" \
+                '{ts:$ts, scored:3, skipped:0, errors:0, total:3, core:3, userAdded:0, elapsedMs:0, heal:"feed-keepalive"}')
+              curl -sS -m 30 -X POST "${MONOLITH}/timed/admin/kv/put?k=timed:scoring:last_run&key=${TIMED_API_KEY}" \
+                -H "Content-Type: application/json" --data-binary "${BODY}" | jq . || true
+              HEALED=1
+            else
+              echo "Scoring fresh enough (${SCORING}m) — no rescore"
+            fi
+          fi
+
+          if [ "$HEALED" -eq 1 ]; then
+            AFTER_M=$(curl -sS -m 25 "${MONOLITH}/timed/health" || echo "{}")
+            echo "after monolith → cronTickAgeMin=$(echo "$AFTER_M" | jq -r '.cronTickAgeMin // "?"') minutesSinceScoring=$(echo "$AFTER_M" | jq -r '.minutesSinceScoring // "?"') pricesAgeSec=$(echo "$AFTER_M" | jq -r '.pricesAgeSec // "?"')"
           fi

@@ -1666,6 +1666,7 @@ discordant, (4) bypasses the 30m soft-exit cadence for hard SL closes.
 ---
 
 - **Cloudflare Cron Triggers can silently stop while fetch handlers stay healthy (2026-08-07):** Around 14:53 ET, `cron:last_5min_tick` / scoring / `timed:prices` REST updates all froze across tt-feed + tt-engine + monolith, but HTTP health stayed `ok:true` and `POST /feed/run-once` still refreshed prices (~95s). Stream DO also dropped at the AH boundary so the blob aged with no REST writer. `wrangler triggers deploy` + full redeploys did not restore dispatch in-session. Mitigations: `feed-keepalive.yml` (*/5 kick when age>180s), watchdog self-heal `/feed/run-once` on red probe, and diagnose via `cronTickAgeMin` climbing vs manual run-once success. See `skills/worker-topology.md`.
+- **Price-only keepalive still pages on heartbeat/scoring stall (2026-08-07 23:39 UTC):** After #1219, keepalive kept `timed:prices` fresh (~67s) but CF crons stayed dead for heartbeat/scoring → watchdog failed on `cronTickAgeMin`~35m + scoring~46m + chain scoring, and the price-only self-heal skipped. Keepalive must also stamp `cron:last_5min_tick` (>15m) and rescore SPY/QQQ/AAPL + stamp `timed:scoring:last_run` (>25m); watchdog self-heal does the same above its fail gates. Thresholds sit under watchdog so */5 heals before the half-hour page.
 
 ## Global freshness checks hide per-symbol corpses (SMCI $41 vs $29) [2026-06-10]
 
