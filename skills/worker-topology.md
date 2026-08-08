@@ -72,11 +72,13 @@ curl -s https://tt-feed.shashant.workers.dev/feed/health | jq
   >600s), stamp `cron:last_5min_tick` (heartbeat >20m), rescore
   SPY/QQQ/AAPL + stamp `timed:scoring:last_run` (scoring >30m).
 - `feed-keepalive.yml` (every 5 min) is a Cloudflare Cron Trigger backup
-  during the feed/operating window: kick `/feed/run-once` when
-  `prices_age_sec > 180`, stamp heartbeat when `cronTickAgeMin > 15`,
-  rescore sentinels when `minutesSinceScoring > 25`. Thresholds sit
-  under the watchdog fail gates so keepalive heals before the half-hour
-  page. Needs `TIMED_API_KEY` repo secret.
+  during the feed/operating window: kick `/feed/run-once` when prices
+  stale (`>180s` full mode, `>600s` lightweight */5 overnight), stamp
+  heartbeat when `cronTickAgeMin > 15`, rescore sentinels when
+  `minutesSinceScoring > 25` — heartbeat/scoring heals only when
+  monolith `operatingHours=true`. Heal failures warn and exit 0
+  (watchdog owns red-run pages). Repo secret `TIMED_API_KEY` must match
+  tt-feed's worker secret (`X-API-Key` on `/feed/run-once`).
 - Cron execution check: `wrangler tail tt-engine --format pretty` during a
   */5 boundary, or read `cron:last_5min_tick` age on `/timed/health`
   (`cronTickAgeMin`). If that climbs for hours while `/feed/run-once`
