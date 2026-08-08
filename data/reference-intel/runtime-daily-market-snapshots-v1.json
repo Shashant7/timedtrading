@@ -4194,13 +4194,13 @@
       "served_by_colo": "EWR",
       "served_by_primary": true,
       "timings": {
-        "sql_duration_ms": 6.957
+        "sql_duration_ms": 4.7343
       },
-      "duration": 6.957,
+      "duration": 4.7343,
       "changes": 0,
       "last_row_id": 0,
       "changed_db": false,
-      "size_after": 4517871616,
+      "size_after": 4317413376,
       "rows_read": 279,
       "rows_written": 0,
       "total_attempts": 1
