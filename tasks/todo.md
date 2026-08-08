@@ -21,6 +21,8 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Keepalive overnight soft-fail (2026-08-08).** Feed keepalive emailed on `25de02e`: overnight lightweight age ~270s (normal for */5) + `/feed/run-once` `unauthorized` hard-failed the job. Soft-fail heals, 600s lightweight threshold, OH-gate heartbeat/scoring. Also sync GitHub `TIMED_API_KEY` ↔ tt-feed worker secret. Branch: `cursor/keepalive-softfail-df0c`.
+
 - [x] **Cron-stall heal covers heartbeat+scoring (2026-08-07).** Watchdog at 23:39 UTC failed again: prices fresh (~67s) but `cronTickAgeMin`~35m + scoring~46m + chain scoring. Keepalive only kicked `/feed/run-once`. Expanded `feed-keepalive.yml` + watchdog self-heal to stamp `cron:last_5min_tick`, rescore SPY/QQQ/AAPL, stamp `timed:scoring:last_run`. Ops heal applied; health+chain green. Branch: `cursor/cron-stall-heal-df0c`.
 
 - [x] **Feed cron silent stop + keepalive (2026-08-07).** CF Cron Triggers stopped dispatching ~14:53 ET (heartbeat/scoring/REST feed frozen; `/feed/run-once` still worked). Redeployed tt-feed/engine/monolith; added `feed-keepalive.yml` + watchdog self-heal. Branch: `cursor/feed-cron-selfheal-df0c`.
