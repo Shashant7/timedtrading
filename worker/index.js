@@ -57368,6 +57368,41 @@ export default {
             } catch { /* per-ticker best-effort */ }
           }
 
+          const _nyDate = (ms) => new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+          // Minutes since the 9:30 ET open (negative = pre-market).
+          const _nySessionMin = (ms) => {
+            const p = new Date(ms).toLocaleTimeString("en-GB", {
+              timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit",
+            }).split(":");
+            const min = parseInt(p[0], 10) * 60 + parseInt(p[1], 10) - 570;
+            return Number.isFinite(min) ? min : null;
+          };
+
+          // Fixed-horizon forward return: first daily close AFTER the event's
+          // NY session. Daily candles per distinct TRIGGERED ticker (capped);
+          // dedupe near-duplicate D rows by NY date keeping the latest ts.
+          const trigTickers = [...new Set(rows.filter((r) => {
+            try { return (JSON.parse(r.inputs_json) || {}).kind === "triggered"; } catch { return false; }
+          }).map((r) => String(r.ticker || "").toUpperCase()))].slice(0, 80);
+          const dCandlesByTicker = {};
+          for (const t of trigTickers) {
+            try {
+              const cRows = (await env.DB.prepare(
+                `SELECT ts, c FROM ticker_candles WHERE ticker = ?1 AND tf = 'D'
+                  ORDER BY ts DESC LIMIT 60`,
+              ).bind(t).all())?.results || [];
+              const byDate = new Map();
+              for (const c of cRows) {
+                const k = _nyDate(Number(c.ts));
+                const prev = byDate.get(k);
+                if (!prev || Number(c.ts) > Number(prev.ts)) byDate.set(k, c);
+              }
+              dCandlesByTicker[t] = [...byDate.entries()]
+                .map(([dk, c]) => ({ date: dk, close: Number(c.c) }))
+                .sort((a, b) => (a.date < b.date ? -1 : 1));
+            } catch { /* per-ticker best-effort */ }
+          }
+
           const signals = rows.map((r) => {
             let inputs = {};
             try { inputs = JSON.parse(r.inputs_json) || {}; } catch { /* keep {} */ }
@@ -57380,12 +57415,19 @@ export default {
             // Records are keyed on armed_ts for idempotency; the actual
             // transition time is inputs.event_ts (fall back to row ts).
             const evTs = Number(inputs.event_ts) || Number(r.ts);
+            let fwd1dPct = null;
+            if (inputs.kind === "triggered" && trigPx > 0) {
+              const evDate = _nyDate(evTs);
+              const next = (dCandlesByTicker[t] || []).find((c) => c.date > evDate && c.close > 0);
+              if (next) fwd1dPct = Math.round(((next.close - trigPx) / trigPx) * 10000) / 100;
+            }
             const acted = (entriesByTicker[t] || []).some(
               (ets) => ets >= evTs - 3600000 && ets <= evTs + 3 * 86400000,
             );
             return {
               ticker: t,
               ts: evTs,
+              session_min: _nySessionMin(evTs),
               kind: inputs.kind || null,
               playbook: inputs.playbook || null,
               anchor: inputs.anchor || null,
@@ -57394,36 +57436,60 @@ export default {
               trigger_price: trigPx,
               price_now: nowPx,
               fwd_pct: fwdPct,
+              fwd_1d_pct: fwd1dPct,
               acted,
             };
           });
 
+          const _stats = (arr) => {
+            const sorted = [...arr].sort((a, b) => a - b);
+            return {
+              n: sorted.length,
+              median_pct: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
+              positive_rate: sorted.length
+                ? Math.round((sorted.filter((v) => v > 0).length / sorted.length) * 100)
+                : null,
+            };
+          };
           const byPlaybook = {};
           for (const s of signals) {
             const key = s.playbook || "unknown";
             const g = (byPlaybook[key] = byPlaybook[key] || {
-              triggered: 0, invalidated: 0, acted: 0, fwd: [],
+              triggered: 0, invalidated: 0, acted: 0, fwd: [], fwd1d: [],
+              openingFwd: [], laterFwd: [],
             });
             if (s.kind === "triggered") {
               g.triggered += 1;
               if (s.acted) g.acted += 1;
               if (s.fwd_pct != null) g.fwd.push(s.fwd_pct);
+              if (s.fwd_1d_pct != null) g.fwd1d.push(s.fwd_1d_pct);
+              // Opening-window split (day-2 observation: the trigger burst
+              // 9:36-9:56 ET holds most of the losers — this bucket decides
+              // whether Phase 2 needs an opening-noise gate).
+              const bestFwd = s.fwd_1d_pct ?? s.fwd_pct;
+              if (bestFwd != null && s.session_min != null) {
+                (s.session_min >= 0 && s.session_min < 30 ? g.openingFwd : g.laterFwd).push(bestFwd);
+              }
             } else if (s.kind === "invalidated") {
               g.invalidated += 1;
             }
           }
           const summary = {};
           for (const [k, g] of Object.entries(byPlaybook)) {
-            const sorted = [...g.fwd].sort((a, b) => a - b);
+            const fwd = _stats(g.fwd);
+            const fwd1d = _stats(g.fwd1d);
             summary[k] = {
               triggered: g.triggered,
               invalidated: g.invalidated,
               acted_on: g.acted,
-              fwd_n: sorted.length,
-              fwd_median_pct: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
-              fwd_positive_rate: sorted.length
-                ? Math.round((sorted.filter((v) => v > 0).length / sorted.length) * 100)
-                : null,
+              fwd_n: fwd.n,
+              fwd_median_pct: fwd.median_pct,
+              fwd_positive_rate: fwd.positive_rate,
+              fwd_1d_n: fwd1d.n,
+              fwd_1d_median_pct: fwd1d.median_pct,
+              fwd_1d_positive_rate: fwd1d.positive_rate,
+              opening_window: _stats(g.openingFwd),
+              later_session: _stats(g.laterFwd),
             };
           }
 
