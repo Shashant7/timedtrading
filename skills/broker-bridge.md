@@ -367,6 +367,36 @@ curl -s -X POST "https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oau
 
 Personal mode returns `personal: true` and `webull_account_id` immediately (no browser redirect).
 
+### Second Webull login (own App Key/Secret pair) — 2026-08-11
+
+A **different Webull login** cannot reuse the env-level keys — each login
+generates its own Personal API key pair (log into that Webull account →
+[Open API portal](https://www.webull.com/open-api) → API Keys Management →
+Generate Key, 2FA unchecked). Do **not** add the pair as worker secrets.
+Instead pass it once to the connect endpoint with a `login_label`:
+
+```bash
+curl -s -X POST "https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oauth/start" \
+  -H "Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"shashant@gmail.com","app_key":"<KEY>","app_secret":"<SECRET>","login_label":"acct2"}' | python3 -m json.tool
+```
+
+What happens: the pair is validated against the live account list (typo →
+502, nothing persisted), wrapped with AES-GCM (same as token wraps), and
+that login's accounts sync as `owner#webull#<label>-<slug>` (e.g.
+`shashant@gmail.com#webull#acct2-individual-cash`) under the **same owner
+email** — so fan-out, `/bridge/enable`, status, and reconciliation all work
+unchanged. Per-account creds sign that account's requests; rows without
+wraps (the primary login) keep using env `WEBULL_APP_KEY/SECRET`.
+
+- `login_label` is **required** with `app_key` (prevents slug collisions —
+  both logins can have an INDIVIDUAL_CASH account).
+- Key rotation: re-run the same command with the new pair + same label.
+- New accounts arrive **disabled**; enable per account via `/bridge/enable`.
+- Wraps never leave the bridge — operator endpoints expose only
+  `has_webull_app_creds: true`.
+
 ---
 
 ## Webull Connect (partner OAuth — BYOB path)
