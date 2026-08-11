@@ -369,33 +369,51 @@ Personal mode returns `personal: true` and `webull_account_id` immediately (no b
 
 ### Second Webull login (own App Key/Secret pair) — 2026-08-11
 
-A **different Webull login** cannot reuse the env-level keys — each login
-generates its own Personal API key pair (log into that Webull account →
-[Open API portal](https://www.webull.com/open-api) → API Keys Management →
-Generate Key, 2FA unchecked). Do **not** add the pair as worker secrets.
-Instead pass it once to the connect endpoint with a `login_label`:
+A **different Webull login** (e.g. a partner's account) cannot reuse the
+env-level keys — each login generates its own Personal API key pair (log
+into that Webull account → [Open API portal](https://www.webull.com/open-api)
+→ API Keys Management → Generate Key, 2FA unchecked).
+
+**Preferred: worker-level secrets named after the login label.** Pick a
+label (e.g. `acct2`), store the pair as secrets, then connect:
 
 ```bash
+cd worker-bridge
+../node_modules/.bin/wrangler secret put WEBULL_APP_KEY_ACCT2      # paste key
+../node_modules/.bin/wrangler secret put WEBULL_APP_SECRET_ACCT2   # paste secret
+
 curl -s -X POST "https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oauth/start" \
   -H "Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"user_id":"shashant@gmail.com","app_key":"<KEY>","app_secret":"<SECRET>","login_label":"acct2"}' | python3 -m json.tool
+  -d '{"user_id":"shashant@gmail.com","login_label":"acct2","partner_email":"partner@example.com"}' | python3 -m json.tool
 ```
 
+The secret suffix is derived from `login_label` (kebab → SCREAMING_SNAKE:
+`acct2` → `WEBULL_APP_KEY_ACCT2`). **Key rotation = `wrangler secret put`
+with the new value** — no re-connect, no KV changes. (Fallback: pass
+`app_key`/`app_secret` inline in the body instead; they get AES-GCM
+wrapped per account row.)
+
 What happens: the pair is validated against the live account list (typo →
-502, nothing persisted), wrapped with AES-GCM (same as token wraps), and
-that login's accounts sync as `owner#webull#<label>-<slug>` (e.g.
+502, nothing persisted) and that login's accounts sync as
+`owner#webull#<label>-<slug>` (e.g.
 `shashant@gmail.com#webull#acct2-individual-cash`) under the **same owner
 email** — so fan-out, `/bridge/enable`, status, and reconciliation all work
 unchanged. Per-account creds sign that account's requests; rows without
-wraps (the primary login) keep using env `WEBULL_APP_KEY/SECRET`.
+them (the primary login) keep using env `WEBULL_APP_KEY/SECRET`.
 
-- `login_label` is **required** with `app_key` (prevents slug collisions —
-  both logins can have an INDIVIDUAL_CASH account).
-- Key rotation: re-run the same command with the new pair + same label.
+**Partner notifications:** `partner_email` stamps `notify_emails` on each
+synced row. Drift/mirror-sync digests and the daily owner digest for those
+accounts then go to the partner AND the admin address
+(`BRIDGE_ADMIN_NOTIFY_EMAIL` = timedtrading@gmail.com, in wrangler.toml).
+Accounts without `notify_emails` keep the legacy single-recipient
+behavior. Critical drift still hits the operator Discord as before.
+
+- `login_label` is **required** for a second login (prevents slug
+  collisions — both logins can have an INDIVIDUAL_CASH account).
 - New accounts arrive **disabled**; enable per account via `/bridge/enable`.
-- Wraps never leave the bridge — operator endpoints expose only
-  `has_webull_app_creds: true`.
+- Keys never leave the bridge — operator endpoints expose only
+  `has_webull_app_creds` / `webull_creds_env` / `notify_emails`.
 
 ---
 

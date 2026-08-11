@@ -111,6 +111,12 @@ DAILY_DIGEST_DRY_RUN = "false"
 # Operator email for audit-log notifications when limits trip.
 OPERATOR_EMAIL = "shashant@gmail.com"
 
+# 2026-08-11 — Admin recipient added to every partner-account notification.
+# Accounts with notify_emails on their bridge user row (partner logins)
+# notify the partner AND this address. Accounts without notify_emails
+# keep the legacy single-recipient behavior.
+BRIDGE_ADMIN_NOTIFY_EMAIL = "timedtrading@gmail.com"
+
 # 2026-06-15 — Webull OpenAPI (personal operator account until Connect partner creds).
 # personal = operator App Key/Secret from open-api portal (no OAuth).
 # connect  = partner OAuth flow (needs client_id + client_secret from connect.api@webull-us.com).
@@ -145,6 +151,10 @@ id = "e48593af3ef74bf986b2592909ed40cb"
 #   ROBINHOOD_OAUTH_CLIENT_SECRET
 #   WEBULL_APP_KEY             Personal Trading API app key (WEBULL_AUTH_MODE=personal)
 #   WEBULL_APP_SECRET            Personal Trading API app secret
+#   WEBULL_APP_KEY_<LABEL>     Secondary Webull login key pair, named after the
+#   WEBULL_APP_SECRET_<LABEL>    login_label passed at connect (e.g. login_label
+#                                "acct2" → WEBULL_APP_KEY_ACCT2). Rotation =
+#                                `wrangler secret put` — no re-connect needed.
 #   WEBULL_CONNECT_CLIENT_ID   Connect partner client id (WEBULL_AUTH_MODE=connect)
 #   WEBULL_CONNECT_CLIENT_SECRET
 #   WEBULL_OAUTH_REDIRECT_URI    Optional override (default: .../bridge/webull/oauth/callback)

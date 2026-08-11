@@ -35,9 +35,15 @@
       `POST /bridge/webull/oauth/start` accepts `app_key`+`app_secret`+
       `login_label` in personal mode — validates via account list, wraps,
       syncs sub-users as `owner#webull#<label>-<slug>` under the SAME owner
-      email so fan-out/enable/status work unchanged. Waiting on the operator
-      to generate the second login's Personal API key pair.
-      Branch: `cursor/webull-second-login-dbdd`.
+      email so fan-out/enable/status work unchanged. Round 2 (partner
+      account): preferred creds storage is now worker secrets named after
+      the label (`WEBULL_APP_KEY_ACCT2`/`WEBULL_APP_SECRET_ACCT2`; rotation
+      = `wrangler secret put`, no re-connect; inline wrap path kept as
+      fallback), and `partner_email` stamps `notify_emails` so drift +
+      daily digests for those accounts go to the partner AND
+      `BRIDGE_ADMIN_NOTIFY_EMAIL` (timedtrading@gmail.com). Waiting on the
+      partner's Personal API key pair. Branch:
+      `cursor/webull-second-login-dbdd`.
 
 - [ ] **Context-first scoring (2026-08-05/06).** Plan:
       [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).

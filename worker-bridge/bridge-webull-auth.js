@@ -11,6 +11,8 @@ import {
   parseWebullAccountList,
   syncWebullPersonalAccounts,
   webullCreateTokenFromCode,
+  webullCredsEnvSuffix,
+  webullEnvCredsFor,
   webullGetAccountList,
 } from "./bridge-webull-api.js";
 import {
@@ -27,19 +29,31 @@ export async function handleWebullOauthStart(env, req) {
     return { ok: false, error: "user_id_required", status: 400 };
   }
 
-  // 2026-08-11 — Secondary Webull login (personal mode only): the request
-  // may carry that login's own App Key/Secret plus a login_label. Accounts
-  // sync under the SAME owner email as `owner#webull#<label>-<slug>` with
-  // the key pair wrapped per account row, so fan-out / enable / status /
-  // reconciliation all work unchanged. The primary login keeps using the
-  // env-level WEBULL_APP_KEY/SECRET.
+  // 2026-08-11 — Secondary Webull login (personal mode only): pass a
+  // login_label and store that login's own App Key/Secret as worker
+  // secrets named after the label (WEBULL_APP_KEY_<LABEL> /
+  // WEBULL_APP_SECRET_<LABEL>, e.g. login_label "acct2" →
+  // WEBULL_APP_KEY_ACCT2). Key rotation is then just `wrangler secret
+  // put` — no re-connect. Inline app_key/app_secret in the body remain
+  // supported as a fallback (wrapped per account row). Accounts sync
+  // under the SAME owner email as `owner#webull#<label>-<slug>`, so
+  // fan-out / enable / status / reconciliation all work unchanged. The
+  // primary login keeps using the env-level WEBULL_APP_KEY/SECRET.
+  //
+  // Optional partner_email: stamped as notify_emails on each synced row
+  // so actions on those accounts notify the partner in addition to
+  // BRIDGE_ADMIN_NOTIFY_EMAIL.
   const appKey = String(body?.app_key || "").trim();
   const appSecret = String(body?.app_secret || "").trim();
   const loginLabel = normalizeWebullLoginLabel(body?.login_label);
+  const partnerEmail = String(body?.partner_email || body?.notify_email || "").trim().toLowerCase();
+  if (partnerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(partnerEmail)) {
+    return { ok: false, error: "invalid_partner_email", status: 400 };
+  }
   if ((appKey || appSecret) && !(appKey && appSecret)) {
     return { ok: false, error: "app_key_and_app_secret_both_required", status: 400 };
   }
-  if (appKey && webullAuthMode(env) !== "personal") {
+  if ((appKey || loginLabel) && webullAuthMode(env) !== "personal") {
     return { ok: false, error: "per_login_creds_require_personal_mode", status: 400 };
   }
   if (appKey && !loginLabel) {
@@ -51,6 +65,17 @@ export async function handleWebullOauthStart(env, req) {
     };
   }
   const bodyCreds = appKey ? { appKey, appSecret } : null;
+  const credsEnvSuffix = (!bodyCreds && loginLabel) ? webullCredsEnvSuffix(loginLabel) : null;
+  const envCreds = credsEnvSuffix ? webullEnvCredsFor(env, credsEnvSuffix) : null;
+  if (credsEnvSuffix && !envCreds) {
+    return {
+      ok: false,
+      error: "webull_env_creds_missing",
+      status: 400,
+      note: `Set worker secrets WEBULL_APP_KEY_${credsEnvSuffix} and WEBULL_APP_SECRET_${credsEnvSuffix} on tt-broker-bridge (wrangler secret put), then retry. Or pass app_key/app_secret inline.`,
+    };
+  }
+  const secondLoginCreds = bodyCreds || envCreds;
 
   if (isBridgeMockMode(env)) {
     const mock = await _finalizeMockWebullConnection(env, userId);
@@ -64,7 +89,7 @@ export async function handleWebullOauthStart(env, req) {
     };
   }
 
-  if (!webullCredentialsConfigured(env) && !bodyCreds) {
+  if (!webullCredentialsConfigured(env) && !secondLoginCreds) {
     return {
       ok: false,
       error: "webull_not_configured",
@@ -77,9 +102,9 @@ export async function handleWebullOauthStart(env, req) {
 
   // Personal Trading API: no browser OAuth — bind every Webull sub-account.
   if (webullAuthMode(env) === "personal") {
-    // Validates the provided key pair against the live account list before
-    // anything is persisted — a typo'd key fails here with 502.
-    const accountsRes = await webullGetAccountList(env, "", { creds: bodyCreds });
+    // Validates the key pair against the live account list before anything
+    // is persisted — a typo'd key/secret fails here with 502.
+    const accountsRes = await webullGetAccountList(env, "", { creds: secondLoginCreds });
     const accounts = parseWebullAccountList(accountsRes);
     if (!accounts.length) {
       return {
@@ -87,9 +112,11 @@ export async function handleWebullOauthStart(env, req) {
         error: "webull_personal_account_list_failed",
         status: 502,
         response: accountsRes.response,
-        note: accountsRes.error || (bodyCreds
-          ? "Check the provided app_key/app_secret and WEBULL_ENVIRONMENT (prod vs uat)."
-          : "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat)."),
+        note: accountsRes.error || (credsEnvSuffix
+          ? `Check secrets WEBULL_APP_KEY_${credsEnvSuffix}/WEBULL_APP_SECRET_${credsEnvSuffix} and WEBULL_ENVIRONMENT (prod vs uat).`
+          : (bodyCreds
+            ? "Check the provided app_key/app_secret and WEBULL_ENVIRONMENT (prod vs uat)."
+            : "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat).")),
       };
     }
     const credsWrap = bodyCreds
@@ -100,14 +127,18 @@ export async function handleWebullOauthStart(env, req) {
       : null;
     const synced = await syncWebullPersonalAccounts(env, userId, accounts, {
       credsWrap,
-      loginLabel: bodyCreds ? loginLabel : null,
+      credsEnv: envCreds ? credsEnvSuffix : null,
+      loginLabel: secondLoginCreds ? loginLabel : null,
+      notifyEmails: partnerEmail ? [partnerEmail] : null,
     });
     return {
       ok: true,
       status: 200,
       personal: true,
       user_id: userId,
-      login_label: bodyCreds ? loginLabel : null,
+      login_label: secondLoginCreds ? loginLabel : null,
+      creds_source: envCreds ? `env:WEBULL_APP_KEY_${credsEnvSuffix}` : (bodyCreds ? "wrapped_inline" : "env:WEBULL_APP_KEY"),
+      partner_email: partnerEmail || null,
       accounts_connected: synced.length,
       accounts: synced,
       note: `Webull personal API synced ${synced.length} account(s). Enable live trading per account in Mission Control.`,

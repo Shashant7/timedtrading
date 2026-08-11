@@ -42,7 +42,7 @@ import {
 import { orchestrateOcoForReducer } from "./bridge-oco.js";
 import {
   drainNotifyQueue, buildDailyOwnerDigest, renderDailyOwnerDigestEmail,
-  emitDriftNotification,
+  emitDriftNotification, resolveNotifyRecipients,
 } from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
@@ -1128,16 +1128,22 @@ export default {
             // worker's cron to pick up.
             const email = renderDailyOwnerDigestEmail(digest);
             if (!email) { skipped++; continue; }
-            const queueKey = `bridge:notify:daily:${u.user_id}:${new Date().toISOString().slice(0, 10)}`;
-            await env.BRIDGE_KV.put(queueKey, JSON.stringify({
-              user_id: u.user_id,
-              user_email: digest.user_email,
-              kind: "daily_owner_digest",
-              ts: Date.now(),
-              dry_run: dryRun,
-              content: email,
-              digest_summary: digest,
-            }), { expirationTtl: 7 * 86400 });
+            // Partner accounts (notify_emails on the user row): one queue
+            // item per recipient (partner + admin). Others: unchanged.
+            const recipients = resolveNotifyRecipients(env, u) || [digest.user_email];
+            const day = new Date().toISOString().slice(0, 10);
+            for (const recipient of recipients) {
+              const queueKey = `bridge:notify:daily:${u.user_id}:${day}${recipients.length > 1 ? `:${recipient}` : ""}`;
+              await env.BRIDGE_KV.put(queueKey, JSON.stringify({
+                user_id: u.user_id,
+                user_email: recipient || digest.user_email,
+                kind: "daily_owner_digest",
+                ts: Date.now(),
+                dry_run: dryRun,
+                content: email,
+                digest_summary: digest,
+              }), { expirationTtl: 7 * 86400 });
+            }
             prepared++;
           } catch (e) {
             errored++;
@@ -2191,6 +2197,8 @@ function _redactUserForList(user) {
     webull_account_class: user.webull_account_class || null,
     webull_auth_mode: user.webull_auth_mode || null,
     webull_login_label: user.webull_login_label || null,
+    webull_creds_env: user.webull_creds_env || null,
+    notify_emails: user.notify_emails || null,
     owner_email: user.owner_email || null,
     ibkr_account_id: user.ibkr_account_id || null,
     connected_at: user.connected_at || null,

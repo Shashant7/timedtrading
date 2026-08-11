@@ -3,9 +3,12 @@ import {
   normalizeWebullLoginLabel,
   resolveWebullUserCreds,
   syncWebullPersonalAccounts,
+  webullCredsEnvSuffix,
+  webullEnvCredsFor,
   webullSubUserId,
 } from "./bridge-webull-api.js";
 import { wrapSecret } from "./bridge-crypto.js";
+import { resolveNotifyRecipients } from "./bridge-notifications.js";
 import { resolveBridgeAccounts } from "./bridge-storage.js";
 
 // In-memory BRIDGE_KV stub (get/put/list) shared by storage helpers.
@@ -127,6 +130,82 @@ describe("syncWebullPersonalAccounts — secondary login creds stamping", () => 
       "op@x.com#webull#individual-cash",
       "op@x.com#webull#individual-margin",
     ]);
+  });
+});
+
+describe("env-secret credentials (worker-level, preferred)", () => {
+  it("webullCredsEnvSuffix maps labels to secret suffixes", () => {
+    expect(webullCredsEnvSuffix("acct2")).toBe("ACCT2");
+    expect(webullCredsEnvSuffix("wife-s-account")).toBe("WIFE_S_ACCOUNT");
+    expect(webullCredsEnvSuffix("")).toBe("");
+  });
+
+  it("webullEnvCredsFor reads the labeled key pair from env, null when unset", () => {
+    const env = { WEBULL_APP_KEY_ACCT2: "k2", WEBULL_APP_SECRET_ACCT2: "s2" };
+    expect(webullEnvCredsFor(env, "ACCT2")).toEqual({ appKey: "k2", appSecret: "s2" });
+    expect(webullEnvCredsFor(env, "OTHER")).toBeNull();
+    expect(webullEnvCredsFor({ WEBULL_APP_KEY_ACCT2: "k2" }, "ACCT2")).toBeNull();
+  });
+
+  it("resolveWebullUserCreds prefers webull_creds_env and names the missing secret", async () => {
+    const env = { ...makeEnv(), WEBULL_APP_KEY_ACCT2: "k2", WEBULL_APP_SECRET_ACCT2: "s2" };
+    expect(await resolveWebullUserCreds(env, { webull_creds_env: "ACCT2" }))
+      .toEqual({ appKey: "k2", appSecret: "s2" });
+    await expect(resolveWebullUserCreds(makeEnv(), { webull_creds_env: "ACCT2" }))
+      .rejects.toThrow(/WEBULL_APP_KEY_ACCT2/);
+  });
+
+  it("sync with credsEnv stamps the suffix, clears wraps, and stamps notify_emails", async () => {
+    const env = { ...makeEnv(), WEBULL_APP_KEY_ACCT2: "k2", WEBULL_APP_SECRET_ACCT2: "s2" };
+    // First connect via inline creds (wraps), then re-connect via env secrets.
+    const credsWrap = {
+      key_wrap: await wrapSecret(env, "old_key"),
+      secret_wrap: await wrapSecret(env, "old_secret"),
+    };
+    await syncWebullPersonalAccounts(env, OWNER, [ACCOUNTS[0]], { credsWrap, loginLabel: "acct2" });
+    await syncWebullPersonalAccounts(env, OWNER, [ACCOUNTS[0]], {
+      credsEnv: "ACCT2",
+      loginLabel: "acct2",
+      notifyEmails: ["Partner@Example.com"],
+    });
+    const raw = JSON.parse(await env.BRIDGE_KV.get("bridge:user:op@x.com#webull#acct2-individual-cash"));
+    expect(raw.webull_creds_env).toBe("ACCT2");
+    expect(raw.webull_app_key_wrap).toBeNull();
+    expect(raw.notify_emails).toEqual(["partner@example.com"]);
+    expect(await resolveWebullUserCreds(env, raw)).toEqual({ appKey: "k2", appSecret: "s2" });
+  });
+
+  it("re-sync without opts preserves credsEnv and notify_emails", async () => {
+    const env = { ...makeEnv(), WEBULL_APP_KEY_ACCT2: "k2", WEBULL_APP_SECRET_ACCT2: "s2" };
+    await syncWebullPersonalAccounts(env, OWNER, [ACCOUNTS[0]], {
+      credsEnv: "ACCT2", loginLabel: "acct2", notifyEmails: ["partner@example.com"],
+    });
+    await syncWebullPersonalAccounts(env, OWNER, [ACCOUNTS[0]], { loginLabel: "acct2" });
+    const raw = JSON.parse(await env.BRIDGE_KV.get("bridge:user:op@x.com#webull#acct2-individual-cash"));
+    expect(raw.webull_creds_env).toBe("ACCT2");
+    expect(raw.notify_emails).toEqual(["partner@example.com"]);
+  });
+});
+
+describe("resolveNotifyRecipients — partner + admin routing", () => {
+  const envWithAdmin = { BRIDGE_ADMIN_NOTIFY_EMAIL: "timedtrading@gmail.com" };
+
+  it("null without notify_emails (legacy single-recipient behavior preserved)", () => {
+    expect(resolveNotifyRecipients(envWithAdmin, { user_id: "op@x.com#webull#roth-ira" })).toBeNull();
+    expect(resolveNotifyRecipients(envWithAdmin, null)).toBeNull();
+    expect(resolveNotifyRecipients(envWithAdmin, { notify_emails: [] })).toBeNull();
+  });
+
+  it("partner accounts notify partner + admin, deduped", () => {
+    expect(resolveNotifyRecipients(envWithAdmin, { notify_emails: ["Partner@Example.com"] }))
+      .toEqual(["partner@example.com", "timedtrading@gmail.com"]);
+    expect(resolveNotifyRecipients(envWithAdmin, { notify_emails: ["timedtrading@gmail.com"] }))
+      .toEqual(["timedtrading@gmail.com"]);
+  });
+
+  it("no admin configured → partner only; junk entries filtered", () => {
+    expect(resolveNotifyRecipients({}, { notify_emails: ["partner@example.com", "", "not-an-email"] }))
+      .toEqual(["partner@example.com"]);
   });
 });
 

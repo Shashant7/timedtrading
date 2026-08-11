@@ -117,11 +117,38 @@ export function buildOrderBody(user, order, { preview = false } = {}) {
 }
 
 // 2026-08-11 — Per-account App Key/Secret (second Webull login support).
-// A `#webull#` sub-user row may carry `webull_app_key_wrap` /
-// `webull_app_secret_wrap` (AES-GCM, same as token wraps). When present,
-// those creds sign that account's requests; otherwise the env-level
-// WEBULL_APP_KEY/SECRET (primary login) are used.
+// Preferred storage: worker-level secrets named after the login label
+// (`WEBULL_APP_KEY_<SUFFIX>` / `WEBULL_APP_SECRET_<SUFFIX>`, e.g. label
+// "acct2" → WEBULL_APP_KEY_ACCT2) — key rotation is a `wrangler secret
+// put`, no KV rewrite or re-connect. The sub-user row stores only the
+// suffix (`webull_creds_env`). Fallback: AES-GCM wraps on the row
+// (`webull_app_key_wrap` / `webull_app_secret_wrap`, same wrap as token
+// wraps) for keys passed inline at connect time. Rows with neither use
+// the env-level WEBULL_APP_KEY/SECRET (primary login).
+
+/** login label → env secret suffix ("acct2" → "ACCT2", "wife-s" → "WIFE_S"). */
+export function webullCredsEnvSuffix(label) {
+  return normalizeWebullLoginLabel(label).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+}
+
+/** Read a secondary login's key pair from worker secrets. Null when unset. */
+export function webullEnvCredsFor(env, suffix) {
+  const s = String(suffix || "").toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  if (!s) return null;
+  const appKey = env?.[`WEBULL_APP_KEY_${s}`];
+  const appSecret = env?.[`WEBULL_APP_SECRET_${s}`];
+  return (appKey && appSecret) ? { appKey, appSecret } : null;
+}
+
 export async function resolveWebullUserCreds(env, user) {
+  const suffix = user?.webull_creds_env;
+  if (suffix) {
+    const creds = webullEnvCredsFor(env, suffix);
+    if (!creds) {
+      throw new Error(`webull_env_creds_missing:WEBULL_APP_KEY_${webullCredsEnvSuffix(suffix) || String(suffix).toUpperCase()}`);
+    }
+    return creds;
+  }
   if (!user?.webull_app_key_wrap || !user?.webull_app_secret_wrap) return null;
   const appKey = await unwrapSecret(env, user.webull_app_key_wrap);
   const appSecret = await unwrapSecret(env, user.webull_app_secret_wrap);
@@ -567,14 +594,25 @@ export function normalizeWebullPositions(posResp) {
 /** Upsert one KV row per Webull account under an owner email.
  *  opts.loginLabel — set for a secondary Webull login: prefixes sub ids
  *  (`owner#webull#<label>-<slug>`) so slugs never collide across logins.
- *  opts.credsWrap — `{ key_wrap, secret_wrap }` (already wrapped) for a
- *  secondary login's own App Key/Secret; stamped on every synced row.
- *  When absent, existing wraps are preserved (primary login rows have
- *  none and keep falling back to env keys). */
+ *  opts.credsEnv — env secret suffix (e.g. "ACCT2"): the row signs with
+ *  worker secrets WEBULL_APP_KEY_<SUFFIX>/WEBULL_APP_SECRET_<SUFFIX>.
+ *  Preferred — rotation is a `wrangler secret put`, no re-connect.
+ *  opts.credsWrap — `{ key_wrap, secret_wrap }` (already wrapped) for
+ *  keys passed inline at connect time; stamped on every synced row.
+ *  credsEnv and credsWrap are mutually exclusive: setting one clears the
+ *  other. When both absent, existing creds fields are preserved (primary
+ *  login rows have none and keep falling back to env keys).
+ *  opts.notifyEmails — array of partner emails: account actions notify
+ *  these addresses in addition to BRIDGE_ADMIN_NOTIFY_EMAIL. Preserved
+ *  when absent. */
 export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts = {}) {
   const owner = String(ownerEmail).toLowerCase();
   const loginLabel = normalizeWebullLoginLabel(opts.loginLabel) || null;
-  const credsWrap = opts.credsWrap || null;
+  const credsEnv = opts.credsEnv ? webullCredsEnvSuffix(opts.credsEnv) || String(opts.credsEnv).toUpperCase() : null;
+  const credsWrap = credsEnv ? null : (opts.credsWrap || null);
+  const notifyEmails = Array.isArray(opts.notifyEmails)
+    ? opts.notifyEmails.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+    : null;
   const synced = [];
   for (const acct of accounts) {
     const subId = webullSubUserId(owner, acct, loginLabel);
@@ -593,8 +631,10 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts
       webull_account_number: acct.account_number || null,
       webull_auth_mode: webullAuthMode(env),
       webull_login_label: loginLabel || existing.webull_login_label || null,
-      webull_app_key_wrap: credsWrap ? credsWrap.key_wrap : (existing.webull_app_key_wrap || null),
-      webull_app_secret_wrap: credsWrap ? credsWrap.secret_wrap : (existing.webull_app_secret_wrap || null),
+      webull_creds_env: credsEnv || (credsWrap ? null : (existing.webull_creds_env || null)),
+      webull_app_key_wrap: credsWrap ? credsWrap.key_wrap : (credsEnv ? null : (existing.webull_app_key_wrap || null)),
+      webull_app_secret_wrap: credsWrap ? credsWrap.secret_wrap : (credsEnv ? null : (existing.webull_app_secret_wrap || null)),
+      notify_emails: notifyEmails ?? (existing.notify_emails || null),
       broker_integration_enabled: existing.broker_integration_enabled ?? false,
       daily_order_count: existing.daily_order_count || 0,
       daily_order_count_date: existing.daily_order_count_date || new Date().toISOString().slice(0, 10),
@@ -613,7 +653,9 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts
       webull_account_type: acct.account_type,
       webull_account_class: acct.account_class,
       webull_login_label: row.webull_login_label || null,
-      has_own_app_creds: !!(row.webull_app_key_wrap && row.webull_app_secret_wrap),
+      webull_creds_env: row.webull_creds_env || null,
+      has_own_app_creds: !!(row.webull_creds_env || (row.webull_app_key_wrap && row.webull_app_secret_wrap)),
+      notify_emails: row.notify_emails || null,
       broker_integration_enabled: row.broker_integration_enabled,
     });
   }
