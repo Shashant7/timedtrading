@@ -2165,6 +2165,7 @@ function _redactUser(user) {
   const {
     rh_token_wrap, rh_refresh_wrap,
     webull_token_wrap, webull_refresh_wrap,
+    webull_app_key_wrap, webull_app_secret_wrap,
     ...safe
   } = user;
   return {
@@ -2173,6 +2174,7 @@ function _redactUser(user) {
     has_rh_refresh: !!rh_refresh_wrap,
     has_webull_token: !!webull_token_wrap,
     has_webull_refresh: !!webull_refresh_wrap,
+    has_webull_app_creds: !!(webull_app_key_wrap && webull_app_secret_wrap),
   };
 }
 function _redactUserForList(user) {
@@ -2188,6 +2190,7 @@ function _redactUserForList(user) {
     webull_account_type: user.webull_account_type || null,
     webull_account_class: user.webull_account_class || null,
     webull_auth_mode: user.webull_auth_mode || null,
+    webull_login_label: user.webull_login_label || null,
     owner_email: user.owner_email || null,
     ibkr_account_id: user.ibkr_account_id || null,
     connected_at: user.connected_at || null,

@@ -26,6 +26,19 @@
 - [x] **Feed cron silent stop + keepalive (2026-08-07).** CF Cron Triggers stopped dispatching ~14:53 ET (heartbeat/scoring/REST feed frozen; `/feed/run-once` still worked). Redeployed tt-feed/engine/monolith; added `feed-keepalive.yml` + watchdog self-heal. Branch: `cursor/feed-cron-selfheal-df0c`.
 
 
+- [ ] **Webull second login in broker mirror (2026-08-11).** Scenario B:
+      a second Webull login (own App Key/Secret) mirrored alongside the
+      primary. Plan: per-account encrypted App Key/Secret wraps on the
+      `#webull#` sub-user rows (same AES-GCM wrap as RH/Webull tokens);
+      `signedFetch` accepts a creds override resolved from the user record
+      (falls back to env `WEBULL_APP_KEY/SECRET` for the primary login);
+      `POST /bridge/webull/oauth/start` accepts `app_key`+`app_secret`+
+      `login_label` in personal mode — validates via account list, wraps,
+      syncs sub-users as `owner#webull#<label>-<slug>` under the SAME owner
+      email so fan-out/enable/status work unchanged. Waiting on the operator
+      to generate the second login's Personal API key pair.
+      Branch: `cursor/webull-second-login-dbdd`.
+
 - [ ] **Context-first scoring (2026-08-05/06).** Plan:
       [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).
       Phase 0 (ticker context ledger + optimal window) SHIPPED + backfilled
