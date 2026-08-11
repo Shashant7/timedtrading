@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-08-11T07:34:39.016395+00:00",
+  "generated_at_utc": "2026-08-11T19:20:55.223055+00:00",
   "window": {
     "start_date": "2025-07-31",
     "end_date": "2025-08-01",
@@ -33,14 +33,16 @@
       ],
       "summary": {
         "trade_count_total": 1,
-        "trade_count_closed": 0,
-        "trade_count_open": 1,
+        "trade_count_closed": 1,
+        "trade_count_open": 0,
         "wins": 0,
-        "losses": 0,
+        "losses": 1,
         "flats": 0,
         "win_rate_closed": 0.0,
-        "realized_pnl": 0.0,
-        "exit_class_counts": {},
+        "realized_pnl": -14.2934,
+        "exit_class_counts": {
+          "loss_protect": 1
+        },
         "ticker_counts": {
           "CSX": 1
         }
@@ -67,14 +69,16 @@
       ],
       "summary": {
         "trade_count_total": 1,
-        "trade_count_closed": 0,
-        "trade_count_open": 1,
+        "trade_count_closed": 1,
+        "trade_count_open": 0,
         "wins": 0,
-        "losses": 0,
+        "losses": 1,
         "flats": 0,
         "win_rate_closed": 0.0,
-        "realized_pnl": 0.0,
-        "exit_class_counts": {},
+        "realized_pnl": -14.2934,
+        "exit_class_counts": {
+          "loss_protect": 1
+        },
         "ticker_counts": {
           "CSX": 1
         }
