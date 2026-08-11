@@ -9,7 +9,7 @@ import {
 } from "./bridge-webull-api.js";
 import { wrapSecret } from "./bridge-crypto.js";
 import { resolveNotifyRecipients } from "./bridge-notifications.js";
-import { resolveBridgeAccounts } from "./bridge-storage.js";
+import { listMirrorParticipants, resolveBridgeAccounts } from "./bridge-storage.js";
 
 // In-memory BRIDGE_KV stub (get/put/list) shared by storage helpers.
 function makeKv(rows = []) {
@@ -206,6 +206,32 @@ describe("resolveNotifyRecipients — partner + admin routing", () => {
   it("no admin configured → partner only; junk entries filtered", () => {
     expect(resolveNotifyRecipients({}, { notify_emails: ["partner@example.com", "", "not-an-email"] }))
       .toEqual(["partner@example.com"]);
+  });
+});
+
+describe("listMirrorParticipants — self-service cross-owner dispatch set", () => {
+  const rows = [
+    // Admin owner's own accounts — never participants (excluded by owner).
+    { user_id: "op@x.com#webull#roth-ira", owner_email: "op@x.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true },
+    // Self-service user, enabled + opted in.
+    { user_id: "partner@y.com#webull#individual-cash", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true },
+    // Self-service user, connected but mirror disabled.
+    { user_id: "partner@y.com#webull#individual-margin", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: false, mirror_participant: true },
+    // Enabled but never opted in via the self-service flow (operator-managed).
+    { user_id: "other@z.com#webull#individual-cash", owner_email: "other@z.com", broker: "webull", status: "connected", broker_integration_enabled: true },
+    // Opted in but disconnected.
+    { user_id: "gone@z.com#webull#individual-cash", owner_email: "gone@z.com", broker: "webull", status: "disconnected", broker_integration_enabled: true, mirror_participant: true },
+  ];
+
+  it("returns only connected + enabled + opted-in rows of OTHER owners", async () => {
+    const env = { BRIDGE_KV: makeKv(rows) };
+    const out = await listMirrorParticipants(env, "op@x.com");
+    expect(out.map((u) => u.user_id)).toEqual(["partner@y.com#webull#individual-cash"]);
+  });
+
+  it("empty when nobody opted in (legacy dispatch path preserved)", async () => {
+    const env = { BRIDGE_KV: makeKv(rows.filter((r) => !r.mirror_participant)) };
+    expect(await listMirrorParticipants(env, "op@x.com")).toEqual([]);
   });
 });
 

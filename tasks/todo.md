@@ -41,9 +41,20 @@
       = `wrangler secret put`, no re-connect; inline wrap path kept as
       fallback), and `partner_email` stamps `notify_emails` so drift +
       daily digests for those accounts go to the partner AND
-      `BRIDGE_ADMIN_NOTIFY_EMAIL` (timedtrading@gmail.com). Waiting on the
-      partner's Personal API key pair. Branch:
-      `cursor/webull-second-login-dbdd`.
+      `BRIDGE_ADMIN_NOTIFY_EMAIL` (timedtrading@gmail.com). Round 3
+      (self-service redesign, per operator): app users paste their own
+      Webull keys. Plan: (1) bridge — cross-owner mirror participants
+      (rows with `mirror_participant=true` + enabled join the order
+      dispatch alongside the admin owner; label guard relaxed for a
+      fresh owner's first connect), (2) worker — `users.
+      broker_connections_enabled` flag (runtime ALTER), admin toggle
+      endpoint + flag in `/timed/admin/users` + `/timed/me`, user-scoped
+      `/timed/broker/*` proxy endpoints (accounts / webull connect +
+      disconnect / enable / caps — all owner-scoped to the session
+      email), (3) frontend — Clients page checkbox, avatar-menu "Broker
+      Connections" item gated on the flag, new `broker-connections.html`
+      self-service page (paste keys → view accounts → per-account mirror
+      toggle + caps). Branch: `cursor/webull-second-login-dbdd`.
 
 - [ ] **Context-first scoring (2026-08-05/06).** Plan:
       [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).
