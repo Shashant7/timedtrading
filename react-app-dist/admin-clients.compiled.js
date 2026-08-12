@@ -776,7 +776,10 @@ function AdminClientsPage({
       className: "accent-[#38bdf8] w-3 h-3",
       checked: Number(u.broker_connections_enabled) === 1,
       disabled: actionLoading === u.email,
-      onChange: e => setBrokerConnections(u.email, e.target.checked)
+      onChange: e => {
+        if (!e.target.checked && !confirm(`Disable Broker Connections for ${u.email}? This also pauses mirroring on all of their connected broker accounts.`)) return;
+        setBrokerConnections(u.email, e.target.checked);
+      }
     }), "Broker"), u.tier !== "pro" && React.createElement("button", {
       onClick: () => setTier(u.email, "pro"),
       disabled: actionLoading === u.email,
@@ -1125,6 +1128,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1786493257394:706804599
+// cache-bust:1786494415864:559358149
 
-// cache-bust:1786493257394:706804599
+// cache-bust:1786494415864:559358149

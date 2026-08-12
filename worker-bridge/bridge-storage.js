@@ -182,6 +182,36 @@ export async function listMirrorParticipants(env, excludeOwner = "") {
   });
 }
 
+/**
+ * 2026-08-12 — Owner-level kill switch. Disables mirroring on EVERY
+ * account row under one owner email (broker_integration_enabled=false,
+ * mirror_participant=false) without touching credentials or connection
+ * status, so a re-enable is a per-account toggle away. Used by the
+ * self-service "Pause all" button and by the admin un-provision cascade.
+ */
+export async function pauseOwnerAccounts(env, ownerEmail) {
+  const owner = String(ownerEmail || "").toLowerCase().trim();
+  if (!owner) return { paused: 0, accounts: [] };
+  const all = await listConnectedUsers(env, 200);
+  const targets = all.filter((u) => {
+    const uid = String(u?.user_id || "").toLowerCase();
+    const rowOwner = String(u?.owner_email || uid.split("#")[0] || "").toLowerCase();
+    return rowOwner === owner || uid === owner || uid.startsWith(`${owner}#`);
+  });
+  const paused = [];
+  for (const t of targets) {
+    if (t.broker_integration_enabled !== true && t.mirror_participant !== true) continue;
+    await writeUser(env, t.user_id, {
+      ...t,
+      broker_integration_enabled: false,
+      mirror_participant: false,
+      enable_changed_at: Date.now(),
+    });
+    paused.push(t.user_id);
+  }
+  return { paused: paused.length, accounts: paused };
+}
+
 export async function getKillSwitch(env) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return "off";

@@ -5090,3 +5090,14 @@ records on armed_ts, INSERT OR IGNORE); (4) hour-keyed cron slices leave
 permanent holes when peak-RTH invocations run out of budget — use a KV
 cursor so failures lag instead of skip. The shadow report card surfaced all
 of this in one session, which is exactly why shadow-first exists.
+### Lesson (2026-08-12) — check merge state before pushing follow-up rounds to a PR branch
+The operator asked for a hardening round (uniqueness / kill switches /
+position sync) on the Broker Connections PR. The PR had merged minutes
+earlier (squash), so the new commits pushed to the old branch went nowhere
+— code was deployed live but absent from main, and the merged PR's
+description was edited to claim work it didn't contain. Before pushing a
+new round to an existing PR branch, run `gh pr view <n> --json
+state,mergedAt,headRefOid`; if merged, cherry-pick the new commits onto a
+fresh branch off origin/main and open a new PR. Deploys from an unmerged
+branch also mean main no longer matches production until the follow-up PR
+lands — flag that in the PR body.
