@@ -39704,6 +39704,11 @@ async function sweepInvestorDcaSideEffects(env, { windowMs = 30 * 60 * 1000 } = 
         hours: Math.max(2, Math.ceil(windowMs / 3600000)),
         max_ops: 6,
         source: "dca_sweep",
+        // Fresh-lot fidelity: buys the model executed within this window
+        // mirror the book faithfully — thesis gates (stage/score/zone)
+        // skipped, price gates kept. Without it NVDA 8/11 would have been
+        // vetoed by zone_exhausted even 5 minutes after execution.
+        trust_fresh_lot_ms: windowMs,
       });
       catchup = {
         planned: out.planned || 0,
@@ -101701,6 +101706,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             hours: 72,
             max_ops: 8,
             source: "catchup_auto_rth",
+            // 2026-08-12 — Fresh-lot fidelity (RTH-elapsed): a DCA executed
+            // late in the session whose mirror died (NVDA 8/11 at 15:45,
+            // only 15 RTH-min before close) is still a faithful mirror at
+            // the next morning's pass (~45 RTH-min old at 10:00 ET). Thesis
+            // gates skipped inside the window; drift/price gates kept.
+            trust_fresh_lot_ms: 60 * 60 * 1000,
           });
           const okN = (out.results || []).filter((r) => r.ok).length;
           const failN = (out.results || []).filter((r) => !r.ok).length;

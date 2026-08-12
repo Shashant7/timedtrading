@@ -69,6 +69,40 @@ describe("evaluateCatchupThesisGate — buys", () => {
     expect(g.reason).toBe("zone_exhausted");
   });
 
+  // 2026-08-12 — Fresh-lot fidelity (NVDA 8/11 DCA): the model executed the
+  // buy minutes ago; the mirror follows the book. Thesis gates skipped,
+  // price gates kept.
+  it("trustModelExecution bypasses stage/score/zone thesis gates", () => {
+    const g = evaluateCatchupThesisGate({
+      ...baseBuy,
+      stage: "core_hold",
+      score: 22,
+      accumZone: { zoneType: "exhausted_rally", exhaustionWarnings: ["vol_spike"] },
+      trustModelExecution: true,
+    });
+    expect(g.allow).toBe(true);
+  });
+
+  it("trustModelExecution keeps the price-drift gate (no runaway chase)", () => {
+    const g = evaluateCatchupThesisGate({
+      ...baseBuy,
+      livePrice: 190, // ~7.3% above lot, default cap 5%
+      trustModelExecution: true,
+    });
+    expect(g.allow).toBe(false);
+    expect(g.reason).toBe("price_drift_above");
+  });
+
+  it("trustModelExecution keeps the no-live-price gate", () => {
+    const g = evaluateCatchupThesisGate({
+      ...baseBuy,
+      livePrice: null,
+      trustModelExecution: true,
+    });
+    expect(g.allow).toBe(false);
+    expect(g.reason).toBe("no_live_price");
+  });
+
   it("force=true bypasses every gate", () => {
     const g = evaluateCatchupThesisGate({
       ...baseBuy,

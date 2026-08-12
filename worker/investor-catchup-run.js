@@ -124,6 +124,12 @@ export function planInvestorCatchupOps({
   nowMs = Date.now(),
   ttlRthMs = CATCHUP_SIGNAL_TTL_RTH_MS,
   isRthDay = undefined,
+  // 2026-08-12 — Fresh-lot fidelity window in RTH-elapsed ms (same clock as
+  // the 4h signal TTL). Buy lots younger than this mirror the model book
+  // faithfully: thesis gates (stage/score/zone) are skipped, price gates
+  // kept. RTH-based so a 15:45 ET DCA whose mirror died (NVDA 8/11) is
+  // still trusted at the next morning's catch-up pass. 0 = off.
+  trustFreshLotMs = 0,
 } = {}) {
   const mirroredOkIds = new Set(
     (ring || [])
@@ -196,6 +202,9 @@ export function planInvestorCatchupOps({
 
     const scoreRow = scores[ticker] || {};
     const livePrice = livePrices[ticker] ?? null;
+    const lotRthAgeMs = Number.isFinite(Number(freshness.rth_elapsed_ms))
+      ? Number(freshness.rth_elapsed_ms)
+      : Infinity;
     const gate = evaluateCatchupThesisGate({
       kind,
       lotPrice: Number(lot.price) || null,
@@ -206,6 +215,7 @@ export function planInvestorCatchupOps({
       maxBuyDriftPct,
       minScoreBuy,
       force,
+      trustModelExecution: isBuy && trustFreshLotMs > 0 && lotRthAgeMs >= 0 && lotRthAgeMs <= trustFreshLotMs,
     });
 
     const op = {
@@ -271,6 +281,9 @@ export async function runInvestorCatchup(env, opts = {}) {
   const ttlRthMs = Number.isFinite(Number(opts.ttl_rth_ms)) && Number(opts.ttl_rth_ms) > 0
     ? Number(opts.ttl_rth_ms)
     : CATCHUP_SIGNAL_TTL_RTH_MS;
+  const trustFreshLotMs = Number.isFinite(Number(opts.trust_fresh_lot_ms)) && Number(opts.trust_fresh_lot_ms) > 0
+    ? Number(opts.trust_fresh_lot_ms)
+    : 0;
 
   const sinceMs = Date.now() - hours * 3600000;
   const { results: lots } = await env.DB.prepare(
@@ -308,6 +321,7 @@ export async function runInvestorCatchup(env, opts = {}) {
     skipBuys,
     nowMs: Date.now(),
     ttlRthMs,
+    trustFreshLotMs,
   });
 
   let planned = plannedFull.planned;

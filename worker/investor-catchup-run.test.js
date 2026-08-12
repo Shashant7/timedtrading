@@ -117,6 +117,61 @@ describe("planInvestorCatchupOps", () => {
     expect(out.planned).toHaveLength(1);
   });
 
+  // 2026-08-12 — Fresh-lot fidelity (DCA sweep, NVDA 8/11): a buy the model
+  // executed minutes ago mirrors the book even when the live zone snapshot
+  // says exhausted; a stale lot outside the window still gets the veto.
+  it("trustFreshLotMs bypasses zone_exhausted for a minutes-old DCA lot", () => {
+    // Lot at Thu 10:20 ET, now Thu 10:30 ET — 10 minutes old.
+    const freshLot = { ...baseLot, ts: Date.UTC(2026, 6, 30, 14, 20, 0) };
+    const scores = {
+      CRDO: {
+        stage: "core_hold",
+        score: 70,
+        accumZone: { zoneType: "exhausted_rally", exhaustionWarnings: ["vol_spike"] },
+      },
+    };
+    const vetoed = planInvestorCatchupOps({
+      lots: [freshLot],
+      ring: [],
+      scores,
+      livePrices: { CRDO: 178 },
+      nowMs: NOW_RTH,
+    });
+    expect(vetoed.planned).toHaveLength(0);
+    expect(vetoed.skipped_gates[0].skip_reason).toBe("zone_exhausted");
+
+    const trusted = planInvestorCatchupOps({
+      lots: [freshLot],
+      ring: [],
+      scores,
+      livePrices: { CRDO: 178 },
+      nowMs: NOW_RTH,
+      trustFreshLotMs: 30 * 60 * 1000,
+    });
+    expect(trusted.planned).toHaveLength(1);
+    expect(trusted.planned[0].kind).toBe("dca");
+  });
+
+  it("trustFreshLotMs does not rescue a lot older than the window", () => {
+    // baseLot is from the prior afternoon — far outside a 30-min window.
+    const out = planInvestorCatchupOps({
+      lots: [baseLot],
+      ring: [],
+      scores: {
+        CRDO: {
+          stage: "core_hold",
+          score: 70,
+          accumZone: { zoneType: "exhausted_rally", exhaustionWarnings: ["vol_spike"] },
+        },
+      },
+      livePrices: { CRDO: 178 },
+      nowMs: NOW_RTH,
+      trustFreshLotMs: 30 * 60 * 1000,
+    });
+    expect(out.planned).toHaveLength(0);
+    expect(out.skipped_gates[0].skip_reason).toBe("zone_exhausted");
+  });
+
   it("gates buys that chased above max drift", () => {
     const out = planInvestorCatchupOps({
       lots: [baseLot],
