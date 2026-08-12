@@ -5109,6 +5109,42 @@ had executed minutes earlier — thesis gates exist for stale chases, so
 `trust_fresh_lot_ms` (RTH-elapsed clock, 60 min on the hourly auto pass)
 skips stage/score/zone for fresh model-executed buys while keeping the
 price-drift gate.
+### Lesson (2026-08-12) — a single delayed retry shot is itself a single point of failure
+Operator on the 15:50 ET sweep: "Waiting 5 mins sounds delayed and could
+also fail" — correct on both counts, the one-shot retry can die exactly the
+way the 15:45 DCA invocation did. Uplevel pattern: (1) an immediate
+verification pass in the SAME invocation right after the dispatched route
+returns (heals soft failures with zero delay), and (2) a per-minute retry
+window on the */1 cron (15:46–16:15 ET) that keeps re-verifying until one
+pass comes back fully clean. Two guards make repetition safe:
+`runDcaSweepGuarded` takes a short KV lock (two concurrent sweeps would
+both see "no bell row" and double-fire channels) and writes a daily
+clean-marker only when nothing was healed AND the mirror state was actually
+verified (`mirror_checked`), so the window normally costs one cheap pass.
+CRITICAL trap found while wiring it: the immediate pass must NOT run the
+mirror leg — the DCA route's own mirror fires via ctx.waitUntil and may
+still be in flight, and `runInvestorCatchup` sets `retry_nonce` which busts
+the bridge's order dedupe, so an immediate mirror retry can place a
+DUPLICATE order. Mirror verification belongs to the */1 ticks (≥1 min
+later, after the ring reflects the placed order) and only while RTH is
+open (fractionals reject after close; the morning catch-up trust window
+covers the rest).
+
+### Lesson (2026-08-12) — advisory notifications must be removed at the source, not filtered at read time
+Operator: emails/notifications should carry executed actions only (buy,
+sell, stop/target/invalidation updates) — "Entered Queue" and "Exit
+Recommended" advisories are noise. Two traps in this cleanup: (1) the bell
+panel ALREADY filtered advisories via `isActionableNotification`, but every
+`d1InsertNotification` fires a WEB PUSH before that filter runs — so a
+"filtered" advisory still buzzed the phone. Never insert advisory bell
+rows and rely on the read-time filter. (2) `shouldSendDiscordAlert` has an
+early `DISCORD_ALERT_MODE === "all" → true` bypass, and vars set in the CF
+dashboard survive deploys (`keep_vars`) — a per-type `return false` placed
+below the bypass can be silently re-enabled. Hard-offs go ABOVE the mode
+check. The advisory itself stays visible on ambient surfaces (trade-card
+banner via KV `timed:kanban:exit-advisory`, activity feed, Investor board
+Queue lane) — the cleanup removes paging channels, not the signal.
+
 ### Lesson (2026-08-12) — check merge state before pushing follow-up rounds to a PR branch
 The operator asked for a hardening round (uniqueness / kill switches /
 position sync) on the Broker Connections PR. The PR had merged minutes

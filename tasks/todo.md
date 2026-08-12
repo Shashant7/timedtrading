@@ -21,6 +21,19 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **DCA sweep retry uplevel + notification cleanup (2026-08-12).**
+      Operator follow-ups to the NVDA sweep: (1) the single 15:50 shot was
+      slow and a single point of failure — now an immediate post-dispatch
+      pass (mirror leg off: double-order risk while the route's own mirror
+      waitUntil is in flight) plus per-minute retries 15:46–16:15 ET via
+      `runDcaSweepGuarded` (KV lock + daily clean-marker; mirror leg only
+      while RTH open). (2) Notifications/emails focus on executed actions
+      only: removed "Entered Queue" (queue digest email, Discord, bell/web
+      push) and "Exit Recommended" advisories (`KANBAN_EXIT` Discord
+      hard-off above the mode=all bypass, kanban exit bell insert,
+      `TRADE_EXIT_SIGNAL` email). Actual buys/sells/stop-target updates
+      unchanged. Deployed both envs. PR #1226,
+      branch `cursor/notif-cleanup-retry-uplevel-dbdd`.
 - [x] **NVDA 8/11 DCA silent side-effect loss (2026-08-12).** The 15:45 ET
       DCA invocation was hard-killed after the lot INSERT + position bump:
       no ledger row, no decision record, no bell/Discord/email, no broker
