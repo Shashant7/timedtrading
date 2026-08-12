@@ -225,6 +225,36 @@ function AdminClientsPage({
       setActionLoading(null);
     }
   };
+  const setBrokerConnections = async (email, enabled) => {
+    setActionLoading(email);
+    setMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/timed/admin/users/${encodeURIComponent(email)}/broker-connections?enabled=${enabled ? "true" : "false"}`, {
+        method: "POST",
+        credentials: "include"
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setMessage({
+          type: "success",
+          text: `${email}: Broker Connections ${enabled ? "enabled" : "disabled"}`
+        });
+        fetchUsers();
+      } else {
+        setMessage({
+          type: "error",
+          text: json.error || "Failed"
+        });
+      }
+    } catch (e) {
+      setMessage({
+        type: "error",
+        text: String(e.message || e)
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
   const adminAction = async (endpoint, email, actionLabel) => {
     setActionLoading(email);
     setMessage(null);
@@ -738,7 +768,16 @@ function AdminClientsPage({
       className: "px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/[0.15] border border-red-500/[0.25] text-red-400"
     }, "BLOCKED"), u.status === "removed" && React.createElement("span", {
       className: "px-1.5 py-0.5 rounded text-[9px] font-bold bg-gray-500/[0.15] border border-gray-500/[0.25] text-gray-400"
-    }, "REMOVED"), u.tier !== "pro" && React.createElement("button", {
+    }, "REMOVED"), React.createElement("label", {
+      title: "Provision Broker Connections \u2014 adds the page to this client's account menu",
+      className: `px-2 py-0.5 rounded text-[10px] font-semibold border transition-all cursor-pointer flex items-center gap-1 ${Number(u.broker_connections_enabled) === 1 ? "bg-[#38bdf8]/[0.15] border-[#38bdf8]/[0.30] text-[#38bdf8]" : "bg-white/[0.03] border-white/[0.08] text-[#6b7280] hover:text-[#9ca3af]"}`
+    }, React.createElement("input", {
+      type: "checkbox",
+      className: "accent-[#38bdf8] w-3 h-3",
+      checked: Number(u.broker_connections_enabled) === 1,
+      disabled: actionLoading === u.email,
+      onChange: e => setBrokerConnections(u.email, e.target.checked)
+    }), "Broker"), u.tier !== "pro" && React.createElement("button", {
       onClick: () => setTier(u.email, "pro"),
       disabled: actionLoading === u.email,
       className: "px-2 py-0.5 rounded text-[10px] font-semibold bg-[#38F2A1]/[0.10] border border-[#38F2A1]/[0.20] text-[#38F2A1] hover:bg-[#38F2A1]/[0.20] transition-all disabled:opacity-50"
@@ -1086,6 +1125,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1785897383509:759089875
+// cache-bust:1786493257394:706804599
 
-// cache-bust:1785897383509:759089875
+// cache-bust:1786493257394:706804599
