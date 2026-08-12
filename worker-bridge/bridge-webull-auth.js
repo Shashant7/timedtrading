@@ -3,7 +3,7 @@
 // 2026-06-15 — Webull Connect OAuth start/callback/disconnect.
 
 import { wrapSecret, randomState } from "./bridge-crypto.js";
-import { recordOauthState, consumeOauthState, listConnectedUsers, readUser, writeUser } from "./bridge-storage.js";
+import { recordOauthState, consumeOauthState, readUser, writeUser } from "./bridge-storage.js";
 import {
   buildWebullAuthorizeUrl,
   finalizeWebullTokens,
@@ -14,6 +14,7 @@ import {
   webullCredsEnvSuffix,
   webullEnvCredsFor,
   webullGetAccountList,
+  webullSubUserId,
 } from "./bridge-webull-api.js";
 import {
   isBridgeMockMode,
@@ -55,24 +56,6 @@ export async function handleWebullOauthStart(env, req) {
   }
   if ((appKey || loginLabel) && webullAuthMode(env) !== "personal") {
     return { ok: false, error: "per_login_creds_require_personal_mode", status: 400 };
-  }
-  // Label is only needed to avoid slug collisions when this owner ALREADY
-  // has unlabeled Webull sub-accounts (the admin adding a second login
-  // under the same owner email). A fresh owner's first self-service
-  // connect (Broker Connections page) may omit it.
-  if (appKey && !loginLabel) {
-    const all = await listConnectedUsers(env, 200);
-    const existingUnlabeled = all.some((u) =>
-      String(u?.user_id || "").toLowerCase().startsWith(`${userId}#webull#`)
-      && !u?.webull_login_label);
-    if (existingUnlabeled) {
-      return {
-        ok: false,
-        error: "login_label_required_for_second_login",
-        status: 400,
-        note: "This owner already has Webull accounts connected without a label. Pass login_label (e.g. 'acct2') so the new login's sub-accounts do not collide with the existing slugs.",
-      };
-    }
   }
   const bodyCreds = appKey ? { appKey, appSecret } : null;
   const credsEnvSuffix = (!bodyCreds && loginLabel) ? webullCredsEnvSuffix(loginLabel) : null;
@@ -128,6 +111,24 @@ export async function handleWebullOauthStart(env, req) {
             ? "Check the provided app_key/app_secret and WEBULL_ENVIRONMENT (prod vs uat)."
             : "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat).")),
       };
+    }
+    // Unlabeled keys are fine for a fresh owner's first connect and for
+    // key rotation of the SAME login (account ids match the stored rows).
+    // A genuinely different second login under this owner whose slugs
+    // would collide with existing rows still requires a login_label.
+    if (bodyCreds && !loginLabel) {
+      for (const acct of accounts) {
+        const subId = webullSubUserId(userId, acct);
+        const existing = await readUser(env, subId);
+        if (existing?.webull_account_id && existing.webull_account_id !== acct.account_id) {
+          return {
+            ok: false,
+            error: "login_label_required_for_second_login",
+            status: 400,
+            note: "A different Webull login is already connected under this owner with the same account slugs. Pass login_label (e.g. 'acct2') so the new login's sub-accounts do not collide.",
+          };
+        }
+      }
     }
     const credsWrap = bodyCreds
       ? {
