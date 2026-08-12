@@ -82480,6 +82480,7 @@ export default {
             max_ops: body?.max_ops,
             skip_buys: body?.skip_buys === true,
             source: body?.source || "catchup_investor",
+            trust_fresh_lot_ms: body?.trust_fresh_lot_ms,
           });
           return sendJSON({
             ...out,
