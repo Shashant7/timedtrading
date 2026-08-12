@@ -131,7 +131,7 @@ async function _postOptionOrder(env, user, order, { preview }) {
 
   const body = buildWebullOptionOrderPayload(user, order, { preview });
   const path = preview ? WEBULL_API_PATHS.orderPreview : WEBULL_API_PATHS.orderPlace;
-  return webullPostOptionsOrder(env, { path, body, accessToken: tok.access_token });
+  return webullPostOptionsOrder(env, { path, body, accessToken: tok.access_token, user });
 }
 
 export async function reviewOptionsOrder(env, user, order) {

@@ -367,6 +367,82 @@ curl -s -X POST "https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oau
 
 Personal mode returns `personal: true` and `webull_account_id` immediately (no browser redirect).
 
+### Second Webull login (own App Key/Secret pair) — 2026-08-11
+
+A **different Webull login** (e.g. a partner's account) cannot reuse the
+env-level keys — each login generates its own Personal API key pair (log
+into that Webull account → [Open API portal](https://www.webull.com/open-api)
+→ API Keys Management → Generate Key, 2FA unchecked).
+
+**Preferred: worker-level secrets named after the login label.** Pick a
+label (e.g. `acct2`), store the pair as secrets, then connect:
+
+```bash
+cd worker-bridge
+../node_modules/.bin/wrangler secret put WEBULL_APP_KEY_ACCT2      # paste key
+../node_modules/.bin/wrangler secret put WEBULL_APP_SECRET_ACCT2   # paste secret
+
+curl -s -X POST "https://tt-broker-bridge.shashant.workers.dev/bridge/webull/oauth/start" \
+  -H "Authorization: Bearer $BROKER_BRIDGE_OPERATOR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"shashant@gmail.com","login_label":"acct2","partner_email":"partner@example.com"}' | python3 -m json.tool
+```
+
+The secret suffix is derived from `login_label` (kebab → SCREAMING_SNAKE:
+`acct2` → `WEBULL_APP_KEY_ACCT2`). **Key rotation = `wrangler secret put`
+with the new value** — no re-connect, no KV changes. (Fallback: pass
+`app_key`/`app_secret` inline in the body instead; they get AES-GCM
+wrapped per account row.)
+
+What happens: the pair is validated against the live account list (typo →
+502, nothing persisted) and that login's accounts sync as
+`owner#webull#<label>-<slug>` (e.g.
+`shashant@gmail.com#webull#acct2-individual-cash`) under the **same owner
+email** — so fan-out, `/bridge/enable`, status, and reconciliation all work
+unchanged. Per-account creds sign that account's requests; rows without
+them (the primary login) keep using env `WEBULL_APP_KEY/SECRET`.
+
+**Partner notifications:** `partner_email` stamps `notify_emails` on each
+synced row. Drift/mirror-sync digests and the daily owner digest for those
+accounts then go to the partner AND the admin address
+(`BRIDGE_ADMIN_NOTIFY_EMAIL` = timedtrading@gmail.com, in wrangler.toml).
+Accounts without `notify_emails` keep the legacy single-recipient
+behavior. Critical drift still hits the operator Discord as before.
+
+### Self-service Broker Connections (app users) — 2026-08-11
+
+Preferred over the operator flow above when the second account belongs to
+an app user. Flow:
+
+1. **Provision**: admin ticks the "Broker" checkbox on the client's row in
+   `admin-clients.html` (→ `POST /timed/admin/users/:email/broker-connections?enabled=true`,
+   sets `users.broker_connections_enabled`).
+2. **User connects**: a "Broker Connections" item appears in the account
+   avatar menu → `broker-connections.html`. The user pastes their own
+   Webull App Key/Secret (validated against Webull before storage, then
+   AES-GCM wrapped on their rows — owner = their sign-in email, so no
+   `login_label` needed; the label guard now only fires on a real slug
+   collision, so unlabeled key ROTATION works).
+3. **User enables mirroring per account**: the toggle calls
+   `POST /timed/broker/account/enable`, which stamps
+   `mirror_participant: true` bridge-side. `handleOrderWebhook` includes
+   every connected+enabled+`mirror_participant` account of OTHER owners in
+   each model-signal dispatch — independent of `BROKER_FANOUT_ENABLED`,
+   which still gates only the admin owner's own multi-account expansion.
+4. Caps via `POST /timed/broker/account/caps`; disconnect via
+   `POST /timed/broker/webull/disconnect` (all session-authed, scoped to
+   the signed-in user's own `email#...` namespace, gated on the
+   provisioning flag; admins bypass the flag).
+
+Notifications for self-service accounts go to the user (their sign-in
+email is stamped as `partner_email` at connect) + the admin inbox.
+
+- `login_label` is **required** for a second login (prevents slug
+  collisions — both logins can have an INDIVIDUAL_CASH account).
+- New accounts arrive **disabled**; enable per account via `/bridge/enable`.
+- Keys never leave the bridge — operator endpoints expose only
+  `has_webull_app_creds` / `webull_creds_env` / `notify_emails`.
+
 ---
 
 ## Webull Connect (partner OAuth — BYOB path)

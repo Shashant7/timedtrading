@@ -1714,6 +1714,47 @@
               ),
               "My Account",
             ),
+            // 2026-08-11 — Broker Connections (self-service broker mirror).
+            // Visible only when the admin provisioned the feature for this
+            // client (users.broker_connections_enabled via Clients page)
+            // or the user is an admin.
+            (user.broker_connections_enabled === true || user.role === "admin" || user.tier === "admin") &&
+            React.createElement(
+              "a",
+              {
+                href: "/broker-connections.html",
+                onClick: () => setShowMenu(false),
+                style: {
+                  width: "100%",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#38bdf8",
+                  fontSize: "13px",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  textDecoration: "none",
+                  boxSizing: "border-box",
+                },
+                onMouseEnter: (e) =>
+                  (e.currentTarget.style.background = "rgba(56, 189, 248, 0.08)"),
+                onMouseLeave: (e) =>
+                  (e.currentTarget.style.background = "transparent"),
+              },
+              React.createElement("svg", {
+                width: "14", height: "14", viewBox: "0 0 24 24", fill: "none",
+                stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round",
+              },
+                React.createElement("rect", { x: "2", y: "7", width: "20", height: "14", rx: "2" }),
+                React.createElement("path", { d: "M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" }),
+              ),
+              "Broker Connections",
+            ),
             // 2026-05-31 — Switch account button (above Sign Out).
             // Sign Out alone only clears CF Access + our local
             // session; the user's Google session in the browser

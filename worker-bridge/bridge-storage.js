@@ -161,6 +161,27 @@ export async function resolveBridgeAccounts(env, ownerId, opts = {}) {
   return Array.from(seen.values());
 }
 
+/**
+ * 2026-08-11 — Self-service mirror participants (Broker Connections).
+ * Rows owned by OTHER app users who connected their own broker login and
+ * explicitly enabled mirroring carry `mirror_participant: true`. These
+ * join every model-signal dispatch alongside the signal owner's accounts.
+ * `excludeOwner` filters out the signal owner's own rows (handled by the
+ * legacy single-account / fan-out paths).
+ */
+export async function listMirrorParticipants(env, excludeOwner = "") {
+  const skip = String(excludeOwner || "").toLowerCase().trim();
+  const all = await listConnectedUsers(env, 200);
+  return all.filter((u) => {
+    if (!u || u.status !== "connected") return false;
+    if (!u.broker_integration_enabled || u.mirror_participant !== true) return false;
+    const uid = String(u.user_id || "").toLowerCase();
+    const ownerOf = String(u.owner_email || uid.split("#")[0] || "").toLowerCase();
+    if (skip && (ownerOf === skip || uid === skip || uid.startsWith(`${skip}#`))) return false;
+    return true;
+  });
+}
+
 export async function getKillSwitch(env) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return "off";

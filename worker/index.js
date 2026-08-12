@@ -2132,6 +2132,7 @@ const ROUTES = [
   ["GET", "/timed/admin/pages-deployments", "GET /timed/admin/pages-deployments"],
   ["GET", "/timed/admin/users", "GET /timed/admin/users"],
   ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/tier$/.test(p), "POST /timed/admin/users/:email/tier"],
+  ["POST", (p) => /^\/timed\/admin\/users\/[^/]+\/broker-connections$/.test(p), "POST /timed/admin/users/:email/broker-connections"],
   ["GET", "/timed/admin/usage-report", "GET /timed/admin/usage-report"],
   ["POST", "/timed/usage", "POST /timed/usage"],
   // ── Admin: UPTICKS & Sector Ratings ──
@@ -2276,6 +2277,14 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/webull/connect",  "POST /timed/admin/broker-bridge/webull/connect"],
   ["POST", "/timed/admin/broker-bridge/webull/disconnect","POST /timed/admin/broker-bridge/webull/disconnect"],
   ["POST", "/timed/admin/broker-bridge/webull/test",     "POST /timed/admin/broker-bridge/webull/test"],
+  // ── Broker Connections (self-service, 2026-08-11) — user-scoped bridge
+  // proxy. Session-authed + gated on users.broker_connections_enabled;
+  // every call is scoped to the signed-in user's own owner namespace.
+  ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
+  ["POST", "/timed/broker/webull/connect",               "POST /timed/broker/webull/connect"],
+  ["POST", "/timed/broker/webull/disconnect",            "POST /timed/broker/webull/disconnect"],
+  ["POST", "/timed/broker/account/enable",               "POST /timed/broker/account/enable"],
+  ["POST", "/timed/broker/account/caps",                 "POST /timed/broker/account/caps"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -34523,6 +34532,10 @@ async function d1EnsureAdminSchema(env) {
       ["last_login_day", "TEXT"],
       ["email_preferences", "TEXT"],
       ["welcome_email_sent", "INTEGER DEFAULT 0"],
+      // 2026-08-11 — Broker Connections provisioning flag. Admin toggles
+      // per client (Clients page); gates the avatar-menu item + the
+      // self-service /timed/broker/* endpoints.
+      ["broker_connections_enabled", "INTEGER DEFAULT 0"],
     ];
     for (const [col, type] of cols) {
       try {
@@ -77609,6 +77622,10 @@ export default {
               stripe_customer_id: user.stripe_customer_id || null,
               last_login_at: user.last_login_at,
               terms_accepted_at: user.terms_accepted_at || null,
+              // 2026-08-11 — Broker Connections provisioning flag (admin
+              // toggles on the Clients page). Gates the avatar-menu item
+              // and the self-service /timed/broker/* endpoints.
+              broker_connections_enabled: Number(user.broker_connections_enabled) === 1,
             },
             saved_tickers: savedTickers,
             member_tickers: memberTickers,
@@ -78665,7 +78682,8 @@ export default {
           const { results } = await DB.prepare(
             `SELECT email, display_name, role, tier, subscription_status, stripe_customer_id,
                     created_at, last_login_at, expires_at, terms_accepted_at,
-                    login_count, login_days, trial_end, discord_username, discord_id, status
+                    login_count, login_days, trial_end, discord_username, discord_id, status,
+                    broker_connections_enabled
              FROM users ORDER BY last_login_at DESC`
           ).all();
           return sendJSON({ ok: true, users: results || [] }, 200, corsHeaders(env, req));
@@ -79214,6 +79232,40 @@ export default {
           return sendJSON({ ok: true, to, results }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/users/:email/broker-connections?enabled=true|false
+      // 2026-08-11 — Provision (or revoke) the self-service Broker
+      // Connections feature for one client. Gates the avatar-menu item
+      // and every /timed/broker/* endpoint for that user.
+      if (routeKey === "POST /timed/admin/users/:email/broker-connections") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const DB = env?.DB;
+          if (!DB) return sendJSON({ ok: false, error: "no_db" }, 500, corsHeaders(env, req));
+          await d1EnsureAdminSchema(env);
+          const pathParts = url.pathname.split("/");
+          const emailIdx = pathParts.indexOf("users") + 1;
+          const email = decodeURIComponent(pathParts[emailIdx] || "").toLowerCase();
+          const enabled = String(url.searchParams.get("enabled") || "").toLowerCase() === "true";
+          if (!email || !email.includes("@")) {
+            return sendJSON({ ok: false, error: "invalid_email" }, 400, corsHeaders(env, req));
+          }
+          const r = await DB.prepare(
+            `UPDATE users SET broker_connections_enabled = ?1, updated_at = ?2 WHERE email = ?3`
+          ).bind(enabled ? 1 : 0, Date.now(), email).run();
+          if (!r?.meta?.changes) {
+            return sendJSON({ ok: false, error: "user_not_found" }, 404, corsHeaders(env, req));
+          }
+          return sendJSON({
+            ok: true,
+            email,
+            broker_connections_enabled: enabled,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
         }
       }
 
@@ -82011,6 +82063,107 @@ export default {
           return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "http" };
         } catch (e) {
           return { kind: "unreachable", status: 0, body: String(e?.message || e).slice(0, 200) };
+        }
+      }
+
+      async function _getBridge(path) {
+        const op = env?.BROKER_BRIDGE_OPERATOR_KEY;
+        if (!op) return { kind: "key_missing", status: 0, body: "BROKER_BRIDGE_OPERATOR_KEY not configured" };
+        const init = { method: "GET", headers: { "Authorization": `Bearer ${op}` } };
+        try {
+          if (env?.BROKER_BRIDGE && typeof env.BROKER_BRIDGE.fetch === "function") {
+            const r = await env.BROKER_BRIDGE.fetch(new Request(`https://bridge.internal${path}`, init));
+            const text = await r.text();
+            return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "service-binding" };
+          }
+          const bridgeUrl = env?.BROKER_BRIDGE_URL;
+          if (!bridgeUrl) return { kind: "url_missing", status: 0, body: "BROKER_BRIDGE_URL not configured and no service binding" };
+          const r = await fetch(`${bridgeUrl.replace(/\/$/, "")}${path}`, init);
+          const text = await r.text();
+          return { kind: r.ok ? "ok" : "upstream_error", status: r.status, body: text, transport: "http" };
+        } catch (e) {
+          return { kind: "unreachable", status: 0, body: String(e?.message || e).slice(0, 200) };
+        }
+      }
+
+      // ── Broker Connections — self-service (2026-08-11) ────────────────
+      // Session-authed endpoints gated on users.broker_connections_enabled
+      // (admin provisions per client on the Clients page). Every call is
+      // scoped to the signed-in user's OWN owner namespace before the
+      // operator-key proxy to the bridge, so one user can never read or
+      // mutate another owner's broker accounts. Admins bypass the flag.
+      const _isBrokerRoute = routeKey === "GET /timed/broker/accounts"
+        || routeKey === "POST /timed/broker/webull/connect"
+        || routeKey === "POST /timed/broker/webull/disconnect"
+        || routeKey === "POST /timed/broker/account/enable"
+        || routeKey === "POST /timed/broker/account/caps";
+      if (_isBrokerRoute) {
+        try { await d1EnsureAdminSchema(env); } catch (_) {}
+        const sessionUser = await authenticateUser(req, env);
+        if (!sessionUser || sessionUser._blocked) {
+          return sendJSON({ ok: false, error: "auth_required" }, 401, corsHeaders(env, req));
+        }
+        const email = String(sessionUser.email || "").toLowerCase().trim();
+        const isAdminUser = sessionUser.role === "admin" || sessionUser.tier === "admin";
+        if (!isAdminUser && Number(sessionUser.broker_connections_enabled) !== 1) {
+          return sendJSON({ ok: false, error: "broker_connections_not_provisioned" }, 403, corsHeaders(env, req));
+        }
+        const _ownsAccount = (accountId) => {
+          const id = String(accountId || "").toLowerCase().trim();
+          return id === email || id.startsWith(`${email}#`);
+        };
+        const _bridgeJson = (result) => new Response(
+          result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200, headers: { "Content-Type": "application/json", "X-TT-Bridge-Transport": result.transport || "n/a", ...corsHeaders(env, req) } },
+        );
+
+        if (routeKey === "GET /timed/broker/accounts") {
+          return _bridgeJson(await _getBridge(`/bridge/accounts?owner=${encodeURIComponent(email)}`));
+        }
+        if (routeKey === "POST /timed/broker/webull/connect") {
+          const body = await req.json().catch(() => ({}));
+          const appKey = String(body?.app_key || "").trim();
+          const appSecret = String(body?.app_secret || "").trim();
+          if (!appKey || !appSecret) {
+            return sendJSON({ ok: false, error: "app_key_and_app_secret_required" }, 400, corsHeaders(env, req));
+          }
+          return _bridgeJson(await _postBridge("/bridge/webull/oauth/start", {
+            user_id: email,
+            app_key: appKey,
+            app_secret: appSecret,
+            // Account actions notify the account holder + the admin inbox.
+            partner_email: email,
+          }));
+        }
+        if (routeKey === "POST /timed/broker/webull/disconnect") {
+          return _bridgeJson(await _postBridge("/bridge/webull/oauth/disconnect", { user_id: email }));
+        }
+        if (routeKey === "POST /timed/broker/account/enable") {
+          const body = await req.json().catch(() => ({}));
+          const accountId = String(body?.account_id || "").trim().toLowerCase();
+          if (!_ownsAccount(accountId)) {
+            return sendJSON({ ok: false, error: "account_not_owned_by_session_user" }, 403, corsHeaders(env, req));
+          }
+          const enable = body?.enable === true;
+          return _bridgeJson(await _postBridge("/bridge/enable", {
+            user_id: accountId,
+            enable,
+            // Self-service opt-in: enabled accounts join the model-signal
+            // dispatch (bridge listMirrorParticipants).
+            mirror_participant: enable,
+          }));
+        }
+        if (routeKey === "POST /timed/broker/account/caps") {
+          const body = await req.json().catch(() => ({}));
+          const accountId = String(body?.account_id || "").trim().toLowerCase();
+          if (!_ownsAccount(accountId)) {
+            return sendJSON({ ok: false, error: "account_not_owned_by_session_user" }, 403, corsHeaders(env, req));
+          }
+          const payload = { user_id: accountId };
+          if (body.max_per_order_usd !== undefined) payload.max_per_order_usd = body.max_per_order_usd;
+          if (body.max_orders_per_day !== undefined) payload.max_orders_per_day = body.max_orders_per_day;
+          if (body.max_account_pct !== undefined) payload.max_account_pct = body.max_account_pct;
+          return _bridgeJson(await _postBridge("/bridge/user/caps", payload));
         }
       }
 

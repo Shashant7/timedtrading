@@ -116,6 +116,53 @@ export function buildOrderBody(user, order, { preview = false } = {}) {
   };
 }
 
+// 2026-08-11 — Per-account App Key/Secret (second Webull login support).
+// Preferred storage: worker-level secrets named after the login label
+// (`WEBULL_APP_KEY_<SUFFIX>` / `WEBULL_APP_SECRET_<SUFFIX>`, e.g. label
+// "acct2" → WEBULL_APP_KEY_ACCT2) — key rotation is a `wrangler secret
+// put`, no KV rewrite or re-connect. The sub-user row stores only the
+// suffix (`webull_creds_env`). Fallback: AES-GCM wraps on the row
+// (`webull_app_key_wrap` / `webull_app_secret_wrap`, same wrap as token
+// wraps) for keys passed inline at connect time. Rows with neither use
+// the env-level WEBULL_APP_KEY/SECRET (primary login).
+
+/** login label → env secret suffix ("acct2" → "ACCT2", "wife-s" → "WIFE_S"). */
+export function webullCredsEnvSuffix(label) {
+  return normalizeWebullLoginLabel(label).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+}
+
+/** Read a secondary login's key pair from worker secrets. Null when unset. */
+export function webullEnvCredsFor(env, suffix) {
+  const s = String(suffix || "").toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  if (!s) return null;
+  const appKey = env?.[`WEBULL_APP_KEY_${s}`];
+  const appSecret = env?.[`WEBULL_APP_SECRET_${s}`];
+  return (appKey && appSecret) ? { appKey, appSecret } : null;
+}
+
+export async function resolveWebullUserCreds(env, user) {
+  const suffix = user?.webull_creds_env;
+  if (suffix) {
+    const creds = webullEnvCredsFor(env, suffix);
+    if (!creds) {
+      throw new Error(`webull_env_creds_missing:WEBULL_APP_KEY_${webullCredsEnvSuffix(suffix) || String(suffix).toUpperCase()}`);
+    }
+    return creds;
+  }
+  if (!user?.webull_app_key_wrap || !user?.webull_app_secret_wrap) return null;
+  const appKey = await unwrapSecret(env, user.webull_app_key_wrap);
+  const appSecret = await unwrapSecret(env, user.webull_app_secret_wrap);
+  return { appKey, appSecret };
+}
+
+async function credsFor(env, user) {
+  try {
+    return { ok: true, creds: await resolveWebullUserCreds(env, user) };
+  } catch (e) {
+    return { ok: false, error: `webull_app_creds_unwrap_failed:${String(e?.message || e).slice(0, 80)}` };
+  }
+}
+
 async function signedFetch(env, {
   path,
   method = "GET",
@@ -123,9 +170,10 @@ async function signedFetch(env, {
   body = null,
   accessToken = "",
   contentType = "application/json",
+  creds = null,
 }) {
-  const appKey = env?.WEBULL_APP_KEY;
-  const appSecret = env?.WEBULL_APP_SECRET;
+  const appKey = creds?.appKey || env?.WEBULL_APP_KEY;
+  const appSecret = creds?.appSecret || env?.WEBULL_APP_SECRET;
   if (!appKey || !appSecret) {
     return { ok: false, error: "webull_app_credentials_not_configured" };
   }
@@ -306,62 +354,80 @@ export async function ensureWebullAccessToken(env, user) {
   return { ok: true, access_token: persisted.access_token, user: persisted.user, refreshed: true };
 }
 
-export async function webullGetAccountList(env, accessToken) {
+export async function webullGetAccountList(env, accessToken, { creds = null } = {}) {
   return signedFetch(env, {
     path: webullAccountListPath(env),
     method: "GET",
     accessToken,
+    creds,
   });
 }
 
 export async function webullGetBalance(env, user, accessToken) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   return signedFetch(env, {
     path: WEBULL_API_PATHS.balance,
     method: "GET",
     query: { account_id: user.webull_account_id },
     accessToken,
+    creds: c.creds,
   });
 }
 
 export async function webullGetPositions(env, user, accessToken) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   return signedFetch(env, {
     path: WEBULL_API_PATHS.positions,
     method: "GET",
     query: { account_id: user.webull_account_id },
     accessToken,
+    creds: c.creds,
   });
 }
 
-export async function webullPostOptionsOrder(env, { path, body, accessToken }) {
+export async function webullPostOptionsOrder(env, { path, body, accessToken, user = null }) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   return signedFetch(env, {
     path,
     method: "POST",
     body,
     accessToken,
+    creds: c.creds,
   });
 }
 
 export async function webullPreviewOrder(env, user, order, accessToken) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   const body = buildOrderBody(user, order, { preview: true });
   return signedFetch(env, {
     path: WEBULL_API_PATHS.orderPreview,
     method: "POST",
     body,
     accessToken,
+    creds: c.creds,
   });
 }
 
 export async function webullPlaceOrder(env, user, order, accessToken) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   const body = buildOrderBody(user, order, { preview: false });
   return signedFetch(env, {
     path: WEBULL_API_PATHS.orderPlace,
     method: "POST",
     body,
     accessToken,
+    creds: c.creds,
   });
 }
 
 export async function webullCancelOrder(env, user, orderId, accessToken) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   return signedFetch(env, {
     path: WEBULL_API_PATHS.orderCancel,
     method: "POST",
@@ -370,6 +436,7 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
       client_order_id: String(orderId || ""),
     },
     accessToken,
+    creds: c.creds,
   });
 }
 
@@ -378,6 +445,8 @@ export async function webullCancelOrder(env, user, orderId, accessToken) {
  *  `path` override (admin diagnostics only) is restricted to read-only
  *  /openapi/trade/order* endpoints. */
 export async function webullListOrders(env, user, accessToken, { limit = 50, path = null } = {}) {
+  const c = await credsFor(env, user);
+  if (!c.ok) return c;
   const safePath = (path && /^\/openapi\/trade\/order/.test(String(path)))
     ? String(path)
     : WEBULL_API_PATHS.ordersList;
@@ -389,6 +458,7 @@ export async function webullListOrders(env, user, accessToken, { limit = 50, pat
       page_size: String(Math.min(100, Number(limit) || 50)),
     },
     accessToken,
+    creds: c.creds,
   });
 }
 
@@ -405,14 +475,27 @@ export function parseWebullAccountList(listResponse) {
   })).filter((a) => a.account_id);
 }
 
-/** Stable bridge user_id per Webull sub-account under one owner email. */
-export function webullSubUserId(ownerEmail, account) {
+/** Kebab-case a login label ("Wife's account" → "wifes-account"). */
+export function normalizeWebullLoginLabel(label) {
+  return String(label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 24);
+}
+
+/** Stable bridge user_id per Webull sub-account under one owner email.
+ *  A second Webull login syncs with a `loginLabel` prefix so its accounts
+ *  never collide with the primary login's slugs (both logins can have an
+ *  INDIVIDUAL_CASH account). */
+export function webullSubUserId(ownerEmail, account, loginLabel = null) {
   const slug = String(account?.account_class || account?.account_type || account?.account_id || "acct")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 48);
-  return `${String(ownerEmail).toLowerCase()}#webull#${slug}`;
+  const label = normalizeWebullLoginLabel(loginLabel);
+  return `${String(ownerEmail).toLowerCase()}#webull#${label ? `${label}-` : ""}${slug}`;
 }
 
 /** Pick the first account id from Webull account list response. */
@@ -508,12 +591,31 @@ export function normalizeWebullPositions(posResp) {
     .filter((p) => p.symbol && Number.isFinite(p.qty));
 }
 
-/** Upsert one KV row per Webull account under an owner email. */
-export async function syncWebullPersonalAccounts(env, ownerEmail, accounts) {
+/** Upsert one KV row per Webull account under an owner email.
+ *  opts.loginLabel — set for a secondary Webull login: prefixes sub ids
+ *  (`owner#webull#<label>-<slug>`) so slugs never collide across logins.
+ *  opts.credsEnv — env secret suffix (e.g. "ACCT2"): the row signs with
+ *  worker secrets WEBULL_APP_KEY_<SUFFIX>/WEBULL_APP_SECRET_<SUFFIX>.
+ *  Preferred — rotation is a `wrangler secret put`, no re-connect.
+ *  opts.credsWrap — `{ key_wrap, secret_wrap }` (already wrapped) for
+ *  keys passed inline at connect time; stamped on every synced row.
+ *  credsEnv and credsWrap are mutually exclusive: setting one clears the
+ *  other. When both absent, existing creds fields are preserved (primary
+ *  login rows have none and keep falling back to env keys).
+ *  opts.notifyEmails — array of partner emails: account actions notify
+ *  these addresses in addition to BRIDGE_ADMIN_NOTIFY_EMAIL. Preserved
+ *  when absent. */
+export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts = {}) {
   const owner = String(ownerEmail).toLowerCase();
+  const loginLabel = normalizeWebullLoginLabel(opts.loginLabel) || null;
+  const credsEnv = opts.credsEnv ? webullCredsEnvSuffix(opts.credsEnv) || String(opts.credsEnv).toUpperCase() : null;
+  const credsWrap = credsEnv ? null : (opts.credsWrap || null);
+  const notifyEmails = Array.isArray(opts.notifyEmails)
+    ? opts.notifyEmails.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+    : null;
   const synced = [];
   for (const acct of accounts) {
-    const subId = webullSubUserId(owner, acct);
+    const subId = webullSubUserId(owner, acct, loginLabel);
     const existing = (await readUser(env, subId)) || { user_id: subId };
     const row = {
       ...existing,
@@ -528,6 +630,11 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts) {
       webull_account_class: acct.account_class,
       webull_account_number: acct.account_number || null,
       webull_auth_mode: webullAuthMode(env),
+      webull_login_label: loginLabel || existing.webull_login_label || null,
+      webull_creds_env: credsEnv || (credsWrap ? null : (existing.webull_creds_env || null)),
+      webull_app_key_wrap: credsWrap ? credsWrap.key_wrap : (credsEnv ? null : (existing.webull_app_key_wrap || null)),
+      webull_app_secret_wrap: credsWrap ? credsWrap.secret_wrap : (credsEnv ? null : (existing.webull_app_secret_wrap || null)),
+      notify_emails: notifyEmails ?? (existing.notify_emails || null),
       broker_integration_enabled: existing.broker_integration_enabled ?? false,
       daily_order_count: existing.daily_order_count || 0,
       daily_order_count_date: existing.daily_order_count_date || new Date().toISOString().slice(0, 10),
@@ -545,6 +652,10 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts) {
       webull_account_label: acct.account_label,
       webull_account_type: acct.account_type,
       webull_account_class: acct.account_class,
+      webull_login_label: row.webull_login_label || null,
+      webull_creds_env: row.webull_creds_env || null,
+      has_own_app_creds: !!(row.webull_creds_env || (row.webull_app_key_wrap && row.webull_app_secret_wrap)),
+      notify_emails: row.notify_emails || null,
       broker_integration_enabled: row.broker_integration_enabled,
     });
   }

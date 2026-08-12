@@ -25,7 +25,27 @@
 //   - Queue structured `event` fields so the main-worker drain can
 //     coalesce many tickers into ONE Mirror Sync digest email.
 
-import { listConnectedUsers } from "./bridge-storage.js";
+import { listConnectedUsers, readUser } from "./bridge-storage.js";
+
+/**
+ * 2026-08-11 — Partner notification routing. Accounts belonging to a
+ * partner's broker login carry `notify_emails` on their bridge user row
+ * (stamped at Webull connect time via partner_email). Actions on those
+ * accounts notify every address in the list PLUS the admin
+ * (BRIDGE_ADMIN_NOTIFY_EMAIL). Returns null when the row has no
+ * notify_emails — callers keep the legacy single-recipient behavior so
+ * the operator's own accounts are unaffected.
+ */
+export function resolveNotifyRecipients(env, userRow) {
+  const extras = (Array.isArray(userRow?.notify_emails) ? userRow.notify_emails : [])
+    .map((e) => String(e || "").trim().toLowerCase())
+    .filter((e) => e.includes("@"));
+  if (!extras.length) return null;
+  const admin = String(env?.BRIDGE_ADMIN_NOTIFY_EMAIL || "").trim().toLowerCase();
+  const set = new Set(extras);
+  if (admin) set.add(admin);
+  return [...set];
+}
 
 const DEDUP_WINDOW_MS = {
   info: 24 * 60 * 60 * 1000,   // daily digest cadence
@@ -270,10 +290,13 @@ export async function emitDriftNotification(env, row, severity) {
   }
   // Enqueue structured event + legacy content. Main-worker drain
   // coalesces all events for a user into ONE Mirror Sync digest.
+  // Partner accounts (notify_emails on the bridge user row) enqueue one
+  // item per recipient — partner + admin each get their own digest.
   const KV = env?.BRIDGE_KV;
   if (KV) {
     try {
-      const queueKey = `bridge:notify:queue:${Date.now()}:${row.user_id}:${row.trade_id}`;
+      const userRow = await readUser(env, row.user_id).catch(() => null);
+      const recipients = resolveNotifyRecipients(env, userRow);
       const event = {
         ticker: row.ticker || null,
         mode: row.mode || null,
@@ -285,7 +308,7 @@ export async function emitDriftNotification(env, row, severity) {
         broker_account_id: row.broker_account_id || null,
         broker_remaining_qty: row.broker_remaining_qty ?? null,
       };
-      await KV.put(queueKey, JSON.stringify({
+      const payload = {
         user_id: row.user_id,
         trade_id: row.trade_id,
         broker_account_id: row.broker_account_id,
@@ -293,7 +316,17 @@ export async function emitDriftNotification(env, row, severity) {
         ts: Date.now(),
         event,
         content: buildDriftEmailContent(row, severity),
-      }), { expirationTtl: 7 * 86400 });
+      };
+      if (recipients) {
+        for (let i = 0; i < recipients.length; i++) {
+          const queueKey = `bridge:notify:queue:${Date.now()}:${row.user_id}:${row.trade_id}:r${i}`;
+          await KV.put(queueKey, JSON.stringify({ ...payload, user_email: recipients[i] }),
+            { expirationTtl: 7 * 86400 });
+        }
+      } else {
+        const queueKey = `bridge:notify:queue:${Date.now()}:${row.user_id}:${row.trade_id}`;
+        await KV.put(queueKey, JSON.stringify(payload), { expirationTtl: 7 * 86400 });
+      }
       channels.push("user_email_queued");
     } catch (e) {
       console.warn("[NOTIFY] queue write failed:", String(e?.message || e).slice(0, 200));

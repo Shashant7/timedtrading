@@ -27,6 +27,7 @@ import {
   ensureBridgeSchema, readUser, writeUser, listConnectedUsers,
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
   claimOrderIdempotency, releaseOrderIdempotency, resolveBridgeAccounts,
+  listMirrorParticipants,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
 import { roundQtyForBroker } from "./bridge-sizing.js";
@@ -42,7 +43,7 @@ import {
 import { orchestrateOcoForReducer } from "./bridge-oco.js";
 import {
   drainNotifyQueue, buildDailyOwnerDigest, renderDailyOwnerDigestEmail,
-  emitDriftNotification,
+  emitDriftNotification, resolveNotifyRecipients,
 } from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
@@ -494,6 +495,22 @@ export default {
         const user = await readUser(env, userId);
         if (!user) return json({ ok: false, error: "not_found" }, 404);
         return json({ ok: true, user: _redactUser(user) });
+      }
+      // 2026-08-11 — All broker accounts for ONE owner (self-service
+      // Broker Connections page). Scoped: only rows whose owner matches,
+      // so the main worker can safely proxy this per signed-in user.
+      if (method === "GET" && path === "/bridge/accounts") {
+        if (operatorFail) return operatorFail;
+        const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
+        if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const accounts = await resolveBridgeAccounts(env, owner, { enabledOnly: false });
+        return json({
+          ok: true,
+          owner,
+          count: accounts.length,
+          accounts: accounts.map(_redactUserForList),
+          ts: Date.now(),
+        });
       }
       if (method === "GET" && path === "/bridge/audit") {
         if (operatorFail) return operatorFail;
@@ -982,6 +999,14 @@ export default {
           user.broker_integration_enabled = body.enable === true;
           user.enable_changed_at = Date.now();
         }
+        // 2026-08-11 — Self-service opt-in: set by the main worker's
+        // Broker Connections flow so this account joins the model-signal
+        // dispatch (see listMirrorParticipants). Disabling the account
+        // also clears participation via the broker_integration_enabled
+        // check; the flag records provenance (user-driven mirror).
+        if (typeof body?.mirror_participant === "boolean") {
+          user.mirror_participant = body.mirror_participant === true;
+        }
         // 2026-07-23 — Operator stamp: force whole-share preflight on a
         // Webull account that has not signed TRADE_FRACT_PRO (Roth IRA).
         if (body?.fractional_agreement_missing === true) {
@@ -1128,16 +1153,22 @@ export default {
             // worker's cron to pick up.
             const email = renderDailyOwnerDigestEmail(digest);
             if (!email) { skipped++; continue; }
-            const queueKey = `bridge:notify:daily:${u.user_id}:${new Date().toISOString().slice(0, 10)}`;
-            await env.BRIDGE_KV.put(queueKey, JSON.stringify({
-              user_id: u.user_id,
-              user_email: digest.user_email,
-              kind: "daily_owner_digest",
-              ts: Date.now(),
-              dry_run: dryRun,
-              content: email,
-              digest_summary: digest,
-            }), { expirationTtl: 7 * 86400 });
+            // Partner accounts (notify_emails on the user row): one queue
+            // item per recipient (partner + admin). Others: unchanged.
+            const recipients = resolveNotifyRecipients(env, u) || [digest.user_email];
+            const day = new Date().toISOString().slice(0, 10);
+            for (const recipient of recipients) {
+              const queueKey = `bridge:notify:daily:${u.user_id}:${day}${recipients.length > 1 ? `:${recipient}` : ""}`;
+              await env.BRIDGE_KV.put(queueKey, JSON.stringify({
+                user_id: u.user_id,
+                user_email: recipient || digest.user_email,
+                kind: "daily_owner_digest",
+                ts: Date.now(),
+                dry_run: dryRun,
+                content: email,
+                digest_summary: digest,
+              }), { expirationTtl: 7 * 86400 });
+            }
             prepared++;
           } catch (e) {
             errored++;
@@ -1238,27 +1269,29 @@ export default {
 // 5 Webull + 1 IBKR) when BROKER_FANOUT_ENABLED, else place on the single
 // resolved account (default, unchanged behavior). An explicit broker_account_id
 // always targets one account.
+//
+// 2026-08-11 — Self-service mirror participants (Broker Connections):
+// accounts owned by OTHER app users who connected their own broker login
+// and explicitly enabled mirroring (`mirror_participant: true`) join every
+// model-signal dispatch — their enable IS the opt-in. BROKER_FANOUT_ENABLED
+// continues to gate only the signal owner's own multi-account expansion,
+// so with no participants the behavior is exactly the legacy one.
 async function handleOrderWebhook(env, ctx, payload) {
   const owner = String(payload?.user_id || "").toLowerCase();
   const fanoutOn = String(env?.BROKER_FANOUT_ENABLED || "").toLowerCase() === "true";
-  if (!fanoutOn || payload?.broker_account_id) {
+  if (payload?.broker_account_id) {
     return handleSingleAccountOrder(env, ctx, payload);
   }
-  const accounts = await resolveBridgeAccounts(env, owner, { enabledOnly: true });
-  if (accounts.length <= 1) {
+  const participants = await listMirrorParticipants(env, owner).catch(() => []);
+  const ownerAccounts = fanoutOn
+    ? await resolveBridgeAccounts(env, owner, { enabledOnly: true })
+    : [];
+  const expandOwner = fanoutOn && ownerAccounts.length > 1;
+  if (!expandOwner && !participants.length) {
     return handleSingleAccountOrder(env, ctx, payload);
   }
   const results = [];
-  for (const acct of accounts) {
-    const acctId = resolveBrokerAccountId(acct);
-    const perPayload = {
-      ...payload,
-      user_id: acct.user_id,
-      broker_account_id: acctId,
-      // Per-account idempotency: one stable key per (trade, account) so a
-      // repeat fire dedupes per account, not across accounts.
-      client_order_id: payload?.client_order_id ? `${payload.client_order_id}-${acctId}` : null,
-    };
+  const dispatchOne = async (perPayload, acct) => {
     let res, body = null;
     try {
       res = await handleSingleAccountOrder(env, ctx, perPayload);
@@ -1267,13 +1300,31 @@ async function handleOrderWebhook(env, ctx, payload) {
       body = { ok: false, error: String(e?.message || e).slice(0, 200) };
     }
     results.push({
-      broker_account_id: acctId,
-      user_id: acct.user_id,
-      broker: resolveBrokerId(acct) || acct.broker || null,
+      broker_account_id: perPayload.broker_account_id || null,
+      user_id: perPayload.user_id,
+      broker: acct ? (resolveBrokerId(acct) || acct.broker || null) : null,
       http_status: res?.status || 500,
       result: body,
     });
+  };
+  const perAccountPayload = (acct) => {
+    const acctId = resolveBrokerAccountId(acct);
+    return {
+      ...payload,
+      user_id: acct.user_id,
+      broker_account_id: acctId,
+      // Per-account idempotency: one stable key per (trade, account) so a
+      // repeat fire dedupes per account, not across accounts.
+      client_order_id: payload?.client_order_id ? `${payload.client_order_id}-${acctId}` : null,
+    };
+  };
+  if (expandOwner) {
+    for (const acct of ownerAccounts) await dispatchOne(perAccountPayload(acct), acct);
+  } else {
+    // Signal owner keeps the legacy single-account resolution.
+    await dispatchOne({ ...payload }, null);
   }
+  for (const acct of participants) await dispatchOne(perAccountPayload(acct), acct);
   return json({ ok: true, fanout: true, accounts: results.length, results }, 200);
 }
 
@@ -2165,6 +2216,7 @@ function _redactUser(user) {
   const {
     rh_token_wrap, rh_refresh_wrap,
     webull_token_wrap, webull_refresh_wrap,
+    webull_app_key_wrap, webull_app_secret_wrap,
     ...safe
   } = user;
   return {
@@ -2173,6 +2225,7 @@ function _redactUser(user) {
     has_rh_refresh: !!rh_refresh_wrap,
     has_webull_token: !!webull_token_wrap,
     has_webull_refresh: !!webull_refresh_wrap,
+    has_webull_app_creds: !!(webull_app_key_wrap && webull_app_secret_wrap),
   };
 }
 function _redactUserForList(user) {
@@ -2188,6 +2241,11 @@ function _redactUserForList(user) {
     webull_account_type: user.webull_account_type || null,
     webull_account_class: user.webull_account_class || null,
     webull_auth_mode: user.webull_auth_mode || null,
+    webull_login_label: user.webull_login_label || null,
+    webull_creds_env: user.webull_creds_env || null,
+    notify_emails: user.notify_emails || null,
+    mirror_participant: user.mirror_participant === true,
+    fractional_agreement_missing: !!user.fractional_agreement_missing,
     owner_email: user.owner_email || null,
     ibkr_account_id: user.ibkr_account_id || null,
     connected_at: user.connected_at || null,

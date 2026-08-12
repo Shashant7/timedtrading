@@ -28,6 +28,39 @@
 - [x] **Feed cron silent stop + keepalive (2026-08-07).** CF Cron Triggers stopped dispatching ~14:53 ET (heartbeat/scoring/REST feed frozen; `/feed/run-once` still worked). Redeployed tt-feed/engine/monolith; added `feed-keepalive.yml` + watchdog self-heal. Branch: `cursor/feed-cron-selfheal-df0c`.
 
 
+- [ ] **Webull second login in broker mirror (2026-08-11).** Scenario B:
+      a second Webull login (own App Key/Secret) mirrored alongside the
+      primary. Plan: per-account encrypted App Key/Secret wraps on the
+      `#webull#` sub-user rows (same AES-GCM wrap as RH/Webull tokens);
+      `signedFetch` accepts a creds override resolved from the user record
+      (falls back to env `WEBULL_APP_KEY/SECRET` for the primary login);
+      `POST /bridge/webull/oauth/start` accepts `app_key`+`app_secret`+
+      `login_label` in personal mode — validates via account list, wraps,
+      syncs sub-users as `owner#webull#<label>-<slug>` under the SAME owner
+      email so fan-out/enable/status work unchanged. Round 2 (partner
+      account): preferred creds storage is now worker secrets named after
+      the label (`WEBULL_APP_KEY_ACCT2`/`WEBULL_APP_SECRET_ACCT2`; rotation
+      = `wrangler secret put`, no re-connect; inline wrap path kept as
+      fallback), and `partner_email` stamps `notify_emails` so drift +
+      daily digests for those accounts go to the partner AND
+      `BRIDGE_ADMIN_NOTIFY_EMAIL` (timedtrading@gmail.com). Round 3
+      (self-service redesign, per operator): app users paste their own
+      Webull keys. Plan: (1) bridge — cross-owner mirror participants
+      (rows with `mirror_participant=true` + enabled join the order
+      dispatch alongside the admin owner; label guard relaxed for a
+      fresh owner's first connect), (2) worker — `users.
+      broker_connections_enabled` flag (runtime ALTER), admin toggle
+      endpoint + flag in `/timed/admin/users` + `/timed/me`, user-scoped
+      `/timed/broker/*` proxy endpoints (accounts / webull connect +
+      disconnect / enable / caps — all owner-scoped to the session
+      email), (3) frontend — Clients page checkbox, avatar-menu "Broker
+      Connections" item gated on the flag, new `broker-connections.html`
+      self-service page (paste keys → view accounts → per-account mirror
+      toggle + caps). ALL SHIPPED + deployed (bridge + worker both envs);
+      endpoints smoke-tested live (auth gates + admin toggle round-trip).
+      Remaining: partner does the flow end-to-end once provisioned.
+      Branch: `cursor/webull-second-login-dbdd`.
+
 - [ ] **Context-first scoring (2026-08-05/06).** Plan:
       [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).
       Phase 0 (ticker context ledger + optimal window) SHIPPED + backfilled
