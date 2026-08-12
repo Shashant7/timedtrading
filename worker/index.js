@@ -1001,7 +1001,6 @@ import {
   getUserEmailPrefs,
   getEmailOptedInUsers,
   sendInvestorAlertEmails,
-  sendInvestorQueueDigest,
   sendInvestorReduceDigest,
   sendInvestorWeeklyDigest,
   hmacVerify,
@@ -24261,20 +24260,11 @@ async function processTradeSimulation(
             trade_id: openTrade.id || openTrade.trade_id || null,
             direction: openTrade.direction || null,
           }, 24 * 3600).catch(() => {});
-          await dispatchTradeAlertEmails(env, {
-            type: "TRADE_EXIT_SIGNAL",
-            ticker: sym,
-            direction: openTrade.direction,
-            price: pxNow,
-            mode: "trader",
-            trade_id: openTrade.id || openTrade.trade_id || null,
-            entry: _sigEntry,
-            pnlPct: _sigPnl,
-            exitReason: _humanExitReason || exitReasonRaw,
-            action_ts: _sigTs,
-          }).catch((e) => {
-            console.warn(`[EMAIL] ${sym} exit-signal dispatch failed:`, String(e?.message || e).slice(0, 120));
-          });
+          // 2026-08-12 — Exit-recommendation EMAIL removed (operator noise
+          // cleanup): advisory warnings don't email — only executed actions
+          // do (the actual close emails via TRADE_EXIT, never throttled).
+          // The advisory still writes the KV trade-card banner above and
+          // the activity entry below.
           await appendActivity(KV, {
             type: "TRADE_EXIT_SIGNAL",
             ticker: sym,
@@ -90357,10 +90347,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // 'investor_alerts' pref). Discord alert + email send happen
           // in parallel via ctx.waitUntil so the cron stays responsive.
           const _invKv = env?.KV_TIMED;
-          const _queueAlerts = [];
           const _reduceAlerts = [];
           for (const alert of investorAlerts.slice(0, 5)) {
             const _invTicker = String(alert.data?.ticker || "").toUpperCase();
+            // 2026-08-12 — Operator noise cleanup: "Entered Queue" is a lane
+            // transition, not an executed action. It no longer sends the
+            // queue-digest email, the Discord embed, or a bell row (every
+            // bell insert also fires a web push before the panel filter —
+            // that push was the noise). The Queue lane on the Investor
+            // board + the activity strip remain the surfaces. Skipping
+            // before the CIO consult also saves the OpenAI call.
+            const _preAction = deriveInvestorAlertAction(alert.type, alert.data);
+            const _isQueueLaneAlert = alert.type === "accumulation_zone"
+              && _preAction.verb === "MODEL · QUEUE";
+            if (_isQueueLaneAlert) {
+              if (_invKv) {
+                ctx.waitUntil(appendActivity(_invKv, {
+                  type: "INVESTOR_SIGNAL",
+                  ticker: alert.data.ticker,
+                  action: _preAction.verb,
+                  investor_alert_type: alert.type,
+                  mode: "investor",
+                  score: alert.data.score ?? null,
+                  zone_type: alert.data.zoneType ?? null,
+                }).catch(() => {}));
+              }
+              alertsSent.push({ type: alert.type, ticker: alert.data.ticker, action: _preAction.verb, channels: "activity_only" });
+              continue;
+            }
             if (env?.OPENAI_API_KEY && _invTicker) {
               try {
                 const _invCio = await _consultInvestorSignalCio(env, {
@@ -90383,27 +90397,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (embed) {
               const _invAction = deriveInvestorAlertAction(alert.type, alert.data);
               if (!INVESTOR_ACTIONABLE_ALERT_VERBS.includes(_invAction.verb)) continue;
-              const _isQueueAlert = alert.type === "accumulation_zone"
-                && _invAction.verb === "MODEL · QUEUE";
-              if (_isQueueAlert) {
-                const _liveRow = investorResults[_invTicker];
-                if (_liveRow && !shouldFireInvestorQueueAlert({
-                  ..._liveRow,
-                  actionTier: _liveRow.actionTier || computeInvestorActionTier(_liveRow),
-                })) {
-                  console.log(`[INVESTOR ALERTS] send-time skip Queue for ${_invTicker} — lane no longer accumulate_queued`);
-                  continue;
-                }
-              }
               ctx.waitUntil(notifyDiscord(env, embed));
               // 2026-06-24 — REDUCE / Model Thesis Shift signals batch into ONE
-              // combined digest (mirror of the Queue digest) instead of a
-              // per-ticker email blast, so multiple reduce signals in a pass
-              // arrive as a single "can be combined with other tickers" email.
+              // combined digest instead of a per-ticker email blast, so
+              // multiple reduce signals in a pass arrive as a single email.
+              // (Queue alerts exit the loop earlier — activity strip only.)
               const _isReduceAlert = alert.type === "thesis_invalidation";
-              if (_isQueueAlert) {
-                _queueAlerts.push(alert);
-              } else if (_isReduceAlert) {
+              if (_isReduceAlert) {
                 _reduceAlerts.push(alert);
               } else {
                 ctx.waitUntil(sendInvestorAlertEmails(env, alert).catch((e) => {
@@ -90435,11 +90435,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               alertsSent.push({ type: alert.type, ticker: alert.data.ticker, action: _invAction.verb });
             }
           }
-          if (_queueAlerts.length > 0) {
-            ctx.waitUntil(sendInvestorQueueDigest(env, _queueAlerts).catch((e) => {
-              console.warn("[INVESTOR QUEUE DIGEST] send failed:", String(e?.message || e).slice(0, 200));
-            }));
-          }
+          // 2026-08-12 — Queue digest email removed (operator noise cleanup);
+          // sendInvestorQueueDigest is no longer called from the alert loop.
           if (_reduceAlerts.length > 0) {
             ctx.waitUntil(sendInvestorReduceDigest(env, _reduceAlerts).catch((e) => {
               console.warn("[INVESTOR REDUCE DIGEST] send failed:", String(e?.message || e).slice(0, 200));

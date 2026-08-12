@@ -501,9 +501,18 @@ export function getDiscordAlertMode(env) {
 
 /** Whether to send a Discord alert for the given type and context. */
 export function shouldSendDiscordAlert(env, type, ctx = {}) {
+  const t = String(type || "").toUpperCase();
+  // 2026-08-12 — Operator noise cleanup: "Exit Recommended" warnings are
+  // advisory, not an executed action — hard-off regardless of
+  // DISCORD_ALERT_MODE (a dashboard-set "all" survives deploys via
+  // keep_vars and would otherwise bypass this). The actual close still
+  // alerts via TRADE_EXIT. This gate also stops the kanban exit-lane
+  // bell insert + web push (same early-return path) and the
+  // TRADE_EXIT_SIGNAL advisory embed; the advisory stays visible on the
+  // trade card (KV timed:kanban:exit-advisory) + activity feed.
+  if (t === "KANBAN_EXIT") return false;
   const mode = getDiscordAlertMode(env);
   if (mode === "all") return true;
-  const t = String(type || "").toUpperCase();
 
   if (t === "TRADE_EXIT") return true;
 
@@ -562,7 +571,7 @@ export function shouldSendDiscordAlert(env, type, ctx = {}) {
   if (t === "KANBAN_ENTER_NOW") return true; // Legacy alias → maps to KANBAN_ENTER
   if (t === "KANBAN_DEFEND") return true;
   if (t === "KANBAN_TRIM") return true;
-  if (t === "KANBAN_EXIT") return true;
+  // KANBAN_EXIT: hard-off at the top of this function (2026-08-12 noise cleanup).
 
   // Deprecated: folded into kanban/trade embeds
   if (t === "KANBAN_JUST_ENTERED") return false; // Redundant with TRADE_ENTRY
