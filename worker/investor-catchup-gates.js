@@ -35,6 +35,9 @@ export const CATCHUP_BUY_OK_STAGES = Object.freeze([
  * @property {number} [maxBuyDriftPct=5]        Skip buy if live > lot × (1+pct/100)
  * @property {number} [minScoreBuy=30]          Aligns with live DCA floor
  * @property {boolean} [force=false]            Operator bypass
+ * @property {boolean} [trustModelExecution=false] Fresh-lot fidelity: the model
+ *   book executed this buy minutes ago — skip stage/score/zone thesis gates
+ *   (built for stale chases) and keep only the price gates.
  */
 
 /**
@@ -80,7 +83,17 @@ export function evaluateCatchupThesisGate(input = {}) {
 
   // --- Buy / DCA / add gates ---
 
-  if (stage && CATCHUP_BUY_BLOCK_STAGES.includes(stage)) {
+  // 2026-08-12 — Fresh-lot fidelity bypass (DCA sweep). When the model book
+  // executed this buy minutes ago (invocation died before the mirror fired —
+  // NVDA 8/11), the mirror should follow the book: the executor already
+  // applied its own score / market-health / pullback gates at execution
+  // time. The stage/score/zone thesis gates below exist to stop STALE
+  // chases, and would wrongly veto a faithful same-session mirror (NVDA's
+  // accumZone carried exhaustion warnings even as shouldExecutePullbackDca
+  // bought the dip). Price gates (drift / live-price presence) still apply.
+  const trustModelExecution = input.trustModelExecution === true;
+
+  if (!trustModelExecution && stage && CATCHUP_BUY_BLOCK_STAGES.includes(stage)) {
     return {
       allow: false,
       reason: "stage_blocks_add",
@@ -91,7 +104,7 @@ export function evaluateCatchupThesisGate(input = {}) {
 
   // If we have a stage and it's not in the OK set (and not empty), be
   // conservative — e.g. research_on_watch without a clear accumulate signal.
-  if (stage && !CATCHUP_BUY_OK_STAGES.includes(stage) && !CATCHUP_BUY_BLOCK_STAGES.includes(stage)) {
+  if (!trustModelExecution && stage && !CATCHUP_BUY_OK_STAGES.includes(stage) && !CATCHUP_BUY_BLOCK_STAGES.includes(stage)) {
     // Unknown / research stages: only allow when score is clearly healthy.
     if (score == null || !Number.isFinite(score) || score < Math.max(minScoreBuy, 50)) {
       return {
@@ -103,7 +116,7 @@ export function evaluateCatchupThesisGate(input = {}) {
     }
   }
 
-  if (score != null && Number.isFinite(score) && score < minScoreBuy) {
+  if (!trustModelExecution && score != null && Number.isFinite(score) && score < minScoreBuy) {
     return {
       allow: false,
       reason: "score_low",
@@ -116,7 +129,7 @@ export function evaluateCatchupThesisGate(input = {}) {
   const exhausted = zoneType.includes("exhaust")
     || (Array.isArray(input.accumZone?.exhaustionWarnings)
       && input.accumZone.exhaustionWarnings.length > 0);
-  if (exhausted && stage !== "accumulate") {
+  if (!trustModelExecution && exhausted && stage !== "accumulate") {
     return {
       allow: false,
       reason: "zone_exhausted",

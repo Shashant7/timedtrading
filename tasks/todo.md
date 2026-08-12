@@ -21,6 +21,18 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **NVDA 8/11 DCA silent side-effect loss (2026-08-12).** The 15:45 ET
+      DCA invocation was hard-killed after the lot INSERT + position bump:
+      no ledger row, no decision record, no bell/Discord/email, no broker
+      mirror (nightly repair + daily backfill later healed ledger + bell
+      only). Fix: `sweepInvestorDcaSideEffects` on a new 15:50 ET cron slot
+      (+ manual `POST /timed/admin/investor/dca-sweep`) idempotently heals
+      channels/ledger/decision and runs mirror catch-up; catch-up gained
+      `trust_fresh_lot_ms` (RTH-elapsed) so thesis gates (`zone_exhausted`)
+      cannot veto mirroring a buy the model itself just executed — the
+      hourly RTH auto pass sends 60 min, which also self-heals NVDA at the
+      next 10:00 ET tick. Decision record healed live; deployed both envs.
+      Branch: `cursor/dca-side-effect-sweep-dbdd`.
 - [x] **Keepalive overnight soft-fail (2026-08-08).** Feed keepalive emailed on `25de02e`: overnight lightweight age ~270s (normal for */5) + `/feed/run-once` `unauthorized` hard-failed the job. Soft-fail heals, 600s lightweight threshold, OH-gate heartbeat/scoring. Ops: sync GitHub `TIMED_API_KEY` ↔ tt-feed worker secret (kicks stay no-ops until then). Branch: `cursor/keepalive-softfail-df0c`.
 
 - [x] **Cron-stall heal covers heartbeat+scoring (2026-08-07).** Watchdog at 23:39 UTC failed again: prices fresh (~67s) but `cronTickAgeMin`~35m + scoring~46m + chain scoring. Keepalive only kicked `/feed/run-once`. Expanded `feed-keepalive.yml` + watchdog self-heal to stamp `cron:last_5min_tick`, rescore SPY/QQQ/AAPL, stamp `timed:scoring:last_run`. Ops heal applied; health+chain green. Branch: `cursor/cron-stall-heal-df0c`.

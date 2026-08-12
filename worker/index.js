@@ -2271,6 +2271,8 @@ const ROUTES = [
   ["POST", "/timed/admin/broker-bridge/rebuild-mirror", "POST /timed/admin/broker-bridge/rebuild-mirror"],
   // 2026-07-30 — Reverse dual-worker DCA twin lots (share bump + lot + ledger).
   ["POST", "/timed/admin/investor/dedupe-dca-lots", "POST /timed/admin/investor/dedupe-dca-lots"],
+  // 2026-08-12 — Manually run the DCA side-effect heal sweep (see cron 15:50 ET).
+  ["POST", "/timed/admin/investor/dca-sweep", "POST /timed/admin/investor/dca-sweep"],
   ["POST", "/timed/admin/broker-bridge/manifest/action",  "POST /timed/admin/broker-bridge/manifest/action"],
   ["POST", "/timed/admin/broker-bridge/notify/drain",     "POST /timed/admin/broker-bridge/notify/drain"],
   ["POST", "/timed/admin/broker-bridge/daily-digest",     "POST /timed/admin/broker-bridge/daily-digest"],
@@ -39585,6 +39587,140 @@ async function backfillInvestorLotNotifications(env, { daysBack = 7 } = {}) {
   } catch (e) {
     console.warn("[NOTIF BACKFILL] investor lots failed:", String(e?.message || e).slice(0, 200));
   }
+}
+
+/**
+ * 2026-08-12 — Heal missing side effects for recently executed DCA lots.
+ *
+ * NVDA 8/11 15:45 ET: the DCA invocation was hard-killed between the lot
+ * INSERT + position bump (committed) and everything user-visible — no
+ * account_ledger row, no decision record, no bell/Discord/email, no broker
+ * mirror. The day-lock + per-position claim correctly stop a re-run, so
+ * nothing self-healed until the nightly repair (ledger) and daily backfill
+ * (bell, back-dated) — email/Discord/mirror were lost entirely, and the
+ * mirror had to wait for the next-day RTH catch-up pass.
+ *
+ * This sweep runs 5 minutes after the DCA slot (15:50 ET, still inside RTH
+ * so Webull fractionals place and notifications are timely). For each
+ * DCA_BUY lot in the window it idempotently re-fires whatever is missing:
+ *   - channels (bell row presence == channels ran; live path + this sweep
+ *     both write it, so double-fire is impossible)
+ *   - account_ledger DCA_BUY row (nightly repair claims it, no twin)
+ *   - decision record (INSERT OR IGNORE on decision_id)
+ *   - broker mirror via runInvestorCatchup (checks bridge state + gates)
+ */
+async function sweepInvestorDcaSideEffects(env, { windowMs = 30 * 60 * 1000 } = {}) {
+  const db = env?.DB;
+  if (!db) return { ok: false, skipped: true, reason: "no_db" };
+  const sinceMs = Date.now() - windowMs;
+  const lots = (await db.prepare(
+    `SELECT l.id AS lot_id, l.position_id, l.ticker, l.shares, l.price, l.value, l.ts, l.reason,
+            p.investor_stage
+       FROM investor_lots l
+       LEFT JOIN investor_positions p ON l.position_id = p.id
+      WHERE l.action = 'DCA_BUY' AND l.ts >= ?1
+      ORDER BY l.ts DESC LIMIT 20`
+  ).bind(sinceMs).all())?.results || [];
+  const healed = [];
+  for (const lot of lots) {
+    const actions = [];
+    try {
+      const bell = await db.prepare(
+        `SELECT id FROM user_notifications
+          WHERE type = 'investor_signal' AND link LIKE ?1 LIMIT 1`
+      ).bind(`%lot_id=${lot.lot_id}%`).first().catch(() => null);
+      if (!bell?.id) {
+        scheduleInvestorBuyActionChannels(env, env.KV_TIMED, {
+          ticker: lot.ticker,
+          shares: lot.shares,
+          price: lot.price,
+          value: lot.value,
+          reason: lot.reason,
+          stage: lot.investor_stage || "accumulate",
+          investor_alert_type: "position_add",
+          lot_id: lot.lot_id,
+          ts: lot.ts,
+        });
+        actions.push("channels");
+      }
+
+      const led = await db.prepare(
+        `SELECT 1 AS present FROM account_ledger
+          WHERE mode = 'investor' AND event_type = 'DCA_BUY'
+            AND position_id = ?1 AND ABS(ts - ?2) < 600000 LIMIT 1`
+      ).bind(lot.position_id, lot.ts).first().catch(() => null);
+      if (!led?.present) {
+        const bal = await d1GetLedgerBalance(env, "investor");
+        await d1InsertLedgerEntry(env, {
+          mode: "investor", ts: lot.ts, event_type: "DCA_BUY",
+          position_id: lot.position_id, ticker: lot.ticker, direction: "LONG",
+          qty: lot.shares, price: lot.price, cash_delta: -lot.value,
+          realized_pnl: 0, balance: bal - lot.value,
+          note: `dca_sweep_heal_${lot.lot_id}`,
+        }).catch(() => {});
+        actions.push("ledger");
+      }
+
+      const dec = await db.prepare(
+        `SELECT decision_id FROM decision_records
+          WHERE engine = 'investor' AND trade_id = ?1 LIMIT 1`
+      ).bind(lot.lot_id).first().catch(() => null);
+      if (!dec?.decision_id) {
+        await recordInvestorDecision(env, {
+          lotId: lot.lot_id,
+          positionId: lot.position_id,
+          ticker: lot.ticker,
+          eventType: "ADD",
+          ts: lot.ts,
+          reason: lot.reason,
+          inputCtx: {
+            action: "BUY", event: "ADD",
+            lotId: lot.lot_id, positionId: lot.position_id,
+            ticker: lot.ticker, ts: lot.ts,
+            price: lot.price, shares: lot.shares, value: lot.value,
+            reason: lot.reason,
+            autoRebalance: { kind: "dca", dca_reason: lot.reason, healed_by: "dca_sweep" },
+          },
+        }).catch(() => {});
+        actions.push("decision");
+      }
+    } catch (e) {
+      console.warn(`[DCA SWEEP] heal ${lot.lot_id} failed:`, String(e?.message || e).slice(0, 160));
+    }
+    if (actions.length) healed.push({ lot_id: lot.lot_id, ticker: lot.ticker, actions });
+  }
+
+  // Mirror heal — always run (a mirror-only failure leaves no D1 trace this
+  // sweep can see). The catch-up planner checks bridge state + adaptive
+  // gates itself, so this is a cheap no-op when everything mirrored.
+  let catchup = null;
+  const mirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true"
+    && String(env?.BROKER_CATCHUP_AUTO_RTH || "false").toLowerCase() === "true";
+  if (lots.length && mirrorOn) {
+    try {
+      const { runInvestorCatchup } = await import("./investor-catchup-run.js");
+      const out = await runInvestorCatchup(env, {
+        dry_run: false,
+        hours: Math.max(2, Math.ceil(windowMs / 3600000)),
+        max_ops: 6,
+        source: "dca_sweep",
+        // Fresh-lot fidelity: buys the model executed within this window
+        // mirror the book faithfully — thesis gates (stage/score/zone)
+        // skipped, price gates kept. Without it NVDA 8/11 would have been
+        // vetoed by zone_exhausted even 5 minutes after execution.
+        trust_fresh_lot_ms: windowMs,
+      });
+      catchup = {
+        planned: out.planned || 0,
+        forwarded_ok: (out.results || []).filter((r) => r.ok).length,
+        forwarded_fail: (out.results || []).filter((r) => !r.ok).length,
+      };
+    } catch (e) {
+      console.warn("[DCA SWEEP] catchup failed:", String(e?.message || e).slice(0, 200));
+      catchup = { error: String(e?.message || e).slice(0, 160) };
+    }
+  }
+  return { ok: true, lots: lots.length, healed, healed_count: healed.length, catchup };
 }
 
 async function d1LoadRegistryIndexTickers(env) {
@@ -82344,6 +82480,7 @@ export default {
             max_ops: body?.max_ops,
             skip_buys: body?.skip_buys === true,
             source: body?.source || "catchup_investor",
+            trust_fresh_lot_ms: body?.trust_fresh_lot_ms,
           });
           return sendJSON({
             ...out,
@@ -82412,6 +82549,22 @@ export default {
               ? "Pass {\"dry_run\":false,\"trade_id\":\"…\"} to forward the EXIT to the bridge."
               : "EXIT forwarded; check bridge audit + broker-bridge/recent.",
           }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // 2026-08-12 — Manually run the DCA side-effect heal sweep (same code
+      // the 15:50 ET cron runs; window_hours widens the lookback for
+      // after-the-fact repairs like NVDA 8/11).
+      if (routeKey === "POST /timed/admin/investor/dca-sweep") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const windowHours = Math.min(168, Math.max(0.1, Number(body?.window_hours) || 0.5));
+          const out = await sweepInvestorDcaSideEffects(env, { windowMs: windowHours * 3600 * 1000 });
+          return sendJSON(out, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
         }
@@ -100788,6 +100941,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // separate from the 4:30 PM labels above (brief-eval + EOD snap).
       if (_isWeekday && _utcH === 19 && _utcM === 45) vc.add("45 19 * * 1-5");
       if (_isWeekday && _utcH === 20 && _utcM === 45) vc.add("45 20 * * 1-5");
+      // 2026-08-12 — DCA side-effect sweep slot 5 min after the DCA execute
+      // slot (NVDA 8/11: the 15:45 invocation died after the lot INSERT and
+      // before ledger/decision/channels/mirror — see tasks/lessons.md).
+      if (_isWeekday && _utcH === 19 && _utcM === 50) vc.add("50 19 * * 1-5");
+      if (_isWeekday && _utcH === 20 && _utcM === 50) vc.add("50 20 * * 1-5");
     }
     if (_isHourly) {
       /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
@@ -101479,6 +101637,41 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — let other cron handlers run too if they match
     }
 
+    // ── Investor DCA side-effect sweep (3:50 PM ET, 5 min after DCA) ──
+    //
+    // 2026-08-12 — NVDA 8/11: the 15:45 ET DCA invocation was hard-killed
+    // between the lot INSERT (committed) and the ledger row / decision
+    // record / bell / Discord / email / broker mirror (all lost). The
+    // day-lock + per-position claim correctly stop a re-run, so nothing
+    // re-fired: ledger healed overnight, bell back-dated by the daily
+    // backfill, email/Discord gone, mirror waited ~18h for the next-day
+    // RTH catch-up. This sweep re-checks the last 30 min of DCA lots and
+    // idempotently heals each missing side effect while notifications are
+    // still timely and fractionals still place (inside RTH).
+    if (!_isDedicatedEngine && (vc.has("50 19 * * 1-5") || vc.has("50 20 * * 1-5"))) {
+      const _swEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
+      const _swEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
+      if (_swEtH === 15 && _swEtM >= 50 && isNyRegularMarketOpen()) ctx.waitUntil((async () => {
+        try {
+          const out = await sweepInvestorDcaSideEffects(env);
+          if (out?.healed_count) {
+            console.warn(`[DCA SWEEP] healed ${out.healed_count} lot(s):`,
+              JSON.stringify(out.healed).slice(0, 400));
+          } else {
+            console.log(`[DCA SWEEP] ${out?.lots || 0} lot(s) checked — all side effects present`);
+          }
+          recordCronSuccess(env, "investor_dca_sweep").catch(() => {});
+        } catch (e) {
+          console.warn("[DCA SWEEP] Failed:", String(e?.message || e).slice(0, 300));
+          recordCronFailure(env, {
+            op: "investor_dca_sweep",
+            error: String(e?.message || e),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
+    }
+
     // ── Investor auto catch-up (hourly during RTH) ──
     //
     // 2026-07-30 — Operator ask: when Webull rejects ETH fractionals (or any
@@ -101514,6 +101707,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             hours: 72,
             max_ops: 8,
             source: "catchup_auto_rth",
+            // 2026-08-12 — Fresh-lot fidelity (RTH-elapsed): a DCA executed
+            // late in the session whose mirror died (NVDA 8/11 at 15:45,
+            // only 15 RTH-min before close) is still a faithful mirror at
+            // the next morning's pass (~45 RTH-min old at 10:00 ET). Thesis
+            // gates skipped inside the window; drift/price gates kept.
+            trust_fresh_lot_ms: 60 * 60 * 1000,
           });
           const okN = (out.results || []).filter((r) => r.ok).length;
           const failN = (out.results || []).filter((r) => !r.ok).length;
