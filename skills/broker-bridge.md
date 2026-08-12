@@ -437,6 +437,27 @@ an app user. Flow:
 Notifications for self-service accounts go to the user (their sign-in
 email is stamped as `partner_email` at connect) + the admin inbox.
 
+Guard rails (2026-08-12):
+- **Uniqueness** — one Webull brokerage account (Webull `account_id`) can
+  only be connected under ONE owner. A second user pasting the same keys
+  gets a 409 `webull_account_already_connected`
+  (`findCrossOwnerWebullClash` in `bridge-webull-api.js`).
+- **Remove** — "Disconnect Webull" (`POST /timed/broker/webull/disconnect`
+  → bridge oauth/disconnect) now also clears the stored App Key/Secret
+  wraps, the env-creds reference, and the `mirror_participant` opt-in.
+- **Kill switches** — user-facing "Pause all mirroring"
+  (`POST /timed/broker/pause-all` → bridge `POST /bridge/owner/pause` →
+  `pauseOwnerAccounts`) disables every account under the owner in one
+  shot (stays connected; re-enable is per-account). The admin unchecking
+  the Clients-page Broker checkbox cascades into the same owner pause.
+  The global bridge killswitch (`/bridge/killswitch`) is unchanged.
+- **Position sync view** — `GET /timed/broker/positions` → bridge
+  `GET /bridge/positions?owner=` joins live broker equity positions
+  against `mirror_trade_manifest.sync_state` (maintained by the
+  reconciler). Rendered on `broker-connections.html` as per-ticker pills:
+  IN SYNC / PENDING / PARTIAL FILL / AT BROKER ONLY / MISSING AT BROKER /
+  NOT MIRRORED (untracked = user's own holdings, not model-managed).
+
 - `login_label` is **required** for a second login (prevents slug
   collisions — both logins can have an INDIVIDUAL_CASH account).
 - New accounts arrive **disabled**; enable per account via `/bridge/enable`.
