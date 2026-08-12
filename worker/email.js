@@ -2854,7 +2854,13 @@ export function buildInvestorQueueDigestBody(alerts, baseUrl) {
   return { bodyHtml, syms, count: list.length };
 }
 
-/** One email per scoring pass for execution-ready Queue names — chart + CIO per ticker. */
+/**
+ * One email per scoring pass for execution-ready Queue names — chart + CIO per ticker.
+ * @deprecated 2026-08-12 — no longer called from the alert loop (operator
+ * noise cleanup: "Entered Queue" is a lane transition, not an executed
+ * action; notifications/emails focus on buys, sells, and stop/target/
+ * invalidation updates). Kept exported for tests + potential manual use.
+ */
 export async function sendInvestorQueueDigest(env, alerts) {
   const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
   const { bodyHtml, syms, count } = buildInvestorQueueDigestBody(alerts, baseUrl);

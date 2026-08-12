@@ -1001,7 +1001,6 @@ import {
   getUserEmailPrefs,
   getEmailOptedInUsers,
   sendInvestorAlertEmails,
-  sendInvestorQueueDigest,
   sendInvestorReduceDigest,
   sendInvestorWeeklyDigest,
   hmacVerify,
@@ -24261,20 +24260,11 @@ async function processTradeSimulation(
             trade_id: openTrade.id || openTrade.trade_id || null,
             direction: openTrade.direction || null,
           }, 24 * 3600).catch(() => {});
-          await dispatchTradeAlertEmails(env, {
-            type: "TRADE_EXIT_SIGNAL",
-            ticker: sym,
-            direction: openTrade.direction,
-            price: pxNow,
-            mode: "trader",
-            trade_id: openTrade.id || openTrade.trade_id || null,
-            entry: _sigEntry,
-            pnlPct: _sigPnl,
-            exitReason: _humanExitReason || exitReasonRaw,
-            action_ts: _sigTs,
-          }).catch((e) => {
-            console.warn(`[EMAIL] ${sym} exit-signal dispatch failed:`, String(e?.message || e).slice(0, 120));
-          });
+          // 2026-08-12 — Exit-recommendation EMAIL removed (operator noise
+          // cleanup): advisory warnings don't email — only executed actions
+          // do (the actual close emails via TRADE_EXIT, never throttled).
+          // The advisory still writes the KV trade-card banner above and
+          // the activity entry below.
           await appendActivity(KV, {
             type: "TRADE_EXIT_SIGNAL",
             ticker: sym,
@@ -39609,7 +39599,7 @@ async function backfillInvestorLotNotifications(env, { daysBack = 7 } = {}) {
  *   - decision record (INSERT OR IGNORE on decision_id)
  *   - broker mirror via runInvestorCatchup (checks bridge state + gates)
  */
-async function sweepInvestorDcaSideEffects(env, { windowMs = 30 * 60 * 1000 } = {}) {
+async function sweepInvestorDcaSideEffects(env, { windowMs = 30 * 60 * 1000, mirror = true } = {}) {
   const db = env?.DB;
   if (!db) return { ok: false, skipped: true, reason: "no_db" };
   const sinceMs = Date.now() - windowMs;
@@ -39690,13 +39680,18 @@ async function sweepInvestorDcaSideEffects(env, { windowMs = 30 * 60 * 1000 } = 
     if (actions.length) healed.push({ lot_id: lot.lot_id, ticker: lot.ticker, actions });
   }
 
-  // Mirror heal — always run (a mirror-only failure leaves no D1 trace this
-  // sweep can see). The catch-up planner checks bridge state + adaptive
-  // gates itself, so this is a cheap no-op when everything mirrored.
+  // Mirror heal — a mirror-only failure leaves no D1 trace this sweep can
+  // see, so run the catch-up planner (it checks bridge ring state + gates
+  // itself; cheap no-op when everything mirrored). `mirror: false` skips
+  // this leg — used by the immediate post-dispatch pass, where the DCA
+  // route's own mirror waitUntil may still be in flight (the catch-up's
+  // retry_nonce busts order dedupe, so racing it risks a double order),
+  // and by after-close ticks (fractionals reject outside RTH; the morning
+  // catch-up trust window covers the mirror instead).
   let catchup = null;
   const mirrorOn = String(env?.BROKER_INVESTOR_MIRROR_ENABLED || "false").toLowerCase() === "true"
     && String(env?.BROKER_CATCHUP_AUTO_RTH || "false").toLowerCase() === "true";
-  if (lots.length && mirrorOn) {
+  if (lots.length && mirrorOn && mirror) {
     try {
       const { runInvestorCatchup } = await import("./investor-catchup-run.js");
       const out = await runInvestorCatchup(env, {
@@ -39720,7 +39715,56 @@ async function sweepInvestorDcaSideEffects(env, { windowMs = 30 * 60 * 1000 } = 
       catchup = { error: String(e?.message || e).slice(0, 160) };
     }
   }
-  return { ok: true, lots: lots.length, healed, healed_count: healed.length, catchup };
+  return {
+    ok: true,
+    lots: lots.length,
+    healed,
+    healed_count: healed.length,
+    catchup,
+    // True when the mirror state was actually verified this pass: nothing to
+    // mirror, mirroring globally off, or the catch-up planner ran.
+    mirror_checked: !lots.length || !mirrorOn || catchup != null,
+  };
+}
+
+/**
+ * Lock + clean-marker wrapper around the DCA sweep so the per-minute retry
+ * window (15:46–16:15 ET) and the immediate post-dispatch pass cannot run
+ * concurrently (channels double-fire race) and stop re-running once a pass
+ * verified everything: nothing healed, mirror state checked, catch-up
+ * planned nothing and had no failures. A pass that healed or forwarded
+ * anything does NOT mark clean — the next tick re-verifies it.
+ */
+async function runDcaSweepGuarded(env, { mirror = true } = {}) {
+  const KV = env?.KV_TIMED;
+  const _nyP = new Date().toLocaleString("en-US", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).split("/");
+  const nyDate = `${_nyP[2]}-${_nyP[0]}-${_nyP[1]}`;
+  const cleanKey = `timed:cron:investor_dca_sweep_clean:${nyDate}`;
+  const lockKey = "timed:cron:investor_dca_sweep_lock";
+  if (KV) {
+    if (await KV.get(cleanKey).catch(() => null)) return { ok: true, skipped: "clean" };
+    if (await KV.get(lockKey).catch(() => null)) return { ok: true, skipped: "locked" };
+    await KV.put(lockKey, String(Date.now()), { expirationTtl: 120 }).catch(() => {});
+  }
+  try {
+    const out = await sweepInvestorDcaSideEffects(env, { mirror });
+    const catchupClean = !out?.catchup
+      || (!out.catchup.error
+        && (out.catchup.planned || 0) === 0
+        && (out.catchup.forwarded_fail || 0) === 0);
+    const clean = out?.ok === true
+      && !out?.healed_count
+      && out?.mirror_checked === true
+      && catchupClean;
+    if (clean && KV) {
+      await KV.put(cleanKey, String(Date.now()), { expirationTtl: 12 * 3600 }).catch(() => {});
+    }
+    return { ...out, clean };
+  } finally {
+    if (KV) await KV.delete(lockKey).catch(() => {});
+  }
 }
 
 async function d1LoadRegistryIndexTickers(env) {
@@ -90303,10 +90347,34 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // 'investor_alerts' pref). Discord alert + email send happen
           // in parallel via ctx.waitUntil so the cron stays responsive.
           const _invKv = env?.KV_TIMED;
-          const _queueAlerts = [];
           const _reduceAlerts = [];
           for (const alert of investorAlerts.slice(0, 5)) {
             const _invTicker = String(alert.data?.ticker || "").toUpperCase();
+            // 2026-08-12 — Operator noise cleanup: "Entered Queue" is a lane
+            // transition, not an executed action. It no longer sends the
+            // queue-digest email, the Discord embed, or a bell row (every
+            // bell insert also fires a web push before the panel filter —
+            // that push was the noise). The Queue lane on the Investor
+            // board + the activity strip remain the surfaces. Skipping
+            // before the CIO consult also saves the OpenAI call.
+            const _preAction = deriveInvestorAlertAction(alert.type, alert.data);
+            const _isQueueLaneAlert = alert.type === "accumulation_zone"
+              && _preAction.verb === "MODEL · QUEUE";
+            if (_isQueueLaneAlert) {
+              if (_invKv) {
+                ctx.waitUntil(appendActivity(_invKv, {
+                  type: "INVESTOR_SIGNAL",
+                  ticker: alert.data.ticker,
+                  action: _preAction.verb,
+                  investor_alert_type: alert.type,
+                  mode: "investor",
+                  score: alert.data.score ?? null,
+                  zone_type: alert.data.zoneType ?? null,
+                }).catch(() => {}));
+              }
+              alertsSent.push({ type: alert.type, ticker: alert.data.ticker, action: _preAction.verb, channels: "activity_only" });
+              continue;
+            }
             if (env?.OPENAI_API_KEY && _invTicker) {
               try {
                 const _invCio = await _consultInvestorSignalCio(env, {
@@ -90329,27 +90397,13 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             if (embed) {
               const _invAction = deriveInvestorAlertAction(alert.type, alert.data);
               if (!INVESTOR_ACTIONABLE_ALERT_VERBS.includes(_invAction.verb)) continue;
-              const _isQueueAlert = alert.type === "accumulation_zone"
-                && _invAction.verb === "MODEL · QUEUE";
-              if (_isQueueAlert) {
-                const _liveRow = investorResults[_invTicker];
-                if (_liveRow && !shouldFireInvestorQueueAlert({
-                  ..._liveRow,
-                  actionTier: _liveRow.actionTier || computeInvestorActionTier(_liveRow),
-                })) {
-                  console.log(`[INVESTOR ALERTS] send-time skip Queue for ${_invTicker} — lane no longer accumulate_queued`);
-                  continue;
-                }
-              }
               ctx.waitUntil(notifyDiscord(env, embed));
               // 2026-06-24 — REDUCE / Model Thesis Shift signals batch into ONE
-              // combined digest (mirror of the Queue digest) instead of a
-              // per-ticker email blast, so multiple reduce signals in a pass
-              // arrive as a single "can be combined with other tickers" email.
+              // combined digest instead of a per-ticker email blast, so
+              // multiple reduce signals in a pass arrive as a single email.
+              // (Queue alerts exit the loop earlier — activity strip only.)
               const _isReduceAlert = alert.type === "thesis_invalidation";
-              if (_isQueueAlert) {
-                _queueAlerts.push(alert);
-              } else if (_isReduceAlert) {
+              if (_isReduceAlert) {
                 _reduceAlerts.push(alert);
               } else {
                 ctx.waitUntil(sendInvestorAlertEmails(env, alert).catch((e) => {
@@ -90381,11 +90435,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               alertsSent.push({ type: alert.type, ticker: alert.data.ticker, action: _invAction.verb });
             }
           }
-          if (_queueAlerts.length > 0) {
-            ctx.waitUntil(sendInvestorQueueDigest(env, _queueAlerts).catch((e) => {
-              console.warn("[INVESTOR QUEUE DIGEST] send failed:", String(e?.message || e).slice(0, 200));
-            }));
-          }
+          // 2026-08-12 — Queue digest email removed (operator noise cleanup);
+          // sendInvestorQueueDigest is no longer called from the alert loop.
           if (_reduceAlerts.length > 0) {
             ctx.waitUntil(sendInvestorReduceDigest(env, _reduceAlerts).catch((e) => {
               console.warn("[INVESTOR REDUCE DIGEST] send failed:", String(e?.message || e).slice(0, 200));
@@ -100941,11 +100992,6 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // separate from the 4:30 PM labels above (brief-eval + EOD snap).
       if (_isWeekday && _utcH === 19 && _utcM === 45) vc.add("45 19 * * 1-5");
       if (_isWeekday && _utcH === 20 && _utcM === 45) vc.add("45 20 * * 1-5");
-      // 2026-08-12 — DCA side-effect sweep slot 5 min after the DCA execute
-      // slot (NVDA 8/11: the 15:45 invocation died after the lot INSERT and
-      // before ledger/decision/channels/mirror — see tasks/lessons.md).
-      if (_isWeekday && _utcH === 19 && _utcM === 50) vc.add("50 19 * * 1-5");
-      if (_isWeekday && _utcH === 20 && _utcM === 50) vc.add("50 20 * * 1-5");
     }
     if (_isHourly) {
       /* Phase C — Stage 0d (2026-05-02) — Loop 2 pulse + breaker.
@@ -101625,6 +101671,21 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           const dcaData = await dcaResp.json().catch(() => ({}));
           console.log(`[INVESTOR CRON] DCA: ${dcaData.executed || 0} executed, ${dcaData.skipped || 0} skipped`);
           recordCronSuccess(env, "investor_dca").catch(() => {});
+          // 2026-08-12 — Immediate side-effect verification (same invocation,
+          // right after the route returns): heals soft channel/ledger/decision
+          // failures with zero delay. mirror:false — the route's own mirror
+          // waitUntil may still be in flight and the catch-up's retry_nonce
+          // busts order dedupe (double-order risk); the */1 retry window
+          // (15:46+) verifies the mirror one minute later instead.
+          try {
+            const _swImmediate = await runDcaSweepGuarded(env, { mirror: false });
+            if (_swImmediate?.healed_count) {
+              console.warn(`[DCA SWEEP] post-dispatch healed ${_swImmediate.healed_count} lot(s):`,
+                JSON.stringify(_swImmediate.healed).slice(0, 400));
+            }
+          } catch (_swErr) {
+            console.warn("[DCA SWEEP] post-dispatch pass failed:", String(_swErr?.message || _swErr).slice(0, 200));
+          }
         } catch (e) {
           console.warn(`[INVESTOR CRON] Failed:`, String(e?.message || e).slice(0, 300));
           recordCronFailure(env, {
@@ -101637,28 +101698,33 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // Don't return — let other cron handlers run too if they match
     }
 
-    // ── Investor DCA side-effect sweep (3:50 PM ET, 5 min after DCA) ──
+    // ── Investor DCA side-effect heal (per-minute retry window) ──
     //
     // 2026-08-12 — NVDA 8/11: the 15:45 ET DCA invocation was hard-killed
     // between the lot INSERT (committed) and the ledger row / decision
     // record / bell / Discord / email / broker mirror (all lost). The
     // day-lock + per-position claim correctly stop a re-run, so nothing
-    // re-fired: ledger healed overnight, bell back-dated by the daily
-    // backfill, email/Discord gone, mirror waited ~18h for the next-day
-    // RTH catch-up. This sweep re-checks the last 30 min of DCA lots and
-    // idempotently heals each missing side effect while notifications are
-    // still timely and fractionals still place (inside RTH).
-    if (!_isDedicatedEngine && (vc.has("50 19 * * 1-5") || vc.has("50 20 * * 1-5"))) {
+    // re-fired. v2 (operator): a single 15:50 shot is 5 minutes late and
+    // can die the same way — instead, EVERY */1 tick from 15:46 to 16:15
+    // ET re-verifies and heals until one pass comes back fully clean (a
+    // daily KV marker then short-circuits the rest, so this is normally
+    // one cheap pass). The lock inside runDcaSweepGuarded prevents
+    // concurrent passes double-firing channels. Mirror leg only runs
+    // while RTH is open (Webull fractionals reject after close); a miss
+    // after 16:00 is covered by the morning catch-up trust window.
+    if (!_isDedicatedEngine && _isEveryMin && _isWeekday) {
       const _swEtH = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }), 10);
       const _swEtM = parseInt(new Date().toLocaleString("en-US", { timeZone: "America/New_York", minute: "numeric" }), 10);
-      if (_swEtH === 15 && _swEtM >= 50 && isNyRegularMarketOpen()) ctx.waitUntil((async () => {
+      const _swInWindow = (_swEtH === 15 && _swEtM >= 46) || (_swEtH === 16 && _swEtM <= 15);
+      if (_swInWindow) ctx.waitUntil((async () => {
         try {
-          const out = await sweepInvestorDcaSideEffects(env);
+          const out = await runDcaSweepGuarded(env, { mirror: isNyRegularMarketOpen() });
+          if (out?.skipped) return;
           if (out?.healed_count) {
             console.warn(`[DCA SWEEP] healed ${out.healed_count} lot(s):`,
               JSON.stringify(out.healed).slice(0, 400));
-          } else {
-            console.log(`[DCA SWEEP] ${out?.lots || 0} lot(s) checked — all side effects present`);
+          } else if (out?.clean) {
+            console.log(`[DCA SWEEP] clean — ${out?.lots || 0} lot(s) verified, marker set`);
           }
           recordCronSuccess(env, "investor_dca_sweep").catch(() => {});
         } catch (e) {
