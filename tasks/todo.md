@@ -54,7 +54,10 @@
       email), (3) frontend — Clients page checkbox, avatar-menu "Broker
       Connections" item gated on the flag, new `broker-connections.html`
       self-service page (paste keys → view accounts → per-account mirror
-      toggle + caps). Branch: `cursor/webull-second-login-dbdd`.
+      toggle + caps). ALL SHIPPED + deployed (bridge + worker both envs);
+      endpoints smoke-tested live (auth gates + admin toggle round-trip).
+      Remaining: partner does the flow end-to-end once provisioned.
+      Branch: `cursor/webull-second-login-dbdd`.
 
 - [ ] **Context-first scoring (2026-08-05/06).** Plan:
       [`2026-08-05-context-first-scoring-plan.md`](2026-08-05-context-first-scoring-plan.md).

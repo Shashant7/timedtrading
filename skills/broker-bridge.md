@@ -409,6 +409,34 @@ accounts then go to the partner AND the admin address
 Accounts without `notify_emails` keep the legacy single-recipient
 behavior. Critical drift still hits the operator Discord as before.
 
+### Self-service Broker Connections (app users) — 2026-08-11
+
+Preferred over the operator flow above when the second account belongs to
+an app user. Flow:
+
+1. **Provision**: admin ticks the "Broker" checkbox on the client's row in
+   `admin-clients.html` (→ `POST /timed/admin/users/:email/broker-connections?enabled=true`,
+   sets `users.broker_connections_enabled`).
+2. **User connects**: a "Broker Connections" item appears in the account
+   avatar menu → `broker-connections.html`. The user pastes their own
+   Webull App Key/Secret (validated against Webull before storage, then
+   AES-GCM wrapped on their rows — owner = their sign-in email, so no
+   `login_label` needed; the label guard now only fires on a real slug
+   collision, so unlabeled key ROTATION works).
+3. **User enables mirroring per account**: the toggle calls
+   `POST /timed/broker/account/enable`, which stamps
+   `mirror_participant: true` bridge-side. `handleOrderWebhook` includes
+   every connected+enabled+`mirror_participant` account of OTHER owners in
+   each model-signal dispatch — independent of `BROKER_FANOUT_ENABLED`,
+   which still gates only the admin owner's own multi-account expansion.
+4. Caps via `POST /timed/broker/account/caps`; disconnect via
+   `POST /timed/broker/webull/disconnect` (all session-authed, scoped to
+   the signed-in user's own `email#...` namespace, gated on the
+   provisioning flag; admins bypass the flag).
+
+Notifications for self-service accounts go to the user (their sign-in
+email is stamped as `partner_email` at connect) + the admin inbox.
+
 - `login_label` is **required** for a second login (prevents slug
   collisions — both logins can have an INDIVIDUAL_CASH account).
 - New accounts arrive **disabled**; enable per account via `/bridge/enable`.
