@@ -680,7 +680,12 @@
                                     className="accent-[#38bdf8] w-3 h-3"
                                     checked={Number(u.broker_connections_enabled) === 1}
                                     disabled={actionLoading === u.email}
-                                    onChange={(e) => setBrokerConnections(u.email, e.target.checked)} />
+                                    onChange={(e) => {
+                                      // Un-provisioning cascades into an owner-level mirror
+                                      // pause on the bridge — make that explicit.
+                                      if (!e.target.checked && !confirm(`Disable Broker Connections for ${u.email}? This also pauses mirroring on all of their connected broker accounts.`)) return;
+                                      setBrokerConnections(u.email, e.target.checked);
+                                    }} />
                                   Broker
                                 </label>
                                 {u.tier !== "pro" && (

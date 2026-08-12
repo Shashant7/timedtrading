@@ -27,7 +27,7 @@ import {
   ensureBridgeSchema, readUser, writeUser, listConnectedUsers,
   getKillSwitch, setKillSwitch, writeAudit, recentAudit,
   claimOrderIdempotency, releaseOrderIdempotency, resolveBridgeAccounts,
-  listMirrorParticipants,
+  listMirrorParticipants, pauseOwnerAccounts,
 } from "./bridge-storage.js";
 import { preflightOrder, bumpDailyCounter, evaluateReducerAgainstPositions, reconcileReducerQty } from "./bridge-guards.js";
 import { roundQtyForBroker } from "./bridge-sizing.js";
@@ -511,6 +511,100 @@ export default {
           accounts: accounts.map(_redactUserForList),
           ts: Date.now(),
         });
+      }
+      // 2026-08-12 — Owner-level kill switch: pause mirroring on every
+      // account under one owner (self-service "Pause all" + the admin
+      // un-provision cascade). Credentials and connection status stay.
+      if (method === "POST" && path === "/bridge/owner/pause") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const owner = String(body?.owner || "").trim().toLowerCase();
+        if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const result = await pauseOwnerAccounts(env, owner);
+        return json({ ok: true, owner, ...result, ts: Date.now() });
+      }
+      // 2026-08-12 — Position sync view for ONE owner (self-service page).
+      // Joins live broker equity positions against the mirror trade
+      // manifest so the user can see which positions are model-managed
+      // and whether each is in sync (sync_state maintained by the
+      // reconciler). Broker positions with no manifest row are the
+      // user's own holdings → "untracked".
+      if (method === "GET" && path === "/bridge/positions") {
+        if (operatorFail) return operatorFail;
+        const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
+        if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const accounts = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
+          .filter((u) => String(u?.status || "").toLowerCase() === "connected");
+        const out = [];
+        for (const acct of accounts) {
+          const entry = {
+            account_id: acct.user_id,
+            broker: resolveBrokerId(acct) || acct.broker || null,
+            label: acct.webull_account_label || acct.webull_account_class || null,
+            mirror_enabled: acct.broker_integration_enabled === true,
+            items: [],
+          };
+          let brokerPositions = [];
+          try {
+            const adapter = brokerAdapterFor(acct);
+            const res = typeof adapter.getEquityPositions === "function"
+              ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
+              : { ok: false, error: "broker_no_positions_method" };
+            if (Array.isArray(res)) brokerPositions = res;
+            else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
+            else entry.positions_error = res?.error || "positions_unavailable";
+          } catch (e) {
+            entry.positions_error = String(e?.message || e).slice(0, 200);
+          }
+          const posBySym = new Map();
+          for (const p of brokerPositions) {
+            const sym = String(p?.ticker || p?.symbol || p?.instrument_symbol || "").toUpperCase();
+            if (!sym) continue;
+            const qty = Number(p?.quantity ?? p?.qty ?? p?.position ?? p?.units);
+            posBySym.set(sym, {
+              qty: Number.isFinite(qty) ? qty : null,
+              avg_cost: Number(p?.avg_cost ?? p?.average_cost ?? p?.cost_price ?? p?.avgPrice) || null,
+            });
+          }
+          const manifestRows = await recentManifestRows(env, { user_id: acct.user_id, limit: 200 });
+          const seen = new Set();
+          for (const row of manifestRows) {
+            const sym = String(row?.ticker || "").toUpperCase();
+            if (!sym || seen.has(sym)) continue;
+            const state = String(row?.sync_state || "").toLowerCase();
+            const modelStatus = String(row?.model_status || "").toUpperCase();
+            // Skip fully closed + reconciled history; keep anything live
+            // or in a drift state the user should see.
+            if (modelStatus === "CLOSED" && (state === "in_sync" || state === "expired" || state === "rejected")) continue;
+            seen.add(sym);
+            const broker = posBySym.get(sym) || null;
+            entry.items.push({
+              ticker: sym,
+              managed: true,
+              model_status: modelStatus || null,
+              sync_state: state || "pending",
+              model_qty: Number(row?.model_intended_qty) || null,
+              broker_filled_qty: Number(row?.broker_filled_qty) || 0,
+              broker_qty: broker ? broker.qty : 0,
+              avg_cost: broker ? broker.avg_cost : (Number(row?.broker_avg_cost) || null),
+              sync_note: row?.sync_note || null,
+              updated_at: row?.updated_at || null,
+            });
+          }
+          for (const [sym, p] of posBySym) {
+            if (seen.has(sym)) continue;
+            entry.items.push({
+              ticker: sym,
+              managed: false,
+              sync_state: "untracked",
+              broker_qty: p.qty,
+              avg_cost: p.avg_cost,
+            });
+          }
+          entry.items.sort((a, b) => (b.managed - a.managed) || String(a.ticker).localeCompare(String(b.ticker)));
+          out.push(entry);
+        }
+        return json({ ok: true, owner, accounts: out, ts: Date.now() });
       }
       if (method === "GET" && path === "/bridge/audit") {
         if (operatorFail) return operatorFail;

@@ -145,6 +145,202 @@ function AccountCard({
     className: msg.ok ? "msg-ok" : "msg-err"
   }, msg.text)));
 }
+const SYNC_PILL = {
+  in_sync: {
+    cls: "pill-ok",
+    label: "IN SYNC"
+  },
+  pending: {
+    cls: "pill-warn",
+    label: "PENDING"
+  },
+  partial_fill: {
+    cls: "pill-warn",
+    label: "PARTIAL FILL"
+  },
+  broker_orphan: {
+    cls: "pill-err",
+    label: "AT BROKER ONLY"
+  },
+  mothership_orphan: {
+    cls: "pill-err",
+    label: "MISSING AT BROKER"
+  },
+  reconcile_error: {
+    cls: "pill-warn",
+    label: "CHECK FAILED"
+  },
+  mirror_suppressed: {
+    cls: "pill-off",
+    label: "SUPPRESSED"
+  },
+  untracked: {
+    cls: "pill-off",
+    label: "NOT MIRRORED"
+  }
+};
+function PositionSyncCard({
+  refreshKey
+}) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/timed/broker/positions`, {
+          credentials: "include"
+        });
+        const json = await res.json().catch(() => null);
+        if (!alive) return;
+        if (json?.ok) {
+          setData(json.accounts || []);
+          setErr(null);
+        } else {
+          setData([]);
+          setErr(json?.error || "Request failed");
+        }
+      } catch (e) {
+        if (alive) {
+          setData([]);
+          setErr(String(e?.message || e));
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [refreshKey]);
+  if (data === null) return h("div", {
+    className: "card"
+  }, h("p", {
+    style: {
+      fontSize: 13,
+      color: "var(--muted)",
+      margin: 0
+    }
+  }, "Checking position sync…"));
+  return h("div", {
+    className: "card"
+  }, h("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15,
+      marginBottom: 4
+    }
+  }, "Position sync"), h("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--muted)",
+      margin: "0 0 12px",
+      lineHeight: 1.6
+    }
+  }, "Model-managed positions are checked against live broker holdings by the reconciler. ", "Positions marked NOT MIRRORED are held at the broker but not managed by the model."), err && h("div", {
+    style: {
+      color: "var(--warn)",
+      fontSize: 12,
+      marginBottom: 8
+    }
+  }, err), data.length === 0 && !err && h("p", {
+    style: {
+      fontSize: 12,
+      color: "var(--faint)",
+      margin: 0
+    }
+  }, "No connected accounts."), data.map(acct => h("div", {
+    key: acct.account_id,
+    style: {
+      marginBottom: 14
+    }
+  }, h("div", {
+    style: {
+      fontSize: 12,
+      fontWeight: 700,
+      color: "var(--muted)",
+      marginBottom: 6
+    }
+  }, acct.label || acct.account_id, !acct.mirror_enabled && h("span", {
+    className: "pill pill-off",
+    style: {
+      marginLeft: 8
+    }
+  }, "MIRROR OFF")), acct.positions_error && h("div", {
+    style: {
+      fontSize: 11,
+      color: "var(--warn)",
+      marginBottom: 6
+    }
+  }, "Broker positions unavailable: ", acct.positions_error), acct.items.length === 0 && !acct.positions_error && h("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--faint)"
+    }
+  }, "No positions."), acct.items.length > 0 && h("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 12
+    }
+  }, h("thead", null, h("tr", {
+    style: {
+      color: "var(--faint)",
+      textAlign: "left"
+    }
+  }, h("th", {
+    style: {
+      padding: "4px 8px 4px 0",
+      fontWeight: 600
+    }
+  }, "Ticker"), h("th", {
+    style: {
+      padding: "4px 8px",
+      fontWeight: 600
+    }
+  }, "Broker qty"), h("th", {
+    style: {
+      padding: "4px 8px",
+      fontWeight: 600
+    }
+  }, "Model qty"), h("th", {
+    style: {
+      padding: "4px 8px",
+      fontWeight: 600
+    }
+  }, "Status"))), h("tbody", null, acct.items.map(it => {
+    const pill = SYNC_PILL[it.sync_state] || {
+      cls: "pill-warn",
+      label: String(it.sync_state || "?").toUpperCase()
+    };
+    return h("tr", {
+      key: it.ticker,
+      style: {
+        borderTop: "1px solid var(--border)"
+      }
+    }, h("td", {
+      style: {
+        padding: "6px 8px 6px 0",
+        fontWeight: 700
+      }
+    }, it.ticker), h("td", {
+      style: {
+        padding: "6px 8px",
+        fontFamily: "ui-monospace, Menlo, monospace"
+      }
+    }, it.broker_qty ?? "—"), h("td", {
+      style: {
+        padding: "6px 8px",
+        fontFamily: "ui-monospace, Menlo, monospace"
+      }
+    }, it.managed ? it.broker_filled_qty || it.model_qty || "—" : "—"), h("td", {
+      style: {
+        padding: "6px 8px"
+      }
+    }, h("span", {
+      className: `pill ${pill.cls}`,
+      title: it.sync_note || ""
+    }, pill.label)));
+  }))))));
+}
 function ConnectForm({
   onConnected
 }) {
@@ -304,6 +500,7 @@ function BrokerConnectionsApp({
   const webullAccounts = (accounts || []).filter(a => (a.broker || "") === "webull");
   const otherAccounts = (accounts || []).filter(a => (a.broker || "") !== "webull");
   const hasWebull = webullAccounts.length > 0;
+  const anyEnabled = (accounts || []).some(a => a.broker_integration_enabled === true);
   return h("main", null, h("h1", null, "Broker Connections"), h("p", {
     className: "sub"
   }, "Optional auto-mirror sends model ENTRY/TRIM/EXIT signals to a connected brokerage account, ", "sized to the account with hard per-order and per-day limits. Live trading stays off until ", "explicitly enabled per account below."), err && h("div", {
@@ -329,6 +526,8 @@ function BrokerConnectionsApp({
       display: "flex",
       justifyContent: "space-between",
       alignItems: "center",
+      flexWrap: "wrap",
+      gap: 8,
       margin: "0 0 10px"
     }
   }, h("div", {
@@ -336,7 +535,33 @@ function BrokerConnectionsApp({
       fontSize: 13,
       color: "var(--muted)"
     }
-  }, `${webullAccounts.length} Webull account(s) connected`), h("button", {
+  }, `${webullAccounts.length} Webull account(s) connected`), h("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, anyEnabled && h("button", {
+    className: "btn",
+    disabled: busy,
+    style: {
+      borderColor: "rgba(251,191,36,0.4)",
+      color: "var(--warn)"
+    },
+    title: "Kill switch — pause mirroring on every account at once",
+    onClick: async () => {
+      if (!confirm("Pause ALL mirroring? Every account stops receiving model orders immediately. Accounts stay connected and can be re-enabled individually.")) return;
+      setBusy(true);
+      try {
+        await fetch(`${API_BASE}/timed/broker/pause-all`, {
+          method: "POST",
+          credentials: "include"
+        });
+        refresh();
+      } finally {
+        setBusy(false);
+      }
+    }
+  }, "Pause all mirroring"), h("button", {
     className: "btn btn-danger",
     disabled: busy,
     onClick: async () => {
@@ -352,7 +577,7 @@ function BrokerConnectionsApp({
         setBusy(false);
       }
     }
-  }, "Disconnect Webull")), webullAccounts.map(acct => h(AccountCard, {
+  }, "Disconnect Webull"))), webullAccounts.map(acct => h(AccountCard, {
     key: acct.user_id,
     acct,
     onChanged: refresh
@@ -360,7 +585,9 @@ function BrokerConnectionsApp({
     key: acct.user_id,
     acct,
     onChanged: refresh
-  })), accounts !== null && !hasWebull && h(ConnectForm, {
+  })), accounts !== null && (hasWebull || otherAccounts.length > 0) && h(PositionSyncCard, {
+    refreshKey: accounts
+  }), accounts !== null && !hasWebull && h(ConnectForm, {
     onConnected: refresh
   }), accounts !== null && hasWebull && h("div", {
     className: "card",
@@ -401,6 +628,6 @@ const app = AuthGate ? h(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786493257394:706804599
+// cache-bust:1786494415864:559358149
 
-// cache-bust:1786493257394:706804599
+// cache-bust:1786494415864:559358149

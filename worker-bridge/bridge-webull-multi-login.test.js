@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  findCrossOwnerWebullClash,
   normalizeWebullLoginLabel,
   resolveWebullUserCreds,
   syncWebullPersonalAccounts,
@@ -7,9 +8,10 @@ import {
   webullEnvCredsFor,
   webullSubUserId,
 } from "./bridge-webull-api.js";
+import { handleWebullOauthDisconnect } from "./bridge-webull-auth.js";
 import { wrapSecret } from "./bridge-crypto.js";
 import { resolveNotifyRecipients } from "./bridge-notifications.js";
-import { listMirrorParticipants, resolveBridgeAccounts } from "./bridge-storage.js";
+import { listMirrorParticipants, pauseOwnerAccounts, readUser, resolveBridgeAccounts } from "./bridge-storage.js";
 
 // In-memory BRIDGE_KV stub (get/put/list) shared by storage helpers.
 function makeKv(rows = []) {
@@ -232,6 +234,78 @@ describe("listMirrorParticipants — self-service cross-owner dispatch set", () 
   it("empty when nobody opted in (legacy dispatch path preserved)", async () => {
     const env = { BRIDGE_KV: makeKv(rows.filter((r) => !r.mirror_participant)) };
     expect(await listMirrorParticipants(env, "op@x.com")).toEqual([]);
+  });
+});
+
+describe("findCrossOwnerWebullClash — one Webull account, one owner", () => {
+  const rows = [
+    { user_id: "op@x.com#webull#individual-cash", owner_email: "op@x.com", broker: "webull", status: "connected", webull_account_id: "WB-100" },
+    { user_id: "gone@z.com#webull#individual-cash", owner_email: "gone@z.com", broker: "webull", status: "disconnected", webull_account_id: "WB-900" },
+  ];
+
+  it("blocks a different owner connecting an already-connected account", () => {
+    const clash = findCrossOwnerWebullClash(rows, "partner@y.com", [{ account_id: "WB-100" }]);
+    expect(clash?.user_id).toBe("op@x.com#webull#individual-cash");
+  });
+
+  it("same owner re-connecting (rotation / re-sync) is allowed", () => {
+    expect(findCrossOwnerWebullClash(rows, "op@x.com", [{ account_id: "WB-100" }])).toBeNull();
+  });
+
+  it("disconnected rows do not block a new owner", () => {
+    expect(findCrossOwnerWebullClash(rows, "partner@y.com", [{ account_id: "WB-900" }])).toBeNull();
+  });
+
+  it("fresh accounts pass", () => {
+    expect(findCrossOwnerWebullClash(rows, "partner@y.com", [{ account_id: "WB-777" }])).toBeNull();
+  });
+});
+
+describe("handleWebullOauthDisconnect — connection removal clears credentials", () => {
+  it("clears creds wraps, env ref, and mirror opt-in on every owner row", async () => {
+    const env = makeEnv([
+      { user_id: "partner@y.com#webull#individual-cash", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true, webull_app_key_wrap: "wrapK", webull_app_secret_wrap: "wrapS", webull_account_id: "WB-500" },
+      { user_id: "partner@y.com#webull#individual-margin", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: false, webull_creds_env: "ACCT2", webull_account_id: "WB-501" },
+    ]);
+    const req = { json: async () => ({ user_id: "partner@y.com" }) };
+    const out = await handleWebullOauthDisconnect(env, req);
+    expect(out.ok).toBe(true);
+    expect(out.accounts_disconnected).toBe(2);
+    for (const id of ["partner@y.com#webull#individual-cash", "partner@y.com#webull#individual-margin"]) {
+      const row = await readUser(env, id);
+      expect(row.status).toBe("disconnected");
+      expect(row.broker_integration_enabled).toBe(false);
+      expect(row.mirror_participant).toBe(false);
+      expect(row.webull_app_key_wrap).toBeNull();
+      expect(row.webull_app_secret_wrap).toBeNull();
+      expect(row.webull_creds_env).toBeNull();
+    }
+  });
+});
+
+describe("pauseOwnerAccounts — owner-level kill switch", () => {
+  it("pauses every enabled/opted-in row for the owner, leaves other owners alone", async () => {
+    const env = makeEnv([
+      { user_id: "partner@y.com#webull#individual-cash", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: true, mirror_participant: true },
+      { user_id: "partner@y.com#webull#individual-margin", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: false, mirror_participant: true },
+      { user_id: "op@x.com#webull#roth-ira", owner_email: "op@x.com", broker: "webull", status: "connected", broker_integration_enabled: true },
+    ]);
+    const out = await pauseOwnerAccounts(env, "partner@y.com");
+    expect(out.paused).toBe(2);
+    const a = await readUser(env, "partner@y.com#webull#individual-cash");
+    expect(a.broker_integration_enabled).toBe(false);
+    expect(a.mirror_participant).toBe(false);
+    expect(a.status).toBe("connected"); // stays connected — re-enable is one toggle
+    const other = await readUser(env, "op@x.com#webull#roth-ira");
+    expect(other.broker_integration_enabled).toBe(true);
+  });
+
+  it("no-op for an owner with nothing enabled", async () => {
+    const env = makeEnv([
+      { user_id: "partner@y.com#webull#individual-cash", owner_email: "partner@y.com", broker: "webull", status: "connected", broker_integration_enabled: false },
+    ]);
+    const out = await pauseOwnerAccounts(env, "partner@y.com");
+    expect(out.paused).toBe(0);
   });
 });
 

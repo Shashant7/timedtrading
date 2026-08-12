@@ -475,6 +475,27 @@ export function parseWebullAccountList(listResponse) {
   })).filter((a) => a.account_id);
 }
 
+/**
+ * 2026-08-12 — Cross-owner uniqueness guard. One Webull brokerage account
+ * (identified by Webull's own account_id) may only be connected under ONE
+ * owner email. Returns the clashing row when any of the incoming accounts
+ * is already connected under a different owner, else null. Same-owner
+ * matches (re-sync, key rotation, second label) are allowed.
+ */
+export function findCrossOwnerWebullClash(existingRows, ownerEmail, accounts) {
+  const owner = String(ownerEmail || "").toLowerCase().trim();
+  const incoming = new Set((accounts || []).map((a) => String(a?.account_id || "")).filter(Boolean));
+  for (const row of existingRows || []) {
+    if (!row || String(row.broker || "").toLowerCase() !== "webull") continue;
+    if (String(row.status || "").toLowerCase() !== "connected") continue;
+    const acctId = String(row.webull_account_id || "");
+    if (!acctId || !incoming.has(acctId)) continue;
+    const rowOwner = String(row.owner_email || String(row.user_id || "").split("#")[0] || "").toLowerCase();
+    if (rowOwner && rowOwner !== owner) return row;
+  }
+  return null;
+}
+
 /** Kebab-case a login label ("Wife's account" → "wifes-account"). */
 export function normalizeWebullLoginLabel(label) {
   return String(label || "")

@@ -2281,10 +2281,12 @@ const ROUTES = [
   // proxy. Session-authed + gated on users.broker_connections_enabled;
   // every call is scoped to the signed-in user's own owner namespace.
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
+  ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
   ["POST", "/timed/broker/webull/connect",               "POST /timed/broker/webull/connect"],
   ["POST", "/timed/broker/webull/disconnect",            "POST /timed/broker/webull/disconnect"],
   ["POST", "/timed/broker/account/enable",               "POST /timed/broker/account/enable"],
   ["POST", "/timed/broker/account/caps",                 "POST /timed/broker/account/caps"],
+  ["POST", "/timed/broker/pause-all",                    "POST /timed/broker/pause-all"],
   // Phase 3 — theme activity probe.
   ["GET",  "/timed/admin/discovery/themes/active",        "GET /timed/admin/discovery/themes/active"],
   // 2026-05-28 — Bundled per-ticker catalyst view for the right rail.
@@ -79259,10 +79261,36 @@ export default {
           if (!r?.meta?.changes) {
             return sendJSON({ ok: false, error: "user_not_found" }, 404, corsHeaders(env, req));
           }
+          // Un-provisioning is a kill switch: pause mirroring on every
+          // bridge account under this owner so revoking page access also
+          // stops live orders. Credentials/connection stay for re-enable.
+          let mirrorPaused = null;
+          if (!enabled) {
+            try {
+              const op = env?.BROKER_BRIDGE_OPERATOR_KEY;
+              if (op) {
+                const init = {
+                  method: "POST",
+                  headers: { "Authorization": `Bearer ${op}`, "Content-Type": "application/json" },
+                  body: JSON.stringify({ owner: email }),
+                };
+                let res = null;
+                if (env?.BROKER_BRIDGE && typeof env.BROKER_BRIDGE.fetch === "function") {
+                  res = await env.BROKER_BRIDGE.fetch(new Request("https://bridge.internal/bridge/owner/pause", init));
+                } else if (env?.BROKER_BRIDGE_URL) {
+                  res = await fetch(`${String(env.BROKER_BRIDGE_URL).replace(/\/$/, "")}/bridge/owner/pause`, init);
+                }
+                if (res) mirrorPaused = await res.json().catch(() => null);
+              }
+            } catch (e) {
+              console.warn("[BROKER_CONNECTIONS] owner pause failed:", String(e?.message || e).slice(0, 160));
+            }
+          }
           return sendJSON({
             ok: true,
             email,
             broker_connections_enabled: enabled,
+            mirror_paused: mirrorPaused,
           }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 240) }, 500, corsHeaders(env, req));
@@ -82093,10 +82121,12 @@ export default {
       // operator-key proxy to the bridge, so one user can never read or
       // mutate another owner's broker accounts. Admins bypass the flag.
       const _isBrokerRoute = routeKey === "GET /timed/broker/accounts"
+        || routeKey === "GET /timed/broker/positions"
         || routeKey === "POST /timed/broker/webull/connect"
         || routeKey === "POST /timed/broker/webull/disconnect"
         || routeKey === "POST /timed/broker/account/enable"
-        || routeKey === "POST /timed/broker/account/caps";
+        || routeKey === "POST /timed/broker/account/caps"
+        || routeKey === "POST /timed/broker/pause-all";
       if (_isBrokerRoute) {
         try { await d1EnsureAdminSchema(env); } catch (_) {}
         const sessionUser = await authenticateUser(req, env);
@@ -82119,6 +82149,16 @@ export default {
 
         if (routeKey === "GET /timed/broker/accounts") {
           return _bridgeJson(await _getBridge(`/bridge/accounts?owner=${encodeURIComponent(email)}`));
+        }
+        // Position sync view: live broker positions joined against the
+        // mirror trade manifest (which positions are model-managed and
+        // whether each is in sync).
+        if (routeKey === "GET /timed/broker/positions") {
+          return _bridgeJson(await _getBridge(`/bridge/positions?owner=${encodeURIComponent(email)}`));
+        }
+        // Kill switch: pause mirroring on every account at once.
+        if (routeKey === "POST /timed/broker/pause-all") {
+          return _bridgeJson(await _postBridge("/bridge/owner/pause", { owner: email }));
         }
         if (routeKey === "POST /timed/broker/webull/connect") {
           const body = await req.json().catch(() => ({}));
