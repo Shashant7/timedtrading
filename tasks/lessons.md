@@ -5090,6 +5090,25 @@ records on armed_ts, INSERT OR IGNORE); (4) hour-keyed cron slices leave
 permanent holes when peak-RTH invocations run out of budget — use a KV
 cursor so failures lag instead of skip. The shadow report card surfaced all
 of this in one session, which is exactly why shadow-first exists.
+### Lesson (2026-08-12) — a committed lot with dead side effects needs a sweep, not better ordering
+NVDA's 8/11 15:45 ET DCA wrote the lot + position bump, then the invocation
+was hard-killed (no exception — the per-position catch never ran, no cron
+failure tombstone) before the account_ledger insert, decision record,
+bell/Discord/email, and broker mirror. Diagnosis pattern: ledger note said
+`repair_backfill_from_lot_…` (nightly repair wrote it, not the live path)
+and the bell row's `created_at` EXACTLY equaled the lot ts (daily backfill
+stamps `createdAt: lot.ts`; the live path stamps `Date.now()`), so both
+"present" artifacts were actually post-hoc heals. The day-lock + per-position
+claim correctly block a re-run, which also blocks any retry — so recovery
+must be a separate idempotent sweep, not a rerun. Fix: 15:50 ET sweep
+(`sweepInvestorDcaSideEffects`, manual: `POST /timed/admin/investor/dca-sweep`)
+heals channels (bell-row presence = "channels ran" marker), ledger, decision
+record, and calls `runInvestorCatchup`. Second bug found on top: the catch-up
+thesis gates (`zone_exhausted`) vetoed the mirror of a buy the model itself
+had executed minutes earlier — thesis gates exist for stale chases, so
+`trust_fresh_lot_ms` (RTH-elapsed clock, 60 min on the hourly auto pass)
+skips stage/score/zone for fresh model-executed buys while keeping the
+price-drift gate.
 ### Lesson (2026-08-12) — check merge state before pushing follow-up rounds to a PR branch
 The operator asked for a hardening round (uniqueness / kill switches /
 position sync) on the Broker Connections PR. The PR had merged minutes
