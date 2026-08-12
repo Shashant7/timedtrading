@@ -7,6 +7,7 @@ import { recordOauthState, consumeOauthState, readUser, writeUser } from "./brid
 import {
   buildWebullAuthorizeUrl,
   finalizeWebullTokens,
+  findCrossOwnerWebullClash,
   normalizeWebullLoginLabel,
   parseWebullAccountList,
   syncWebullPersonalAccounts,
@@ -111,6 +112,22 @@ export async function handleWebullOauthStart(env, req) {
             ? "Check the provided app_key/app_secret and WEBULL_ENVIRONMENT (prod vs uat)."
             : "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat).")),
       };
+    }
+    // One Webull brokerage account may only be connected under ONE owner —
+    // otherwise two app users would mirror into the same real account
+    // (double orders) using shared credentials.
+    {
+      const { listConnectedUsers } = await import("./bridge-storage.js");
+      const allRows = await listConnectedUsers(env, 200);
+      const clash = findCrossOwnerWebullClash(allRows, userId, accounts);
+      if (clash) {
+        return {
+          ok: false,
+          error: "webull_account_already_connected",
+          status: 409,
+          note: "This Webull account is already connected to a different Timed Trading user. Each Webull account can only be linked once — contact support if this looks wrong.",
+        };
+      }
     }
     // Unlabeled keys are fine for a fresh owner's first connect and for
     // key rotation of the SAME login (account ids match the stored rows).
@@ -247,6 +264,15 @@ export async function handleWebullOauthDisconnect(env, req) {
       status: "disconnected",
       disconnected_at: Date.now(),
       broker_integration_enabled: false,
+      // 2026-08-12 — "Remove the connection" removes the credentials:
+      // stored App Key/Secret wraps and the env-secret reference are
+      // cleared so a disconnected row can never sign a request, and the
+      // self-service mirror opt-in is revoked. Reconnect re-stamps all
+      // of these.
+      webull_app_key_wrap: null,
+      webull_app_secret_wrap: null,
+      webull_creds_env: null,
+      mirror_participant: false,
       webull_token_wrap: null,
       webull_refresh_wrap: null,
       webull_token_expires_at: null,
