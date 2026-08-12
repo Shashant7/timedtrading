@@ -10,7 +10,12 @@ name: Feed keepalive
 # price-only keepalive cannot leave heartbeat/scoring red (2026-08-07
 # 23:39 UTC page: prices ~67s, heartbeat 35m, scoring 46m).
 #
-# Requires repo secret TIMED_API_KEY (same key as tt-feed /feed/run-once).
+# Keepalive is a healer, not a pager: heal failures warn and exit 0.
+# The Health watchdog owns red-run email pages. (2026-08-08 overnight:
+# age 270s on */5 lightweight + unauthorized run-once → false page.)
+#
+# Requires repo secret TIMED_API_KEY — must match tt-feed's worker
+# TIMED_API_KEY (X-API-Key on /feed/run-once).
 
 on:
   schedule:
@@ -49,15 +54,18 @@ jobs:
             AGE=9999
             CRON_ACTIVE="true"
             OP_HOURS="true"
+            FEED_MODE="full"
           else
             AGE=$(echo "$HEALTH" | jq -r '.prices_age_sec // 9999')
             CRON_ACTIVE=$(echo "$HEALTH" | jq -r '.price_feed_cron_active // false')
             OP_HOURS=$(echo "$HEALTH" | jq -r '.operating_hours // false')
-            echo "tt-feed → age=${AGE}s cron_active=${CRON_ACTIVE} operating_hours=${OP_HOURS} source=$(echo "$HEALTH" | jq -r '.source // "?"')"
+            FEED_MODE=$(echo "$HEALTH" | jq -r '.feed_mode // "full"')
+            echo "tt-feed → age=${AGE}s cron_active=${CRON_ACTIVE} operating_hours=${OP_HOURS} mode=${FEED_MODE} source=$(echo "$HEALTH" | jq -r '.source // "?"')"
           fi
 
           # Authoritative operatingHours from monolith (same flag watchdog uses).
           MHEALTH=$(curl -sS -m 25 "${MONOLITH}/timed/health" || echo "{}")
+          M_OP="false"
           if echo "$MHEALTH" | jq -e . >/dev/null 2>&1; then
             M_OP=$(echo "$MHEALTH" | jq -r '.operatingHours // false')
             TICK=$(echo "$MHEALTH" | jq -r '.cronTickAgeMin // "null"')
@@ -80,18 +88,35 @@ jobs:
 
           HEALED=0
 
-          # Heal when blob is >3 min stale (normal */1 cadence is ~60s).
-          if [ "$AGE" = "null" ] || [ "$AGE" -gt 180 ]; then
-            echo "Prices stale (${AGE}s) — POST /feed/run-once"
+          # Full */1 feed: kick after 3 min. Lightweight */5 overnight: age
+          # ~300s is normal between ticks — only kick after 10 min.
+          PRICE_STALE_SEC=180
+          if [ "$FEED_MODE" = "lightweight" ]; then
+            PRICE_STALE_SEC=600
+          fi
+
+          if [ "$AGE" = "null" ] || [ "$AGE" -gt "$PRICE_STALE_SEC" ]; then
+            echo "Prices stale (${AGE}s > ${PRICE_STALE_SEC}s, mode=${FEED_MODE}) — POST /feed/run-once"
             RESP=$(curl -sS -m 120 -X POST "${FEED}/feed/run-once" \
-              -H "X-API-Key: ${TIMED_API_KEY}" || echo '{"ok":false}')
+              -H "X-API-Key: ${TIMED_API_KEY}" || echo '{"ok":false,"error":"curl_failed"}')
             echo "$RESP" | jq . || echo "$RESP"
-            echo "$RESP" | jq -e '.ok == true' >/dev/null
-            AFTER=$(curl -sS -m 25 "${FEED}/feed/health" || echo "{}")
-            echo "after prices → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
-            HEALED=1
+            if echo "$RESP" | jq -e '.ok == true' >/dev/null 2>&1; then
+              AFTER=$(curl -sS -m 25 "${FEED}/feed/health" || echo "{}")
+              echo "after prices → age=$(echo "$AFTER" | jq -r '.prices_age_sec // "?"')s source=$(echo "$AFTER" | jq -r '.source // "?"')"
+              HEALED=1
+            else
+              ERR=$(echo "$RESP" | jq -r '.error // "unknown"' 2>/dev/null || echo unknown)
+              echo "::warning::/feed/run-once failed (${ERR}) — keepalive continues; sync repo secret TIMED_API_KEY with tt-feed if unauthorized"
+            fi
           else
-            echo "Prices fresh enough (${AGE}s) — no kick"
+            echo "Prices fresh enough (${AGE}s ≤ ${PRICE_STALE_SEC}s, mode=${FEED_MODE}) — no kick"
+          fi
+
+          # Heartbeat + scoring heals only during monolith operating hours
+          # (overnight scoring age is expected when the engine is idle).
+          if [ "$M_OP" != "true" ]; then
+            echo "Outside monolith operating hours — skip heartbeat/scoring heal"
+            exit 0
           fi
 
           # Stamp 5-min heartbeat before watchdog's 20m fail threshold.
