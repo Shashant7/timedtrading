@@ -59,6 +59,7 @@ import { refreshRhTokensIfNeeded } from "./bridge-robinhood-auth.js";
 import { listBrokers, resolveBrokerAccountId, resolveBrokerId, brokerCapabilities } from "./bridge-brokers.js";
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
 import { recordAccountFill, readAccountLedger, readAccountSnapshots, recordEquityPoint, readEquityHistory } from "./bridge-account-ledger.js";
+import { ensureConnectedAccountsEquity, extractPortfolioTotals, refreshAccountEquitySnapshot } from "./bridge-equity-sync.js";
 import { classifyWebullFractError, roundToWholeShares } from "./bridge-webull-fract.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
@@ -557,13 +558,16 @@ export default {
         } catch (_) { /* snapshots optional */ }
         for (const acct of accounts) {
           const _snap = snapByAcct.get(String(resolveBrokerAccountId(acct))) || null;
+          const _snapEq = _snap != null ? Number(_snap.equity_usd) : NaN;
+          const _snapCash = _snap != null ? Number(_snap.cash_usd) : NaN;
           const entry = {
             account_id: acct.user_id,
             broker: resolveBrokerId(acct) || acct.broker || null,
             label: acct.webull_account_label || acct.webull_account_class || null,
             mirror_enabled: acct.broker_integration_enabled === true,
-            equity_usd: _snap ? (Number(_snap.equity_usd) || null) : null,
-            cash_usd: _snap ? (Number(_snap.cash_usd) || null) : null,
+            // Preserve finite 0; `|| null` used to wipe legitimate empty accounts.
+            equity_usd: Number.isFinite(_snapEq) ? _snapEq : null,
+            cash_usd: Number.isFinite(_snapCash) ? _snapCash : null,
             snapshot_at: _snap ? (Number(_snap.synced_at) || null) : null,
             connected_at: Number(acct.connected_at) || null,
             enable_changed_at: Number(acct.enable_changed_at) || null,
@@ -738,6 +742,26 @@ export default {
             console.warn("[POSITIONS] history attach failed:", String(e?.message || e).slice(0, 160));
           }
           entry.items.sort((a, b) => (b.managed - a.managed) || String(a.ticker).localeCompare(String(b.ticker)));
+          // 2026-08-13 — Stamp equity for EVERY connected account (mirror
+          // off included). Reconciler only snapshots mirror-on accounts;
+          // without this, Brokers page cards stay at $0 / "Not started".
+          try {
+            const eqRes = await refreshAccountEquitySnapshot(env, acct, {
+              adapter: brokerAdapterFor(acct),
+              positions: brokerPositions,
+              force: forceRefresh,
+              existingSnap: _snap,
+            });
+            if (Number.isFinite(eqRes.equity_usd)) {
+              entry.equity_usd = eqRes.equity_usd;
+              entry.equity_source = eqRes.source;
+              if (eqRes.stale) entry.equity_stale = true;
+            }
+            if (Number.isFinite(eqRes.cash_usd)) entry.cash_usd = eqRes.cash_usd;
+            if (eqRes.ok) entry.snapshot_at = Date.now();
+          } catch (e) {
+            console.warn("[POSITIONS] equity sync failed:", String(e?.message || e).slice(0, 160));
+          }
           out.push(entry);
         }
         return json({ ok: true, owner, accounts: out, ts: Date.now() });
@@ -958,6 +982,14 @@ export default {
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
         const connected = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
           .filter((u) => String(u?.status || "").toLowerCase() === "connected");
+        // Refresh equity for all connected accounts (not just mirror-on) so
+        // value history cards/charts include Futures / Cash / Margin / etc.
+        try {
+          await ensureConnectedAccountsEquity(env, connected, {
+            adapterFor: brokerAdapterFor,
+            force: url.searchParams.get("refresh") === "1",
+          });
+        } catch (_) { /* best-effort */ }
         try {
           const snaps = await readAccountSnapshots(env, { owner_id: owner });
           for (const s of snaps) {
@@ -972,9 +1004,11 @@ export default {
         } catch (_) { /* stamp is best-effort */ }
         const history = await readEquityHistory(env, { owner_id: owner, since_ts: since });
         const byBrokerId = new Map(connected.map((u) => [String(resolveBrokerAccountId(u)), u]));
+        const claimed = new Set();
         const series = history.map((h) => {
           const u = byBrokerId.get(String(h.broker_account_id))
             || connected.find((a) => String(a.user_id) === String(h.user_id));
+          if (u) claimed.add(String(resolveBrokerAccountId(u)));
           const events = Array.isArray(u?.mirror_events) ? u.mirror_events : [];
           let markers = events
             .filter((e) => e && Number(e.ts) > 0)
@@ -1010,6 +1044,23 @@ export default {
             since_mirror_gain: sinceMirror,
           };
         });
+        // Include connected accounts that still have no history row.
+        for (const u of connected) {
+          const bid = String(resolveBrokerAccountId(u) || "");
+          if (!bid || claimed.has(bid)) continue;
+          const eq = Number(u.equity_usd);
+          series.push({
+            broker_account_id: bid,
+            user_id: u.user_id || null,
+            label: u.webull_account_label || u.webull_account_class || bid,
+            broker: resolveBrokerId(u) || u.broker || null,
+            mirror_enabled: u.broker_integration_enabled === true,
+            points: Number.isFinite(eq) ? [{ ts: Date.now(), equity: eq }] : [],
+            markers: [],
+            equity: Number.isFinite(eq) ? eq : null,
+            since_mirror_gain: null,
+          });
+        }
         return json({ ok: true, owner, accounts: series, ts: Date.now() });
       }
 
@@ -1048,32 +1099,12 @@ export default {
               : { ok: false, error: "broker_no_portfolio_method" };
             summary.portfolio = portfolio;
             if (portfolio?.ok) {
-              // IBKR Client Portal /portfolio/{acctId}/summary returns
-              // fields under `response.<lowercase>` (e.g.
-              // `response.netliquidation.amount`). Other adapters
-              // (Robinhood mock, etc.) may return camelCase or top-
-              // level keys. Try every shape we've seen.
+              const totals = extractPortfolioTotals(portfolio) || {};
+              const equity = Number(totals.equity_usd);
+              const cash = Number(totals.cash_usd);
+              const buyingPower = Number(totals.buying_power_usd);
               const r = portfolio.response || portfolio;
               const acct = (Array.isArray(portfolio.accounts) && portfolio.accounts[0]) || portfolio.summary || r;
-              const equity = Number(
-                portfolio.equity
-                ?? acct?.netliquidation?.amount ?? acct?.NetLiquidation?.amount
-                ?? acct?.equitywithloanvalue?.amount
-                ?? acct?.equity?.current ?? acct?.equity ?? acct?.net_liquidation
-                ?? acct?.total_net_liquidation_value ?? acct?.total_asset ?? acct?.totalAsset
-              );
-              const cash = Number(
-                portfolio.cash
-                ?? acct?.totalcashvalue?.amount ?? acct?.TotalCashValue?.amount
-                ?? acct?.availablefunds?.amount
-                ?? acct?.cash?.current ?? acct?.cash ?? acct?.total_cash
-                ?? acct?.total_cash_balance ?? acct?.totalCash
-              );
-              const buyingPower = Number(
-                portfolio.buying_power
-                ?? acct?.buyingpower?.amount ?? acct?.BuyingPower?.amount ?? acct?.buying_power
-                ?? acct?.account_currency_assets?.[0]?.buying_power
-              );
               const acctId = String(
                 u.webull_account_id
                 || u.ibkr_account_id
@@ -1083,14 +1114,10 @@ export default {
               summary.cash_usd = Number.isFinite(cash) ? cash : null;
               summary.buying_power_usd = Number.isFinite(buyingPower) ? buyingPower : null;
               if (acctId) summary.account_id = acctId;
-              // 2026-06-01 — Persist equity + cash + buying power onto
-              // the user record so preflightOrder (bridge-guards.js) can
-              // use them for account-fit scaling without an extra
-              // broker round-trip per order. The /bridge/portfolio call
-              // is operator-driven (~every 30s while MC is open) so this
-              // keeps user.equity_usd / cash_usd reasonably fresh.
+              // Persist equity onto the user row + account snapshot/history
+              // so Brokers page value charts work for every connected
+              // account (mirror on or off).
               try {
-                const { writeUser, readUser } = await import("./bridge-storage.js");
                 const fresh = await readUser(env, userId);
                 if (fresh) {
                   if (Number.isFinite(equity)) fresh.equity_usd = equity;
@@ -1098,6 +1125,9 @@ export default {
                   if (Number.isFinite(buyingPower)) fresh.buying_power_usd = buyingPower;
                   fresh.portfolio_synced_at = Date.now();
                   await writeUser(env, userId, fresh);
+                  // No second broker call — refresh reads the user row we
+                  // just stamped and writes snapshot + equity history.
+                  await refreshAccountEquitySnapshot(env, fresh, { adapter: null, force: false });
                 }
               } catch (e) {
                 console.warn(`[BRIDGE] failed to persist portfolio snapshot for ${userId}: ${String(e?.message || e).slice(0, 200)}`);

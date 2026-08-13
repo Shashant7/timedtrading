@@ -1467,7 +1467,8 @@
         const hasPeriod = hasWindowHistory || (range === "1D" && dayPnl != null);
         const delta = hasPeriod && Number.isFinite(Number(built.delta)) ? Number(built.delta) : null;
         const base = Number.isFinite(current) && Number.isFinite(delta) ? current - delta : null;
-        const pct = Number.isFinite(delta) && Number.isFinite(base) && base
+        // Near-zero baseline (missing equity) must not become "-100%".
+        const pct = Number.isFinite(delta) && Number.isFinite(base) && Math.abs(base) >= 1
           ? (delta / base) * 100
           : null;
         return {
@@ -1493,7 +1494,11 @@
             const delta = group.reduce((s, r) => s + r.delta, 0);
             const base = group.reduce((s, r) =>
               s + (Number.isFinite(r.current) ? r.current - r.delta : 0), 0);
-            return { delta, pct: base ? (delta / base) * 100 : null, n: group.length };
+            return {
+              delta,
+              pct: Math.abs(base) >= 1 ? (delta / base) * 100 : null,
+              n: group.length,
+            };
           };
           return { on: calc(true), off: calc(false) };
         }, [rows]);

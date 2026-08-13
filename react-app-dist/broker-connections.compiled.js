@@ -1793,7 +1793,7 @@ function accountPerformance(a, liveAccounts, range, sinceTs) {
   const hasPeriod = hasWindowHistory || range === "1D" && dayPnl != null;
   const delta = hasPeriod && Number.isFinite(Number(built.delta)) ? Number(built.delta) : null;
   const base = Number.isFinite(current) && Number.isFinite(delta) ? current - delta : null;
-  const pct = Number.isFinite(delta) && Number.isFinite(base) && base ? delta / base * 100 : null;
+  const pct = Number.isFinite(delta) && Number.isFinite(base) && Math.abs(base) >= 1 ? delta / base * 100 : null;
   return {
     account: a,
     current,
@@ -1822,7 +1822,7 @@ function AccountPerformanceRow({
       const base = group.reduce((s, r) => s + (Number.isFinite(r.current) ? r.current - r.delta : 0), 0);
       return {
         delta,
-        pct: base ? delta / base * 100 : null,
+        pct: Math.abs(base) >= 1 ? delta / base * 100 : null,
         n: group.length
       };
     };
@@ -2729,6 +2729,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786613221401:181074370
+// cache-bust:1786613961673:195967325
 
-// cache-bust:1786613221401:181074370
+// cache-bust:1786613961673:195967325

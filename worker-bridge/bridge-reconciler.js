@@ -49,6 +49,7 @@ import {
 } from "./bridge-manifest.js";
 import { emitDriftNotification } from "./bridge-notifications.js";
 import { snapshotAccount } from "./bridge-account-ledger.js";
+import { refreshAccountEquitySnapshot } from "./bridge-equity-sync.js";
 import { resolveBrokerAccountId, resolveBrokerId } from "./bridge-brokers.js";
 import { reconcileAccountFills } from "./bridge-fills.js";
 import { writeAudit } from "./bridge-storage.js";
@@ -1189,6 +1190,9 @@ export async function reconcileAllUsers(env, userListFn, adapterForUser, opts = 
     return { ok: false, error: `user_list_failed:${String(e?.message || e).slice(0, 200)}`, elapsed_ms: Date.now() - t0 };
   }
   const eligible = users.filter(u => u && u.status === "connected" && u.broker_integration_enabled);
+  // Connected but mirror-off: still stamp equity history so Brokers page
+  // can chart account value without running full drift/fill reconcile.
+  const viewOnly = users.filter(u => u && u.status === "connected" && !u.broker_integration_enabled);
   const perUser = [];
   for (const u of eligible) {
     try {
@@ -1197,6 +1201,29 @@ export async function reconcileAllUsers(env, userListFn, adapterForUser, opts = 
       perUser.push(stats);
     } catch (e) {
       perUser.push({ user_id: u.user_id, error: String(e?.message || e).slice(0, 200) });
+    }
+  }
+  if (!opts.dryRun) {
+    for (const u of viewOnly) {
+      try {
+        const eq = await refreshAccountEquitySnapshot(env, u, {
+          adapter: adapterForUser(u),
+          force: false,
+        });
+        perUser.push({
+          user_id: u.user_id,
+          view_only_equity: true,
+          equity_usd: eq.equity_usd,
+          equity_source: eq.source,
+          ok: eq.ok,
+        });
+      } catch (e) {
+        perUser.push({
+          user_id: u.user_id,
+          view_only_equity: true,
+          error: String(e?.message || e).slice(0, 200),
+        });
+      }
     }
   }
   // Aggregate
@@ -1213,6 +1240,7 @@ export async function reconcileAllUsers(env, userListFn, adapterForUser, opts = 
     ok: true,
     users_total: users.length,
     users_eligible: eligible.length,
+    users_view_only_equity: viewOnly.length,
     per_user: perUser,
     aggregate: agg,
     elapsed_ms: Date.now() - t0,
