@@ -49,6 +49,7 @@ should read. It tells you what to look at, in what order, and why.
 | Inspect a KV value | [skills/kv-inspection.md](skills/kv-inspection.md) |
 | Test or debug a Discord alert | [skills/discord-alerts.md](skills/discord-alerts.md) |
 | IBKR / Broker Bridge work | [skills/broker-bridge.md](skills/broker-bridge.md) |
+| Onboard a partner / check broker tenant isolation | [skills/partner-onboarding.md](skills/partner-onboarding.md) |
 | Sanity check an Investor zone vs Finnhub | [skills/sanity-check-investor.md](skills/sanity-check-investor.md) |
 | Frontend blank-page / build issue | [skills/frontend-build.md](skills/frontend-build.md) |
 | Force a cache-bust after a deploy | [skills/cache-bust-rail.md](skills/cache-bust-rail.md) |
