@@ -352,6 +352,10 @@ Variables and Secrets → Secrets):
 | `WEBULL_APP_SECRET` | Shown once at key generation |
 
 Leave **2FA unchecked** on the Webull key application for headless bridge use.
+If a key was created with 2FA on, connect returns
+`Header x-access-token is missing or invalid` until the bridge creates a
+personal access token and the trader approves it in the Webull App
+(or the key is regenerated without 2FA). See `skills/partner-onboarding.md`.
 
 After pasting real values, redeploy the bridge (push to `main` or
 `cd worker-bridge && wrangler deploy`).

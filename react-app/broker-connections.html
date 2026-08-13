@@ -1268,8 +1268,21 @@
               setMsg({ ok: true, text: `Connected — ${json.accounts_connected || 0} account(s) found` });
               setAppKey(""); setAppSecret("");
               onConnected();
+            } else if (json?.error === "webull_2fa_pending") {
+              setMsg({
+                ok: false,
+                text: json?.note
+                  || "This API key has 2FA enabled. Approve the OpenAPI notification in the Webull App (Menu → Messages), then tap Connect again — or regenerate the key with 2FA unchecked.",
+              });
             } else {
-              setMsg({ ok: false, text: json?.note || json?.error || "Connection failed — check the key pair" });
+              const raw = String(json?.note || json?.error || "");
+              const looksLikeToken = /x-access-token|webull_2fa|2fa/i.test(raw);
+              setMsg({
+                ok: false,
+                text: looksLikeToken
+                  ? (json?.note || "Webull rejected the access token. Regenerate the key at webull.com/open-api with 2FA unchecked, or approve 2FA in the Webull App and retry.")
+                  : (json?.note || json?.error || "Connection failed — check the key pair"),
+              });
             }
           } catch (err) { setMsg({ ok: false, text: String(err?.message || err) }); }
           finally { setBusy(false); }
@@ -1284,8 +1297,9 @@
                 </p>
                 <ol className="steps">
                   <li>Sign in at <a href="https://www.webull.com/open-api" target="_blank" rel="noopener" style={{ color: "var(--vf-primary, #38F2A1)" }}>webull.com/open-api</a> with the brokerage login.</li>
-                  <li>Open <b>API Keys Management</b> → <b>Generate Key</b>. Leave 2FA unchecked.</li>
+                  <li>Open <b>API Keys Management</b> → <b>Generate Key</b>. Leave <b>2FA unchecked</b> (recommended for linking).</li>
                   <li>Copy the <b>App Key</b> and <b>App Secret</b> (the secret is shown once) and paste both below.</li>
+                  <li>If the key was created with 2FA on, approve the OpenAPI SMS prompt in the Webull App, then tap Connect again.</li>
                 </ol>
               </div>
             )}
@@ -1300,12 +1314,13 @@
                 <button type="submit" className="bc-btn bc-btn-primary" disabled={busy || !appKey.trim() || !appSecret.trim()}>
                   {busy ? "Validating…" : "Connect"}
                 </button>
-                {msg && <span className={msg.ok ? "msg-ok" : "msg-err"}>{msg.text}</span>}
+                {msg && <span className={msg.ok ? "msg-ok" : "msg-err"} style={msg.ok ? undefined : { maxWidth: 520, display: "inline-block" }}>{msg.text}</span>}
               </div>
             </form>
             <p className="dim" style={{ fontSize: 11, margin: "12px 0 0", lineHeight: 1.6 }}>
               The key pair is validated against Webull before anything is stored, then encrypted at rest.
               Keys never appear in the browser again after this step.
+              An <code style={{ fontSize: 11 }}>x-access-token</code> error usually means the key has 2FA on — not a bad secret.
             </p>
           </div>
         );

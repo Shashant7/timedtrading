@@ -8,8 +8,10 @@ import {
   buildWebullAuthorizeUrl,
   finalizeWebullTokens,
   findCrossOwnerWebullClash,
+  isWebullAccessTokenError,
   normalizeWebullLoginLabel,
   parseWebullAccountList,
+  resolvePersonalWebullAccessToken,
   syncWebullPersonalAccounts,
   webullCreateTokenFromCode,
   webullCredsEnvSuffix,
@@ -98,19 +100,46 @@ export async function handleWebullOauthStart(env, req) {
   if (webullAuthMode(env) === "personal") {
     // Validates the key pair against the live account list before anything
     // is persisted — a typo'd key/secret fails here with 502.
-    const accountsRes = await webullGetAccountList(env, "", { creds: secondLoginCreds });
-    const accounts = parseWebullAccountList(accountsRes);
+    // Keys generated with 2FA enabled also fail until a NORMAL access
+    // token is created + approved in the Webull App (x-access-token).
+    let accessToken = "";
+    let accountsRes = await webullGetAccountList(env, accessToken, { creds: secondLoginCreds });
+    let accounts = parseWebullAccountList(accountsRes);
+    let personalTokenExpiresAt = null;
+    if (!accounts.length && isWebullAccessTokenError(accountsRes)) {
+      const tok = await resolvePersonalWebullAccessToken(env, {
+        creds: secondLoginCreds,
+        ownerEmail: userId,
+      });
+      if (!tok.ok) {
+        return {
+          ok: false,
+          error: tok.error || "webull_2fa_required",
+          status: tok.status || 400,
+          token_status: tok.token_status || null,
+          response: tok.response,
+          note: tok.note || "This Webull API key requires 2FA approval in the Webull App before it can be linked.",
+        };
+      }
+      accessToken = tok.token;
+      personalTokenExpiresAt = tok.expires_at || null;
+      accountsRes = await webullGetAccountList(env, accessToken, { creds: secondLoginCreds });
+      accounts = parseWebullAccountList(accountsRes);
+    }
     if (!accounts.length) {
+      const tokenHint = isWebullAccessTokenError(accountsRes)
+        ? " This looks like a 2FA access-token rejection — regenerate the key with 2FA unchecked, or approve the OpenAPI notification in the Webull App and retry."
+        : "";
       return {
         ok: false,
         error: "webull_personal_account_list_failed",
         status: 502,
         response: accountsRes.response,
-        note: accountsRes.error || (credsEnvSuffix
+        note: (accountsRes.error || (credsEnvSuffix
           ? `Check secrets WEBULL_APP_KEY_${credsEnvSuffix}/WEBULL_APP_SECRET_${credsEnvSuffix} and WEBULL_ENVIRONMENT (prod vs uat).`
           : (bodyCreds
             ? "Check the provided app_key/app_secret and WEBULL_ENVIRONMENT (prod vs uat)."
-            : "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat).")),
+            : "Check WEBULL_APP_KEY/SECRET and WEBULL_ENVIRONMENT (prod vs uat)."))) + tokenHint,
       };
     }
     // One Webull brokerage account may only be connected under ONE owner —
@@ -153,11 +182,17 @@ export async function handleWebullOauthStart(env, req) {
         secret_wrap: await wrapSecret(env, bodyCreds.appSecret),
       }
       : null;
+    const accessTokenWrap = accessToken
+      ? await wrapSecret(env, accessToken)
+      : null;
     const synced = await syncWebullPersonalAccounts(env, userId, accounts, {
       credsWrap,
       credsEnv: envCreds ? credsEnvSuffix : null,
       loginLabel: secondLoginCreds ? loginLabel : null,
       notifyEmails: partnerEmail ? [partnerEmail] : null,
+      // Always stamp — clears a stale 2FA wrap when the new key has 2FA off.
+      accessTokenWrap,
+      accessTokenExpiresAt: accessTokenWrap ? personalTokenExpiresAt : null,
     });
     return {
       ok: true,
@@ -169,6 +204,7 @@ export async function handleWebullOauthStart(env, req) {
       partner_email: partnerEmail || null,
       accounts_connected: synced.length,
       accounts: synced,
+      webull_2fa_token: !!accessTokenWrap,
       note: `Webull personal API synced ${synced.length} account(s). Enable live trading per account in Mission Control.`,
     };
   }

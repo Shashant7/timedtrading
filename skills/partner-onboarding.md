@@ -64,6 +64,10 @@ on every broker route, and the nav entry stays hidden.
 
 Partner → **Broker Connections** → paste **their own** App Key + Secret.
 
+Generate the key at [webull.com/open-api](https://www.webull.com/open-api) →
+**API Keys Management** → **Generate Key**. Prefer **2FA unchecked** —
+headless linking does not need app SMS prompts.
+
 The worker forwards `user_id = partner_email` and `partner_email` to
 `/bridge/webull/oauth/start`, which:
 
@@ -76,6 +80,24 @@ If the partner's Webull account is already linked under another owner the
 connect fails `409 webull_account_already_connected`
 (`findCrossOwnerWebullClash`). That is correct: one brokerage account, one
 owner.
+
+### `Header x-access-token is missing or invalid`
+
+This is **not** a bad App Secret. Webull returns it when the App Key was
+generated **with 2FA enabled** and no approved access token is sent.
+
+What the bridge does (2026-08):
+
+1. Account list with empty `x-access-token` (works for non-2FA keys).
+2. On that error → `POST /openapi/auth/token/create` with the partner's key.
+3. If status is `PENDING` → return `webull_2fa_pending` and ask the partner
+   to approve in the Webull App (**Menu → Messages → OpenAPI Notifications**,
+   SMS within 5 minutes), then tap **Connect** again.
+4. If status is `NORMAL` → retry account list with the token, wrap it onto
+   each account row (`webull_token_wrap`), and use it for later API calls.
+
+Fastest fix for a stuck partner: regenerate the key with **2FA unchecked**
+and reconnect. Do not keep rotating secrets expecting a different error.
 
 > **Credential note:** a row with no wrapped keys and no `webull_creds_env`
 > falls back to the worker-level `WEBULL_APP_KEY` (the operator's). The

@@ -1641,10 +1641,17 @@ function ConnectForm({
         setAppKey("");
         setAppSecret("");
         onConnected();
-      } else {
+      } else if (json?.error === "webull_2fa_pending") {
         setMsg({
           ok: false,
-          text: json?.note || json?.error || "Connection failed — check the key pair"
+          text: json?.note || "This API key has 2FA enabled. Approve the OpenAPI notification in the Webull App (Menu → Messages), then tap Connect again — or regenerate the key with 2FA unchecked."
+        });
+      } else {
+        const raw = String(json?.note || json?.error || "");
+        const looksLikeToken = /x-access-token|webull_2fa|2fa/i.test(raw);
+        setMsg({
+          ok: false,
+          text: looksLikeToken ? json?.note || "Webull rejected the access token. Regenerate the key at webull.com/open-api with 2FA unchecked, or approve 2FA in the Webull App and retry." : json?.note || json?.error || "Connection failed — check the key pair"
         });
       }
     } catch (err) {
@@ -1672,7 +1679,7 @@ function ConnectForm({
     style: {
       color: "var(--vf-primary, #38F2A1)"
     }
-  }, "webull.com/open-api"), " with the brokerage login."), React.createElement("li", null, "Open ", React.createElement("b", null, "API Keys Management"), " \u2192 ", React.createElement("b", null, "Generate Key"), ". Leave 2FA unchecked."), React.createElement("li", null, "Copy the ", React.createElement("b", null, "App Key"), " and ", React.createElement("b", null, "App Secret"), " (the secret is shown once) and paste both below."))), React.createElement("form", {
+  }, "webull.com/open-api"), " with the brokerage login."), React.createElement("li", null, "Open ", React.createElement("b", null, "API Keys Management"), " \u2192 ", React.createElement("b", null, "Generate Key"), ". Leave ", React.createElement("b", null, "2FA unchecked"), " (recommended for linking)."), React.createElement("li", null, "Copy the ", React.createElement("b", null, "App Key"), " and ", React.createElement("b", null, "App Secret"), " (the secret is shown once) and paste both below."), React.createElement("li", null, "If the key was created with 2FA on, approve the OpenAPI SMS prompt in the Webull App, then tap Connect again."))), React.createElement("form", {
     onSubmit: submit,
     autoComplete: "off"
   }, React.createElement("div", {
@@ -1708,7 +1715,11 @@ function ConnectForm({
     className: "bc-btn bc-btn-primary",
     disabled: busy || !appKey.trim() || !appSecret.trim()
   }, busy ? "Validating…" : "Connect"), msg && React.createElement("span", {
-    className: msg.ok ? "msg-ok" : "msg-err"
+    className: msg.ok ? "msg-ok" : "msg-err",
+    style: msg.ok ? undefined : {
+      maxWidth: 520,
+      display: "inline-block"
+    }
   }, msg.text))), React.createElement("p", {
     className: "dim",
     style: {
@@ -1716,7 +1727,11 @@ function ConnectForm({
       margin: "12px 0 0",
       lineHeight: 1.6
     }
-  }, "The key pair is validated against Webull before anything is stored, then encrypted at rest. Keys never appear in the browser again after this step."));
+  }, "The key pair is validated against Webull before anything is stored, then encrypted at rest. Keys never appear in the browser again after this step. An ", React.createElement("code", {
+    style: {
+      fontSize: 11
+    }
+  }, "x-access-token"), " error usually means the key has 2FA on \u2014 not a bad secret."));
 }
 const EQ_RANGES = [{
   id: "1D",
@@ -3030,6 +3045,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786615302791:826406967
+// cache-bust:1786653916808:224235507
 
-// cache-bust:1786615302791:826406967
+// cache-bust:1786653916808:224235507

@@ -20,6 +20,7 @@ function makeKv(rows = []) {
   return {
     async get(k) { return map.get(k) || null; },
     async put(k, v) { map.set(k, v); },
+    async delete(k) { map.delete(k); },
     async list({ prefix = "", limit = 100 } = {}) {
       const keys = [...map.keys()].filter((k) => k.startsWith(prefix)).slice(0, limit).map((name) => ({ name }));
       return { keys };
