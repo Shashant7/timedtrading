@@ -239,7 +239,7 @@ function safeParse(s, fallback) {
   try { return JSON.parse(s); } catch (_) { return fallback; }
 }
 
-/** One equity sample per account per hour (reconciler is */5). */
+// One equity sample per account per hour (reconciler runs every 5 min).
 export async function recordEquityPoint(env, { broker_account_id, ts, equity_usd } = {}) {
   const db = env?.BRIDGE_DB;
   const eq = Number(equity_usd);
