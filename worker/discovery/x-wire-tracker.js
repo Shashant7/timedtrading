@@ -57,6 +57,38 @@ function bearerToken(env) {
   return String(env?.X_API_BEARER_TOKEN || "").trim() || null;
 }
 
+/**
+ * X API v2 returns tweet text with HTML entities (&amp; &lt; &#39; …).
+ * Discord embeds and UI show those as literals unless we decode once at the
+ * ingest / serve boundary. Safe for already-decoded strings (idempotent for
+ * common named entities that do not themselves contain '&').
+ */
+export function decodeXWireText(text) {
+  return String(text || "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#0*39;/g, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&hellip;/gi, "…")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&ndash;/gi, "–")
+    .replace(/&lsquo;|&rsquo;/gi, "'")
+    .replace(/&ldquo;|&rdquo;/gi, '"')
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+      try { return String.fromCodePoint(code); } catch (_) { return ""; }
+    })
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_, hx) => {
+      const code = parseInt(hx, 16);
+      if (!Number.isFinite(code) || code < 0 || code > 0x10FFFF) return "";
+      try { return String.fromCodePoint(code); } catch (_) { return ""; }
+    });
+}
+
 export async function ensureXWireSchema(env) {
   const db = env?.DB;
   if (!db) return;
@@ -236,7 +268,8 @@ export function extractLevelsFromText(text, opts = {}) {
 export function buildWireDiscordEmbed(row, watchMeta = {}) {
   const handle = normHandle(row.handle);
   const kind = String(row.kind || watchMeta.kind || "wire");
-  const text = String(row.text || "").trim();
+  // Decode at serve time so already-persisted entity-encoded rows render cleanly.
+  const text = decodeXWireText(row.text).trim();
   const tickers = (() => {
     try { return JSON.parse(row.tickers_json || "[]"); } catch (_) { return []; }
   })();
@@ -246,17 +279,17 @@ export function buildWireDiscordEmbed(row, watchMeta = {}) {
   const macro = (() => {
     try { return row.macro_json ? JSON.parse(row.macro_json) : null; } catch (_) { return null; }
   })();
-  const reason = watchMeta.reason ? String(watchMeta.reason).slice(0, 120) : null;
+  const reason = watchMeta.reason ? decodeXWireText(watchMeta.reason).slice(0, 120) : null;
 
   const titleParts = [`@${handle}`];
-  if (macro?.event_name) titleParts.push(macro.event_name.slice(0, 80));
+  if (macro?.event_name) titleParts.push(decodeXWireText(macro.event_name).slice(0, 80));
   else if (tickers.length > 0) titleParts.push(tickers.slice(0, 4).join(", "));
 
   const fields = [];
   if (macro) {
     fields.push({
       name: "Macro print",
-      value: `Actual: **${macro.actual}**${macro.estimate ? ` · Est: ${macro.estimate}` : ""}`,
+      value: `Actual: **${decodeXWireText(macro.actual)}**${macro.estimate ? ` · Est: ${decodeXWireText(macro.estimate)}` : ""}`,
       inline: false,
     });
   }
@@ -429,7 +462,8 @@ async function persistMacroActual(env, macro, meta = {}) {
 export function buildWireRowFromTweet(handle, kind, tweet) {
   const h = normHandle(handle);
   const postId = String(tweet?.id || "");
-  const text = String(tweet?.text || "").trim();
+  // Decode HTML entities before tickers/macro parse and D1 persist.
+  const text = decodeXWireText(tweet?.text).trim();
   if (!postId || !text) return null;
   const tickers = extractTickersFromText(text);
   const levels = extractLevelsFromText(text);
@@ -741,7 +775,8 @@ export async function loadRecentWirePosts(env, opts = {}) {
            ORDER BY COALESCE(created_at, '') DESC, ingested_at DESC
            LIMIT ?3
         `).bind(cutoff, Date.now() - lookbackHours * 3600000, limit).all().catch(() => ({ results: [] })))?.results || [];
-    return rows;
+    // Decode on read for rows ingested before entity normalization.
+    return rows.map((r) => (r?.text != null ? { ...r, text: decodeXWireText(r.text) } : r));
   } catch (_) {
     return [];
   }

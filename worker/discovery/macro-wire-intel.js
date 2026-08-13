@@ -6,7 +6,7 @@
 
 import { headlineMentionsTicker, ensureTickerNewsSchema } from "./news-tracker.js";
 import { THEMES, getThemesForTicker } from "../sector-mapping.js";
-import { DELTA_ONE_HANDLE, isDeltaOneHandle } from "./x-wire-tracker.js";
+import { DELTA_ONE_HANDLE, isDeltaOneHandle, decodeXWireText } from "./x-wire-tracker.js";
 
 export const MACRO_WIRE_KIND = "macro_wire";
 export { DELTA_ONE_HANDLE };
@@ -122,7 +122,7 @@ export function buildTopCatalysts(rows, limit = 8) {
       + intel.catalyst_strength
       + urgencyWeight(intel.urgency) * 3;
     scored.push({
-      headline: String(r.text || "").slice(0, 280),
+      headline: decodeXWireText(r.text).slice(0, 280),
       source: `@${r.handle || "wire"}`,
       url: r.url || null,
       sentiment: intel.sentiment,
@@ -141,7 +141,7 @@ export function buildTopCatalysts(rows, limit = 8) {
 export async function classifyMacroWirePost(env, post) {
   const apiKey = env?.OPENAI_API_KEY;
   if (!apiKey) return { ok: false, error: "no_openai_api_key" };
-  const text = String(post?.text || "").trim().slice(0, 500);
+  const text = decodeXWireText(post?.text).trim().slice(0, 500);
   if (!text) return { ok: false, error: "empty_text" };
   const model = String(env?.AI_MACRO_WIRE_MODEL || env?.AI_NEWS_SENTIMENT_MODEL || CLASSIFY_MODEL_FALLBACK);
   const isGpt5 = model.toLowerCase().startsWith("gpt-5");
@@ -195,7 +195,7 @@ export async function fanOutIntelToTickerNews(env, post, intel, cashtags = []) {
   const db = env?.DB;
   if (!db || !intel) return 0;
   await ensureTickerNewsSchema(env);
-  const headline = String(post.text || "").trim().slice(0, 500);
+  const headline = decodeXWireText(post.text).trim().slice(0, 500);
   const url = post.url || `https://x.com/i/status/${post.post_id}`;
   const source = `@${String(post.handle || "wire").replace(/^@/, "")}`;
   const dtIso = post.created_at || new Date().toISOString();
@@ -259,6 +259,7 @@ export async function loadRecentMacroWireRows(env, opts = {}) {
     `).bind(DELTA_ONE_HANDLE, cutoffIso, cutoffMs, limit).all().catch(() => ({ results: [] })))?.results || [];
     return rows.map((r) => ({
       ...r,
+      text: decodeXWireText(r.text),
       intel: parseIntelJson(r.intel_json),
     }));
   } catch (_) {

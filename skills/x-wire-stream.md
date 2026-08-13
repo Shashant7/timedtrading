@@ -154,6 +154,13 @@ cd /workspace/worker
 
 ---
 
+## Text normalization
+
+X API v2 returns HTML entities in tweet text (`S&amp;P` → should display `S&P`).
+`decodeXWireText()` in `x-wire-tracker.js` runs at ingest (`buildWireRowFromTweet`),
+Discord embed build, admin/brief reads, and macro-wire pulse/classify paths.
+If Discord or brief copy shows literal `&amp;`, the worker build is stale — redeploy monolith.
+
 ## Troubleshooting
 
 | Symptom | Check |
@@ -162,6 +169,7 @@ cd /workspace/worker
 | `healthy: false`, `lastError: no_x_api_bearer_token` | Set `X_API_BEARER_TOKEN` secret |
 | `healthy: false`, connect errors | X API quota / filtered-stream entitlement; try `POST .../stream/start` |
 | Posts in D1 but no Discord | `DISCORD_GENERAL_WEBHOOK_URL` unset; or first backfill without `since_id` (poll only) |
+| Discord shows `S&amp;P` / `&lt;` | Redeploy worker with entity decode; new posts decode at ingest, embeds decode at serve |
 | Weekend headlines missing | Fixed 2026-07-12: stream keepalive + unhealthy poll were gated behind `isPriceFeedCron` — redeploy monolith if still stale |
 | Pulse empty | LLM classify path — check `macro-wire-intel` logs; `OPENAI_API_KEY` on worker |
 | Duplicate posts | Should not happen — `INSERT OR IGNORE` on `post_id` |
