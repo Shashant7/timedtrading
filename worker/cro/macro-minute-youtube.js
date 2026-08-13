@@ -4,23 +4,28 @@
 //
 // WHY: the FSD fetch (worker/cro/fsd-client.js) already pulls each Macro Minute
 // POST, but the body is just the ~1-paragraph blurb + a video embed (~1.7KB) —
-// the substance lives in the video. Fundstrat mirrors every Macro Minute on its
-// public YouTube channel, so we ingest the TRANSCRIPT (full spoken analysis)
-// and feed it through the same CRO/FSD pipeline as the written notes.
+// the substance lives in the video. Fundstrat Direct hosts the clip on Vimeo
+// (members). When they still mirror an episode to the public YouTube channel
+// @Fundstrat_Direct we ingest the TRANSCRIPT (or description) into CRO/FSD.
 //
-// IMPORTANT — YouTube reality (verified 2026-06-18): from a server/datacenter
-// context YouTube does NOT expose caption tracks in the watch-page HTML and the
-// public `videos.xml` RSS is throttled to a single entry. So:
-//   - Discovery prefers the YouTube Data API (env YOUTUBE_API_KEY); RSS is a
-//     best-effort fallback.
-//   - Transcripts come from a configurable provider (env YT_TRANSCRIPT_API_URL +
-//     YT_TRANSCRIPT_API_KEY — Supadata-shaped by default). When no transcript
-//     provider is set we fall back to the video DESCRIPTION (still richer than
-//     the FSD blurb), then to nothing.
+// IMPORTANT — YouTube reality (verified 2026-06-18, rechecked 2026-08-13):
+//   - @fundstrat (UCXKmQMS4TsR0fpviXJ17lRw) is a leftover personal channel
+//     with ~1 public video. The live channel is @Fundstrat_Direct
+//     (UCcBzKSM4A-pIHMJWSnxmi_g).
+//   - Daily 2026 Macro Minutes are often Vimeo-only; YouTube search still
+//     finds 2023-era "Tom Lee's Macro Minute" clips. Ingest skips videos
+//     older than MACRO_MINUTE_MAX_AGE_DAYS so CRO does not eat stale notes.
+//   - From a server/datacenter context YouTube does NOT expose caption tracks
+//     in the watch-page HTML and public `videos.xml` RSS is throttled.
+//   - Discovery prefers the YouTube Data API (env YOUTUBE_API_KEY).
+//   - Transcripts come from a configurable provider (env YT_TRANSCRIPT_API_URL
+//     + YT_TRANSCRIPT_API_KEY). Else video DESCRIPTION, then nothing.
 // Nightly lane auto-runs when YOUTUBE_API_KEY is set; MACRO_MINUTE_YT_INGEST=off
 // is the kill switch.
 
-export const FUNDSTRAT_CHANNEL_ID = "UCXKmQMS4TsR0fpviXJ17lRw"; // @fundstrat
+export const FUNDSTRAT_CHANNEL_ID = "UCcBzKSM4A-pIHMJWSnxmi_g"; // @Fundstrat_Direct
+export const FUNDSTRAT_CHANNEL_HANDLE = "Fundstrat_Direct";
+export const MACRO_MINUTE_MAX_AGE_DAYS = 21;
 
 /** Nightly/manual lane: on when a Data API key is present, unless explicitly off. */
 export function isMacroMinuteYtEnabled(env) {
@@ -49,6 +54,9 @@ export function discoveryEmptyNote(diag) {
   if (diag.search_http && diag.search_http !== 200 && !(diag.playlist_items > 0)) {
     return `youtube_search_http_${diag.search_http}`;
   }
+  if ((diag.stale_matched || 0) > 0) {
+    return "no_recent_macro_minute_on_youtube";
+  }
   if ((diag.playlist_items || 0) > 0 || (diag.search_items || 0) > 0) {
     return "no_macro_minute_title_in_recent_uploads";
   }
@@ -62,6 +70,14 @@ export function isMacroMinuteTitle(title) {
   const t = String(title || "").toLowerCase();
   if (!t) return false;
   return /macro[\s\-]?minute/.test(t);
+}
+
+/** True when publishedAt is within maxAgeDays (undated → not fresh). */
+export function isFreshPublished(published, { now = Date.now(), maxAgeDays = MACRO_MINUTE_MAX_AGE_DAYS } = {}) {
+  const t = Date.parse(published);
+  if (!Number.isFinite(t)) return false;
+  const maxMs = Math.max(1, Number(maxAgeDays) || MACRO_MINUTE_MAX_AGE_DAYS) * 86400 * 1000;
+  return (now - t) <= maxMs && t <= now + 86400 * 1000;
 }
 
 /** The uploads playlist id for a channel = channelId with the 2nd char UC→UU. */
@@ -159,6 +175,8 @@ function emptyDiag(keyPresent) {
     rss_http: null,
     rss_items: 0,
     rss_matched: 0,
+    stale_matched: 0,
+    stale_titles: [],
   };
 }
 
@@ -266,7 +284,7 @@ export async function discoverMacroMinuteVideosDetailed(env, { limit = 10 } = {}
       diag.search_error = sanitizeYtErrorText(String(e?.message || e));
     }
 
-    const thin = [...matched.values()].filter((v) => String(v.description || "").length < 80);
+    const thin = [...matched.values()].filter((v) => isFreshPublished(v.published) && String(v.description || "").length < 80);
     if (thin.length && key) {
       try {
         const ids = thin.map((v) => v.videoId).slice(0, 15).join(",");
@@ -286,8 +304,12 @@ export async function discoverMacroMinuteVideosDetailed(env, { limit = 10 } = {}
       } catch (_) { /* descriptions stay truncated */ }
     }
 
-    if (matched.size) {
-      const videos = [...matched.values()]
+    const fresh = [...matched.values()].filter((v) => isFreshPublished(v.published));
+    const stale = [...matched.values()].filter((v) => !isFreshPublished(v.published));
+    diag.stale_matched = stale.length;
+    diag.stale_titles = stale.slice(0, 5).map((v) => String(v.title || "").slice(0, 80));
+    if (fresh.length) {
+      const videos = fresh
         .sort((a, b) => String(b.published || "").localeCompare(String(a.published || "")))
         .slice(0, cap);
       return { videos, diag };
@@ -305,7 +327,13 @@ export async function discoverMacroMinuteVideosDetailed(env, { limit = 10 } = {}
       diag.rss_items = parsed.length;
       const vids = parsed.filter((v) => isMacroMinuteTitle(v.title));
       diag.rss_matched = vids.length;
-      return { videos: vids.slice(0, cap), diag };
+      const fresh = vids.filter((v) => isFreshPublished(v.published));
+      const stale = vids.filter((v) => !isFreshPublished(v.published));
+      diag.stale_matched = Math.max(diag.stale_matched, stale.length);
+      if (stale.length && !diag.stale_titles.length) {
+        diag.stale_titles = stale.slice(0, 5).map((v) => String(v.title || "").slice(0, 80));
+      }
+      return { videos: fresh.slice(0, cap), diag };
     }
   } catch (_) { /* nothing */ }
   return { videos: [], diag };

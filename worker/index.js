@@ -84616,7 +84616,7 @@ export default {
         }
       }
       // POST /timed/admin/cro/macro-minute/ingest — Tom Lee Macro Minute
-      // full content (transcript, else YouTube description) from @fundstrat
+      // full content (transcript, else YouTube description) from @Fundstrat_Direct
       // into the CRO/FSD pipeline. Body: { limit?, force? }.
       // Needs YOUTUBE_API_KEY for reliable discovery. Spoken transcript is
       // optional (YT_TRANSCRIPT_API_URL + YT_TRANSCRIPT_API_KEY).

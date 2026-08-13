@@ -9,8 +9,9 @@ provisioned.
 The FSD fetch (`worker/cro/fsd-client.js`) already pulls each Macro Minute
 **post**, but the body is ~1.7 KB — the blurb + a video embed. The substance is
 in the video. Fundstrat Direct hosts the clip on Vimeo (members). The public
-YouTube channel (`@fundstrat`, `UCXKmQMS4TsR0fpviXJ17lRw`) is the ingest
-source when they still mirror the episode there.
+YouTube channel (`@Fundstrat_Direct`, `UCcBzKSM4A-pIHMJWSnxmi_g`) is the ingest
+source when they still mirror the episode there. `@fundstrat` is a leftover
+personal channel and is not used.
 
 Module: `worker/cro/macro-minute-youtube.js`.
 
@@ -71,7 +72,8 @@ than the ~1.7 KB FSD blurb.
 ## Notes / gotchas
 
 - Discovery filters titles via `isMacroMinuteTitle()` (`macro minute` / `macro-minute`).
-  It scans the last 50 uploads plus `search.list` for "Macro Minute" on `@fundstrat`.
+  It scans the last 50 uploads plus `search.list` for "Macro Minute" on `@Fundstrat_Direct`.
+  Videos older than 21 days are reported in `diag.stale_titles` and not ingested.
 - Empty `discovered:0` used to always say "configure YOUTUBE_API_KEY". The ingest
   payload now includes `diag` (playlist/search HTTP, sample titles, redacted API
   error). A 403 with a referrer restriction means the Google Cloud key must be

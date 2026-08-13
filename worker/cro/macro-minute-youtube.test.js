@@ -10,6 +10,7 @@ import {
   isMacroMinuteYtEnabled,
   sanitizeYtErrorText,
   discoveryEmptyNote,
+  isFreshPublished,
   FUNDSTRAT_CHANNEL_ID,
 } from "./macro-minute-youtube.js";
 
@@ -18,6 +19,7 @@ describe("isMacroMinuteTitle", () => {
     expect(isMacroMinuteTitle("Macro Minute: April Core CPI on Tue")).toBe(true);
     expect(isMacroMinuteTitle("Video: Macro Minute: VIX below 20")).toBe(true);
     expect(isMacroMinuteTitle("macro-minute weekly recap")).toBe(true);
+    expect(isMacroMinuteTitle("Tom Lee's Macro Minute: S&P 500 Earnings Revision")).toBe(true);
     expect(isMacroMinuteTitle("Daily Technical Strategy")).toBe(false);
     expect(isMacroMinuteTitle("")).toBe(false);
   });
@@ -121,5 +123,24 @@ describe("discoveryEmptyNote", () => {
   });
   it("reports a title miss when the API returned uploads", () => {
     expect(discoveryEmptyNote({ key_present: true, youtube_http: 200, playlist_items: 50, playlist_matched: 0 })).toBe("no_macro_minute_title_in_recent_uploads");
+  });
+  it("reports stale YouTube mirrors instead of ingesting them", () => {
+    expect(discoveryEmptyNote({
+      key_present: true,
+      youtube_http: 200,
+      search_http: 200,
+      search_items: 3,
+      search_matched: 3,
+      stale_matched: 3,
+    })).toBe("no_recent_macro_minute_on_youtube");
+  });
+});
+
+describe("isFreshPublished", () => {
+  it("accepts recent ISO dates and rejects undated or old clips", () => {
+    const now = Date.parse("2026-08-13T12:00:00Z");
+    expect(isFreshPublished("2026-08-11T21:00:00Z", { now })).toBe(true);
+    expect(isFreshPublished("2023-08-22T21:00:00Z", { now })).toBe(false);
+    expect(isFreshPublished("", { now })).toBe(false);
   });
 });
