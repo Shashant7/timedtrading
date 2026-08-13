@@ -82588,8 +82588,9 @@ export default {
             }
             const marketOpen = isNyRegularMarketOpen();
             for (const acct of payload.accounts) {
-              let acctValue = 0, acctUnrealized = 0, acctDayPnl = 0;
+              let acctValue = 0, acctUnrealized = 0, acctDayPnl = 0, heldManaged = 0;
               const seenTickers = new Set();
+              const mirrorOn = acct.mirror_enabled === true;
               for (const it of acct.items || []) {
                 seenTickers.add(it.ticker);
                 const mp = modelByTicker.get(it.ticker) || null;
@@ -82602,13 +82603,21 @@ export default {
                 //   adoptable  — model holds it AND the account holds
                 //     user-initiated shares the mirror is not tracking:
                 //     "Sync with model" adopts the sleeve (bookkeeping only).
-                if (mp && brokerFlat) it.auto_sync = true;
-                if (mp && !brokerFlat && !it.managed) {
+                // Mirror-off accounts never surface auto_sync / adoptable —
+                // those outcomes only apply when the account can receive
+                // model orders.
+                if (mirrorOn && mp && brokerFlat) it.auto_sync = true;
+                if (mirrorOn && mp && !brokerFlat && !it.managed) {
                   it.adoptable = true;
-                  if (!acct.mirror_enabled) it.adopt_note = "mirror_off";
+                }
+                if (!mirrorOn) {
+                  delete it.auto_sync;
+                  delete it.adoptable;
+                  delete it.adopt_note;
                 }
                 if (mp) it.model_stage = mp.investor_stage || null;
                 const row = pricesAllowed ? pf[it.ticker] : null;
+                const qty = Number(it.broker_qty) || 0;
                 if (row && Number(row.p) > 0) {
                   // Alias names match shared-price-utils getDailyChange's
                   // fallback chain — the page must not inline change math.
@@ -82616,13 +82625,19 @@ export default {
                   it.prev_close = Number(row.pc) || null;
                   it.day_change = Number.isFinite(Number(row.dc)) ? Number(row.dc) : null;
                   it.day_change_pct = Number.isFinite(Number(row.dp)) ? Number(row.dp) : null;
-                  const qty = Number(it.broker_qty) || 0;
-                  if (qty > 0) {
-                    it.market_value = qty * it.price;
+                }
+                if (qty > 0) {
+                  const px = Number(it.price) > 0 ? Number(it.price)
+                    : (Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0);
+                  if (px > 0) {
+                    it.market_value = qty * px;
+                    // KPI "mirrored value" uses managed sleeves; still
+                    // accumulate account totals for the per-account strip.
                     acctValue += it.market_value;
-                    if (Number(it.avg_cost) > 0) {
-                      it.unrealized_pnl = (it.price - Number(it.avg_cost)) * qty;
-                      it.unrealized_pnl_pct = ((it.price / Number(it.avg_cost)) - 1) * 100;
+                    if (it.managed) heldManaged += qty;
+                    if (Number(it.avg_cost) > 0 && Number(it.price) > 0) {
+                      it.unrealized_pnl = (Number(it.price) - Number(it.avg_cost)) * qty;
+                      it.unrealized_pnl_pct = ((Number(it.price) / Number(it.avg_cost)) - 1) * 100;
                       acctUnrealized += it.unrealized_pnl;
                     }
                     if (Number.isFinite(it.day_change) && it.day_change !== null) {
@@ -82632,33 +82647,39 @@ export default {
                   }
                 }
               }
-              // Model positions this account holds nothing of — visible with
-              // the honest answer: the model buys in during its own windows;
-              // sync is never forced with a standalone order.
-              for (const [sym, mp] of modelByTicker) {
-                if (seenTickers.has(sym)) continue;
-                const row = pricesAllowed ? pf[sym] : null;
-                acct.items.push({
-                  ticker: sym,
-                  managed: false,
-                  model_open: true,
-                  model_stage: mp.investor_stage || null,
-                  sync_state: "not_synced",
-                  broker_qty: 0,
-                  avg_cost: null,
-                  auto_sync: true,
-                  ...(row && Number(row.p) > 0 ? {
-                    price: Number(row.p),
-                    prev_close: Number(row.pc) || null,
-                    day_change: Number.isFinite(Number(row.dc)) ? Number(row.dc) : null,
-                    day_change_pct: Number.isFinite(Number(row.dp)) ? Number(row.dp) : null,
-                  } : {}),
-                });
+              // Model positions this account holds nothing of — only when
+              // mirroring is on (otherwise the AUTO-SYNC chrome is noise).
+              if (mirrorOn) {
+                for (const [sym, mp] of modelByTicker) {
+                  if (seenTickers.has(sym)) continue;
+                  const row = pricesAllowed ? pf[sym] : null;
+                  acct.items.push({
+                    ticker: sym,
+                    managed: false,
+                    model_open: true,
+                    model_stage: mp.investor_stage || null,
+                    sync_state: "not_synced",
+                    broker_qty: 0,
+                    avg_cost: null,
+                    auto_sync: true,
+                    ...(row && Number(row.p) > 0 ? {
+                      price: Number(row.p),
+                      prev_close: Number(row.pc) || null,
+                      day_change: Number.isFinite(Number(row.dc)) ? Number(row.dc) : null,
+                      day_change_pct: Number.isFinite(Number(row.dp)) ? Number(row.dp) : null,
+                    } : {}),
+                  });
+                }
               }
+              // Only surface PnL zeros when the account actually holds
+              // priced shares — otherwise the KPI strip reads as "$0.00"
+              // instead of "no data".
+              const hasHoldings = acctValue > 0 || heldManaged > 0
+                || (acct.items || []).some((it) => Number(it.broker_qty) > 0.0001);
               acct.summary = {
                 positions_value: acctValue || null,
-                unrealized_pnl: pricesAllowed ? acctUnrealized : null,
-                day_pnl: pricesAllowed ? acctDayPnl : null,
+                unrealized_pnl: (pricesAllowed && hasHoldings) ? acctUnrealized : null,
+                day_pnl: (pricesAllowed && hasHoldings) ? acctDayPnl : null,
               };
             }
             payload.prices_included = pricesAllowed;

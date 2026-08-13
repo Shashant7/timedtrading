@@ -6,6 +6,22 @@
 
 ---
 
+## Broker Connections: inline UI, KPI, caps, client_order_id [2026-08-13]
+
+**Symptom:** Timeline/position details required a click; KPI strip showed
+`—` / `$0.00` / `0`; mirror-off accounts still showed AUTO-SYNC; PANW
+Missing Here history showed Webull "Parameter error, invalid client
+order id"; daily order cap blocked natural mirror volume.
+
+**Fix:** Always render fills + account history inline. KPI sums managed
+sleeves (avg_cost fallback; no fake `$0.00` without holdings). Worker
+skips auto_sync injection when `mirror_enabled` is false. Fan-out
+`client_order_id` clamped to Webull's 10–40 chars; humanize raw Parameter
+errors. Daily/per-order account caps removed from preflight + UI —
+mirror on/off only; sizing stays relational.
+
+---
+
 ## Duplicate Investor Week in Review emails [2026-08-01]
 
 **Symptom:** Two identical `[LONG TERM · WEEKLY] Week in Review` emails

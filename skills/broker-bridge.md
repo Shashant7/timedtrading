@@ -429,10 +429,13 @@ an app user. Flow:
    every connected+enabled+`mirror_participant` account of OTHER owners in
    each model-signal dispatch — independent of `BROKER_FANOUT_ENABLED`,
    which still gates only the admin owner's own multi-account expansion.
-4. Caps via `POST /timed/broker/account/caps`; disconnect via
-   `POST /timed/broker/webull/disconnect` (all session-authed, scoped to
-   the signed-in user's own `email#...` namespace, gated on the
-   provisioning flag; admins bypass the flag).
+4. Disconnect via `POST /timed/broker/webull/disconnect` (session-authed,
+   scoped to the signed-in user's own `email#...` namespace, gated on the
+   provisioning flag; admins bypass the flag). **No daily / per-order
+   caps** on Broker Connections (2026-08-13) — mirror on/off is the only
+   account control; size is relational. `POST /timed/broker/account/caps`
+   remains for ops but the page no longer exposes it, and preflight
+   ignores leftover `user_caps.max_orders_per_day` / `max_per_order_usd`.
 
 Notifications for self-service accounts go to the user (their sign-in
 email is stamped as `partner_email` at connect) + the admin inbox.
@@ -489,10 +492,11 @@ Second pass (2026-08-13):
 - **Sync = adoption, never an order (v2, 2026-08-13)** — operator:
   bound buy/sell orders must not fire because a sync was initiated.
   Three cases on the positions view:
-  - *Model YES / broker NO* → `auto_sync` (passive AUTO-SYNC chip). The
-    model buys in during its own natural windows (DCA add, catch-up pass
-    that clears the model's gates). Nothing for the user to do; sync is
-    never forced with a standalone order.
+  - *Model YES / broker NO* → `auto_sync` (passive AUTO-SYNC chip) **only
+    when the account has mirroring on**. Mirror-off accounts never see
+    AUTO-SYNC / model-orphan rows. The model buys in during its own
+    natural windows (DCA add, catch-up). Sync is never forced with a
+    standalone order.
   - *Model NO / broker YES* → NOT MIRRORED; the mirror never touches it
     (copy explains; no action offered).
   - *Model YES / broker YES but untracked (user-initiated trade)* →

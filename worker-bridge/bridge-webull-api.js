@@ -680,8 +680,9 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts
       daily_order_count_date: existing.daily_order_count_date || new Date().toISOString().slice(0, 10),
       total_orders_lifetime: existing.total_orders_lifetime || 0,
       user_caps: existing.user_caps || {
-        max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
-        max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
+        // 0 = unlimited — mirror on/off is the account control.
+        max_per_order_usd: Number.isFinite(Number(env?.DEFAULT_MAX_ORDER_USD)) ? Number(env.DEFAULT_MAX_ORDER_USD) : 0,
+        max_orders_per_day: 0,
       },
     };
     await writeUser(env, subId, row);

@@ -45,13 +45,19 @@ function todayKey() {
 }
 
 function resolveUserCaps(env, user) {
-  const defaultPerOrder = Number(env?.DEFAULT_MAX_ORDER_USD) || 5000;
-  const defaultPerDay   = Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3;
-  const overrides = user?.user_caps || {};
+  // 2026-08-13 — Mirror on/off is the only account-level control.
+  // Relational sizing (model qty × account equity / model capital) sets
+  // order size. Per-account user_caps (and the old daily/per-order UI)
+  // are ignored so a leftover `max_orders_per_day: 3` cannot block
+  // mirrors. Optional env DEFAULT_MAX_ORDER_USD still acts as a global
+  // ceiling when set > 0 (ops escape hatch). Vehicle prefs remain
+  // separate (options auto-mirror).
+  void user;
+  const envPerOrder = Number(env?.DEFAULT_MAX_ORDER_USD);
   return {
-    max_per_order_usd: Number(overrides.max_per_order_usd) || defaultPerOrder,
-    max_orders_per_day: Number(overrides.max_orders_per_day) || defaultPerDay,
-    max_account_pct: Number(overrides.max_account_pct) || 0.25, // never put >25% of account on one order by default
+    max_per_order_usd: Number.isFinite(envPerOrder) && envPerOrder > 0 ? envPerOrder : 0,
+    max_orders_per_day: 0,
+    max_account_pct: 0,
   };
 }
 
@@ -801,7 +807,7 @@ export async function preflightOrder(env, payload) {
   // cash / concentration ceilings (that path used Math.floor(cash/entry)
   // and could zero out a legitimate trim).
   const isReducer = sizingLifecycle === "reduce" || sizingLifecycle === "close";
-  if (!isReducer && estValue != null && estValue > caps.max_per_order_usd) {
+  if (!isReducer && caps.max_per_order_usd > 0 && estValue != null && estValue > caps.max_per_order_usd) {
     const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
     if (!scaleToFit) {
       return {
@@ -889,7 +895,7 @@ export async function preflightOrder(env, payload) {
   // skipped silently if equity isn't in the user record. Scale-to-fit
   // applies the same way.
   const liveEquity = Number(user?.equity_usd || user?.portfolio?.equity_usd);
-  if (!isReducer && Number.isFinite(liveEquity) && liveEquity > 0 && estValue != null) {
+  if (!isReducer && Number(caps.max_account_pct) > 0 && Number.isFinite(liveEquity) && liveEquity > 0 && estValue != null) {
     const maxAccountUsd = liveEquity * Number(caps.max_account_pct);
     if (maxAccountUsd > 0 && estValue > maxAccountUsd) {
       const scaleToFit = String(env?.BROKER_SCALE_TO_FIT || "true").toLowerCase() !== "false";
@@ -931,20 +937,10 @@ export async function preflightOrder(env, payload) {
     }
   }
 
-  // Daily order counter (only counts ENTRY/TRIM/EXIT placements, not reviews).
-  const today = todayKey();
-  if (user.daily_order_count_date !== today) {
-    user.daily_order_count = 0;
-    user.daily_order_count_date = today;
-  }
-  if ((user.daily_order_count || 0) >= caps.max_orders_per_day) {
-    return {
-      ok: false,
-      reject_reason: `daily_cap_hit_${user.daily_order_count}_ge_${caps.max_orders_per_day}`,
-      daily_order_count: user.daily_order_count,
-      cap: caps.max_orders_per_day,
-    };
-  }
+  // 2026-08-13 — Daily order caps removed. Mirror on/off is the only
+  // account-level gate; sizing is relational. bumpDailyCounter still
+  // increments for analytics, but never blocks placement. Legacy
+  // user_caps.max_orders_per_day values are ignored.
 
   return {
     ok: true,
