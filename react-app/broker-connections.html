@@ -1272,15 +1272,15 @@
               setMsg({
                 ok: false,
                 text: json?.note
-                  || "This API key has 2FA enabled. Approve the OpenAPI notification in the Webull App (Menu → Messages), then tap Connect again — or regenerate the key with 2FA unchecked.",
+                  || "This API key has 2FA on. Fastest fix: generate a new key with 2FA off. Or approve Menu → Messages → OpenAPI Notifications in the Webull App (SMS within 5 minutes), then tap Connect again.",
               });
             } else {
               const raw = String(json?.note || json?.error || "");
-              const looksLikeToken = /x-access-token|webull_2fa|2fa/i.test(raw);
+              const looksLikeToken = /x-access-token|webull_2fa|2fa|access-token/i.test(raw);
               setMsg({
                 ok: false,
                 text: looksLikeToken
-                  ? (json?.note || "Webull rejected the access token. Regenerate the key at webull.com/open-api with 2FA unchecked, or approve 2FA in the Webull App and retry.")
+                  ? (json?.note || "Webull needs a 2FA access token for this key — not a bad secret. Generate a new key with 2FA off, or approve OpenAPI Notifications in the Webull App and retry.")
                   : (json?.note || json?.error || "Connection failed — check the key pair"),
               });
             }
@@ -1290,19 +1290,23 @@
 
         return (
           <div>
-            {!compact && (
-              <div>
-                <p className="dim" style={{ fontSize: 13, margin: "0 0 4px", lineHeight: 1.6 }}>
-                  Generate a personal API key pair in the Webull account that will mirror trades:
-                </p>
-                <ol className="steps">
-                  <li>Sign in at <a href="https://www.webull.com/open-api" target="_blank" rel="noopener" style={{ color: "var(--vf-primary, #38F2A1)" }}>webull.com/open-api</a> with the brokerage login.</li>
-                  <li>Open <b>API Keys Management</b> → <b>Generate Key</b>. Leave <b>2FA unchecked</b> (recommended for linking).</li>
-                  <li>Copy the <b>App Key</b> and <b>App Secret</b> (the secret is shown once) and paste both below.</li>
-                  <li>If the key was created with 2FA on, approve the OpenAPI SMS prompt in the Webull App, then tap Connect again.</li>
-                </ol>
-              </div>
-            )}
+            <div>
+              <p className="dim" style={{ fontSize: 13, margin: "0 0 4px", lineHeight: 1.6 }}>
+                {compact
+                  ? "Paste a new App Key + App Secret from the same Webull login. Accounts and mirror settings stay in place."
+                  : "Generate a personal API key pair in the Webull account that will mirror trades:"}
+              </p>
+              <ol className="steps">
+                <li>Sign in at <a href="https://www.webull.com/open-api" target="_blank" rel="noopener" style={{ color: "var(--vf-primary, #38F2A1)" }}>webull.com/open-api</a> with the brokerage login (not a paper account).</li>
+                <li>Open <b>API Keys Management</b> → <b>Generate Key</b>. Leave the <b>2FA</b> checkbox <b>off</b> — that is required for a clean link.</li>
+                <li>Copy the <b>App Key</b> and <b>App Secret</b> (the secret is shown once) and paste both below, then tap Connect.</li>
+              </ol>
+              <p className="dim" style={{ fontSize: 12, margin: "0 0 12px", lineHeight: 1.55, padding: "10px 12px", borderLeft: "3px solid var(--vf-primary, #38F2A1)", background: "rgba(56,242,161,0.06)" }}>
+                If connect fails with an access-token message, the key was created with 2FA on — that is not a bad secret.
+                Fastest fix: generate a new key with 2FA off and connect again.
+                Or keep the same key, open the Webull App → <b>Menu → Messages → OpenAPI Notifications</b>, enter the SMS code within 5 minutes, then tap Connect again.
+              </p>
+            </div>
             <form onSubmit={submit} autoComplete="off">
               <div className="lbl">App Key</div>
               <input className="bc-input" name="webull_app_key" value={appKey} autoComplete="off" spellCheck="false"
@@ -1320,7 +1324,6 @@
             <p className="dim" style={{ fontSize: 11, margin: "12px 0 0", lineHeight: 1.6 }}>
               The key pair is validated against Webull before anything is stored, then encrypted at rest.
               Keys never appear in the browser again after this step.
-              An <code style={{ fontSize: 11 }}>x-access-token</code> error usually means the key has 2FA on — not a bad secret.
             </p>
           </div>
         );
