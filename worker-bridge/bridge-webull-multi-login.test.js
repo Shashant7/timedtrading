@@ -10,7 +10,7 @@ import {
 } from "./bridge-webull-api.js";
 import { handleWebullOauthDisconnect } from "./bridge-webull-auth.js";
 import { wrapSecret } from "./bridge-crypto.js";
-import { resolveNotifyRecipients } from "./bridge-notifications.js";
+import { isAdminOwnedRow, ownerEmailForRow, resolveNotifyRecipients } from "./bridge-notifications.js";
 import { listMirrorParticipants, pauseOwnerAccounts, readUser, resolveBridgeAccounts } from "./bridge-storage.js";
 
 // In-memory BRIDGE_KV stub (get/put/list) shared by storage helpers.
@@ -192,10 +192,20 @@ describe("env-secret credentials (worker-level, preferred)", () => {
 describe("resolveNotifyRecipients — partner + admin routing", () => {
   const envWithAdmin = { BRIDGE_ADMIN_NOTIFY_EMAIL: "timedtrading@gmail.com" };
 
-  it("null without notify_emails (legacy single-recipient behavior preserved)", () => {
-    expect(resolveNotifyRecipients(envWithAdmin, { user_id: "op@x.com#webull#roth-ira" })).toBeNull();
+  it("falls back to the row owner when notify_emails is absent", () => {
+    // Legacy rows (and the operator's own) carry no notify_emails. Returning
+    // null used to queue the item with no address, so grouping keyed on the
+    // bare user_id and the mail never went out.
+    expect(resolveNotifyRecipients(envWithAdmin, { user_id: "op@x.com#webull#roth-ira" }))
+      .toEqual(["op@x.com", "timedtrading@gmail.com"]);
+    expect(resolveNotifyRecipients(envWithAdmin, { owner_email: "Partner@Y.com" }))
+      .toEqual(["partner@y.com", "timedtrading@gmail.com"]);
+  });
+
+  it("null only when no inbox can be derived at all", () => {
     expect(resolveNotifyRecipients(envWithAdmin, null)).toBeNull();
     expect(resolveNotifyRecipients(envWithAdmin, { notify_emails: [] })).toBeNull();
+    expect(resolveNotifyRecipients(envWithAdmin, { user_id: "operator" })).toBeNull();
   });
 
   it("partner accounts notify partner + admin, deduped", () => {
@@ -208,6 +218,35 @@ describe("resolveNotifyRecipients — partner + admin routing", () => {
   it("no admin configured → partner only; junk entries filtered", () => {
     expect(resolveNotifyRecipients({}, { notify_emails: ["partner@example.com", "", "not-an-email"] }))
       .toEqual(["partner@example.com"]);
+  });
+
+  it("partner row never inherits the operator's inbox", () => {
+    const out = resolveNotifyRecipients(envWithAdmin, {
+      user_id: "partner@y.com#webull#individual-cash",
+      owner_email: "partner@y.com",
+      notify_emails: ["partner@y.com"],
+    });
+    expect(out).toContain("partner@y.com");
+    expect(out).not.toContain("op@x.com");
+  });
+});
+
+describe("ownerEmailForRow / isAdminOwnedRow — digest scoping", () => {
+  const envWithAdmin = { BRIDGE_ADMIN_NOTIFY_EMAIL: "op@x.com" };
+
+  it("derives the owner inbox from email, owner_email, then user_id", () => {
+    expect(ownerEmailForRow({ email: "A@B.com" })).toBe("a@b.com");
+    expect(ownerEmailForRow({ owner_email: "Owner@X.com" })).toBe("owner@x.com");
+    expect(ownerEmailForRow({ user_id: "partner@y.com#webull#roth-ira" })).toBe("partner@y.com");
+    expect(ownerEmailForRow({ user_id: "operator" })).toBeNull();
+    expect(ownerEmailForRow(null)).toBeNull();
+  });
+
+  it("marks only the admin's own rows as admin-owned", () => {
+    expect(isAdminOwnedRow(envWithAdmin, { user_id: "op@x.com#webull#roth-ira" })).toBe(true);
+    expect(isAdminOwnedRow(envWithAdmin, { owner_email: "partner@y.com" })).toBe(false);
+    // No admin configured → legacy content preserved.
+    expect(isAdminOwnedRow({}, { owner_email: "partner@y.com" })).toBe(true);
   });
 });
 
