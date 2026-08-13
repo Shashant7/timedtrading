@@ -629,7 +629,8 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
   }
 
   let text = "";
-  const htmlText = fetched.body_text ? extractHtmlText(fetched.body_text) : "";
+  const htmlRaw = fetched.body_text || "";
+  const htmlText = htmlRaw ? extractHtmlText(htmlRaw) : "";
   const pdfText = fetched.body_bytes ? extractPdfTextHeuristic(fetched.body_bytes) : "";
   if (pdfText && htmlText) {
     // Prefer PDF tables when present (sector allocation decks); keep HTML recap.
@@ -642,6 +643,30 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     text = pdfText;
   }
 
+  // Macro Minute (and other FSD "Video:" posts) embed Vimeo. The HTML blurb
+  // is ~600 chars; the spoken night take is in auto-captions. Append it
+  // before sanitize/store so CRO + calendar extract + Daily Brief see it.
+  let vimeoMeta = null;
+  try {
+    const { shouldFetchVimeoTranscript, extractVimeoEmbeds, fetchVimeoTranscript, mergeTranscriptIntoText } =
+      await import("./vimeo-transcript.js");
+    if (shouldFetchVimeoTranscript(pub.title, htmlRaw)) {
+      const embeds = extractVimeoEmbeds(htmlRaw);
+      if (embeds[0]) {
+        const tr = await fetchVimeoTranscript(embeds[0]);
+        if (tr.ok && tr.text) {
+          text = mergeTranscriptIntoText(text, tr.text);
+          vimeoMeta = { videoId: tr.videoId, chars: tr.chars, track_lang: tr.track_lang };
+          console.log(`[CRO_INGESTION] vimeo transcript pub=${pub.id} chars=${tr.chars} vid=${tr.videoId}`);
+        } else {
+          console.warn(`[CRO_INGESTION] vimeo transcript miss pub=${pub.id} kind=${tr.error_kind || "empty"}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[CRO_INGESTION] vimeo transcript threw pub=${pub.id}: ${String(e?.message || e).slice(0, 160)}`);
+  }
+
   await recordPublication(env, {
     pub_id: pub.id,
     title: pub.title,
@@ -650,7 +675,7 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     published_at: pub.published_at,
     fetched_at: Date.now(),
     content_type: fetched.content_type || null,
-    bytes_len: fetched.body_bytes_len || (text?.length || 0),
+    bytes_len: Math.max(Number(fetched.body_bytes_len) || 0, text?.length || 0) || (text?.length || 0),
     fetch_status: "ok",
     fetch_error: null,
     post_type: pub.post_type || null,
@@ -746,6 +771,7 @@ export async function ingestSinglePublication(env, pub, { reFetch = false } = {}
     char_count: text?.length || 0,
     pdf_url: fetched.pdf_url || null,
     content_type: fetched.content_type || null,
+    vimeo: vimeoMeta,
   };
 }
 
@@ -1014,6 +1040,73 @@ export async function ingestFromBlob(env, { title, source_url, content_type, bod
   await recordPublicationText(env, pubId, text);
 
   return { ok: true, pub_id: pubId, char_count: text.length };
+}
+
+/**
+ * Re-fetch recent Macro Minute FSD posts that still lack a Vimeo transcript
+ * (thin ~600 char blurbs from before this path existed, or captions that
+ * were not ready on first ingest).
+ */
+export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 1500 } = {}) {
+  await ensureCROIngestionSchema(env);
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(`
+      SELECT p.pub_id, p.title, p.source_url, p.published_at, p.post_type,
+             IFNULL(t.char_count, 0) AS char_count,
+             IFNULL(t.text_full, '') AS text_full
+      FROM ${PUBLICATIONS_TABLE} p
+      LEFT JOIN ${PUBLICATION_TEXT_TABLE} t ON t.pub_id = p.pub_id
+      WHERE p.source = 'fsd'
+        AND p.fetch_status = 'ok'
+        AND lower(p.title) LIKE '%macro minute%'
+      ORDER BY p.fetched_at DESC
+      LIMIT 25
+    `).all();
+    rows = q?.results || [];
+  } catch (e) {
+    return { ok: false, error_kind: "d1_query_failed", hint: String(e?.message || e).slice(0, 160), attempted: 0, ingested: 0 };
+  }
+  const need = rows.filter((r) => {
+    const hasTr = /--- VIDEO TRANSCRIPT ---/i.test(String(r.text_full || ""));
+    return !hasTr || Number(r.char_count || 0) < maxChars;
+  }).slice(0, Math.min(15, Math.max(1, Number(limit) || 8)));
+
+  const results = [];
+  for (const r of need) {
+    const pub = {
+      id: r.pub_id,
+      title: r.title,
+      source_url: r.source_url,
+      published_at: r.published_at,
+      post_type: r.post_type,
+    };
+    try {
+      const ing = await ingestSinglePublication(env, pub, { reFetch: true });
+      if (ing?.ok && !ing.skipped) {
+        try {
+          await runPublicationPostIngestPipeline(env, pub.id, { forceExtract: true, forceRewrite: true });
+        } catch (_) { /* pipeline is best-effort */ }
+      }
+      results.push({
+        pub_id: r.pub_id,
+        ok: !!ing?.ok,
+        skipped: ing?.skipped || null,
+        char_count: ing?.char_count || null,
+        vimeo: ing?.vimeo || null,
+        error_kind: ing?.error_kind || null,
+      });
+    } catch (e) {
+      results.push({ pub_id: r.pub_id, ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 160) });
+    }
+  }
+  return {
+    ok: true,
+    scanned: rows.length,
+    attempted: need.length,
+    ingested: results.filter((x) => x.ok && x.vimeo).length,
+    results,
+  };
 }
 
 // Setters used by the apply / extractor modules to stamp links back onto the

@@ -235,9 +235,19 @@ async function runCroCtoLane(env) {
     recordCronFailure(env, { op: "cro_full_cycle", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
   }
 
-  // Macro Minute (Tom Lee) YouTube ingest — after the FSD cycle so the
-  // video (typically posted late afternoon ET) is in the same overnight
-  // extraction window. Auto-on when YOUTUBE_API_KEY is set.
+  // Macro Minute — Vimeo captions on the FSD post (primary), then YouTube
+  // as a best-effort mirror. After the FSD cycle so a same-evening video
+  // is in the overnight extraction window; fsd-evening (00-03 UTC) catches
+  // later posts before the 9 AM ET morning brief.
+  try {
+    const { enrichMacroMinuteTranscripts } = await import("../cro/fsd-ingestion.js");
+    const vr = await enrichMacroMinuteTranscripts(env, { limit: 8 });
+    console.log(`[MACRO_MINUTE_VIMEO] scanned=${vr.scanned ?? 0} attempted=${vr.attempted ?? 0} ingested=${vr.ingested ?? 0}`);
+    if (vr.ingested > 0) recordCronSuccess(env, "macro_minute_vimeo_enrich").catch(() => {});
+  } catch (e) {
+    console.error("[MACRO_MINUTE_VIMEO] threw:", String(e?.message || e).slice(0, 200));
+    recordCronFailure(env, { op: "macro_minute_vimeo_enrich", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+  }
   try {
     const { isMacroMinuteYtEnabled, ingestMacroMinuteFromYoutube } = await import("../cro/macro-minute-youtube.js");
     if (isMacroMinuteYtEnabled(env)) {
