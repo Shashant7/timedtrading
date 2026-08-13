@@ -1122,12 +1122,13 @@ function AccountStrip({
 }
 function ATBrief({
   allTickers,
-  lanes,
+  modelLanes,
   tradeByTicker
 }) {
   const dailyChange = window.TimedPriceUtils && window.TimedPriceUtils.getDailyChange || (() => ({
     dayPct: null
   }));
+  const laneApi = window.TTModelLaneCounts || null;
   const spy = allTickers.find(t => String(t?.ticker || "").toUpperCase() === "SPY");
   const spyPct = spy ? Number(dailyChange(spy)?.dayPct) : NaN;
   const regime = (() => {
@@ -1148,33 +1149,39 @@ function ATBrief({
       cls: "regime-mix"
     };
   })();
-  const openLanes = [...lanes.hold.map(t => ({
+  const counts = laneApi?.countModelLaneCards ? laneApi.countModelLaneCards(modelLanes) : {
+    queue: modelLanes?.queue?.length || 0,
+    bought: modelLanes?.bought?.length || 0,
+    defend: modelLanes?.defend?.length || 0,
+    trim: modelLanes?.trim?.length || 0,
+    exit: modelLanes?.exit?.length || 0,
+    open: (modelLanes?.bought?.length || 0) + (modelLanes?.defend?.length || 0) + (modelLanes?.trim?.length || 0)
+  };
+  const openLanes = [...(modelLanes?.bought || []).map(t => ({
     t,
     lane: "hold"
-  })), ...lanes.defend.map(t => ({
+  })), ...(modelLanes?.defend || []).map(t => ({
     t,
     lane: "defend"
-  })), ...lanes.trim.map(t => ({
+  })), ...(modelLanes?.trim || []).map(t => ({
     t,
     lane: "trim"
-  })), ...lanes.new.map(t => ({
-    t,
-    lane: "new"
   }))];
-  const openCount = openLanes.length;
+  const openCount = counts.open;
   const positionChip = ({
     t,
     lane
   }) => {
     const sym = String(t.ticker || "").toUpperCase();
-    const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
+    const trade = resolveOpenTrade(t?._openTrade || tradeByTicker?.get?.(sym) || null);
     const px = Number(t?.price ?? t?.close);
     const ep = Number(trade?.entry_price ?? trade?.entryPrice);
     const dirMul = String(trade?.direction || "").toUpperCase() === "SHORT" ? -1 : 1;
     const pl = Number.isFinite(px) && Number.isFinite(ep) && ep > 0 ? (px - ep) / ep * 100 * dirMul : null;
     const plStr = Number.isFinite(pl) ? `${pl >= 0 ? "+" : ""}${pl.toFixed(2)}%` : "";
+    const chipKey = t?._card_key || `${sym}-${lane}`;
     return h("span", {
-      key: `${sym}-${lane}`,
+      key: chipKey,
       className: `at-brief-chip lane-${lane}`
     }, sym, " ", lane.toUpperCase(), Number.isFinite(pl) && h("span", {
       className: `pl ${pl >= 0 ? "up" : "down"}`
@@ -1187,7 +1194,7 @@ function ATBrief({
       plKnown = 0;
     for (const o of openLanes) {
       const sym = String(o.t.ticker || "").toUpperCase();
-      const trade = resolveOpenTrade(tradeByTicker?.get?.(sym) || null);
+      const trade = resolveOpenTrade(o.t?._openTrade || tradeByTicker?.get?.(sym) || null);
       const px = Number(o.t?.price ?? o.t?.close);
       const ep = Number(trade?.entry_price ?? trade?.entryPrice);
       if (!(Number.isFinite(px) && Number.isFinite(ep) && ep > 0)) continue;
@@ -1198,28 +1205,23 @@ function ATBrief({
       if (pl > 0) winners += 1;else if (pl < 0) losers += 1;
     }
     const avgPl = plKnown > 0 ? totalPl / plKnown : null;
+    const avgPlSentence = Number.isFinite(avgPl) ? `Average open P&L ${avgPl >= 0 ? "+" : ""}${avgPl.toFixed(2)}% (${winners} winning · ${losers} red).` : null;
+    if (laneApi?.buildModelBriefNarrative) {
+      return laneApi.buildModelBriefNarrative(counts, {
+        avgPlSentence
+      });
+    }
     const parts = [];
-    if (openCount === 0) {
-      parts.push("No open trades right now — the model is in scouting mode.");
-    } else {
+    if (openCount === 0) parts.push("No open trades right now — the model is in scouting mode.");else {
       const verbs = [];
-      if (lanes.hold.length > 0) verbs.push(`holding ${lanes.hold.length}`);
-      if (lanes.defend.length > 0) verbs.push(`defending ${lanes.defend.length}`);
-      if (lanes.trim.length > 0) verbs.push(`trimming ${lanes.trim.length}`);
+      if (counts.bought > 0) verbs.push(`holding ${counts.bought}`);
+      if (counts.defend > 0) verbs.push(`defending ${counts.defend}`);
+      if (counts.trim > 0) verbs.push(`trimming ${counts.trim}`);
       parts.push(`The model is ${verbs.join(", ")}.`);
-      if (Number.isFinite(avgPl)) {
-        const direction = avgPl >= 0 ? "in aggregate profit" : "drawing down";
-        parts.push(`Average open P&L ${avgPl >= 0 ? "+" : ""}${avgPl.toFixed(2)}% (${winners} winning · ${losers} red).`);
-      }
+      if (avgPlSentence) parts.push(avgPlSentence);
     }
-    if (lanes.enter.length > 0) {
-      parts.push(`${lanes.enter.length} setup${lanes.enter.length === 1 ? "" : "s"} in review for entry today.`);
-    } else if (lanes.setup.length > 0) {
-      parts.push(`${lanes.setup.length} on the setup watchlist — not yet triggered.`);
-    }
-    if (lanes.exit.length > 0) {
-      parts.push(`${lanes.exit.length} recently exited (last 24h) — review what worked.`);
-    }
+    if (counts.queue > 0) parts.push(`${counts.queue} queuing up — waiting for an entry trigger.`);
+    if (counts.exit > 0) parts.push(`${counts.exit} recently exited (last 24h) — review what worked.`);
     return parts.join(" ");
   })();
   return h("section", {
@@ -1243,17 +1245,13 @@ function ATBrief({
     className: "at-brief-label"
   }, `${openCount} Open`), openLanes.slice(0, 20).map(positionChip), openLanes.length > 20 && h("span", {
     className: "at-brief-chip"
-  }, `+${openLanes.length - 20} more`)), (lanes.setup.length > 0 || lanes.enter.length > 0 || lanes.new.length > 0) && h("div", {
+  }, `+${openLanes.length - 20} more`)), counts.queue > 0 && h("div", {
     className: "at-brief-row"
   }, h("span", {
     className: "at-brief-label"
-  }, "Pipeline"), lanes.setup.length > 0 && h("span", {
+  }, "Pipeline"), h("span", {
     className: "at-brief-chip"
-  }, `Setup ${lanes.setup.length}`), lanes.enter.length > 0 && h("span", {
-    className: "at-brief-chip"
-  }, `In Review ${lanes.enter.length}`), lanes.new.length > 0 && h("span", {
-    className: "at-brief-chip"
-  }, `Initiated ${lanes.new.length}`)));
+  }, `Queuing Up ${counts.queue}`)));
 }
 function ATBubbleMap({
   lanes,
@@ -1489,7 +1487,7 @@ function HowToReadCard() {
     style: {
       marginBottom: 6
     }
-  }, "THE LANES — AND WHEN TO ACT"), lane("Queuing Up", "on the radar or waiting for a trigger (Short Term setup/enter stages + Long Term accumulate / research). No action yet."), lane("Bought", "position is open — thesis intact; let it work."), lane("Defending", "under pressure — tighten risk until the book closes or recovers."), lane("Trimming", "partial profit taken or reduce signal active."), lane("Exited", "the model closed it (recent exits stay visible briefly)."), h("p", {
+  }, "THE LANES — AND WHEN TO ACT"), lane("Queuing Up", "waiting for an entry trigger (Short Term setup/enter + Long Term accumulate / queued). On-radar names stay off this lane."), lane("Bought", "position is open — thesis intact; let it work."), lane("Defending", "under pressure — tighten risk until the book closes or recovers."), lane("Trimming", "partial profit taken or reduce signal active."), lane("Exited", "the model closed it (recent exits stay visible briefly)."), h("p", {
     style: {
       fontSize: 12,
       lineHeight: 1.5,
@@ -1815,7 +1813,8 @@ function ActiveTraderApp() {
         if (stage === "reduce") invTrim.push(enriched);else invBought.push(enriched);
         continue;
       }
-      if (stage === "accumulate" || stage === "accumulate_queued" || stage === "research_on_watch") {
+      const isLtQueue = window.TTModelLaneCounts?.isLongTermQueueStage ? window.TTModelLaneCounts.isLongTermQueueStage(stage) : stage === "accumulate" || stage === "accumulate_queued";
+      if (isLtQueue) {
         invQueue.push(enriched);
       }
     }
@@ -2050,7 +2049,7 @@ function ActiveTraderApp() {
     label: "Long Term trades"
   }), h(ATBrief, {
     allTickers,
-    lanes,
+    modelLanes,
     tradeByTicker
   })), !loading && h("section", {
     className: "tt-row at-controls"
@@ -2097,7 +2096,7 @@ function ActiveTraderApp() {
     className: "at-chip" + (filterLane === "queue" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "queue" ? null : "queue"),
     disabled: laneCounts.queue === 0,
-    title: "Setups forming or triggered — the model is queuing an entry"
+    title: "Near-entry queue — Short Term setup/enter + Long Term accumulate/queued (not On Radar)"
   }, `Queuing Up${laneCounts.queue > 0 ? ` (${laneCounts.queue})` : ""}`), h("button", {
     className: "at-chip" + (filterLane === "bought" ? " active" : ""),
     onClick: () => setFilterLane(filterLane === "bought" ? null : "bought"),
@@ -2229,6 +2228,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(ActiveTraderApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786610939074:717206958
+// cache-bust:1786611948989:775782697
 
-// cache-bust:1786610939074:717206958
+// cache-bust:1786611948989:775782697

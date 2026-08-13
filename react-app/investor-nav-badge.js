@@ -70,9 +70,30 @@
     return n;
   }
 
+  /** Model nav badge LT leg — owned open books only (Queuing Up excluded). */
+  function countInvestorOwnedForModelBadge(list) {
+    if (typeof window !== "undefined"
+        && window.TTModelLaneCounts
+        && typeof window.TTModelLaneCounts.countInvestorOwnedForModelBadge === "function") {
+      return window.TTModelLaneCounts.countInvestorOwnedForModelBadge(list);
+    }
+    var n = 0;
+    var rows = Array.isArray(list) ? list : [];
+    for (var i = 0; i < rows.length; i++) {
+      var t = rows[i];
+      if (!t || typeof t !== "object") continue;
+      var stage = String(t.stage || t.investor_stage || "").toLowerCase();
+      if (stage === "exited") continue;
+      if (t.position && t.position.owned) n++;
+    }
+    return n;
+  }
+
   window.TTInvestorLane = window.TTInvestorLane || {};
   window.TTInvestorLane.deriveActionTier = deriveActionTier;
   window.TTInvestorLane.isExecuteReady = isExecuteReady;
   window.TTInvestorLane.countInvestorNavBadge = countInvestorNavBadge;
+  window.TTInvestorLane.countInvestorOwnedForModelBadge = countInvestorOwnedForModelBadge;
   window.TTCountInvestorNavBadge = countInvestorNavBadge;
+  window.TTCountInvestorOwnedForModelBadge = countInvestorOwnedForModelBadge;
 })();

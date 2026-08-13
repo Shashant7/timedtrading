@@ -529,14 +529,24 @@
       if (!r.ok) return null;
       const j = await r.json();
       const trades = Array.isArray(j?.trades) ? j.trades : (Array.isArray(j) ? j : []);
-      return trades.filter(t => {
-        const s = String(t?.status || "").toUpperCase();
-        return s === "OPEN" || s === "TP_HIT_TRIM" || !s;
-      }).length;
+      // Match tt-nav-extras: unique open tickers (not raw row count).
+      const seen = new Set();
+      let open = 0;
+      for (const t of trades) {
+        const sym = String(t?.ticker || "").toUpperCase();
+        if (!sym || seen.has(sym)) continue;
+        const status = String(t?.status || "").toUpperCase();
+        const exitTs = Number(t?.exit_ts ?? t?.exitTs ?? 0);
+        if (exitTs > 0) continue;
+        if (status === "WIN" || status === "LOSS" || status === "FLAT" || status === "CLOSED") continue;
+        seen.add(sym);
+        open += 1;
+      }
+      return open;
     } catch { return null; }
   }
 
-  async function fetchInvestorActionableCount() {
+  async function fetchInvestorOwnedCount() {
     try {
       const r = await fetch(`${apiBase()}/timed/investor/scores`, {
         credentials: "include", cache: "no-store",
@@ -547,17 +557,16 @@
                 : Array.isArray(j?.scores)  ? j.scores
                 : Array.isArray(j)          ? j
                 : [];
-      if (typeof window.TTCountInvestorNavBadge === "function") {
-        return window.TTCountInvestorNavBadge(arr);
+      if (typeof window.TTCountInvestorOwnedForModelBadge === "function") {
+        return window.TTCountInvestorOwnedForModelBadge(arr);
+      }
+      if (typeof window.TTModelLaneCounts?.countInvestorOwnedForModelBadge === "function") {
+        return window.TTModelLaneCounts.countInvestorOwnedForModelBadge(arr);
       }
       return arr.filter(s => {
         const stage = String(s?.stage || s?.investor_stage || s?.verdict || "").toLowerCase();
-        if (stage === "reduce") return true;
-        if (stage === "accumulate") {
-          const tier = String(s?.actionTier || "").toLowerCase();
-          return tier === "act_now" || tier === "ready";
-        }
-        return false;
+        if (stage === "exited") return false;
+        return !!(s?.position && s.position.owned);
       }).length;
     } catch { return null; }
   }
@@ -565,7 +574,7 @@
   async function applyBadges() {
     const [trader, investor] = await Promise.all([
       fetchOpenTradeCount(),
-      fetchInvestorActionableCount(),
+      fetchInvestorOwnedCount(),
     ]);
     const total = (Number(trader) || 0) + (Number(investor) || 0);
     setBottomBadge("trader", total > 0 ? total : null);
@@ -621,4 +630,4 @@
   setTimeout(pinNavToViewport, 400);
 })();
 
-// cache-bust:1786610939074:717206958
+// cache-bust:1786611948989:775782697
