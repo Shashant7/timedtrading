@@ -196,6 +196,303 @@ async function apiPost(path, body) {
   });
   return res.json().catch(() => null);
 }
+function pickSessionActions(dayData) {
+  if (!dayData) return {
+    rows: null,
+    prior: false
+  };
+  const nyDate = new Date().toLocaleDateString("en-CA", {
+    timeZone: "America/New_York"
+  });
+  const bucket = new Map();
+  for (const a of dayData.actions || []) {
+    const key = nyDateKey(Number(a.ts) || 0);
+    if (!bucket.has(key)) bucket.set(key, []);
+    bucket.get(key).push(a);
+  }
+  const today = bucket.get(nyDate) || [];
+  if (today.length) return {
+    rows: today,
+    prior: false
+  };
+  const keys = [...bucket.keys()].sort((a, b) => String(b).localeCompare(String(a)));
+  const prior = keys.length ? bucket.get(keys[0]) || [] : [];
+  return {
+    rows: prior,
+    prior: prior.length > 0
+  };
+}
+function mirroredSessionRealized(actions) {
+  if (!Array.isArray(actions)) return null;
+  let sum = 0;
+  let used = false;
+  for (const a of actions) {
+    if (a?.mirror !== "mirrored") continue;
+    const modelPnl = Number(a.realized_pnl);
+    if (!Number.isFinite(modelPnl) || modelPnl === 0) continue;
+    const modelQty = Math.abs(Number(a.qty) || 0);
+    const fillQty = (a.fills || []).reduce((s, f) => s + Math.abs(Number(f.qty) || 0), 0);
+    if (!(modelQty > 0) || !(fillQty > 0)) continue;
+    sum += modelPnl * (fillQty / modelQty);
+    used = true;
+  }
+  return used ? sum : 0;
+}
+function KpiValue({
+  ready,
+  children,
+  className = ""
+}) {
+  if (!ready) return React.createElement("div", {
+    className: "skel skel-val",
+    "aria-hidden": "true"
+  });
+  return React.createElement("div", {
+    className: `k-val ${className}`
+  }, children);
+}
+function PageSkeleton() {
+  return React.createElement("div", {
+    "aria-busy": "true",
+    "aria-label": "Loading broker connections"
+  }, React.createElement("div", {
+    className: "kpi-strip"
+  }, [0, 1, 2, 3].map(i => React.createElement("div", {
+    key: i,
+    className: "kpi"
+  }, React.createElement("div", {
+    className: "skel skel-lbl"
+  }), React.createElement("div", {
+    className: "skel skel-val"
+  }), React.createElement("div", {
+    className: "skel skel-sub"
+  }), i === 2 && React.createElement("div", {
+    className: "k-break",
+    style: {
+      borderColor: "transparent",
+      paddingTop: 4
+    }
+  }, React.createElement("div", {
+    className: "skel skel-sub",
+    style: {
+      width: "90%",
+      marginTop: 0
+    }
+  }), React.createElement("div", {
+    className: "skel skel-sub",
+    style: {
+      width: "80%"
+    }
+  }))))), React.createElement(GrowthStackSkeleton, {
+    accountCards: 5
+  }), React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "skel skel-lbl",
+    style: {
+      width: 90
+    }
+  }), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      width: 240,
+      marginBottom: 12
+    }
+  }), [0, 1, 2].map(i => React.createElement("div", {
+    key: i,
+    className: "skel",
+    style: {
+      height: 38,
+      marginBottom: 8
+    }
+  }))), React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "skel skel-lbl",
+    style: {
+      width: 110
+    }
+  }), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      width: 200,
+      marginBottom: 12
+    }
+  }), [0, 1].map(i => React.createElement("div", {
+    key: i,
+    className: "skel",
+    style: {
+      height: 90,
+      marginBottom: 10
+    }
+  }))));
+}
+function GrowthStackSkeleton({
+  accountCards = 5
+}) {
+  return React.createElement(React.Fragment, null, React.createElement("section", {
+    className: "acct-perf",
+    "aria-hidden": "true"
+  }, React.createElement("div", {
+    className: "acct-perf-head"
+  }, React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 180
+    }
+  }, React.createElement("div", {
+    className: "skel skel-lbl",
+    style: {
+      width: 120
+    }
+  }), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      width: 220,
+      height: 18
+    }
+  })), React.createElement("div", {
+    className: "acct-perf-actions"
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 4
+    }
+  }, ["1D", "1W", "1M", "3M", "YTD", "ALL"].map(r => React.createElement("div", {
+    key: r,
+    className: "skel",
+    style: {
+      height: 24,
+      width: 34,
+      borderRadius: 999
+    }
+  }))), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 140
+    }
+  }), React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 150
+    }
+  })))), React.createElement("div", {
+    className: "acct-perf-grid"
+  }, Array.from({
+    length: accountCards
+  }, (_, i) => React.createElement("div", {
+    key: i,
+    className: "skel-acct-card"
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      gap: 8
+    }
+  }, React.createElement("div", {
+    className: "skel skel-lbl",
+    style: {
+      width: "45%",
+      marginBottom: 0
+    }
+  }), React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 72,
+      height: 18
+    }
+  })), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      marginTop: 14,
+      width: "55%"
+    }
+  }), React.createElement("div", {
+    className: "skel skel-sub",
+    style: {
+      width: "70%"
+    }
+  }), React.createElement("div", {
+    className: "skel skel-sub",
+    style: {
+      width: "50%",
+      marginTop: 16
+    }
+  }))))), React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    },
+    "aria-hidden": "true"
+  }, React.createElement("div", {
+    className: "skel skel-lbl",
+    style: {
+      width: 110
+    }
+  }), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      width: 260,
+      height: 20,
+      marginBottom: 10
+    }
+  }), React.createElement("div", {
+    className: "eq-acct",
+    style: {
+      marginBottom: 10
+    }
+  }, React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 120
+    }
+  }), React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 100
+    }
+  }), React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 110
+    }
+  }), React.createElement("div", {
+    className: "skel skel-chip",
+    style: {
+      width: 130
+    }
+  })), React.createElement("div", {
+    className: "skel skel-val",
+    style: {
+      width: 140,
+      height: 28,
+      marginBottom: 8
+    }
+  }), React.createElement("div", {
+    className: "skel skel-sub",
+    style: {
+      width: "65%",
+      marginBottom: 10
+    }
+  }), React.createElement("div", {
+    className: "skel",
+    style: {
+      height: 220,
+      borderRadius: 12
+    }
+  })));
+}
 const EVENT_STYLE = {
   ENTRY: {
     label: "BUY",
@@ -2095,6 +2392,12 @@ function EquityCurve({
       });
     }
   }
+  const liveCardCount = Math.max(2, (liveAccounts || []).length || accounts.length || 5);
+  if (data === null) {
+    return React.createElement(GrowthStackSkeleton, {
+      accountCards: liveCardCount
+    });
+  }
   return React.createElement(React.Fragment, null, accounts.length > 0 && React.createElement(AccountPerformanceRow, {
     accounts: accounts,
     liveAccounts: liveAccounts,
@@ -2104,7 +2407,7 @@ function EquityCurve({
     onFocus: setFocus,
     onRange: setRange
   }), React.createElement("section", {
-    className: "tt-card tt-card-pad",
+    className: "tt-card tt-card-pad fade-in",
     style: {
       marginBottom: 18
     }
@@ -2144,13 +2447,7 @@ function EquityCurve({
       cursor: "pointer",
       border: "none"
     }
-  }, a.label || accountKey(a), " \xB7 ", a.mirror_enabled ? "ON" : "OFF"))), data === null && React.createElement("div", {
-    className: "skel",
-    style: {
-      height: 220,
-      marginTop: 8
-    }
-  }), data !== null && points.length === 0 && React.createElement("div", {
+  }, a.label || accountKey(a), " \xB7 ", a.mirror_enabled ? "ON" : "OFF"))), points.length === 0 && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 13,
@@ -2428,15 +2725,17 @@ function BrokerConnectionsApp({
     const accs = posData?.accounts || [];
     let value = 0,
       day = 0,
-      model = 0,
+      unrealized = 0,
       managedQty = 0,
-      dayQty = 0;
+      dayQty = 0,
+      sleeves = 0;
     let hasDay = false,
-      hasModel = false;
+      hasUnrealized = false;
+    let mirrorOnAccounts = 0;
     for (const a of accs) {
       const mirrorOn = a.mirror_enabled === true;
+      if (mirrorOn) mirrorOnAccounts += 1;
       let acctManagedVal = 0;
-      let acctDayFromItems = 0;
       let acctDayItems = 0;
       for (const it of a.items || []) {
         const qty = Number(it.broker_qty) || 0;
@@ -2445,17 +2744,17 @@ function BrokerConnectionsApp({
           day += Number(it.day_pnl);
           hasDay = true;
           dayQty += qty;
-          acctDayFromItems += Number(it.day_pnl);
           acctDayItems += qty;
         }
         if (!it.managed) continue;
         managedQty += qty;
+        sleeves += 1;
         const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price) > 0 ? Number(it.last_price) : Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0;
         const mv = Number(it.market_value) > 0 ? Number(it.market_value) : px > 0 ? px * qty : 0;
         acctManagedVal += mv;
         if (Number.isFinite(Number(it.unrealized_pnl))) {
-          model += Number(it.unrealized_pnl);
-          hasModel = true;
+          unrealized += Number(it.unrealized_pnl);
+          hasUnrealized = true;
         }
       }
       if (acctManagedVal > 0) value += acctManagedVal;
@@ -2465,32 +2764,38 @@ function BrokerConnectionsApp({
         dayQty += 1;
       }
     }
+    const session = pickSessionActions(dayData);
+    const realizedReady = !!dayData;
+    const realized = realizedReady ? mirroredSessionRealized(session.rows || []) : null;
+    const hasRealized = realizedReady && Number.isFinite(realized);
+    const net = (hasRealized ? realized : 0) + (hasUnrealized ? unrealized : 0);
+    const hasNet = hasRealized || hasUnrealized && managedQty > 0;
     const sessionOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
+    const sleeveSub = sleeves > 0 ? `${sleeves} sleeve${sleeves === 1 ? "" : "s"} · ${mirrorOnAccounts} mirroring` : mirrorOnAccounts ? `${mirrorOnAccounts} mirroring · no open sleeves` : "no open sleeves";
     return {
       value,
       day,
-      model,
+      unrealized,
+      realized,
+      net,
+      sleeves,
       hasDay: hasDay && dayQty > 0,
       dayLabel: sessionOpen ? "all holdings on mirror-on accounts" : "prior session · all holdings",
-      hasModel: hasModel && managedQty > 0,
+      hasUnrealized: hasUnrealized && managedQty > 0,
+      hasRealized,
+      hasNet,
       hasValue: value > 0,
-      loaded: !!posData
+      loaded: !!posData,
+      modelSub: hasRealized ? session.prior ? "net · model sleeves · prior session" : "net · model-managed sleeves" : "net · model-managed sleeves",
+      valueSub: sleeveSub
     };
-  }, [posData]);
+  }, [posData, dayData]);
   const modelActionsTile = useMemo(() => {
     if (!dayData) return {
       count: null,
-      sub: "loading…"
+      sub: "loading session"
     };
-    const nyDate = new Date().toLocaleDateString("en-CA", {
-      timeZone: "America/New_York"
-    });
-    const bucket = new Map();
-    for (const a of dayData.actions || []) {
-      const key = nyDateKey(Number(a.ts) || 0);
-      if (!bucket.has(key)) bucket.set(key, []);
-      bucket.get(key).push(a);
-    }
+    const session = pickSessionActions(dayData);
     const summarize = (rows, prior) => {
       const mirrored = rows.filter(a => a.mirror === "mirrored").length;
       const held = rows.filter(a => a.mirror === "rejected" || a.mirror === "skipped").length;
@@ -2499,24 +2804,18 @@ function BrokerConnectionsApp({
         sub: prior ? `${mirrored} mirrored · ${held} held back · prior session` : `${mirrored} mirrored · ${held} held back`
       };
     };
-    const today = bucket.get(nyDate) || [];
-    if (today.length) return summarize(today, false);
-    const keys = [...bucket.keys()].sort((a, b) => String(b).localeCompare(String(a)));
-    const prior = keys.length ? bucket.get(keys[0]) : [];
-    if (!prior.length) {
-      const s = dayData.summary;
-      if (s && Number(s.actions) > 0) {
-        return {
-          count: Number(s.actions),
-          sub: `${Number(s.mirrored) || 0} mirrored · ${(Number(s.rejected) || 0) + (Number(s.skipped) || 0)} held back`
-        };
-      }
+    if (session.rows?.length) return summarize(session.rows, session.prior);
+    const s = dayData.summary;
+    if (s && Number(s.actions) > 0) {
       return {
-        count: 0,
-        sub: "0 mirrored · 0 held back"
+        count: Number(s.actions),
+        sub: `${Number(s.mirrored) || 0} mirrored · ${(Number(s.rejected) || 0) + (Number(s.skipped) || 0)} held back`
       };
     }
-    return summarize(prior, true);
+    return {
+      count: 0,
+      sub: "0 mirrored · 0 held back"
+    };
   }, [dayData]);
   const railTickerObj = railTicker ? {
     ticker: railTicker
@@ -2558,55 +2857,57 @@ function BrokerConnectionsApp({
       color: "var(--tt-warning)",
       fontSize: 13
     }
-  }, "Status: ", err)), accounts === null && React.createElement("div", null, React.createElement("div", {
-    className: "kpi-strip"
-  }, [0, 1, 2, 3].map(i => React.createElement("div", {
-    key: i,
-    className: "skel",
-    style: {
-      height: 74
-    }
-  }))), React.createElement("div", {
-    className: "skel",
-    style: {
-      height: 180,
-      marginBottom: 16
-    }
-  })), accounts !== null && hasAny && React.createElement("div", {
+  }, "Status: ", err)), accounts === null && React.createElement(PageSkeleton, null), accounts !== null && hasAny && React.createElement("div", {
     className: "kpi-strip fade-in"
   }, React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
-  }, "Mirrored value"), React.createElement("div", {
-    className: "k-val"
-  }, !totals.loaded ? "…" : totals.hasValue ? fmtUsd(totals.value, {
+  }, "Mirrored value"), React.createElement(KpiValue, {
+    ready: totals.loaded
+  }, totals.hasValue ? fmtUsd(totals.value, {
     compact: true
   }) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, webullAccounts.length + otherAccounts.length, " account", webullAccounts.length + otherAccounts.length === 1 ? "" : "s")), React.createElement("div", {
+  }, totals.loaded ? totals.valueSub : "model-managed sleeves")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
-  }, "Today's P&L"), React.createElement("div", {
-    className: `k-val ${totals.hasDay ? totals.day >= 0 ? "up" : "dn" : ""}`
-  }, !totals.loaded ? "…" : totals.hasDay ? fmtSigned(totals.day) : "—"), React.createElement("div", {
+  }, "Today's P&L"), React.createElement(KpiValue, {
+    ready: totals.loaded,
+    className: totals.hasDay ? totals.day >= 0 ? "up" : "dn" : ""
+  }, totals.hasDay ? fmtSigned(totals.day) : "—"), React.createElement("div", {
     className: "k-sub"
   }, totals.hasDay ? totals.dayLabel : "session not started")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
-  }, "Model P&L"), React.createElement("div", {
-    className: `k-val ${totals.hasModel ? totals.model >= 0 ? "up" : "dn" : ""}`
-  }, !totals.loaded ? "…" : totals.hasModel ? fmtSigned(totals.model) : "—"), React.createElement("div", {
+  }, "Model P&L"), React.createElement(KpiValue, {
+    ready: totals.loaded,
+    className: totals.hasNet ? totals.net >= 0 ? "up" : "dn" : ""
+  }, totals.hasNet ? fmtSigned(totals.net) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, "unrealized \xB7 model-managed sleeves only")), React.createElement("div", {
+  }, totals.modelSub), React.createElement("div", {
+    className: "k-break"
+  }, React.createElement("div", {
+    className: "kb-row"
+  }, React.createElement("span", {
+    className: "kb-lbl"
+  }, "Realized"), React.createElement("span", {
+    className: totals.hasRealized ? totals.realized >= 0 ? "up" : "dn" : "dim"
+  }, totals.hasRealized ? fmtSigned(totals.realized) : "—")), React.createElement("div", {
+    className: "kb-row"
+  }, React.createElement("span", {
+    className: "kb-lbl"
+  }, "Unrealized"), React.createElement("span", {
+    className: totals.hasUnrealized ? totals.unrealized >= 0 ? "up" : "dn" : "dim"
+  }, totals.loaded ? totals.hasUnrealized ? fmtSigned(totals.unrealized) : "—" : "—")))), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
-  }, "Model actions"), React.createElement("div", {
-    className: "k-val"
-  }, modelActionsTile.count == null ? "…" : modelActionsTile.count), React.createElement("div", {
+  }, "Model actions"), React.createElement(KpiValue, {
+    ready: modelActionsTile.count != null
+  }, modelActionsTile.count), React.createElement("div", {
     className: "k-sub"
   }, modelActionsTile.sub))), accounts !== null && hasAny && React.createElement(EquityCurve, {
     liveAccounts: posData?.accounts || []
@@ -2729,6 +3030,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786613961673:195967325
+// cache-bust:1786614457702:141633307
 
-// cache-bust:1786613961673:195967325
+// cache-bust:1786614457702:141633307
