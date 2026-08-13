@@ -162,6 +162,8 @@ const YT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 function emptyDiag(keyPresent) {
   return {
     key_present: Boolean(keyPresent),
+    channel_id: FUNDSTRAT_CHANNEL_ID,
+    channel_handle: FUNDSTRAT_CHANNEL_HANDLE,
     youtube_http: null,
     youtube_error: null,
     playlist_items: 0,
