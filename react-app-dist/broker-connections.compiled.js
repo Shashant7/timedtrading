@@ -750,7 +750,8 @@ function PositionRow({
   it,
   acct,
   onSync,
-  syncBusy
+  syncBusy,
+  onSelectTicker
 }) {
   const [open, setOpen] = useState(false);
   const chip = it.auto_sync && !it.managed ? SYNC_CHIP.auto_sync : SYNC_CHIP[it.sync_state] || {
@@ -769,6 +770,10 @@ function PositionRow({
   const guide = positionGuidance(it);
   const horizonChip = it.managed && HORIZON_CHIP[String(it.model_horizon || "").toLowerCase()];
   const upBadge = Number.isFinite(upnl) && upnl > 0 ? "up" : Number.isFinite(upnl) && upnl < 0 ? "dn" : "flat";
+  const openResearch = e => {
+    e?.stopPropagation?.();
+    if (typeof onSelectTicker === "function" && it.ticker) onSelectTicker(it.ticker);
+  };
   return React.createElement("div", {
     className: `pos-card pos-card--${holds ? upBadge : "flat"}`
   }, React.createElement("div", {
@@ -778,10 +783,22 @@ function PositionRow({
     } : null,
     onClick: () => hasDetail && setOpen(v => !v),
     role: hasDetail ? "button" : undefined
+  }, React.createElement("button", {
+    type: "button",
+    title: `Open research for ${it.ticker}`,
+    onClick: openResearch,
+    style: {
+      border: "none",
+      cursor: "pointer",
+      padding: 0,
+      background: "transparent",
+      borderRadius: 10,
+      lineHeight: 0
+    }
   }, React.createElement(TickerAvatar, {
     ticker: it.ticker,
     muted: !holds
-  }), React.createElement("div", {
+  })), React.createElement("div", {
     className: "pos-a-tick",
     style: {
       minWidth: 0
@@ -793,11 +810,11 @@ function PositionRow({
       gap: 6,
       flexWrap: "wrap"
     }
-  }, React.createElement("span", {
-    style: {
-      fontWeight: 800,
-      fontSize: 14
-    }
+  }, React.createElement("button", {
+    type: "button",
+    className: "pos-ticker-btn",
+    title: `Open research for ${it.ticker}`,
+    onClick: openResearch
   }, it.ticker), holds && it.managed && React.createElement("span", {
     className: "bc-pill p-ok",
     title: "Model-managed long position"
@@ -968,7 +985,8 @@ function PositionRow({
 }
 function PositionsSection({
   refreshKey,
-  onData
+  onData,
+  onSelectTicker
 }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
@@ -1108,7 +1126,7 @@ function PositionsSection({
       fontSize: 11,
       marginBottom: 8
     }
-  }, "Intraday change % from the market-data feed requires Pro \u2014 Open P&L and last price use the broker's own marks."), syncMsg && React.createElement("div", {
+  }, "Intraday change % from the market-data feed requires Pro \u2014 Model P&L and last price use the broker's own marks."), syncMsg && React.createElement("div", {
     className: syncMsg.ok ? "msg-ok" : "msg-err",
     style: {
       margin: "6px 0"
@@ -1194,7 +1212,8 @@ function PositionsSection({
       },
       acct: acct,
       syncBusy: syncBusyFor === `${acct.account_id}:${it.ticker}`,
-      onSync: tk => doSync(acct.account_id, tk)
+      onSync: tk => doSync(acct.account_id, tk),
+      onSelectTicker: onSelectTicker
     })));
   })())));
 }
@@ -1433,6 +1452,124 @@ function rangeStartMs(id) {
   const ms = spec && typeof spec.ms === "number" ? spec.ms : 0;
   return ms > 0 ? now - ms : 0;
 }
+function nyWallClockMs(hour, minute, now = Date.now()) {
+  const ny = new Date(new Date(now).toLocaleString("en-US", {
+    timeZone: "America/New_York"
+  }));
+  const target = new Date(ny);
+  target.setHours(hour, minute, 0, 0);
+  return now - (ny.getTime() - target.getTime());
+}
+function matchLiveAccount(curveAcct, liveAccounts) {
+  return (liveAccounts || []).find(p => curveAcct.user_id && p.account_id === curveAcct.user_id || curveAcct.broker_account_id && (p.broker_account_id === curveAcct.broker_account_id || p.webull_account_id === curveAcct.broker_account_id) || curveAcct.label && p.label === curveAcct.label);
+}
+function dayPnlForSelected(selected, liveAccounts) {
+  let sum = 0,
+    has = false;
+  for (const a of selected) {
+    const live = matchLiveAccount(a, liveAccounts);
+    if (!live) continue;
+    let itemSum = 0,
+      itemN = 0;
+    for (const it of live.items || []) {
+      if (!(Number(it.broker_qty) > 0.0001)) continue;
+      if (Number.isFinite(Number(it.day_pnl))) {
+        itemSum += Number(it.day_pnl);
+        itemN++;
+      }
+    }
+    if (itemN) {
+      sum += itemSum;
+      has = true;
+      continue;
+    }
+    if (Number.isFinite(live.summary?.day_pnl) && live.summary.day_pnl !== null) {
+      sum += Number(live.summary.day_pnl);
+      has = true;
+    }
+  }
+  return has ? sum : null;
+}
+function buildDayPath(points, liveEq, dayPnl) {
+  const now = Date.now();
+  const lastEq = Number.isFinite(liveEq) ? liveEq : points.length ? points[points.length - 1].equity : null;
+  if (!Number.isFinite(lastEq) || !Number.isFinite(dayPnl)) return {
+    points,
+    delta: null
+  };
+  const prior = lastEq - dayPnl;
+  const eqs = points.map(p => p.equity);
+  const span = eqs.length ? Math.max(...eqs) - Math.min(...eqs) : 0;
+  const flat = span < Math.max(1, Math.abs(dayPnl) * 0.08);
+  const rthOpen = nyWallClockMs(9, 30, now);
+  const rthClose = nyWallClockMs(16, 0, now);
+  if (flat) {
+    if (now > rthClose) {
+      return {
+        points: [{
+          ts: rthOpen,
+          equity: prior
+        }, {
+          ts: rthClose,
+          equity: lastEq
+        }, {
+          ts: now,
+          equity: lastEq
+        }],
+        delta: dayPnl
+      };
+    }
+    if (now >= rthOpen) {
+      return {
+        points: [{
+          ts: rthOpen,
+          equity: prior
+        }, {
+          ts: now,
+          equity: lastEq
+        }],
+        delta: dayPnl
+      };
+    }
+    return {
+      points: [{
+        ts: rthOpen - 86400000,
+        equity: prior
+      }, {
+        ts: rthClose - 86400000,
+        equity: lastEq
+      }, {
+        ts: now,
+        equity: lastEq
+      }],
+      delta: dayPnl
+    };
+  }
+  const pinned = [{
+    ts: Math.min(points[0]?.ts || rthOpen, rthOpen),
+    equity: prior
+  }];
+  for (const p of points) {
+    if (p.ts <= pinned[0].ts) continue;
+    pinned.push(p);
+  }
+  if (!pinned.length || pinned[pinned.length - 1].ts < now - 1000) {
+    pinned.push({
+      ts: now,
+      equity: lastEq
+    });
+  } else {
+    pinned[pinned.length - 1] = {
+      ...pinned[pinned.length - 1],
+      equity: lastEq,
+      ts: now
+    };
+  }
+  return {
+    points: pinned,
+    delta: dayPnl
+  };
+}
 function combineForwardFill(accts, sinceTs) {
   const enriched = accts.map(a => {
     const pts = [...(a.points || [])].sort((x, y) => x.ts - y.ts);
@@ -1545,7 +1682,33 @@ function EquityCurve({
     return accounts.filter(a => a.broker_account_id === focus || a.user_id === focus);
   }, [accounts, focus]);
   const sinceTs = rangeStartMs(range);
-  const points = useMemo(() => combineForwardFill(selected, sinceTs), [selected, sinceTs]);
+  const rawPoints = useMemo(() => combineForwardFill(selected, sinceTs), [selected, sinceTs]);
+  const sessionDayPnl = useMemo(() => dayPnlForSelected(selected, liveAccounts), [selected, liveAccounts]);
+  const liveEqSum = useMemo(() => {
+    let sum = 0,
+      n = 0;
+    for (const a of selected) {
+      const eq = Number(a.equity);
+      if (Number.isFinite(eq)) {
+        sum += eq;
+        n++;
+      }
+    }
+    return n ? sum : null;
+  }, [selected]);
+  const dayBuilt = useMemo(() => {
+    if (range !== "1D" || sessionDayPnl == null) {
+      const first = rawPoints[0]?.equity;
+      const last = rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
+      const d = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
+      return {
+        points: rawPoints,
+        delta: d
+      };
+    }
+    return buildDayPath(rawPoints, liveEqSum, sessionDayPnl);
+  }, [range, rawPoints, liveEqSum, sessionDayPnl]);
+  const points = dayBuilt.points;
   const markers = useMemo(() => {
     const rows = [];
     for (const a of selected) {
@@ -1561,8 +1724,9 @@ function EquityCurve({
   }, [selected, sinceTs]);
   const lastEq = points.length ? points[points.length - 1].equity : null;
   const firstEq = points.length ? points[0].equity : null;
-  const delta = Number.isFinite(lastEq) && Number.isFinite(firstEq) ? lastEq - firstEq : null;
-  const deltaPct = Number.isFinite(delta) && firstEq ? delta / firstEq * 100 : null;
+  const delta = dayBuilt.delta != null ? dayBuilt.delta : Number.isFinite(lastEq) && Number.isFinite(firstEq) ? lastEq - firstEq : null;
+  const deltaBasis = Number.isFinite(firstEq) ? firstEq : Number.isFinite(lastEq) && Number.isFinite(delta) ? lastEq - delta : null;
+  const deltaPct = Number.isFinite(delta) && Number.isFinite(deltaBasis) && deltaBasis ? delta / deltaBasis * 100 : null;
   const mirrorGain = selected.reduce((s, a) => s + (Number.isFinite(Number(a.since_mirror_gain)) ? Number(a.since_mirror_gain) : 0), 0);
   const hasMirrorGain = selected.some(a => Number.isFinite(Number(a.since_mirror_gain)));
   const up = delta == null ? true : delta >= 0;
@@ -1586,7 +1750,7 @@ function EquityCurve({
     const eqs = points.map(p => p.equity);
     let lo = Math.min(...eqs),
       hi = Math.max(...eqs);
-    const pad = Math.max(Math.abs(lo) * 0.004, 1);
+    const pad = Math.max(Math.abs(lo) * 0.004, Math.abs(delta || 0) * 0.15, 1);
     if (hi === lo) {
       lo -= pad;
       hi += pad;
@@ -1717,7 +1881,7 @@ function EquityCurve({
       fontSize: 12,
       marginBottom: 6
     }
-  }, "Session path from the earliest sample in the last 24h to the live equity tip. Overall P&L sits in the KPI strip above."), React.createElement("svg", {
+  }, sessionDayPnl != null ? "Day change matches Today's P&L (prior close → live equity). Intraday samples densify as the reconciler runs." : "Waiting on broker day marks to anchor prior close."), React.createElement("svg", {
     className: "eq-chart",
     viewBox: `0 0 ${W} ${H}`,
     preserveAspectRatio: "none",
@@ -1801,6 +1965,9 @@ function BrokerConnectionsApp({
   const [busy, setBusy] = useState(false);
   const [posData, setPosData] = useState(null);
   const [dayData, setDayData] = useState(null);
+  const [railTicker, setRailTicker] = useState(null);
+  const [railInitialTab, setRailInitialTab] = useState(null);
+  const [RailOverlay, setRailOverlay] = useState(() => window.TimedRightRail?.Overlay || null);
   const refresh = useCallback(async () => {
     if (!provisioned) return;
     try {
@@ -1830,6 +1997,83 @@ function BrokerConnectionsApp({
       alive = false;
     };
   }, [provisioned, accounts]);
+  const bootTimedRightRail = useCallback(() => {
+    const boot = typeof window.ensureTimedRightRail === "function" ? window.ensureTimedRightRail() : Promise.resolve();
+    return boot.then(() => {
+      if (window.TimedRightRail?.Overlay) {
+        setRailOverlay(() => window.TimedRightRail.Overlay);
+      }
+    });
+  }, []);
+  useEffect(() => {
+    if (RailOverlay || !provisioned) return;
+    let cancelled = false;
+    const prefetch = () => {
+      if (!cancelled) bootTimedRightRail().catch(() => {});
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(prefetch, {
+        timeout: 6000
+      });
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(id);
+      };
+    }
+    const t = setTimeout(prefetch, 2500);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [RailOverlay, provisioned, bootTimedRightRail]);
+  const onSelectTicker = useCallback((sym, initialTab = null) => {
+    if (!sym) return;
+    const ticker = String(sym).toUpperCase();
+    const tab = initialTab ? String(initialTab).toUpperCase() : null;
+    const open = () => {
+      if (typeof window.ttOpenTickerInRail === "function") {
+        window.ttOpenTickerInRail({
+          ticker,
+          initialRailTab: tab,
+          source: "broker-connections"
+        });
+        return;
+      }
+      setRailTicker(ticker);
+      setRailInitialTab(tab);
+    };
+    bootTimedRightRail().then(open).catch(open);
+  }, [bootTimedRightRail]);
+  const applyRailOpen = useCallback(detail => {
+    const p = typeof window.ttConsumeRailOpenForReact === "function" ? window.ttConsumeRailOpenForReact(detail) : null;
+    const t = p?.ticker || String(detail?.ticker || "").toUpperCase();
+    if (!t) return;
+    setRailTicker(t);
+    setRailInitialTab(p?.initialRailTab || detail?.initialRailTab || null);
+  }, []);
+  const onCloseRail = useCallback(() => {
+    setRailTicker(null);
+    setRailInitialTab(null);
+    try {
+      window.ttClearRailUrlParams?.();
+    } catch (_) {}
+  }, []);
+  useEffect(() => {
+    if (!RailOverlay) return;
+    const handler = ev => {
+      applyRailOpen(ev?.detail);
+      try {
+        if (typeof window.ttGlobalSearchMarkHandled === "function") {
+          window.ttGlobalSearchMarkHandled(ev?.detail?.ticker);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener("tt-open-ticker", handler);
+    if (typeof window.ttApplyPendingRailDeepLink === "function") {
+      window.ttApplyPendingRailDeepLink();
+    }
+    return () => window.removeEventListener("tt-open-ticker", handler);
+  }, [RailOverlay, applyRailOpen]);
   if (!provisioned) {
     return React.createElement("main", null, React.createElement("div", {
       className: "tt-status",
@@ -1963,7 +2207,10 @@ function BrokerConnectionsApp({
     }
     return summarize(prior, true);
   }, [dayData]);
-  return React.createElement("main", null, React.createElement("div", {
+  const railTickerObj = railTicker ? {
+    ticker: railTicker
+  } : null;
+  return React.createElement(React.Fragment, null, React.createElement("main", null, React.createElement("div", {
     className: "tt-status",
     style: {
       marginBottom: 16,
@@ -2056,7 +2303,8 @@ function BrokerConnectionsApp({
     refreshKey: accounts
   }), accounts !== null && hasAny && React.createElement(PositionsSection, {
     refreshKey: accounts,
-    onData: setPosData
+    onData: setPosData,
+    onSelectTicker: onSelectTicker
   }), accounts !== null && hasAny && React.createElement("section", {
     style: {
       marginBottom: 18
@@ -2153,7 +2401,12 @@ function BrokerConnectionsApp({
       marginTop: 20,
       lineHeight: 1.6
     }
-  }, "Optional auto-mirror sends model BUY/TRIM/EXIT signals to connected brokerage accounts, sized per account with hard per-order and per-day limits. Order confirmations and mirror-sync notices are emailed to the account holder and the Timed Trading admin desk. Market data powered by Twelve Data."));
+  }, "Optional auto-mirror sends model BUY/TRIM/EXIT signals to connected brokerage accounts, sized per account with hard per-order and per-day limits. Order confirmations and mirror-sync notices are emailed to the account holder and the Timed Trading admin desk. Market data powered by Twelve Data.")), RailOverlay && railTickerObj && React.createElement(RailOverlay, {
+    ticker: railTickerObj,
+    allLoadedData: null,
+    initialRailTab: railInitialTab,
+    onClose: onCloseRail
+  }));
 }
 const AuthGate = window.TimedAuthGate;
 const app = AuthGate ? React.createElement(AuthGate, {
@@ -2165,6 +2418,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786608307267:135448102
+// cache-bust:1786610939074:717206958
 
-// cache-bust:1786608307267:135448102
+// cache-bust:1786610939074:717206958
