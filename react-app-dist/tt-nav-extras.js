@@ -256,7 +256,7 @@
     } catch (_) { return null; }
   }
 
-  async function fetchInvestorActionableCount() {
+  async function fetchInvestorOwnedCount() {
     try {
       const r = await fetch(`${API_BASE}/timed/investor/scores`, {
         cache: "no-store",
@@ -277,21 +277,21 @@
         : Array.isArray(j?.data)
         ? j.data
         : (j?.scores && typeof j.scores === "object" ? Object.values(j.scores) : []);
-      // Execution-ready accumulate (act_now/ready) + all reduce — matches
-      // INVESTOR_ACTIONABLE filter and kanban lanes (not raw monitor-tier
-      // accumulate names that sit in On Radar).
-      if (typeof window.TTCountInvestorNavBadge === "function") {
-        return window.TTCountInvestorNavBadge(list);
+      // 2026-08-13 — Model badge = open books only (ST open trades +
+      // LT owned). Unowned accumulate-ready names live in Queuing Up on
+      // the board and must not inflate the nav count past "N Open".
+      if (typeof window.TTCountInvestorOwnedForModelBadge === "function") {
+        return window.TTCountInvestorOwnedForModelBadge(list);
+      }
+      if (typeof window.TTModelLaneCounts?.countInvestorOwnedForModelBadge === "function") {
+        return window.TTModelLaneCounts.countInvestorOwnedForModelBadge(list);
       }
       let n = 0;
       for (const v of list) {
         if (!v || typeof v !== "object") continue;
         const stage = String(v.stage || v.investor_stage || "").toLowerCase();
-        if (stage === "reduce") { n++; continue; }
-        if (stage === "accumulate") {
-          const tier = String(v.actionTier || "").toLowerCase();
-          if (tier === "act_now" || tier === "ready") n++;
-        }
+        if (stage === "exited") continue;
+        if (v.position && v.position.owned) n += 1;
       }
       return n;
     } catch (_) { return null; }
@@ -640,9 +640,9 @@
 
   // Fetch both nav counts and apply them. Safe to call repeatedly.
   function refreshBadges() {
-    Promise.all([fetchOpenTradeCount(), fetchInvestorActionableCount()]).then(([traderN, investorN]) => {
-      // 2026-07-22 model-first: one Model badge — open trades + actionable
-      // long-term names (the unified board carries both books).
+    Promise.all([fetchOpenTradeCount(), fetchInvestorOwnedCount()]).then(([traderN, investorN]) => {
+      // 2026-08-13 — Model badge = ST open + LT owned (= board "N Open"
+      // when dual-horizon cards are counted the same way).
       const total = (Number(traderN) || 0) + (Number(investorN) || 0);
       setBadge("Model", total > 0 ? total : null, "up");
       try {
@@ -751,4 +751,4 @@
   })();
 })();
 
-// cache-bust:1786610939074:717206958
+// cache-bust:1786611948989:775782697
