@@ -58,7 +58,7 @@ import { refreshWebullTokensIfNeeded } from "./bridge-webull-tokens.js";
 import { refreshRhTokensIfNeeded } from "./bridge-robinhood-auth.js";
 import { listBrokers, resolveBrokerAccountId, resolveBrokerId, brokerCapabilities } from "./bridge-brokers.js";
 import { normalizeOrderIntent, planBrokerOrder, summarizeOrderPlan } from "./bridge-order-plan.js";
-import { recordAccountFill, readAccountLedger, readAccountSnapshots } from "./bridge-account-ledger.js";
+import { recordAccountFill, readAccountLedger, readAccountSnapshots, recordEquityPoint, readEquityHistory } from "./bridge-account-ledger.js";
 import { classifyWebullFractError, roundToWholeShares } from "./bridge-webull-fract.js";
 
 // 2026-05-29 — broker-router. Each user record carries a `broker`
@@ -565,6 +565,9 @@ export default {
             equity_usd: _snap ? (Number(_snap.equity_usd) || null) : null,
             cash_usd: _snap ? (Number(_snap.cash_usd) || null) : null,
             snapshot_at: _snap ? (Number(_snap.synced_at) || null) : null,
+            connected_at: Number(acct.connected_at) || null,
+            enable_changed_at: Number(acct.enable_changed_at) || null,
+            mirror_events: Array.isArray(acct.mirror_events) ? acct.mirror_events : [],
             items: [],
           };
           const cacheKey = `bridge:positions:${String(acct.user_id).toLowerCase()}`;
@@ -612,9 +615,22 @@ export default {
             const sym = String(p?.ticker || p?.symbol || p?.instrument_symbol || "").toUpperCase();
             if (!sym) continue;
             const qty = Number(p?.quantity ?? p?.qty ?? p?.position ?? p?.units);
+            const mv = Number(p?.market_value ?? p?.marketValue);
+            let last = Number(p?.last_price ?? p?.price ?? p?.lastPrice);
+            if (!(Number.isFinite(last) && last > 0) && Number.isFinite(mv) && mv > 0 && Number.isFinite(qty) && Math.abs(qty) > 0) {
+              last = mv / Math.abs(qty);
+            }
+            const upl = Number(p?.unrealized_pnl ?? p?.unrealizedPnl);
+            const uplPct = Number(p?.unrealized_pnl_pct);
+            const dayPnl = Number(p?.day_pnl);
             posBySym.set(sym, {
               qty: Number.isFinite(qty) ? qty : null,
               avg_cost: Number(p?.avg_cost ?? p?.average_cost ?? p?.cost_price ?? p?.avgPrice) || null,
+              last_price: Number.isFinite(last) && last > 0 ? last : null,
+              market_value: Number.isFinite(mv) && mv > 0 ? mv : null,
+              unrealized_pnl: Number.isFinite(upl) ? upl : null,
+              unrealized_pnl_pct: Number.isFinite(uplPct) ? uplPct : null,
+              day_pnl: Number.isFinite(dayPnl) ? dayPnl : null,
             });
           }
           // 2026-08-13 — Match manifest rows on user_id OR broker_account_id
@@ -660,6 +676,12 @@ export default {
               broker_filled_qty: Number(row?.broker_filled_qty) || 0,
               broker_qty: broker ? broker.qty : 0,
               avg_cost: broker ? broker.avg_cost : (Number(row?.broker_avg_cost) || null),
+              last_price: broker?.last_price ?? null,
+              price: broker?.last_price ?? null,
+              market_value: broker?.market_value ?? null,
+              unrealized_pnl: broker?.unrealized_pnl ?? null,
+              unrealized_pnl_pct: broker?.unrealized_pnl_pct ?? null,
+              day_pnl: broker?.day_pnl ?? null,
               sync_note: row?.sync_note || null,
               updated_at: row?.updated_at || null,
             });
@@ -672,6 +694,12 @@ export default {
               sync_state: "untracked",
               broker_qty: p.qty,
               avg_cost: p.avg_cost,
+              last_price: p.last_price ?? null,
+              price: p.last_price ?? null,
+              market_value: p.market_value ?? null,
+              unrealized_pnl: p.unrealized_pnl ?? null,
+              unrealized_pnl_pct: p.unrealized_pnl_pct ?? null,
+              day_pnl: p.day_pnl ?? null,
             });
           }
           // 2026-08-13 — Per-ticker action history sub-rows (fills, trims,
@@ -850,7 +878,7 @@ export default {
         if (operatorFail) return operatorFail;
         const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
         if (!owner) return json({ ok: false, error: "owner_required" }, 400);
-        const hours = Math.min(168, Math.max(1, Number(url.searchParams.get("hours")) || 36));
+        const hours = Math.min(744, Math.max(1, Number(url.searchParams.get("hours")) || 36));
         const sinceMs = Date.now() - hours * 3600 * 1000;
         const db = env?.BRIDGE_DB;
         let ledger = [];
@@ -866,7 +894,7 @@ export default {
                 FROM broker_account_ledger
                WHERE (owner_id = ?1 OR user_id = ?1 OR user_id LIKE ?1 || '#%')
                  AND ts >= ?2
-               ORDER BY ts DESC LIMIT 200
+               ORDER BY ts DESC LIMIT 800
             `).bind(owner, sinceMs).all();
             ledger = r?.results || [];
           } catch (e) {
@@ -895,6 +923,9 @@ export default {
             broker: resolveBrokerId(u) || u.broker || null,
             label: u.webull_account_label || u.webull_account_class || null,
             mirror_enabled: u.broker_integration_enabled === true,
+            connected_at: Number(u.connected_at) || null,
+            enable_changed_at: Number(u.enable_changed_at) || null,
+            mirror_events: Array.isArray(u.mirror_events) ? u.mirror_events : [],
           }));
         return json({ ok: true, owner, since: sinceMs, accounts, ledger, audit, ts: Date.now() });
       }
@@ -916,6 +947,70 @@ export default {
           limit: Number(url.searchParams.get("limit")) || 100,
         });
         return json({ ok: true, count: rows.length, rows });
+      }
+
+      // 2026-08-13 — Per-account equity samples + mirror on/off markers
+      // for the Broker Connections growth chart.
+      if (method === "GET" && path === "/bridge/equity-curve") {
+        if (operatorFail) return operatorFail;
+        const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
+        if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+        const connected = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
+          .filter((u) => String(u?.status || "").toLowerCase() === "connected");
+        try {
+          const snaps = await readAccountSnapshots(env, { owner_id: owner });
+          for (const s of snaps) {
+            if (Number.isFinite(Number(s.equity_usd))) {
+              await recordEquityPoint(env, {
+                broker_account_id: s.broker_account_id,
+                ts: Date.now(),
+                equity_usd: s.equity_usd,
+              });
+            }
+          }
+        } catch (_) { /* stamp is best-effort */ }
+        const history = await readEquityHistory(env, { owner_id: owner, since_ts: since });
+        const byBrokerId = new Map(connected.map((u) => [String(resolveBrokerAccountId(u)), u]));
+        const series = history.map((h) => {
+          const u = byBrokerId.get(String(h.broker_account_id))
+            || connected.find((a) => String(a.user_id) === String(h.user_id));
+          const events = Array.isArray(u?.mirror_events) ? u.mirror_events : [];
+          let markers = events
+            .filter((e) => e && Number(e.ts) > 0)
+            .map((e) => ({ ts: Number(e.ts), on: e.on === true }));
+          if (!markers.length) {
+            const ts = Number(u?.enable_changed_at) || Number(u?.connected_at) || 0;
+            if (ts && u?.broker_integration_enabled === true) markers.push({ ts, on: true });
+          }
+          markers.sort((a, b) => a.ts - b.ts);
+          const pts = h.points || [];
+          const lastEq = pts.length ? pts[pts.length - 1].equity : null;
+          const firstOn = markers.find((m) => m.on)?.ts;
+          let base = null;
+          if (firstOn && pts.length) {
+            for (const p of pts) {
+              if (p.ts <= firstOn) base = p.equity;
+              else {
+                if (base == null) base = p.equity;
+                break;
+              }
+            }
+          }
+          const sinceMirror = (Number.isFinite(lastEq) && Number.isFinite(base)) ? lastEq - base : null;
+          return {
+            broker_account_id: h.broker_account_id,
+            user_id: h.user_id || u?.user_id || null,
+            label: h.label || u?.webull_account_label || u?.webull_account_class || h.broker_account_id,
+            broker: h.broker || (u ? (resolveBrokerId(u) || u.broker) : null),
+            mirror_enabled: u ? u.broker_integration_enabled === true : false,
+            points: pts,
+            markers,
+            equity: lastEq,
+            since_mirror_gain: sinceMirror,
+          };
+        });
+        return json({ ok: true, owner, accounts: series, ts: Date.now() });
       }
 
       // 2026-07-20 — Per-account sync snapshots (broker truth vs system).
@@ -1382,8 +1477,15 @@ export default {
         }
         // enable may be omitted when only stamping fractional_agreement_missing
         if (typeof body?.enable === "boolean") {
-          user.broker_integration_enabled = body.enable === true;
+          const next = body.enable === true;
+          const prev = user.broker_integration_enabled === true;
+          user.broker_integration_enabled = next;
           user.enable_changed_at = Date.now();
+          if (next !== prev) {
+            const events = Array.isArray(user.mirror_events) ? user.mirror_events.slice() : [];
+            events.push({ ts: Date.now(), on: next });
+            user.mirror_events = events.slice(-40);
+          }
         }
         // 2026-08-11 — Self-service opt-in: set by the main worker's
         // Broker Connections flow so this account joins the model-signal
