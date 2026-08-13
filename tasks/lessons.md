@@ -5145,6 +5145,41 @@ check. The advisory itself stays visible on ambient surfaces (trade-card
 banner via KV `timed:kanban:exit-advisory`, activity feed, Investor board
 Queue lane) — the cleanup removes paging channels, not the signal.
 
+### Lesson (2026-08-13) — the reconcile pass right after a trim compares against a PRE-trim expected
+AXON 8/12: a 50% trim placed and filled perfectly (0.18271 → 0.09136),
+and the operator still got a "Mirror sync: 1 issue — Partial Fill" email.
+`classifyDrift` uses `broker_remaining_qty` as expected, but that column
+only converges to broker truth on a LATER `_persistRowUpdate` pass — the
+first pass after any reducer compares post-trim live qty against the
+stale pre-trim expected → spurious partial_fill (warn → email). Exits in
+flight on CLOSED rows hit the sibling failure mode (broker_orphan).
+The information needed to classify correctly already existed: the
+post-exec audit (`sync_last_action_json`, stamped at place time) carries
+`expected_post_held_qty`. Fix: within a 30-min grace window an
+unverified audit overrides the stale expected (`pendingReducerAudit` in
+bridge-reconciler.js). Traps inside the fix: (1) when the trim has NOT
+filled yet, do NOT record broker>expected as `user_added` — persist
+would converge broker_remaining to the post-trim value before the fill
+and mask a stuck order forever; (2) the grace window must expire so a
+genuinely stuck reducer still alerts through normal classification +
+the post-exec drift channel.
+
+### Lesson (2026-08-13) — Webull rate limits punish per-account loops; cache + degrade, don't error
+"Broker positions unavailable: Too many requests" on Roth IRA + Margin:
+the positions endpoint fetched all 5 Webull accounts back-to-back; the
+per-isolate 1.1s throttle in signedFetch doesn't protect across
+concurrent invocations (page load racing the reconciler cron). Fixes
+stack: (1) GET-only retry in signedFetch (3 attempts, 1.2s/2.4s backoff,
+re-sign headers each attempt — the signature carries a timestamp; POSTs
+NEVER retry, double-order risk); (2) per-account KV cache
+(`bridge:positions:<user_id>`) — <60s fresh serves without any broker
+call, failures degrade to the last good snapshot marked stale with its
+as-of time. Data with an age beats an error. Also recurred here: any
+NEW manifest query must match `user_id OR broker_account_id` (fan-out
+writes rows under the owner's base id) — the positions view had the
+exact bug the reconciler fixed on 2026-07-24, rendering every
+model-managed position "untracked".
+
 ### Lesson (2026-08-12) — check merge state before pushing follow-up rounds to a PR branch
 The operator asked for a hardening round (uniqueness / kill switches /
 position sync) on the Broker Connections PR. The PR had merged minutes

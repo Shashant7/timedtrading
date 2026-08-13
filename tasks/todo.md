@@ -21,6 +21,22 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [x] **Broker Connections second pass (2026-08-13).** Operator asked for
+      Robinhood-level polish + two bug fixes. Fixed: (1) AXON spurious
+      "Partial Fill" email after a clean 50% trim — reconciler now honors
+      the unverified post-exec audit as expected qty for 30 min
+      (`pendingReducerAudit`); (2) "Too many requests" on Roth IRA/Margin
+      positions — signedFetch GET retry + per-account KV positions cache
+      with stale fallback. New: day timeline (model actions × mirror
+      outcomes with humanized reject reasons), positions with live P&L +
+      per-ticker account history + sync-health donut, scoped per-account
+      `POST /timed/broker/sync-position` (RTH + flat + cooldown guards,
+      single-account routing), Verda chrome + mobile grid on
+      `broker-connections.html`. Manifest join fixed to match
+      broker_account_id (AXON showed "untracked"). Ops debug:
+      `/timed/admin/broker-bridge/day-actions` + `/owner-positions`.
+      Deployed worker (both envs) + bridge; verified live against real
+      Roth IRA data. Branch: `cursor/broker-page-second-pass-dbdd`.
 - [x] **DCA sweep retry uplevel + notification cleanup (2026-08-12).**
       Operator follow-ups to the NVDA sweep: (1) the single 15:50 shot was
       slow and a single point of failure — now an immediate post-dispatch

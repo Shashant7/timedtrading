@@ -458,6 +458,46 @@ Guard rails (2026-08-12):
   IN SYNC / PENDING / PARTIAL FILL / AT BROKER ONLY / MISSING AT BROKER /
   NOT MIRRORED (untracked = user's own holdings, not model-managed).
 
+Second pass (2026-08-13):
+- **Bridge positions caching + stale fallback** — 5 accounts fetched
+  back-to-back tripped Webull's rate limit ("Too many requests" on Roth
+  IRA + Margin). `/bridge/positions` now serves a <60s-fresh KV cache
+  without a broker call (`bridge:positions:<user_id>`, 1h TTL,
+  `?refresh=1` bypasses), and a failed live fetch degrades to the last
+  good snapshot marked `positions_stale` + `positions_as_of` instead of
+  an error. `signedFetch` GETs also retry rate limits (3 attempts,
+  re-signed each time); POSTs never retry.
+- **Manifest match on positions view** — match `user_id` OR
+  `broker_account_id` (fan-out writes rows under the OWNER's base id —
+  same fix the reconciler needed 2026-07-24), otherwise every
+  model-managed position renders "untracked".
+- **Day timeline** — `GET /timed/broker/day-actions` (session) and
+  `GET /timed/admin/broker-bridge/day-actions` (ops; `?raw=1` = bridge
+  passthrough, `?owner=` defaults to ADMIN_EMAIL) join the model's own
+  `account_ledger` (ENTRY/TRIM/EXIT/DCA_BUY since NY midnight, or
+  `?hours=N`) against bridge per-account fills/rejects
+  (`GET /bridge/day-actions`) + the client ring's skip records. Each
+  action carries `mirror`: mirrored / rejected / skipped / forwarded /
+  not_mirrored + per-account fill and reject detail.
+- **Positions enrichment** — the worker overlays live prices
+  (Pro/VIP/Admin gate; getDailyChange-compatible alias fields), market
+  value, unrealized/day P&L, per-account totals, per-ticker account
+  history sub-rows, and the model's open long-term positions the account
+  is flat in (`syncable` when mirror on + RTH, else
+  `sync_blocked_reason`). `GET /timed/admin/broker-bridge/owner-positions`
+  is the ops mirror of the bridge feed.
+- **Scoped position sync** — `POST /timed/broker/sync-position
+  { account_id, ticker }` buys the model's open long-term position on ONE
+  owned account: guards = ownership, model holds it, account flat, RTH
+  only, 10-min KV cooldown, mirror enabled. Passing `broker_account_id`
+  makes the bridge take `handleSingleAccountOrder` — fan-out impossible.
+  Sizing/caps are the bridge's normal per-account path.
+- **Reducer-in-flight reconcile override** — see the AXON lesson in
+  `tasks/lessons.md` (2026-08-13): within 30 min of a TRIM/EXIT place,
+  the unverified `sync_last_action_json` audit is the expected-qty source
+  of truth in `classifyDrift`, so the first reconcile pass after a trim
+  no longer emails a spurious partial_fill.
+
 - `login_label` is **required** for a second login (prevents slug
   collisions — both logins can have an INDIVIDUAL_CASH account).
 - New accounts arrive **disabled**; enable per account via `/bridge/enable`.
