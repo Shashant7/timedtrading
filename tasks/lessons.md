@@ -6,6 +6,7 @@
 
 ---
 
+<<<<<<< HEAD
 ## Broker Connections: inline UI, KPI, caps, client_order_id [2026-08-13]
 
 **Symptom:** Timeline/position details required a click; KPI strip showed
@@ -19,6 +20,25 @@ skips auto_sync injection when `mirror_enabled` is false. Fan-out
 `client_order_id` clamped to Webull's 10–40 chars; humanize raw Parameter
 errors. Daily/per-order account caps removed from preflight + UI —
 mirror on/off only; sizing stays relational.
+=======
+## Model sizing: paper-queue crushed canonical entries [2026-08-13]
+
+**Symptom:** AXON Prime Support Bounce entered ~1.09 sh / $648 on a
+~$100k book (and ~$165k cash). Same day IHF Confirmed Support Bounce
+was only $1,152.
+
+**Root:** Risk sizing was correct (~$20k after 20% cap: 2% risk, SL
+$42.60 from entry). A coincident confirm-stack / thin-slice
+`_sequence_queue_proposal` applied `size_mult: 0.1` on top of the 0.30
+regime multiplier floor → ~$600. Paper sizing was meant as a safety net
+when a Queued play somehow entered; it also crushed first-class `tt_*`
+paths.
+
+**Fix:** `resolveEntryPaperSizeMult` — canonical capital paths
+(`tt_n_test_support`, `tt_ath_breakout`, ORB, …) always get 1.0; only
+thin-slice family entries keep the paper mult. `MIN_NOTIONAL` floor
+applies even when using tier risk %.
+>>>>>>> 036121239 (docs: lesson for paper-queue crushing canonical model sizing (AXON))
 
 ---
 

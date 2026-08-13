@@ -163,7 +163,9 @@ export function computeRiskBasedSize(
     notional = maxPositionNotional;
     shares = notional / Number(entryPrice);
   }
-  if (!usingTier && notional < cfg.MIN_NOTIONAL) {
+  // Always enforce the dollar floor — tier sizing used to skip it, which
+  // let wide stops produce sub-MIN_NOTIONAL primes (AXON/IHF Aug 2026).
+  if (notional < cfg.MIN_NOTIONAL) {
     notional = cfg.MIN_NOTIONAL;
     shares = notional / Number(entryPrice);
   }

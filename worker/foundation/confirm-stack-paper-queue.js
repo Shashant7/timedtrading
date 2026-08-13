@@ -212,3 +212,42 @@ export function paperQueueSizeMult(tickerData, daCfg = {}) {
   const m = Number(proposal.size_mult);
   return Number.isFinite(m) && m > 0 && m <= 1 ? m : cfg.sizeMult;
 }
+
+/**
+ * Canonical capital entry paths (Support Bounce, ATH breakout, ORB, …)
+ * must NEVER be crushed by a coincident paper-queue stamp.
+ *
+ * Repro 2026-08-12: AXON Prime `tt_n_test_support` risk-sized to ~$20k
+ * (2% risk, SL $42.60 away) then ×0.30 regime floor ×0.10 paper → $648
+ * (~1 share). Paper sizing only applies when the entry itself is the
+ * thin-slice family's play — not when a first-class path fires while a
+ * Queued proposal happens to sit on the payload.
+ */
+export function isCanonicalCapitalEntryPath(entryPath) {
+  const path = String(entryPath || "").toLowerCase().trim();
+  if (!path) return false;
+  if (/^(tt_|orb_|gold_|vwap_|pullback_|ema21_|ichimoku_|ripster_)/.test(path)) return true;
+  if (path.includes("test_support") || path.includes("ath_breakout")) return true;
+  if (path.includes("support_bounce") || path.includes("breakout")) return true;
+  return false;
+}
+
+/**
+ * Resolve the effective paper size mult for a live sim entry.
+ * Canonical paths → 1.0 (full size). Thin-slice-only entries keep the
+ * proposal's paper mult.
+ */
+export function resolveEntryPaperSizeMult(tickerData, daCfg, entryPath, extras = {}) {
+  if (isCanonicalCapitalEntryPath(entryPath)) return 1;
+  const candidates = [
+    paperQueueSizeMult(tickerData, daCfg),
+    Number(extras.continuationMult) || 1,
+    Number(extras.cloudPivotMult) || 1,
+  ];
+  let m = 1;
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0 && n < m) m = n;
+  }
+  return m;
+}
