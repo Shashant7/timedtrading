@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Timed Trading" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>My Account — Timed Trading</title>
+    <meta name="description" content="Account hub — email preferences and subscription management." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=1786662191628" />
+    <script defer src="/vendor/react.production.min.js?v=1786662191628"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1786662191628"></script>
+<script defer src="auth-gate.js?v=1786662191628"></script>
+    <script src="tt-bottom-nav.js?v=1786662191628" defer></script>
+    <script defer src="investor-nav-badge.js?v=1786662191628"></script>
+    <script src="tt-nav-extras.js?v=1786662191628" defer></script>
+    <style>
+      body { margin: 0; min-height: 100vh; background: var(--tt-bg-0, #0b1410); color: var(--tt-text, #e8f0ec); }
+      main { max-width: 720px; margin: 0 auto; padding: 20px 20px 110px; }
+      .dim { color: var(--tt-text-dim, #6E867D); }
+      .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(11, 20, 16, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.08));
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand {
+        display: inline-flex; align-items: center; gap: 10px;
+        text-decoration: none; color: var(--tt-text, #e8f0ec); font-weight: 700;
+      }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: var(--tt-text-muted, #8aa399);
+        text-decoration: none; padding: 6px 12px; border-radius: 8px;
+      }
+      .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
+      .nav-link.active {
+        color: var(--tt-accent, #38F2A1);
+        background: rgba(56, 242, 161, 0.12);
+      }
+
+      .tt-card {
+        background: var(--tt-bg-1, #111a16);
+        border: 1px solid var(--tt-border-weak, rgba(255,255,255,0.08));
+        border-radius: 16px;
+        margin-bottom: 16px;
+      }
+      .tt-card-pad { padding: 20px 22px; }
+      .tt-sec-title {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--tt-text-dim); margin-bottom: 4px;
+      }
+      .tt-sec-h { font-family: Manrope, Inter, sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+
+      .bc-btn {
+        padding: 9px 16px; border-radius: 999px; font-size: 12px; font-weight: 700;
+        cursor: pointer; border: 1px solid var(--tt-border-strong, rgba(255,255,255,0.12));
+        background: rgba(255,255,255,0.04); color: var(--tt-text-1, #e8f0ec);
+      }
+      .bc-btn:hover:not(:disabled) { background: rgba(255,255,255,0.07); }
+      .bc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .bc-btn-primary {
+        background: rgba(56,242,161,0.13); color: var(--vf-primary, #38F2A1);
+        border-color: rgba(56,242,161,0.4);
+      }
+
+      .pref-row {
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+        padding: 14px 0; border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.06));
+      }
+      .pref-row:first-of-type { border-top: none; padding-top: 4px; }
+      .pref-title { font-size: 14px; font-weight: 650; color: var(--tt-text, #e8f0ec); margin: 0 0 3px; }
+      .pref-desc { font-size: 12px; color: var(--tt-text-2, #a3b5ad); margin: 0; line-height: 1.5; }
+      .toggle {
+        position: relative; width: 42px; height: 23px; border-radius: 999px; border: none;
+        cursor: pointer; transition: background 0.15s; flex-shrink: 0; margin-top: 2px;
+      }
+      .toggle .knob {
+        position: absolute; top: 3px; width: 17px; height: 17px; border-radius: 50%;
+        background: #fff; transition: left 0.18s cubic-bezier(.4,1.6,.6,1);
+      }
+      .msg-ok { color: var(--tt-success, #34d399); font-size: 12px; }
+      .msg-err { color: var(--tt-danger, #ef4444); font-size: 12px; }
+      .chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+        background: rgba(56,242,161,0.10); color: var(--vf-primary, #38F2A1);
+        border: 1px solid rgba(56,242,161,0.28);
+      }
+      .hub-link {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 12px 0; border-top: 1px solid var(--tt-border-weak);
+        text-decoration: none; color: inherit;
+      }
+      .hub-link:first-of-type { border-top: none; }
+      .hub-link:hover .hub-link-title { color: var(--vf-primary, #38F2A1); }
+      .hub-link-title { font-size: 14px; font-weight: 650; transition: color 0.12s; }
+      .hub-link-sub { font-size: 12px; color: var(--tt-text-2); margin-top: 2px; }
+      .hub-chevron { color: var(--tt-text-dim); font-size: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="global-nav-root"></div>
+    <script defer src="shared-nav.js?v=1786662191628"></script>
+    <div id="root"></div>
+    <script defer src="my-account.compiled.js?v=1786662191628"></script>
+  </body>
+</html>
+
+<!-- cache-bust:1786662191628:916120809 -->

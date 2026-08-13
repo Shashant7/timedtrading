@@ -60,6 +60,17 @@ on every broker route, and the nav entry stays hidden.
 > flag alone, but live prices and scores are Pro/VIP/Admin-only, so a
 > non-Pro partner sees a half-empty page.
 
+## Email — Account today digest
+
+Connected accounts with mirroring enabled receive an end-of-day
+**Account today** email (bridge cron `30 21 * * *` → notify drain).
+
+- Counts **fills** (ledger ENTRY/EXIT/FILL + audit `place`) and **syncs**
+  (`adopt_position`), not just `bridge_audit.place`.
+- HTML matches the dark branded layout used by Mirror Sync / briefs.
+- Opt out: **My Account → Email preferences → Broker account digest**
+  (`broker_daily_digest` in D1 `users.email_preferences`).
+
 ## Step 2 — Partner connects Webull (partner)
 
 Partner → **Broker Connections** → paste **their own** App Key + Secret.

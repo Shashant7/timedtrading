@@ -451,6 +451,7 @@
       // on top duplicated the nav ("Today / Model / …" twice).
       "/broker-connections",
       "/account-brokers",
+      "/my-account",
     ]);
     if (JOURNEY_PATHS.has(path)) {
       // If a prior version of this script injected the strip on a
@@ -751,4 +752,4 @@
   })();
 })();
 
-// cache-bust:1786654715850:822161968
+// cache-bust:1786662191628:916120809

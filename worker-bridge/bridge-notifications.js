@@ -377,22 +377,59 @@ export async function emitDriftNotification(env, row, severity) {
  *   - Day P&L (realized + unrealized)
  *   - Tomorrow's outlook (manifest open rows)
  */
+/** Midnight America/New_York as epoch ms (handles EST/EDT). */
+export function midnightNyMs(nowMs = Date.now()) {
+  const dateFmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const targetDay = dateFmt.format(new Date(nowMs)); // YYYY-MM-DD in NY
+  let t = nowMs - (nowMs % 60_000);
+  while (dateFmt.format(new Date(t)) === targetDay) t -= 60_000;
+  return t + 60_000; // first minute of the NY calendar day
+}
+
+function _normalizeDigestAction(row) {
+  const kind = String(row.kind || row.event_type || row.action || "").toLowerCase();
+  const side = String(row.side || "").toUpperCase();
+  const qty = Number(row.qty) || 0;
+  const ticker = String(row.ticker || row.symbol || "?").toUpperCase();
+  const px = row.price != null ? Number(row.price)
+    : (row.price_target != null ? Number(row.price_target) : null);
+  let label = "TRADE";
+  if (kind === "adopt_position" || kind === "adopt" || kind === "sync") label = "SYNC";
+  else if (kind === "exit" || side === "SELL" || side === "TRIM" || side === "EXIT") label = "SELL";
+  else if (kind === "entry" || kind === "fill" || kind === "partial_fill" || kind === "place"
+    || side === "BUY" || side === "LONG") label = "BUY";
+  else if (side) label = side;
+  return {
+    ts: Number(row.ts) || 0,
+    ticker,
+    side: side || label,
+    qty,
+    price: Number.isFinite(px) ? px : null,
+    status: row.status || "ok",
+    trade_id: row.trade_id || row.model_trade_id || null,
+    kind: label === "SYNC" ? "sync" : "fill",
+    label,
+    source: row.source || "unknown",
+  };
+}
+
 export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   const db = env?.BRIDGE_DB;
   if (!db) return null;
   const userId = String(user?.user_id || "").toLowerCase();
   if (!userId) return null;
-  const NYNow = new Date();
-  // Compute midnight ET for the user's "today". 5 hr offset is a
-  // coarse approximation (handles EST; EDT is off by 1 hr but the
-  // digest doesn't depend on minute-perfect boundaries).
-  const midnightEt = new Date(NYNow);
-  midnightEt.setUTCHours(NYNow.getUTCHours() - 5);
-  midnightEt.setUTCHours(0, 0, 0, 0);
-  midnightEt.setUTCHours(midnightEt.getUTCHours() + 5);
-  const midnightEtMs = midnightEt.getTime();
+  const midnightEtMs = midnightNyMs(Date.now());
+  const brokerAccountId = user.webull_account_id || user.ibkr_account_id || user.rh_account_number || null;
 
-  // 1. Today's executed bridge actions.
+  // 1. Today's executed actions — audit places + adopts AND account-ledger
+  // fills. Counting only `bridge_audit.place` missed AUTO-SYNC adopts and
+  // ledger ENTRY/EXIT rows, which is why digests said "0 trades" on days
+  // with new entries.
   let audit = [];
   try {
     const r = await db.prepare(`
@@ -404,8 +441,57 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
     `).bind(userId, midnightEtMs).all().catch(() => ({ results: [] }));
     audit = r?.results || [];
   } catch (_) {}
-  const executed = audit.filter(a => a.action === "place" && a.status === "ok");
-  const rejected = audit.filter(a => a.status === "rejected");
+  const rejected = audit.filter(a => a.status === "rejected" || a.action === "reject");
+
+  let ledger = [];
+  try {
+    await import("./bridge-account-ledger.js").then((m) => m.ensureAccountLedgerSchema(env)).catch(() => {});
+    const sql = brokerAccountId
+      ? `SELECT ts, ticker, side, qty, price, value, status, event_type,
+                model_trade_id, broker_account_id, user_id
+           FROM broker_account_ledger
+          WHERE ts >= ?1 AND status = 'ok'
+            AND (user_id = ?2 OR broker_account_id = ?3)
+            AND UPPER(COALESCE(event_type, '')) IN ('ENTRY','EXIT','FILL','PARTIAL_FILL')
+          ORDER BY ts ASC LIMIT 200`
+      : `SELECT ts, ticker, side, qty, price, value, status, event_type,
+                model_trade_id, broker_account_id, user_id
+           FROM broker_account_ledger
+          WHERE ts >= ?1 AND status = 'ok' AND user_id = ?2
+            AND UPPER(COALESCE(event_type, '')) IN ('ENTRY','EXIT','FILL','PARTIAL_FILL')
+          ORDER BY ts ASC LIMIT 200`;
+    const stmt = db.prepare(sql);
+    const r = await (brokerAccountId
+      ? stmt.bind(midnightEtMs, userId, String(brokerAccountId)).all()
+      : stmt.bind(midnightEtMs, userId).all()
+    ).catch(() => ({ results: [] }));
+    ledger = r?.results || [];
+  } catch (_) {}
+
+  const fromAudit = audit
+    .filter((a) => a.status === "ok" && (a.action === "place" || a.action === "adopt_position"))
+    .map((a) => _normalizeDigestAction({
+      ...a,
+      kind: a.action === "adopt_position" ? "sync" : "fill",
+      price: a.price_target,
+      source: "audit",
+    }));
+  const fromLedger = ledger.map((r) => _normalizeDigestAction({
+    ...r,
+    kind: String(r.event_type || "").toUpperCase() === "EXIT" ? "exit" : "entry",
+    source: "ledger",
+  }));
+
+  // Dedupe: same ticker+qty+side within 2 minutes across audit/ledger.
+  const executed = [];
+  const seen = new Set();
+  for (const row of [...fromAudit, ...fromLedger].sort((a, b) => a.ts - b.ts)) {
+    const bucket = Math.floor(row.ts / 120000);
+    const key = `${row.kind}|${row.ticker}|${row.side}|${row.qty}|${bucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    executed.push(row);
+  }
 
   // 2. Current broker snapshot.
   let positions = [];
@@ -435,10 +521,12 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   // 4. Day P&L.
   const unrealized = positions.reduce((acc, p) => acc + (Number(p.unrealizedPnl) || Number(p.unrealized_pnl) || 0), 0)
     + optionsPositions.reduce((acc, p) => acc + (Number(p.unrealizedPnl) || Number(p.unrealized_pnl) || 0), 0);
-  // Realized: pull from the audit log's exit-tagged actions if the
-  // bridge stamps realized_pnl there. For now we fall back to 0.
-  const realized = 0; // Phase E+ to source this from per-trade exit events.
+  // Realized from EXIT ledger notional is not true realized P&L — keep 0
+  // until per-lot cost basis is wired. Unrealized still drives the day card.
+  const realized = 0;
   const equityEnd = Number(portfolio?.equity_usd) || Number(portfolio?.equity) || 0;
+  const fillCount = executed.filter((e) => e.kind === "fill").length;
+  const syncCount = executed.filter((e) => e.kind === "sync").length;
 
   // 5. Tomorrow's outlook — open manifest rows.
   let openTrades = [];
@@ -487,8 +575,10 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
     user_email: user.email || ownerEmailForRow(user),
     user_display_name: user.display_name || userId.split("@")[0],
     broker: String(user.broker || "ibkr").toUpperCase(),
-    broker_account_id: user.ibkr_account_id || user.rh_account_number || null,
+    broker_account_id: brokerAccountId,
     executed,
+    fill_count: fillCount,
+    sync_count: syncCount,
     rejected_count: rejected.length,
     positions, options_positions: optionsPositions,
     day_pnl: { realized, unrealized, total: realized + unrealized },
@@ -500,98 +590,131 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   };
 }
 
+function _digestActionHeadline(digest) {
+  const fills = Number(digest.fill_count ?? digest.executed?.filter?.((e) => e.kind !== "sync").length) || 0;
+  const syncs = Number(digest.sync_count ?? digest.executed?.filter?.((e) => e.kind === "sync").length) || 0;
+  const parts = [];
+  if (fills) parts.push(`${fills} fill${fills === 1 ? "" : "s"}`);
+  if (syncs) parts.push(`${syncs} sync${syncs === 1 ? "" : "s"}`);
+  if (!parts.length) parts.push("0 fills");
+  return parts.join(", ");
+}
+
 /**
  * Render the daily digest into { subject, text, html }.
- * Caller (main-worker email cron) feeds this to SendGrid.
+ * Main-worker drain prefers `buildDailyOwnerDigestEmail` in email.js
+ * (branded layout + unsubscribe) when `digest_summary` is present.
  */
 export function renderDailyOwnerDigestEmail(digest) {
   if (!digest || digest.skip) return null;
-  const totalSign = digest.day_pnl.total >= 0 ? "+" : "";
-  const totalUsd = `$${Math.abs(digest.day_pnl.total).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const total = Number(digest.day_pnl?.total) || 0;
+  const totalSign = total >= 0 ? "+" : "";
+  const totalUsd = `$${Math.abs(total).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   const pctOfEquity = digest.equity_end > 0
-    ? (digest.day_pnl.total / digest.equity_end * 100).toFixed(2) + "%"
+    ? (total / digest.equity_end * 100).toFixed(2) + "%"
     : "—";
+  const actionHeadline = _digestActionHeadline(digest);
+  const subject = `[Timed Trading] Account today — ${actionHeadline}, ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`;
 
-  const subject = `[Timed Trading] Your account today — ${digest.executed.length} trade${digest.executed.length === 1 ? "" : "s"}, ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`;
-
-  const tradeLines = digest.executed.map(t => {
-    const side = String(t.side || "").toUpperCase();
+  const tradeLines = (digest.executed || []).map((t) => {
+    const label = t.label || String(t.side || "").toUpperCase() || "TRADE";
     const qty = Number(t.qty) || 0;
-    const px = t.price_target != null ? ` @ $${Number(t.price_target).toFixed(2)}` : "";
-    return `  ${side} ${qty} ${t.ticker}${px}`;
+    const px = t.price != null ? ` @ $${Number(t.price).toFixed(2)}`
+      : (t.price_target != null ? ` @ $${Number(t.price_target).toFixed(2)}` : "");
+    return `  ${label} ${qty} ${t.ticker}${px}`;
   });
-  const positionLines = (digest.positions || []).slice(0, 30).map(p => {
+  const positionLines = (digest.positions || []).slice(0, 30).map((p) => {
     const qty = Number(p.qty ?? p.position ?? p.quantity) || 0;
     const pnl = Number(p.unrealizedPnl ?? p.unrealized_pnl) || 0;
     const sign = pnl >= 0 ? "+" : "";
     return `  ${String(p.symbol || p.ticker || "?").toUpperCase()}  ${qty} sh  ${sign}$${pnl.toFixed(2)}`;
   });
-  const watchLines = (digest.open_trades || []).slice(0, 15).map(t =>
+  const watchLines = (digest.open_trades || []).slice(0, 15).map((t) =>
     `  ${t.ticker} · ${t.mode}/${t.instrument_type}${t.options_structure ? `:${t.options_structure}` : ""} · ${t.sync_state}`,
   );
 
   const text = [
     subject,
     "",
-    "═══════════════════════════════════════════════",
-    `EXECUTED TODAY (${digest.executed.length})`,
-    "═══════════════════════════════════════════════",
-    ...(tradeLines.length > 0 ? tradeLines : ["  (no fills)"]),
-    digest.rejected_count > 0 ? `(${digest.rejected_count} order(s) rejected at preflight — see audit log)` : "",
+    `EXECUTED TODAY (${(digest.executed || []).length})`,
+    ...(tradeLines.length > 0 ? tradeLines : ["  (none)"]),
+    digest.rejected_count > 0 ? `(${digest.rejected_count} order(s) rejected at preflight)` : "",
     "",
-    "═══════════════════════════════════════════════",
     `OPEN POSITIONS (${(digest.positions || []).length}${digest.options_positions?.length ? ` + ${digest.options_positions.length} options` : ""})`,
-    "═══════════════════════════════════════════════",
     ...(positionLines.length > 0 ? positionLines : ["  (no open equity positions)"]),
     "",
-    "═══════════════════════════════════════════════",
     "DAY P&L",
-    "═══════════════════════════════════════════════",
-    `  Realized:   $${digest.day_pnl.realized.toFixed(2)}`,
-    `  Unrealized: $${digest.day_pnl.unrealized.toFixed(2)}`,
+    `  Realized:   $${Number(digest.day_pnl?.realized || 0).toFixed(2)}`,
+    `  Unrealized: $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}`,
     `  Total day:  ${totalSign}${totalUsd}  (${totalSign}${pctOfEquity})`,
     `  Equity end: $${Number(digest.equity_end).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
     "",
-    "═══════════════════════════════════════════════",
-    "WHAT WE'RE WATCHING TOMORROW",
-    "═══════════════════════════════════════════════",
-    ...(watchLines.length > 0 ? watchLines : ["  (no open mirror trades)"]),
+    "OPEN MIRROR SLEEVES",
+    ...(watchLines.length > 0 ? watchLines : ["  (none)"]),
     "",
-    // 2026-06-02 — Sanity-sweep summary so the operator/user wakes up
-    // knowing the system is green (or knows exactly what's red).
     ...(digest.sanity_summary ? [
-      "═══════════════════════════════════════════════",
       "SYSTEM HEALTH (sanity sweep)",
-      "═══════════════════════════════════════════════",
-      `  ${digest.sanity_summary.ok_count} checks ok · ${digest.sanity_summary.warn_count} warn · ${digest.sanity_summary.fail_count} fail${digest.sanity_summary.age_minutes != null ? ` (sweep ${digest.sanity_summary.age_minutes}min old)` : ""}`,
-      ...(digest.sanity_summary.failing_checks || []).map(c => `  FAIL ${c.label} — ${c.anomaly}`),
-      ...(digest.sanity_summary.warning_checks || []).slice(0, 4).map(c => `  WARN ${c.label} — ${c.anomaly}`),
+      `  ${digest.sanity_summary.ok_count} ok · ${digest.sanity_summary.warn_count} warn · ${digest.sanity_summary.fail_count} fail`,
       "",
     ] : []),
-    "═══════════════════════════════════════════════",
     "QUICK LINKS",
-    "═══════════════════════════════════════════════",
-    "  → Audit log:      https://timed-trading.com/account/brokers#audit",
-    "  → Pause mirror:   https://timed-trading.com/account/brokers",
-    "  → Daily brief:    https://timed-trading.com/today",
+    "  Broker Connections: https://timed-trading.com/broker-connections.html",
+    "  Email preferences:  https://timed-trading.com/my-account.html#email",
+    "  Daily brief:        https://timed-trading.com/today",
     "",
-    "— The Timed Trading System",
-    "",
-    "This digest is sent because a broker account is connected to",
-    "Timed Trading. To stop these digests: settings → email preferences",
-    "→ daily account digest.",
+    "— Timed Trading",
+    "Manage email preferences at timed-trading.com/my-account.html#email",
   ].filter(Boolean).join("\n");
 
-  const _esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const html = `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.6;color:#1f2937;max-width:640px">
-    <h2 style="margin:0 0 8px">Account today</h2>
-    <p style="color:#6b7280;margin:0 0 16px">${digest.broker}${digest.broker_account_id ? ` · ${_esc(digest.broker_account_id)}` : ""}</p>
-    <div style="background:${digest.day_pnl.total >= 0 ? "#ecfdf5" : "#fef2f2"};border-left:4px solid ${digest.day_pnl.total >= 0 ? "#10b981" : "#ef4444"};padding:12px 14px;margin:0 0 14px;border-radius:4px">
-      <div style="font-size:22px;font-weight:700;color:${digest.day_pnl.total >= 0 ? "#065f46" : "#991b1b"}">${totalSign}${totalUsd} (${totalSign}${pctOfEquity})</div>
-      <div style="font-size:11px;color:#6b7280;margin-top:3px">Realized $${digest.day_pnl.realized.toFixed(2)} · Unrealized $${digest.day_pnl.unrealized.toFixed(2)} · Equity end $${Number(digest.equity_end).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+  // Lightweight branded HTML for bridge preview / fallback. Drain re-renders
+  // with worker/email.js emailLayout when digest_summary is queued.
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const pnlColor = total >= 0 ? "#34d399" : "#ef4444";
+  const rowHtml = (digest.executed || []).slice(0, 40).map((t) => {
+    const label = esc(t.label || t.side || "TRADE");
+    const qty = Number(t.qty) || 0;
+    const px = t.price != null ? ` @ $${Number(t.price).toFixed(2)}` : "";
+    return `<tr><td style="padding:6px 0;color:#e5e7eb;font-size:13px">${label} <strong>${esc(t.ticker)}</strong></td><td style="padding:6px 0;text-align:right;color:#9ca3af;font-family:Menlo,Consolas,monospace;font-size:12px">${qty}${esc(px)}</td></tr>`;
+  }).join("");
+  const posHtml = (digest.positions || []).slice(0, 25).map((p) => {
+    const qty = Number(p.qty ?? p.position ?? p.quantity) || 0;
+    const pnl = Number(p.unrealizedPnl ?? p.unrealized_pnl) || 0;
+    const sign = pnl >= 0 ? "+" : "";
+    const col = pnl >= 0 ? "#34d399" : "#ef4444";
+    return `<tr><td style="padding:5px 0;color:#e5e7eb;font-size:12px">${esc(String(p.symbol || p.ticker || "?").toUpperCase())}</td><td style="padding:5px 0;text-align:right;color:#9ca3af;font-family:Menlo,Consolas,monospace;font-size:11px">${qty} sh</td><td style="padding:5px 0;text-align:right;color:${col};font-family:Menlo,Consolas,monospace;font-size:11px">${sign}$${pnl.toFixed(2)}</td></tr>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#0b0e11;font-family:'Helvetica Neue',Arial,sans-serif;color:#e5e7eb">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0b0e11"><tr><td align="center" style="padding:24px 16px">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%">
+  <tr><td style="padding:20px 24px;text-align:center">
+    <img src="https://timed-trading.com/logo-discord.png" alt="TT" width="32" height="32" style="display:inline-block;width:32px;height:32px;border-radius:8px;vertical-align:middle;border:0">
+    <span style="margin-left:8px;font-size:16px;font-weight:700;color:white;vertical-align:middle;letter-spacing:-0.03em">Timed Trading</span>
+  </td></tr>
+  <tr><td style="background:#111318;border:1px solid #1e2128;border-radius:12px;padding:28px 24px">
+    <h2 style="margin:0 0 4px;font-size:20px;color:#e5e7eb;font-family:Georgia,serif">Account today</h2>
+    <p style="margin:0 0 16px;color:#9ca3af;font-size:13px">${esc(digest.broker)}${digest.broker_account_id ? ` · ${esc(digest.broker_account_id)}` : ""} · ${esc(actionHeadline)}</p>
+    <div style="background:#0b0e11;border:1px solid #1e2128;border-radius:10px;padding:16px 18px;margin:0 0 20px">
+      <div style="font-size:26px;font-weight:700;color:${pnlColor};font-family:Menlo,Consolas,monospace">${totalSign}${totalUsd} <span style="font-size:14px">(${totalSign}${pctOfEquity})</span></div>
+      <div style="font-size:11px;color:#6b7280;margin-top:6px">Realized $${Number(digest.day_pnl?.realized || 0).toFixed(2)} · Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)} · Equity $${Number(digest.equity_end).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
     </div>
-    <pre style="background:#f3f4f6;padding:12px;border-radius:6px;font-family:Menlo,Monaco,monospace;font-size:11px;white-space:pre-wrap">${_esc(text)}</pre>
-  </div>`;
+    <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase">Executed today</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">${rowHtml || `<tr><td style="color:#6b7280;font-size:12px;padding:6px 0">No fills or syncs today</td></tr>`}</table>
+    <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase">Open positions</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">${posHtml || `<tr><td style="color:#6b7280;font-size:12px;padding:6px 0">No open equity positions</td></tr>`}</table>
+    <p style="margin:16px 0 0;font-size:12px">
+      <a href="https://timed-trading.com/broker-connections.html" style="color:#00c853;font-weight:700;text-decoration:none">Broker Connections →</a>
+      &nbsp;&nbsp;
+      <a href="https://timed-trading.com/my-account.html#email" style="color:#9ca3af;text-decoration:underline">Email preferences</a>
+    </p>
+  </td></tr>
+  <tr><td style="padding:24px;text-align:center">
+    <p style="margin:0 0 8px;font-size:12px;color:#6b7280">Timed Trading · <a href="https://timed-trading.com" style="color:#6b7280">timed-trading.com</a></p>
+    <p style="margin:0;font-size:11px;color:#6b7280"><a href="https://timed-trading.com/my-account.html#email" style="color:#6b7280;text-decoration:underline">Manage email preferences</a></p>
+    <p style="margin:8px 0 0;font-size:10px;color:#6b7280">This is not financial advice. For educational purposes only.</p>
+  </td></tr>
+</table></td></tr></table></body></html>`;
 
   return { subject, text, html };
 }
