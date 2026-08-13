@@ -93,7 +93,7 @@ function buildExtractionPrompt(text, playbook) {
       "• EXCEPTION — any 'Sector Allocation' monthly update MUST be classification='structural' with populated sector_stance_changes[] (and theme_stance_changes[] when the 15% sleeve rotates). Extract model weights and strategist Overweight/Neutral/Underweight ratings into sector_stance_changes.",
       "• tactical_signals_add must be COMPLETE — replace, not extend. The next apply replaces the whole TACTICAL_SIGNALS array.",
       "• Every tactical signal MUST include affected_tier1_themes (from the theme list above) OR affected_sectors_overweight (from the sector list). Empty for both is allowed only for index-level signals (e.g. an SPX-only observation).",
-      "• Be conservative. If the publication is unclear, leave fields null/empty rather than guess.",
+      "• If the publication includes a VIDEO TRANSCRIPT section, that is Tom Lee's spoken Macro Minute (the night take on the next session). Treat it as primary over the short HTML blurb. Extract calendar catalysts (CPI, PPI, NFP, FOMC, earnings, policy), index targets, and sector/theme calls with high confidence.",
     ].join("\n"),
     user: [
       "ACTIVE PLAYBOOK (for taxonomy reference only — do not echo back):",

@@ -45,9 +45,10 @@ const EXTRACT_TIMEOUT_MS = 40_000;
 
 // Quick gate: only spend an LLM call on notes that look like they carry a
 // macro calendar. Avoids extracting from single-stock / crypto flash notes.
-const CALENDAR_SIGNALS = /(first word|incoming data|economic data|non[- ]?farm|payroll|\bCPI\b|\bPPI\b|\bFOMC\b|\bPCE\b|jobless claims|jolts|retail sales|ism (manufacturing|services)|fed (rate|decision|chair)|inflation report)/i;
+const CALENDAR_SIGNALS = /(first word|incoming data|economic data|non[- ]?farm|payroll|\bNFP\b|\bCPI\b|\bPPI\b|\bFOMC\b|\bPCE\b|jobless claims|jolts|retail sales|ism (manufacturing|services)|fed (rate|decision|chair)|inflation report|earnings|trump|\bopex\b)/i;
 
 export function looksLikeMacroCalendar(text, title) {
+  if (/macro[\s\-]?minute/i.test(String(title || ""))) return true;
   const hay = `${title || ""}\n${String(text || "").slice(0, 4000)}`;
   return CALENDAR_SIGNALS.test(hay);
 }

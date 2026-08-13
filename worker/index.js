@@ -84615,24 +84615,33 @@ export default {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
       }
-      // POST /timed/admin/cro/macro-minute/ingest — Tom Lee Macro Minute
-      // full content (transcript, else YouTube description) from @Fundstrat_Direct
-      // into the CRO/FSD pipeline. Body: { limit?, force? }.
-      // Needs YOUTUBE_API_KEY for reliable discovery. Spoken transcript is
-      // optional (YT_TRANSCRIPT_API_URL + YT_TRANSCRIPT_API_KEY).
+      // POST /timed/admin/cro/macro-minute/ingest — Tom Lee Macro Minute.
+      // Primary: re-fetch FSD posts and attach Vimeo spoken captions.
+      // Optional: YouTube discovery when YOUTUBE_API_KEY is set (mirrors are rare).
+      // Body: { limit?, force? }.
       if (routeKey === "POST /timed/admin/cro/macro-minute/ingest") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
           const body = await req.json().catch(() => ({}));
-          const { ingestMacroMinuteFromYoutube } = await import("./cro/macro-minute-youtube.js");
-          const { ingestFromBlob } = await import("./cro/fsd-ingestion.js");
-          const r = await ingestMacroMinuteFromYoutube(env, {
-            limit: Math.min(15, Math.max(1, Number(body?.limit) || 5)),
-            force: body?.force === true,
-            ingestFromBlob,
-          });
-          return sendJSON(r, r?.ok ? 200 : 500, corsHeaders(env, req));
+          const limit = Math.min(15, Math.max(1, Number(body?.limit) || 5));
+          const { enrichMacroMinuteTranscripts, ingestFromBlob } = await import("./cro/fsd-ingestion.js");
+          const vimeo = await enrichMacroMinuteTranscripts(env, { limit });
+          let youtube = null;
+          try {
+            const { isMacroMinuteYtEnabled, ingestMacroMinuteFromYoutube } = await import("./cro/macro-minute-youtube.js");
+            if (isMacroMinuteYtEnabled(env)) {
+              youtube = await ingestMacroMinuteFromYoutube(env, {
+                limit,
+                force: body?.force === true,
+                ingestFromBlob,
+              });
+            }
+          } catch (ye) {
+            youtube = { ok: false, error: String(ye?.message || ye).slice(0, 200) };
+          }
+          const ok = !!(vimeo?.ok);
+          return sendJSON({ ok, vimeo, youtube }, ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }
@@ -101716,6 +101725,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // unextracted until the 22:00 UTC full cycle.
       if (_utcDay === 6 && _utcH >= 13 && _utcH <= 23)             vc.add("0 14-23 * * 6");
       if (_utcDay === 0 && _utcH >= 13 && _utcH <= 23)             vc.add("0 14-23 * * 0");
+      // 2026-08-13 — Tom Lee Macro Minute often posts 6–10 PM ET, after the
+      // 14-23 UTC FSD window and sometimes after the 22:00 UTC full cycle.
+      // Catch it on the hourly tick 8 PM–11 PM ET so the morning brief
+      // (9 AM ET) has the night take. Independent label: do NOT widen
+      // 0 14-23 (that also gates investor rebalance + flash insights).
+      if (_isHourly && _utcH >= 0 && _utcH <= 3)                  vc.add("fsd-evening");
       if (_utcDay === 6 && (_utcH === 14 || _utcH === 15))         vc.add("0 15 * * 6");
       if (_isWeekday && (_utcH === 13 || _utcH === 14))             vc.add("0 14 * * 1-5");
       if (_isWeekday && (_utcH === 21 || _utcH === 22))           { vc.add("0 21 * * 1-5"); vc.add("0 22 * * 1-5"); }
@@ -103521,6 +103536,31 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
       })());
       // Don't return — allow other hourly handlers below to fire.
+    }
+
+    // ── Evening FSD / Macro Minute catch-up — 8–11 PM ET (00–03 UTC) ──
+    // Tom Lee's night take posts after the business-hours FSD window.
+    // Lightweight intraday cycle only (ingest + extract + apply).
+    if (vc.has("fsd-evening")) {
+      ctx.waitUntil((async () => {
+        try {
+          const Orchestrator = await import("./cro/cro-orchestrator.js");
+          const summary = await Orchestrator.runCROIntradayCycle(env, { force: false });
+          const newApplies = (summary.applies || []).filter((a) => a.applied).length;
+          const newIngest = summary.fsd_ingestion?.ingested || 0;
+          console.log(`[CRO evening] fsd_ingested=${newIngest} applies=${newApplies} elapsed=${summary.elapsed_ms}ms`);
+          if (newApplies > 0 || newIngest > 0) {
+            recordCronSuccess(env, "cro_evening_fsd").catch(() => {});
+          }
+        } catch (e) {
+          console.error("[CRO evening] threw:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, {
+            op: "cro_evening_fsd",
+            error: String(e?.message || e).slice(0, 200),
+            caller: "scheduled_event",
+          }).catch(() => {});
+        }
+      })());
     }
 
     // ── PML / CTO level map: extended-session hourly refresh (4 AM–8 PM ET) ──
