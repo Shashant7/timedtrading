@@ -2338,6 +2338,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/cro/publications",              "GET /timed/admin/cro/publications"],
   ["GET",  "/timed/admin/cro/influence",                 "GET /timed/admin/cro/influence"],
   ["POST", "/timed/admin/cro/feed/refresh",              "POST /timed/admin/cro/feed/refresh"],
+  ["POST", "/timed/admin/cro/macro-minute/ingest",       "POST /timed/admin/cro/macro-minute/ingest"],
   ["POST", "/timed/admin/cro/rotation/refresh",          "POST /timed/admin/cro/rotation/refresh"],
   ["GET",  "/timed/admin/cro/rotation/snapshot",         "GET /timed/admin/cro/rotation/snapshot"],
   ["POST", "/timed/admin/cro/rewrite-pending",           "POST /timed/admin/cro/rewrite-pending"],
@@ -84610,6 +84611,28 @@ export default {
             lookbackHours: lookbackDays * 24,
           });
           return sendJSON(feed, feed.ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+      // POST /timed/admin/cro/macro-minute/ingest — Tom Lee Macro Minute
+      // full content (transcript, else YouTube description) from @fundstrat
+      // into the CRO/FSD pipeline. Body: { limit?, force? }.
+      // Needs YOUTUBE_API_KEY for reliable discovery. Spoken transcript is
+      // optional (YT_TRANSCRIPT_API_URL + YT_TRANSCRIPT_API_KEY).
+      if (routeKey === "POST /timed/admin/cro/macro-minute/ingest") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const body = await req.json().catch(() => ({}));
+          const { ingestMacroMinuteFromYoutube } = await import("./cro/macro-minute-youtube.js");
+          const { ingestFromBlob } = await import("./cro/fsd-ingestion.js");
+          const r = await ingestMacroMinuteFromYoutube(env, {
+            limit: Math.min(15, Math.max(1, Number(body?.limit) || 5)),
+            force: body?.force === true,
+            ingestFromBlob,
+          });
+          return sendJSON(r, r?.ok ? 200 : 500, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

@@ -976,7 +976,7 @@ export async function ingestFromUrl(env, url, { title = null } = {}) {
 // ── Manual ingestion from a raw PDF / HTML blob (operator-uploaded) ──────────
 // Skips the fetch step entirely. Used when the operator uploads a PDF via
 // the admin endpoint or pastes the text body inline.
-export async function ingestFromBlob(env, { title, source_url, content_type, body_text, body_bytes_b64 }) {
+export async function ingestFromBlob(env, { title, source_url, content_type, body_text, body_bytes_b64, source }) {
   await ensureCROIngestionSchema(env);
   const pubId = "blob_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 
@@ -1003,7 +1003,7 @@ export async function ingestFromBlob(env, { title, source_url, content_type, bod
   await recordPublication(env, {
     pub_id: pubId,
     title: title || "(operator upload)",
-    source: "manual",
+    source: source || "manual",
     source_url: source_url || null,
     published_at: new Date().toISOString().slice(0, 10),
     fetched_at: Date.now(),
