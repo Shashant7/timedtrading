@@ -222,7 +222,8 @@ the same Access application. Only the operator can edit policies in Cloudflare.
   teaser; CRO `collectFSDIntel` must pin `role=tom_lee_night_take` from the
   spoken `--- VIDEO TRANSCRIPT ---` (4000 chars), not `text_excerpt.slice(0,1500)`.
 - Guard: KV `timed:cro:mm-freshness` + `fsd-evening` (00–03 UTC). Stale/missing
-  pages Discord. Do not widen `0 14-23` (that also gates investor rebalance).
+  pages Discord (weekday 48h / weekend 90h — MM skips some sessions). Thin
+  blurbs tombstone only. Do not widen `0 14-23` (that also gates investor rebalance).
 - Cascade is CRO `night_take` → CIO Layer 15c / Daily Brief, then the next
   engine `*/5` tick. Do not force-fire entries/exits. Do not clobber a newer
   Newton tactical overlay when applying an MM proposal.

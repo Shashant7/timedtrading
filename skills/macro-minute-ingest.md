@@ -20,7 +20,7 @@ auto-captions. That VTT is the night take.
 | Hourly FSD 14–23 UTC | Same-day posts that land by ~7 PM ET. |
 | `fsd-evening` 00–03 UTC | 8–11 PM ET catch-up so 9 AM ET morning brief has it. |
 | Nightly 22:00 UTC | Full CRO cycle enriches thin blurbs, syncs the episode, synthesizes CRO note. |
-| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. |
+| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. Weekday max age 48h (one skipped session OK); weekend / Monday morning 90h. |
 | YouTube Data API | Optional mirror only. `@Fundstrat_Direct` is interviews, not current MM. |
 
 Cascade (do **not** force-fire broker orders):
