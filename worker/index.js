@@ -82597,12 +82597,49 @@ export default {
             let modelPos = [];
             try {
               const r = await env.DB.prepare(
-                `SELECT id, ticker, total_shares, avg_entry, investor_stage
+                `SELECT id, ticker, total_shares, avg_entry, investor_stage,
+                        thesis_invalidation, peak_price
                    FROM investor_positions WHERE status = 'OPEN' AND total_shares > 0`,
               ).all();
               modelPos = r?.results || [];
             } catch (_) { modelPos = []; }
             const modelByTicker = new Map(modelPos.map((p) => [String(p.ticker).toUpperCase(), p]));
+            // Model short-term positions — entry / SL / TP for the progress bar.
+            let traderPos = [];
+            try {
+              const r = await env.DB.prepare(
+                `SELECT p.ticker, p.direction, p.stop_loss, p.take_profit,
+                        t.entry_price, t.shares
+                   FROM positions p
+                   LEFT JOIN trades t ON t.trade_id = p.position_id
+                   WHERE p.status = 'OPEN' AND p.total_qty > 0`,
+              ).all();
+              traderPos = r?.results || [];
+            } catch (_) { traderPos = []; }
+            const traderByTicker = new Map();
+            for (const t of traderPos) {
+              const sym = String(t.ticker || "").toUpperCase();
+              if (sym && !traderByTicker.has(sym)) traderByTicker.set(sym, t);
+            }
+            const attachModelPlan = (item) => {
+              const sym = String(item.ticker || "").toUpperCase();
+              const trader = traderByTicker.get(sym);
+              const investor = modelByTicker.get(sym);
+              if (trader) {
+                item.model_entry = Number(trader.entry_price) || null;
+                item.model_sl = Number(trader.stop_loss) || null;
+                item.model_tp = Number(trader.take_profit) || null;
+                item.model_direction = String(trader.direction || "LONG").toUpperCase();
+                item.model_horizon = "trader";
+              } else if (investor) {
+                item.model_entry = Number(investor.avg_entry) || null;
+                item.model_sl = Number(investor.thesis_invalidation) || null;
+                item.model_tp = null;
+                item.model_peak = Number(investor.peak_price) || null;
+                item.model_direction = "LONG";
+                item.model_horizon = "investor";
+              }
+            };
 
             // Broker last/UPL/MV are the account's own marks — not licensed
             // TwelveData — so they are never gated. TD is overlaid only for
@@ -82643,6 +82680,7 @@ export default {
                   delete it.adopt_note;
                 }
                 if (mp) it.model_stage = mp.investor_stage || null;
+                attachModelPlan(it);
                 overlayBrokerPositionMarks(it, {
                   tdRow: pricesAllowed ? (pf[it.ticker] || null) : null,
                   pricesAllowed,
@@ -82664,6 +82702,7 @@ export default {
                     avg_cost: null,
                     auto_sync: true,
                   };
+                  attachModelPlan(orphan);
                   overlayBrokerPositionMarks(orphan, { tdRow: row, pricesAllowed });
                   acct.items.push(orphan);
                 }

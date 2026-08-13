@@ -20,7 +20,9 @@ describe("overlayBrokerPositionMarks", () => {
     expect(it.price).toBe(110);
     expect(it.last_price).toBe(110);
     expect(it.unrealized_pnl).toBe(17.5);
-    expect(it.unrealized_pnl_pct).toBe(8.75);
+    // Always recomputed from price/avg_cost — never trust the broker rate
+    // (which arrives as a decimal fraction, not a percent).
+    expect(it.unrealized_pnl_pct).toBeCloseTo(10, 3);
     expect(it.day_pnl).toBe(1.2);
     expect(it.day_pnl_source).toBe("broker");
     expect(it.prev_close).toBe(100);
@@ -71,6 +73,23 @@ describe("overlayBrokerPositionMarks", () => {
     expect(it.unrealized_pnl).toBe(-4);
     expect(it.day_pnl).toBe(0.5);
     expect(it.day_change).toBeUndefined();
+  });
+
+  it("recomputes % when Webull sends decimal rate (PLTR 122.26 → 171.04)", () => {
+    const it = overlayBrokerPositionMarks({
+      ticker: "PLTR",
+      broker_qty: 1.5,
+      avg_cost: 122.26,
+      last_price: 171.04,
+      price: 171.04,
+      market_value: 255.06,
+      unrealized_pnl: 71.67,
+      // Broker sent this as a decimal fraction (0.401 = 40.1%).
+      // Old code displayed it as "0.4%" — the source of the PLTR report.
+      unrealized_pnl_pct: 0.401,
+    }, { pricesAllowed: false, tdRow: null });
+    expect(it.unrealized_pnl).toBe(71.67);
+    expect(it.unrealized_pnl_pct).toBeCloseTo(39.9, 1);
   });
 });
 

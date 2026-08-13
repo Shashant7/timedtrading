@@ -36,12 +36,25 @@ export function overlayBrokerPositionMarks(item, { tdRow = null, pricesAllowed =
   const hadNativeUpl = nativeUpl != null;
   if (hadNativeUpl) {
     item.unrealized_pnl = nativeUpl;
-    const pct = finiteNum(item.unrealized_pnl_pct);
-    if (pct != null) {
-      item.unrealized_pnl_pct = pct;
-    } else if (Number(item.avg_cost) > 0 && qty > 0) {
-      const basis = Number(item.avg_cost) * qty;
-      if (basis !== 0) item.unrealized_pnl_pct = (nativeUpl / basis) * 100;
+  }
+  // 2026-08-13 — Always recompute pct from price and avg_cost when both are
+  // known. Webull's `unrealized_profit_loss_rate` is a decimal fraction
+  // (0.4 = 40%), so forwarding it as-is displayed PLTR as `+0.4%` instead
+  // of the real ~+40%. Never trust the broker's rate field as a pct.
+  const px = Number(item.price) > 0 ? Number(item.price)
+    : (Number(item.last_price) > 0 ? Number(item.last_price) : null);
+  const avg = Number(item.avg_cost) > 0 ? Number(item.avg_cost) : null;
+  if (px && avg && qty > 0) {
+    item.unrealized_pnl_pct = ((px / avg) - 1) * 100;
+  } else if (hadNativeUpl && avg && qty > 0) {
+    const basis = avg * qty;
+    if (basis !== 0) item.unrealized_pnl_pct = (nativeUpl / basis) * 100;
+  } else {
+    // Only clear when we truly can't compute anything meaningful.
+    const raw = finiteNum(item.unrealized_pnl_pct);
+    if (raw != null && Math.abs(raw) < 1 && raw !== 0) {
+      // Broker rate came through as a decimal; scale to %.
+      item.unrealized_pnl_pct = raw * 100;
     }
   }
 
@@ -74,7 +87,6 @@ export function overlayBrokerPositionMarks(item, { tdRow = null, pricesAllowed =
 
   if (!hadNativeUpl && qty > 0 && Number(item.price) > 0 && Number(item.avg_cost) > 0) {
     item.unrealized_pnl = (Number(item.price) - Number(item.avg_cost)) * qty;
-    item.unrealized_pnl_pct = ((Number(item.price) / Number(item.avg_cost)) - 1) * 100;
     item.unrealized_pnl_source = "computed";
   }
 

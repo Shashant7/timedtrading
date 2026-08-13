@@ -47,7 +47,8 @@ const CANNED = {
         mirror_events: [{ ts: NOW - 2 * 86400e3, on: true }],
         summary: { positions_value: 3120.5, unrealized_pnl: 84.2, day_pnl: -12.6 },
         items: [
-          { ticker: "AXON", managed: true, model_status: "OPEN", sync_state: "in_sync", broker_qty: 0.09136, avg_cost: 597.25, last_price: 601.16, price: 601.16, prev_close: 598.0, day_change: 3.16, day_change_pct: 0.53, market_value: 54.9, unrealized_pnl: 0.36, unrealized_pnl_pct: 0.65, model_open: true, history: [{ ts: NOW - 3600e3, side: "trim", event_type: "EXIT", qty: 0.09135, price: 601.16, value: 54.92, status: "filled" }, { ts: NOW - 4 * 3600e3, side: "buy", event_type: "ENTRY", qty: 0.18271, price: 597.25, value: 109.13, status: "ok" }, { ts: NOW - 10 * 86400e3, side: "buy", event_type: "ENTRY", qty: 0.18, price: 590, value: 106.2, status: "filled" }] },
+          { ticker: "AXON", managed: true, model_status: "OPEN", sync_state: "in_sync", broker_qty: 0.09136, avg_cost: 597.25, last_price: 601.16, price: 601.16, prev_close: 598.0, day_change: 3.16, day_change_pct: 0.53, market_value: 54.9, unrealized_pnl: 0.36, unrealized_pnl_pct: 0.65, model_open: true, model_entry: 596.89, model_sl: 554.29, model_tp: 667.36, model_direction: "LONG", model_horizon: "trader", history: [{ ts: NOW - 3600e3, side: "trim", event_type: "EXIT", qty: 0.09135, price: 601.16, value: 54.92, status: "filled" }, { ts: NOW - 4 * 3600e3, side: "buy", event_type: "ENTRY", qty: 0.18271, price: 597.25, value: 109.13, status: "ok" }, { ts: NOW - 10 * 86400e3, side: "buy", event_type: "ENTRY", qty: 0.18, price: 590, value: 106.2, status: "filled" }] },
+          { ticker: "PLTR", managed: true, model_status: "OPEN", sync_state: "in_sync", broker_qty: 1.5, avg_cost: 122.26, last_price: 171.04, price: 171.04, market_value: 255.06, unrealized_pnl: 71.67, unrealized_pnl_pct: 0.4, model_open: true, model_entry: 127.44, model_sl: null, model_peak: 182.5, model_horizon: "investor", sync_note: "match within tolerance (0.00 <= 0.1)", history: [{ ts: NOW - 3 * 86400e3, side: "buy", event_type: "ENTRY", qty: 2, price: 122.26, value: 244.52, status: "filled" }] },
           { ticker: "PANW", managed: true, model_status: "OPEN", sync_state: "mothership_orphan", broker_qty: 0, avg_cost: null, price: 172.4, prev_close: 171.0, day_change: 1.4, day_change_pct: 0.82, model_open: true, auto_sync: true, sync_note: "model_open expected 1.00754 but broker holds 0", history: [{ ts: NOW - 10000e3, side: "buy", event_type: "ENTRY", qty: 1.045, price: 170.2, value: 177.8, status: "rejected", reject_reason: "Parameter error, invalid client order id, value: tt-lt-dca-inv-inv-PANW-auto-1784300543401, length should be between 10" }] },
           { ticker: "CRS", managed: false, sync_state: "untracked", broker_qty: 5, avg_cost: 570.1, price: 552.4, prev_close: 555.0, day_change: -2.6, day_change_pct: -0.47, market_value: 2762, unrealized_pnl: -88.5, unrealized_pnl_pct: -3.1, model_open: true, adoptable: true },
           { ticker: "BMNR", managed: false, sync_state: "untracked", broker_qty: 400, avg_cost: 17.06, price: 18.2, prev_close: 18.0, day_change: 0.2, day_change_pct: 1.1, market_value: 7280, unrealized_pnl: 456, unrealized_pnl_pct: 6.7 },
@@ -129,6 +130,8 @@ try {
 await new Promise((r) => setTimeout(r, 400));
 
 const html = window.document.body.innerHTML;
+// Client-side pct recompute safety-net check: PLTR arrives at 0.4 (decimal)
+// but the frontend must display it as ~39.9% (never 0.4%).
 const checks = [
   ["header", /Broker Connections/],
   ["timeline section", /Model actions (&amp;|&) mirror outcomes/],
@@ -137,13 +140,14 @@ const checks = [
   ["rejected chip", /REJECTED/],
   ["inline fill (no expand)", /Roth IRA/],
   ["humanized vehicle cap reason", /vehicle dollar limit/],
-  ["humanized client order id error", /shorter id/],
+  ["managed row collapsed toggle", /▸|▾/],
   ["positions section", /Holdings (&amp;|&) sync manifest/],
   ["in-sync pill", /IN SYNC/],
   ["untracked pill", /NOT MIRRORED/],
   ["auto-sync pill (mirror-on)", /AUTO-SYNC/],
   ["adoptable hint chip", /CAN SYNC/],
-  ["inline account history", /Account history/],
+  // Detail is collapsed by default now; timeline still shows fills inline.
+  ["timeline inline fill FILLED chip", /FILLED/],
   ["stale as-of pill", /AS OF 9M AGO/],
   ["KPI strip", /Mirrored value/],
   ["KPI mirrored value populated", /\$55|\$54\.9/],
@@ -154,8 +158,11 @@ const checks = [
   ["growth range ALL", />ALL</],
   ["mirror on marker", />ON</],
   ["since mirror gain", /Since the model started managing/],
-  ["month timeline", /Last 31 days/],
+  ["timeline default 3 days", /Last 3 days/],
   ["collapsed older day", /AMD/],
+  ["pltr pct recomputed to \u224840%", /\+39\.\d%|\+40\.\d%/],
+  ["plan bar for managed AXON", /Stop \/ invalidation|Target|Peak/],
+  ["humanized tolerance sync note", /broker shares match the model/],
   ["accounts section", /Mirror settings/],
   ["no daily-cap UI", /no daily order cap/],
   ["kill switch", /Pause all mirroring/],
