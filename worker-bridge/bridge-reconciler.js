@@ -104,6 +104,32 @@ const SYNC_STATES = {
 
 const AUTO_SUPPRESS_AFTER_DRIFT = 3;
 
+// 2026-08-13 — Pending-reducer grace window. After a TRIM/EXIT places,
+// writeLastActionAudit stamps expected_post_held_qty but the manifest's
+// broker_remaining_qty is only converged by a LATER reconcile pass — so
+// the first pass after a trim compared post-trim live qty against the
+// stale pre-trim expected and fired a spurious partial_fill warn email
+// (AXON 8/12: broker 0.09136 vs "expected" 0.18271 — exactly the 50%
+// trim the model asked for). Within this window an unverified audit is
+// the source of truth for expected qty; past it (order never filled /
+// audit stuck) normal drift classification resumes so real gaps still
+// alert. The post-exec audit path remains the execution-receipt check.
+export const PENDING_REDUCER_GRACE_MS = 30 * 60 * 1000;
+
+/**
+ * Return the row's unverified last-action audit when it is recent
+ * enough to trust as the expected-qty override (see grace note above).
+ */
+export function pendingReducerAudit(row, nowMs = Date.now()) {
+  const audit = readLastActionAudit(row);
+  if (!audit || audit.verified === true) return null;
+  const ts = Number(audit.ts) || 0;
+  if (!(ts > 0) || nowMs - ts > PENDING_REDUCER_GRACE_MS) return null;
+  const expectedPost = Number(audit.expected_post_held_qty);
+  if (!Number.isFinite(expectedPost)) return null;
+  return audit;
+}
+
 /**
  * Normalize a broker position object into { qty, avgCost }. Different
  * broker adapters return different shapes — try every field we've seen.
@@ -187,11 +213,20 @@ export function classifyDrift(row, brokerState, cfg = {}) {
   const modelStatus = String(row.model_status || "OPEN").toUpperCase();
   const modelQty = Number(row.model_intended_qty) || 0;
   const expectedBrokerQty = Number(row.broker_remaining_qty);
+  // 2026-08-13 — Reducer in flight: an unverified recent last-action
+  // audit means a TRIM/EXIT just placed and broker_remaining_qty is
+  // stale (pre-trim). Its expected_post_held_qty is the real expected.
+  const pendingReducer = cfg.pending_reducer || null;
+  const pendingExpected = pendingReducer
+    ? Math.max(0, Number(pendingReducer.expected_post_held_qty) || 0)
+    : null;
   // If broker_remaining_qty is 0/null (e.g. brand-new row before fill),
   // fall back to model_intended_qty as the expected.
-  const expected = (Number.isFinite(expectedBrokerQty) && expectedBrokerQty > 0)
-    ? expectedBrokerQty
-    : modelQty;
+  const expected = pendingExpected !== null
+    ? pendingExpected
+    : (Number.isFinite(expectedBrokerQty) && expectedBrokerQty > 0)
+      ? expectedBrokerQty
+      : modelQty;
 
   const rawBrokerQty = Number(brokerState?.qty) || 0;
   const claimedElsewhere = Math.max(0, Number(cfg.claimed_elsewhere_qty) || 0);
@@ -206,6 +241,19 @@ export function classifyDrift(row, brokerState, cfg = {}) {
   // fall through to the partial_fill calc with a stale expected qty.
   if (modelStatus === "CLOSED" || modelStatus === "EXPIRED") {
     if (brokerQty > tolerance) {
+      // Exit order still routing — not an orphan (yet). The post-exec
+      // audit verifies the outcome; past the grace window this branch
+      // classifies normally so a genuinely stuck exit still alerts.
+      if (pendingReducer) {
+        return {
+          sync_state: row.sync_state === SYNC_STATES.BROKER_ORPHAN
+            ? "pending" : (row.sync_state || "pending"),
+          drift_detected: false,
+          severity: "info",
+          note: `${pendingReducer.kind || "reducer"} order in flight — broker holds ${brokerQty}, expected 0 after fill (post-exec audit pending)`,
+          broker_state: { qty: brokerQty, avgCost: brokerAvgCost, expected: 0, reducer_in_flight: true },
+        };
+      }
       return {
         sync_state: SYNC_STATES.BROKER_ORPHAN,
         drift_detected: true,
@@ -280,6 +328,20 @@ export function classifyDrift(row, brokerState, cfg = {}) {
       severity: "warn",
       note: `partial: broker ${brokerQty} < expected ${expected} (diff ${diff.toFixed(2)})`,
       broker_state: { qty: brokerQty, avgCost: brokerAvgCost, expected },
+    };
+  }
+  // brokerQty > expected with a reducer in flight → the trim/exit has
+  // not filled yet. Do NOT record the excess as user_added (that would
+  // converge broker_remaining_qty to the post-trim value before the
+  // fill; if the order then never fills, real drift would be masked —
+  // the post-exec audit is the channel that alerts on a stuck reducer).
+  if (pendingReducer) {
+    return {
+      sync_state: SYNC_STATES.IN_SYNC,
+      drift_detected: false,
+      severity: "info",
+      note: `${pendingReducer.kind || "reducer"} order in flight — broker ${brokerQty}, expected ${expected} after fill (post-exec audit pending)`,
+      broker_state: { qty: brokerQty, avgCost: brokerAvgCost, expected, reducer_in_flight: true },
     };
   }
   // brokerQty > expected → user added shares (untracked delta).
@@ -965,6 +1027,9 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
       classification = classifyDrift(row, brokerState, {
         tolerance: _tolerance(row),
         claimed_elsewhere_qty: claimedElsewhere,
+        // 2026-08-13 — a just-placed TRIM/EXIT makes broker_remaining_qty
+        // stale; the unverified audit carries the true expected qty.
+        pending_reducer: pendingReducerAudit(row),
       });
       if (isInvestor && row.dca_tranches) {
         const dca = aggregateDcaTranches(row);

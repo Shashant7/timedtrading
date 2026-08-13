@@ -533,29 +533,77 @@ export default {
         if (operatorFail) return operatorFail;
         const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
         if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const forceRefresh = url.searchParams.get("refresh") === "1";
         const accounts = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
           .filter((u) => String(u?.status || "").toLowerCase() === "connected");
         const out = [];
+        // 2026-08-13 — KV positions cache. Five accounts fetched
+        // back-to-back tripped Webull's rate limit ("Too many requests"
+        // on Roth IRA + Margin). Serve a <60s-fresh cache without any
+        // broker call; on a live-fetch failure fall back to the last
+        // good snapshot (up to 1h) marked stale with its as-of time —
+        // data with an age beats an error.
+        const POS_CACHE_FRESH_MS = 60 * 1000;
+        const POS_CACHE_TTL_SEC = 60 * 60;
+        // Account equity/cash from the reconciler's snapshots (summary strip).
+        let snapByAcct = new Map();
+        try {
+          const { readAccountSnapshots } = await import("./bridge-account-ledger.js");
+          const snaps = await readAccountSnapshots(env, { owner_id: owner });
+          snapByAcct = new Map(snaps.map((s) => [String(s.broker_account_id), s]));
+        } catch (_) { /* snapshots optional */ }
         for (const acct of accounts) {
+          const _snap = snapByAcct.get(String(resolveBrokerAccountId(acct))) || null;
           const entry = {
             account_id: acct.user_id,
             broker: resolveBrokerId(acct) || acct.broker || null,
             label: acct.webull_account_label || acct.webull_account_class || null,
             mirror_enabled: acct.broker_integration_enabled === true,
+            equity_usd: _snap ? (Number(_snap.equity_usd) || null) : null,
+            cash_usd: _snap ? (Number(_snap.cash_usd) || null) : null,
+            snapshot_at: _snap ? (Number(_snap.synced_at) || null) : null,
             items: [],
           };
-          let brokerPositions = [];
+          const cacheKey = `bridge:positions:${String(acct.user_id).toLowerCase()}`;
+          let cached = null;
           try {
-            const adapter = brokerAdapterFor(acct);
-            const res = typeof adapter.getEquityPositions === "function"
-              ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
-              : { ok: false, error: "broker_no_positions_method" };
-            if (Array.isArray(res)) brokerPositions = res;
-            else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
-            else entry.positions_error = res?.error || "positions_unavailable";
-          } catch (e) {
-            entry.positions_error = String(e?.message || e).slice(0, 200);
+            cached = env.BRIDGE_KV ? JSON.parse((await env.BRIDGE_KV.get(cacheKey)) || "null") : null;
+          } catch (_) { cached = null; }
+          let brokerPositions = null;
+          if (!forceRefresh && cached && Date.now() - (Number(cached.ts) || 0) < POS_CACHE_FRESH_MS) {
+            brokerPositions = cached.positions || [];
+            entry.positions_as_of = cached.ts;
+            entry.positions_cached = true;
+          } else {
+            try {
+              const adapter = brokerAdapterFor(acct);
+              const res = typeof adapter.getEquityPositions === "function"
+                ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
+                : { ok: false, error: "broker_no_positions_method" };
+              if (Array.isArray(res)) brokerPositions = res;
+              else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
+              else entry.positions_error = res?.error || "positions_unavailable";
+            } catch (e) {
+              entry.positions_error = String(e?.message || e).slice(0, 200);
+            }
+            if (brokerPositions !== null) {
+              entry.positions_as_of = Date.now();
+              if (env.BRIDGE_KV) {
+                ctx?.waitUntil?.(env.BRIDGE_KV.put(cacheKey,
+                  JSON.stringify({ ts: Date.now(), positions: brokerPositions }),
+                  { expirationTtl: POS_CACHE_TTL_SEC },
+                ).catch(() => {}));
+              }
+            } else if (cached && Array.isArray(cached.positions)) {
+              // Live fetch failed — degrade to the last good snapshot.
+              brokerPositions = cached.positions;
+              entry.positions_as_of = cached.ts;
+              entry.positions_stale = true;
+              entry.positions_stale_reason = entry.positions_error || null;
+              delete entry.positions_error;
+            }
           }
+          if (brokerPositions === null) brokerPositions = [];
           const posBySym = new Map();
           for (const p of brokerPositions) {
             const sym = String(p?.ticker || p?.symbol || p?.instrument_symbol || "").toUpperCase();
@@ -566,7 +614,29 @@ export default {
               avg_cost: Number(p?.avg_cost ?? p?.average_cost ?? p?.cost_price ?? p?.avgPrice) || null,
             });
           }
-          const manifestRows = await recentManifestRows(env, { user_id: acct.user_id, limit: 200 });
+          // 2026-08-13 — Match manifest rows on user_id OR broker_account_id
+          // (same fix the reconciler needed on 2026-07-24): fan-out orders
+          // write rows under the OWNER's base user_id with the per-account
+          // broker_account_id, so matching user_id alone showed every
+          // model-managed position as "untracked" (AXON in the Roth IRA).
+          let manifestRows = [];
+          try {
+            const db = env?.BRIDGE_DB;
+            const acctBrokerId = resolveBrokerAccountId(acct);
+            if (db) {
+              const r = await db.prepare(`
+                SELECT * FROM mirror_trade_manifest
+                 WHERE (user_id = ?1 OR (?2 IS NOT NULL AND broker_account_id = ?2))
+                 ORDER BY updated_at DESC LIMIT 200
+              `).bind(
+                String(acct.user_id).toLowerCase(),
+                acctBrokerId ? String(acctBrokerId) : null,
+              ).all().catch(() => ({ results: [] }));
+              manifestRows = r?.results || [];
+            }
+          } catch (_) {
+            manifestRows = await recentManifestRows(env, { user_id: acct.user_id, limit: 200 });
+          }
           const seen = new Set();
           for (const row of manifestRows) {
             const sym = String(row?.ticker || "").toUpperCase();
@@ -601,10 +671,229 @@ export default {
               avg_cost: p.avg_cost,
             });
           }
+          // 2026-08-13 — Per-ticker action history sub-rows (fills, trims,
+          // DCAs, rejects) from this account's ledger so the page can show
+          // "what happened to this position" without another round trip.
+          try {
+            const { readAccountLedger } = await import("./bridge-account-ledger.js");
+            const ledgerRows = await readAccountLedger(env, {
+              broker_account_id: resolveBrokerAccountId(acct),
+              limit: 300,
+            });
+            const bySym = new Map();
+            for (const r of ledgerRows) {
+              const sym = String(r?.ticker || "").toUpperCase();
+              if (!sym) continue;
+              const list = bySym.get(sym) || [];
+              if (list.length < 12) {
+                list.push({
+                  ts: r.ts,
+                  side: r.side || null,
+                  event_type: r.event_type || null,
+                  qty: Number(r.qty) || 0,
+                  price: Number(r.price) || 0,
+                  value: Number(r.value) || 0,
+                  status: r.status || null,
+                  reject_reason: r.reject_reason || null,
+                });
+              }
+              bySym.set(sym, list);
+            }
+            for (const it of entry.items) {
+              const hist = bySym.get(it.ticker);
+              if (hist && hist.length) it.history = hist;
+            }
+          } catch (e) {
+            console.warn("[POSITIONS] history attach failed:", String(e?.message || e).slice(0, 160));
+          }
           entry.items.sort((a, b) => (b.managed - a.managed) || String(a.ticker).localeCompare(String(b.ticker)));
           out.push(entry);
         }
         return json({ ok: true, owner, accounts: out, ts: Date.now() });
+      }
+      // 2026-08-13 — Adopt a user-initiated broker position under model
+      // management ("Sync with model"). Pure bookkeeping — writes the
+      // manifest association at the model's scaled sizing; NO order is
+      // placed and none can fire as a side effect. Shares above the
+      // sleeve stay user-owned.
+      if (method === "POST" && path === "/bridge/adopt-position") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const owner = String(body?.owner || "").trim().toLowerCase();
+        const accountId = String(body?.account_id || "").trim().toLowerCase();
+        const ticker = String(body?.ticker || "").trim().toUpperCase();
+        const modelTradeId = String(body?.model_trade_id || "").trim();
+        const modelQty = Number(body?.model_qty);
+        const modelCapital = Number(body?.model_capital_usd) > 0 ? Number(body.model_capital_usd) : 100000;
+        if (!owner || !accountId || !ticker || !modelTradeId) {
+          return json({ ok: false, error: "owner_account_id_ticker_model_trade_id_required" }, 400);
+        }
+        if (!Number.isFinite(modelQty) || modelQty <= 0) {
+          return json({ ok: false, error: "model_qty_must_be_positive" }, 400);
+        }
+        const accounts = await resolveBridgeAccounts(env, owner, { enabledOnly: false });
+        const acct = accounts.find((u) => String(u.user_id).toLowerCase() === accountId);
+        if (!acct || String(acct.status || "").toLowerCase() !== "connected") {
+          return json({ ok: false, error: "account_not_found_or_not_connected" }, 404);
+        }
+        const brokerAccountId = resolveBrokerAccountId(acct);
+        // Broker holding for the ticker — positions cache first (adoption
+        // is not latency-sensitive and must not burn rate limit).
+        let held = null;
+        try {
+          const cacheKey = `bridge:positions:${accountId}`;
+          const cached = env.BRIDGE_KV ? JSON.parse((await env.BRIDGE_KV.get(cacheKey)) || "null") : null;
+          let positions = cached && Date.now() - (Number(cached.ts) || 0) < 10 * 60 * 1000
+            ? cached.positions
+            : null;
+          if (!positions) {
+            const adapter = brokerAdapterFor(acct);
+            const res = await adapter.getEquityPositions(env, acct);
+            if (res?.ok && Array.isArray(res.positions)) {
+              positions = res.positions;
+              if (env.BRIDGE_KV) {
+                ctx?.waitUntil?.(env.BRIDGE_KV.put(cacheKey,
+                  JSON.stringify({ ts: Date.now(), positions }),
+                  { expirationTtl: 3600 }).catch(() => {}));
+              }
+            }
+          }
+          for (const p of positions || []) {
+            const sym = String(p?.ticker || p?.symbol || p?.instrument_symbol || "").toUpperCase();
+            if (sym !== ticker) continue;
+            held = {
+              qty: Number(p?.quantity ?? p?.qty ?? p?.position ?? p?.units) || 0,
+              avg_cost: Number(p?.avg_cost ?? p?.average_cost ?? p?.cost_price ?? p?.avgPrice) || null,
+            };
+            break;
+          }
+        } catch (e) {
+          return json({ ok: false, error: `positions_unavailable:${String(e?.message || e).slice(0, 120)}` }, 200);
+        }
+        if (!held || !(held.qty > 0)) {
+          return json({ ok: false, error: "account_holds_no_shares", note: "Nothing to adopt — this account is flat in the ticker. The model buys in during its natural windows instead." }, 200);
+        }
+        // Rationalize the sleeve to the model's sizing for THIS account:
+        // scaled = model qty × (account equity / model capital), capped at
+        // what the account actually holds. Equity comes from the
+        // reconciler's account snapshot — refuse rather than guess.
+        let equity = null;
+        try {
+          const { readAccountSnapshots } = await import("./bridge-account-ledger.js");
+          const snaps = await readAccountSnapshots(env, { owner_id: owner });
+          const snap = snaps.find((s) => String(s.broker_account_id) === String(brokerAccountId));
+          if (snap && Number(snap.equity_usd) > 0) equity = Number(snap.equity_usd);
+        } catch (_) { /* handled below */ }
+        if (!(equity > 0)) {
+          return json({ ok: false, error: "account_equity_unknown", note: "The account snapshot has no equity yet — the reconciler refreshes it within minutes of connecting. Retry shortly." }, 200);
+        }
+        const scaledTarget = Math.floor(modelQty * (equity / modelCapital) * 1e5) / 1e5;
+        if (!(scaledTarget > 0)) {
+          return json({ ok: false, error: "scaled_target_zero", note: "The model's allocation scales below a placeable size for this account." }, 200);
+        }
+        const adoptQty = Math.min(held.qty, scaledTarget);
+        const tradeId = modelTradeId.startsWith("inv-") ? modelTradeId : `inv-${modelTradeId}`;
+        const { adoptUserPosition } = await import("./bridge-manifest.js");
+        const result = await adoptUserPosition(env, {
+          userId: accountId,
+          tradeId,
+          brokerAccountId,
+          broker: resolveBrokerId(acct) || acct.broker || "webull",
+          mode: "investor",
+          ticker,
+          direction: "LONG",
+          modelIntendedQty: adoptQty,
+          adoptQty,
+          brokerAvgCost: held.avg_cost,
+          note: `adopted_user_position sleeve=${adoptQty} held=${held.qty} scaled_target=${scaledTarget}`,
+        });
+        if (!result?.ok) return json({ ok: false, error: result?.reason || "adopt_failed" }, 200);
+        await writeAudit(env, {
+          ts: Date.now(),
+          user_id: accountId,
+          trade_id: tradeId,
+          ticker,
+          action: "adopt_position",
+          side: "adopt",
+          qty: adoptQty,
+          status: "ok",
+          request_json: {
+            owner, broker_account_id: brokerAccountId,
+            held_qty: held.qty, scaled_target: scaledTarget,
+            adopt_qty: adoptQty, excess_user_qty: Math.max(0, held.qty - adoptQty),
+            model_qty: modelQty, model_capital_usd: modelCapital, equity_usd: equity,
+          },
+        }).catch(() => {});
+        return json({
+          ok: true,
+          ticker,
+          account_id: accountId,
+          adopted_qty: adoptQty,
+          held_qty: held.qty,
+          scaled_target: scaledTarget,
+          excess_user_qty: Math.max(0, Math.floor((held.qty - adoptQty) * 1e5) / 1e5),
+          avg_cost: held.avg_cost,
+          trade_id: tradeId,
+          orders_placed: 0,
+        }, 200);
+      }
+      // 2026-08-13 — Day view for ONE owner (Broker Connections page):
+      // every per-account fill/reject from the account ledger plus the
+      // order-path audit rows (rejects with reasons, dedupes) in the
+      // window. The main worker joins these against the MODEL's own
+      // ledger to build the "what did the model do and did this account
+      // follow" timeline.
+      if (method === "GET" && path === "/bridge/day-actions") {
+        if (operatorFail) return operatorFail;
+        const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
+        if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const hours = Math.min(168, Math.max(1, Number(url.searchParams.get("hours")) || 36));
+        const sinceMs = Date.now() - hours * 3600 * 1000;
+        const db = env?.BRIDGE_DB;
+        let ledger = [];
+        let audit = [];
+        if (db) {
+          try {
+            const { ensureAccountLedgerSchema } = await import("./bridge-account-ledger.js");
+            await ensureAccountLedgerSchema(env);
+            const r = await db.prepare(`
+              SELECT ts, owner_id, user_id, broker, broker_account_id, model_trade_id,
+                     client_order_id, broker_order_id, ticker, side, event_type,
+                     qty, price, value, status, reject_reason
+                FROM broker_account_ledger
+               WHERE (owner_id = ?1 OR user_id = ?1 OR user_id LIKE ?1 || '#%')
+                 AND ts >= ?2
+               ORDER BY ts DESC LIMIT 200
+            `).bind(owner, sinceMs).all();
+            ledger = r?.results || [];
+          } catch (e) {
+            console.warn("[DAY_ACTIONS] ledger read failed:", String(e?.message || e).slice(0, 160));
+          }
+          try {
+            const r = await db.prepare(`
+              SELECT ts, user_id, trade_id, ticker, action, side, qty,
+                     estimated_value, status, reject_reason
+                FROM bridge_audit
+               WHERE (user_id = ?1 OR user_id LIKE ?1 || '#%')
+                 AND ts >= ?2
+                 AND action IN ('place','reject','dedupe_skip','reducer_rejected','post_exec_drift')
+               ORDER BY ts DESC LIMIT 300
+            `).bind(owner, sinceMs).all();
+            audit = r?.results || [];
+          } catch (e) {
+            console.warn("[DAY_ACTIONS] audit read failed:", String(e?.message || e).slice(0, 160));
+          }
+        }
+        const accounts = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
+          .filter((u) => String(u?.status || "").toLowerCase() === "connected")
+          .map((u) => ({
+            account_id: u.user_id,
+            broker_account_id: resolveBrokerAccountId(u),
+            broker: resolveBrokerId(u) || u.broker || null,
+            label: u.webull_account_label || u.webull_account_class || null,
+            mirror_enabled: u.broker_integration_enabled === true,
+          }));
+        return json({ ok: true, owner, since: sinceMs, accounts, ledger, audit, ts: Date.now() });
       }
       if (method === "GET" && path === "/bridge/audit") {
         if (operatorFail) return operatorFail;
