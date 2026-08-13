@@ -214,6 +214,33 @@ if (!statusOrderOk) {
 } else {
   console.log("PASS  account cards sort mirror-on before not-mirrored");
 }
+const mirrorCardMath = perfCards[0]
+  && /\$16,830/.test(perfCards[0].textContent)
+  && /\+\$22\.81/.test(perfCards[0].textContent)
+  && /\+\$412\.20/.test(perfCards[0].textContent);
+if (!mirrorCardMath) {
+  failed++;
+  console.log("FAIL  mirrored account value / day P&L / since-mirror math");
+} else {
+  console.log("PASS  mirrored account value / day P&L / since-mirror math");
+}
+const offCardMath = perfCards[1]
+  && /\$5,000/.test(perfCards[1].textContent)
+  && /NOT MIRRORED/.test(perfCards[1].textContent)
+  && /\+\$200\.00/.test(perfCards[1].textContent);
+if (!offCardMath) {
+  failed++;
+  console.log("FAIL  not-mirrored account value / history math");
+} else {
+  console.log("PASS  not-mirrored account value / history math");
+}
+const compareText = window.document.querySelector(".acct-compare")?.textContent || "";
+if (!/Mirror on · \+\$22\.81/.test(compareText) || !/Not mirrored · no period data/.test(compareText)) {
+  failed++;
+  console.log("FAIL  mirror group totals match account-period data");
+} else {
+  console.log("PASS  mirror group totals match account-period data");
+}
 if (renderError) {
   console.error("RENDER ERROR:", renderError);
   process.exit(1);

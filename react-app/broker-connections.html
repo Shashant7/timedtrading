@@ -1299,7 +1299,11 @@
             else break;
           }
           const inWindow = pts.filter((p) => p.ts >= sinceTs);
-          if (seed) return [{ ts: sinceTs, equity: seed.equity }, ...inWindow];
+          // A very old sample is not a valid baseline for a short period.
+          // (E.g. a 40-day-old point must not become "1D P&L".)
+          const windowMs = Math.max(86400000, Date.now() - sinceTs);
+          const seedFreshEnough = seed && (sinceTs - seed.ts) <= windowMs;
+          if (seedFreshEnough) return [{ ts: sinceTs, equity: seed.equity }, ...inWindow];
           return inWindow;
         });
         const allTs = new Set();
@@ -1458,7 +1462,9 @@
         // One equity point is a current value, not a performance period.
         // Only 1D broker day_pnl can establish a change without two history
         // samples; never turn missing history into a persuasive "$0.00".
-        const hasPeriod = (a.points || []).length >= 2 || (range === "1D" && dayPnl != null);
+        const hasWindowHistory = rawPoints.length >= 2
+          && Number(rawPoints[rawPoints.length - 1].ts) > Number(rawPoints[0].ts);
+        const hasPeriod = hasWindowHistory || (range === "1D" && dayPnl != null);
         const delta = hasPeriod && Number.isFinite(Number(built.delta)) ? Number(built.delta) : null;
         const base = Number.isFinite(current) && Number.isFinite(delta) ? current - delta : null;
         const pct = Number.isFinite(delta) && Number.isFinite(base) && base

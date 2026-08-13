@@ -1589,7 +1589,9 @@ function combineForwardFill(accts, sinceTs) {
       if (p.ts < sinceTs) seed = p;else break;
     }
     const inWindow = pts.filter(p => p.ts >= sinceTs);
-    if (seed) return [{
+    const windowMs = Math.max(86400000, Date.now() - sinceTs);
+    const seedFreshEnough = seed && sinceTs - seed.ts <= windowMs;
+    if (seedFreshEnough) return [{
       ts: sinceTs,
       equity: seed.equity
     }, ...inWindow];
@@ -1787,7 +1789,8 @@ function accountPerformance(a, liveAccounts, range, sinceTs) {
   const liveEq = Number(a.equity);
   const built = buildPerformancePath(range, rawPoints, liveEq, dayPnl, sinceTs);
   const current = built.points.length ? Number(built.points[built.points.length - 1].equity) : Number.isFinite(liveEq) ? liveEq : null;
-  const hasPeriod = (a.points || []).length >= 2 || range === "1D" && dayPnl != null;
+  const hasWindowHistory = rawPoints.length >= 2 && Number(rawPoints[rawPoints.length - 1].ts) > Number(rawPoints[0].ts);
+  const hasPeriod = hasWindowHistory || range === "1D" && dayPnl != null;
   const delta = hasPeriod && Number.isFinite(Number(built.delta)) ? Number(built.delta) : null;
   const base = Number.isFinite(current) && Number.isFinite(delta) ? current - delta : null;
   const pct = Number.isFinite(delta) && Number.isFinite(base) && base ? delta / base * 100 : null;
@@ -2726,6 +2729,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786613090658:646906729
+// cache-bust:1786613221401:181074370
 
-// cache-bust:1786613090658:646906729
+// cache-bust:1786613221401:181074370
