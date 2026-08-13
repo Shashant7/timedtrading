@@ -56,12 +56,13 @@ const CANNED = {
       },
       {
         account_id: "op@x.com#webull#rollover-ira", broker: "webull", label: "Rollover IRA", mirror_enabled: false,
+        equity_usd: 5000, cash_usd: 1200,
         positions_stale: true, positions_stale_reason: "Too many requests", positions_as_of: NOW - 9 * 60e3,
-        summary: { positions_value: null, unrealized_pnl: null, day_pnl: null },
+        summary: { positions_value: 3800, unrealized_pnl: 10, day_pnl: 4.5 },
         // Mirror-off: leftover auto_sync orphans must NOT render.
         items: [
           { ticker: "IONQ", managed: false, model_open: true, model_stage: "accumulate", sync_state: "not_synced", broker_qty: 0, avg_cost: null, auto_sync: true, price: 43.68 },
-          { ticker: "AAPL", managed: false, sync_state: "untracked", broker_qty: 2, avg_cost: 190, price: 195, market_value: 390, unrealized_pnl: 10 },
+          { ticker: "AAPL", managed: false, sync_state: "untracked", broker_qty: 2, avg_cost: 190, price: 195, market_value: 390, unrealized_pnl: 10, day_pnl: 4.5 },
         ],
       },
     ],
@@ -227,7 +228,7 @@ if (!mirrorCardMath) {
 const offCardMath = perfCards[1]
   && /\$5,000/.test(perfCards[1].textContent)
   && /NOT MIRRORED/.test(perfCards[1].textContent)
-  && /\+\$200\.00/.test(perfCards[1].textContent);
+  && /\+\$4\.50/.test(perfCards[1].textContent);
 if (!offCardMath) {
   failed++;
   console.log("FAIL  not-mirrored account value / history math");
@@ -235,11 +236,17 @@ if (!offCardMath) {
   console.log("PASS  not-mirrored account value / history math");
 }
 const compareText = window.document.querySelector(".acct-compare")?.textContent || "";
-if (!/Mirror on · \+\$22\.81/.test(compareText) || !/Not mirrored · no period data/.test(compareText)) {
+if (!/Mirror on · \+\$22\.81/.test(compareText) || !/Not mirrored · \+\$4\.50/.test(compareText)) {
   failed++;
   console.log("FAIL  mirror group totals match account-period data");
 } else {
   console.log("PASS  mirror group totals match account-period data");
+}
+if (/-100\.00%/.test(window.document.body.innerHTML)) {
+  failed++;
+  console.log("FAIL  no bogus -100% on near-zero equity baselines");
+} else {
+  console.log("PASS  no bogus -100% on near-zero equity baselines");
 }
 if (renderError) {
   console.error("RENDER ERROR:", renderError);

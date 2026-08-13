@@ -6,6 +6,24 @@
 
 ---
 
+## Broker Connections: value history for non-mirrored accounts [2026-08-13]
+
+**Symptom:** Futures / Individual Cash / Margin / Rollover showed `$0.00`
+and "Not started" even though Webull was connected; Rollover flashed
+`+$20.00 (-100.00%)`.
+
+**Root:** `reconcileAllUsers` only runs for `broker_integration_enabled`
+accounts, and `/bridge/positions` equity came solely from those
+snapshots. Mirror-off accounts never got `broker_account_snapshot` /
+equity history. UI used `current - day_pnl` as baseline when current was
+missing/`0`, producing `-100%`.
+
+**Fix:** `bridge-equity-sync.js` refreshes equity for every connected
+account (cache → user row → `getPortfolio`), writes snapshot + 5-min
+history. Wired into positions, equity-curve, portfolio, and a view-only
+reconciler pass. Preserve finite `0` equity; suppress pct when
+`|base| < 1`.
+
 ## Broker Connections: double nav, password form, Model KPI, 1D curve [2026-08-13]
 
 **Symptom:** Broker Connections showed two overlapping nav rows; console
