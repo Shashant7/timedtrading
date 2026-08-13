@@ -8,8 +8,9 @@ provisioned.
 
 The FSD fetch (`worker/cro/fsd-client.js`) already pulls each Macro Minute
 **post**, but the body is ~1.7 KB — the blurb + a video embed. The substance is
-in the video. Fundstrat mirrors every Macro Minute on its public YouTube
-channel (`@fundstrat`, channel id `UCXKmQMS4TsR0fpviXJ17lRw`).
+in the video. Fundstrat Direct hosts the clip on Vimeo (members). The public
+YouTube channel (`@fundstrat`, `UCXKmQMS4TsR0fpviXJ17lRw`) is the ingest
+source when they still mirror the episode there.
 
 Module: `worker/cro/macro-minute-youtube.js`.
 
@@ -45,7 +46,8 @@ curl -s -X POST "${LIVE}/timed/admin/cro/macro-minute/ingest" \
   -H "X-API-Key: ${TIMED_API_KEY}" \
   -H 'content-type: application/json' \
   -d '{"limit":5,"force":false}'
-# → { ok, discovered, ingested, results:[{videoId, source:"transcript"|"description", chars}] }
+# → { ok, discovered, ingested, results, diag }
+# diag: key_present, youtube_http, search_http, playlist_titles, youtube_error (redacted)
 ```
 
 Each video is ingested once (KV flag `timed:cro:mm-yt:ingested:{videoId}`, 180-day
@@ -69,6 +71,13 @@ than the ~1.7 KB FSD blurb.
 ## Notes / gotchas
 
 - Discovery filters titles via `isMacroMinuteTitle()` (`macro minute` / `macro-minute`).
+  It scans the last 50 uploads plus `search.list` for "Macro Minute" on `@fundstrat`.
+- Empty `discovered:0` used to always say "configure YOUTUBE_API_KEY". The ingest
+  payload now includes `diag` (playlist/search HTTP, sample titles, redacted API
+  error). A 403 with a referrer restriction means the Google Cloud key must be
+  unrestricted (no HTTP-referrer lock) — Workers have no stable referrer.
 - YouTube Data API cannot download caption tracks with an API key (OAuth only).
   Spoken-word transcripts need `YT_TRANSCRIPT_API_*` or a later OCR sidecar for slides.
+- PR **#718** is a stale duplicate of **#1232**. Close it; do not merge (conflicts;
+  nightly hook was on the monolith `scheduled()` instead of `nightly-batch.js`).
 - Pure parsers are unit-tested in `worker/cro/macro-minute-youtube.test.js`.

@@ -30,6 +30,31 @@ export function isMacroMinuteYtEnabled(env) {
   return Boolean(env?.YOUTUBE_API_KEY);
 }
 
+/** Strip key-shaped tokens from YouTube error bodies before returning them. */
+export function sanitizeYtErrorText(s) {
+  return String(s || "")
+    .replace(/key=[^&\s"]+/gi, "key=REDACTED")
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, "REDACTED")
+    .slice(0, 240);
+}
+
+/** Human note when discovery returned zero Macro Minute videos. */
+export function discoveryEmptyNote(diag) {
+  if (!diag?.key_present) {
+    return "no_macro_minute_videos (configure YOUTUBE_API_KEY for reliable discovery)";
+  }
+  if (diag.youtube_http && diag.youtube_http !== 200) {
+    return `youtube_playlist_http_${diag.youtube_http}`;
+  }
+  if (diag.search_http && diag.search_http !== 200 && !(diag.playlist_items > 0)) {
+    return `youtube_search_http_${diag.search_http}`;
+  }
+  if ((diag.playlist_items || 0) > 0 || (diag.search_items || 0) > 0) {
+    return "no_macro_minute_title_in_recent_uploads";
+  }
+  return "no_macro_minute_videos";
+}
+
 // ── Pure helpers (unit-tested) ──────────────────────────────────────────────
 
 /** True when a video title is a Macro Minute episode. */
@@ -118,44 +143,178 @@ export function macroMinuteTitle(videoTitle) {
 
 const YT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36";
 
+function emptyDiag(keyPresent) {
+  return {
+    key_present: Boolean(keyPresent),
+    youtube_http: null,
+    youtube_error: null,
+    playlist_items: 0,
+    playlist_matched: 0,
+    playlist_titles: [],
+    search_http: null,
+    search_error: null,
+    search_items: 0,
+    search_matched: 0,
+    search_titles: [],
+    rss_http: null,
+    rss_items: 0,
+    rss_matched: 0,
+  };
+}
+
+function ytErrorMessage(json, text) {
+  const msg = json?.error?.message
+    || json?.error?.errors?.[0]?.reason
+    || json?.error?.status
+    || String(text || "").slice(0, 200);
+  return sanitizeYtErrorText(msg);
+}
+
+async function fetchYoutubeJson(url) {
+  const r = await fetch(url, { headers: { Accept: "application/json" } });
+  const text = await r.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { json = null; }
+  return { ok: r.ok, status: r.status, json, text };
+}
+
+function playlistItemToVideo(it) {
+  const videoId = it?.snippet?.resourceId?.videoId || null;
+  return {
+    videoId,
+    title: it?.snippet?.title || "",
+    published: it?.snippet?.publishedAt || null,
+    description: it?.snippet?.description || "",
+    link: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
+  };
+}
+
+function searchItemToVideo(it) {
+  const videoId = it?.id?.videoId || null;
+  return {
+    videoId,
+    title: it?.snippet?.title || "",
+    published: it?.snippet?.publishedAt || null,
+    description: it?.snippet?.description || "",
+    link: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
+  };
+}
+
+function mergeVideo(map, v) {
+  if (!v?.videoId) return;
+  const prev = map.get(v.videoId);
+  if (!prev) {
+    map.set(v.videoId, v);
+    return;
+  }
+  const longerDesc = String(v.description || "").length > String(prev.description || "").length;
+  map.set(v.videoId, {
+    ...prev,
+    ...v,
+    description: longerDesc ? v.description : prev.description,
+    title: v.title || prev.title,
+  });
+}
+
 /**
  * Discover recent Macro Minute videos for the Fundstrat channel.
- * Prefers the YouTube Data API (YOUTUBE_API_KEY); falls back to the public RSS
- * feed. Returns [{ videoId, title, published, description, link }].
+ * Prefers the YouTube Data API (YOUTUBE_API_KEY): uploads playlist (50) plus
+ * channel search. RSS is a best-effort fallback. Returns videos + diag.
  */
-export async function discoverMacroMinuteVideos(env, { limit = 10 } = {}) {
+export async function discoverMacroMinuteVideosDetailed(env, { limit = 10 } = {}) {
   const key = env?.YOUTUBE_API_KEY;
-  // 1. YouTube Data API — reliable, returns full snippet.description.
+  const diag = emptyDiag(key);
+  const matched = new Map();
+  const cap = Math.min(15, Math.max(1, Number(limit) || 10));
+
   if (key) {
     try {
       const playlist = uploadsPlaylistId(FUNDSTRAT_CHANNEL_ID);
-      const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=${Math.min(50, Math.max(limit * 3, 15))}&playlistId=${playlist}&key=${encodeURIComponent(key)}`;
-      const r = await fetch(url, { headers: { Accept: "application/json" } });
-      if (r.ok) {
-        const j = await r.json();
-        const items = Array.isArray(j?.items) ? j.items : [];
-        const vids = items.map((it) => ({
-          videoId: it?.snippet?.resourceId?.videoId || null,
-          title: it?.snippet?.title || "",
-          published: it?.snippet?.publishedAt || null,
-          description: it?.snippet?.description || "",
-          link: it?.snippet?.resourceId?.videoId ? `https://www.youtube.com/watch?v=${it.snippet.resourceId.videoId}` : null,
-        })).filter((v) => v.videoId && isMacroMinuteTitle(v.title));
-        if (vids.length) return vids.slice(0, limit);
+      const plUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${playlist}&key=${encodeURIComponent(key)}`;
+      const pl = await fetchYoutubeJson(plUrl);
+      diag.youtube_http = pl.status;
+      if (pl.ok) {
+        const items = Array.isArray(pl.json?.items) ? pl.json.items : [];
+        diag.playlist_items = items.length;
+        diag.playlist_titles = items.slice(0, 8).map((it) => String(it?.snippet?.title || "").slice(0, 80));
+        const hits = items.map(playlistItemToVideo).filter((v) => v.videoId && isMacroMinuteTitle(v.title));
+        diag.playlist_matched = hits.length;
+        for (const v of hits) mergeVideo(matched, v);
+      } else {
+        diag.youtube_error = ytErrorMessage(pl.json, pl.text);
       }
-    } catch (_) { /* fall through to RSS */ }
+    } catch (e) {
+      diag.youtube_error = sanitizeYtErrorText(String(e?.message || e));
+    }
+
+    try {
+      const q = encodeURIComponent("Macro Minute");
+      const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${FUNDSTRAT_CHANNEL_ID}&q=${q}&type=video&order=date&maxResults=15&key=${encodeURIComponent(key)}`;
+      const sr = await fetchYoutubeJson(searchUrl);
+      diag.search_http = sr.status;
+      if (sr.ok) {
+        const items = Array.isArray(sr.json?.items) ? sr.json.items : [];
+        diag.search_items = items.length;
+        diag.search_titles = items.slice(0, 8).map((it) => String(it?.snippet?.title || "").slice(0, 80));
+        const hits = items.map(searchItemToVideo).filter((v) => v.videoId && isMacroMinuteTitle(v.title));
+        diag.search_matched = hits.length;
+        for (const v of hits) mergeVideo(matched, v);
+      } else {
+        diag.search_error = ytErrorMessage(sr.json, sr.text);
+      }
+    } catch (e) {
+      diag.search_error = sanitizeYtErrorText(String(e?.message || e));
+    }
+
+    const thin = [...matched.values()].filter((v) => String(v.description || "").length < 80);
+    if (thin.length && key) {
+      try {
+        const ids = thin.map((v) => v.videoId).slice(0, 15).join(",");
+        const vUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${ids}&key=${encodeURIComponent(key)}`;
+        const vr = await fetchYoutubeJson(vUrl);
+        if (vr.ok) {
+          for (const it of (vr.json?.items || [])) {
+            mergeVideo(matched, {
+              videoId: it?.id || null,
+              title: it?.snippet?.title || "",
+              published: it?.snippet?.publishedAt || null,
+              description: it?.snippet?.description || "",
+              link: it?.id ? `https://www.youtube.com/watch?v=${it.id}` : null,
+            });
+          }
+        }
+      } catch (_) { /* descriptions stay truncated */ }
+    }
+
+    if (matched.size) {
+      const videos = [...matched.values()]
+        .sort((a, b) => String(b.published || "").localeCompare(String(a.published || "")))
+        .slice(0, cap);
+      return { videos, diag };
+    }
   }
-  // 2. RSS fallback (often throttled from datacenter IPs — best-effort).
+
   try {
     const r = await fetch(`https://www.youtube.com/feeds/videos.xml?channel_id=${FUNDSTRAT_CHANNEL_ID}`, {
       headers: { "User-Agent": YT_UA, Accept: "application/atom+xml" },
     });
+    diag.rss_http = r.status;
     if (r.ok) {
       const xml = await r.text();
-      return parseYoutubeRss(xml).filter((v) => isMacroMinuteTitle(v.title)).slice(0, limit);
+      const parsed = parseYoutubeRss(xml);
+      diag.rss_items = parsed.length;
+      const vids = parsed.filter((v) => isMacroMinuteTitle(v.title));
+      diag.rss_matched = vids.length;
+      return { videos: vids.slice(0, cap), diag };
     }
   } catch (_) { /* nothing */ }
-  return [];
+  return { videos: [], diag };
+}
+
+/** Discover Macro Minute videos (videos array only). */
+export async function discoverMacroMinuteVideos(env, opts = {}) {
+  const { videos } = await discoverMacroMinuteVideosDetailed(env, opts);
+  return videos;
 }
 
 /**
@@ -202,9 +361,27 @@ export async function ingestMacroMinuteFromYoutube(env, { limit = 5, force = fal
     return { ok: false, error_kind: "no_ingest_fn" };
   }
   const KV = env?.KV_TIMED;
-  const videos = await discoverMacroMinuteVideos(env, { limit });
+  const { videos, diag } = await discoverMacroMinuteVideosDetailed(env, { limit });
+  try {
+    console.log("[mm-yt]", JSON.stringify({
+      youtube_http: diag.youtube_http,
+      search_http: diag.search_http,
+      playlist_items: diag.playlist_items,
+      playlist_matched: diag.playlist_matched,
+      search_items: diag.search_items,
+      search_matched: diag.search_matched,
+      rss_http: diag.rss_http,
+      rss_items: diag.rss_items,
+    }));
+  } catch (_) { /* ignore */ }
   if (!videos.length) {
-    return { ok: true, discovered: 0, ingested: 0, note: "no_macro_minute_videos (configure YOUTUBE_API_KEY for reliable discovery)" };
+    return {
+      ok: true,
+      discovered: 0,
+      ingested: 0,
+      note: discoveryEmptyNote(diag),
+      diag,
+    };
   }
   const results = [];
   let ingested = 0;
@@ -232,5 +409,5 @@ export async function ingestMacroMinuteFromYoutube(env, { limit = 5, force = fal
       results.push({ videoId: v.videoId, error: String(e?.message || e).slice(0, 120) });
     }
   }
-  return { ok: true, discovered: videos.length, ingested, results };
+  return { ok: true, discovered: videos.length, ingested, results, diag };
 }

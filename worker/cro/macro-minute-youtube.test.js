@@ -8,6 +8,8 @@ import {
   parseProviderTranscript,
   macroMinuteTitle,
   isMacroMinuteYtEnabled,
+  sanitizeYtErrorText,
+  discoveryEmptyNote,
   FUNDSTRAT_CHANNEL_ID,
 } from "./macro-minute-youtube.js";
 
@@ -99,5 +101,25 @@ describe("isMacroMinuteYtEnabled", () => {
     expect(isMacroMinuteYtEnabled({ YOUTUBE_API_KEY: "k" })).toBe(true);
     expect(isMacroMinuteYtEnabled({ YOUTUBE_API_KEY: "k", MACRO_MINUTE_YT_INGEST: "off" })).toBe(false);
     expect(isMacroMinuteYtEnabled({ MACRO_MINUTE_YT_INGEST: "on" })).toBe(true);
+  });
+});
+
+describe("sanitizeYtErrorText", () => {
+  it("redacts key query params and AIza-shaped tokens", () => {
+    expect(sanitizeYtErrorText("bad key=abc123&other=1")).toBe("bad key=REDACTED&other=1");
+    expect(sanitizeYtErrorText("token AIzaSyDummyKeyValue0123456789xxxx leaked")).toContain("REDACTED");
+    expect(sanitizeYtErrorText("token AIzaSyDummyKeyValue0123456789xxxx leaked")).not.toMatch(/AIzaSy/);
+  });
+});
+
+describe("discoveryEmptyNote", () => {
+  it("tells the operator to configure a key when none is present", () => {
+    expect(discoveryEmptyNote({ key_present: false })).toContain("configure YOUTUBE_API_KEY");
+  });
+  it("reports playlist HTTP failures instead of a missing-key hint", () => {
+    expect(discoveryEmptyNote({ key_present: true, youtube_http: 403 })).toBe("youtube_playlist_http_403");
+  });
+  it("reports a title miss when the API returned uploads", () => {
+    expect(discoveryEmptyNote({ key_present: true, youtube_http: 200, playlist_items: 50, playlist_matched: 0 })).toBe("no_macro_minute_title_in_recent_uploads");
   });
 });
