@@ -35,10 +35,12 @@ export function etClock(nowMs = Date.now()) {
 export function expectedMaxAgeHours(etDow, etHour) {
   const dow = Number(etDow);
   const hour = Number(etHour);
+  // Macro Minute is frequent but not strictly daily (Fridays / some sessions skip).
+  // Weekend / Monday morning: Friday's episode is OK.
+  // Weekdays: allow one skipped session so a quiet CPI day does not page.
   if (dow === 0 || dow === 6) return 90;
   if (dow === 1 && hour < 18) return 90;
-  if (hour >= 22) return 8;
-  return 30;
+  return 48;
 }
 
 export function assessMacroMinuteFreshness({

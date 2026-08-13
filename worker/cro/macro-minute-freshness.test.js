@@ -7,12 +7,12 @@ import {
 import { splitMacroMinuteBody } from "./vimeo-transcript.js";
 
 describe("expectedMaxAgeHours", () => {
-  it("tightens after 10 PM ET on a weekday and relaxes over the weekend", () => {
-    expect(expectedMaxAgeHours(3, 22)).toBe(8);   // Wed 10 PM
-    expect(expectedMaxAgeHours(3, 9)).toBe(30);   // Wed morning
+  it("relaxes over the weekend and allows one skipped weekday session", () => {
+    expect(expectedMaxAgeHours(3, 22)).toBe(48);  // Wed 10 PM
+    expect(expectedMaxAgeHours(3, 9)).toBe(48);   // Wed morning
     expect(expectedMaxAgeHours(6, 12)).toBe(90);  // Saturday
     expect(expectedMaxAgeHours(1, 9)).toBe(90);   // Monday morning
-    expect(expectedMaxAgeHours(1, 19)).toBe(30);  // Monday evening
+    expect(expectedMaxAgeHours(1, 19)).toBe(48);  // Monday evening
   });
 });
 
@@ -36,10 +36,10 @@ describe("assessMacroMinuteFreshness", () => {
     });
     expect(r.status).toBe("thin");
   });
-  it("marks a two-day-old episode stale after 10 PM ET", () => {
-    const wed10pm = Date.parse("2026-08-13T02:00:00Z"); // Wed 10 PM ET
+  it("marks a two-day-old episode stale on a weekday", () => {
+    const fri10am = Date.parse("2026-08-14T14:00:00Z"); // Fri 10 AM ET
     const r = assessMacroMinuteFreshness({
-      nowMs: wed10pm,
+      nowMs: fri10am,
       publishedAt: "2026-08-11T17:51:00",
       hasTranscript: true,
       charCount: 4800,
