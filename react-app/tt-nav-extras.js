@@ -446,6 +446,11 @@
       "/brand-kit",
       "/simulation-dashboard",
       "/alerts",
+      // 2026-08-13 — Broker Connections mounts shared-nav.js (full
+      // journey row + Daily Brief). Injecting the admin journey strip
+      // on top duplicated the nav ("Today / Model / …" twice).
+      "/broker-connections",
+      "/account-brokers",
     ]);
     if (JOURNEY_PATHS.has(path)) {
       // If a prior version of this script injected the strip on a

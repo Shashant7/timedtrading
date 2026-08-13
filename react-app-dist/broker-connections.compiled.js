@@ -1307,6 +1307,39 @@ function ConnectForm({
   const [appSecret, setAppSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const submit = async e => {
+    e?.preventDefault?.();
+    if (busy || !appKey.trim() || !appSecret.trim()) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const json = await apiPost("/timed/broker/webull/connect", {
+        app_key: appKey.trim(),
+        app_secret: appSecret.trim()
+      });
+      if (json?.ok) {
+        setMsg({
+          ok: true,
+          text: `Connected — ${json.accounts_connected || 0} account(s) found`
+        });
+        setAppKey("");
+        setAppSecret("");
+        onConnected();
+      } else {
+        setMsg({
+          ok: false,
+          text: json?.note || json?.error || "Connection failed — check the key pair"
+        });
+      }
+    } catch (err) {
+      setMsg({
+        ok: false,
+        text: String(err?.message || err)
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
   return React.createElement("div", null, !compact && React.createElement("div", null, React.createElement("p", {
     className: "dim",
     style: {
@@ -1323,10 +1356,14 @@ function ConnectForm({
     style: {
       color: "var(--vf-primary, #38F2A1)"
     }
-  }, "webull.com/open-api"), " with the brokerage login."), React.createElement("li", null, "Open ", React.createElement("b", null, "API Keys Management"), " \u2192 ", React.createElement("b", null, "Generate Key"), ". Leave 2FA unchecked."), React.createElement("li", null, "Copy the ", React.createElement("b", null, "App Key"), " and ", React.createElement("b", null, "App Secret"), " (the secret is shown once) and paste both below."))), React.createElement("div", {
+  }, "webull.com/open-api"), " with the brokerage login."), React.createElement("li", null, "Open ", React.createElement("b", null, "API Keys Management"), " \u2192 ", React.createElement("b", null, "Generate Key"), ". Leave 2FA unchecked."), React.createElement("li", null, "Copy the ", React.createElement("b", null, "App Key"), " and ", React.createElement("b", null, "App Secret"), " (the secret is shown once) and paste both below."))), React.createElement("form", {
+    onSubmit: submit,
+    autoComplete: "off"
+  }, React.createElement("div", {
     className: "lbl"
   }, "App Key"), React.createElement("input", {
     className: "bc-input",
+    name: "webull_app_key",
     value: appKey,
     autoComplete: "off",
     spellCheck: "false",
@@ -1336,9 +1373,10 @@ function ConnectForm({
     className: "lbl"
   }, "App Secret"), React.createElement("input", {
     className: "bc-input",
+    name: "webull_app_secret",
     value: appSecret,
     type: "password",
-    autoComplete: "off",
+    autoComplete: "new-password",
     placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
     onChange: e => setAppSecret(e.target.value)
   }), React.createElement("div", {
@@ -1350,42 +1388,12 @@ function ConnectForm({
       flexWrap: "wrap"
     }
   }, React.createElement("button", {
+    type: "submit",
     className: "bc-btn bc-btn-primary",
-    disabled: busy || !appKey.trim() || !appSecret.trim(),
-    onClick: async () => {
-      setBusy(true);
-      setMsg(null);
-      try {
-        const json = await apiPost("/timed/broker/webull/connect", {
-          app_key: appKey.trim(),
-          app_secret: appSecret.trim()
-        });
-        if (json?.ok) {
-          setMsg({
-            ok: true,
-            text: `Connected — ${json.accounts_connected || 0} account(s) found`
-          });
-          setAppKey("");
-          setAppSecret("");
-          onConnected();
-        } else {
-          setMsg({
-            ok: false,
-            text: json?.note || json?.error || "Connection failed — check the key pair"
-          });
-        }
-      } catch (e) {
-        setMsg({
-          ok: false,
-          text: String(e?.message || e)
-        });
-      } finally {
-        setBusy(false);
-      }
-    }
+    disabled: busy || !appKey.trim() || !appSecret.trim()
   }, busy ? "Validating…" : "Connect"), msg && React.createElement("span", {
     className: msg.ok ? "msg-ok" : "msg-err"
-  }, msg.text)), React.createElement("p", {
+  }, msg.text))), React.createElement("p", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -1468,28 +1476,69 @@ function combineForwardFill(accts, sinceTs) {
   }
   return out;
 }
-function EquityCurve() {
+function EquityCurve({
+  liveAccounts
+}) {
   const [data, setData] = useState(null);
-  const [range, setRange] = useState("ALL");
+  const [range, setRange] = useState("1D");
   const [focus, setFocus] = useState("mirrored");
+  const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;
-    apiGet("/timed/broker/equity-curve").then(j => {
-      if (alive && j?.ok) setData(j);else if (alive) setData({
-        ok: false,
-        accounts: []
+    const load = () => {
+      apiGet("/timed/broker/equity-curve").then(j => {
+        if (alive && j?.ok) setData(j);else if (alive) setData({
+          ok: false,
+          accounts: []
+        });
+      }).catch(() => {
+        if (alive) setData({
+          ok: false,
+          accounts: []
+        });
       });
-    }).catch(() => {
-      if (alive) setData({
-        ok: false,
-        accounts: []
-      });
-    });
+    };
+    load();
+    const id = setInterval(() => {
+      load();
+      setTick(n => n + 1);
+    }, 60000);
     return () => {
       alive = false;
+      clearInterval(id);
     };
   }, []);
-  const accounts = data?.accounts || [];
+  const accounts = useMemo(() => {
+    const rows = data?.accounts || [];
+    if (!liveAccounts?.length) return rows;
+    const now = Date.now();
+    return rows.map(a => {
+      const live = liveAccounts.find(p => a.user_id && p.account_id === a.user_id || a.broker_account_id && (p.broker_account_id === a.broker_account_id || p.webull_account_id === a.broker_account_id) || a.label && p.label === a.label);
+      const eq = Number(live?.equity_usd);
+      if (!Number.isFinite(eq)) return a;
+      const pts = [...(a.points || [])].sort((x, y) => x.ts - y.ts);
+      const last = pts[pts.length - 1];
+      if (!last) pts.push({
+        ts: now,
+        equity: eq
+      });else if (now - last.ts > 20_000 || Math.abs(last.equity - eq) > 0.005) {
+        pts.push({
+          ts: now,
+          equity: eq
+        });
+      } else {
+        pts[pts.length - 1] = {
+          ts: now,
+          equity: eq
+        };
+      }
+      return {
+        ...a,
+        points: pts,
+        equity: eq
+      };
+    });
+  }, [data, liveAccounts, tick]);
   const selected = useMemo(() => {
     if (focus === "all") return accounts;
     if (focus === "mirrored") return accounts.filter(a => a.mirror_enabled || (a.markers || []).some(m => m.on));
@@ -1519,6 +1568,7 @@ function EquityCurve() {
   const up = delta == null ? true : delta >= 0;
   const stroke = up ? "var(--tt-success, #34d399)" : "var(--tt-danger, #ef4444)";
   const fill = up ? "rgba(52,211,153,0.14)" : "rgba(239,68,68,0.12)";
+  const rangeLabel = range === "1D" ? "today" : range === "ALL" ? "all time" : range;
   const W = 640,
     H = 200,
     padL = 6,
@@ -1527,23 +1577,39 @@ function EquityCurve() {
     padB = 22;
   let path = "",
     area = "";
+  let liveX = null,
+    liveY = null;
   const marks = [];
   if (points.length >= 1) {
     const t0 = points[0].ts;
-    const t1 = points[points.length - 1].ts || t0 + 1;
+    const t1 = Math.max(points[points.length - 1].ts, range === "1D" ? Date.now() : points[points.length - 1].ts) || t0 + 1;
     const eqs = points.map(p => p.equity);
     let lo = Math.min(...eqs),
       hi = Math.max(...eqs);
+    const pad = Math.max(Math.abs(lo) * 0.004, 1);
     if (hi === lo) {
-      lo = lo * 0.99;
-      hi = hi * 1.01 || 1;
+      lo -= pad;
+      hi += pad;
+    } else {
+      const span = hi - lo;
+      lo -= span * 0.08;
+      hi += span * 0.08;
     }
     const xOf = ts => padL + (ts - t0) / Math.max(1, t1 - t0) * (W - padL - padR);
     const yOf = eq => padT + (1 - (eq - lo) / (hi - lo)) * (H - padT - padB);
-    path = points.map((p, i) => `${i ? "L" : "M"}${xOf(p.ts).toFixed(1)},${yOf(p.equity).toFixed(1)}`).join(" ");
-    const lastX = xOf(points[points.length - 1].ts);
-    const firstX = xOf(points[0].ts);
+    const plot = [...points];
+    if (range === "1D" && plot.length && plot[plot.length - 1].ts < t1 - 1000) {
+      plot.push({
+        ts: t1,
+        equity: plot[plot.length - 1].equity
+      });
+    }
+    path = plot.map((p, i) => `${i ? "L" : "M"}${xOf(p.ts).toFixed(1)},${yOf(p.equity).toFixed(1)}`).join(" ");
+    const lastX = xOf(plot[plot.length - 1].ts);
+    const firstX = xOf(plot[0].ts);
     area = `${path} L${lastX.toFixed(1)},${H - padB} L${firstX.toFixed(1)},${H - padB} Z`;
+    liveX = lastX;
+    liveY = yOf(plot[plot.length - 1].equity);
     for (const m of markers) {
       if (m.ts < t0 || m.ts > t1) continue;
       marks.push({
@@ -1567,15 +1633,17 @@ function EquityCurve() {
     style: {
       fontSize: 18
     }
-  }, "Mirrored accounts vs model start")), React.createElement("div", {
+  }, range === "1D" ? "Day change · live equity" : "Mirrored accounts vs model start")), React.createElement("div", {
     className: "eq-range"
   }, EQ_RANGES.map(r => React.createElement("button", {
     key: r.id,
+    type: "button",
     className: range === r.id ? "on" : "",
     onClick: () => setRange(r.id)
   }, r.id)))), React.createElement("div", {
     className: "eq-acct"
   }, React.createElement("button", {
+    type: "button",
     className: `bc-pill ${focus === "mirrored" ? "p-mint" : "p-off"}`,
     onClick: () => setFocus("mirrored"),
     style: {
@@ -1583,6 +1651,7 @@ function EquityCurve() {
       border: "none"
     }
   }, "Mirrored"), React.createElement("button", {
+    type: "button",
     className: `bc-pill ${focus === "all" ? "p-mint" : "p-off"}`,
     onClick: () => setFocus("all"),
     style: {
@@ -1590,6 +1659,7 @@ function EquityCurve() {
       border: "none"
     }
   }, "All accounts"), accounts.map(a => React.createElement("button", {
+    type: "button",
     key: a.broker_account_id || a.user_id,
     className: `bc-pill ${focus === a.broker_account_id || focus === a.user_id ? "p-mint" : "p-off"}`,
     onClick: () => setFocus(a.broker_account_id || a.user_id),
@@ -1609,7 +1679,7 @@ function EquityCurve() {
       fontSize: 13,
       padding: "18px 0"
     }
-  }, "Growth history starts as the reconciler snapshots equity. The first point lands on the next cycle; mirror on/off markers still plot once recorded."), points.length > 0 && React.createElement("div", {
+  }, "Growth history starts as the reconciler snapshots equity every few minutes. The first points land on the next cycle; mirror on/off markers still plot once recorded."), points.length > 0 && React.createElement("div", {
     className: "fade-in"
   }, React.createElement("div", {
     style: {
@@ -1633,7 +1703,7 @@ function EquityCurve() {
       fontSize: 14,
       fontWeight: 700
     }
-  }, fmtSigned(delta), deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : "", " ", range === "ALL" ? "all time" : range)), hasMirrorGain && React.createElement("div", {
+  }, fmtSigned(delta), deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : "", " ", rangeLabel)), hasMirrorGain && range !== "1D" && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 12,
@@ -1641,13 +1711,20 @@ function EquityCurve() {
     }
   }, "Since the model started managing", selected.length === 1 ? ` ${selected[0].label}` : " these accounts", ": ", React.createElement("b", {
     className: `mono ${mirrorGain >= 0 ? "up" : "dn"}`
-  }, fmtSigned(mirrorGain))), React.createElement("svg", {
+  }, fmtSigned(mirrorGain))), range === "1D" && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      marginBottom: 6
+    }
+  }, "Session path from the earliest sample in the last 24h to the live equity tip. Overall P&L sits in the KPI strip above."), React.createElement("svg", {
     className: "eq-chart",
     viewBox: `0 0 ${W} ${H}`,
     preserveAspectRatio: "none",
     role: "img",
     "aria-label": "Portfolio equity curve"
   }, area && React.createElement("path", {
+    className: "eq-area",
     d: area,
     fill: fill
   }), marks.map((m, i) => React.createElement("g", {
@@ -1663,34 +1740,50 @@ function EquityCurve() {
   }), React.createElement("text", {
     x: m.x + 3,
     y: padT - 4,
-    fill: m.on ? "var(--tt-success)" : "var(--tt-text-dim)",
+    fill: m.on ? "var(--tt-success)" : "#a3b5ad",
     fontSize: "9",
     fontWeight: "700"
   }, m.on ? "ON" : "OFF"))), path && React.createElement("path", {
+    className: "eq-line",
     d: path,
     fill: "none",
     stroke: stroke,
-    strokeWidth: "2.2",
-    strokeLinejoin: "round",
-    strokeLinecap: "round"
-  }), points.length && React.createElement("text", {
+    strokeWidth: "2.4",
+    strokeDasharray: "1200",
+    style: {
+      strokeDashoffset: 0
+    }
+  }), liveX != null && liveY != null && React.createElement("g", {
+    className: "eq-live"
+  }, React.createElement("circle", {
+    cx: liveX,
+    cy: liveY,
+    r: "5.5",
+    fill: stroke,
+    opacity: "0.25"
+  }), React.createElement("circle", {
+    cx: liveX,
+    cy: liveY,
+    r: "3",
+    fill: stroke
+  })), points.length > 0 && React.createElement("text", {
     x: padL,
     y: H - 6,
     fill: "#a3b5ad",
     fontSize: "10"
-  }, fmtDay(points[0].ts)), points.length > 1 && React.createElement("text", {
+  }, range === "1D" ? fmtTime(points[0].ts) : fmtDay(points[0].ts)), points.length > 0 && React.createElement("text", {
     x: W - padR,
     y: H - 6,
     fill: "#a3b5ad",
     fontSize: "10",
     textAnchor: "end"
-  }, fmtDay(points[points.length - 1].ts))), points.length <= 1 && React.createElement("div", {
+  }, range === "1D" ? "Now" : fmtDay(points[points.length - 1].ts))), points.length <= 2 && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
       marginTop: 4
     }
-  }, "Growth history collects one point per hour. Full curve appears after a few reconciler cycles."), marks.length > 0 && React.createElement("div", {
+  }, "Building the intraday curve \u2014 samples land every ~5 minutes while the mirror reconciler runs."), marks.length > 0 && range !== "1D" && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -1730,7 +1823,7 @@ function BrokerConnectionsApp({
   useEffect(() => {
     if (!provisioned) return;
     let alive = true;
-    apiGet("/timed/broker/day-actions").then(j => {
+    apiGet("/timed/broker/day-actions?hours=72").then(j => {
       if (alive && j?.ok) setDayData(j);
     }).catch(() => {});
     return () => {
@@ -1780,91 +1873,95 @@ function BrokerConnectionsApp({
     const accs = posData?.accounts || [];
     let value = 0,
       day = 0,
-      open = 0,
-      heldQty = 0;
+      model = 0,
+      managedQty = 0,
+      dayQty = 0;
     let hasDay = false,
-      hasOpen = false;
+      hasModel = false;
     for (const a of accs) {
-      let acctVal = 0;
+      const mirrorOn = a.mirror_enabled === true;
+      let acctManagedVal = 0;
+      let acctDayFromItems = 0;
+      let acctDayItems = 0;
       for (const it of a.items || []) {
         const qty = Number(it.broker_qty) || 0;
         if (!(qty > 0.0001)) continue;
-        if (!it.managed) continue;
-        heldQty += qty;
-        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price) > 0 ? Number(it.last_price) : Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0;
-        const mv = Number(it.market_value) > 0 ? Number(it.market_value) : px > 0 ? px * qty : 0;
-        acctVal += mv;
-        if (Number.isFinite(Number(it.day_pnl))) {
+        if (mirrorOn && Number.isFinite(Number(it.day_pnl))) {
           day += Number(it.day_pnl);
           hasDay = true;
+          dayQty += qty;
+          acctDayFromItems += Number(it.day_pnl);
+          acctDayItems += qty;
         }
+        if (!it.managed) continue;
+        managedQty += qty;
+        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price) > 0 ? Number(it.last_price) : Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0;
+        const mv = Number(it.market_value) > 0 ? Number(it.market_value) : px > 0 ? px * qty : 0;
+        acctManagedVal += mv;
         if (Number.isFinite(Number(it.unrealized_pnl))) {
-          open += Number(it.unrealized_pnl);
-          hasOpen = true;
+          model += Number(it.unrealized_pnl);
+          hasModel = true;
         }
       }
-      if (acctVal > 0) value += acctVal;else if (a.summary?.positions_value > 0) value += a.summary.positions_value;
-      if (!hasDay && Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null && heldQty > 0) {
+      if (acctManagedVal > 0) value += acctManagedVal;
+      if (mirrorOn && !acctDayItems && Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null) {
         day += a.summary.day_pnl;
         hasDay = true;
-      }
-      if (!hasOpen && Number.isFinite(a.summary?.unrealized_pnl) && a.summary.unrealized_pnl !== null && heldQty > 0) {
-        open += a.summary.unrealized_pnl;
-        hasOpen = true;
+        dayQty += 1;
       }
     }
     const sessionOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
-    const showDay = hasDay && heldQty > 0;
     return {
       value,
       day,
-      open,
-      hasDay: showDay,
-      dayLabel: sessionOpen ? "across mirrored positions" : "prior session",
-      hasOpen: hasOpen && heldQty > 0,
+      model,
+      hasDay: hasDay && dayQty > 0,
+      dayLabel: sessionOpen ? "all holdings on mirror-on accounts" : "prior session · all holdings",
+      hasModel: hasModel && managedQty > 0,
       hasValue: value > 0,
       loaded: !!posData
     };
   }, [posData]);
-  const daySummary = dayData?.summary || null;
   const modelActionsTile = useMemo(() => {
     if (!dayData) return {
       count: null,
       sub: "loading…"
     };
-    const nowMs = Date.now();
-    const nyDate = new Date(nowMs).toLocaleDateString("en-US", {
+    const nyDate = new Date().toLocaleDateString("en-CA", {
       timeZone: "America/New_York"
     });
     const bucket = new Map();
     for (const a of dayData.actions || []) {
-      const key = new Date(Number(a.ts) || 0).toLocaleDateString("en-US", {
-        timeZone: "America/New_York"
-      });
+      const key = nyDateKey(Number(a.ts) || 0);
       if (!bucket.has(key)) bucket.set(key, []);
       bucket.get(key).push(a);
     }
-    const today = bucket.get(nyDate) || [];
-    if (today.length) {
-      const mirrored = today.filter(a => a.mirror === "mirrored").length;
-      const held = today.filter(a => a.mirror === "rejected" || a.mirror === "skipped").length;
+    const summarize = (rows, prior) => {
+      const mirrored = rows.filter(a => a.mirror === "mirrored").length;
+      const held = rows.filter(a => a.mirror === "rejected" || a.mirror === "skipped").length;
       return {
-        count: today.length,
-        sub: `${mirrored} mirrored · ${held} held back`
+        count: rows.length,
+        sub: prior ? `${mirrored} mirrored · ${held} held back · prior session` : `${mirrored} mirrored · ${held} held back`
+      };
+    };
+    const today = bucket.get(nyDate) || [];
+    if (today.length) return summarize(today, false);
+    const keys = [...bucket.keys()].sort((a, b) => String(b).localeCompare(String(a)));
+    const prior = keys.length ? bucket.get(keys[0]) : [];
+    if (!prior.length) {
+      const s = dayData.summary;
+      if (s && Number(s.actions) > 0) {
+        return {
+          count: Number(s.actions),
+          sub: `${Number(s.mirrored) || 0} mirrored · ${(Number(s.rejected) || 0) + (Number(s.skipped) || 0)} held back`
+        };
+      }
+      return {
+        count: 0,
+        sub: "0 mirrored · 0 held back"
       };
     }
-    const keys = [...bucket.keys()].sort((a, b) => new Date(b) - new Date(a));
-    const prior = keys.length ? bucket.get(keys[0]) : [];
-    if (!prior.length) return {
-      count: 0,
-      sub: "0 mirrored · 0 held back"
-    };
-    const mirrored = prior.filter(a => a.mirror === "mirrored").length;
-    const held = prior.filter(a => a.mirror === "rejected" || a.mirror === "skipped").length;
-    return {
-      count: prior.length,
-      sub: `${mirrored} mirrored · ${held} held back · prior session`
-    };
+    return summarize(prior, true);
   }, [dayData]);
   return React.createElement("main", null, React.createElement("div", {
     className: "tt-status",
@@ -1941,19 +2038,21 @@ function BrokerConnectionsApp({
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
-  }, "Open P&L"), React.createElement("div", {
-    className: `k-val ${totals.hasOpen ? totals.open >= 0 ? "up" : "dn" : ""}`
-  }, !totals.loaded ? "…" : totals.hasOpen ? fmtSigned(totals.open) : "—"), React.createElement("div", {
+  }, "Model P&L"), React.createElement("div", {
+    className: `k-val ${totals.hasModel ? totals.model >= 0 ? "up" : "dn" : ""}`
+  }, !totals.loaded ? "…" : totals.hasModel ? fmtSigned(totals.model) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, "unrealized, managed sleeves")), React.createElement("div", {
+  }, "unrealized \xB7 model-managed sleeves only")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
-  }, "Model actions today"), React.createElement("div", {
+  }, "Model actions"), React.createElement("div", {
     className: "k-val"
   }, modelActionsTile.count == null ? "…" : modelActionsTile.count), React.createElement("div", {
     className: "k-sub"
-  }, modelActionsTile.sub))), accounts !== null && hasAny && React.createElement(EquityCurve, null), accounts !== null && hasAny && React.createElement(DayActions, {
+  }, modelActionsTile.sub))), accounts !== null && hasAny && React.createElement(EquityCurve, {
+    liveAccounts: posData?.accounts || []
+  }), accounts !== null && hasAny && React.createElement(DayActions, {
     refreshKey: accounts
   }), accounts !== null && hasAny && React.createElement(PositionsSection, {
     refreshKey: accounts,
@@ -2066,6 +2165,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786605337874:999636259
+// cache-bust:1786608307267:135448102
 
-// cache-bust:1786605337874:999636259
+// cache-bust:1786608307267:135448102

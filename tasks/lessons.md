@@ -6,7 +6,26 @@
 
 ---
 
-<<<<<<< HEAD
+## Broker Connections: double nav, password form, Model KPI, 1D curve [2026-08-13]
+
+**Symptom:** Broker Connections showed two overlapping nav rows; console
+warned `Password field is not contained in a form`; growth chart was a
+flat line on ALL; Model actions KPI stayed `0` while the timeline had
+fills; Open P&L mixed model contribution with overall book.
+
+**Root / Fix:**
+- `tt-nav-extras` injects `.tt-journey-strip` on any page not in
+  `JOURNEY_PATHS`. Pages that mount `shared-nav.js` must be listed
+  (`/broker-connections`, `/account-brokers`) and still need page-local
+  `.topnav` / `.nav-row` CSS (tokens alone do not lay out the header).
+- Wrap App Key / App Secret in `<form onSubmit>`.
+- Model actions KPI fetches `?hours=72` (same window as the timeline)
+  and falls back to the newest ET session when today is empty.
+- **Model P&L** KPI = unrealized on managed sleeves only; **Today's P&L**
+  = overall day change on mirror-on accounts (user holdings included).
+- Equity history buckets at 5 min (was 1h); chart defaults to 1D, appends
+  a live equity tip from positions, polls every 60s.
+
 ## Broker Connections: inline UI, KPI, caps, client_order_id [2026-08-13]
 
 **Symptom:** Timeline/position details required a click; KPI strip showed
@@ -20,7 +39,7 @@ skips auto_sync injection when `mirror_enabled` is false. Fan-out
 `client_order_id` clamped to Webull's 10–40 chars; humanize raw Parameter
 errors. Daily/per-order account caps removed from preflight + UI —
 mirror on/off only; sizing stays relational.
-=======
+
 ## Model sizing: paper-queue crushed canonical entries [2026-08-13]
 
 **Symptom:** AXON Prime Support Bounce entered ~1.09 sh / $648 on a
@@ -38,7 +57,6 @@ paths.
 (`tt_n_test_support`, `tt_ath_breakout`, ORB, …) always get 1.0; only
 thin-slice family entries keep the paper mult. `MIN_NOTIONAL` floor
 applies even when using tier risk %.
->>>>>>> 036121239 (docs: lesson for paper-queue crushing canonical model sizing (AXON))
 
 ---
 
