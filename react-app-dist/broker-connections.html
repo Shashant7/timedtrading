@@ -16,16 +16,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1786608307267" />
-    <script defer src="/vendor/react.production.min.js?v=1786608307267"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1786608307267"></script>
-<script defer src="auth-gate.js?v=1786608307267"></script>
-    <script defer src="shared-price-utils.js?v=1786608307267"></script>
-    <script src="tt-bottom-nav.js?v=1786608307267" defer></script>
-    <script defer src="investor-nav-badge.js?v=1786608307267"></script>
-    <script src="tt-nav-extras.js?v=1786608307267" defer></script>
-    <script defer src="ds-components.js?v=1786608307267"></script>
-    <script defer src="shared-lane-card.js?v=1786608307267"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1786610939074" />
+    <script defer src="/vendor/react.production.min.js?v=1786610939074"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1786610939074"></script>
+<script defer src="auth-gate.js?v=1786610939074"></script>
+    <script defer src="shared-price-utils.js?v=1786610939074"></script>
+    <script src="tt-bottom-nav.js?v=1786610939074" defer></script>
+    <script defer src="investor-nav-badge.js?v=1786610939074"></script>
+    <script src="tt-nav-extras.js?v=1786610939074" defer></script>
+    <script src="tt-rail-bridge.js?v=1786610939074" defer></script>
+    <script defer src="tt-rail-lazy-load.js?v=1786610939074"></script>
+    <script defer src="ds-components.js?v=1786610939074"></script>
+    <script defer src="shared-lane-card.js?v=1786610939074"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
@@ -165,6 +167,12 @@
         .pos-a-val { display: none; } .pos-a-pnl { grid-area: pnl; text-align: right; } .pos-a-sync { grid-area: sync; text-align: right; }
       }
       .tk-avatar { width: 30px; height: 30px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 800; letter-spacing: 0.02em; color: #0b1410; }
+      .pos-ticker-btn {
+        appearance: none; background: none; border: none; padding: 0; margin: 0;
+        font: inherit; font-weight: 800; font-size: 14px; color: inherit; cursor: pointer;
+        text-decoration: none; border-bottom: 1px solid transparent;
+      }
+      .pos-ticker-btn:hover { color: var(--vf-primary, #38F2A1); border-bottom-color: rgba(56,242,161,0.45); }
       .pnl-bar { height: 3px; border-radius: 2px; background: rgba(255,255,255,0.06); margin-top: 4px; overflow: hidden; position: relative; }
       .pnl-bar span { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
       .pos-detail { padding: 10px 12px 12px 48px; border-top: 1px dashed var(--tt-border-weak); background: rgba(255,255,255,0.012); }
@@ -191,10 +199,10 @@
          so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
          badge) find their mount target. -->
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1786608307267"></script>
+    <script defer src="shared-nav.js?v=1786610939074"></script>
     <div id="root"></div>
-    <script defer src="broker-connections.compiled.js?v=1786608307267"></script>
+    <script defer src="broker-connections.compiled.js?v=1786610939074"></script>
   </body>
 </html>
 
-<!-- cache-bust:1786608307267:135448102 -->
+<!-- cache-bust:1786610939074:717206958 -->
