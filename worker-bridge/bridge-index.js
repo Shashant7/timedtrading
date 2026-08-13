@@ -745,12 +745,15 @@ export default {
           // 2026-08-13 — Stamp equity for EVERY connected account (mirror
           // off included). Reconciler only snapshots mirror-on accounts;
           // without this, Brokers page cards stay at $0 / "Not started".
+          // When positions were live-fetched, keep the equity window to 60s
+          // so Individual Margin / Cash cards track Webull NLV in near-realtime.
           try {
             const eqRes = await refreshAccountEquitySnapshot(env, acct, {
               adapter: brokerAdapterFor(acct),
               positions: brokerPositions,
               force: forceRefresh,
               existingSnap: _snap,
+              maxStaleMs: entry.positions_cached ? (5 * 60 * 1000) : (60 * 1000),
             });
             if (Number.isFinite(eqRes.equity_usd)) {
               entry.equity_usd = eqRes.equity_usd;
@@ -758,7 +761,11 @@ export default {
               if (eqRes.stale) entry.equity_stale = true;
             }
             if (Number.isFinite(eqRes.cash_usd)) entry.cash_usd = eqRes.cash_usd;
-            if (eqRes.ok) entry.snapshot_at = Date.now();
+            if (eqRes.ok && (eqRes.source === "broker" || eqRes.source === "positions_estimate")) {
+              entry.snapshot_at = Date.now();
+            } else if (_snap) {
+              entry.snapshot_at = Number(_snap.synced_at) || entry.snapshot_at;
+            }
           } catch (e) {
             console.warn("[POSITIONS] equity sync failed:", String(e?.message || e).slice(0, 160));
           }
