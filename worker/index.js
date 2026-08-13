@@ -2251,6 +2251,10 @@ const ROUTES = [
   // tt-broker-bridge worker directly.
   ["GET",  "/timed/admin/broker-bridge/status",           "GET /timed/admin/broker-bridge/status"],
   ["GET",  "/timed/admin/broker-bridge/audit",            "GET /timed/admin/broker-bridge/audit"],
+  // 2026-08-13 — Ops view of the owner-scoped day-actions + positions
+  // feeds behind the Broker Connections page (debugging the join).
+  ["GET",  "/timed/admin/broker-bridge/day-actions",      "GET /timed/admin/broker-bridge/day-actions"],
+  ["GET",  "/timed/admin/broker-bridge/owner-positions",  "GET /timed/admin/broker-bridge/owner-positions"],
   ["GET",  "/timed/admin/broker-bridge/recent",           "GET /timed/admin/broker-bridge/recent"],
   ["GET",  "/timed/admin/debug/silent-failures",          "GET /timed/admin/debug/silent-failures"],
   ["GET",  "/timed/admin/broker-bridge/portfolio",        "GET /timed/admin/broker-bridge/portfolio"],
@@ -39769,6 +39773,194 @@ async function runDcaSweepGuarded(env, { mirror = true } = {}) {
   } finally {
     if (KV) await KV.delete(lockKey).catch(() => {});
   }
+}
+
+/**
+ * 2026-08-13 — Broker Connections day timeline. Joins the MODEL's own
+ * ledger (what it executed) against the bridge's per-account outcomes
+ * (fills / rejects with reasons) and the client ring's skip records, so
+ * the page can answer: what did the model do today, did the mirror
+ * follow on each account, and if not — why. Shared by the session route
+ * (GET /timed/broker/day-actions) and the ops debug route
+ * (GET /timed/admin/broker-bridge/day-actions).
+ *
+ * @param {object} env
+ * @param {object} args { owner, hoursParam (0 = since NY midnight),
+ *                        getBridge (path) => { body } }
+ */
+async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge }) {
+  let sinceMs;
+  if (hoursParam > 0) {
+    sinceMs = Date.now() - Math.min(168, hoursParam) * 3600 * 1000;
+  } else {
+    // Default: since NY midnight (the trading day).
+    const nyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const nyStart = new Date(nyNow); nyStart.setHours(0, 0, 0, 0);
+    sinceMs = Date.now() - (nyNow.getTime() - nyStart.getTime());
+  }
+  // 1. Model actions (both engines) from the model's own ledger.
+  let modelRows = [];
+  try {
+    const r = await env.DB.prepare(
+      `SELECT mode, ts, event_type, position_id, ticker, direction,
+              qty, price, cash_delta, realized_pnl, note
+         FROM account_ledger
+        WHERE ts >= ?1 AND event_type IN ('ENTRY','TRIM','EXIT','DCA_BUY')
+        ORDER BY ts DESC LIMIT 120`,
+    ).bind(sinceMs).all();
+    modelRows = r?.results || [];
+  } catch (_) { modelRows = []; }
+  // 2. Mothership forward/skip records (client ring).
+  let ring = [];
+  try {
+    ring = ((await kvGetJSON(env.KV_TIMED, "bridge:client:recent")) || [])
+      .filter((e) => Number(e?.ts) >= sinceMs);
+  } catch (_) { ring = []; }
+  // 3. Per-account outcomes from the bridge.
+  const bridgeHours = Math.max(1, Math.ceil((Date.now() - sinceMs) / 3600000));
+  let bridge = { accounts: [], ledger: [], audit: [] };
+  try {
+    const br = await getBridge(`/bridge/day-actions?owner=${encodeURIComponent(owner)}&hours=${bridgeHours}`);
+    const parsed = JSON.parse(br.body || "null");
+    if (parsed?.ok) bridge = parsed;
+  } catch (_) { /* bridge optional — timeline still renders model side */ }
+
+  const _normId = (id) => String(id || "").replace(/^inv-/, "").toLowerCase();
+  const _sideFamily = (s) => {
+    const v = String(s || "").toLowerCase();
+    if (v === "buy" || v === "add" || v === "open" || v === "dca") return "buy";
+    return "sell"; // trim / sell / exit / close
+  };
+  const _eventFamily = (ev) => (ev === "ENTRY" || ev === "DCA_BUY") ? "buy" : "sell";
+  // One broker order produces TWO ledger rows: the placement row
+  // (has model_trade_id) and the fill-reconciler row (event_type
+  // FILL, model_trade_id null, real filled qty/price) sharing the
+  // client_order_id. Collapse to one, preferring the FILL row's
+  // numbers while keeping the placement row's model_trade_id.
+  const _ledgerByOrder = new Map();
+  const _rawLedger = [];
+  for (const b of bridge.ledger || []) {
+    const key = b.client_order_id || b.broker_order_id || null;
+    if (!key) { _rawLedger.push({ ...b }); continue; }
+    const prev = _ledgerByOrder.get(key);
+    if (!prev) { _ledgerByOrder.set(key, { ...b }); continue; }
+    const isFill = String(b.event_type || "").toUpperCase().includes("FILL")
+      || String(b.status || "").toLowerCase() === "filled";
+    const merged = isFill ? { ...prev, ...b } : { ...b, ...prev };
+    merged.model_trade_id = prev.model_trade_id || b.model_trade_id || null;
+    _ledgerByOrder.set(key, merged);
+  }
+  bridge.ledger = _rawLedger.concat([..._ledgerByOrder.values()]);
+  const usedLedger = new Set();
+  const acctMeta = new Map((bridge.accounts || []).map((a) => [String(a.account_id).toLowerCase(), a]));
+  const _acctLabel = (row) => {
+    const meta = acctMeta.get(String(row.user_id || "").toLowerCase());
+    return meta?.label || row.broker_account_id || row.user_id || null;
+  };
+
+  const actions = modelRows.map((m) => {
+    const mid = _normId(m.position_id);
+    const fam = _eventFamily(String(m.event_type).toUpperCase());
+    const near = (ts) => Math.abs(Number(ts) - Number(m.ts)) < 2 * 3600 * 1000;
+    const fills = [];
+    const rejects = [];
+    (bridge.ledger || []).forEach((b, i) => {
+      if (usedLedger.has(i)) return;
+      const match = (b.model_trade_id && _normId(b.model_trade_id) === mid && near(b.ts))
+        || (!b.model_trade_id && String(b.ticker || "").toUpperCase() === String(m.ticker || "").toUpperCase()
+            && _sideFamily(b.side) === fam && near(b.ts));
+      if (!match || _sideFamily(b.side) !== fam) return;
+      usedLedger.add(i);
+      const rec = {
+        account: _acctLabel(b),
+        broker: b.broker || null,
+        qty: Number(b.qty) || 0,
+        price: Number(b.price) || 0,
+        value: Number(b.value) || 0,
+        status: b.status || null,
+        reject_reason: b.reject_reason || null,
+        ts: b.ts,
+      };
+      if (String(b.status || "").toLowerCase() === "ok" || String(b.status || "").toLowerCase() === "filled") fills.push(rec);
+      else rejects.push(rec);
+    });
+    // Audit-only rejects (preflight / manifest / dedupe never
+    // reach the account ledger).
+    for (const a of bridge.audit || []) {
+      const st = String(a.status || "").toLowerCase();
+      if (st === "ok") continue;
+      const match = (a.trade_id && _normId(a.trade_id) === mid && near(a.ts) && _sideFamily(a.side) === fam);
+      if (!match) continue;
+      if (!rejects.some((r) => r.reject_reason === a.reject_reason)) {
+        rejects.push({
+          account: _acctLabel(a),
+          qty: Number(a.qty) || 0,
+          status: st || "rejected",
+          reject_reason: a.reject_reason || null,
+          ts: a.ts,
+        });
+      }
+    }
+    // Ring skip (mothership never forwarded — e.g. mirror off).
+    const ringMatch = ring.find((e) =>
+      _normId(e.trade_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
+    let mirror = "not_mirrored";
+    let mirrorReason = null;
+    if (fills.length) mirror = "mirrored";
+    else if (rejects.length) { mirror = "rejected"; mirrorReason = rejects[0].reject_reason || null; }
+    else if (ringMatch && String(ringMatch.status) === "skipped") {
+      mirror = "skipped"; mirrorReason = ringMatch.skip_reason || null;
+    } else if (ringMatch && String(ringMatch.status) === "ok") {
+      mirror = "forwarded";
+    }
+    return {
+      ts: m.ts,
+      mode: m.mode,
+      event: String(m.event_type).toUpperCase(),
+      ticker: String(m.ticker || "").toUpperCase(),
+      direction: m.direction || null,
+      qty: Number(m.qty) || 0,
+      price: Number(m.price) || 0,
+      value: Math.abs(Number(m.cash_delta) || 0),
+      realized_pnl: Number(m.realized_pnl) || 0,
+      note: m.note || null,
+      mirror,
+      mirror_reason: mirrorReason,
+      fills,
+      rejects,
+    };
+  });
+  // Mirror-initiated events with no same-day model action (e.g.
+  // catch-up syncs healing an older position) — still shown so
+  // the account's own activity is complete.
+  const extras = [];
+  (bridge.ledger || []).forEach((b, i) => {
+    if (usedLedger.has(i)) return;
+    extras.push({
+      ts: b.ts,
+      mode: "mirror",
+      event: String(b.side || b.event_type || "ORDER").toUpperCase(),
+      ticker: String(b.ticker || "").toUpperCase(),
+      qty: Number(b.qty) || 0,
+      price: Number(b.price) || 0,
+      value: Number(b.value) || 0,
+      mirror: String(b.status || "").toLowerCase() === "ok" ? "mirrored" : "rejected",
+      mirror_reason: b.reject_reason || null,
+      fills: [],
+      rejects: [],
+      account: _acctLabel(b),
+    });
+  });
+  const all = actions.concat(extras).sort((a, b) => b.ts - a.ts);
+  const summary = {
+    actions: actions.length,
+    mirrored: all.filter((a) => a.mirror === "mirrored").length,
+    rejected: all.filter((a) => a.mirror === "rejected").length,
+    skipped: all.filter((a) => a.mirror === "skipped").length,
+    not_mirrored: all.filter((a) => a.mirror === "not_mirrored").length,
+    realized_pnl: actions.reduce((s, a) => s + (a.realized_pnl || 0), 0),
+  };
+  return { ok: true, since: sinceMs, actions: all, summary, accounts: bridge.accounts || [] };
 }
 
 async function d1LoadRegistryIndexTickers(env) {
@@ -82229,6 +82421,32 @@ export default {
         }, 200, corsHeaders(env, req));
       }
 
+      if (routeKey === "GET /timed/admin/broker-bridge/day-actions") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const owner = String(url.searchParams.get("owner") || env?.ADMIN_EMAIL || "").toLowerCase();
+        const hours = Math.min(168, Math.max(0, Number(url.searchParams.get("hours")) || 0));
+        if (url.searchParams.get("raw") === "1") {
+          const result = await _getBridge(`/bridge/day-actions?owner=${encodeURIComponent(owner)}&hours=${hours || 36}`);
+          return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+            { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders(env, req) } });
+        }
+        try {
+          const payload = await assembleBrokerDayActions(env, { owner, hoursParam: hours, getBridge: _getBridge });
+          return sendJSON(payload, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/broker-bridge/owner-positions") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const owner = String(url.searchParams.get("owner") || env?.ADMIN_EMAIL || "").toLowerCase();
+        const refreshQ = url.searchParams.get("refresh") === "1" ? "&refresh=1" : "";
+        const result = await _getBridge(`/bridge/positions?owner=${encodeURIComponent(owner)}${refreshQ}`);
+        return new Response(result.body || JSON.stringify({ ok: false, error: result.kind }),
+          { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders(env, req) } });
+      }
       if (routeKey === "GET /timed/admin/broker-bridge/audit") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -82453,163 +82671,12 @@ export default {
         // records), and the resulting per-account outcome.
         if (routeKey === "GET /timed/broker/day-actions") {
           try {
-            const hoursParam = Number(url.searchParams.get("hours")) || 0;
-            let sinceMs;
-            if (hoursParam > 0) {
-              sinceMs = Date.now() - Math.min(168, hoursParam) * 3600 * 1000;
-            } else {
-              // Default: since NY midnight (the trading day).
-              const nyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-              const nyStart = new Date(nyNow); nyStart.setHours(0, 0, 0, 0);
-              sinceMs = Date.now() - (nyNow.getTime() - nyStart.getTime());
-            }
-            // 1. Model actions (both engines) from the model's own ledger.
-            let modelRows = [];
-            try {
-              const r = await env.DB.prepare(
-                `SELECT mode, ts, event_type, position_id, ticker, direction,
-                        qty, price, cash_delta, realized_pnl, note
-                   FROM account_ledger
-                  WHERE ts >= ?1 AND event_type IN ('ENTRY','TRIM','EXIT','DCA_BUY')
-                  ORDER BY ts DESC LIMIT 120`,
-              ).bind(sinceMs).all();
-              modelRows = r?.results || [];
-            } catch (_) { modelRows = []; }
-            // 2. Mothership forward/skip records (client ring).
-            let ring = [];
-            try {
-              ring = ((await kvGetJSON(env.KV_TIMED, "bridge:client:recent")) || [])
-                .filter((e) => Number(e?.ts) >= sinceMs);
-            } catch (_) { ring = []; }
-            // 3. Per-account outcomes from the bridge.
-            const bridgeHours = Math.max(1, Math.ceil((Date.now() - sinceMs) / 3600000));
-            let bridge = { accounts: [], ledger: [], audit: [] };
-            try {
-              const br = await _getBridge(`/bridge/day-actions?owner=${encodeURIComponent(email)}&hours=${bridgeHours}`);
-              const parsed = JSON.parse(br.body || "null");
-              if (parsed?.ok) bridge = parsed;
-            } catch (_) { /* bridge optional — timeline still renders model side */ }
-
-            const _normId = (id) => String(id || "").replace(/^inv-/, "").toLowerCase();
-            const _sideFamily = (s) => {
-              const v = String(s || "").toLowerCase();
-              if (v === "buy" || v === "add" || v === "open" || v === "dca") return "buy";
-              return "sell"; // trim / sell / exit / close
-            };
-            const _eventFamily = (ev) => (ev === "ENTRY" || ev === "DCA_BUY") ? "buy" : "sell";
-            const usedLedger = new Set();
-            const acctMeta = new Map((bridge.accounts || []).map((a) => [String(a.account_id).toLowerCase(), a]));
-            const _acctLabel = (row) => {
-              const meta = acctMeta.get(String(row.user_id || "").toLowerCase());
-              return meta?.label || row.broker_account_id || row.user_id || null;
-            };
-
-            const actions = modelRows.map((m) => {
-              const mid = _normId(m.position_id);
-              const fam = _eventFamily(String(m.event_type).toUpperCase());
-              const near = (ts) => Math.abs(Number(ts) - Number(m.ts)) < 2 * 3600 * 1000;
-              const fills = [];
-              const rejects = [];
-              (bridge.ledger || []).forEach((b, i) => {
-                if (usedLedger.has(i)) return;
-                const match = (b.model_trade_id && _normId(b.model_trade_id) === mid && near(b.ts))
-                  || (!b.model_trade_id && String(b.ticker || "").toUpperCase() === String(m.ticker || "").toUpperCase()
-                      && _sideFamily(b.side) === fam && near(b.ts));
-                if (!match || _sideFamily(b.side) !== fam) return;
-                usedLedger.add(i);
-                const rec = {
-                  account: _acctLabel(b),
-                  broker: b.broker || null,
-                  qty: Number(b.qty) || 0,
-                  price: Number(b.price) || 0,
-                  value: Number(b.value) || 0,
-                  status: b.status || null,
-                  reject_reason: b.reject_reason || null,
-                  ts: b.ts,
-                };
-                if (String(b.status || "").toLowerCase() === "ok" || String(b.status || "").toLowerCase() === "filled") fills.push(rec);
-                else rejects.push(rec);
-              });
-              // Audit-only rejects (preflight / manifest / dedupe never
-              // reach the account ledger).
-              for (const a of bridge.audit || []) {
-                const st = String(a.status || "").toLowerCase();
-                if (st === "ok") continue;
-                const match = (a.trade_id && _normId(a.trade_id) === mid && near(a.ts) && _sideFamily(a.side) === fam);
-                if (!match) continue;
-                if (!rejects.some((r) => r.reject_reason === a.reject_reason)) {
-                  rejects.push({
-                    account: _acctLabel(a),
-                    qty: Number(a.qty) || 0,
-                    status: st || "rejected",
-                    reject_reason: a.reject_reason || null,
-                    ts: a.ts,
-                  });
-                }
-              }
-              // Ring skip (mothership never forwarded — e.g. mirror off).
-              const ringMatch = ring.find((e) =>
-                _normId(e.trade_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
-              let mirror = "not_mirrored";
-              let mirrorReason = null;
-              if (fills.length) mirror = "mirrored";
-              else if (rejects.length) { mirror = "rejected"; mirrorReason = rejects[0].reject_reason || null; }
-              else if (ringMatch && String(ringMatch.status) === "skipped") {
-                mirror = "skipped"; mirrorReason = ringMatch.skip_reason || null;
-              } else if (ringMatch && String(ringMatch.status) === "ok") {
-                mirror = "forwarded";
-              }
-              return {
-                ts: m.ts,
-                mode: m.mode,
-                event: String(m.event_type).toUpperCase(),
-                ticker: String(m.ticker || "").toUpperCase(),
-                direction: m.direction || null,
-                qty: Number(m.qty) || 0,
-                price: Number(m.price) || 0,
-                value: Math.abs(Number(m.cash_delta) || 0),
-                realized_pnl: Number(m.realized_pnl) || 0,
-                note: m.note || null,
-                mirror,
-                mirror_reason: mirrorReason,
-                fills,
-                rejects,
-              };
+            const payload = await assembleBrokerDayActions(env, {
+              owner: email,
+              hoursParam: Number(url.searchParams.get("hours")) || 0,
+              getBridge: _getBridge,
             });
-            // Mirror-initiated events with no same-day model action (e.g.
-            // catch-up syncs healing an older position) — still shown so
-            // the account's own activity is complete.
-            const extras = [];
-            (bridge.ledger || []).forEach((b, i) => {
-              if (usedLedger.has(i)) return;
-              extras.push({
-                ts: b.ts,
-                mode: "mirror",
-                event: String(b.side || b.event_type || "ORDER").toUpperCase(),
-                ticker: String(b.ticker || "").toUpperCase(),
-                qty: Number(b.qty) || 0,
-                price: Number(b.price) || 0,
-                value: Number(b.value) || 0,
-                mirror: String(b.status || "").toLowerCase() === "ok" ? "mirrored" : "rejected",
-                mirror_reason: b.reject_reason || null,
-                fills: [],
-                rejects: [],
-                account: _acctLabel(b),
-              });
-            });
-            const all = actions.concat(extras).sort((a, b) => b.ts - a.ts);
-            const summary = {
-              actions: actions.length,
-              mirrored: all.filter((a) => a.mirror === "mirrored").length,
-              rejected: all.filter((a) => a.mirror === "rejected").length,
-              skipped: all.filter((a) => a.mirror === "skipped").length,
-              not_mirrored: all.filter((a) => a.mirror === "not_mirrored").length,
-              realized_pnl: actions.reduce((s, a) => s + (a.realized_pnl || 0), 0),
-            };
-            return sendJSON({
-              ok: true, since: sinceMs, actions: all, summary,
-              accounts: bridge.accounts || [],
-            }, 200, corsHeaders(env, req));
+            return sendJSON(payload, 200, corsHeaders(env, req));
           } catch (e) {
             return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
           }

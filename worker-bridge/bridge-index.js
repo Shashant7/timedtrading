@@ -614,7 +614,29 @@ export default {
               avg_cost: Number(p?.avg_cost ?? p?.average_cost ?? p?.cost_price ?? p?.avgPrice) || null,
             });
           }
-          const manifestRows = await recentManifestRows(env, { user_id: acct.user_id, limit: 200 });
+          // 2026-08-13 — Match manifest rows on user_id OR broker_account_id
+          // (same fix the reconciler needed on 2026-07-24): fan-out orders
+          // write rows under the OWNER's base user_id with the per-account
+          // broker_account_id, so matching user_id alone showed every
+          // model-managed position as "untracked" (AXON in the Roth IRA).
+          let manifestRows = [];
+          try {
+            const db = env?.BRIDGE_DB;
+            const acctBrokerId = resolveBrokerAccountId(acct);
+            if (db) {
+              const r = await db.prepare(`
+                SELECT * FROM mirror_trade_manifest
+                 WHERE (user_id = ?1 OR (?2 IS NOT NULL AND broker_account_id = ?2))
+                 ORDER BY updated_at DESC LIMIT 200
+              `).bind(
+                String(acct.user_id).toLowerCase(),
+                acctBrokerId ? String(acctBrokerId) : null,
+              ).all().catch(() => ({ results: [] }));
+              manifestRows = r?.results || [];
+            }
+          } catch (_) {
+            manifestRows = await recentManifestRows(env, { user_id: acct.user_id, limit: 200 });
+          }
           const seen = new Set();
           for (const row of manifestRows) {
             const sym = String(row?.ticker || "").toUpperCase();
