@@ -40,11 +40,38 @@ export function resolveNotifyRecipients(env, userRow) {
   const extras = (Array.isArray(userRow?.notify_emails) ? userRow.notify_emails : [])
     .map((e) => String(e || "").trim().toLowerCase())
     .filter((e) => e.includes("@"));
-  if (!extras.length) return null;
-  const admin = String(env?.BRIDGE_ADMIN_NOTIFY_EMAIL || "").trim().toLowerCase();
   const set = new Set(extras);
+  // Rows connected before partner_email was stamped (and the operator's own
+  // rows) carry no notify_emails. Fall back to the row's owner so the queue
+  // item always addresses a real inbox — grouping on a bare user_id like
+  // `op@x.com#webull#roth-ira` is not a deliverable address.
+  if (!set.size) {
+    const owner = ownerEmailForRow(userRow);
+    if (owner) set.add(owner);
+  }
+  if (!set.size) return null;
+  const admin = String(env?.BRIDGE_ADMIN_NOTIFY_EMAIL || "").trim().toLowerCase();
   if (admin) set.add(admin);
   return [...set];
+}
+
+/**
+ * The human inbox that owns a bridge account row. Webull sub-rows carry
+ * `owner_email` (not `email`), and their user_id is `{owner}#webull#{slug}`.
+ */
+export function ownerEmailForRow(userRow) {
+  const direct = String(userRow?.email || userRow?.owner_email || "").trim().toLowerCase();
+  if (direct.includes("@")) return direct;
+  const base = String(userRow?.user_id || "").split("#")[0].trim().toLowerCase();
+  return base.includes("@") ? base : null;
+}
+
+/** True when this row belongs to the operator/admin rather than a partner. */
+export function isAdminOwnedRow(env, userRow) {
+  const admin = String(env?.BRIDGE_ADMIN_NOTIFY_EMAIL || "").trim().toLowerCase();
+  if (!admin) return true; // no admin configured — preserve legacy content
+  const owner = ownerEmailForRow(userRow);
+  return !!owner && owner === admin;
 }
 
 const DEDUP_WINDOW_MS = {
@@ -431,9 +458,11 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   // fast:latest"). The bridge KV is the same namespace, so we can read
   // it directly. Renders in the digest as "System: 13/14 checks ok ·
   // 1 warn · 0 fail" with any failing/warning check names listed.
+  // Internal system-health checks are operator diagnostics — a partner's
+  // account digest must not carry them.
   let sanitySummary = null;
   try {
-    const kv = env?.BRIDGE_KV || env?.KV_TIMED;
+    const kv = isAdminOwnedRow(env, user) ? (env?.BRIDGE_KV || env?.KV_TIMED) : null;
     if (kv) {
       const raw = await kv.get("sanity_sweep:latest");
       if (raw) {
@@ -455,7 +484,7 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   return {
     skip: false,
     user_id: userId,
-    user_email: user.email || null,
+    user_email: user.email || ownerEmailForRow(user),
     user_display_name: user.display_name || userId.split("@")[0],
     broker: String(user.broker || "ibkr").toUpperCase(),
     broker_account_id: user.ibkr_account_id || user.rh_account_number || null,
@@ -576,21 +605,27 @@ export function renderDailyOwnerDigestEmail(digest) {
 export async function drainNotifyQueue(env, { limit = 200, peek = false } = {}) {
   const KV = env?.BRIDGE_KV;
   if (!KV) return [];
-  try {
-    const list = await KV.list({ prefix: "bridge:notify:queue:", limit });
-    const out = [];
-    for (const k of (list.keys || [])) {
-      const raw = await KV.get(k.name);
-      if (!raw) continue;
-      try {
-        out.push(JSON.parse(raw));
-      } catch (_) {}
-      // One-shot delete after read — unless peek/preview (send=false).
-      if (!peek) await KV.delete(k.name).catch(() => {});
+  // Two producers write to this queue: drift notifications
+  // (`bridge:notify:queue:`) and the 21:30 UTC daily owner digest
+  // (`bridge:notify:daily:`). Draining only the first left every daily
+  // digest to expire unsent.
+  const prefixes = ["bridge:notify:queue:", "bridge:notify:daily:"];
+  const out = [];
+  for (const prefix of prefixes) {
+    try {
+      const list = await KV.list({ prefix, limit });
+      for (const k of (list.keys || [])) {
+        const raw = await KV.get(k.name);
+        if (!raw) continue;
+        try {
+          out.push(JSON.parse(raw));
+        } catch (_) {}
+        // One-shot delete after read — unless peek/preview (send=false).
+        if (!peek) await KV.delete(k.name).catch(() => {});
+      }
+    } catch (e) {
+      console.warn(`[NOTIFY] drainQueue failed for ${prefix}:`, String(e?.message || e).slice(0, 200));
     }
-    return out;
-  } catch (e) {
-    console.warn("[NOTIFY] drainQueue failed:", String(e?.message || e).slice(0, 200));
-    return [];
   }
+  return out;
 }

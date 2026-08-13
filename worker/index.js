@@ -83275,8 +83275,36 @@ export default {
           let sent = 0;
           let dmSent = 0, dmSkipped = 0, dmFailed = 0;
           let skippedHealthy = 0;
+          // The queue carries two kinds: drift rows (coalesced into one
+          // Mirror Sync digest per user) and pre-rendered daily owner
+          // digests, which ship as-is to the account holder.
+          const dailyItems = (parsed.items || []).filter((i) => i?.kind === "daily_owner_digest");
+          const driftItems = (parsed.items || []).filter((i) => i?.kind !== "daily_owner_digest");
+          let dailySent = 0, dailySkipped = 0;
+          for (const item of dailyItems) {
+            const to = String(item?.user_email || "").toLowerCase().trim();
+            const content = item?.content || {};
+            if (!to.includes("@") || !content.subject || item?.dry_run === true) {
+              dailySkipped++;
+              continue;
+            }
+            if (!env?.SENDGRID_API_KEY || typeof sendEmail !== "function") { dailySkipped++; continue; }
+            try {
+              await sendEmail(env, {
+                to,
+                subject: content.subject,
+                html: content.html,
+                text: content.text,
+                category: "bridge_daily_owner_digest",
+              });
+              dailySent++;
+            } catch (e) {
+              dailySkipped++;
+              console.warn(`[NOTIFY_DRAIN] daily digest send failed for ${to}: ${String(e?.message || e).slice(0, 200)}`);
+            }
+          }
           const byUser = typeof groupMirrorNotifyItemsByUser === "function"
-            ? groupMirrorNotifyItemsByUser(parsed.items)
+            ? groupMirrorNotifyItemsByUser(driftItems)
             : new Map();
           const digests = [];
           for (const [userEmail, items] of byUser) {
@@ -83335,6 +83363,8 @@ export default {
             }
           }
           parsed.sent_count = sent;
+          parsed.daily_digest_sent = dailySent;
+          parsed.daily_digest_skipped = dailySkipped;
           parsed.send_mode = "digest";
           parsed.digest_count = digests.length;
           parsed.event_count = digests.reduce((n, d) => n + d.events.length, 0);
