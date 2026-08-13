@@ -4,6 +4,8 @@ import {
   parseMacroFromText,
   extractLevelsFromText,
   buildWireDiscordEmbed,
+  buildWireRowFromTweet,
+  decodeXWireText,
   DEFAULT_X_WATCHLIST,
 } from "./x-wire-tracker.js";
 
@@ -50,5 +52,42 @@ describe("x-wire-tracker parsing", () => {
     expect(embed.title).toContain("DeItaone");
     expect(embed.fields.some((f) => f.name === "Macro print")).toBe(true);
     expect(embed.fields.some((f) => f.name === "Why we follow")).toBe(true);
+  });
+
+  it("decodes X API HTML entities (S&amp;P → S&P)", () => {
+    const raw = "YARDENI LIFTS S&amp;P 500 TARGET TO 8,400\n\nEd Yardeni raised his S&amp;P 500 target to 8,400.";
+    expect(decodeXWireText(raw)).toBe(
+      "YARDENI LIFTS S&P 500 TARGET TO 8,400\n\nEd Yardeni raised his S&P 500 target to 8,400.",
+    );
+    expect(decodeXWireText("AT&amp;T &lt; NVDA &gt; &#39;quote&#39;")).toBe("AT&T < NVDA > 'quote'");
+    // Already-decoded text stays stable.
+    expect(decodeXWireText("S&P 500")).toBe("S&P 500");
+  });
+
+  it("persists decoded text from X API tweet payloads", () => {
+    const row = buildWireRowFromTweet("DeItaone", "macro_wire", {
+      id: "999",
+      text: "YARDENI LIFTS S&amp;P 500 TARGET TO 8,400",
+      created_at: "2026-08-13T10:49:00.000Z",
+    });
+    expect(row).not.toBeNull();
+    expect(row.text).toBe("YARDENI LIFTS S&P 500 TARGET TO 8,400");
+    expect(row.text).not.toContain("&amp;");
+  });
+
+  it("Discord embed description decodes entities for legacy D1 rows", () => {
+    const embed = buildWireDiscordEmbed({
+      handle: "DeItaone",
+      kind: "macro_wire",
+      text: "YARDENI LIFTS S&amp;P 500 TARGET TO 8,400\n\nHe now expects 2026 S&amp;P 500 earnings of $375.",
+      post_id: "456",
+      url: "https://x.com/DeItaone/status/456",
+      tickers_json: "[]",
+      levels_json: null,
+      macro_json: null,
+      created_at: "2026-08-13T10:49:00.000Z",
+    }, { reason: "Delta One — Walter Bloomberg real-time macro wire" });
+    expect(embed.description).toContain("S&P 500");
+    expect(embed.description).not.toContain("&amp;");
   });
 });
