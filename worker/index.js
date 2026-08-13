@@ -82594,12 +82594,18 @@ export default {
                 seenTickers.add(it.ticker);
                 const mp = modelByTicker.get(it.ticker) || null;
                 it.model_open = !!mp;
-                // Syncable = the model holds it long-term AND this account
-                // does not (missing or flat) AND mirroring is on.
                 const brokerFlat = !(Number(it.broker_qty) > 0.0001);
-                it.syncable = !!(mp && brokerFlat && acct.mirror_enabled && marketOpen);
-                if (mp && brokerFlat && !it.syncable) {
-                  it.sync_blocked_reason = !acct.mirror_enabled ? "mirror_off" : "outside_market_hours";
+                // 2026-08-13 v2 sync semantics (never forced, never an order):
+                //   auto_sync  — model holds it, account is flat: the model
+                //     buys in during its own natural windows (DCA add,
+                //     catch-up). Passive state; nothing for the user to do.
+                //   adoptable  — model holds it AND the account holds
+                //     user-initiated shares the mirror is not tracking:
+                //     "Sync with model" adopts the sleeve (bookkeeping only).
+                if (mp && brokerFlat) it.auto_sync = true;
+                if (mp && !brokerFlat && !it.managed) {
+                  it.adoptable = true;
+                  if (!acct.mirror_enabled) it.adopt_note = "mirror_off";
                 }
                 if (mp) it.model_stage = mp.investor_stage || null;
                 const row = pricesAllowed ? pf[it.ticker] : null;
@@ -82626,9 +82632,9 @@ export default {
                   }
                 }
               }
-              // Model positions this account holds nothing of — the user
-              // asked for these to be visible with a clear "can sync" or
-              // "cannot" answer instead of silently absent.
+              // Model positions this account holds nothing of — visible with
+              // the honest answer: the model buys in during its own windows;
+              // sync is never forced with a standalone order.
               for (const [sym, mp] of modelByTicker) {
                 if (seenTickers.has(sym)) continue;
                 const row = pricesAllowed ? pf[sym] : null;
@@ -82640,9 +82646,7 @@ export default {
                   sync_state: "not_synced",
                   broker_qty: 0,
                   avg_cost: null,
-                  syncable: !!(acct.mirror_enabled && marketOpen),
-                  ...(acct.mirror_enabled && !marketOpen ? { sync_blocked_reason: "outside_market_hours" } : {}),
-                  ...(!acct.mirror_enabled ? { sync_blocked_reason: "mirror_off" } : {}),
+                  auto_sync: true,
                   ...(row && Number(row.p) > 0 ? {
                     price: Number(row.p),
                     prev_close: Number(row.pc) || null,
@@ -82681,12 +82685,19 @@ export default {
             return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
           }
         }
-        // 2026-08-13 — Scoped position sync: buy the model's open long-term
-        // position on ONE of the owner's accounts. Guards: session must own
-        // the account, model must hold the ticker, account must be flat in
-        // it, market must be open (fractionals), 10-min per (account,
-        // ticker) cooldown. broker_account_id in the payload makes the
-        // bridge route single-account — fan-out is impossible here.
+        // 2026-08-13 v2 — "Sync with model" = ADOPTION, never an order.
+        // Operator: bound buy/sell orders must not fire because a sync was
+        // initiated. The three cases:
+        //   Model YES / broker NO  → nothing to do here; the model buys in
+        //     during its own natural windows (DCA adds, catch-up passes
+        //     that clear the model's gates). Surfaced as auto_sync in the
+        //     positions feed — this endpoint refuses politely.
+        //   Model NO / broker YES  → nothing to sync; explained.
+        //   Model YES / broker YES (user-initiated, untracked) → adopt the
+        //     holding under model management at the model's scaled sizing
+        //     (bridge /bridge/adopt-position — pure manifest bookkeeping;
+        //     the account's own entry price is ignored by model decisions,
+        //     shares above the sleeve stay user-owned).
         if (routeKey === "POST /timed/broker/sync-position") {
           try {
             const body = await req.json().catch(() => ({}));
@@ -82698,71 +82709,35 @@ export default {
             if (!ticker || !/^[A-Z.]{1,8}$/.test(ticker)) {
               return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
             }
-            if (!isNyRegularMarketOpen()) {
-              return sendJSON({ ok: false, error: "outside_market_hours", note: "Sync places fractional-share orders, which require regular trading hours." }, 200, corsHeaders(env, req));
-            }
             const pos = await env.DB.prepare(
               `SELECT id, ticker, total_shares, avg_entry, investor_stage
                  FROM investor_positions WHERE status = 'OPEN' AND ticker = ?1 AND total_shares > 0 LIMIT 1`,
             ).bind(ticker).first().catch(() => null);
             if (!pos) {
-              return sendJSON({ ok: false, error: "model_not_holding", note: "The model does not hold an open long-term position in this ticker, so there is nothing to sync." }, 200, corsHeaders(env, req));
+              return sendJSON({
+                ok: false, error: "model_not_holding",
+                note: "The model book has no open long-term position in this ticker, so there is nothing to associate. The mirror never touches holdings outside the model.",
+              }, 200, corsHeaders(env, req));
             }
-            const cooldownKey = `timed:broker:sync-cooldown:${accountId}:${ticker}`;
-            if (await env.KV_TIMED.get(cooldownKey)) {
-              return sendJSON({ ok: false, error: "sync_cooldown", note: "A sync for this position was requested in the last 10 minutes. Give the order time to fill." }, 200, corsHeaders(env, req));
-            }
-            // Resolve the account row (broker_account_id target + a flat
-            // check so a repeated sync cannot stack buys).
-            let acctRow = null;
-            try {
-              const br = await _getBridge(`/bridge/accounts?owner=${encodeURIComponent(email)}`);
-              const parsed = JSON.parse(br.body || "null");
-              acctRow = (parsed?.accounts || []).find((a) => String(a.user_id).toLowerCase() === accountId) || null;
-            } catch (_) { acctRow = null; }
-            const brokerAccountId = acctRow?.webull_account_id || acctRow?.broker_account_id || null;
-            if (!acctRow || !brokerAccountId) {
-              return sendJSON({ ok: false, error: "account_not_found" }, 404, corsHeaders(env, req));
-            }
-            if (acctRow.broker_integration_enabled !== true) {
-              return sendJSON({ ok: false, error: "mirror_off", note: "Enable mirroring on this account first — sync places a real order." }, 200, corsHeaders(env, req));
-            }
-            try {
-              const br = await _getBridge(`/bridge/positions?owner=${encodeURIComponent(email)}`);
-              const parsed = JSON.parse(br.body || "null");
-              const acctEntry = (parsed?.accounts || []).find((a) => String(a.account_id).toLowerCase() === accountId);
-              const held = (acctEntry?.items || []).find((it) => it.ticker === ticker && Number(it.broker_qty) > 0.0001);
-              if (held) {
-                return sendJSON({ ok: false, error: "already_holding", note: "This account already holds shares of this ticker." }, 200, corsHeaders(env, req));
-              }
-            } catch (_) { /* flat-check best-effort; bridge caps still apply */ }
-            let livePrice = Number(pos.avg_entry) || 0;
-            try {
-              const pf = (await kvGetJSON(env.KV_TIMED, "timed:prices")) || {};
-              if (Number(pf[ticker]?.p) > 0) livePrice = Number(pf[ticker].p);
-            } catch (_) { /* fall back to avg entry */ }
-            await env.KV_TIMED.put(cooldownKey, String(Date.now()), { expirationTtl: 600 }).catch(() => {});
-            const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
-            const out = await forwardInvestorMirror(env, {
-              kind: "open",
-              ticker,
-              shares: Number(pos.total_shares) || 0,
-              price: livePrice,
-              position_id: pos.id,
-              stage: pos.investor_stage || "accumulate",
-              reason: "self_service_position_sync",
-              source: "broker_connections_sync",
-              retry_nonce: String(Date.now()),
-              target: { user_id: accountId, broker_account_id: brokerAccountId },
-            });
-            return sendJSON({
-              ok: !!out?.ok,
-              ticker,
+            const out = await _postBridge("/bridge/adopt-position", {
+              owner: email,
               account_id: accountId,
-              result: out?.result?.response ?? null,
-              reject_reason: out?.bridge_reject_reason || null,
-              scaled_qty: out?.bridge_scaled_qty ?? null,
-            }, 200, corsHeaders(env, req));
+              ticker,
+              model_trade_id: pos.id,
+              model_qty: Number(pos.total_shares) || 0,
+              model_capital_usd: 100000,
+            });
+            let parsed = null;
+            try { parsed = JSON.parse(out.body || "null"); } catch (_) { parsed = null; }
+            if (!parsed) {
+              return sendJSON({ ok: false, error: out.kind || "bridge_unreachable" }, 200, corsHeaders(env, req));
+            }
+            if (parsed.ok) {
+              parsed.note = `Adopted ${parsed.adopted_qty} share(s) under model management (model-scaled target ${parsed.scaled_target}).`
+                + (parsed.excess_user_qty > 0 ? ` ${parsed.excess_user_qty} share(s) above the sleeve stay user-owned.` : "")
+                + " No order was placed — future model actions on this position now mirror to this account.";
+            }
+            return sendJSON(parsed, 200, corsHeaders(env, req));
           } catch (e) {
             return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
           }

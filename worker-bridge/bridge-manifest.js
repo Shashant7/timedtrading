@@ -316,6 +316,93 @@ export async function writeEntryManifest(env, payload, user, extras = {}) {
 }
 
 /**
+ * 2026-08-13 — Adopt a user-initiated broker position under model
+ * management (the "Sync with model" action on Broker Connections).
+ *
+ * NO ORDER IS PLACED. Adoption is pure bookkeeping — it writes the
+ * manifest association that the reducer guard and reconciler key on, so
+ * every FUTURE model action (trim / exit / DCA add) flows through the
+ * normal mirror path against the adopted sleeve. This is the
+ * institutional in-kind funding pattern: the client's existing shares
+ * fund the model sleeve at the model's sizing; the client's own entry
+ * price is irrelevant to model decisions, and shares above the sleeve
+ * stay user-owned (the reconciler treats broker > expected as
+ * user-added excess and ignores it).
+ *
+ * Idempotent: re-adoption updates the sleeve quantity and clears any
+ * suppression left from a prior drift (a manual re-buy after a
+ * mothership_orphan can be re-associated the same way).
+ *
+ * @param {object} env
+ * @param {object} args {
+ *   userId, tradeId, brokerAccountId, broker, mode, ticker, direction,
+ *   modelIntendedQty  — the model's scaled target for this account,
+ *   adoptQty          — shares actually adopted (min(held, scaled)),
+ *   brokerAvgCost     — account's own cost basis (display only),
+ *   note }
+ */
+export async function adoptUserPosition(env, args = {}) {
+  const db = env?.BRIDGE_DB;
+  if (!db) return { ok: false, action: "skipped", reason: "no_db" };
+  await ensureMirrorManifestSchema(env);
+  const userId = String(args?.userId || "").toLowerCase();
+  const tradeId = String(args?.tradeId || "").trim();
+  const brokerAccountId = String(args?.brokerAccountId || "default");
+  const ticker = String(args?.ticker || "").trim().toUpperCase();
+  const adoptQty = Number(args?.adoptQty);
+  const modelIntendedQty = Number(args?.modelIntendedQty) || adoptQty;
+  if (!userId || !tradeId || !ticker) {
+    return { ok: false, action: "skipped", reason: "missing_user_id_trade_id_or_ticker" };
+  }
+  if (!Number.isFinite(adoptQty) || adoptQty <= 0) {
+    return { ok: false, action: "skipped", reason: "adopt_qty_must_be_positive" };
+  }
+  const now = Date.now();
+  const note = String(args?.note || `adopted_user_position qty=${adoptQty}`).slice(0, 200);
+  try {
+    await db.prepare(`
+      INSERT INTO mirror_trade_manifest (
+        user_id, trade_id, broker_account_id, broker,
+        mode, instrument_type, options_structure,
+        ticker, direction, setup_name,
+        model_intended_qty, model_entry_ts, model_status,
+        broker_filled_qty, broker_remaining_qty, broker_avg_cost,
+        sync_state, sync_note, sync_last_checked_at,
+        mirror_suppressed, mirror_suppressed_at, mirror_suppressed_reason,
+        created_at, updated_at
+      ) VALUES (?1,?2,?3,?4,?5,'equity',NULL,?6,?7,'adopted_user_position',
+                ?8,?9,'OPEN',?10,?10,?11,'in_sync',?12,?9,0,NULL,NULL,?9,?9)
+      ON CONFLICT(user_id, trade_id, broker_account_id) DO UPDATE SET
+        model_intended_qty = excluded.model_intended_qty,
+        model_status = 'OPEN',
+        broker_filled_qty = excluded.broker_filled_qty,
+        broker_remaining_qty = excluded.broker_remaining_qty,
+        broker_avg_cost = excluded.broker_avg_cost,
+        sync_state = 'in_sync',
+        sync_note = excluded.sync_note,
+        sync_drift_count = 0,
+        mirror_suppressed = 0,
+        mirror_suppressed_at = NULL,
+        mirror_suppressed_reason = NULL,
+        updated_at = excluded.updated_at
+    `).bind(
+      userId, tradeId, brokerAccountId, String(args?.broker || "webull").toLowerCase(),
+      String(args?.mode || "investor").toLowerCase(),
+      ticker, String(args?.direction || "LONG").toUpperCase(),
+      modelIntendedQty, now,
+      adoptQty,
+      Number(args?.brokerAvgCost) || null,
+      note,
+    ).run();
+    return { ok: true, action: "adopted", adopt_qty: adoptQty };
+  } catch (e) {
+    console.warn(`[MANIFEST] adoptUserPosition failed for ${userId}/${tradeId}:`,
+      String(e?.message || e).slice(0, 200));
+    return { ok: false, action: "skipped", reason: `write_error:${String(e?.message || e).slice(0, 80)}` };
+  }
+}
+
+/**
  * Mark a manifest row as 'rejected' + suppress future mirrors.
  *
  * Called when preflightOrder rejects an ENTRY (the row should still be

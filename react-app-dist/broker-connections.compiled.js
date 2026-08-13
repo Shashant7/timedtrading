@@ -500,6 +500,10 @@ const SYNC_CHIP = {
   not_synced: {
     cls: "p-warn",
     label: "NOT SYNCED"
+  },
+  auto_sync: {
+    cls: "p-info",
+    label: "AUTO-SYNC"
   }
 };
 const HIST_CHIP = {
@@ -560,7 +564,7 @@ function PositionRow({
   syncBusy
 }) {
   const [open, setOpen] = useState(false);
-  const chip = SYNC_CHIP[it.sync_state] || {
+  const chip = it.auto_sync && !it.managed ? SYNC_CHIP.auto_sync : SYNC_CHIP[it.sync_state] || {
     cls: "p-warn",
     label: String(it.sync_state || "?").toUpperCase()
   };
@@ -569,7 +573,7 @@ function PositionRow({
   const upnl = Number(it.unrealized_pnl);
   const upnlPct = Number(it.unrealized_pnl_pct);
   const dc = dailyChangeFor(it);
-  const hasDetail = it.history && it.history.length || it.sync_note || it.syncable || it.sync_blocked_reason;
+  const hasDetail = it.history && it.history.length || it.sync_note || it.adoptable || it.auto_sync || !it.managed;
   const barPct = Number.isFinite(upnlPct) ? Math.max(-20, Math.min(20, upnlPct)) : 0;
   return React.createElement("div", null, React.createElement("div", {
     className: "pos-row",
@@ -587,7 +591,12 @@ function PositionRow({
       fontWeight: 800,
       fontSize: 13.5
     }
-  }, it.ticker, it.model_open && !it.managed && React.createElement("span", {
+  }, it.ticker, it.adoptable && React.createElement("span", {
+    className: "bc-pill p-mint",
+    style: {
+      marginLeft: 7
+    }
+  }, "CAN SYNC"), it.auto_sync && !it.adoptable && !holds && React.createElement("span", {
     className: "bc-pill p-mint",
     style: {
       marginLeft: 7
@@ -651,40 +660,46 @@ function PositionRow({
   }, chip.label))), open && React.createElement("div", {
     className: "pos-detail fade-in",
     onClick: e => e.stopPropagation()
-  }, it.syncable && React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      flexWrap: "wrap",
-      marginBottom: it.history?.length ? 10 : 0
-    }
-  }, React.createElement("span", {
+  }, it.auto_sync && !it.adoptable && React.createElement("div", {
     className: "dim",
     style: {
-      fontSize: 12
+      fontSize: 12,
+      lineHeight: 1.6,
+      marginBottom: it.history?.length ? 10 : 0
     }
-  }, "The model holds this position. Sync buys it on this account (sized to the account, capped by the limits) and mirrors every later model action."), React.createElement("button", {
+  }, "The model holds this position; this account is flat. The mirror picks it up automatically during the model's natural buy windows \u2014 a DCA add or a catch-up pass that clears the model's own entry gates. Sync is never forced with a standalone order, so nothing needs to be done here."), it.adoptable && React.createElement("div", {
+    style: {
+      marginBottom: it.history?.length ? 10 : 0
+    }
+  }, React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      lineHeight: 1.6,
+      marginBottom: 8
+    }
+  }, "These shares were bought outside the model (different entry, different size). Syncing places ", React.createElement("b", null, "no order"), " \u2014 a model-sized portion of the shares held here becomes model-managed: every future model action (trims, stop moves, exits, adds) mirrors to this account based on the model's own entry and signals, not this account's cost basis. A model exit can close the managed portion at a loss relative to this account's entry. Shares above the model's sizing stay user-owned and untouched."), it.adopt_note === "mirror_off" && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 11,
+      marginBottom: 8
+    }
+  }, "Mirroring is off for this account \u2014 model actions start flowing to the adopted position once mirroring is enabled."), React.createElement("button", {
     className: "bc-btn bc-btn-sm bc-btn-primary",
     disabled: syncBusy,
     onClick: () => {
-      if (confirm(`Sync ${it.ticker} to ${acct.label || "this account"}? A real buy order will be placed, sized to the account.`)) {
+      if (confirm(`Sync ${it.ticker} with the model?\n\nNo order is placed. A model-sized portion of the ${fmtQty(qty)} shares held becomes model-managed and will follow every future model action — including exits that may close it at a loss relative to this account's entry of ${Number(it.avg_cost) > 0 ? fmtUsd(it.avg_cost) : "n/a"}. Shares above the model's sizing stay user-owned.`)) {
         onSync(it.ticker);
       }
     }
-  }, syncBusy ? "Placing…" : `Sync ${it.ticker}`)), !it.syncable && it.sync_blocked_reason && it.model_open && React.createElement("div", {
+  }, syncBusy ? "Syncing…" : "Sync with model")), !it.managed && !it.model_open && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 12,
+      lineHeight: 1.6,
       marginBottom: it.history?.length ? 10 : 0
     }
-  }, "Sync unavailable: ", it.sync_blocked_reason === "mirror_off" ? "mirroring is off for this account." : "the market is closed (fractional orders need regular hours)."), !it.managed && !it.model_open && React.createElement("div", {
-    className: "dim",
-    style: {
-      fontSize: 12,
-      marginBottom: it.history?.length ? 10 : 0
-    }
-  }, "Held at the broker but not managed by the model \u2014 no mirror action available."), it.sync_note && it.managed && React.createElement("div", {
+  }, "Held at the broker but not part of the model book. The mirror never places orders against it \u2014 no action available."), it.sync_note && it.managed && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -764,13 +779,13 @@ function PositionsSection({
       if (json?.ok) {
         setSyncMsg({
           ok: true,
-          text: `${ticker} sync order placed — the reconciler confirms the fill within a few minutes.`
+          text: json?.note || `${ticker} is now model-managed.`
         });
-        setTimeout(() => setReloadTick(x => x + 1), 1500);
+        setTimeout(() => setReloadTick(x => x + 1), 1200);
       } else {
         setSyncMsg({
           ok: false,
-          text: json?.note || humanizeReason(json?.reject_reason || json?.error) || "Sync failed"
+          text: json?.note || humanizeReason(json?.error) || "Sync failed"
         });
       }
     } catch (e) {
@@ -828,7 +843,7 @@ function PositionsSection({
       margin: "0 0 6px",
       lineHeight: 1.6
     }
-  }, "Each account's holdings against the model book. Tap a row for its action history. Positions the model holds long-term but this account does not can be synced; broker-only holdings are never touched."), data?.prices_included === false && React.createElement("div", {
+  }, "Each account's holdings against the model book. Tap a row for its action history. AUTO-SYNC positions fill in on the model's own buy windows \u2014 sync is never forced. User-bought positions the model also holds can be handed to the model (CAN SYNC, no order placed); broker-only holdings are never touched."), data?.prices_included === false && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -1435,6 +1450,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786589426101:215027180
+// cache-bust:1786593509057:26500531
 
-// cache-bust:1786589426101:215027180
+// cache-bust:1786593509057:26500531

@@ -37,6 +37,13 @@
       `/timed/admin/broker-bridge/day-actions` + `/owner-positions`.
       Deployed worker (both envs) + bridge; verified live against real
       Roth IRA data. Branch: `cursor/broker-page-second-pass-dbdd`.
+      **v2 (same day):** sync reworked to NEVER place orders (operator:
+      bound buys/sells must not fire because a sync was initiated).
+      Model-yes/broker-no = AUTO-SYNC (model buys in its own DCA/catch-up
+      windows); model-no/broker-yes = explain only; both-yes-untracked =
+      adopt (`adoptUserPosition` manifest sleeve at model-scaled size,
+      entry price ignored, excess stays user-owned — institutional
+      in-kind funding). Order-placing sync path removed.
 - [x] **DCA sweep retry uplevel + notification cleanup (2026-08-12).**
       Operator follow-ups to the NVDA sweep: (1) the single 15:50 shot was
       slow and a single point of failure — now an immediate post-dispatch

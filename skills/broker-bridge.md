@@ -486,12 +486,26 @@ Second pass (2026-08-13):
   is flat in (`syncable` when mirror on + RTH, else
   `sync_blocked_reason`). `GET /timed/admin/broker-bridge/owner-positions`
   is the ops mirror of the bridge feed.
-- **Scoped position sync** — `POST /timed/broker/sync-position
-  { account_id, ticker }` buys the model's open long-term position on ONE
-  owned account: guards = ownership, model holds it, account flat, RTH
-  only, 10-min KV cooldown, mirror enabled. Passing `broker_account_id`
-  makes the bridge take `handleSingleAccountOrder` — fan-out impossible.
-  Sizing/caps are the bridge's normal per-account path.
+- **Sync = adoption, never an order (v2, 2026-08-13)** — operator:
+  bound buy/sell orders must not fire because a sync was initiated.
+  Three cases on the positions view:
+  - *Model YES / broker NO* → `auto_sync` (passive AUTO-SYNC chip). The
+    model buys in during its own natural windows (DCA add, catch-up pass
+    that clears the model's gates). Nothing for the user to do; sync is
+    never forced with a standalone order.
+  - *Model NO / broker YES* → NOT MIRRORED; the mirror never touches it
+    (copy explains; no action offered).
+  - *Model YES / broker YES but untracked (user-initiated trade)* →
+    `adoptable` (CAN SYNC chip). `POST /timed/broker/sync-position
+    { account_id, ticker }` → bridge `POST /bridge/adopt-position`:
+    writes the manifest association (`adoptUserPosition`) at the model's
+    scaled sizing — sleeve = min(held, model_qty × equity/model_capital),
+    equity from the reconciler's account snapshot (refuses when unknown).
+    ZERO orders placed. The account's own entry price is ignored by model
+    decisions (institutional in-kind funding: a model exit can close the
+    sleeve at a loss relative to the account's entry); shares above the
+    sleeve stay user-owned (reconciler user_added excess). Idempotent —
+    re-adoption re-rationalizes the sleeve and clears prior suppression.
 - **Reducer-in-flight reconcile override** — see the AXON lesson in
   `tasks/lessons.md` (2026-08-13): within 30 min of a TRIM/EXIT place,
   the unverified `sync_last_action_json` audit is the expected-qty source

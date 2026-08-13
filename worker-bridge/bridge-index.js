@@ -711,6 +711,132 @@ export default {
         }
         return json({ ok: true, owner, accounts: out, ts: Date.now() });
       }
+      // 2026-08-13 — Adopt a user-initiated broker position under model
+      // management ("Sync with model"). Pure bookkeeping — writes the
+      // manifest association at the model's scaled sizing; NO order is
+      // placed and none can fire as a side effect. Shares above the
+      // sleeve stay user-owned.
+      if (method === "POST" && path === "/bridge/adopt-position") {
+        if (operatorFail) return operatorFail;
+        const body = await req.json().catch(() => ({}));
+        const owner = String(body?.owner || "").trim().toLowerCase();
+        const accountId = String(body?.account_id || "").trim().toLowerCase();
+        const ticker = String(body?.ticker || "").trim().toUpperCase();
+        const modelTradeId = String(body?.model_trade_id || "").trim();
+        const modelQty = Number(body?.model_qty);
+        const modelCapital = Number(body?.model_capital_usd) > 0 ? Number(body.model_capital_usd) : 100000;
+        if (!owner || !accountId || !ticker || !modelTradeId) {
+          return json({ ok: false, error: "owner_account_id_ticker_model_trade_id_required" }, 400);
+        }
+        if (!Number.isFinite(modelQty) || modelQty <= 0) {
+          return json({ ok: false, error: "model_qty_must_be_positive" }, 400);
+        }
+        const accounts = await resolveBridgeAccounts(env, owner, { enabledOnly: false });
+        const acct = accounts.find((u) => String(u.user_id).toLowerCase() === accountId);
+        if (!acct || String(acct.status || "").toLowerCase() !== "connected") {
+          return json({ ok: false, error: "account_not_found_or_not_connected" }, 404);
+        }
+        const brokerAccountId = resolveBrokerAccountId(acct);
+        // Broker holding for the ticker — positions cache first (adoption
+        // is not latency-sensitive and must not burn rate limit).
+        let held = null;
+        try {
+          const cacheKey = `bridge:positions:${accountId}`;
+          const cached = env.BRIDGE_KV ? JSON.parse((await env.BRIDGE_KV.get(cacheKey)) || "null") : null;
+          let positions = cached && Date.now() - (Number(cached.ts) || 0) < 10 * 60 * 1000
+            ? cached.positions
+            : null;
+          if (!positions) {
+            const adapter = brokerAdapterFor(acct);
+            const res = await adapter.getEquityPositions(env, acct);
+            if (res?.ok && Array.isArray(res.positions)) {
+              positions = res.positions;
+              if (env.BRIDGE_KV) {
+                ctx?.waitUntil?.(env.BRIDGE_KV.put(cacheKey,
+                  JSON.stringify({ ts: Date.now(), positions }),
+                  { expirationTtl: 3600 }).catch(() => {}));
+              }
+            }
+          }
+          for (const p of positions || []) {
+            const sym = String(p?.ticker || p?.symbol || p?.instrument_symbol || "").toUpperCase();
+            if (sym !== ticker) continue;
+            held = {
+              qty: Number(p?.quantity ?? p?.qty ?? p?.position ?? p?.units) || 0,
+              avg_cost: Number(p?.avg_cost ?? p?.average_cost ?? p?.cost_price ?? p?.avgPrice) || null,
+            };
+            break;
+          }
+        } catch (e) {
+          return json({ ok: false, error: `positions_unavailable:${String(e?.message || e).slice(0, 120)}` }, 200);
+        }
+        if (!held || !(held.qty > 0)) {
+          return json({ ok: false, error: "account_holds_no_shares", note: "Nothing to adopt — this account is flat in the ticker. The model buys in during its natural windows instead." }, 200);
+        }
+        // Rationalize the sleeve to the model's sizing for THIS account:
+        // scaled = model qty × (account equity / model capital), capped at
+        // what the account actually holds. Equity comes from the
+        // reconciler's account snapshot — refuse rather than guess.
+        let equity = null;
+        try {
+          const { readAccountSnapshots } = await import("./bridge-account-ledger.js");
+          const snaps = await readAccountSnapshots(env, { owner_id: owner });
+          const snap = snaps.find((s) => String(s.broker_account_id) === String(brokerAccountId));
+          if (snap && Number(snap.equity_usd) > 0) equity = Number(snap.equity_usd);
+        } catch (_) { /* handled below */ }
+        if (!(equity > 0)) {
+          return json({ ok: false, error: "account_equity_unknown", note: "The account snapshot has no equity yet — the reconciler refreshes it within minutes of connecting. Retry shortly." }, 200);
+        }
+        const scaledTarget = Math.floor(modelQty * (equity / modelCapital) * 1e5) / 1e5;
+        if (!(scaledTarget > 0)) {
+          return json({ ok: false, error: "scaled_target_zero", note: "The model's allocation scales below a placeable size for this account." }, 200);
+        }
+        const adoptQty = Math.min(held.qty, scaledTarget);
+        const tradeId = modelTradeId.startsWith("inv-") ? modelTradeId : `inv-${modelTradeId}`;
+        const { adoptUserPosition } = await import("./bridge-manifest.js");
+        const result = await adoptUserPosition(env, {
+          userId: accountId,
+          tradeId,
+          brokerAccountId,
+          broker: resolveBrokerId(acct) || acct.broker || "webull",
+          mode: "investor",
+          ticker,
+          direction: "LONG",
+          modelIntendedQty: adoptQty,
+          adoptQty,
+          brokerAvgCost: held.avg_cost,
+          note: `adopted_user_position sleeve=${adoptQty} held=${held.qty} scaled_target=${scaledTarget}`,
+        });
+        if (!result?.ok) return json({ ok: false, error: result?.reason || "adopt_failed" }, 200);
+        await writeAudit(env, {
+          ts: Date.now(),
+          user_id: accountId,
+          trade_id: tradeId,
+          ticker,
+          action: "adopt_position",
+          side: "adopt",
+          qty: adoptQty,
+          status: "ok",
+          request_json: {
+            owner, broker_account_id: brokerAccountId,
+            held_qty: held.qty, scaled_target: scaledTarget,
+            adopt_qty: adoptQty, excess_user_qty: Math.max(0, held.qty - adoptQty),
+            model_qty: modelQty, model_capital_usd: modelCapital, equity_usd: equity,
+          },
+        }).catch(() => {});
+        return json({
+          ok: true,
+          ticker,
+          account_id: accountId,
+          adopted_qty: adoptQty,
+          held_qty: held.qty,
+          scaled_target: scaledTarget,
+          excess_user_qty: Math.max(0, Math.floor((held.qty - adoptQty) * 1e5) / 1e5),
+          avg_cost: held.avg_cost,
+          trade_id: tradeId,
+          orders_placed: 0,
+        }, 200);
+      }
       // 2026-08-13 — Day view for ONE owner (Broker Connections page):
       // every per-account fill/reject from the account ledger plus the
       // order-path audit rows (rejects with reasons, dedupes) in the
