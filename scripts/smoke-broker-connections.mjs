@@ -159,6 +159,15 @@ const checks = [
   ["model actions kpi", /Model actions/],
   ["model actions count from 72h", />4</],
   ["portfolio growth", /Portfolio growth/],
+  ["account performance row", /Account performance/],
+  ["all connected account copy", /Every connected account/],
+  ["mirror-on account card", /MIRROR ON/],
+  ["not-mirrored account card", /NOT MIRRORED/],
+  ["since first mirror row", /Since first mirror on/],
+  ["truthful longer-range disclaimer", /cash transfers can affect/],
+  ["all accounts filter", /All accounts/],
+  ["Roth account history filter", /Roth IRA · ON/],
+  ["Rollover account history filter", /Rollover IRA · OFF/],
   ["growth defaults to 1D", /Day change|class="on"[^>]*>1D|>1D</],
   ["1D chart mirrors Today's P&L", /\+\$22\.81/],
   ["1D chart day-pnl copy", /matches Today's P(&amp;|&)L|Day change matches/],
@@ -195,6 +204,43 @@ if (/Max orders \/ day|Max \$ \/ order/.test(html)) {
 } else {
   console.log("PASS  caps inputs removed from account cards");
 }
+const perfCards = [...window.document.querySelectorAll(".acct-perf-card")];
+const statusOrderOk = perfCards.length >= 2
+  && /MIRROR ON/.test(perfCards[0].textContent)
+  && /NOT MIRRORED/.test(perfCards[1].textContent);
+if (!statusOrderOk) {
+  failed++;
+  console.log("FAIL  account cards sort mirror-on before not-mirrored");
+} else {
+  console.log("PASS  account cards sort mirror-on before not-mirrored");
+}
+const mirrorCardMath = perfCards[0]
+  && /\$16,830/.test(perfCards[0].textContent)
+  && /\+\$22\.81/.test(perfCards[0].textContent)
+  && /\+\$412\.20/.test(perfCards[0].textContent);
+if (!mirrorCardMath) {
+  failed++;
+  console.log("FAIL  mirrored account value / day P&L / since-mirror math");
+} else {
+  console.log("PASS  mirrored account value / day P&L / since-mirror math");
+}
+const offCardMath = perfCards[1]
+  && /\$5,000/.test(perfCards[1].textContent)
+  && /NOT MIRRORED/.test(perfCards[1].textContent)
+  && /\+\$200\.00/.test(perfCards[1].textContent);
+if (!offCardMath) {
+  failed++;
+  console.log("FAIL  not-mirrored account value / history math");
+} else {
+  console.log("PASS  not-mirrored account value / history math");
+}
+const compareText = window.document.querySelector(".acct-compare")?.textContent || "";
+if (!/Mirror on · \+\$22\.81/.test(compareText) || !/Not mirrored · no period data/.test(compareText)) {
+  failed++;
+  console.log("FAIL  mirror group totals match account-period data");
+} else {
+  console.log("PASS  mirror group totals match account-period data");
+}
 if (renderError) {
   console.error("RENDER ERROR:", renderError);
   process.exit(1);
@@ -203,6 +249,24 @@ if (failed) {
   console.error(`\n${failed} check(s) failed. Body snapshot:\n`, html.slice(0, 2000));
   process.exit(1);
 }
+// Account cards focus that account's value history.
+const rolloverCard = perfCards.find((b) => /Rollover IRA/.test(b.textContent));
+if (!rolloverCard) {
+  failed++;
+  console.log("FAIL  Rollover account performance card missing");
+} else {
+  rolloverCard.click();
+  await new Promise((r) => setTimeout(r, 80));
+  if (!/Rollover IRA · day P(&amp;|&)L/.test(window.document.body.innerHTML)) {
+    failed++;
+    console.log("FAIL  account card focuses account value history");
+  } else {
+    console.log("PASS  account card focuses account value history");
+  }
+}
+const mirrorGroupBtn = [...window.document.querySelectorAll("button")].find((b) => b.textContent === "Mirror-on group");
+mirrorGroupBtn?.click();
+await new Promise((r) => setTimeout(r, 50));
 // Switch growth chart to 1W — must not collapse to a blank same-day line.
 const weekBtn = [...window.document.querySelectorAll("button")].find((b) => b.textContent === "1W");
 if (!weekBtn) {
@@ -212,7 +276,9 @@ if (!weekBtn) {
   weekBtn.click();
   await new Promise((r) => setTimeout(r, 80));
   const weekHtml = window.document.body.innerHTML;
-  const weekOk = /\+\$22\.81/.test(weekHtml) && /flat across this window|Today's P(&amp;|&)L/.test(weekHtml);
+  const weekOk = /\+\$22\.81/.test(weekHtml)
+    && /flat across this window|Today's P(&amp;|&)L/.test(weekHtml)
+    && /1W account value change/.test(weekHtml);
   if (!weekOk) {
     failed++;
     console.log("FAIL  1W chart rebuilds from day_pnl");
