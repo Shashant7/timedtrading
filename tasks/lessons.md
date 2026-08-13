@@ -6,6 +6,42 @@
 
 ---
 
+## Partner onboarding: daily digest never delivered [2026-08-13]
+
+**Symptom:** Sweep before letting a partner connect his own Webull login.
+Read paths were correctly scoped, but the daily account digest never
+arrived for anyone.
+
+**Root:** The bridge cron writes the rendered digest to
+`bridge:notify:daily:{user_id}:{day}`, while `drainNotifyQueue` listed
+only `bridge:notify:queue:`. Every digest sat in KV until its 7-day TTL
+expired. Separately, `resolveNotifyRecipients` returned `null` for rows
+without `notify_emails`, so the queue item carried no address and
+grouping keyed on a bare `user_id` (`op@x.com#webull#roth-ira`) — not a
+deliverable inbox.
+
+**Fix:** Drain both prefixes; send `kind: "daily_owner_digest"` items
+pre-rendered rather than coalescing them into the drift digest. Recipient
+falls back to the row owner (`email` → `owner_email` → `user_id` prefix).
+Internal sanity-sweep health is now admin-rows-only so it stays out of a
+partner's inbox.
+
+**Also confirmed (no change needed):** main worker forces `owner` =
+session email on every `/timed/broker/*` route; `mirror_participant` +
+`listMirrorParticipants` correctly fan model orders out to partner
+accounts. Options auto-mirror remains operator-only (no fan-out).
+
+## Broker Connections: skeleton vs final + Model P&L Net [2026-08-13]
+
+**Symptom:** Loading state was 4 flat bars + one empty box; final page has
+account-performance cards + growth chrome. Model P&L read as a single
+unrealized number with a confusing subtitle.
+
+**Fix:** `PageSkeleton` / `GrowthStackSkeleton` match the final section
+stack and card geometry. Model P&L primary = Net (mirrored session
+realized scaled by fill/model qty + open unrealized); card breaks out
+Realized / Unrealized. Mirrored value subtitle uses sleeve counts.
+
 ## Broker Connections: value history for non-mirrored accounts [2026-08-13]
 
 **Symptom:** Futures / Individual Cash / Margin / Rollover showed `$0.00`
