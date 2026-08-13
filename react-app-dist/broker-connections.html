@@ -16,14 +16,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1786603260688" />
-    <script defer src="/vendor/react.production.min.js?v=1786603260688"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1786603260688"></script>
-<script defer src="auth-gate.js?v=1786603260688"></script>
-    <script defer src="shared-price-utils.js?v=1786603260688"></script>
-    <script src="tt-bottom-nav.js?v=1786603260688" defer></script>
-    <script defer src="investor-nav-badge.js?v=1786603260688"></script>
-    <script src="tt-nav-extras.js?v=1786603260688" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1786605337874" />
+    <script defer src="/vendor/react.production.min.js?v=1786605337874"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1786605337874"></script>
+<script defer src="auth-gate.js?v=1786605337874"></script>
+    <script defer src="shared-price-utils.js?v=1786605337874"></script>
+    <script src="tt-bottom-nav.js?v=1786605337874" defer></script>
+    <script defer src="investor-nav-badge.js?v=1786605337874"></script>
+    <script src="tt-nav-extras.js?v=1786605337874" defer></script>
+    <script defer src="ds-components.js?v=1786605337874"></script>
+    <script defer src="shared-lane-card.js?v=1786605337874"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
@@ -96,8 +98,26 @@
       .tl-acct-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
 
       /* ── positions ─────────────────────────────────────────────── */
-      .pos-row { display: grid; grid-template-columns: 34px minmax(90px, 1.2fr) 1fr 1fr 1.1fr auto; gap: 10px; align-items: center; padding: 10px 4px; border-top: 1px solid var(--tt-border-weak); }
-      .pos-row:hover { background: rgba(255,255,255,0.015); }
+      .pos-card {
+        position: relative; padding: 14px 16px; margin: 10px 0 0;
+        background: rgba(255,255,255,0.02); border: 1px solid var(--tt-border-weak);
+        border-radius: 14px; transition: background 0.12s, border-color 0.12s;
+      }
+      .pos-card:hover { background: rgba(255,255,255,0.035); border-color: rgba(255,255,255,0.14); }
+      .pos-card.pos-card--up { border-left: 3px solid var(--tt-success, #34d399); }
+      .pos-card.pos-card--dn { border-left: 3px solid var(--tt-danger, #ef4444); }
+      .pos-card.pos-card--flat { border-left: 3px solid rgba(255,255,255,0.12); }
+      .pos-row { display: grid; grid-template-columns: 34px minmax(90px, 1.2fr) 1fr 1fr 1.1fr auto; gap: 10px; align-items: center; padding: 0; }
+      .pos-guide {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        margin-top: 8px; font-size: 12px; color: var(--tt-text-2);
+      }
+      .pos-guide .g-icon {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 18px; height: 18px; border-radius: 999px;
+        background: rgba(56,242,161,0.14); color: var(--vf-primary, #38F2A1);
+        font-size: 10px; font-weight: 800;
+      }
       .pos-head { display: grid; grid-template-columns: 34px minmax(90px, 1.2fr) 1fr 1fr 1.1fr auto; gap: 10px; padding: 2px 4px 7px; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--tt-text-dim); }
       @media (max-width: 720px) {
         .pos-row { grid-template-columns: 30px 1fr auto; grid-template-areas: "av tick sync" "av px pnl"; row-gap: 4px; }
@@ -127,9 +147,15 @@
     </style>
   </head>
   <body class="vf-page">
+    <!-- Global nav (Today · Model · Portfolio · Insights …) — same shared
+         header used across the journey pages. Must come before the app root
+         so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
+         badge) find their mount target. -->
+    <div id="global-nav-root"></div>
+    <script defer src="shared-nav.js?v=1786605337874"></script>
     <div id="root"></div>
-    <script defer src="broker-connections.compiled.js?v=1786603260688"></script>
+    <script defer src="broker-connections.compiled.js?v=1786605337874"></script>
   </body>
 </html>
 
-<!-- cache-bust:1786603260688:118878998 -->
+<!-- cache-bust:1786605337874:999636259 -->
