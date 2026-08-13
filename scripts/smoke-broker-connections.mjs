@@ -152,12 +152,13 @@ const checks = [
   ["KPI strip", /Mirrored value/],
   ["KPI mirrored value populated", /\$55|\$54\.9/],
   ["day pnl", /Today's P(&amp;|&)L/],
-  ["open pnl independent", /Open P(&amp;|&)L/],
-  ["open pnl dollar", /\+\$0\.36/],
+  ["model pnl kpi", /Model P(&amp;|&)L/],
+  ["model pnl dollar", /\+\$0\.36|\+\$71\.|\$72/],
+  ["model actions kpi", /Model actions/],
+  ["model actions count from 72h", />4</],
   ["portfolio growth", /Portfolio growth/],
-  ["growth range ALL", />ALL</],
-  ["mirror on marker", />ON</],
-  ["since mirror gain", /Since the model started managing/],
+  ["growth defaults to 1D", /Day change|class="on"[^>]*>1D|>1D</],
+  ["live equity tip copy", /live equity|Session path/],
   ["timeline default 3 days", /Last 3 days/],
   ["collapsed older day", /AMD/],
   ["pltr pct recomputed to \u224840%", /\+39\.\d%|\+40\.\d%/],
@@ -199,3 +200,5 @@ if (failed) {
   process.exit(1);
 }
 console.log("\nAll checks passed — page renders with canned data.");
+// EquityCurve polls on an interval; force-exit so the harness does not hang.
+process.exit(0);

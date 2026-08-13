@@ -28,6 +28,39 @@
       .dn { color: var(--tt-danger, #ef4444); }
       .dim { color: var(--tt-text-dim, #6E867D); }
 
+      /* Top nav — same structure as journey pages (shared-nav.js).
+         Without these rules the brand + links stack and look like a
+         second broken nav row above the real header. */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(11, 20, 16, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.08));
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand {
+        display: inline-flex; align-items: center; gap: 10px;
+        text-decoration: none; color: var(--tt-text, #e8f0ec); font-weight: 700;
+      }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: var(--tt-text-muted, #8aa399);
+        text-decoration: none; padding: 6px 12px; border-radius: 8px;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
+      .nav-link.active {
+        color: var(--tt-accent, #38F2A1);
+        background: rgba(56, 242, 161, 0.12);
+      }
+      .nav-link.learn { color: var(--tt-up-soft, #6ee7b7); }
+      .nav-link.faq { color: var(--tt-text-2, #a3b5ad); }
+
       /* ── chips + pills ─────────────────────────────────────────── */
       .bc-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; white-space: nowrap; }
       .bc-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -69,6 +102,12 @@
       .eq-range button.on { background: rgba(56,242,161,0.12); color: var(--vf-primary, #38F2A1); border-color: rgba(56,242,161,0.35); }
       .eq-acct { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
       .eq-chart { width: 100%; height: 220px; display: block; }
+      .eq-chart .eq-line { stroke-linejoin: round; stroke-linecap: round; animation: eqDraw 0.85s ease-out both; }
+      .eq-chart .eq-area { animation: eqFade 0.7s ease-out both; }
+      .eq-live { animation: eqPulse 1.6s ease-in-out infinite; }
+      @keyframes eqDraw { from { stroke-dashoffset: 1200; opacity: 0.35; } to { stroke-dashoffset: 0; opacity: 1; } }
+      @keyframes eqFade { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes eqPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
       .eq-mark-on { stroke: var(--tt-success, #34d399); }
       .eq-mark-off { stroke: rgba(255,255,255,0.28); }
       .tl-day-h { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-dim); padding: 8px 0 4px; }
@@ -1004,6 +1043,23 @@
         const [busy, setBusy] = useState(false);
         const [msg, setMsg] = useState(null);
 
+        const submit = async (e) => {
+          e?.preventDefault?.();
+          if (busy || !appKey.trim() || !appSecret.trim()) return;
+          setBusy(true); setMsg(null);
+          try {
+            const json = await apiPost("/timed/broker/webull/connect", { app_key: appKey.trim(), app_secret: appSecret.trim() });
+            if (json?.ok) {
+              setMsg({ ok: true, text: `Connected — ${json.accounts_connected || 0} account(s) found` });
+              setAppKey(""); setAppSecret("");
+              onConnected();
+            } else {
+              setMsg({ ok: false, text: json?.note || json?.error || "Connection failed — check the key pair" });
+            }
+          } catch (err) { setMsg({ ok: false, text: String(err?.message || err) }); }
+          finally { setBusy(false); }
+        };
+
         return (
           <div>
             {!compact && (
@@ -1018,30 +1074,20 @@
                 </ol>
               </div>
             )}
-            <div className="lbl">App Key</div>
-            <input className="bc-input" value={appKey} autoComplete="off" spellCheck="false"
-              placeholder="wb_app_key…" onChange={(e) => setAppKey(e.target.value)} />
-            <div className="lbl">App Secret</div>
-            <input className="bc-input" value={appSecret} type="password" autoComplete="off"
-              placeholder="••••••••••••" onChange={(e) => setAppSecret(e.target.value)} />
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
-              <button className="bc-btn bc-btn-primary" disabled={busy || !appKey.trim() || !appSecret.trim()}
-                onClick={async () => {
-                  setBusy(true); setMsg(null);
-                  try {
-                    const json = await apiPost("/timed/broker/webull/connect", { app_key: appKey.trim(), app_secret: appSecret.trim() });
-                    if (json?.ok) {
-                      setMsg({ ok: true, text: `Connected — ${json.accounts_connected || 0} account(s) found` });
-                      setAppKey(""); setAppSecret("");
-                      onConnected();
-                    } else {
-                      setMsg({ ok: false, text: json?.note || json?.error || "Connection failed — check the key pair" });
-                    }
-                  } catch (e) { setMsg({ ok: false, text: String(e?.message || e) }); }
-                  finally { setBusy(false); }
-                }}>{busy ? "Validating…" : "Connect"}</button>
-              {msg && <span className={msg.ok ? "msg-ok" : "msg-err"}>{msg.text}</span>}
-            </div>
+            <form onSubmit={submit} autoComplete="off">
+              <div className="lbl">App Key</div>
+              <input className="bc-input" name="webull_app_key" value={appKey} autoComplete="off" spellCheck="false"
+                placeholder="wb_app_key…" onChange={(e) => setAppKey(e.target.value)} />
+              <div className="lbl">App Secret</div>
+              <input className="bc-input" name="webull_app_secret" value={appSecret} type="password" autoComplete="new-password"
+                placeholder="••••••••••••" onChange={(e) => setAppSecret(e.target.value)} />
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 14, flexWrap: "wrap" }}>
+                <button type="submit" className="bc-btn bc-btn-primary" disabled={busy || !appKey.trim() || !appSecret.trim()}>
+                  {busy ? "Validating…" : "Connect"}
+                </button>
+                {msg && <span className={msg.ok ? "msg-ok" : "msg-err"}>{msg.text}</span>}
+              </div>
+            </form>
             <p className="dim" style={{ fontSize: 11, margin: "12px 0 0", lineHeight: 1.6 }}>
               The key pair is validated against Webull before anything is stored, then encrypted at rest.
               Keys never appear in the browser again after this step.
@@ -1109,21 +1155,50 @@
         return out;
       }
 
-      function EquityCurve() {
+      function EquityCurve({ liveAccounts }) {
         const [data, setData] = useState(null);
-        const [range, setRange] = useState("ALL");
+        const [range, setRange] = useState("1D");
         const [focus, setFocus] = useState("mirrored");
+        const [tick, setTick] = useState(0);
 
         useEffect(() => {
           let alive = true;
-          apiGet("/timed/broker/equity-curve").then((j) => {
-            if (alive && j?.ok) setData(j);
-            else if (alive) setData({ ok: false, accounts: [] });
-          }).catch(() => { if (alive) setData({ ok: false, accounts: [] }); });
-          return () => { alive = false; };
+          const load = () => {
+            apiGet("/timed/broker/equity-curve").then((j) => {
+              if (alive && j?.ok) setData(j);
+              else if (alive) setData({ ok: false, accounts: [] });
+            }).catch(() => { if (alive) setData({ ok: false, accounts: [] }); });
+          };
+          load();
+          // Live refresh while the page is open — denser samples land as
+          // the reconciler / bridge GET stamps 5-min buckets.
+          const id = setInterval(() => { load(); setTick((n) => n + 1); }, 60000);
+          return () => { alive = false; clearInterval(id); };
         }, []);
 
-        const accounts = data?.accounts || [];
+        const accounts = useMemo(() => {
+          const rows = data?.accounts || [];
+          if (!liveAccounts?.length) return rows;
+          const now = Date.now();
+          return rows.map((a) => {
+            const live = liveAccounts.find((p) =>
+              (a.user_id && p.account_id === a.user_id)
+              || (a.broker_account_id && (p.broker_account_id === a.broker_account_id || p.webull_account_id === a.broker_account_id))
+              || (a.label && p.label === a.label));
+            const eq = Number(live?.equity_usd);
+            if (!Number.isFinite(eq)) return a;
+            const pts = [...(a.points || [])].sort((x, y) => x.ts - y.ts);
+            const last = pts[pts.length - 1];
+            if (!last) pts.push({ ts: now, equity: eq });
+            else if (now - last.ts > 20_000 || Math.abs(last.equity - eq) > 0.005) {
+              pts.push({ ts: now, equity: eq });
+            } else {
+              pts[pts.length - 1] = { ts: now, equity: eq };
+            }
+            return { ...a, points: pts, equity: eq };
+          });
+        }, [data, liveAccounts, tick]);
+
         const selected = useMemo(() => {
           if (focus === "all") return accounts;
           if (focus === "mirrored") return accounts.filter((a) => a.mirror_enabled || (a.markers || []).some((m) => m.on));
@@ -1144,6 +1219,8 @@
         }, [selected, sinceTs]);
 
         const lastEq = points.length ? points[points.length - 1].equity : null;
+        // For 1D, day change anchors on the first sample in the window
+        // (prior close / session open). Longer ranges use the first point.
         const firstEq = points.length ? points[0].equity : null;
         const delta = (Number.isFinite(lastEq) && Number.isFinite(firstEq)) ? lastEq - firstEq : null;
         const deltaPct = (Number.isFinite(delta) && firstEq) ? (delta / firstEq) * 100 : null;
@@ -1152,22 +1229,39 @@
         const up = (delta == null) ? true : delta >= 0;
         const stroke = up ? "var(--tt-success, #34d399)" : "var(--tt-danger, #ef4444)";
         const fill = up ? "rgba(52,211,153,0.14)" : "rgba(239,68,68,0.12)";
+        const rangeLabel = range === "1D" ? "today" : (range === "ALL" ? "all time" : range);
 
         const W = 640, H = 200, padL = 6, padR = 6, padT = 18, padB = 22;
         let path = "", area = "";
+        let liveX = null, liveY = null;
         const marks = [];
         if (points.length >= 1) {
           const t0 = points[0].ts;
-          const t1 = points[points.length - 1].ts || t0 + 1;
+          // Stretch the x-axis to "now" on 1D so a live tip sits at the
+          // right edge even when the last sample is a few minutes old.
+          const t1 = Math.max(points[points.length - 1].ts, range === "1D" ? Date.now() : points[points.length - 1].ts) || t0 + 1;
           const eqs = points.map((p) => p.equity);
           let lo = Math.min(...eqs), hi = Math.max(...eqs);
-          if (hi === lo) { lo = lo * 0.99; hi = hi * 1.01 || 1; }
+          // Flat session still gets a readable band (Robinhood-style).
+          const pad = Math.max(Math.abs(lo) * 0.004, 1);
+          if (hi === lo) { lo -= pad; hi += pad; }
+          else {
+            const span = hi - lo;
+            lo -= span * 0.08;
+            hi += span * 0.08;
+          }
           const xOf = (ts) => padL + ((ts - t0) / Math.max(1, t1 - t0)) * (W - padL - padR);
           const yOf = (eq) => padT + (1 - (eq - lo) / (hi - lo)) * (H - padT - padB);
-          path = points.map((p, i) => `${i ? "L" : "M"}${xOf(p.ts).toFixed(1)},${yOf(p.equity).toFixed(1)}`).join(" ");
-          const lastX = xOf(points[points.length - 1].ts);
-          const firstX = xOf(points[0].ts);
+          const plot = [...points];
+          if (range === "1D" && plot.length && plot[plot.length - 1].ts < t1 - 1000) {
+            plot.push({ ts: t1, equity: plot[plot.length - 1].equity });
+          }
+          path = plot.map((p, i) => `${i ? "L" : "M"}${xOf(p.ts).toFixed(1)},${yOf(p.equity).toFixed(1)}`).join(" ");
+          const lastX = xOf(plot[plot.length - 1].ts);
+          const firstX = xOf(plot[0].ts);
           area = `${path} L${lastX.toFixed(1)},${H - padB} L${firstX.toFixed(1)},${H - padB} Z`;
+          liveX = lastX;
+          liveY = yOf(plot[plot.length - 1].equity);
           for (const m of markers) {
             if (m.ts < t0 || m.ts > t1) continue;
             marks.push({ x: xOf(m.ts), on: m.on, label: m.label });
@@ -1179,19 +1273,21 @@
             <div className="sec-head">
               <div>
                 <div className="tt-sec-title">Portfolio growth</div>
-                <div className="tt-sec-h" style={{ fontSize: 18 }}>Mirrored accounts vs model start</div>
+                <div className="tt-sec-h" style={{ fontSize: 18 }}>
+                  {range === "1D" ? "Day change · live equity" : "Mirrored accounts vs model start"}
+                </div>
               </div>
               <div className="eq-range">
                 {EQ_RANGES.map((r) => (
-                  <button key={r.id} className={range === r.id ? "on" : ""} onClick={() => setRange(r.id)}>{r.id}</button>
+                  <button key={r.id} type="button" className={range === r.id ? "on" : ""} onClick={() => setRange(r.id)}>{r.id}</button>
                 ))}
               </div>
             </div>
             <div className="eq-acct">
-              <button className={`bc-pill ${focus === "mirrored" ? "p-mint" : "p-off"}`} onClick={() => setFocus("mirrored")} style={{ cursor: "pointer", border: "none" }}>Mirrored</button>
-              <button className={`bc-pill ${focus === "all" ? "p-mint" : "p-off"}`} onClick={() => setFocus("all")} style={{ cursor: "pointer", border: "none" }}>All accounts</button>
+              <button type="button" className={`bc-pill ${focus === "mirrored" ? "p-mint" : "p-off"}`} onClick={() => setFocus("mirrored")} style={{ cursor: "pointer", border: "none" }}>Mirrored</button>
+              <button type="button" className={`bc-pill ${focus === "all" ? "p-mint" : "p-off"}`} onClick={() => setFocus("all")} style={{ cursor: "pointer", border: "none" }}>All accounts</button>
               {accounts.map((a) => (
-                <button key={a.broker_account_id || a.user_id} className={`bc-pill ${(focus === a.broker_account_id || focus === a.user_id) ? "p-mint" : "p-off"}`}
+                <button type="button" key={a.broker_account_id || a.user_id} className={`bc-pill ${(focus === a.broker_account_id || focus === a.user_id) ? "p-mint" : "p-off"}`}
                   onClick={() => setFocus(a.broker_account_id || a.user_id)} style={{ cursor: "pointer", border: "none" }}>
                   {a.label || a.broker_account_id}
                 </button>
@@ -1200,7 +1296,7 @@
             {data === null && <div className="skel" style={{ height: 220, marginTop: 8 }} />}
             {data !== null && points.length === 0 && (
               <div className="dim" style={{ fontSize: 13, padding: "18px 0" }}>
-                Growth history starts as the reconciler snapshots equity. The first point lands on the next cycle; mirror on/off markers still plot once recorded.
+                Growth history starts as the reconciler snapshots equity every few minutes. The first points land on the next cycle; mirror on/off markers still plot once recorded.
               </div>
             )}
             {points.length > 0 && (
@@ -1209,46 +1305,60 @@
                   <div className="k-val mono" style={{ fontSize: 26, fontWeight: 800 }}>{fmtUsd(lastEq, { compact: true })}</div>
                   {delta != null && (
                     <div className={`mono ${up ? "up" : "dn"}`} style={{ fontSize: 14, fontWeight: 700 }}>
-                      {fmtSigned(delta)}{deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : ""} {range === "ALL" ? "all time" : range}
+                      {fmtSigned(delta)}{deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : ""} {rangeLabel}
                     </div>
                   )}
                 </div>
-                {hasMirrorGain && (
+                {hasMirrorGain && range !== "1D" && (
                   <div className="dim" style={{ fontSize: 12, marginBottom: 6 }}>
                     Since the model started managing
                     {selected.length === 1 ? ` ${selected[0].label}` : " these accounts"}
                     : <b className={`mono ${mirrorGain >= 0 ? "up" : "dn"}`}>{fmtSigned(mirrorGain)}</b>
                   </div>
                 )}
+                {range === "1D" && (
+                  <div className="dim" style={{ fontSize: 12, marginBottom: 6 }}>
+                    Session path from the earliest sample in the last 24h to the live equity tip. Overall P&amp;L sits in the KPI strip above.
+                  </div>
+                )}
                 <svg className="eq-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label="Portfolio equity curve">
-                  {area && <path d={area} fill={fill} />}
+                  {area && <path className="eq-area" d={area} fill={fill} />}
                   {marks.map((m, i) => (
                     <g key={i}>
                       <line x1={m.x} x2={m.x} y1={padT} y2={H - padB} className={m.on ? "eq-mark-on" : "eq-mark-off"}
                         strokeWidth="1.25" strokeDasharray="3 3" />
-                      <text x={m.x + 3} y={padT - 4} fill={m.on ? "var(--tt-success)" : "var(--tt-text-dim)"} fontSize="9" fontWeight="700">
+                      <text x={m.x + 3} y={padT - 4} fill={m.on ? "var(--tt-success)" : "#a3b5ad"} fontSize="9" fontWeight="700">
                         {m.on ? "ON" : "OFF"}
                       </text>
                     </g>
                   ))}
-                  {path && <path d={path} fill="none" stroke={stroke} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />}
-                  {points.length && (
+                  {path && (
+                    <path className="eq-line" d={path} fill="none" stroke={stroke} strokeWidth="2.4"
+                      strokeDasharray="1200" style={{ strokeDashoffset: 0 }} />
+                  )}
+                  {liveX != null && liveY != null && (
+                    <g className="eq-live">
+                      <circle cx={liveX} cy={liveY} r="5.5" fill={stroke} opacity="0.25" />
+                      <circle cx={liveX} cy={liveY} r="3" fill={stroke} />
+                    </g>
+                  )}
+                  {points.length > 0 && (
                     <text x={padL} y={H - 6} fill="#a3b5ad" fontSize="10">
-                      {fmtDay(points[0].ts)}
+                      {range === "1D" ? fmtTime(points[0].ts) : fmtDay(points[0].ts)}
                     </text>
                   )}
-                  {points.length > 1 && (
+                  {points.length > 0 && (
                     <text x={W - padR} y={H - 6} fill="#a3b5ad" fontSize="10" textAnchor="end">
-                      {fmtDay(points[points.length - 1].ts)}
+                      {range === "1D" ? "Now" : fmtDay(points[points.length - 1].ts)}
                     </text>
                   )}
                 </svg>
-                {points.length <= 1 && (
+                {points.length <= 2 && (
                   <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
-                    Growth history collects one point per hour. Full curve appears after a few reconciler cycles.
+                    Building the intraday curve — samples land every ~5 minutes while the mirror reconciler runs.
                   </div>
                 )}
-                {marks.length > 0 && (
+                {marks.length > 0 && range !== "1D" && (
                   <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
                     Vertical lines mark each mirror on / mirror off for the selected accounts.
                   </div>
@@ -1280,12 +1390,12 @@
 
         useEffect(() => { refresh(); }, [refresh]);
 
-        // Day summary for the KPI strip (single fetch shared w/ nothing else
-        // — the timeline component fetches its own window).
+        // Same 72h window as the timeline so "Model actions" can fall back
+        // to the prior session when today's NY book is still empty.
         useEffect(() => {
           if (!provisioned) return;
           let alive = true;
-          apiGet("/timed/broker/day-actions").then((j) => { if (alive && j?.ok) setDayData(j); }).catch(() => {});
+          apiGet("/timed/broker/day-actions?hours=72").then((j) => { if (alive && j?.ok) setDayData(j); }).catch(() => {});
           return () => { alive = false; };
         }, [provisioned, accounts]);
 
@@ -1322,81 +1432,99 @@
         const anyEnabled = (accounts || []).some((a) => a.broker_integration_enabled === true);
         const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
 
-        // KPI totals from the positions payload. Prefer managed (mirrored)
-        // book value; fall back to per-item market_value / avg_cost×qty when
-        // the account summary is empty (price-enrichment miss).
+        // KPI totals:
+        //  - Mirrored value / Model P&L = model-managed sleeves only
+        //  - Today's P&L = overall day change on mirror-on accounts
+        //    (includes user-owned holdings so the strip can segregate)
         const totals = useMemo(() => {
           const accs = posData?.accounts || [];
-          let value = 0, day = 0, open = 0, heldQty = 0;
-          let hasDay = false, hasOpen = false;
+          let value = 0, day = 0, model = 0, managedQty = 0, dayQty = 0;
+          let hasDay = false, hasModel = false;
           for (const a of accs) {
-            let acctVal = 0;
+            const mirrorOn = a.mirror_enabled === true;
+            let acctManagedVal = 0;
+            let acctDayFromItems = 0;
+            let acctDayItems = 0;
             for (const it of a.items || []) {
               const qty = Number(it.broker_qty) || 0;
               if (!(qty > 0.0001)) continue;
-              // Mirrored value = model-managed sleeves (+ adoptable once synced).
-              // Untracked user holdings stay out of the headline KPI.
+              // Overall day change: every held lot on a mirror-on account.
+              if (mirrorOn && Number.isFinite(Number(it.day_pnl))) {
+                day += Number(it.day_pnl);
+                hasDay = true;
+                dayQty += qty;
+                acctDayFromItems += Number(it.day_pnl);
+                acctDayItems += qty;
+              }
               if (!it.managed) continue;
-              heldQty += qty;
+              managedQty += qty;
               const px = Number(it.price) > 0 ? Number(it.price)
                 : (Number(it.last_price) > 0 ? Number(it.last_price)
                   : (Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0));
               const mv = Number(it.market_value) > 0 ? Number(it.market_value) : (px > 0 ? px * qty : 0);
-              acctVal += mv;
-              if (Number.isFinite(Number(it.day_pnl))) { day += Number(it.day_pnl); hasDay = true; }
-              if (Number.isFinite(Number(it.unrealized_pnl))) { open += Number(it.unrealized_pnl); hasOpen = true; }
+              acctManagedVal += mv;
+              if (Number.isFinite(Number(it.unrealized_pnl))) {
+                model += Number(it.unrealized_pnl);
+                hasModel = true;
+              }
             }
-            if (acctVal > 0) value += acctVal;
-            else if (a.summary?.positions_value > 0) value += a.summary.positions_value;
-            if (!hasDay && Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null && heldQty > 0) {
-              day += a.summary.day_pnl; hasDay = true;
-            }
-            if (!hasOpen && Number.isFinite(a.summary?.unrealized_pnl) && a.summary.unrealized_pnl !== null && heldQty > 0) {
-              open += a.summary.unrealized_pnl; hasOpen = true;
+            if (acctManagedVal > 0) value += acctManagedVal;
+            // Account-level day_pnl when per-item day marks were missing.
+            if (mirrorOn && !acctDayItems && Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null) {
+              day += a.summary.day_pnl;
+              hasDay = true;
+              dayQty += 1;
             }
           }
           const sessionOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
-          // Any Webull-native day_pnl means the broker already stamped a
-          // real number (usually yesterday's session). Show it and label the
-          // sub-copy accordingly instead of a bare em-dash.
-          const showDay = hasDay && heldQty > 0;
           return {
             value,
             day,
-            open,
-            hasDay: showDay,
-            dayLabel: sessionOpen ? "across mirrored positions" : "prior session",
-            hasOpen: hasOpen && heldQty > 0,
+            model,
+            hasDay: hasDay && dayQty > 0,
+            dayLabel: sessionOpen ? "all holdings on mirror-on accounts" : "prior session · all holdings",
+            hasModel: hasModel && managedQty > 0,
             hasValue: value > 0,
             loaded: !!posData,
           };
         }, [posData]);
-        const daySummary = dayData?.summary || null;
-        // Model Actions Today counts only today's fills; if today is dark,
-        // surface the prior session so the KPI never lies with "0".
+        // Model Actions: prefer today's ET session; else newest day in the
+        // 72h window (matches the timeline below so the KPI never reads 0
+        // while the feed shows fills).
         const modelActionsTile = useMemo(() => {
           if (!dayData) return { count: null, sub: "loading…" };
-          const nowMs = Date.now();
-          const nyDate = new Date(nowMs).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+          const nyDate = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
           const bucket = new Map();
           for (const a of dayData.actions || []) {
-            const key = new Date(Number(a.ts) || 0).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+            const key = nyDateKey(Number(a.ts) || 0);
             if (!bucket.has(key)) bucket.set(key, []);
             bucket.get(key).push(a);
           }
+          const summarize = (rows, prior) => {
+            const mirrored = rows.filter((a) => a.mirror === "mirrored").length;
+            const held = rows.filter((a) => a.mirror === "rejected" || a.mirror === "skipped").length;
+            return {
+              count: rows.length,
+              sub: prior
+                ? `${mirrored} mirrored · ${held} held back · prior session`
+                : `${mirrored} mirrored · ${held} held back`,
+            };
+          };
           const today = bucket.get(nyDate) || [];
-          if (today.length) {
-            const mirrored = today.filter((a) => a.mirror === "mirrored").length;
-            const held = today.filter((a) => a.mirror === "rejected" || a.mirror === "skipped").length;
-            return { count: today.length, sub: `${mirrored} mirrored · ${held} held back` };
-          }
-          // Newest ET date on record.
-          const keys = [...bucket.keys()].sort((a, b) => new Date(b) - new Date(a));
+          if (today.length) return summarize(today, false);
+          const keys = [...bucket.keys()].sort((a, b) => String(b).localeCompare(String(a)));
           const prior = keys.length ? bucket.get(keys[0]) : [];
-          if (!prior.length) return { count: 0, sub: "0 mirrored · 0 held back" };
-          const mirrored = prior.filter((a) => a.mirror === "mirrored").length;
-          const held = prior.filter((a) => a.mirror === "rejected" || a.mirror === "skipped").length;
-          return { count: prior.length, sub: `${mirrored} mirrored · ${held} held back · prior session` };
+          if (!prior.length) {
+            const s = dayData.summary;
+            if (s && Number(s.actions) > 0) {
+              return {
+                count: Number(s.actions),
+                sub: `${Number(s.mirrored) || 0} mirrored · ${(Number(s.rejected) || 0) + (Number(s.skipped) || 0)} held back`,
+              };
+            }
+            return { count: 0, sub: "0 mirrored · 0 held back" };
+          }
+          return summarize(prior, true);
         }, [dayData]);
 
         return (
@@ -1446,21 +1574,21 @@
                   <div className="k-sub">{totals.hasDay ? totals.dayLabel : "session not started"}</div>
                 </div>
                 <div className="kpi">
-                  <div className="k-lbl">Open P&L</div>
-                  <div className={`k-val ${totals.hasOpen ? (totals.open >= 0 ? "up" : "dn") : ""}`}>
-                    {!totals.loaded ? "…" : (totals.hasOpen ? fmtSigned(totals.open) : "—")}
+                  <div className="k-lbl">Model P&L</div>
+                  <div className={`k-val ${totals.hasModel ? (totals.model >= 0 ? "up" : "dn") : ""}`}>
+                    {!totals.loaded ? "…" : (totals.hasModel ? fmtSigned(totals.model) : "—")}
                   </div>
-                  <div className="k-sub">unrealized, managed sleeves</div>
+                  <div className="k-sub">unrealized · model-managed sleeves only</div>
                 </div>
                 <div className="kpi">
-                  <div className="k-lbl">Model actions today</div>
+                  <div className="k-lbl">Model actions</div>
                   <div className="k-val">{modelActionsTile.count == null ? "…" : modelActionsTile.count}</div>
                   <div className="k-sub">{modelActionsTile.sub}</div>
                 </div>
               </div>
             )}
 
-            {accounts !== null && hasAny && <EquityCurve />}
+            {accounts !== null && hasAny && <EquityCurve liveAccounts={posData?.accounts || []} />}
             {accounts !== null && hasAny && <DayActions refreshKey={accounts} />}
             {accounts !== null && hasAny && <PositionsSection refreshKey={accounts} onData={setPosData} />}
 

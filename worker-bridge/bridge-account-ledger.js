@@ -239,20 +239,23 @@ function safeParse(s, fallback) {
   try { return JSON.parse(s); } catch (_) { return fallback; }
 }
 
-// One equity sample per account per hour (reconciler runs every 5 min).
+// Equity samples align to the reconciler cadence (≈5 min) so the Broker
+// Connections 1D chart can show Robinhood-style intraday motion instead of
+// one flat hourly stamp. Older hourly rows remain readable as-is.
 export async function recordEquityPoint(env, { broker_account_id, ts, equity_usd } = {}) {
   const db = env?.BRIDGE_DB;
   const eq = Number(equity_usd);
   if (!db || !broker_account_id || !Number.isFinite(eq)) return { ok: false };
   await ensureAccountLedgerSchema(env);
-  const hourTs = Math.floor((Number(ts) || Date.now()) / 3600000) * 3600000;
+  const bucketMs = 5 * 60 * 1000;
+  const bucketTs = Math.floor((Number(ts) || Date.now()) / bucketMs) * bucketMs;
   try {
     await db.prepare(`
       INSERT INTO broker_account_equity_history (broker_account_id, ts, equity_usd)
       VALUES (?, ?, ?)
       ON CONFLICT(broker_account_id, ts) DO UPDATE SET equity_usd=excluded.equity_usd
-    `).bind(String(broker_account_id), hourTs, eq).run();
-    return { ok: true, ts: hourTs };
+    `).bind(String(broker_account_id), bucketTs, eq).run();
+    return { ok: true, ts: bucketTs };
   } catch (e) {
     console.warn("[ACCT_LEDGER] equity history write failed:", String(e?.message || e).slice(0, 160));
     return { ok: false };
