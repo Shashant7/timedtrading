@@ -46,9 +46,14 @@ function humanizeReason(raw) {
   const r = String(raw || "").toLowerCase();
   if (!r) return null;
   if (/duplicate_client_order_id/.test(r)) return "Duplicate order blocked (safety guard)";
-  if (/max_orders_per_day|daily_cap|orders.*day/.test(r)) return "Daily order cap reached for this account";
-  if (/notional_.*exceeds_cap|max_per_order|exceeds_cap/.test(r)) return "Order size above the per-order dollar cap";
-  if (/below_min_share_price/.test(r)) return "Per-order cap below one share price";
+  if (/parameter error|invalid client order id|client.?order.?id.*length|length should be between/.test(r)) {
+    return "Broker rejected the order id — newer orders use a shorter id";
+  }
+  if (/max_orders_per_day|daily_cap_hit|daily order cap|orders.*day/.test(r)) {
+    return "Legacy daily order limit (removed — mirror on/off is the only account control)";
+  }
+  if (/notional_.*exceeds_cap|max_per_order|exceeds_cap|vehicle_.*notional/.test(r)) return "Order size above a vehicle dollar limit";
+  if (/below_min_share_price/.test(r)) return "Order too small for one share at the limit";
   if (/mirror_suppressed/.test(r)) return "Mirroring suppressed after repeated drift — needs review";
   if (/no_manifest_for_trade/.test(r)) return "No tracked entry for this trade on the account";
   if (/reducer_blocked_by_sync_state:(\w+)/.test(r)) return "Sell blocked — position not in sync (" + r.match(/reducer_blocked_by_sync_state:(\w+)/)[1].replace(/_/g, " ") + ")";
@@ -56,7 +61,7 @@ function humanizeReason(raw) {
   if (/nothing_to_reduce|reducer_qty_rounded_to_zero/.test(r)) return "Nothing to sell on this account";
   if (/qty_zero|rounded_to_zero/.test(r)) return "Order size rounded to zero for this account";
   if (/insufficient|buying_power/.test(r)) return "Insufficient buying power";
-  if (/outside.*market|market.*closed|fractional/.test(r)) return "Requires regular market hours";
+  if (/outside.*market|market.*closed|requires regular market|fractional/.test(r)) return "Requires regular market hours";
   if (/investor_mirror_disabled/.test(r)) return "Long-term mirroring is off globally";
   if (/broker_integration_disabled|mirror_off|not_enabled/.test(r)) return "Mirroring is off for this account";
   if (/zone_exhausted|stage_|score_below/.test(r)) return "Model thesis gate declined the catch-up";
@@ -247,14 +252,13 @@ function ActionRow({
   isLast,
   showDay
 }) {
-  const [open, setOpen] = useState(false);
   const ev = EVENT_STYLE[a.event] || {
     label: a.event,
     color: "var(--tt-text-dim)"
   };
   const mc = MIRROR_CHIP[a.mirror] || MIRROR_CHIP.not_mirrored;
   const reason = humanizeReason(a.mirror_reason);
-  const hasDetail = a.fills && a.fills.length || a.rejects && a.rejects.length || reason;
+  const hasDetail = a.fills && a.fills.length || a.rejects && a.rejects.length || reason || a.note;
   const pnl = Number(a.realized_pnl) || 0;
   return React.createElement("div", null, showDay && React.createElement("div", {
     className: "dim",
@@ -266,9 +270,7 @@ function ActionRow({
       padding: "10px 0 4px 26px"
     }
   }, fmtDay(a.ts)), React.createElement("div", {
-    className: "tl-row",
-    onClick: () => hasDetail && setOpen(!open),
-    role: hasDetail ? "button" : undefined
+    className: "tl-row"
   }, React.createElement("div", {
     className: "tl-rail"
   }, React.createElement("span", {
@@ -316,15 +318,8 @@ function ActionRow({
     className: `bc-pill ${mc.cls}`
   }, React.createElement("span", {
     className: "dot"
-  }), mc.label, a.fills?.length > 1 ? ` ×${a.fills.length}` : "")), !open && reason && a.mirror !== "mirrored" && React.createElement("div", {
-    className: "dim",
-    style: {
-      fontSize: 11,
-      marginTop: 3
-    }
-  }, reason), open && hasDetail && React.createElement("div", {
-    className: "tl-detail fade-in",
-    onClick: e => e.stopPropagation()
+  }), mc.label, a.fills?.length > 1 ? ` ×${a.fills.length}` : "")), hasDetail && React.createElement("div", {
+    className: "tl-detail"
   }, (a.fills || []).map((f, i) => React.createElement("div", {
     key: "f" + i,
     className: "tl-acct-row"
@@ -563,7 +558,6 @@ function PositionRow({
   onSync,
   syncBusy
 }) {
-  const [open, setOpen] = useState(false);
   const chip = it.auto_sync && !it.managed ? SYNC_CHIP.auto_sync : SYNC_CHIP[it.sync_state] || {
     cls: "p-warn",
     label: String(it.sync_state || "?").toUpperCase()
@@ -573,11 +567,11 @@ function PositionRow({
   const upnl = Number(it.unrealized_pnl);
   const upnlPct = Number(it.unrealized_pnl_pct);
   const dc = dailyChangeFor(it);
-  const hasDetail = it.history && it.history.length || it.sync_note || it.adoptable || it.auto_sync || !it.managed;
+  const hasDetail = it.history && it.history.length || it.sync_note || it.adoptable || it.auto_sync || !it.managed && !it.model_open;
   const barPct = Number.isFinite(upnlPct) ? Math.max(-20, Math.min(20, upnlPct)) : 0;
+  const syncNoteHuman = it.sync_note ? humanizeReason(it.sync_note) || String(it.sync_note).replace(/_/g, " ") : null;
   return React.createElement("div", null, React.createElement("div", {
-    className: "pos-row",
-    onClick: () => hasDetail && setOpen(!open)
+    className: "pos-row"
   }, React.createElement(TickerAvatar, {
     ticker: it.ticker,
     muted: !holds
@@ -656,10 +650,9 @@ function PositionRow({
     }
   }, React.createElement("span", {
     className: `bc-pill ${chip.cls}`,
-    title: it.sync_note || ""
-  }, chip.label))), open && React.createElement("div", {
-    className: "pos-detail fade-in",
-    onClick: e => e.stopPropagation()
+    title: syncNoteHuman || ""
+  }, chip.label))), hasDetail && React.createElement("div", {
+    className: "pos-detail"
   }, it.auto_sync && !it.adoptable && React.createElement("div", {
     className: "dim",
     style: {
@@ -699,13 +692,13 @@ function PositionRow({
       lineHeight: 1.6,
       marginBottom: it.history?.length ? 10 : 0
     }
-  }, "Held at the broker but not part of the model book. The mirror never places orders against it \u2014 no action available."), it.sync_note && it.managed && React.createElement("div", {
+  }, "Held at the broker but not part of the model book. The mirror never places orders against it \u2014 no action available."), syncNoteHuman && it.managed && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
       marginBottom: it.history?.length ? 8 : 0
     }
-  }, "Reconciler: ", String(it.sync_note).replace(/_/g, " ")), it.history?.length > 0 && React.createElement("div", null, React.createElement("div", {
+  }, "Reconciler: ", syncNoteHuman), it.history?.length > 0 && React.createElement("div", null, React.createElement("div", {
     className: "lbl",
     style: {
       margin: "0 0 4px"
@@ -843,7 +836,7 @@ function PositionsSection({
       margin: "0 0 6px",
       lineHeight: 1.6
     }
-  }, "Each account's holdings against the model book. Tap a row for its action history. AUTO-SYNC positions fill in on the model's own buy windows \u2014 sync is never forced. User-bought positions the model also holds can be handed to the model (CAN SYNC, no order placed); broker-only holdings are never touched."), data?.prices_included === false && React.createElement("div", {
+  }, "Each account's holdings against the model book, with action history inline. AUTO-SYNC positions fill in on the model's own buy windows \u2014 sync is never forced. User-bought positions the model also holds can be handed to the model (CAN SYNC, no order placed); broker-only holdings are never touched. Accounts with mirroring off show holdings only \u2014 no sync-manifest outcomes."), data?.prices_included === false && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -912,19 +905,32 @@ function PositionsSection({
       fontSize: 12,
       padding: "6px 0"
     }
-  }, "No positions."), (acct.items || []).length > 0 && React.createElement("div", null, React.createElement("div", {
-    className: "pos-head"
-  }, React.createElement("span", null), React.createElement("span", null, "Position"), React.createElement("span", null, "Price"), React.createElement("span", null, "Value"), React.createElement("span", null, "Open P&L"), React.createElement("span", {
-    style: {
-      textAlign: "right"
-    }
-  }, "Sync")), (acct.items || []).map(it => React.createElement(PositionRow, {
-    key: it.ticker,
-    it: it,
-    acct: acct,
-    syncBusy: syncBusyFor === `${acct.account_id}:${it.ticker}`,
-    onSync: tk => doSync(acct.account_id, tk)
-  }))))));
+  }, "No positions."), (() => {
+    const rows = (acct.items || []).filter(it => {
+      if (acct.mirror_enabled) return true;
+      if (it.auto_sync && !(Number(it.broker_qty) > 0.0001)) return false;
+      if (!it.managed && it.model_open && !(Number(it.broker_qty) > 0.0001)) return false;
+      return Number(it.broker_qty) > 0.0001 || it.managed;
+    });
+    if (!rows.length) return null;
+    return React.createElement("div", null, React.createElement("div", {
+      className: "pos-head"
+    }, React.createElement("span", null), React.createElement("span", null, "Position"), React.createElement("span", null, "Price"), React.createElement("span", null, "Value"), React.createElement("span", null, "Open P&L"), React.createElement("span", {
+      style: {
+        textAlign: "right"
+      }
+    }, "Sync")), rows.map(it => React.createElement(PositionRow, {
+      key: it.ticker,
+      it: {
+        ...it,
+        auto_sync: acct.mirror_enabled ? it.auto_sync : false,
+        adoptable: acct.mirror_enabled ? it.adoptable : false
+      },
+      acct: acct,
+      syncBusy: syncBusyFor === `${acct.account_id}:${it.ticker}`,
+      onSync: tk => doSync(acct.account_id, tk)
+    })));
+  })())));
 }
 function AccountCard({
   acct,
@@ -932,9 +938,6 @@ function AccountCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
-  const caps = acct.user_caps || {};
-  const [perOrder, setPerOrder] = useState(caps.max_per_order_usd ?? "");
-  const [perDay, setPerDay] = useState(caps.max_orders_per_day ?? "");
   const enabled = !!acct.broker_integration_enabled;
   const call = async (path, body, okText) => {
     setBusy(true);
@@ -985,7 +988,15 @@ function AccountCard({
       fontSize: 11,
       marginTop: 3
     }
-  }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : "")), React.createElement("div", {
+  }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : ""), React.createElement("p", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      margin: "8px 0 0",
+      lineHeight: 1.55,
+      maxWidth: 520
+    }
+  }, "Mirror on/off is the only account control. Order size follows the model proportionally to this account's equity \u2014 there is no daily order cap.")), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -1004,7 +1015,7 @@ function AccountCard({
     },
     onClick: () => {
       const next = !enabled;
-      const warn = next ? "Enable live mirroring for this account? Model BUY/TRIM/EXIT signals will place real orders, sized to the account and capped by the limits below." : "Pause mirroring for this account? No further orders will be placed.";
+      const warn = next ? "Enable live mirroring for this account? Model BUY/TRIM/EXIT signals will place real orders, sized proportionally to this account's equity." : "Pause mirroring for this account? No further orders will be placed.";
       if (confirm(warn)) call("/timed/broker/account/enable", {
         account_id: acct.user_id,
         enable: next
@@ -1015,50 +1026,12 @@ function AccountCard({
     style: {
       left: enabled ? 22 : 3
     }
-  })))), React.createElement("div", {
+  })))), msg && React.createElement("div", {
+    className: msg.ok ? "msg-ok" : "msg-err",
     style: {
-      display: "flex",
-      alignItems: "flex-end",
-      gap: 14,
-      flexWrap: "wrap",
-      marginTop: 14
+      marginTop: 10
     }
-  }, React.createElement("div", null, React.createElement("div", {
-    className: "lbl",
-    style: {
-      margin: "0 0 5px"
-    }
-  }, "Max $ / order"), React.createElement("input", {
-    className: "caps-input",
-    type: "number",
-    min: "1",
-    value: perOrder,
-    onChange: e => setPerOrder(e.target.value)
-  })), React.createElement("div", null, React.createElement("div", {
-    className: "lbl",
-    style: {
-      margin: "0 0 5px"
-    }
-  }, "Max orders / day"), React.createElement("input", {
-    className: "caps-input",
-    type: "number",
-    min: "0",
-    value: perDay,
-    onChange: e => setPerDay(e.target.value)
-  })), React.createElement("button", {
-    className: "bc-btn bc-btn-sm",
-    disabled: busy,
-    onClick: () => {
-      const body = {
-        account_id: acct.user_id
-      };
-      if (perOrder !== "") body.max_per_order_usd = Number(perOrder);
-      if (perDay !== "") body.max_orders_per_day = Number(perDay);
-      call("/timed/broker/account/caps", body, "Limits saved");
-    }
-  }, "Save limits"), msg && React.createElement("span", {
-    className: msg.ok ? "msg-ok" : "msg-err"
-  }, msg.text)));
+  }, msg.text));
 }
 function ConnectForm({
   onConnected,
@@ -1230,23 +1203,52 @@ function BrokerConnectionsApp({
     let value = 0,
       day = 0,
       open = 0,
-      hasPnl = false;
+      heldQty = 0;
+    let hasDay = false,
+      hasOpen = false;
     for (const a of accs) {
-      if (a.summary?.positions_value > 0) value += a.summary.positions_value;
-      if (Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null) {
-        day += a.summary.day_pnl;
-        hasPnl = true;
+      let acctVal = 0;
+      for (const it of a.items || []) {
+        const qty = Number(it.broker_qty) || 0;
+        if (!(qty > 0.0001)) continue;
+        if (!it.managed) continue;
+        heldQty += qty;
+        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0;
+        const mv = Number(it.market_value) > 0 ? Number(it.market_value) : px > 0 ? px * qty : 0;
+        acctVal += mv;
+        if (Number.isFinite(Number(it.day_pnl))) {
+          day += Number(it.day_pnl);
+          hasDay = true;
+        } else if (Number.isFinite(Number(it.day_change)) && Number(it.day_change) !== null) {
+          day += Number(it.day_change) * qty;
+          hasDay = true;
+        }
+        if (Number.isFinite(Number(it.unrealized_pnl))) {
+          open += Number(it.unrealized_pnl);
+          hasOpen = true;
+        } else if (px > 0 && Number(it.avg_cost) > 0) {
+          open += (px - Number(it.avg_cost)) * qty;
+          hasOpen = true;
+        }
       }
-      if (Number.isFinite(a.summary?.unrealized_pnl) && a.summary.unrealized_pnl !== null) {
+      if (acctVal > 0) value += acctVal;else if (a.summary?.positions_value > 0) value += a.summary.positions_value;
+      if (!hasDay && Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null && heldQty > 0) {
+        day += a.summary.day_pnl;
+        hasDay = true;
+      }
+      if (!hasOpen && Number.isFinite(a.summary?.unrealized_pnl) && a.summary.unrealized_pnl !== null && heldQty > 0) {
         open += a.summary.unrealized_pnl;
-        hasPnl = true;
+        hasOpen = true;
       }
     }
     return {
       value,
       day,
       open,
-      hasPnl
+      hasPnl: (hasDay || hasOpen) && heldQty > 0,
+      hasValue: value > 0,
+      loaded: !!posData,
+      pricesIncluded: posData?.prices_included !== false
     };
   }, [posData]);
   const daySummary = dayData?.summary || null;
@@ -1309,17 +1311,17 @@ function BrokerConnectionsApp({
     className: "k-lbl"
   }, "Mirrored value"), React.createElement("div", {
     className: "k-val"
-  }, totals.value > 0 ? fmtUsd(totals.value, {
+  }, !totals.loaded ? "…" : totals.hasValue ? fmtUsd(totals.value, {
     compact: true
   }) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, webullAccounts.length + otherAccounts.length, " account", webullAccounts.length + otherAccounts.length === 1 ? "" : "s")), React.createElement("div", {
+  }, webullAccounts.length + otherAccounts.length, " account", webullAccounts.length + otherAccounts.length === 1 ? "" : "s", totals.loaded && totals.pricesIncluded === false ? " · prices gated" : "")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
   }, "Today's P&L"), React.createElement("div", {
     className: `k-val ${totals.hasPnl ? totals.day >= 0 ? "up" : "dn" : ""}`
-  }, totals.hasPnl ? fmtSigned(totals.day) : "—"), React.createElement("div", {
+  }, !totals.loaded ? "…" : totals.hasPnl ? fmtSigned(totals.day) : "—"), React.createElement("div", {
     className: "k-sub"
   }, "across mirrored positions")), React.createElement("div", {
     className: "kpi"
@@ -1327,17 +1329,17 @@ function BrokerConnectionsApp({
     className: "k-lbl"
   }, "Open P&L"), React.createElement("div", {
     className: `k-val ${totals.hasPnl ? totals.open >= 0 ? "up" : "dn" : ""}`
-  }, totals.hasPnl ? fmtSigned(totals.open) : "—"), React.createElement("div", {
+  }, !totals.loaded ? "…" : totals.hasPnl ? fmtSigned(totals.open) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, "unrealized, all accounts")), React.createElement("div", {
+  }, "unrealized, managed sleeves")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
   }, "Model actions today"), React.createElement("div", {
     className: "k-val"
-  }, daySummary ? daySummary.actions : "—"), React.createElement("div", {
+  }, daySummary ? daySummary.actions ?? 0 : "…"), React.createElement("div", {
     className: "k-sub"
-  }, daySummary ? `${daySummary.mirrored} mirrored · ${daySummary.rejected + daySummary.skipped} held back` : "loading…"))), accounts !== null && hasAny && React.createElement(DayActions, {
+  }, daySummary ? `${daySummary.mirrored || 0} mirrored · ${(daySummary.rejected || 0) + (daySummary.skipped || 0)} held back` : "loading…"))), accounts !== null && hasAny && React.createElement(DayActions, {
     refreshKey: accounts
   }), accounts !== null && hasAny && React.createElement(PositionsSection, {
     refreshKey: accounts,
@@ -1450,6 +1452,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786593509057:26500531
+// cache-bust:1786595648408:612549925
 
-// cache-bust:1786593509057:26500531
+// cache-bust:1786595648408:612549925

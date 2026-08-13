@@ -454,7 +454,10 @@ export default {
             total_orders_lifetime: existing.total_orders_lifetime || 0,
             user_caps: existing.user_caps || {
               max_per_order_usd: Number(env?.DEFAULT_MAX_ORDER_USD) || 5000,
-              max_orders_per_day: Number(env?.DEFAULT_MAX_ORDERS_PER_DAY) || 3,
+              // 0 = unlimited (mirror on/off is the account control).
+              max_orders_per_day: Number.isFinite(Number(env?.DEFAULT_MAX_ORDERS_PER_DAY))
+                ? Number(env.DEFAULT_MAX_ORDERS_PER_DAY)
+                : 0,
             },
           };
           await writeUser(env, userId, user);
@@ -1692,13 +1695,25 @@ async function handleOrderWebhook(env, ctx, payload) {
   };
   const perAccountPayload = (acct) => {
     const acctId = resolveBrokerAccountId(acct);
+    // Webull requires client_order_id length 10–40. Base ids from
+    // shortClientOrderId are already ≤40; appending the full account id
+    // (e.g. `tt-lt-dca-inv-…-PANW-auto-<ms>-LJJ84…`) overflowed and
+    // Webull rejected with "Parameter error, invalid client order id".
+    // Keep a short, stable per-account suffix.
+    let coid = null;
+    if (payload?.client_order_id) {
+      const base = String(payload.client_order_id).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 28);
+      const suffix = String(acctId || "").replace(/[^a-zA-Z0-9]/g, "").slice(-8);
+      coid = `${base}${suffix ? "-" + suffix : ""}`.slice(0, 40);
+      if (coid.length < 10) coid = (coid + "xxxxxxxxxx").slice(0, 10);
+    }
     return {
       ...payload,
       user_id: acct.user_id,
       broker_account_id: acctId,
       // Per-account idempotency: one stable key per (trade, account) so a
       // repeat fire dedupes per account, not across accounts.
-      client_order_id: payload?.client_order_id ? `${payload.client_order_id}-${acctId}` : null,
+      client_order_id: coid,
     };
   };
   if (expandOwner) {
@@ -1716,7 +1731,15 @@ async function handleSingleAccountOrder(env, ctx, payload) {
   const sanitized = {
     user_id: String(payload?.user_id || "").toLowerCase(),
     trade_id: payload?.trade_id || null,
-    client_order_id: payload?.client_order_id ? String(payload.client_order_id) : null,
+    // Clamp to Webull's 10–40 char client_order_id window (also safe for
+    // other brokers). Long legacy ids like `tt-lt-dca-inv-inv-…` are
+    // truncated here as a last line of defense.
+    client_order_id: (() => {
+      if (!payload?.client_order_id) return null;
+      let id = String(payload.client_order_id).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 40);
+      if (id.length && id.length < 10) id = (id + "xxxxxxxxxx").slice(0, 10);
+      return id || null;
+    })(),
     // Optional explicit account target. When omitted, resolveBridgeUser picks
     // the account (single-account brokers or the class-preferred Webull sub).
     broker_account_id: payload?.broker_account_id ? String(payload.broker_account_id) : null,
@@ -2132,7 +2155,7 @@ async function handleSingleAccountOrder(env, ctx, payload) {
       const _wholeQty = roundToWholeShares(_origQty);
       if (_wholeQty > 0 && _wholeQty < _origQty) {
         const _retryCoid = sanitized.client_order_id
-          ? `${String(sanitized.client_order_id).slice(0, 48)}-w`
+          ? `${String(sanitized.client_order_id).slice(0, 38)}-w`.slice(0, 40)
           : `tt-whole-${sanitized.trade_id || sanitized.ticker}-${Date.now().toString(36)}`;
         const _why = _fract.isFractHoursError ? "outside_rth" : "agreement_missing";
         console.warn(`[WEBULL_FRACT] ${(user?.user_id || sanitized.user_id)}/${sanitized.ticker} fractional ${_why} — retrying whole shares ${_origQty}→${_wholeQty} coid=${_retryCoid} (${_fract.agreementUrl || "no_url"})`);
