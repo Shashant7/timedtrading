@@ -162,6 +162,7 @@
       function humanizeReason(raw) {
         const r = String(raw || "").toLowerCase();
         if (!r) return null;
+        if (/match within tolerance|within.*tolerance/.test(r)) return "In sync — broker shares match the model";
         if (/duplicate_client_order_id/.test(r)) return "Duplicate order blocked (safety guard)";
         if (/parameter error|invalid client order id|client.?order.?id.*length|length should be between/.test(r)) {
           return "Broker rejected the order id — newer orders use a shorter id";
@@ -347,7 +348,7 @@
         useEffect(() => {
           let alive = true;
           (async () => {
-            const json = await apiGet("/timed/broker/day-actions?hours=744").catch(() => null);
+            const json = await apiGet("/timed/broker/day-actions?hours=72").catch(() => null);
             if (!alive) return;
             if (json?.ok) setData(json);
             else setData({ ok: false, error: json?.error || "Request failed" });
@@ -384,21 +385,22 @@
           return [...map.entries()].sort((x, y) => (y[1][0]?.ts || 0) - (x[1][0]?.ts || 0));
         }, [tagged]);
         const todayKey = nyDateKey(Date.now());
-        const expandKey = (groups.find(([k]) => k === todayKey)?.[1]?.length)
-          ? todayKey
-          : (groups[0]?.[0] || todayKey);
+        // Always expand today; collapse the previous two sessions by default.
+        // When today has no actions yet, expand the most recent day instead.
+        const hasToday = !!groups.find(([k]) => k === todayKey)?.[1]?.length;
+        const expandKey = hasToday ? todayKey : (groups[0]?.[0] || todayKey);
 
         return (
           <section className="tt-card tt-card-pad" style={{ marginBottom: 18 }}>
             <div className="sec-head">
               <div>
-                <div className="tt-sec-title">Last 31 days</div>
+                <div className="tt-sec-title">Last 3 days</div>
                 <div className="tt-sec-h" style={{ fontSize: 18 }}>Model actions & mirror outcomes</div>
               </div>
             </div>
             <p className="dim" style={{ fontSize: 12, margin: "0 0 10px", lineHeight: 1.6 }}>
               Every trade the model executed, whether the mirror followed on the connected accounts, and why when it did not.
-              Today stays expanded once the session has actions; until then the previous day is open. Older days collapse.
+              Today stays expanded; the previous two sessions collapse — tap to expand.
             </p>
             {data === null && (
               <div>
@@ -479,28 +481,110 @@
         } catch (_) { return { dayPct: null, dayChg: null }; }
       }
 
+      // Safety net if the backend ever sends a decimal fraction; recompute from
+      // price and avg_cost when both are known so the row is always right.
+      function computeUpnlPct(it) {
+        const px = Number(it.price) > 0 ? Number(it.price)
+          : (Number(it.last_price) > 0 ? Number(it.last_price) : NaN);
+        const avg = Number(it.avg_cost);
+        if (Number.isFinite(px) && Number.isFinite(avg) && avg > 0) {
+          return ((px / avg) - 1) * 100;
+        }
+        const raw = Number(it.unrealized_pnl_pct);
+        if (!Number.isFinite(raw)) return NaN;
+        return Math.abs(raw) < 1 && raw !== 0 ? raw * 100 : raw;
+      }
+
+      // Kanban-style plan bar: SL / entry (model + broker) / current / TP.
+      // Renders when the position is managed and enough anchors exist.
+      function PositionPlanBar({ it }) {
+        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price);
+        const brokerEntry = Number(it.avg_cost) > 0 ? Number(it.avg_cost) : null;
+        const modelEntry = Number(it.model_entry) > 0 ? Number(it.model_entry) : null;
+        const sl = Number(it.model_sl) > 0 ? Number(it.model_sl) : null;
+        const tp = Number(it.model_tp) > 0 ? Number(it.model_tp)
+          : (Number(it.model_peak) > 0 ? Number(it.model_peak) : null);
+        const anchors = [px, brokerEntry, modelEntry, sl, tp].filter((v) => Number.isFinite(v) && v > 0);
+        if (anchors.length < 2 || !Number.isFinite(px)) return null;
+        const lo = Math.min(...anchors) * 0.985;
+        const hi = Math.max(...anchors) * 1.015;
+        const span = Math.max(1e-6, hi - lo);
+        const pctFor = (v) => Math.max(0, Math.min(100, ((v - lo) / span) * 100));
+        const entryRef = modelEntry || brokerEntry;
+        const up = entryRef ? px >= entryRef : true;
+        const track = { position: "relative", height: 6, borderRadius: 999, background: "rgba(255,255,255,0.06)", margin: "6px 0 2px" };
+        const zoneStyle = {
+          position: "absolute", top: 0, bottom: 0, borderRadius: 999,
+          background: up ? "rgba(52,211,153,0.28)" : "rgba(239,68,68,0.28)",
+        };
+        const zoneL = entryRef ? Math.min(pctFor(entryRef), pctFor(px)) : 0;
+        const zoneR = entryRef ? Math.max(pctFor(entryRef), pctFor(px)) : pctFor(px);
+        const marker = (v, color, label, extra) => v == null ? null : (
+          <div key={label} style={{
+            position: "absolute", left: `${pctFor(v)}%`, top: -1, bottom: -1,
+            width: 2, background: color, transform: "translateX(-1px)", ...extra,
+          }} title={`${label}: ${fmtUsd(v)}`} />
+        );
+        return (
+          <div className="plan-bar" style={{ marginTop: 6 }}>
+            <div style={track}>
+              <div style={{ ...zoneStyle, left: `${zoneL}%`, width: `${Math.max(1, zoneR - zoneL)}%` }} />
+              {marker(sl, "var(--tt-danger)", "Stop / invalidation")}
+              {marker(brokerEntry, "rgba(255,255,255,0.55)", "Broker entry")}
+              {marker(modelEntry, "var(--vf-primary, #38F2A1)", "Model entry")}
+              {marker(tp, "var(--tt-info, #67e8f9)", it.model_horizon === "investor" ? "Peak" : "Target")}
+              <div style={{
+                position: "absolute", left: `${pctFor(px)}%`, top: -3, bottom: -3,
+                width: 10, height: 10, borderRadius: "50%",
+                background: up ? "var(--tt-success)" : "var(--tt-danger)",
+                boxShadow: "0 0 0 2px rgba(11,20,16,0.9)",
+                transform: "translateX(-5px)",
+              }} title={`Now: ${fmtUsd(px)}`} />
+            </div>
+            <div className="mono dim" style={{ fontSize: 10, display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+              <span>{sl != null ? `SL ${fmtUsd(sl)}` : ""}</span>
+              <span>
+                {modelEntry != null ? `Model ${fmtUsd(modelEntry)}` : ""}
+                {modelEntry != null && brokerEntry != null && Math.abs(brokerEntry - modelEntry) > 0.005 ? " · " : ""}
+                {(brokerEntry != null && (!modelEntry || Math.abs(brokerEntry - modelEntry) > 0.005)) ? `Broker ${fmtUsd(brokerEntry)}` : ""}
+              </span>
+              <span>{tp != null ? `${it.model_horizon === "investor" ? "Peak" : "TP"} ${fmtUsd(tp)}` : ""}</span>
+            </div>
+          </div>
+        );
+      }
+
       function PositionRow({ it, acct, onSync, syncBusy }) {
+        const [open, setOpen] = useState(false);
         const chip = it.auto_sync && !it.managed
           ? SYNC_CHIP.auto_sync
           : (SYNC_CHIP[it.sync_state] || { cls: "p-warn", label: String(it.sync_state || "?").toUpperCase() });
         const qty = Number(it.broker_qty) || 0;
         const holds = qty > 0.0001;
         const upnl = Number(it.unrealized_pnl);
-        const upnlPct = Number(it.unrealized_pnl_pct);
+        const upnlPct = computeUpnlPct(it);
         const dc = dailyChangeFor(it);
         const hasDetail = (it.history && it.history.length) || it.sync_note || it.adoptable || it.auto_sync || (!it.managed && !it.model_open);
+        const showPlanBar = it.managed && holds && Number(it.model_entry) > 0;
         const barPct = Number.isFinite(upnlPct) ? Math.max(-20, Math.min(20, upnlPct)) : 0;
         const syncNoteHuman = it.sync_note
           ? (humanizeReason(it.sync_note) || String(it.sync_note).replace(/_/g, " "))
           : null;
         return (
           <div>
-            <div className="pos-row">
+            <div className="pos-row" style={hasDetail ? { cursor: "pointer" } : null}
+              onClick={() => hasDetail && setOpen((v) => !v)}
+              role={hasDetail ? "button" : undefined}>
               <TickerAvatar ticker={it.ticker} muted={!holds} />
               <div className="pos-a-tick" style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 13.5 }}>{it.ticker}
                   {it.adoptable && <span className="bc-pill p-mint" style={{ marginLeft: 7 }}>CAN SYNC</span>}
                   {it.auto_sync && !it.adoptable && !holds && <span className="bc-pill p-mint" style={{ marginLeft: 7 }}>MODEL HOLDS</span>}
+                  {hasDetail && (
+                    <span className="dim" style={{ marginLeft: 7, fontSize: 10, fontWeight: 600 }}>
+                      {open ? "▾" : "▸"}
+                    </span>
+                  )}
                 </div>
                 <div className="mono dim" style={{ fontSize: 11 }}>
                   {holds ? `${fmtQty(qty)} sh${Number(it.avg_cost) > 0 ? ` @ ${fmtUsd(it.avg_cost)}` : ""}` : "no shares here"}
@@ -547,8 +631,9 @@
                 <span className={`bc-pill ${chip.cls}`} title={syncNoteHuman || ""}>{chip.label}</span>
               </div>
             </div>
-            {hasDetail && (
-              <div className="pos-detail">
+            {showPlanBar && <PositionPlanBar it={it} />}
+            {open && hasDetail && (
+              <div className="pos-detail fade-in" onClick={(e) => e.stopPropagation()}>
                 {it.auto_sync && !it.adoptable && (
                   <div className="dim" style={{ fontSize: 12, lineHeight: 1.6, marginBottom: it.history?.length ? 10 : 0 }}>
                     The model holds this position; this account is flat. The mirror picks it up
@@ -661,18 +746,37 @@
         };
 
         const accounts = data?.accounts || [];
+        // Donut counts the actual rendered rows across all accounts, deduped
+        // to unique tickers so a position mirrored to 5 accounts counts once.
+        // Auto-sync orphans (model holds, account flat) are their own bucket —
+        // they're not "not mirrored", they're waiting for a natural buy window.
         const donutCounts = useMemo(() => {
-          let ok = 0, attention = 0, untracked = 0;
-          for (const a of accounts) for (const it of a.items || []) {
-            const st = String(it.sync_state || "");
-            if (st === "in_sync") ok++;
-            else if (st === "untracked") untracked++;
-            else attention++;
+          const inSync = new Set();
+          const attention = new Set();
+          const autoSync = new Set();
+          const untracked = new Set();
+          for (const a of accounts) {
+            const mirrorOn = a.mirror_enabled === true;
+            for (const it of a.items || []) {
+              const sym = String(it.ticker || "").toUpperCase();
+              if (!sym) continue;
+              const held = Number(it.broker_qty) > 0.0001;
+              // Mirror-off accounts contribute only broker holdings.
+              if (!mirrorOn && !held) continue;
+              const st = String(it.sync_state || "");
+              if (mirrorOn && it.auto_sync && !held) { autoSync.add(sym); continue; }
+              if (!it.managed && held) { untracked.add(sym); continue; }
+              if (st === "in_sync") { inSync.add(sym); continue; }
+              if (it.managed) { attention.add(sym); continue; }
+            }
           }
+          // Prevent double-counting: managed IN SYNC wins over any other bucket.
+          for (const s of inSync) { attention.delete(s); autoSync.delete(s); untracked.delete(s); }
           return [
-            { label: "In sync", n: ok, color: "var(--tt-success)" },
-            { label: "Attention", n: attention, color: "var(--tt-warning)" },
-            { label: "Not mirrored", n: untracked, color: "rgba(255,255,255,0.25)" },
+            { label: "In sync", n: inSync.size, color: "var(--tt-success)" },
+            { label: "Attention", n: attention.size, color: "var(--tt-warning)" },
+            { label: "Auto-sync", n: autoSync.size, color: "var(--vf-primary, #38F2A1)" },
+            { label: "Not mirrored", n: untracked.size, color: "rgba(255,255,255,0.25)" },
           ];
         }, [accounts]);
 
@@ -893,7 +997,19 @@
         return ms > 0 ? now - ms : 0;
       }
       function combineForwardFill(accts, sinceTs) {
-        const series = accts.map((a) => (a.points || []).filter((p) => p.ts >= sinceTs).sort((x, y) => x.ts - y.ts));
+        // Anchor the curve on each account's mirror-on marker when history
+        // is sparse — otherwise every range renders the same one-point line
+        // and the toggle looks broken. The anchor uses the earliest recorded
+        // equity for that account so the line reads as "since mirror on".
+        const enriched = accts.map((a) => {
+          const pts = [...(a.points || [])].sort((x, y) => x.ts - y.ts);
+          const firstOn = (a.markers || []).find((m) => m.on)?.ts;
+          if (firstOn && pts.length && pts[0].ts > firstOn) {
+            pts.unshift({ ts: firstOn, equity: pts[0].equity });
+          }
+          return pts;
+        });
+        const series = enriched.map((pts) => pts.filter((p) => p.ts >= sinceTs));
         const allTs = new Set();
         for (const s of series) for (const p of s) allTs.add(p.ts);
         const tsList = [...allTs].sort((a, b) => a - b);
@@ -911,6 +1027,11 @@
             if (last[i] != null) { sum += last[i]; any = true; }
           });
           if (any) out.push({ ts, equity: sum });
+        }
+        // If the selected window ends up empty (e.g. 1D but data only exists
+        // yesterday), fall back to the full range so the chart still shows.
+        if (!out.length && enriched.some((p) => p.length)) {
+          return combineForwardFill(accts, 0);
         }
         return out;
       }
@@ -1039,16 +1160,21 @@
                   ))}
                   {path && <path d={path} fill="none" stroke={stroke} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />}
                   {points.length && (
-                    <text x={padL} y={H - 6} fill="var(--tt-text-dim)" fontSize="10">
+                    <text x={padL} y={H - 6} fill="#a3b5ad" fontSize="10">
                       {fmtDay(points[0].ts)}
                     </text>
                   )}
                   {points.length > 1 && (
-                    <text x={W - padR} y={H - 6} fill="var(--tt-text-dim)" fontSize="10" textAnchor="end">
+                    <text x={W - padR} y={H - 6} fill="#a3b5ad" fontSize="10" textAnchor="end">
                       {fmtDay(points[points.length - 1].ts)}
                     </text>
                   )}
                 </svg>
+                {points.length <= 1 && (
+                  <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
+                    Growth history collects one point per hour. Full curve appears after a few reconciler cycles.
+                  </div>
+                )}
                 {marks.length > 0 && (
                   <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
                     Vertical lines mark each mirror on / mirror off for the selected accounts.
