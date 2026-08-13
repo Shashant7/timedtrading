@@ -20,6 +20,11 @@ export const WEBULL_API_PATHS = {
   // The old unverified "POST /openapi/trade/orders/list" always 404'd,
   // which fill reconciliation silently reported as scanned=0.
   ordersList: "/openapi/trade/order/history",
+  // Personal Trading API 2FA token lifecycle (webull-openapi-python-sdk).
+  // Required when the App Key was generated with 2FA enabled; skip when not.
+  personalTokenCreate: "/openapi/auth/token/create",
+  personalTokenCheck: "/openapi/auth/token/check",
+  personalTokenRefresh: "/openapi/auth/token/refresh",
 };
 
 export function webullAuthMode(env) {

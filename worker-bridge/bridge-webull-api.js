@@ -328,6 +328,16 @@ export async function ensureWebullAccessToken(env, user) {
     if (!webullLiveEnabled(env)) {
       return { ok: true, access_token: "", mock: true, user };
     }
+    // Non-2FA personal keys leave x-access-token empty. 2FA-enabled keys
+    // store a reusable token on the row (created during connect).
+    if (user?.webull_token_wrap) {
+      try {
+        const accessToken = await unwrapSecret(env, user.webull_token_wrap);
+        return { ok: true, access_token: accessToken || "", user, personal: true };
+      } catch (e) {
+        return { ok: false, error: `token_unwrap_failed:${String(e?.message || e).slice(0, 80)}` };
+      }
+    }
     return { ok: true, access_token: "", user, personal: true };
   }
 
@@ -380,6 +390,186 @@ export async function webullGetAccountList(env, accessToken, { creds = null } = 
     accessToken,
     creds,
   });
+}
+
+/** True when Webull rejected the call because a 2FA access token is required. */
+export function isWebullAccessTokenError(result) {
+  const parts = [
+    result?.error,
+    result?.message,
+    result?.note,
+    result?.response?.message,
+    result?.response?.error,
+    result?.response?.msg,
+    typeof result?.response === "string" ? result.response : null,
+  ].filter(Boolean).map(String);
+  return parts.some((p) => /x-access-token|access[_\s-]?token.+(missing|invalid)/i.test(p));
+}
+
+/** Normalize create/check token payloads from Webull personal API. */
+export function parsePersonalTokenPayload(response) {
+  const data = response?.data && typeof response.data === "object" && !Array.isArray(response.data)
+    ? response.data
+    : response;
+  if (!data || typeof data !== "object") return null;
+  const token = String(data.token || data.access_token || "").trim();
+  if (!token) return null;
+  const status = String(data.status || "").trim().toUpperCase() || "UNKNOWN";
+  const expiresRaw = data.expires ?? data.expires_at ?? data.expire_time ?? data.expireTime;
+  let expiresAt = null;
+  if (expiresRaw != null && expiresRaw !== "") {
+    const n = Number(expiresRaw);
+    if (Number.isFinite(n) && n > 0) {
+      // Seconds vs ms — Webull SDK stores the raw value; treat small as seconds.
+      expiresAt = n < 1e12 ? Math.round(n * 1000) : Math.round(n);
+    } else {
+      const parsed = Date.parse(String(expiresRaw));
+      if (Number.isFinite(parsed)) expiresAt = parsed;
+    }
+  }
+  return { token, status, expires_at: expiresAt, raw: data };
+}
+
+const PENDING_2FA_TTL_S = 15 * 60;
+
+function pending2faKey(ownerEmail, appKey) {
+  const owner = String(ownerEmail || "").trim().toLowerCase();
+  const keyHint = String(appKey || "").trim().slice(0, 16);
+  return `bridge:webull:pending_2fa:${owner}:${keyHint}`;
+}
+
+async function readPendingPersonalToken(env, ownerEmail, appKey) {
+  const KV = env?.BRIDGE_KV;
+  if (!KV) return null;
+  try {
+    const raw = await KV.get(pending2faKey(ownerEmail, appKey));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const token = String(parsed?.token || "").trim();
+    return token ? { token, status: String(parsed?.status || "PENDING").toUpperCase(), saved_at: parsed?.saved_at || null } : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function writePendingPersonalToken(env, ownerEmail, appKey, token, status = "PENDING") {
+  const KV = env?.BRIDGE_KV;
+  if (!KV || !token) return false;
+  try {
+    await KV.put(
+      pending2faKey(ownerEmail, appKey),
+      JSON.stringify({ token, status, saved_at: Date.now() }),
+      { expirationTtl: PENDING_2FA_TTL_S },
+    );
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function clearPendingPersonalToken(env, ownerEmail, appKey) {
+  const KV = env?.BRIDGE_KV;
+  if (!KV) return;
+  try { await KV.delete(pending2faKey(ownerEmail, appKey)); } catch (_) { /* ignore */ }
+}
+
+export async function webullCreatePersonalAccessToken(env, { creds = null, priorToken = "" } = {}) {
+  const body = priorToken ? { token: String(priorToken) } : {};
+  const res = await signedFetch(env, {
+    path: WEBULL_API_PATHS.personalTokenCreate,
+    method: "POST",
+    body,
+    accessToken: "",
+    creds,
+  });
+  if (!res.ok) return { ok: false, error: res.error || "webull_personal_token_create_failed", response: res.response, http_status: res.http_status };
+  const parsed = parsePersonalTokenPayload(res.response);
+  if (!parsed) return { ok: false, error: "webull_personal_token_create_empty", response: res.response };
+  return { ok: true, ...parsed, response: res.response };
+}
+
+export async function webullCheckPersonalAccessToken(env, token, { creds = null } = {}) {
+  const t = String(token || "").trim();
+  if (!t) return { ok: false, error: "webull_personal_token_missing" };
+  const res = await signedFetch(env, {
+    path: WEBULL_API_PATHS.personalTokenCheck,
+    method: "POST",
+    body: { token: t },
+    accessToken: "",
+    creds,
+  });
+  if (!res.ok) return { ok: false, error: res.error || "webull_personal_token_check_failed", response: res.response, http_status: res.http_status };
+  const parsed = parsePersonalTokenPayload(res.response);
+  if (!parsed) return { ok: false, error: "webull_personal_token_check_empty", response: res.response };
+  return { ok: true, ...parsed, response: res.response };
+}
+
+/**
+ * Obtain a NORMAL personal-API access token when the App Key has 2FA on.
+ * Does not long-poll (Workers can't wait 5 minutes) — returns
+ * `webull_2fa_pending` so the trader can approve in the Webull app and retry.
+ */
+export async function resolvePersonalWebullAccessToken(env, { creds = null, ownerEmail = "" } = {}) {
+  const appKey = creds?.appKey || env?.WEBULL_APP_KEY || "";
+  const owner = String(ownerEmail || "").trim().toLowerCase();
+  const pending = owner && appKey ? await readPendingPersonalToken(env, owner, appKey) : null;
+  const priorToken = pending?.token || "";
+
+  if (priorToken) {
+    const checked = await webullCheckPersonalAccessToken(env, priorToken, { creds });
+    if (checked.ok && checked.status === "NORMAL") {
+      await clearPendingPersonalToken(env, owner, appKey);
+      return { ok: true, token: checked.token, status: "NORMAL", expires_at: checked.expires_at, from: "check" };
+    }
+    if (checked.ok && checked.status === "PENDING") {
+      await writePendingPersonalToken(env, owner, appKey, checked.token, "PENDING");
+      return {
+        ok: false,
+        error: "webull_2fa_pending",
+        status: 400,
+        token_status: "PENDING",
+        note: "This Webull API key has 2FA enabled. Open the Webull App → Menu → Messages → OpenAPI Notifications, enter the SMS code within 5 minutes, then tap Connect again. Alternatively, regenerate the key at webull.com/open-api with 2FA unchecked.",
+      };
+    }
+    // INVALID / EXPIRED / check failed — drop stale pending and create fresh.
+    await clearPendingPersonalToken(env, owner, appKey);
+  }
+
+  const created = await webullCreatePersonalAccessToken(env, {
+    creds,
+    priorToken: priorToken || "",
+  });
+  if (!created.ok) {
+    return {
+      ok: false,
+      error: created.error || "webull_personal_token_create_failed",
+      status: 502,
+      response: created.response,
+      note: "Webull rejected 2FA token creation for this App Key/Secret. Confirm the key pair and that WEBULL_ENVIRONMENT matches (prod vs uat).",
+    };
+  }
+  if (created.status === "NORMAL") {
+    if (owner && appKey) await clearPendingPersonalToken(env, owner, appKey);
+    return { ok: true, token: created.token, status: "NORMAL", expires_at: created.expires_at, from: "create" };
+  }
+  if (created.status === "PENDING") {
+    if (owner && appKey) await writePendingPersonalToken(env, owner, appKey, created.token, "PENDING");
+    return {
+      ok: false,
+      error: "webull_2fa_pending",
+      status: 400,
+      token_status: "PENDING",
+      note: "This Webull API key has 2FA enabled. Open the Webull App → Menu → Messages → OpenAPI Notifications, enter the SMS code within 5 minutes, then tap Connect again. Alternatively, regenerate the key at webull.com/open-api with 2FA unchecked.",
+    };
+  }
+  return {
+    ok: false,
+    error: "webull_personal_token_not_ready",
+    status: 502,
+    token_status: created.status,
+    response: created.response,
+    note: `Webull 2FA token status is ${created.status}. Regenerate the key with 2FA unchecked, or create a new token and approve it in the Webull App.`,
+  };
 }
 
 export async function webullGetBalance(env, user, accessToken) {
@@ -670,7 +860,10 @@ export function normalizeWebullPositions(posResp) {
  *  login rows have none and keep falling back to env keys).
  *  opts.notifyEmails — array of partner emails: account actions notify
  *  these addresses in addition to BRIDGE_ADMIN_NOTIFY_EMAIL. Preserved
- *  when absent. */
+ *  when absent.
+ *  opts.accessTokenWrap / opts.accessTokenExpiresAt — personal-API 2FA
+ *  token (same wrap shape as Connect OAuth). When `accessTokenWrap` is
+ *  present in opts (including explicit null), every synced row is updated. */
 export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts = {}) {
   const owner = String(ownerEmail).toLowerCase();
   const loginLabel = normalizeWebullLoginLabel(opts.loginLabel) || null;
@@ -679,6 +872,7 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts
   const notifyEmails = Array.isArray(opts.notifyEmails)
     ? opts.notifyEmails.map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
     : null;
+  const stampAccessToken = Object.prototype.hasOwnProperty.call(opts, "accessTokenWrap");
   const synced = [];
   for (const acct of accounts) {
     const subId = webullSubUserId(owner, acct, loginLabel);
@@ -700,6 +894,10 @@ export async function syncWebullPersonalAccounts(env, ownerEmail, accounts, opts
       webull_creds_env: credsEnv || (credsWrap ? null : (existing.webull_creds_env || null)),
       webull_app_key_wrap: credsWrap ? credsWrap.key_wrap : (credsEnv ? null : (existing.webull_app_key_wrap || null)),
       webull_app_secret_wrap: credsWrap ? credsWrap.secret_wrap : (credsEnv ? null : (existing.webull_app_secret_wrap || null)),
+      webull_token_wrap: stampAccessToken ? (opts.accessTokenWrap || null) : (existing.webull_token_wrap || null),
+      webull_token_expires_at: stampAccessToken
+        ? (opts.accessTokenExpiresAt || null)
+        : (existing.webull_token_expires_at || null),
       notify_emails: notifyEmails ?? (existing.notify_emails || null),
       broker_integration_enabled: existing.broker_integration_enabled ?? false,
       daily_order_count: existing.daily_order_count || 0,
