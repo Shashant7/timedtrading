@@ -2283,6 +2283,10 @@ const ROUTES = [
   // every call is scoped to the signed-in user's own owner namespace.
   ["GET",  "/timed/broker/accounts",                     "GET /timed/broker/accounts"],
   ["GET",  "/timed/broker/positions",                    "GET /timed/broker/positions"],
+  // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
+  // per-account position sync for the Broker Connections second pass.
+  ["GET",  "/timed/broker/day-actions",                  "GET /timed/broker/day-actions"],
+  ["POST", "/timed/broker/sync-position",                "POST /timed/broker/sync-position"],
   ["POST", "/timed/broker/webull/connect",               "POST /timed/broker/webull/connect"],
   ["POST", "/timed/broker/webull/disconnect",            "POST /timed/broker/webull/disconnect"],
   ["POST", "/timed/broker/account/enable",               "POST /timed/broker/account/enable"],
@@ -82302,6 +82306,8 @@ export default {
       // mutate another owner's broker accounts. Admins bypass the flag.
       const _isBrokerRoute = routeKey === "GET /timed/broker/accounts"
         || routeKey === "GET /timed/broker/positions"
+        || routeKey === "GET /timed/broker/day-actions"
+        || routeKey === "POST /timed/broker/sync-position"
         || routeKey === "POST /timed/broker/webull/connect"
         || routeKey === "POST /timed/broker/webull/disconnect"
         || routeKey === "POST /timed/broker/account/enable"
@@ -82332,9 +82338,367 @@ export default {
         }
         // Position sync view: live broker positions joined against the
         // mirror trade manifest (which positions are model-managed and
-        // whether each is in sync).
+        // whether each is in sync). 2026-08-13 second pass: enriched with
+        // live prices + P&L (Pro/VIP/Admin gate), the model's open
+        // long-term positions (syncable flags), and per-account totals.
         if (routeKey === "GET /timed/broker/positions") {
-          return _bridgeJson(await _getBridge(`/bridge/positions?owner=${encodeURIComponent(email)}`));
+          const _refreshQ = url.searchParams.get("refresh") === "1" ? "&refresh=1" : "";
+          const result = await _getBridge(`/bridge/positions?owner=${encodeURIComponent(email)}${_refreshQ}`);
+          let payload = null;
+          try { payload = JSON.parse(result.body || "null"); } catch (_) { payload = null; }
+          if (!payload?.ok || !Array.isArray(payload.accounts)) return _bridgeJson(result);
+          try {
+            // Model open long-term positions — the "can this be synced" side.
+            let modelPos = [];
+            try {
+              const r = await env.DB.prepare(
+                `SELECT id, ticker, total_shares, avg_entry, investor_stage
+                   FROM investor_positions WHERE status = 'OPEN' AND total_shares > 0`,
+              ).all();
+              modelPos = r?.results || [];
+            } catch (_) { modelPos = []; }
+            const modelByTicker = new Map(modelPos.map((p) => [String(p.ticker).toUpperCase(), p]));
+
+            // Live prices — licensed data, Pro/VIP/Admin only. The page
+            // degrades to qty/avg-cost (the user's own brokerage data)
+            // when the tier does not allow live prices.
+            const _tier = computeUserDataTier(sessionUser, env);
+            const pricesAllowed = canAccessLivePrices(_tier);
+            let pf = {};
+            if (pricesAllowed) {
+              try { pf = (await kvGetJSON(env.KV_TIMED, "timed:prices")) || {}; } catch (_) { pf = {}; }
+            }
+            const marketOpen = isNyRegularMarketOpen();
+            for (const acct of payload.accounts) {
+              let acctValue = 0, acctUnrealized = 0, acctDayPnl = 0;
+              const seenTickers = new Set();
+              for (const it of acct.items || []) {
+                seenTickers.add(it.ticker);
+                const mp = modelByTicker.get(it.ticker) || null;
+                it.model_open = !!mp;
+                // Syncable = the model holds it long-term AND this account
+                // does not (missing or flat) AND mirroring is on.
+                const brokerFlat = !(Number(it.broker_qty) > 0.0001);
+                it.syncable = !!(mp && brokerFlat && acct.mirror_enabled && marketOpen);
+                if (mp && brokerFlat && !it.syncable) {
+                  it.sync_blocked_reason = !acct.mirror_enabled ? "mirror_off" : "outside_market_hours";
+                }
+                if (mp) it.model_stage = mp.investor_stage || null;
+                const row = pricesAllowed ? pf[it.ticker] : null;
+                if (row && Number(row.p) > 0) {
+                  // Alias names match shared-price-utils getDailyChange's
+                  // fallback chain — the page must not inline change math.
+                  it.price = Number(row.p);
+                  it.prev_close = Number(row.pc) || null;
+                  it.day_change = Number.isFinite(Number(row.dc)) ? Number(row.dc) : null;
+                  it.day_change_pct = Number.isFinite(Number(row.dp)) ? Number(row.dp) : null;
+                  const qty = Number(it.broker_qty) || 0;
+                  if (qty > 0) {
+                    it.market_value = qty * it.price;
+                    acctValue += it.market_value;
+                    if (Number(it.avg_cost) > 0) {
+                      it.unrealized_pnl = (it.price - Number(it.avg_cost)) * qty;
+                      it.unrealized_pnl_pct = ((it.price / Number(it.avg_cost)) - 1) * 100;
+                      acctUnrealized += it.unrealized_pnl;
+                    }
+                    if (Number.isFinite(it.day_change) && it.day_change !== null) {
+                      it.day_pnl = it.day_change * qty;
+                      acctDayPnl += it.day_pnl;
+                    }
+                  }
+                }
+              }
+              // Model positions this account holds nothing of — the user
+              // asked for these to be visible with a clear "can sync" or
+              // "cannot" answer instead of silently absent.
+              for (const [sym, mp] of modelByTicker) {
+                if (seenTickers.has(sym)) continue;
+                const row = pricesAllowed ? pf[sym] : null;
+                acct.items.push({
+                  ticker: sym,
+                  managed: false,
+                  model_open: true,
+                  model_stage: mp.investor_stage || null,
+                  sync_state: "not_synced",
+                  broker_qty: 0,
+                  avg_cost: null,
+                  syncable: !!(acct.mirror_enabled && marketOpen),
+                  ...(acct.mirror_enabled && !marketOpen ? { sync_blocked_reason: "outside_market_hours" } : {}),
+                  ...(!acct.mirror_enabled ? { sync_blocked_reason: "mirror_off" } : {}),
+                  ...(row && Number(row.p) > 0 ? {
+                    price: Number(row.p),
+                    prev_close: Number(row.pc) || null,
+                    day_change: Number.isFinite(Number(row.dc)) ? Number(row.dc) : null,
+                    day_change_pct: Number.isFinite(Number(row.dp)) ? Number(row.dp) : null,
+                  } : {}),
+                });
+              }
+              acct.summary = {
+                positions_value: acctValue || null,
+                unrealized_pnl: pricesAllowed ? acctUnrealized : null,
+                day_pnl: pricesAllowed ? acctDayPnl : null,
+              };
+            }
+            payload.prices_included = pricesAllowed;
+            payload.market_open = marketOpen;
+            return sendJSON(payload, 200, corsHeaders(env, req));
+          } catch (e) {
+            console.warn("[BROKER POSITIONS] enrich failed:", String(e?.message || e).slice(0, 200));
+            return _bridgeJson(result);
+          }
+        }
+        // 2026-08-13 — Day timeline: what the model executed (its own D1
+        // ledger), whether each action mirrored to this owner's accounts
+        // (bridge per-account ledger + audit + the client ring's skip
+        // records), and the resulting per-account outcome.
+        if (routeKey === "GET /timed/broker/day-actions") {
+          try {
+            const hoursParam = Number(url.searchParams.get("hours")) || 0;
+            let sinceMs;
+            if (hoursParam > 0) {
+              sinceMs = Date.now() - Math.min(168, hoursParam) * 3600 * 1000;
+            } else {
+              // Default: since NY midnight (the trading day).
+              const nyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+              const nyStart = new Date(nyNow); nyStart.setHours(0, 0, 0, 0);
+              sinceMs = Date.now() - (nyNow.getTime() - nyStart.getTime());
+            }
+            // 1. Model actions (both engines) from the model's own ledger.
+            let modelRows = [];
+            try {
+              const r = await env.DB.prepare(
+                `SELECT mode, ts, event_type, position_id, ticker, direction,
+                        qty, price, cash_delta, realized_pnl, note
+                   FROM account_ledger
+                  WHERE ts >= ?1 AND event_type IN ('ENTRY','TRIM','EXIT','DCA_BUY')
+                  ORDER BY ts DESC LIMIT 120`,
+              ).bind(sinceMs).all();
+              modelRows = r?.results || [];
+            } catch (_) { modelRows = []; }
+            // 2. Mothership forward/skip records (client ring).
+            let ring = [];
+            try {
+              ring = ((await kvGetJSON(env.KV_TIMED, "bridge:client:recent")) || [])
+                .filter((e) => Number(e?.ts) >= sinceMs);
+            } catch (_) { ring = []; }
+            // 3. Per-account outcomes from the bridge.
+            const bridgeHours = Math.max(1, Math.ceil((Date.now() - sinceMs) / 3600000));
+            let bridge = { accounts: [], ledger: [], audit: [] };
+            try {
+              const br = await _getBridge(`/bridge/day-actions?owner=${encodeURIComponent(email)}&hours=${bridgeHours}`);
+              const parsed = JSON.parse(br.body || "null");
+              if (parsed?.ok) bridge = parsed;
+            } catch (_) { /* bridge optional — timeline still renders model side */ }
+
+            const _normId = (id) => String(id || "").replace(/^inv-/, "").toLowerCase();
+            const _sideFamily = (s) => {
+              const v = String(s || "").toLowerCase();
+              if (v === "buy" || v === "add" || v === "open" || v === "dca") return "buy";
+              return "sell"; // trim / sell / exit / close
+            };
+            const _eventFamily = (ev) => (ev === "ENTRY" || ev === "DCA_BUY") ? "buy" : "sell";
+            const usedLedger = new Set();
+            const acctMeta = new Map((bridge.accounts || []).map((a) => [String(a.account_id).toLowerCase(), a]));
+            const _acctLabel = (row) => {
+              const meta = acctMeta.get(String(row.user_id || "").toLowerCase());
+              return meta?.label || row.broker_account_id || row.user_id || null;
+            };
+
+            const actions = modelRows.map((m) => {
+              const mid = _normId(m.position_id);
+              const fam = _eventFamily(String(m.event_type).toUpperCase());
+              const near = (ts) => Math.abs(Number(ts) - Number(m.ts)) < 2 * 3600 * 1000;
+              const fills = [];
+              const rejects = [];
+              (bridge.ledger || []).forEach((b, i) => {
+                if (usedLedger.has(i)) return;
+                const match = (b.model_trade_id && _normId(b.model_trade_id) === mid && near(b.ts))
+                  || (!b.model_trade_id && String(b.ticker || "").toUpperCase() === String(m.ticker || "").toUpperCase()
+                      && _sideFamily(b.side) === fam && near(b.ts));
+                if (!match || _sideFamily(b.side) !== fam) return;
+                usedLedger.add(i);
+                const rec = {
+                  account: _acctLabel(b),
+                  broker: b.broker || null,
+                  qty: Number(b.qty) || 0,
+                  price: Number(b.price) || 0,
+                  value: Number(b.value) || 0,
+                  status: b.status || null,
+                  reject_reason: b.reject_reason || null,
+                  ts: b.ts,
+                };
+                if (String(b.status || "").toLowerCase() === "ok" || String(b.status || "").toLowerCase() === "filled") fills.push(rec);
+                else rejects.push(rec);
+              });
+              // Audit-only rejects (preflight / manifest / dedupe never
+              // reach the account ledger).
+              for (const a of bridge.audit || []) {
+                const st = String(a.status || "").toLowerCase();
+                if (st === "ok") continue;
+                const match = (a.trade_id && _normId(a.trade_id) === mid && near(a.ts) && _sideFamily(a.side) === fam);
+                if (!match) continue;
+                if (!rejects.some((r) => r.reject_reason === a.reject_reason)) {
+                  rejects.push({
+                    account: _acctLabel(a),
+                    qty: Number(a.qty) || 0,
+                    status: st || "rejected",
+                    reject_reason: a.reject_reason || null,
+                    ts: a.ts,
+                  });
+                }
+              }
+              // Ring skip (mothership never forwarded — e.g. mirror off).
+              const ringMatch = ring.find((e) =>
+                _normId(e.trade_id) === mid && near(e.ts) && _sideFamily(e.side) === fam);
+              let mirror = "not_mirrored";
+              let mirrorReason = null;
+              if (fills.length) mirror = "mirrored";
+              else if (rejects.length) { mirror = "rejected"; mirrorReason = rejects[0].reject_reason || null; }
+              else if (ringMatch && String(ringMatch.status) === "skipped") {
+                mirror = "skipped"; mirrorReason = ringMatch.skip_reason || null;
+              } else if (ringMatch && String(ringMatch.status) === "ok") {
+                mirror = "forwarded";
+              }
+              return {
+                ts: m.ts,
+                mode: m.mode,
+                event: String(m.event_type).toUpperCase(),
+                ticker: String(m.ticker || "").toUpperCase(),
+                direction: m.direction || null,
+                qty: Number(m.qty) || 0,
+                price: Number(m.price) || 0,
+                value: Math.abs(Number(m.cash_delta) || 0),
+                realized_pnl: Number(m.realized_pnl) || 0,
+                note: m.note || null,
+                mirror,
+                mirror_reason: mirrorReason,
+                fills,
+                rejects,
+              };
+            });
+            // Mirror-initiated events with no same-day model action (e.g.
+            // catch-up syncs healing an older position) — still shown so
+            // the account's own activity is complete.
+            const extras = [];
+            (bridge.ledger || []).forEach((b, i) => {
+              if (usedLedger.has(i)) return;
+              extras.push({
+                ts: b.ts,
+                mode: "mirror",
+                event: String(b.side || b.event_type || "ORDER").toUpperCase(),
+                ticker: String(b.ticker || "").toUpperCase(),
+                qty: Number(b.qty) || 0,
+                price: Number(b.price) || 0,
+                value: Number(b.value) || 0,
+                mirror: String(b.status || "").toLowerCase() === "ok" ? "mirrored" : "rejected",
+                mirror_reason: b.reject_reason || null,
+                fills: [],
+                rejects: [],
+                account: _acctLabel(b),
+              });
+            });
+            const all = actions.concat(extras).sort((a, b) => b.ts - a.ts);
+            const summary = {
+              actions: actions.length,
+              mirrored: all.filter((a) => a.mirror === "mirrored").length,
+              rejected: all.filter((a) => a.mirror === "rejected").length,
+              skipped: all.filter((a) => a.mirror === "skipped").length,
+              not_mirrored: all.filter((a) => a.mirror === "not_mirrored").length,
+              realized_pnl: actions.reduce((s, a) => s + (a.realized_pnl || 0), 0),
+            };
+            return sendJSON({
+              ok: true, since: sinceMs, actions: all, summary,
+              accounts: bridge.accounts || [],
+            }, 200, corsHeaders(env, req));
+          } catch (e) {
+            return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+          }
+        }
+        // 2026-08-13 — Scoped position sync: buy the model's open long-term
+        // position on ONE of the owner's accounts. Guards: session must own
+        // the account, model must hold the ticker, account must be flat in
+        // it, market must be open (fractionals), 10-min per (account,
+        // ticker) cooldown. broker_account_id in the payload makes the
+        // bridge route single-account — fan-out is impossible here.
+        if (routeKey === "POST /timed/broker/sync-position") {
+          try {
+            const body = await req.json().catch(() => ({}));
+            const accountId = String(body?.account_id || "").trim().toLowerCase();
+            const ticker = String(body?.ticker || "").trim().toUpperCase();
+            if (!_ownsAccount(accountId)) {
+              return sendJSON({ ok: false, error: "account_not_owned_by_session_user" }, 403, corsHeaders(env, req));
+            }
+            if (!ticker || !/^[A-Z.]{1,8}$/.test(ticker)) {
+              return sendJSON({ ok: false, error: "ticker_required" }, 400, corsHeaders(env, req));
+            }
+            if (!isNyRegularMarketOpen()) {
+              return sendJSON({ ok: false, error: "outside_market_hours", note: "Sync places fractional-share orders, which require regular trading hours." }, 200, corsHeaders(env, req));
+            }
+            const pos = await env.DB.prepare(
+              `SELECT id, ticker, total_shares, avg_entry, investor_stage
+                 FROM investor_positions WHERE status = 'OPEN' AND ticker = ?1 AND total_shares > 0 LIMIT 1`,
+            ).bind(ticker).first().catch(() => null);
+            if (!pos) {
+              return sendJSON({ ok: false, error: "model_not_holding", note: "The model does not hold an open long-term position in this ticker, so there is nothing to sync." }, 200, corsHeaders(env, req));
+            }
+            const cooldownKey = `timed:broker:sync-cooldown:${accountId}:${ticker}`;
+            if (await env.KV_TIMED.get(cooldownKey)) {
+              return sendJSON({ ok: false, error: "sync_cooldown", note: "A sync for this position was requested in the last 10 minutes. Give the order time to fill." }, 200, corsHeaders(env, req));
+            }
+            // Resolve the account row (broker_account_id target + a flat
+            // check so a repeated sync cannot stack buys).
+            let acctRow = null;
+            try {
+              const br = await _getBridge(`/bridge/accounts?owner=${encodeURIComponent(email)}`);
+              const parsed = JSON.parse(br.body || "null");
+              acctRow = (parsed?.accounts || []).find((a) => String(a.user_id).toLowerCase() === accountId) || null;
+            } catch (_) { acctRow = null; }
+            const brokerAccountId = acctRow?.webull_account_id || acctRow?.broker_account_id || null;
+            if (!acctRow || !brokerAccountId) {
+              return sendJSON({ ok: false, error: "account_not_found" }, 404, corsHeaders(env, req));
+            }
+            if (acctRow.broker_integration_enabled !== true) {
+              return sendJSON({ ok: false, error: "mirror_off", note: "Enable mirroring on this account first — sync places a real order." }, 200, corsHeaders(env, req));
+            }
+            try {
+              const br = await _getBridge(`/bridge/positions?owner=${encodeURIComponent(email)}`);
+              const parsed = JSON.parse(br.body || "null");
+              const acctEntry = (parsed?.accounts || []).find((a) => String(a.account_id).toLowerCase() === accountId);
+              const held = (acctEntry?.items || []).find((it) => it.ticker === ticker && Number(it.broker_qty) > 0.0001);
+              if (held) {
+                return sendJSON({ ok: false, error: "already_holding", note: "This account already holds shares of this ticker." }, 200, corsHeaders(env, req));
+              }
+            } catch (_) { /* flat-check best-effort; bridge caps still apply */ }
+            let livePrice = Number(pos.avg_entry) || 0;
+            try {
+              const pf = (await kvGetJSON(env.KV_TIMED, "timed:prices")) || {};
+              if (Number(pf[ticker]?.p) > 0) livePrice = Number(pf[ticker].p);
+            } catch (_) { /* fall back to avg entry */ }
+            await env.KV_TIMED.put(cooldownKey, String(Date.now()), { expirationTtl: 600 }).catch(() => {});
+            const { forwardInvestorMirror } = await import("./broker-bridge-client.js");
+            const out = await forwardInvestorMirror(env, {
+              kind: "open",
+              ticker,
+              shares: Number(pos.total_shares) || 0,
+              price: livePrice,
+              position_id: pos.id,
+              stage: pos.investor_stage || "accumulate",
+              reason: "self_service_position_sync",
+              source: "broker_connections_sync",
+              retry_nonce: String(Date.now()),
+              target: { user_id: accountId, broker_account_id: brokerAccountId },
+            });
+            return sendJSON({
+              ok: !!out?.ok,
+              ticker,
+              account_id: accountId,
+              result: out?.result?.response ?? null,
+              reject_reason: out?.bridge_reject_reason || null,
+              scaled_qty: out?.bridge_scaled_qty ?? null,
+            }, 200, corsHeaders(env, req));
+          } catch (e) {
+            return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+          }
         }
         // Kill switch: pause mirroring on every account at once.
         if (routeKey === "POST /timed/broker/pause-all") {

@@ -545,12 +545,23 @@ export default {
         // data with an age beats an error.
         const POS_CACHE_FRESH_MS = 60 * 1000;
         const POS_CACHE_TTL_SEC = 60 * 60;
+        // Account equity/cash from the reconciler's snapshots (summary strip).
+        let snapByAcct = new Map();
+        try {
+          const { readAccountSnapshots } = await import("./bridge-account-ledger.js");
+          const snaps = await readAccountSnapshots(env, { owner_id: owner });
+          snapByAcct = new Map(snaps.map((s) => [String(s.broker_account_id), s]));
+        } catch (_) { /* snapshots optional */ }
         for (const acct of accounts) {
+          const _snap = snapByAcct.get(String(resolveBrokerAccountId(acct))) || null;
           const entry = {
             account_id: acct.user_id,
             broker: resolveBrokerId(acct) || acct.broker || null,
             label: acct.webull_account_label || acct.webull_account_class || null,
             mirror_enabled: acct.broker_integration_enabled === true,
+            equity_usd: _snap ? (Number(_snap.equity_usd) || null) : null,
+            cash_usd: _snap ? (Number(_snap.cash_usd) || null) : null,
+            snapshot_at: _snap ? (Number(_snap.synced_at) || null) : null,
             items: [],
           };
           const cacheKey = `bridge:positions:${String(acct.user_id).toLowerCase()}`;
@@ -638,10 +649,103 @@ export default {
               avg_cost: p.avg_cost,
             });
           }
+          // 2026-08-13 — Per-ticker action history sub-rows (fills, trims,
+          // DCAs, rejects) from this account's ledger so the page can show
+          // "what happened to this position" without another round trip.
+          try {
+            const { readAccountLedger } = await import("./bridge-account-ledger.js");
+            const ledgerRows = await readAccountLedger(env, {
+              broker_account_id: resolveBrokerAccountId(acct),
+              limit: 300,
+            });
+            const bySym = new Map();
+            for (const r of ledgerRows) {
+              const sym = String(r?.ticker || "").toUpperCase();
+              if (!sym) continue;
+              const list = bySym.get(sym) || [];
+              if (list.length < 12) {
+                list.push({
+                  ts: r.ts,
+                  side: r.side || null,
+                  event_type: r.event_type || null,
+                  qty: Number(r.qty) || 0,
+                  price: Number(r.price) || 0,
+                  value: Number(r.value) || 0,
+                  status: r.status || null,
+                  reject_reason: r.reject_reason || null,
+                });
+              }
+              bySym.set(sym, list);
+            }
+            for (const it of entry.items) {
+              const hist = bySym.get(it.ticker);
+              if (hist && hist.length) it.history = hist;
+            }
+          } catch (e) {
+            console.warn("[POSITIONS] history attach failed:", String(e?.message || e).slice(0, 160));
+          }
           entry.items.sort((a, b) => (b.managed - a.managed) || String(a.ticker).localeCompare(String(b.ticker)));
           out.push(entry);
         }
         return json({ ok: true, owner, accounts: out, ts: Date.now() });
+      }
+      // 2026-08-13 — Day view for ONE owner (Broker Connections page):
+      // every per-account fill/reject from the account ledger plus the
+      // order-path audit rows (rejects with reasons, dedupes) in the
+      // window. The main worker joins these against the MODEL's own
+      // ledger to build the "what did the model do and did this account
+      // follow" timeline.
+      if (method === "GET" && path === "/bridge/day-actions") {
+        if (operatorFail) return operatorFail;
+        const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
+        if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const hours = Math.min(168, Math.max(1, Number(url.searchParams.get("hours")) || 36));
+        const sinceMs = Date.now() - hours * 3600 * 1000;
+        const db = env?.BRIDGE_DB;
+        let ledger = [];
+        let audit = [];
+        if (db) {
+          try {
+            const { ensureAccountLedgerSchema } = await import("./bridge-account-ledger.js");
+            await ensureAccountLedgerSchema(env);
+            const r = await db.prepare(`
+              SELECT ts, owner_id, user_id, broker, broker_account_id, model_trade_id,
+                     client_order_id, broker_order_id, ticker, side, event_type,
+                     qty, price, value, status, reject_reason
+                FROM broker_account_ledger
+               WHERE (owner_id = ?1 OR user_id = ?1 OR user_id LIKE ?1 || '#%')
+                 AND ts >= ?2
+               ORDER BY ts DESC LIMIT 200
+            `).bind(owner, sinceMs).all();
+            ledger = r?.results || [];
+          } catch (e) {
+            console.warn("[DAY_ACTIONS] ledger read failed:", String(e?.message || e).slice(0, 160));
+          }
+          try {
+            const r = await db.prepare(`
+              SELECT ts, user_id, trade_id, ticker, action, side, qty,
+                     estimated_value, status, reject_reason
+                FROM bridge_audit
+               WHERE (user_id = ?1 OR user_id LIKE ?1 || '#%')
+                 AND ts >= ?2
+                 AND action IN ('place','reject','dedupe_skip','reducer_rejected','post_exec_drift')
+               ORDER BY ts DESC LIMIT 300
+            `).bind(owner, sinceMs).all();
+            audit = r?.results || [];
+          } catch (e) {
+            console.warn("[DAY_ACTIONS] audit read failed:", String(e?.message || e).slice(0, 160));
+          }
+        }
+        const accounts = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
+          .filter((u) => String(u?.status || "").toLowerCase() === "connected")
+          .map((u) => ({
+            account_id: u.user_id,
+            broker_account_id: resolveBrokerAccountId(u),
+            broker: resolveBrokerId(u) || u.broker || null,
+            label: u.webull_account_label || u.webull_account_class || null,
+            mirror_enabled: u.broker_integration_enabled === true,
+          }));
+        return json({ ok: true, owner, since: sinceMs, accounts, ledger, audit, ts: Date.now() });
       }
       if (method === "GET" && path === "/bridge/audit") {
         if (operatorFail) return operatorFail;

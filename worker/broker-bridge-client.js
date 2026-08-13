@@ -212,8 +212,16 @@ export async function forwardInvestorMirror(env, op = {}) {
     const tradingSession = op?.support_trading_session != null
       ? String(op.support_trading_session)
       : null;
+    // 2026-08-13 — Optional single-account target (self-service "Sync"
+    // on the Broker Connections page). Setting broker_account_id makes
+    // the bridge route to handleSingleAccountOrder — NO fan-out — so a
+    // user syncing THEIR account can never place orders on anyone else's.
+    const target = op?.target && op.target.user_id && op.target.broker_account_id
+      ? { user_id: String(op.target.user_id).toLowerCase(), broker_account_id: String(op.target.broker_account_id) }
+      : null;
     const result = await forwardOrderToBridge(env, {
-      user_id: userEmail,
+      user_id: target ? target.user_id : userEmail,
+      ...(target ? { broker_account_id: target.broker_account_id } : {}),
       trade_id: tradeId,
       client_order_id: clientOrderId,
       ticker,
