@@ -234,6 +234,22 @@ async function runCroCtoLane(env) {
     console.error("[CRO/CTO daily] threw:", String(e?.message || e).slice(0, 200));
     recordCronFailure(env, { op: "cro_full_cycle", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
   }
+
+  // Macro Minute (Tom Lee) YouTube ingest — after the FSD cycle so the
+  // video (typically posted late afternoon ET) is in the same overnight
+  // extraction window. Auto-on when YOUTUBE_API_KEY is set.
+  try {
+    const { isMacroMinuteYtEnabled, ingestMacroMinuteFromYoutube } = await import("../cro/macro-minute-youtube.js");
+    if (isMacroMinuteYtEnabled(env)) {
+      const { ingestFromBlob } = await import("../cro/fsd-ingestion.js");
+      const r = await ingestMacroMinuteFromYoutube(env, { limit: 5, ingestFromBlob });
+      console.log(`[MACRO_MINUTE_YT] discovered=${r.discovered ?? 0} ingested=${r.ingested ?? 0}${r.note ? ` note=${r.note}` : ""}`);
+      if (r.ingested > 0) recordCronSuccess(env, "macro_minute_yt_ingest").catch(() => {});
+    }
+  } catch (e) {
+    console.error("[MACRO_MINUTE_YT] threw:", String(e?.message || e).slice(0, 200));
+    recordCronFailure(env, { op: "macro_minute_yt_ingest", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+  }
 }
 
 async function runCooDailyLane(env) {
