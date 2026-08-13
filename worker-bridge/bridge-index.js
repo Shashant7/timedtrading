@@ -533,9 +533,18 @@ export default {
         if (operatorFail) return operatorFail;
         const owner = String(url.searchParams.get("owner") || "").trim().toLowerCase();
         if (!owner) return json({ ok: false, error: "owner_required" }, 400);
+        const forceRefresh = url.searchParams.get("refresh") === "1";
         const accounts = (await resolveBridgeAccounts(env, owner, { enabledOnly: false }))
           .filter((u) => String(u?.status || "").toLowerCase() === "connected");
         const out = [];
+        // 2026-08-13 — KV positions cache. Five accounts fetched
+        // back-to-back tripped Webull's rate limit ("Too many requests"
+        // on Roth IRA + Margin). Serve a <60s-fresh cache without any
+        // broker call; on a live-fetch failure fall back to the last
+        // good snapshot (up to 1h) marked stale with its as-of time —
+        // data with an age beats an error.
+        const POS_CACHE_FRESH_MS = 60 * 1000;
+        const POS_CACHE_TTL_SEC = 60 * 60;
         for (const acct of accounts) {
           const entry = {
             account_id: acct.user_id,
@@ -544,18 +553,46 @@ export default {
             mirror_enabled: acct.broker_integration_enabled === true,
             items: [],
           };
-          let brokerPositions = [];
+          const cacheKey = `bridge:positions:${String(acct.user_id).toLowerCase()}`;
+          let cached = null;
           try {
-            const adapter = brokerAdapterFor(acct);
-            const res = typeof adapter.getEquityPositions === "function"
-              ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
-              : { ok: false, error: "broker_no_positions_method" };
-            if (Array.isArray(res)) brokerPositions = res;
-            else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
-            else entry.positions_error = res?.error || "positions_unavailable";
-          } catch (e) {
-            entry.positions_error = String(e?.message || e).slice(0, 200);
+            cached = env.BRIDGE_KV ? JSON.parse((await env.BRIDGE_KV.get(cacheKey)) || "null") : null;
+          } catch (_) { cached = null; }
+          let brokerPositions = null;
+          if (!forceRefresh && cached && Date.now() - (Number(cached.ts) || 0) < POS_CACHE_FRESH_MS) {
+            brokerPositions = cached.positions || [];
+            entry.positions_as_of = cached.ts;
+            entry.positions_cached = true;
+          } else {
+            try {
+              const adapter = brokerAdapterFor(acct);
+              const res = typeof adapter.getEquityPositions === "function"
+                ? await adapter.getEquityPositions(env, acct).catch((e) => ({ ok: false, error: String(e?.message || e).slice(0, 200) }))
+                : { ok: false, error: "broker_no_positions_method" };
+              if (Array.isArray(res)) brokerPositions = res;
+              else if (res?.ok && Array.isArray(res.positions)) brokerPositions = res.positions;
+              else entry.positions_error = res?.error || "positions_unavailable";
+            } catch (e) {
+              entry.positions_error = String(e?.message || e).slice(0, 200);
+            }
+            if (brokerPositions !== null) {
+              entry.positions_as_of = Date.now();
+              if (env.BRIDGE_KV) {
+                ctx?.waitUntil?.(env.BRIDGE_KV.put(cacheKey,
+                  JSON.stringify({ ts: Date.now(), positions: brokerPositions }),
+                  { expirationTtl: POS_CACHE_TTL_SEC },
+                ).catch(() => {}));
+              }
+            } else if (cached && Array.isArray(cached.positions)) {
+              // Live fetch failed — degrade to the last good snapshot.
+              brokerPositions = cached.positions;
+              entry.positions_as_of = cached.ts;
+              entry.positions_stale = true;
+              entry.positions_stale_reason = entry.positions_error || null;
+              delete entry.positions_error;
+            }
           }
+          if (brokerPositions === null) brokerPositions = [];
           const posBySym = new Map();
           for (const p of brokerPositions) {
             const sym = String(p?.ticker || p?.symbol || p?.instrument_symbol || "").toUpperCase();

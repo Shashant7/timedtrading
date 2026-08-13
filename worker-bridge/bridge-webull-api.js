@@ -183,62 +183,81 @@ async function signedFetch(env, {
     ? null
     : (contentType === "application/json" ? body : body);
 
-  const signHeaders = buildWebullSignedHeaders({
-    path,
-    method,
-    host,
-    appKey,
-    appSecret,
-    query,
-    body: bodyPayload,
-    accessToken,
-  });
-
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(query || {})) {
     if (v != null && v !== "") qs.set(k, String(v));
   }
   const url = `${webullApiBaseUrl(env)}${path}${qs.toString() ? `?${qs}` : ""}`;
 
-  const headers = {
-    Accept: "application/json",
-    ...signHeaders,
-  };
-  if (contentType) headers["Content-Type"] = contentType;
-  // Connect OAuth uses Bearer; personal Trading API uses signed headers only (2FA off).
-  if (accessToken && webullAuthMode(env) !== "personal") {
-    headers.Authorization = `Bearer ${accessToken}`;
-  }
+  // 2026-08-13 — GET-only rate-limit retry. Multi-account owners (5 Webull
+  // accounts) burst reads (positions page, reconciler) past Webull's
+  // per-app rate limit — later accounts got "Too many requests" and the
+  // page showed "Broker positions unavailable". Idempotent GETs retry
+  // with backoff; POSTs never retry here (double-order risk — order
+  // paths have their own idempotency-keyed handling). Headers are
+  // re-signed per attempt (the signature carries a timestamp).
+  const maxAttempts = method === "GET" ? 3 : 1;
+  let out = { ok: false, error: "unreachable" };
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (attempt > 1) await new Promise((r) => setTimeout(r, attempt === 2 ? 1200 : 2400));
+    await throttleWebullSignedFetch();
 
-  await throttleWebullSignedFetch();
-
-  const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const init = { method, headers, signal: controller.signal };
-    if (bodyPayload != null) {
-      init.body = contentType === "application/json"
-        ? JSON.stringify(bodyPayload)
-        : String(bodyPayload);
-    }
-    const r = await fetch(url, init);
-    const text = await r.text().catch(() => "");
-    let parsed = null;
-    try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
-    const errCode = parsed?.error_code ?? parsed?.errorCode;
-    const ok = r.ok && !errCode;
-    return {
-      ok,
-      http_status: r.status,
-      response: parsed ?? text,
-      error: ok ? undefined : (parsed?.message || parsed?.error || errCode || `http_${r.status}`),
-      latency_ms: null,
+    const signHeaders = buildWebullSignedHeaders({
+      path,
+      method,
+      host,
+      appKey,
+      appSecret,
+      query,
+      body: bodyPayload,
+      accessToken,
+    });
+    const headers = {
+      Accept: "application/json",
+      ...signHeaders,
     };
-  } catch (e) {
-    return { ok: false, error: String(e?.message || e).slice(0, 200) };
-  } finally {
-    clearTimeout(tid);
+    if (contentType) headers["Content-Type"] = contentType;
+    // Connect OAuth uses Bearer; personal Trading API uses signed headers only (2FA off).
+    if (accessToken && webullAuthMode(env) !== "personal") {
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    const controller = new AbortController();
+    const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const init = { method, headers, signal: controller.signal };
+      if (bodyPayload != null) {
+        init.body = contentType === "application/json"
+          ? JSON.stringify(bodyPayload)
+          : String(bodyPayload);
+      }
+      const r = await fetch(url, init);
+      const text = await r.text().catch(() => "");
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) {}
+      const errCode = parsed?.error_code ?? parsed?.errorCode;
+      const ok = r.ok && !errCode;
+      out = {
+        ok,
+        http_status: r.status,
+        response: parsed ?? text,
+        error: ok ? undefined : (parsed?.message || parsed?.error || errCode || `http_${r.status}`),
+        latency_ms: null,
+      };
+    } catch (e) {
+      out = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    } finally {
+      clearTimeout(tid);
+    }
+    if (out.ok) return out;
+    const rateLimited = out.http_status === 429
+      || /too many request|rate.?limit/i.test(String(out.error || ""));
+    if (!rateLimited) return out;
+    if (attempt < maxAttempts) {
+      console.warn(`[WEBULL] rate-limited on ${path} (attempt ${attempt}/${maxAttempts}) — retrying`);
+    }
   }
+  return out;
 }
 
 /** Exchange authorization code or refresh token (Connect OAuth step 2). */
