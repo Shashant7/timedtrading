@@ -16,18 +16,18 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1786612312662" />
-    <script defer src="/vendor/react.production.min.js?v=1786612312662"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1786612312662"></script>
-<script defer src="auth-gate.js?v=1786612312662"></script>
-    <script defer src="shared-price-utils.js?v=1786612312662"></script>
-    <script src="tt-bottom-nav.js?v=1786612312662" defer></script>
-    <script defer src="investor-nav-badge.js?v=1786612312662"></script>
-    <script src="tt-nav-extras.js?v=1786612312662" defer></script>
-    <script src="tt-rail-bridge.js?v=1786612312662" defer></script>
-    <script defer src="tt-rail-lazy-load.js?v=1786612312662"></script>
-    <script defer src="ds-components.js?v=1786612312662"></script>
-    <script defer src="shared-lane-card.js?v=1786612312662"></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1786613090658" />
+    <script defer src="/vendor/react.production.min.js?v=1786613090658"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1786613090658"></script>
+<script defer src="auth-gate.js?v=1786613090658"></script>
+    <script defer src="shared-price-utils.js?v=1786613090658"></script>
+    <script src="tt-bottom-nav.js?v=1786613090658" defer></script>
+    <script defer src="investor-nav-badge.js?v=1786613090658"></script>
+    <script src="tt-nav-extras.js?v=1786613090658" defer></script>
+    <script src="tt-rail-bridge.js?v=1786613090658" defer></script>
+    <script defer src="tt-rail-lazy-load.js?v=1786613090658"></script>
+    <script defer src="ds-components.js?v=1786613090658"></script>
+    <script defer src="shared-lane-card.js?v=1786613090658"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
@@ -109,6 +109,54 @@
       .eq-range button { padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; border: 1px solid transparent; background: transparent; color: var(--tt-text-dim); cursor: pointer; }
       .eq-range button.on { background: rgba(56,242,161,0.12); color: var(--vf-primary, #38F2A1); border-color: rgba(56,242,161,0.35); }
       .eq-acct { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+      .acct-perf { margin: -6px 0 18px; }
+      .acct-perf-head {
+        display: flex; align-items: flex-end; justify-content: space-between;
+        gap: 12px; flex-wrap: wrap; margin-bottom: 9px;
+      }
+      .acct-perf-actions {
+        display: flex; flex-direction: column; align-items: flex-end; gap: 7px;
+      }
+      @media (max-width: 720px) { .acct-perf-actions { align-items: flex-start; } }
+      .acct-perf-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+        gap: 9px;
+      }
+      .acct-perf-card {
+        appearance: none; width: 100%; min-width: 0; text-align: left;
+        padding: 12px 13px; color: var(--tt-text-1);
+        background: var(--tt-bg-1); border: 1px solid var(--tt-border-weak);
+        border-radius: 14px; cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+      }
+      .acct-perf-card:hover {
+        transform: translateY(-1px); background: rgba(255,255,255,0.035);
+        border-color: rgba(255,255,255,0.14);
+      }
+      .acct-perf-card.on { border-top: 2px solid var(--tt-success); }
+      .acct-perf-card.off { border-top: 2px solid rgba(255,255,255,0.14); }
+      .acct-perf-card.active { box-shadow: 0 0 0 1px rgba(56,242,161,0.38); }
+      .acct-perf-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+      .acct-perf-name { font-size: 12px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .acct-perf-value {
+        margin-top: 9px; font: 700 17px/1.15 "JetBrains Mono", ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .acct-perf-change {
+        margin-top: 5px; font: 700 12px/1.3 "JetBrains Mono", ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .acct-perf-sub { margin-top: 2px; font-size: 10px; color: var(--tt-text-dim); }
+      .acct-perf-since {
+        margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--tt-border-weak);
+        display: flex; justify-content: space-between; gap: 8px;
+        color: var(--tt-text-2); font-size: 10px;
+      }
+      .acct-perf-since b {
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-variant-numeric: tabular-nums;
+      }
+      .acct-compare { display: flex; gap: 8px; flex-wrap: wrap; }
       .eq-chart { width: 100%; height: 220px; display: block; }
       .eq-chart .eq-line { stroke-linejoin: round; stroke-linecap: round; animation: eqDraw 0.85s ease-out both; }
       .eq-chart .eq-area { animation: eqFade 0.7s ease-out both; }
@@ -199,10 +247,10 @@
          so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
          badge) find their mount target. -->
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1786612312662"></script>
+    <script defer src="shared-nav.js?v=1786613090658"></script>
     <div id="root"></div>
-    <script defer src="broker-connections.compiled.js?v=1786612312662"></script>
+    <script defer src="broker-connections.compiled.js?v=1786613090658"></script>
   </body>
 </html>
 
-<!-- cache-bust:1786612312662:571767582 -->
+<!-- cache-bust:1786613090658:646906729 -->

@@ -1709,6 +1709,194 @@ function buildRangePath(points, liveEq, dayPnl, sinceTs) {
     axisEnd: now
   };
 }
+function buildPerformancePath(range, rawPoints, liveEq, dayPnl, sinceTs) {
+  if (range === "1D") {
+    if (dayPnl == null) {
+      const first = rawPoints[0]?.equity;
+      const last = rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
+      const delta = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
+      return {
+        points: rawPoints,
+        delta,
+        axisStart: null,
+        axisEnd: null
+      };
+    }
+    const built = buildDayPath(rawPoints, liveEq, dayPnl);
+    return {
+      ...built,
+      axisStart: null,
+      axisEnd: null
+    };
+  }
+  if (range === "ALL") {
+    const first = rawPoints[0]?.equity;
+    const last = Number.isFinite(liveEq) ? liveEq : rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
+    let pts = rawPoints;
+    if (pts.length && Number.isFinite(last)) {
+      const now = Date.now();
+      pts = [...pts];
+      if (pts[pts.length - 1].ts < now - 500) pts.push({
+        ts: now,
+        equity: last
+      });else pts[pts.length - 1] = {
+        ts: now,
+        equity: last
+      };
+    }
+    const span = pts.length ? Math.max(...pts.map(p => p.equity)) - Math.min(...pts.map(p => p.equity)) : 0;
+    if (span < 1 && dayPnl != null && Math.abs(dayPnl) >= 0.005) {
+      return buildRangePath(pts, liveEq, dayPnl, pts[0]?.ts || Date.now() - 86400000);
+    }
+    const delta = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
+    return {
+      points: pts,
+      delta,
+      axisStart: pts[0]?.ts || null,
+      axisEnd: Date.now()
+    };
+  }
+  return buildRangePath(rawPoints, liveEq, dayPnl, sinceTs);
+}
+function accountKey(a) {
+  return String(a?.broker_account_id || a?.user_id || a?.account_id || a?.label || "");
+}
+function firstMirrorOnTsForCurve(a) {
+  const rows = (a?.markers || []).filter(m => m?.on && Number(m.ts) > 0);
+  return rows.length ? Math.min(...rows.map(m => Number(m.ts))) : null;
+}
+function sinceMirrorValueChange(a) {
+  const direct = a?.since_mirror_gain == null ? NaN : Number(a.since_mirror_gain);
+  if (Number.isFinite(direct)) return direct;
+  const start = firstMirrorOnTsForCurve(a);
+  const current = Number(a?.equity);
+  const pts = [...(a?.points || [])].sort((x, y) => x.ts - y.ts);
+  if (!start || !Number.isFinite(current) || !pts.length) return null;
+  let base = null;
+  for (const p of pts) {
+    if (p.ts <= start) base = p.equity;else {
+      if (base == null) base = p.equity;
+      break;
+    }
+  }
+  return Number.isFinite(base) ? current - base : null;
+}
+function accountPerformance(a, liveAccounts, range, sinceTs) {
+  const rawPoints = combineForwardFill([a], sinceTs);
+  const dayPnl = dayPnlForSelected([a], liveAccounts);
+  const liveEq = Number(a.equity);
+  const built = buildPerformancePath(range, rawPoints, liveEq, dayPnl, sinceTs);
+  const current = built.points.length ? Number(built.points[built.points.length - 1].equity) : Number.isFinite(liveEq) ? liveEq : null;
+  const hasPeriod = (a.points || []).length >= 2 || range === "1D" && dayPnl != null;
+  const delta = hasPeriod && Number.isFinite(Number(built.delta)) ? Number(built.delta) : null;
+  const base = Number.isFinite(current) && Number.isFinite(delta) ? current - delta : null;
+  const pct = Number.isFinite(delta) && Number.isFinite(base) && base ? delta / base * 100 : null;
+  return {
+    account: a,
+    current,
+    delta,
+    pct,
+    dayPnl,
+    sinceMirror: sinceMirrorValueChange(a),
+    firstMirrorOn: firstMirrorOnTsForCurve(a)
+  };
+}
+function AccountPerformanceRow({
+  accounts,
+  liveAccounts,
+  range,
+  sinceTs,
+  focus,
+  onFocus,
+  onRange
+}) {
+  const rows = useMemo(() => accounts.map(a => accountPerformance(a, liveAccounts, range, sinceTs)), [accounts, liveAccounts, range, sinceTs]);
+  const groupStats = useMemo(() => {
+    const calc = on => {
+      const group = rows.filter(r => r.account.mirror_enabled === on && Number.isFinite(r.delta));
+      if (!group.length) return null;
+      const delta = group.reduce((s, r) => s + r.delta, 0);
+      const base = group.reduce((s, r) => s + (Number.isFinite(r.current) ? r.current - r.delta : 0), 0);
+      return {
+        delta,
+        pct: base ? delta / base * 100 : null,
+        n: group.length
+      };
+    };
+    return {
+      on: calc(true),
+      off: calc(false)
+    };
+  }, [rows]);
+  const rangeCopy = range === "1D" ? "broker day P&L" : `${range} account value change`;
+  const groupChip = (label, stat, cls) => React.createElement("span", {
+    className: `bc-pill ${cls}`
+  }, label, " \xB7 ", stat ? fmtSigned(stat.delta) : "no period data", stat && Number.isFinite(stat.pct) ? ` (${stat.pct >= 0 ? "+" : ""}${stat.pct.toFixed(2)}%)` : "");
+  return React.createElement("section", {
+    className: "acct-perf fade-in",
+    "aria-label": "Account performance"
+  }, React.createElement("div", {
+    className: "acct-perf-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-sec-title"
+  }, "Account performance"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 16
+    }
+  }, "Every connected account \xB7 ", rangeCopy), React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 10,
+      marginTop: 3
+    }
+  }, "1D uses broker P&L. Longer ranges show observed account-value change; cash transfers can affect those periods.")), React.createElement("div", {
+    className: "acct-perf-actions"
+  }, React.createElement("div", {
+    className: "eq-range",
+    "aria-label": "Account performance timeframe"
+  }, EQ_RANGES.map(r => React.createElement("button", {
+    key: r.id,
+    type: "button",
+    className: range === r.id ? "on" : "",
+    onClick: () => onRange(r.id)
+  }, r.id))), React.createElement("div", {
+    className: "acct-compare"
+  }, groupChip("Mirror on", groupStats.on, "p-ok"), groupChip("Not mirrored", groupStats.off, "p-off")))), React.createElement("div", {
+    className: "acct-perf-grid"
+  }, rows.map(r => {
+    const a = r.account;
+    const key = accountKey(a);
+    const active = focus === key || focus === a.user_id;
+    const on = a.mirror_enabled === true;
+    const deltaClass = Number.isFinite(r.delta) ? r.delta >= 0 ? "up" : "dn" : "dim";
+    return React.createElement("button", {
+      key: key,
+      type: "button",
+      className: `acct-perf-card ${on ? "on" : "off"} ${active ? "active" : ""}`,
+      onClick: () => onFocus(key),
+      title: `Show ${a.label || key} value history`
+    }, React.createElement("div", {
+      className: "acct-perf-top"
+    }, React.createElement("span", {
+      className: "acct-perf-name"
+    }, a.label || key), React.createElement("span", {
+      className: `bc-pill ${on ? "p-ok" : "p-off"}`
+    }, on ? "MIRROR ON" : "NOT MIRRORED")), React.createElement("div", {
+      className: "acct-perf-value"
+    }, Number.isFinite(r.current) ? fmtUsd(r.current, {
+      compact: true
+    }) : "—"), React.createElement("div", {
+      className: `acct-perf-change ${deltaClass}`
+    }, Number.isFinite(r.delta) ? fmtSigned(r.delta) : "—", Number.isFinite(r.pct) ? ` (${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%)` : ""), React.createElement("div", {
+      className: "acct-perf-sub"
+    }, rangeCopy), React.createElement("div", {
+      className: "acct-perf-since"
+    }, React.createElement("span", null, r.firstMirrorOn ? "Since first mirror on" : "Model-managed history"), React.createElement("b", {
+      className: Number.isFinite(r.sinceMirror) ? r.sinceMirror >= 0 ? "up" : "dn" : "dim"
+    }, r.firstMirrorOn && Number.isFinite(r.sinceMirror) ? fmtSigned(r.sinceMirror) : "Not started")));
+  })));
+}
 function EquityCurve({
   liveAccounts
 }) {
@@ -1743,39 +1931,73 @@ function EquityCurve({
   }, []);
   const accounts = useMemo(() => {
     const rows = data?.accounts || [];
-    if (!liveAccounts?.length) return rows;
     const now = Date.now();
-    return rows.map(a => {
-      const live = liveAccounts.find(p => a.user_id && p.account_id === a.user_id || a.broker_account_id && (p.broker_account_id === a.broker_account_id || p.webull_account_id === a.broker_account_id) || a.label && p.label === a.label);
+    const claimed = new Set();
+    const merged = rows.map(a => {
+      const live = matchLiveAccount(a, liveAccounts);
+      if (live) claimed.add(live.account_id || live.broker_account_id || live.label);
       const eq = Number(live?.equity_usd);
-      if (!Number.isFinite(eq)) return a;
       const pts = [...(a.points || [])].sort((x, y) => x.ts - y.ts);
-      const last = pts[pts.length - 1];
-      if (!last) pts.push({
-        ts: now,
-        equity: eq
-      });else if (now - last.ts > 20_000 || Math.abs(last.equity - eq) > 0.005) {
-        pts.push({
+      if (Number.isFinite(eq)) {
+        const last = pts[pts.length - 1];
+        if (!last) pts.push({
           ts: now,
           equity: eq
-        });
-      } else {
-        pts[pts.length - 1] = {
-          ts: now,
-          equity: eq
-        };
+        });else if (now - last.ts > 20_000 || Math.abs(last.equity - eq) > 0.005) {
+          pts.push({
+            ts: now,
+            equity: eq
+          });
+        } else {
+          pts[pts.length - 1] = {
+            ts: now,
+            equity: eq
+          };
+        }
       }
       return {
         ...a,
         points: pts,
-        equity: eq
+        equity: Number.isFinite(eq) ? eq : a.equity,
+        mirror_enabled: live ? live.mirror_enabled === true : a.mirror_enabled === true,
+        label: live?.label || a.label
       };
+    });
+    for (const live of liveAccounts || []) {
+      const liveKey = live.account_id || live.broker_account_id || live.label;
+      if (!liveKey || claimed.has(liveKey)) continue;
+      const eq = Number(live.equity_usd);
+      const markers = (live.mirror_events || []).filter(e => e && Number(e.ts) > 0).map(e => ({
+        ts: Number(e.ts),
+        on: e.on === true
+      })).sort((a, b) => a.ts - b.ts);
+      merged.push({
+        broker_account_id: live.broker_account_id || live.webull_account_id || live.account_id,
+        user_id: live.account_id || null,
+        label: live.label || live.account_id,
+        broker: live.broker || null,
+        mirror_enabled: live.mirror_enabled === true,
+        points: Number.isFinite(eq) ? [{
+          ts: Number(live.positions_as_of) || now,
+          equity: eq
+        }] : [],
+        markers,
+        equity: Number.isFinite(eq) ? eq : null,
+        since_mirror_gain: null
+      });
+    }
+    return merged.sort((a, b) => {
+      const onDiff = Number(b.mirror_enabled === true) - Number(a.mirror_enabled === true);
+      if (onDiff) return onDiff;
+      const histDiff = Number(!!firstMirrorOnTsForCurve(b)) - Number(!!firstMirrorOnTsForCurve(a));
+      if (histDiff) return histDiff;
+      return String(a.label || accountKey(a)).localeCompare(String(b.label || accountKey(b)));
     });
   }, [data, liveAccounts, tick]);
   const selected = useMemo(() => {
     if (focus === "all") return accounts;
-    if (focus === "mirrored") return accounts.filter(a => a.mirror_enabled || (a.markers || []).some(m => m.on));
-    return accounts.filter(a => a.broker_account_id === focus || a.user_id === focus);
+    if (focus === "mirrored") return accounts.filter(a => a.mirror_enabled === true);
+    return accounts.filter(a => accountKey(a) === focus || a.user_id === focus);
   }, [accounts, focus]);
   const sinceTs = rangeStartMs(range);
   const rawPoints = useMemo(() => combineForwardFill(selected, sinceTs), [selected, sinceTs]);
@@ -1792,55 +2014,7 @@ function EquityCurve({
     }
     return n ? sum : null;
   }, [selected]);
-  const dayBuilt = useMemo(() => {
-    if (range === "1D") {
-      if (sessionDayPnl == null) {
-        const first = rawPoints[0]?.equity;
-        const last = rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
-        const d = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
-        return {
-          points: rawPoints,
-          delta: d,
-          axisStart: null,
-          axisEnd: null
-        };
-      }
-      const built = buildDayPath(rawPoints, liveEqSum, sessionDayPnl);
-      return {
-        ...built,
-        axisStart: null,
-        axisEnd: null
-      };
-    }
-    if (range === "ALL") {
-      const first = rawPoints[0]?.equity;
-      const last = Number.isFinite(liveEqSum) ? liveEqSum : rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
-      let pts = rawPoints;
-      if (pts.length && Number.isFinite(last)) {
-        const now = Date.now();
-        pts = [...pts];
-        if (pts[pts.length - 1].ts < now - 500) pts.push({
-          ts: now,
-          equity: last
-        });else pts[pts.length - 1] = {
-          ts: now,
-          equity: last
-        };
-      }
-      const span = pts.length ? Math.max(...pts.map(p => p.equity)) - Math.min(...pts.map(p => p.equity)) : 0;
-      if (span < 1 && sessionDayPnl != null && Math.abs(sessionDayPnl) >= 0.005) {
-        return buildRangePath(pts, liveEqSum, sessionDayPnl, pts[0]?.ts || Date.now() - 86400000);
-      }
-      const d = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
-      return {
-        points: pts,
-        delta: d,
-        axisStart: pts[0]?.ts || null,
-        axisEnd: Date.now()
-      };
-    }
-    return buildRangePath(rawPoints, liveEqSum, sessionDayPnl, sinceTs);
-  }, [range, rawPoints, liveEqSum, sessionDayPnl, sinceTs]);
+  const dayBuilt = useMemo(() => buildPerformancePath(range, rawPoints, liveEqSum, sessionDayPnl, sinceTs), [range, rawPoints, liveEqSum, sessionDayPnl, sinceTs]);
   const points = dayBuilt.points;
   const markers = useMemo(() => {
     const rows = [];
@@ -1860,8 +2034,6 @@ function EquityCurve({
   const delta = dayBuilt.delta != null ? dayBuilt.delta : Number.isFinite(lastEq) && Number.isFinite(firstEq) ? lastEq - firstEq : null;
   const deltaBasis = Number.isFinite(firstEq) ? firstEq : Number.isFinite(lastEq) && Number.isFinite(delta) ? lastEq - delta : null;
   const deltaPct = Number.isFinite(delta) && Number.isFinite(deltaBasis) && deltaBasis ? delta / deltaBasis * 100 : null;
-  const mirrorGain = selected.reduce((s, a) => s + (Number.isFinite(Number(a.since_mirror_gain)) ? Number(a.since_mirror_gain) : 0), 0);
-  const hasMirrorGain = selected.some(a => Number.isFinite(Number(a.since_mirror_gain)));
   const up = delta == null ? true : delta >= 0;
   const stroke = up ? "var(--tt-success, #34d399)" : "var(--tt-danger, #ef4444)";
   const fill = up ? "rgba(52,211,153,0.14)" : "rgba(239,68,68,0.12)";
@@ -1879,6 +2051,8 @@ function EquityCurve({
   const marks = [];
   const axisStartLabel = range === "1D" ? points[0] ? fmtTime(points[0].ts) : "" : fmtDay(dayBuilt.axisStart || points[0]?.ts || Date.now());
   const axisEndLabel = range === "1D" ? "Now" : "Now";
+  const focusedAccount = accounts.find(a => accountKey(a) === focus || a.user_id === focus);
+  const chartTitle = focus === "mirrored" ? "Mirror-on accounts" : focus === "all" ? "All connected accounts" : focusedAccount?.label || "Account";
   if (points.length >= 1) {
     const t0 = range !== "1D" && dayBuilt.axisStart ? dayBuilt.axisStart : points[0].ts;
     const t1 = range !== "1D" && dayBuilt.axisEnd ? dayBuilt.axisEnd : Math.max(points[points.length - 1].ts, Date.now());
@@ -1918,7 +2092,15 @@ function EquityCurve({
       });
     }
   }
-  return React.createElement("section", {
+  return React.createElement(React.Fragment, null, accounts.length > 0 && React.createElement(AccountPerformanceRow, {
+    accounts: accounts,
+    liveAccounts: liveAccounts,
+    range: range,
+    sinceTs: sinceTs,
+    focus: focus,
+    onFocus: setFocus,
+    onRange: setRange
+  }), React.createElement("section", {
     className: "tt-card tt-card-pad",
     style: {
       marginBottom: 18
@@ -1932,14 +2114,7 @@ function EquityCurve({
     style: {
       fontSize: 18
     }
-  }, range === "1D" ? "Day change · live equity" : "Mirrored accounts vs model start")), React.createElement("div", {
-    className: "eq-range"
-  }, EQ_RANGES.map(r => React.createElement("button", {
-    key: r.id,
-    type: "button",
-    className: range === r.id ? "on" : "",
-    onClick: () => setRange(r.id)
-  }, r.id)))), React.createElement("div", {
+  }, chartTitle, " \xB7 ", range === "1D" ? "day P&L" : "account value history"))), React.createElement("div", {
     className: "eq-acct"
   }, React.createElement("button", {
     type: "button",
@@ -1949,7 +2124,7 @@ function EquityCurve({
       cursor: "pointer",
       border: "none"
     }
-  }, "Mirrored"), React.createElement("button", {
+  }, "Mirror-on group"), React.createElement("button", {
     type: "button",
     className: `bc-pill ${focus === "all" ? "p-mint" : "p-off"}`,
     onClick: () => setFocus("all"),
@@ -1959,14 +2134,14 @@ function EquityCurve({
     }
   }, "All accounts"), accounts.map(a => React.createElement("button", {
     type: "button",
-    key: a.broker_account_id || a.user_id,
-    className: `bc-pill ${focus === a.broker_account_id || focus === a.user_id ? "p-mint" : "p-off"}`,
-    onClick: () => setFocus(a.broker_account_id || a.user_id),
+    key: accountKey(a),
+    className: `bc-pill ${focus === accountKey(a) || focus === a.user_id ? "p-mint" : "p-off"}`,
+    onClick: () => setFocus(accountKey(a)),
     style: {
       cursor: "pointer",
       border: "none"
     }
-  }, a.label || a.broker_account_id))), data === null && React.createElement("div", {
+  }, a.label || accountKey(a), " \xB7 ", a.mirror_enabled ? "ON" : "OFF"))), data === null && React.createElement("div", {
     className: "skel",
     style: {
       height: 220,
@@ -2002,15 +2177,7 @@ function EquityCurve({
       fontSize: 14,
       fontWeight: 700
     }
-  }, fmtSigned(delta), deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : "", " ", rangeLabel)), hasMirrorGain && range !== "1D" && React.createElement("div", {
-    className: "dim",
-    style: {
-      fontSize: 12,
-      marginBottom: 6
-    }
-  }, "Since the model started managing", selected.length === 1 ? ` ${selected[0].label}` : " these accounts", ": ", React.createElement("b", {
-    className: `mono ${mirrorGain >= 0 ? "up" : "dn"}`
-  }, fmtSigned(mirrorGain))), range === "1D" && React.createElement("div", {
+  }, fmtSigned(delta), deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : "", " ", rangeLabel)), range === "1D" && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 12,
@@ -2094,7 +2261,7 @@ function EquityCurve({
       fontSize: 11,
       marginTop: 4
     }
-  }, "Vertical lines mark each mirror on / mirror off for the selected accounts.")));
+  }, "Vertical lines mark each mirror on / mirror off for the selected accounts."))));
 }
 function BrokerConnectionsApp({
   user
@@ -2559,6 +2726,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786612312662:571767582
+// cache-bust:1786613090658:646906729
 
-// cache-bust:1786612312662:571767582
+// cache-bust:1786613090658:646906729
