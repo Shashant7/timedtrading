@@ -73,6 +73,17 @@ export async function ensureAccountLedgerSchema(env) {
     await db.prepare(
       `CREATE INDEX IF NOT EXISTS idx_bas_owner ON broker_account_snapshot(owner_id)`,
     ).run();
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS broker_account_equity_history (
+        broker_account_id TEXT NOT NULL,
+        ts                INTEGER NOT NULL,
+        equity_usd        REAL,
+        PRIMARY KEY (broker_account_id, ts)
+      )
+    `).run();
+    await db.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_baeh_account_ts ON broker_account_equity_history(broker_account_id, ts)`,
+    ).run();
     _schemaReady = true;
   } catch (e) {
     console.warn("[ACCT_LEDGER] schema ensure failed:", String(e?.message || e).slice(0, 200));
@@ -187,6 +198,13 @@ export async function snapshotAccount(env, snap = {}) {
       drift.length ? JSON.stringify(drift).slice(0, 8000) : null,
       Number(snap.synced_at) || Date.now(),
     ).run();
+    try {
+      await recordEquityPoint(env, {
+        broker_account_id: snap.broker_account_id,
+        ts: Number(snap.synced_at) || Date.now(),
+        equity_usd: snap.equity_usd,
+      });
+    } catch (_) { /* history is best-effort */ }
     return { ok: true };
   } catch (e) {
     console.warn("[ACCT_LEDGER] snapshot failed:", String(e?.message || e).slice(0, 200));
@@ -219,4 +237,61 @@ export async function readAccountSnapshots(env, { owner_id = null } = {}) {
 function safeParse(s, fallback) {
   if (!s) return fallback;
   try { return JSON.parse(s); } catch (_) { return fallback; }
+}
+
+/** One equity sample per account per hour (reconciler is */5). */
+export async function recordEquityPoint(env, { broker_account_id, ts, equity_usd } = {}) {
+  const db = env?.BRIDGE_DB;
+  const eq = Number(equity_usd);
+  if (!db || !broker_account_id || !Number.isFinite(eq)) return { ok: false };
+  await ensureAccountLedgerSchema(env);
+  const hourTs = Math.floor((Number(ts) || Date.now()) / 3600000) * 3600000;
+  try {
+    await db.prepare(`
+      INSERT INTO broker_account_equity_history (broker_account_id, ts, equity_usd)
+      VALUES (?, ?, ?)
+      ON CONFLICT(broker_account_id, ts) DO UPDATE SET equity_usd=excluded.equity_usd
+    `).bind(String(broker_account_id), hourTs, eq).run();
+    return { ok: true, ts: hourTs };
+  } catch (e) {
+    console.warn("[ACCT_LEDGER] equity history write failed:", String(e?.message || e).slice(0, 160));
+    return { ok: false };
+  }
+}
+
+/** Equity samples for an owner's accounts, oldest-first. */
+export async function readEquityHistory(env, { owner_id, since_ts = 0 } = {}) {
+  const db = env?.BRIDGE_DB;
+  if (!db || !owner_id) return [];
+  await ensureAccountLedgerSchema(env);
+  try {
+    const snaps = await readAccountSnapshots(env, { owner_id });
+    const out = [];
+    for (const s of snaps) {
+      const id = String(s.broker_account_id || "");
+      if (!id) continue;
+      const res = await db.prepare(
+        `SELECT ts, equity_usd FROM broker_account_equity_history
+          WHERE broker_account_id = ?1 AND ts >= ?2 ORDER BY ts ASC LIMIT 2500`,
+      ).bind(id, Number(since_ts) || 0).all();
+      const points = (res?.results || []).map((r) => ({
+        ts: Number(r.ts),
+        equity: Number(r.equity_usd),
+      })).filter((p) => Number.isFinite(p.ts) && Number.isFinite(p.equity));
+      if (!points.length && Number.isFinite(Number(s.equity_usd))) {
+        points.push({ ts: Number(s.synced_at) || Date.now(), equity: Number(s.equity_usd) });
+      }
+      out.push({
+        broker_account_id: id,
+        user_id: s.user_id || null,
+        label: s.account_label || id,
+        broker: s.broker || null,
+        points,
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn("[ACCT_LEDGER] equity history read failed:", String(e?.message || e).slice(0, 160));
+    return [];
+  }
 }

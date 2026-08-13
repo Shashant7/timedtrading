@@ -41,7 +41,17 @@ const fmtDay = ts => new Date(ts).toLocaleDateString("en-US", {
   month: "short",
   day: "numeric"
 });
+const nyDateKey = ts => new Date(ts).toLocaleDateString("en-CA", {
+  timeZone: "America/New_York"
+});
 const minsAgo = ts => Math.max(0, Math.round((Date.now() - Number(ts)) / 60000));
+function firstMirrorOnTs(acct) {
+  const ev = Array.isArray(acct?.mirror_events) ? acct.mirror_events : [];
+  const ons = ev.filter(e => e && e.on === true && Number(e.ts) > 0).map(e => Number(e.ts)).sort((a, b) => a - b);
+  if (ons.length) return ons[0];
+  if (acct?.mirror_enabled) return Number(acct.enable_changed_at) || Number(acct.connected_at) || null;
+  return Number(acct?.enable_changed_at) || null;
+}
 function humanizeReason(raw) {
   const r = String(raw || "").toLowerCase();
   if (!r) return null;
@@ -228,6 +238,10 @@ const MIRROR_CHIP = {
     cls: "p-warn",
     label: "SKIPPED"
   },
+  auto_sync: {
+    cls: "p-info",
+    label: "AUTO-SYNC"
+  },
   not_mirrored: {
     cls: "p-off",
     label: "NOT MIRRORED"
@@ -361,21 +375,12 @@ function DayActions({
   refreshKey
 }) {
   const [data, setData] = useState(null);
-  const [windowH, setWindowH] = useState(0);
-  const [autoWidened, setAutoWidened] = useState(false);
   useEffect(() => {
     let alive = true;
     (async () => {
-      const q = windowH > 0 ? `?hours=${windowH}` : "";
-      const json = await apiGet(`/timed/broker/day-actions${q}`).catch(() => null);
+      const json = await apiGet("/timed/broker/day-actions?hours=744").catch(() => null);
       if (!alive) return;
-      if (json?.ok) {
-        setData(json);
-        if (!autoWidened && windowH === 0 && (json.actions || []).length === 0) {
-          setAutoWidened(true);
-          setWindowH(72);
-        }
-      } else setData({
+      if (json?.ok) setData(json);else setData({
         ok: false,
         error: json?.error || "Request failed"
       });
@@ -383,10 +388,39 @@ function DayActions({
     return () => {
       alive = false;
     };
-  }, [refreshKey, windowH]);
+  }, [refreshKey]);
   const actions = data?.actions || [];
   const s = data?.summary || {};
-  let lastDay = null;
+  const firstOnByLabel = useMemo(() => {
+    const m = new Map();
+    for (const a of data?.accounts || []) {
+      const on = firstMirrorOnTs(a);
+      if (on && a.label) m.set(a.label, on);
+      if (on && a.account_id) m.set(a.account_id, on);
+    }
+    return m;
+  }, [data]);
+  const tagged = useMemo(() => actions.map(a => {
+    const ts = Number(a.ts) || 0;
+    const labels = [a.account, ...(a.fills || []).map(f => f.account), ...(a.rejects || []).map(r => r.account)].filter(Boolean);
+    const pre = labels.length ? labels.every(lb => firstOnByLabel.get(lb) && ts < firstOnByLabel.get(lb)) : false;
+    return pre ? {
+      ...a,
+      mirror: "auto_sync",
+      pre_mirror: true
+    } : a;
+  }), [actions, firstOnByLabel]);
+  const groups = useMemo(() => {
+    const map = new Map();
+    for (const a of tagged) {
+      const key = nyDateKey(a.ts);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(a);
+    }
+    return [...map.entries()].sort((x, y) => (y[1][0]?.ts || 0) - (x[1][0]?.ts || 0));
+  }, [tagged]);
+  const todayKey = nyDateKey(Date.now());
+  const expandKey = groups.find(([k]) => k === todayKey)?.[1]?.length ? todayKey : groups[0]?.[0] || todayKey;
   return React.createElement("section", {
     className: "tt-card tt-card-pad",
     style: {
@@ -396,33 +430,19 @@ function DayActions({
     className: "sec-head"
   }, React.createElement("div", null, React.createElement("div", {
     className: "tt-sec-title"
-  }, windowH > 0 ? `Last ${Math.round(windowH / 24)} days` : "Today"), React.createElement("div", {
+  }, "Last 31 days"), React.createElement("div", {
     className: "tt-sec-h",
     style: {
       fontSize: 18
     }
-  }, "Model actions & mirror outcomes")), React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6
-    }
-  }, React.createElement("button", {
-    className: `bc-btn bc-btn-sm ${windowH === 0 ? "bc-btn-primary" : ""}`,
-    onClick: () => {
-      setWindowH(0);
-      setAutoWidened(true);
-    }
-  }, "Today"), React.createElement("button", {
-    className: `bc-btn bc-btn-sm ${windowH === 72 ? "bc-btn-primary" : ""}`,
-    onClick: () => setWindowH(72)
-  }, "3 days"))), React.createElement("p", {
+  }, "Model actions & mirror outcomes"))), React.createElement("p", {
     className: "dim",
     style: {
       fontSize: 12,
       margin: "0 0 10px",
       lineHeight: 1.6
     }
-  }, "Every trade the model executed, whether the mirror followed on the connected accounts, and why when it did not."), data === null && React.createElement("div", null, [0, 1, 2].map(i => React.createElement("div", {
+  }, "Every trade the model executed, whether the mirror followed on the connected accounts, and why when it did not. Today stays expanded once the session has actions; until then the previous day is open. Older days collapse."), data === null && React.createElement("div", null, [0, 1, 2].map(i => React.createElement("div", {
     key: i,
     className: "skel",
     style: {
@@ -431,25 +451,36 @@ function DayActions({
     }
   }))), data?.ok === false && React.createElement("div", {
     className: "msg-err"
-  }, "Could not load the timeline: ", data.error), data?.ok && actions.length === 0 && React.createElement("div", {
+  }, "Could not load the timeline: ", data.error), data?.ok && tagged.length === 0 && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 13,
       padding: "14px 0"
     }
-  }, "No model actions in this window. The timeline fills in as the model trades."), data?.ok && actions.length > 0 && React.createElement("div", {
-    className: "tl"
-  }, actions.map((a, i) => {
-    const day = fmtDay(a.ts);
-    const showDay = windowH > 0 && day !== lastDay;
-    lastDay = day;
-    return React.createElement(ActionRow, {
-      key: i,
+  }, "No model actions in this window. The timeline fills in as the model trades."), data?.ok && groups.map(([key, rows]) => {
+    const expanded = key === expandKey;
+    const head = React.createElement("div", {
+      className: "tl-day-h"
+    }, fmtDay(rows[0].ts), " \xB7 ", rows.length, " action", rows.length === 1 ? "" : "s", key === todayKey ? " · today" : "");
+    const list = React.createElement("div", {
+      className: "tl"
+    }, rows.map((a, i) => React.createElement(ActionRow, {
+      key: key + i,
       a: a,
-      isLast: i === actions.length - 1,
-      showDay: showDay
-    });
-  })), data?.ok && actions.length > 0 && React.createElement("div", {
+      isLast: i === rows.length - 1,
+      showDay: false
+    })));
+    if (expanded) {
+      return React.createElement("div", {
+        key: key,
+        className: "fade-in"
+      }, head, list);
+    }
+    return React.createElement("details", {
+      key: key,
+      className: "tl-day-coll"
+    }, React.createElement("summary", null, React.createElement("span", null, fmtDay(rows[0].ts), " \xB7 ", rows.length, " action", rows.length === 1 ? "" : "s")), list);
+  }), data?.ok && tagged.length > 0 && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -605,12 +636,17 @@ function PositionRow({
     style: {
       fontSize: 12.5
     }
-  }, Number(it.price) > 0 ? React.createElement("div", null, React.createElement("div", null, fmtUsd(it.price)), Number.isFinite(dc.dayPct) && dc.dayPct !== null && React.createElement("div", {
-    className: dc.dayPct >= 0 ? "up" : "dn",
-    style: {
-      fontSize: 11
-    }
-  }, dc.dayPct >= 0 ? "+" : "", Number(dc.dayPct).toFixed(2), "% today")) : React.createElement("span", {
+  }, Number(it.price) > 0 || Number(it.last_price) > 0 ? React.createElement("div", null, React.createElement("div", null, fmtUsd(Number(it.price) > 0 ? it.price : it.last_price)), (() => {
+    const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
+    const showPct = Number.isFinite(dc.dayPct) && dc.dayPct !== null && (marketOpen || Math.abs(dc.dayPct) >= 0.005);
+    if (!showPct) return null;
+    return React.createElement("div", {
+      className: dc.dayPct >= 0 ? "up" : "dn",
+      style: {
+        fontSize: 11
+      }
+    }, dc.dayPct >= 0 ? "+" : "", Number(dc.dayPct).toFixed(2), "% today");
+  })()) : React.createElement("span", {
     className: "dim"
   }, "\u2014")), React.createElement("div", {
     className: "pos-a-val mono",
@@ -706,6 +742,8 @@ function PositionRow({
   }, "Account history"), it.history.map((hrow, i) => {
     const hc = HIST_CHIP[String(hrow.side || "").toLowerCase()] || (String(hrow.event_type || "").includes("EXIT") ? HIST_CHIP.exit : HIST_CHIP.buy);
     const failed = hrow.status && hrow.status !== "ok" && hrow.status !== "filled";
+    const firstOn = firstMirrorOnTs(acct);
+    const preMirror = !failed && firstOn && Number(hrow.ts) < firstOn;
     return React.createElement("div", {
       key: i,
       className: "hist-row",
@@ -719,8 +757,8 @@ function PositionRow({
         minWidth: 108
       }
     }, fmtDay(hrow.ts), " ", fmtTime(hrow.ts)), React.createElement("span", {
-      className: `bc-pill ${failed ? "p-err" : hc.cls}`
-    }, failed ? "FAILED" : hc.label), React.createElement("span", {
+      className: `bc-pill ${failed ? "p-err" : preMirror ? "p-info" : hc.cls}`
+    }, failed ? "FAILED" : preMirror ? "AUTO-SYNC" : hc.label), React.createElement("span", {
       className: "mono"
     }, fmtQty(hrow.qty), " sh @ ", fmtUsd(hrow.price)), Number(hrow.value) > 0 && React.createElement("span", {
       className: "mono dim"
@@ -842,7 +880,7 @@ function PositionsSection({
       fontSize: 11,
       marginBottom: 8
     }
-  }, "Live prices and P&L require a Pro subscription \u2014 showing account holdings only."), syncMsg && React.createElement("div", {
+  }, "Intraday change % from the market-data feed requires Pro \u2014 Open P&L and last price use the broker's own marks."), syncMsg && React.createElement("div", {
     className: syncMsg.ok ? "msg-ok" : "msg-err",
     style: {
       margin: "6px 0"
@@ -1128,6 +1166,290 @@ function ConnectForm({
     }
   }, "The key pair is validated against Webull before anything is stored, then encrypted at rest. Keys never appear in the browser again after this step."));
 }
+const EQ_RANGES = [{
+  id: "1D",
+  ms: 86400000
+}, {
+  id: "1W",
+  ms: 7 * 86400000
+}, {
+  id: "1M",
+  ms: 30 * 86400000
+}, {
+  id: "3M",
+  ms: 90 * 86400000
+}, {
+  id: "YTD",
+  ms: "ytd"
+}, {
+  id: "ALL",
+  ms: 0
+}];
+function rangeStartMs(id) {
+  const now = Date.now();
+  if (id === "YTD") {
+    const ny = new Date(new Date().toLocaleString("en-US", {
+      timeZone: "America/New_York"
+    }));
+    return new Date(ny.getFullYear(), 0, 1).getTime();
+  }
+  const spec = EQ_RANGES.find(r => r.id === id);
+  const ms = spec && typeof spec.ms === "number" ? spec.ms : 0;
+  return ms > 0 ? now - ms : 0;
+}
+function combineForwardFill(accts, sinceTs) {
+  const series = accts.map(a => (a.points || []).filter(p => p.ts >= sinceTs).sort((x, y) => x.ts - y.ts));
+  const allTs = new Set();
+  for (const s of series) for (const p of s) allTs.add(p.ts);
+  const tsList = [...allTs].sort((a, b) => a - b);
+  const last = accts.map(() => null);
+  const idx = accts.map(() => 0);
+  const out = [];
+  for (const ts of tsList) {
+    let sum = 0,
+      any = false;
+    accts.forEach((_, i) => {
+      const pts = series[i];
+      while (idx[i] < pts.length && pts[idx[i]].ts <= ts) {
+        last[i] = pts[idx[i]].equity;
+        idx[i]++;
+      }
+      if (last[i] != null) {
+        sum += last[i];
+        any = true;
+      }
+    });
+    if (any) out.push({
+      ts,
+      equity: sum
+    });
+  }
+  return out;
+}
+function EquityCurve() {
+  const [data, setData] = useState(null);
+  const [range, setRange] = useState("ALL");
+  const [focus, setFocus] = useState("mirrored");
+  useEffect(() => {
+    let alive = true;
+    apiGet("/timed/broker/equity-curve").then(j => {
+      if (alive && j?.ok) setData(j);else if (alive) setData({
+        ok: false,
+        accounts: []
+      });
+    }).catch(() => {
+      if (alive) setData({
+        ok: false,
+        accounts: []
+      });
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const accounts = data?.accounts || [];
+  const selected = useMemo(() => {
+    if (focus === "all") return accounts;
+    if (focus === "mirrored") return accounts.filter(a => a.mirror_enabled || (a.markers || []).some(m => m.on));
+    return accounts.filter(a => a.broker_account_id === focus || a.user_id === focus);
+  }, [accounts, focus]);
+  const sinceTs = rangeStartMs(range);
+  const points = useMemo(() => combineForwardFill(selected, sinceTs), [selected, sinceTs]);
+  const markers = useMemo(() => {
+    const rows = [];
+    for (const a of selected) {
+      for (const m of a.markers || []) {
+        if (sinceTs && m.ts < sinceTs) continue;
+        rows.push({
+          ...m,
+          label: a.label || a.broker_account_id
+        });
+      }
+    }
+    return rows.sort((a, b) => a.ts - b.ts);
+  }, [selected, sinceTs]);
+  const lastEq = points.length ? points[points.length - 1].equity : null;
+  const firstEq = points.length ? points[0].equity : null;
+  const delta = Number.isFinite(lastEq) && Number.isFinite(firstEq) ? lastEq - firstEq : null;
+  const deltaPct = Number.isFinite(delta) && firstEq ? delta / firstEq * 100 : null;
+  const mirrorGain = selected.reduce((s, a) => s + (Number.isFinite(Number(a.since_mirror_gain)) ? Number(a.since_mirror_gain) : 0), 0);
+  const hasMirrorGain = selected.some(a => Number.isFinite(Number(a.since_mirror_gain)));
+  const up = delta == null ? true : delta >= 0;
+  const stroke = up ? "var(--tt-success, #34d399)" : "var(--tt-danger, #ef4444)";
+  const fill = up ? "rgba(52,211,153,0.14)" : "rgba(239,68,68,0.12)";
+  const W = 640,
+    H = 200,
+    padL = 6,
+    padR = 6,
+    padT = 18,
+    padB = 22;
+  let path = "",
+    area = "";
+  const marks = [];
+  if (points.length >= 1) {
+    const t0 = points[0].ts;
+    const t1 = points[points.length - 1].ts || t0 + 1;
+    const eqs = points.map(p => p.equity);
+    let lo = Math.min(...eqs),
+      hi = Math.max(...eqs);
+    if (hi === lo) {
+      lo = lo * 0.99;
+      hi = hi * 1.01 || 1;
+    }
+    const xOf = ts => padL + (ts - t0) / Math.max(1, t1 - t0) * (W - padL - padR);
+    const yOf = eq => padT + (1 - (eq - lo) / (hi - lo)) * (H - padT - padB);
+    path = points.map((p, i) => `${i ? "L" : "M"}${xOf(p.ts).toFixed(1)},${yOf(p.equity).toFixed(1)}`).join(" ");
+    const lastX = xOf(points[points.length - 1].ts);
+    const firstX = xOf(points[0].ts);
+    area = `${path} L${lastX.toFixed(1)},${H - padB} L${firstX.toFixed(1)},${H - padB} Z`;
+    for (const m of markers) {
+      if (m.ts < t0 || m.ts > t1) continue;
+      marks.push({
+        x: xOf(m.ts),
+        on: m.on,
+        label: m.label
+      });
+    }
+  }
+  return React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "sec-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-sec-title"
+  }, "Portfolio growth"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 18
+    }
+  }, "Mirrored accounts vs model start")), React.createElement("div", {
+    className: "eq-range"
+  }, EQ_RANGES.map(r => React.createElement("button", {
+    key: r.id,
+    className: range === r.id ? "on" : "",
+    onClick: () => setRange(r.id)
+  }, r.id)))), React.createElement("div", {
+    className: "eq-acct"
+  }, React.createElement("button", {
+    className: `bc-pill ${focus === "mirrored" ? "p-mint" : "p-off"}`,
+    onClick: () => setFocus("mirrored"),
+    style: {
+      cursor: "pointer",
+      border: "none"
+    }
+  }, "Mirrored"), React.createElement("button", {
+    className: `bc-pill ${focus === "all" ? "p-mint" : "p-off"}`,
+    onClick: () => setFocus("all"),
+    style: {
+      cursor: "pointer",
+      border: "none"
+    }
+  }, "All accounts"), accounts.map(a => React.createElement("button", {
+    key: a.broker_account_id || a.user_id,
+    className: `bc-pill ${focus === a.broker_account_id || focus === a.user_id ? "p-mint" : "p-off"}`,
+    onClick: () => setFocus(a.broker_account_id || a.user_id),
+    style: {
+      cursor: "pointer",
+      border: "none"
+    }
+  }, a.label || a.broker_account_id))), data === null && React.createElement("div", {
+    className: "skel",
+    style: {
+      height: 220,
+      marginTop: 8
+    }
+  }), data !== null && points.length === 0 && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 13,
+      padding: "18px 0"
+    }
+  }, "Growth history starts as the reconciler snapshots equity. The first point lands on the next cycle; mirror on/off markers still plot once recorded."), points.length > 0 && React.createElement("div", {
+    className: "fade-in"
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "baseline",
+      gap: 12,
+      flexWrap: "wrap",
+      margin: "4px 0 2px"
+    }
+  }, React.createElement("div", {
+    className: "k-val mono",
+    style: {
+      fontSize: 26,
+      fontWeight: 800
+    }
+  }, fmtUsd(lastEq, {
+    compact: true
+  })), delta != null && React.createElement("div", {
+    className: `mono ${up ? "up" : "dn"}`,
+    style: {
+      fontSize: 14,
+      fontWeight: 700
+    }
+  }, fmtSigned(delta), deltaPct != null ? ` (${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(2)}%)` : "", " ", range === "ALL" ? "all time" : range)), hasMirrorGain && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      marginBottom: 6
+    }
+  }, "Since the model started managing", selected.length === 1 ? ` ${selected[0].label}` : " these accounts", ": ", React.createElement("b", {
+    className: `mono ${mirrorGain >= 0 ? "up" : "dn"}`
+  }, fmtSigned(mirrorGain))), React.createElement("svg", {
+    className: "eq-chart",
+    viewBox: `0 0 ${W} ${H}`,
+    preserveAspectRatio: "none",
+    role: "img",
+    "aria-label": "Portfolio equity curve"
+  }, area && React.createElement("path", {
+    d: area,
+    fill: fill
+  }), marks.map((m, i) => React.createElement("g", {
+    key: i
+  }, React.createElement("line", {
+    x1: m.x,
+    x2: m.x,
+    y1: padT,
+    y2: H - padB,
+    className: m.on ? "eq-mark-on" : "eq-mark-off",
+    strokeWidth: "1.25",
+    strokeDasharray: "3 3"
+  }), React.createElement("text", {
+    x: m.x + 3,
+    y: padT - 4,
+    fill: m.on ? "var(--tt-success)" : "var(--tt-text-dim)",
+    fontSize: "9",
+    fontWeight: "700"
+  }, m.on ? "ON" : "OFF"))), path && React.createElement("path", {
+    d: path,
+    fill: "none",
+    stroke: stroke,
+    strokeWidth: "2.2",
+    strokeLinejoin: "round",
+    strokeLinecap: "round"
+  }), points.length && React.createElement("text", {
+    x: padL,
+    y: H - 6,
+    fill: "var(--tt-text-dim)",
+    fontSize: "10"
+  }, fmtDay(points[0].ts)), points.length > 1 && React.createElement("text", {
+    x: W - padR,
+    y: H - 6,
+    fill: "var(--tt-text-dim)",
+    fontSize: "10",
+    textAnchor: "end"
+  }, fmtDay(points[points.length - 1].ts))), marks.length > 0 && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 11,
+      marginTop: 4
+    }
+  }, "Vertical lines mark each mirror on / mirror off for the selected accounts.")));
+}
 function BrokerConnectionsApp({
   user
 }) {
@@ -1213,21 +1535,15 @@ function BrokerConnectionsApp({
         if (!(qty > 0.0001)) continue;
         if (!it.managed) continue;
         heldQty += qty;
-        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0;
+        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price) > 0 ? Number(it.last_price) : Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0;
         const mv = Number(it.market_value) > 0 ? Number(it.market_value) : px > 0 ? px * qty : 0;
         acctVal += mv;
         if (Number.isFinite(Number(it.day_pnl))) {
           day += Number(it.day_pnl);
           hasDay = true;
-        } else if (Number.isFinite(Number(it.day_change)) && Number(it.day_change) !== null) {
-          day += Number(it.day_change) * qty;
-          hasDay = true;
         }
         if (Number.isFinite(Number(it.unrealized_pnl))) {
           open += Number(it.unrealized_pnl);
-          hasOpen = true;
-        } else if (px > 0 && Number(it.avg_cost) > 0) {
-          open += (px - Number(it.avg_cost)) * qty;
           hasOpen = true;
         }
       }
@@ -1241,14 +1557,16 @@ function BrokerConnectionsApp({
         hasOpen = true;
       }
     }
+    const sessionOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
+    const showDay = hasDay && heldQty > 0 && (sessionOpen || Math.abs(day) >= 0.01);
     return {
       value,
       day,
       open,
-      hasPnl: (hasDay || hasOpen) && heldQty > 0,
+      hasDay: showDay,
+      hasOpen: hasOpen && heldQty > 0,
       hasValue: value > 0,
-      loaded: !!posData,
-      pricesIncluded: posData?.prices_included !== false
+      loaded: !!posData
     };
   }, [posData]);
   const daySummary = dayData?.summary || null;
@@ -1315,21 +1633,21 @@ function BrokerConnectionsApp({
     compact: true
   }) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, webullAccounts.length + otherAccounts.length, " account", webullAccounts.length + otherAccounts.length === 1 ? "" : "s", totals.loaded && totals.pricesIncluded === false ? " · prices gated" : "")), React.createElement("div", {
+  }, webullAccounts.length + otherAccounts.length, " account", webullAccounts.length + otherAccounts.length === 1 ? "" : "s")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
   }, "Today's P&L"), React.createElement("div", {
-    className: `k-val ${totals.hasPnl ? totals.day >= 0 ? "up" : "dn" : ""}`
-  }, !totals.loaded ? "…" : totals.hasPnl ? fmtSigned(totals.day) : "—"), React.createElement("div", {
+    className: `k-val ${totals.hasDay ? totals.day >= 0 ? "up" : "dn" : ""}`
+  }, !totals.loaded ? "…" : totals.hasDay ? fmtSigned(totals.day) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, "across mirrored positions")), React.createElement("div", {
+  }, totals.hasDay ? "across mirrored positions" : "session not started")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
   }, "Open P&L"), React.createElement("div", {
-    className: `k-val ${totals.hasPnl ? totals.open >= 0 ? "up" : "dn" : ""}`
-  }, !totals.loaded ? "…" : totals.hasPnl ? fmtSigned(totals.open) : "—"), React.createElement("div", {
+    className: `k-val ${totals.hasOpen ? totals.open >= 0 ? "up" : "dn" : ""}`
+  }, !totals.loaded ? "…" : totals.hasOpen ? fmtSigned(totals.open) : "—"), React.createElement("div", {
     className: "k-sub"
   }, "unrealized, managed sleeves")), React.createElement("div", {
     className: "kpi"
@@ -1339,7 +1657,7 @@ function BrokerConnectionsApp({
     className: "k-val"
   }, daySummary ? daySummary.actions ?? 0 : "…"), React.createElement("div", {
     className: "k-sub"
-  }, daySummary ? `${daySummary.mirrored || 0} mirrored · ${(daySummary.rejected || 0) + (daySummary.skipped || 0)} held back` : "loading…"))), accounts !== null && hasAny && React.createElement(DayActions, {
+  }, daySummary ? `${daySummary.mirrored || 0} mirrored · ${(daySummary.rejected || 0) + (daySummary.skipped || 0)} held back` : "loading…"))), accounts !== null && hasAny && React.createElement(EquityCurve, null), accounts !== null && hasAny && React.createElement(DayActions, {
     refreshKey: accounts
   }), accounts !== null && hasAny && React.createElement(PositionsSection, {
     refreshKey: accounts,
@@ -1452,6 +1770,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786595648408:612549925
+// cache-bust:1786599776217:570296238
 
-// cache-bust:1786595648408:612549925
+// cache-bust:1786599776217:570296238

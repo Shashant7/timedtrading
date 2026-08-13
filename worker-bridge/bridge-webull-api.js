@@ -606,24 +606,42 @@ export function normalizeWebullPositions(posResp) {
     .map((p) => {
       const qty = Number(p.qty ?? p.quantity);
       const mv = parseWebullNumber(p.market_value ?? p.marketValue);
-      const last = parseWebullNumber(p.last_price ?? p.lastPrice);
+      let last = parseWebullNumber(
+        p.last_price ?? p.lastPrice ?? p.market_price ?? p.marketPrice,
+      );
       const avg = parseWebullNumber(
         p.cost_price ?? p.avg_cost ?? p.avgCost ?? p.avg_price ?? p.avgPrice,
       );
       const upl = parseWebullNumber(
         p.unrealized_profit_loss ?? p.unrealized_pnl ?? p.unrealizedPnl ?? p.upl,
       );
+      const uplPct = parseWebullNumber(
+        p.unrealized_profit_loss_rate ?? p.unrealized_pnl_pct ?? p.unrealizedPnlRate
+        ?? p.unrealized_profit_loss_percent,
+      );
+      const dayPnl = parseWebullNumber(
+        p.last_day_profit_loss ?? p.daily_profit_loss ?? p.day_profit_loss
+        ?? p.today_profit_loss ?? p.dayPnl ?? p.lastDayProfitLoss,
+      );
       const computedMv = Number.isFinite(mv)
         ? mv
         : (Number.isFinite(last) ? last * Math.abs(qty || 0) : null);
+      if (!Number.isFinite(last) && Number.isFinite(computedMv) && Math.abs(qty || 0) > 0) {
+        last = computedMv / Math.abs(qty);
+      }
       return {
         symbol: String(p.symbol || "").toUpperCase(),
+        ticker: String(p.symbol || "").toUpperCase(),
         qty,
         side: qty < 0 ? "short" : "long",
         avg_cost: avg,
         avgCost: avg,
+        last_price: last,
+        price: last,
         unrealized_pnl: upl,
         unrealizedPnl: upl,
+        unrealized_pnl_pct: uplPct,
+        day_pnl: dayPnl,
         market_value: computedMv,
         raw: p,
       };

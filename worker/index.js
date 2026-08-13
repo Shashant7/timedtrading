@@ -499,6 +499,7 @@ import { resolveAutonomyConfig, evaluateRungGates } from "./trust-spine/autonomy
 import { handleTrustSpineRoutes } from "./trust-spine/routes.js";
 import { formatDecisionWhyRow } from "./trust-spine/why-feed.js";
 import { shouldShieldBleederExit } from "./bleeder-guard.js";
+import { overlayBrokerPositionMarks, summarizeBrokerAccountMarks } from "./broker-positions-enrich.js";
 import { isPastHardLossCap } from "./event-risk-hlc-guard.js";
 import {
   assessRunnerStaleDefer,
@@ -2291,6 +2292,7 @@ const ROUTES = [
   // 2026-08-13 — Day timeline (model actions × mirror outcomes) + scoped
   // per-account position sync for the Broker Connections second pass.
   ["GET",  "/timed/broker/day-actions",                  "GET /timed/broker/day-actions"],
+  ["GET",  "/timed/broker/equity-curve",                 "GET /timed/broker/equity-curve"],
   ["POST", "/timed/broker/sync-position",                "POST /timed/broker/sync-position"],
   ["POST", "/timed/broker/webull/connect",               "POST /timed/broker/webull/connect"],
   ["POST", "/timed/broker/webull/disconnect",            "POST /timed/broker/webull/disconnect"],
@@ -39814,7 +39816,7 @@ async function runDcaSweepGuarded(env, { mirror = true } = {}) {
 async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge }) {
   let sinceMs;
   if (hoursParam > 0) {
-    sinceMs = Date.now() - Math.min(168, hoursParam) * 3600 * 1000;
+    sinceMs = Date.now() - Math.min(744, hoursParam) * 3600 * 1000;
   } else {
     // Default: since NY midnight (the trading day).
     const nyNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
@@ -39829,7 +39831,7 @@ async function assembleBrokerDayActions(env, { owner, hoursParam = 0, getBridge 
               qty, price, cash_delta, realized_pnl, note
          FROM account_ledger
         WHERE ts >= ?1 AND event_type IN ('ENTRY','TRIM','EXIT','DCA_BUY')
-        ORDER BY ts DESC LIMIT 120`,
+        ORDER BY ts DESC LIMIT 400`,
     ).bind(sinceMs).all();
     modelRows = r?.results || [];
   } catch (_) { modelRows = []; }
@@ -82548,6 +82550,7 @@ export default {
       const _isBrokerRoute = routeKey === "GET /timed/broker/accounts"
         || routeKey === "GET /timed/broker/positions"
         || routeKey === "GET /timed/broker/day-actions"
+        || routeKey === "GET /timed/broker/equity-curve"
         || routeKey === "POST /timed/broker/sync-position"
         || routeKey === "POST /timed/broker/webull/connect"
         || routeKey === "POST /timed/broker/webull/disconnect"
@@ -82579,9 +82582,9 @@ export default {
         }
         // Position sync view: live broker positions joined against the
         // mirror trade manifest (which positions are model-managed and
-        // whether each is in sync). 2026-08-13 second pass: enriched with
-        // live prices + P&L (Pro/VIP/Admin gate), the model's open
-        // long-term positions (syncable flags), and per-account totals.
+        // whether each is in sync). Marks (last, UPL, MV) come from the
+        // broker; TwelveData is only overlaid for day-change % when the
+        // session tier allows licensed live prices.
         if (routeKey === "GET /timed/broker/positions") {
           const _refreshQ = url.searchParams.get("refresh") === "1" ? "&refresh=1" : "";
           const result = await _getBridge(`/bridge/positions?owner=${encodeURIComponent(email)}${_refreshQ}`);
@@ -82600,9 +82603,10 @@ export default {
             } catch (_) { modelPos = []; }
             const modelByTicker = new Map(modelPos.map((p) => [String(p.ticker).toUpperCase(), p]));
 
-            // Live prices — licensed data, Pro/VIP/Admin only. The page
-            // degrades to qty/avg-cost (the user's own brokerage data)
-            // when the tier does not allow live prices.
+            // Broker last/UPL/MV are the account's own marks — not licensed
+            // TwelveData — so they are never gated. TD is overlaid only for
+            // day-change % when the tier allows live market data, and never
+            // overwrites native Webull unrealized_pnl.
             const _tier = computeUserDataTier(sessionUser, env);
             const pricesAllowed = canAccessLivePrices(_tier);
             let pf = {};
@@ -82611,7 +82615,6 @@ export default {
             }
             const marketOpen = isNyRegularMarketOpen();
             for (const acct of payload.accounts) {
-              let acctValue = 0, acctUnrealized = 0, acctDayPnl = 0, heldManaged = 0;
               const seenTickers = new Set();
               const mirrorOn = acct.mirror_enabled === true;
               for (const it of acct.items || []) {
@@ -82639,36 +82642,10 @@ export default {
                   delete it.adopt_note;
                 }
                 if (mp) it.model_stage = mp.investor_stage || null;
-                const row = pricesAllowed ? pf[it.ticker] : null;
-                const qty = Number(it.broker_qty) || 0;
-                if (row && Number(row.p) > 0) {
-                  // Alias names match shared-price-utils getDailyChange's
-                  // fallback chain — the page must not inline change math.
-                  it.price = Number(row.p);
-                  it.prev_close = Number(row.pc) || null;
-                  it.day_change = Number.isFinite(Number(row.dc)) ? Number(row.dc) : null;
-                  it.day_change_pct = Number.isFinite(Number(row.dp)) ? Number(row.dp) : null;
-                }
-                if (qty > 0) {
-                  const px = Number(it.price) > 0 ? Number(it.price)
-                    : (Number(it.avg_cost) > 0 ? Number(it.avg_cost) : 0);
-                  if (px > 0) {
-                    it.market_value = qty * px;
-                    // KPI "mirrored value" uses managed sleeves; still
-                    // accumulate account totals for the per-account strip.
-                    acctValue += it.market_value;
-                    if (it.managed) heldManaged += qty;
-                    if (Number(it.avg_cost) > 0 && Number(it.price) > 0) {
-                      it.unrealized_pnl = (Number(it.price) - Number(it.avg_cost)) * qty;
-                      it.unrealized_pnl_pct = ((Number(it.price) / Number(it.avg_cost)) - 1) * 100;
-                      acctUnrealized += it.unrealized_pnl;
-                    }
-                    if (Number.isFinite(it.day_change) && it.day_change !== null) {
-                      it.day_pnl = it.day_change * qty;
-                      acctDayPnl += it.day_pnl;
-                    }
-                  }
-                }
+                overlayBrokerPositionMarks(it, {
+                  tdRow: pricesAllowed ? (pf[it.ticker] || null) : null,
+                  pricesAllowed,
+                });
               }
               // Model positions this account holds nothing of — only when
               // mirroring is on (otherwise the AUTO-SYNC chrome is noise).
@@ -82676,7 +82653,7 @@ export default {
                 for (const [sym, mp] of modelByTicker) {
                   if (seenTickers.has(sym)) continue;
                   const row = pricesAllowed ? pf[sym] : null;
-                  acct.items.push({
+                  const orphan = {
                     ticker: sym,
                     managed: false,
                     model_open: true,
@@ -82685,27 +82662,15 @@ export default {
                     broker_qty: 0,
                     avg_cost: null,
                     auto_sync: true,
-                    ...(row && Number(row.p) > 0 ? {
-                      price: Number(row.p),
-                      prev_close: Number(row.pc) || null,
-                      day_change: Number.isFinite(Number(row.dc)) ? Number(row.dc) : null,
-                      day_change_pct: Number.isFinite(Number(row.dp)) ? Number(row.dp) : null,
-                    } : {}),
-                  });
+                  };
+                  overlayBrokerPositionMarks(orphan, { tdRow: row, pricesAllowed });
+                  acct.items.push(orphan);
                 }
               }
-              // Only surface PnL zeros when the account actually holds
-              // priced shares — otherwise the KPI strip reads as "$0.00"
-              // instead of "no data".
-              const hasHoldings = acctValue > 0 || heldManaged > 0
-                || (acct.items || []).some((it) => Number(it.broker_qty) > 0.0001);
-              acct.summary = {
-                positions_value: acctValue || null,
-                unrealized_pnl: (pricesAllowed && hasHoldings) ? acctUnrealized : null,
-                day_pnl: (pricesAllowed && hasHoldings) ? acctDayPnl : null,
-              };
+              acct.summary = summarizeBrokerAccountMarks(acct.items || []);
             }
             payload.prices_included = pricesAllowed;
+            payload.broker_marks = true;
             payload.market_open = marketOpen;
             return sendJSON(payload, 200, corsHeaders(env, req));
           } catch (e) {
@@ -82728,6 +82693,13 @@ export default {
           } catch (e) {
             return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
           }
+        }
+        if (routeKey === "GET /timed/broker/equity-curve") {
+          const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+          const result = await _getBridge(
+            `/bridge/equity-curve?owner=${encodeURIComponent(email)}&since=${since}`,
+          );
+          return _bridgeJson(result);
         }
         // 2026-08-13 v2 — "Sync with model" = ADOPTION, never an order.
         // Operator: bound buy/sell orders must not fire because a sync was
