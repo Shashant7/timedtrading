@@ -23,6 +23,8 @@
 
 import { getStrategyDigest } from "../strategy-context.js";
 import { listRecentPublications, loadPublicationText } from "./fsd-ingestion.js";
+import { splitMacroMinuteBody } from "./vimeo-transcript.js";
+import { loadLatestMacroMinuteRow } from "./macro-minute-freshness.js";
 import { loadTacticalOverrideBlob, loadAppliedHistory } from "./cro-apply.js";
 import { loadRotationSnapshot } from "./rotation-engine.js";
 import { loadCTOUniverse } from "../cto/cto-service.js";
@@ -85,30 +87,85 @@ export async function ensureCRODailyNoteSchema(env) {
 }
 
 // ── Input collectors (each wrapped in best-effort try/catch) ──────────────────
+function formatFsdIntelItem(p, textRow) {
+  const title = p.title || "";
+  const split = splitMacroMinuteBody(textRow?.text_full || "");
+  const isMm = /macro[\s\-]?minute/i.test(title) || split.has_transcript;
+  if (isMm) {
+    const spoken = split.has_transcript ? split.transcript : String(textRow?.text_full || textRow?.text_excerpt || "");
+    return {
+      pub_id: p.pub_id,
+      title,
+      source: p.source,
+      published_at: p.published_at,
+      fetched_at: p.fetched_at,
+      status: p.fetch_status,
+      applied_at: p.applied_at,
+      proposal_id: p.proposal_id,
+      role: "tom_lee_night_take",
+      has_transcript: split.has_transcript,
+      excerpt: spoken.slice(0, 4000) || null,
+    };
+  }
+  return {
+    pub_id: p.pub_id,
+    title,
+    source: p.source,
+    published_at: p.published_at,
+    fetched_at: p.fetched_at,
+    status: p.fetch_status,
+    applied_at: p.applied_at,
+    proposal_id: p.proposal_id,
+    role: "fsd",
+    excerpt: textRow?.text_excerpt?.slice(0, 1500) || null,
+  };
+}
+
 async function collectFSDIntel(env, { lookbackHours = 36 } = {}) {
   try {
-    const pubs = await listRecentPublications(env, { limit: 10 });
+    const pubs = await listRecentPublications(env, { limit: 12 });
     const since = Date.now() - lookbackHours * 3600 * 1000;
     const recent = (pubs || []).filter((p) => Number(p.fetched_at || 0) >= since);
     const enriched = [];
-    for (const p of recent.slice(0, 5)) {
-      const text = await loadPublicationText(env, p.pub_id);
-      enriched.push({
-        pub_id: p.pub_id,
-        title: p.title,
-        source: p.source,
-        published_at: p.published_at,
-        fetched_at: p.fetched_at,
-        status: p.fetch_status,
-        applied_at: p.applied_at,
-        proposal_id: p.proposal_id,
-        excerpt: text?.text_excerpt?.slice(0, 1500) || null,
-      });
+    const seen = new Set();
+    const mmRow = await loadLatestMacroMinuteRow(env);
+    if (mmRow?.pub_id) {
+      seen.add(String(mmRow.pub_id));
+      enriched.push(formatFsdIntelItem(mmRow, mmRow));
     }
-    return { ok: true, count: enriched.length, publications: enriched };
+    for (const p of recent) {
+      if (seen.has(String(p.pub_id))) continue;
+      if (enriched.length >= 6) break;
+      const text = await loadPublicationText(env, p.pub_id);
+      const item = formatFsdIntelItem(p, text);
+      if (item.role === "tom_lee_night_take") continue; // already pinned latest
+      seen.add(String(p.pub_id));
+      enriched.push(item);
+    }
+    const nightTake = enriched.find((x) => x.role === "tom_lee_night_take") || null;
+    return {
+      ok: true,
+      count: enriched.length,
+      publications: enriched,
+      night_take: nightTake
+        ? {
+            pub_id: nightTake.pub_id,
+            title: nightTake.title,
+            published_at: nightTake.published_at,
+            has_transcript: !!nightTake.has_transcript,
+            excerpt: String(nightTake.excerpt || "").slice(0, 1200) || null,
+          }
+        : { pub_id: null, has_transcript: false },
+    };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
+}
+
+/** True when today's CRO note has not yet absorbed this Macro Minute episode. */
+export function noteNeedsMacroMinuteRefresh(note, mmPubId, hasTranscript) {
+  if (!hasTranscript || !mmPubId) return false;
+  return String(note?.night_take?.pub_id || "") !== String(mmPubId);
 }
 
 async function collectMacroSnapshot(env) {
@@ -325,8 +382,9 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "• Output STRUCTURED JSON only, conforming to the schema at the end of the user message.",
       "• You DO NOT propose stance changes. The active playbook's sector and theme tilts are set by the structural playbook flow; you only OBSERVE and report what is corroborating, contradicting, or extending those stances. If you think the playbook is wrong, say so in `notable_drifts` — never invent a stance change here.",
       "• You DO NOT recommend specific trades. The CIO + engine own that. Your job is research context, not execution.",
-      "• Cite each observation to a specific input source (FSD / rotation_engine / macro / discovery / playbook). No floating claims.",
+      "• Cite each observation to a specific input source (FSD / tom_lee_night_take / rotation_engine / macro / discovery / playbook). No floating claims.",
       "• If an input source is missing or stale, mention it in `data_gaps` — don't pretend it was there.",
+      "• FSD intel may include an item with role=tom_lee_night_take. That is Tom Lee's Macro Minute spoken briefing (next-session calendar, Fed, index targets, policy). Treat it as first-class alongside Newton's technical notes — do not let a short Daily Technical Strategy blurb drown it out. If that role is missing or has_transcript=false, add a data_gap.",
       "• Be concise. Every section has a target word budget.",
     ].join("\n"),
     user: [
@@ -360,7 +418,7 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "{",
       '  "verdict": "<one paragraph, ≤120 words, the CIO + COO will lean on this most heavily. What does today look like? What changed since yesterday? What is the dominant risk vs opportunity?>",',
       '  "observations": [',
-      '    { "section": "Cross-asset", "text": "<≤30 words>", "source": "macro|rotation|fsd|playbook" },',
+      '    { "section": "Cross-asset", "text": "<≤30 words>", "source": "macro|rotation|fsd|tom_lee_night_take|playbook" },',
       '    { "section": "Sector rotation", "text": "<≤30 words>", "source": "rotation|fsd|playbook" },',
       '    { "section": "Themes in motion", "text": "<≤30 words>", "source": "rotation|discovery|fsd" },',
       '    { "section": "Correlation / cluster moves", "text": "<≤30 words>", "source": "rotation" },',
@@ -504,7 +562,9 @@ export async function runCRODaily(env, { asOfDate = null, force = false, model =
       rotation_headlines: (sources.rotation?.headlines || []).length,
       macro_ok: !!sources.macro?.ok,
       override_active: !!sources.override?.active,
+      night_take: !!sources.fsd?.night_take?.has_transcript,
     },
+    night_take: sources.fsd?.night_take || null,
   };
 
   try {
@@ -565,7 +625,11 @@ async function hasNewFsdSinceNote(env, note) {
   try {
     const recent = await listRecentPublications(env, { limit: 8 });
     const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
-    return newestFetched > Number(note.produced_at || 0);
+    if (newestFetched > Number(note.produced_at || 0)) return true;
+    const mm = await loadLatestMacroMinuteRow(env);
+    const split = splitMacroMinuteBody(mm?.text_full || "");
+    if (noteNeedsMacroMinuteRefresh(note, mm?.pub_id, split.has_transcript)) return true;
+    return false;
   } catch (_) {
     return false;
   }
@@ -666,6 +730,13 @@ export function formatCROBriefAddendumFromNote(note, opts = {}) {
     `## CRO Research Desk — daily note ${note.as_of_date}`,
     `Verdict: ${(note.verdict || "").slice(0, slot === "evening" ? 500 : 300)}`,
   ];
+  if (note.night_take?.has_transcript && note.night_take.excerpt) {
+    lines.push(
+      `Tom Lee night take (${note.night_take.published_at || "undated"}): ${String(note.night_take.excerpt).slice(0, slot === "evening" ? 900 : 600)}`,
+    );
+  } else if (note.night_take && note.night_take.has_transcript === false) {
+    lines.push("Tom Lee night take: missing spoken transcript (blurb only) — treat calendar/policy calls as incomplete.");
+  }
   if (Array.isArray(note.observations) && note.observations.length > 0) {
     const obsLimit = slot === "evening" ? 8 : 5;
     const obsChars = slot === "evening" ? 180 : 120;

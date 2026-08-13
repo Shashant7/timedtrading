@@ -138,7 +138,19 @@ export async function fetchVimeoTranscript(embed, { userAgent = YT_UA, referer =
   }
 }
 
-/** Append a transcript block onto already-stripped publication text. */
+/** Split a stored Macro Minute body into blurb vs spoken transcript. */
+export function splitMacroMinuteBody(textFull) {
+  const full = String(textFull || "");
+  const m = full.match(/--- VIDEO TRANSCRIPT ---\s*([\s\S]*)$/i);
+  if (!m) {
+    return { has_transcript: false, transcript: "", blurb: full.trim() };
+  }
+  return {
+    has_transcript: true,
+    transcript: String(m[1] || "").trim(),
+    blurb: full.slice(0, m.index).trim(),
+  };
+}
 export function mergeTranscriptIntoText(bodyText, transcript) {
   const body = String(bodyText || "").trim();
   const tr = String(transcript || "").trim();

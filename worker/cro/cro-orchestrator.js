@@ -22,7 +22,7 @@ import { runFSDIngestion, ensureCROIngestionSchema, listRecentPublications } fro
 import { extractPublicationToProposal, ensureCROProposalSchema } from "./fsd-extractor.js";
 import { applyProposal, isAutoApplyEnabled, isAutoApplyStructuralEnabled, isTrustedFsdAutoApplyEnabled } from "./cro-apply.js";
 import { runRotationSnapshot } from "./rotation-engine.js";
-import { runCRODaily, ensureCRODailyNoteSchema, loadLatestCRONote, getCROEtDate } from "./cro-service.js";
+import { runCRODaily, ensureCRODailyNoteSchema, loadLatestCRONote, getCROEtDate, noteNeedsMacroMinuteRefresh } from "./cro-service.js";
 import { runCTOUniverse, ensureCTOSchema } from "../cto/cto-service.js";
 import { rewritePendingPublications, ensureRewriteSchema } from "./fsd-rewriter.js";
 import { backfillCashtagsForExistingPublications } from "./fsd-ingestion.js";
@@ -210,17 +210,22 @@ async function notifyProposalNeedsReview(env, pub, ext, reason) {
 
 // Refresh today's CRO note when new FSD intel arrives intraday. Skips the
 // expensive LLM call when today's note is already newer than the latest pub.
-async function maybeRefreshCRODailyNote(env, { hadNewExtractions = false, hadNewRewrites = false } = {}) {
-  if (!hadNewExtractions && !hadNewRewrites) {
+async function maybeRefreshCRODailyNote(env, { hadNewExtractions = false, hadNewRewrites = false, mmFreshness = null } = {}) {
+  const note = await loadLatestCRONote(env);
+  const needNightTake = noteNeedsMacroMinuteRefresh(
+    note,
+    mmFreshness?.pub_id,
+    mmFreshness?.has_transcript,
+  );
+  if (!hadNewExtractions && !hadNewRewrites && !needNightTake) {
     return { ok: true, skipped: "no_new_fsd_activity" };
   }
   try {
     await ensureCRODailyNoteSchema(env);
     const recent = await listRecentPublications(env, { limit: 5 });
     const newestFetched = Math.max(0, ...(recent || []).map((p) => Number(p.fetched_at || 0)));
-    const note = await loadLatestCRONote(env);
     const today = getCROEtDate();
-    if (note?.as_of_date === today && Number(note.produced_at || 0) >= newestFetched) {
+    if (!needNightTake && note?.as_of_date === today && Number(note.produced_at || 0) >= newestFetched) {
       return { ok: true, skipped: "note_fresh_enough", note_id: note.note_id || null };
     }
     const r = await runCRODaily(env, { force: true });
@@ -308,6 +313,25 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
   await writeTombstone(env, summary).catch(() => {});
 
   try {
+    const { enrichMacroMinuteTranscripts, syncLatestMacroMinuteProposals } = await import("./fsd-ingestion.js");
+    summary.macro_minute = await enrichMacroMinuteTranscripts(env, { limit: 4 });
+    summary.macro_minute_sync = await syncLatestMacroMinuteProposals(env, {
+      limit: 1,
+      force: !!force || (summary.macro_minute?.ingested || 0) > 0,
+    });
+  } catch (e) {
+    summary.errors.push(`macro_minute_enrich_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+  try {
+    const { assessAndPersistMacroMinuteFreshness } = await import("./macro-minute-freshness.js");
+    summary.macro_minute_freshness = await assessAndPersistMacroMinuteFreshness(env, {
+      syncedPubId: summary.macro_minute_sync?.synced_pub_id || null,
+    });
+  } catch (e) {
+    summary.errors.push(`macro_minute_freshness_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+
+  try {
     const recent = await listRecentPublications(env, { limit: 15, sourceFilter: null });
     const autoApply = await isAutoApplyEnabled(env);
     const autoApplyStructural = await isAutoApplyStructuralEnabled(env);
@@ -367,9 +391,14 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
   // Refresh today's CRO daily note when fresh FSD intel landed (lightweight
   // synthesis — skips if note is already newer than the latest publication).
   try {
-    const hadNewExtractions = (summary.extractions || []).some((x) => x.ok);
+    const hadNewExtractions = (summary.extractions || []).some((x) => x.ok)
+      || (summary.macro_minute_sync?.results || []).some((x) => x.extract_ok);
     const hadNewRewrites = (summary.rewrite_pending?.rewrote_ok || 0) > 0;
-    summary.cro_daily = await maybeRefreshCRODailyNote(env, { hadNewExtractions, hadNewRewrites });
+    summary.cro_daily = await maybeRefreshCRODailyNote(env, {
+      hadNewExtractions,
+      hadNewRewrites,
+      mmFreshness: summary.macro_minute_freshness,
+    });
   } catch (e) {
     summary.errors.push(`cro_daily_refresh_failed: ${String(e?.message || e).slice(0, 200)}`);
   }
@@ -482,6 +511,33 @@ export async function runCROFullCycle(env, { force = false } = {}) {
   }
   await writeTombstone(env, summary).catch(() => {});
 
+  // 3b. Macro Minute night take — catch up thin blurbs, sync the spoken
+  // episode onto the strategy arm, then stamp freshness so a missed
+  // evening post cannot look like research is current.
+  try {
+    const { enrichMacroMinuteTranscripts, syncLatestMacroMinuteProposals } = await import("./fsd-ingestion.js");
+    summary.macro_minute = await enrichMacroMinuteTranscripts(env, { limit: 6 });
+    summary.macro_minute_sync = await syncLatestMacroMinuteProposals(env, {
+      limit: 1,
+      force: !!force || (summary.macro_minute?.ingested || 0) > 0,
+    });
+  } catch (e) {
+    summary.errors.push(`macro_minute_enrich_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+  try {
+    const { assessAndPersistMacroMinuteFreshness } = await import("./macro-minute-freshness.js");
+    summary.macro_minute_freshness = await assessAndPersistMacroMinuteFreshness(env, {
+      syncedPubId: summary.macro_minute_sync?.synced_pub_id || null,
+    });
+    const st = summary.macro_minute_freshness?.status;
+    if (st === "stale" || st === "missing") {
+      summary.errors.push(`macro_minute_${st}`);
+    }
+  } catch (e) {
+    summary.errors.push(`macro_minute_freshness_failed: ${String(e?.message || e).slice(0, 200)}`);
+  }
+  await writeTombstone(env, summary).catch(() => {});
+
   // 4. For each newly-ingested (or recently-failed-to-extract) publication,
   //    run the LLM extractor and (if auto-apply is on) apply.
   try {
@@ -585,7 +641,14 @@ export async function runCROFullCycle(env, { force = false } = {}) {
 
   // 5. CRO daily synthesis. Runs after all inputs are refreshed.
   try {
-    const r = await runCRODaily(env, { force });
+    const existingNote = await loadLatestCRONote(env);
+    const mmFresh = summary.macro_minute_freshness;
+    const needNightTake = noteNeedsMacroMinuteRefresh(
+      existingNote,
+      mmFresh?.pub_id,
+      mmFresh?.has_transcript,
+    );
+    const r = await runCRODaily(env, { force: force || needNightTake });
     summary.cro_daily = {
       ok: !!r.ok,
       skipped: r.skipped || null,
@@ -751,6 +814,16 @@ async function writeTombstone(env, summary) {
       cro_daily: summary.cro_daily ? {
         ok: !!summary.cro_daily.ok,
         error_kind: summary.cro_daily.error_kind || null,
+      } : null,
+      macro_minute: summary.macro_minute ? {
+        ok: !!summary.macro_minute.ok,
+        ingested: summary.macro_minute.ingested || 0,
+        attempted: summary.macro_minute.attempted || 0,
+      } : null,
+      macro_minute_freshness: summary.macro_minute_freshness ? {
+        status: summary.macro_minute_freshness.status || null,
+        age_hours: summary.macro_minute_freshness.age_hours ?? null,
+        pub_id: summary.macro_minute_freshness.pub_id || null,
       } : null,
       errors: Array.isArray(summary.errors) ? summary.errors.slice(0, 8) : [],
     };

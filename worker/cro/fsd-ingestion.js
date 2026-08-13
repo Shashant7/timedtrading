@@ -1109,6 +1109,97 @@ export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 
   };
 }
 
+/**
+ * Once-per-episode extract (and apply when it will not clobber a newer
+ * Newton overlay) so the spoken Macro Minute lands on the strategy arm
+ * instead of sitting as a thin-blurb proposal.
+ */
+export async function syncLatestMacroMinuteProposals(env, { limit = 1, force = false } = {}) {
+  const { splitMacroMinuteBody } = await import("./vimeo-transcript.js");
+  const { MM_FRESHNESS_KV } = await import("./macro-minute-freshness.js");
+  let prevSynced = null;
+  try {
+    const raw = await (env?.KV_TIMED || env?.KV)?.get(MM_FRESHNESS_KV);
+    prevSynced = raw ? JSON.parse(raw)?.synced_pub_id : null;
+  } catch (_) { /* ignore */ }
+
+  let rows = [];
+  try {
+    const q = await env.DB.prepare(`
+      SELECT p.pub_id, p.title, p.applied_at, p.extracted_at,
+             IFNULL(t.char_count, 0) AS char_count,
+             IFNULL(t.text_full, '') AS text_full
+      FROM ${PUBLICATIONS_TABLE} p
+      LEFT JOIN ${PUBLICATION_TEXT_TABLE} t ON t.pub_id = p.pub_id
+      WHERE p.fetch_status = 'ok'
+        AND lower(p.title) LIKE '%macro minute%'
+      ORDER BY COALESCE(p.published_at, '') DESC, p.fetched_at DESC
+      LIMIT ?
+    `).bind(Math.min(4, Math.max(1, Number(limit) || 1))).all();
+    rows = q?.results || [];
+  } catch (e) {
+    return { ok: false, error_kind: "d1_query_failed", hint: String(e?.message || e).slice(0, 160) };
+  }
+
+  const { extractPublicationToProposal } = await import("./fsd-extractor.js");
+  const {
+    applyProposal,
+    isAutoApplyEnabled,
+    isTrustedFsdAutoApplyEnabled,
+    loadTacticalOverrideBlob,
+  } = await import("./cro-apply.js");
+  const overlay = await loadTacticalOverrideBlob(env);
+  const autoApply = await isAutoApplyEnabled(env);
+  const trustedFsd = await isTrustedFsdAutoApplyEnabled(env);
+  const out = [];
+  let syncedPubId = prevSynced || null;
+
+  for (const r of rows) {
+    const split = splitMacroMinuteBody(r.text_full);
+    if (!split.has_transcript || Number(r.char_count || 0) < 1500) {
+      out.push({ pub_id: r.pub_id, skipped: "thin_or_no_transcript" });
+      continue;
+    }
+    if (!force && prevSynced && String(prevSynced) === String(r.pub_id)) {
+      out.push({ pub_id: r.pub_id, skipped: "already_synced" });
+      syncedPubId = r.pub_id;
+      break;
+    }
+    const ext = await extractPublicationToProposal(env, r.pub_id, { force: true });
+    const rowOut = {
+      pub_id: r.pub_id,
+      extract_ok: !!ext.ok,
+      proposal_id: ext.proposal_id || null,
+      applied: false,
+      apply_reason: null,
+    };
+    if (ext.ok && ext.proposal_id && (trustedFsd || autoApply)) {
+      const overlayIsThis = overlay && String(overlay.pub_id) === String(r.pub_id);
+      const overlayEmpty = !overlay;
+      const overlayIsMm = overlay && /macro[\s\-]?minute/i.test(String(overlay.tactical_title || overlay.tactical_overlay || ""));
+      if (overlayEmpty || overlayIsThis || overlayIsMm) {
+        const ap = await applyProposal(env, ext.proposal_id, {
+          autoApproved: true,
+          decidedBy: "macro_minute_sync",
+        });
+        rowOut.applied = !!ap.ok;
+        rowOut.apply_reason = ap.ok ? "applied" : (ap.error_kind || "apply_failed");
+      } else {
+        rowOut.apply_reason = "overlay_held_other_pub";
+      }
+    } else if (!ext.ok) {
+      rowOut.apply_reason = ext.error_kind || "extract_failed";
+    } else {
+      rowOut.apply_reason = "auto_apply_disabled";
+    }
+    if (ext.ok) syncedPubId = r.pub_id;
+    out.push(rowOut);
+    break; // latest episode only — Newton dailies keep the live overlay otherwise
+  }
+
+  return { ok: true, synced_pub_id: syncedPubId, results: out };
+}
+
 // Setters used by the apply / extractor modules to stamp links back onto the
 // publication row (so the operator can trace publication → proposal → apply
 // from the cro_publications row alone).

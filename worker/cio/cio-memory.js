@@ -785,6 +785,13 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
         })),
         note: "Research desk view. Informs CONTEXT, not the trade decision; the engine + structural playbook still own the call.",
       };
+      if (note.night_take?.has_transcript && note.night_take.excerpt) {
+        mem.cro_research_note.tom_lee_night_take = {
+          title: String(note.night_take.title || "Macro Minute").slice(0, 120),
+          published_at: note.night_take.published_at || null,
+          excerpt: String(note.night_take.excerpt).slice(0, 700),
+        };
+      }
     }
   } catch (_) {
     // CRO note enrichment is best-effort — never break CIO memory.

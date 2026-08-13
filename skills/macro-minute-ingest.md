@@ -1,9 +1,12 @@
 # Macro Minute (Tom Lee) night-take ingestion
 
 **WHEN:** Tom Lee's Macro Minute *spoken* substance is missing from the research
-desk (FSD only stored the ~600 char blurb), or the morning brief is light on
-calendar context (CPI, PPI, NFP, FOMC, earnings, policy) vs Newton's daily
-technical note.
+desk, the morning brief is light on calendar context vs Newton's daily
+technical note, or pipeline-health shows `macro_minute_freshness` thin/stale.
+
+Daily Macro Minute is a first-class research arm. Ingest it, keep it fresh,
+and cascade it into CRO synthesis → CIO memory → entries/exits. Do not wait
+for the next episode.
 
 ## What actually works (2026-08-13)
 
@@ -13,22 +16,44 @@ auto-captions. That VTT is the night take.
 
 | Path | Role |
 |---|---|
-| FSD WP REST + Vimeo captions | **Primary.** Module `worker/cro/vimeo-transcript.js`, hooked in `ingestSinglePublication`. |
+| FSD WP REST + Vimeo captions | **Primary.** `worker/cro/vimeo-transcript.js`, hooked in `ingestSinglePublication`. |
 | Hourly FSD 14–23 UTC | Same-day posts that land by ~7 PM ET. |
 | `fsd-evening` 00–03 UTC | 8–11 PM ET catch-up so 9 AM ET morning brief has it. |
-| Nightly 22:00 UTC | `enrichMacroMinuteTranscripts` backfills thin blurbs (captions not ready on first fetch). |
+| Nightly 22:00 UTC | Full CRO cycle enriches thin blurbs, syncs the episode, synthesizes CRO note. |
+| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. Weekday max age 48h (one skipped session OK); weekend / Monday morning 90h. |
 | YouTube Data API | Optional mirror only. `@Fundstrat_Direct` is interviews, not current MM. |
+
+Cascade (do **not** force-fire broker orders):
+
+1. Vimeo transcript on the publication (`--- VIDEO TRANSCRIPT ---`).
+2. Once-per-episode extract (`syncLatestMacroMinuteProposals`). Apply only if
+   the live overlay is empty or already this MM — never clobber a newer Newton
+   Daily Technical Strategy overlay.
+3. CRO daily note pins `night_take` (spoken excerpt) as `role=tom_lee_night_take`.
+4. CIO memory Layer 15c + Daily Brief addendum consume `night_take`.
+5. Next tt-engine `*/5` scoring tick reads CRO addendum + tactical overlay.
 
 ## How to run
 
 Admin route is key-or-admin. Header auth, not `?key=`.
 
 ```bash
+# Catch up transcripts + once-per-episode strategy sync + freshness stamp
 curl -s -X POST "${LIVE}/timed/admin/cro/macro-minute/ingest" \
   -H "X-API-Key: ${TIMED_API_KEY}" \
   -H 'content-type: application/json' \
   -d '{"limit":8}'
-# → { ok, vimeo: { scanned, attempted, ingested, results:[{pub_id, char_count, vimeo:{chars}}] }, youtube }
+# → { ok, vimeo, youtube, sync, freshness }
+
+# Full research cycle (CTO + rotation + FSD + MM + CRO note). Returns 202.
+curl -s -X POST "${LIVE}/timed/admin/cro/cycle" \
+  -H "X-API-Key: ${TIMED_API_KEY}" \
+  -H 'content-type: application/json' \
+  -d '{"force":true}'
+# poll GET /timed/cro/last-summary
+
+curl -s "${LIVE}/timed/admin/cro/macro-minute/freshness" \
+  -H "X-API-Key: ${TIMED_API_KEY}"
 ```
 
 New FSD ingests attach `--- VIDEO TRANSCRIPT ---` automatically when the title
@@ -47,6 +72,8 @@ wrangler d1 execute timed-trading-ledger --remote --json --command \
 ```
 
 `char_count` should be multiple thousand (spoken 5 min), not ~600. `has_tr` > 0.
+Pipeline-health `kv.macro_minute_freshness.status` should be `fresh`.
+`timed:cro:latest` should include `night_take.has_transcript=true`.
 
 ## Notes
 
@@ -54,4 +81,6 @@ wrangler d1 execute timed-trading-ledger --remote --json --command \
 - Prefer official English captions; fall back to `en-x-autogen`.
 - YouTube Data API still cannot download caption tracks with an API key.
 - PR **#718** is a stale YouTube-only duplicate of **#1232**. Leave it closed.
-- Parsers: `worker/cro/vimeo-transcript.test.js`.
+- Parsers: `worker/cro/vimeo-transcript.test.js`, `worker/cro/macro-minute-freshness.test.js`.
+- Do not widen `0 14-23` to catch evening MM — that cron also gates investor
+  rebalance + flash insights. Use the independent `fsd-evening` label.
