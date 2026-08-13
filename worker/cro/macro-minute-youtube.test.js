@@ -8,6 +8,9 @@ import {
   parseProviderTranscript,
   macroMinuteTitle,
   isMacroMinuteYtEnabled,
+  sanitizeYtErrorText,
+  discoveryEmptyNote,
+  isFreshPublished,
   FUNDSTRAT_CHANNEL_ID,
 } from "./macro-minute-youtube.js";
 
@@ -16,6 +19,7 @@ describe("isMacroMinuteTitle", () => {
     expect(isMacroMinuteTitle("Macro Minute: April Core CPI on Tue")).toBe(true);
     expect(isMacroMinuteTitle("Video: Macro Minute: VIX below 20")).toBe(true);
     expect(isMacroMinuteTitle("macro-minute weekly recap")).toBe(true);
+    expect(isMacroMinuteTitle("Tom Lee's Macro Minute: S&P 500 Earnings Revision")).toBe(true);
     expect(isMacroMinuteTitle("Daily Technical Strategy")).toBe(false);
     expect(isMacroMinuteTitle("")).toBe(false);
   });
@@ -99,5 +103,44 @@ describe("isMacroMinuteYtEnabled", () => {
     expect(isMacroMinuteYtEnabled({ YOUTUBE_API_KEY: "k" })).toBe(true);
     expect(isMacroMinuteYtEnabled({ YOUTUBE_API_KEY: "k", MACRO_MINUTE_YT_INGEST: "off" })).toBe(false);
     expect(isMacroMinuteYtEnabled({ MACRO_MINUTE_YT_INGEST: "on" })).toBe(true);
+  });
+});
+
+describe("sanitizeYtErrorText", () => {
+  it("redacts key query params and AIza-shaped tokens", () => {
+    expect(sanitizeYtErrorText("bad key=abc123&other=1")).toBe("bad key=REDACTED&other=1");
+    expect(sanitizeYtErrorText("token AIzaSyDummyKeyValue0123456789xxxx leaked")).toContain("REDACTED");
+    expect(sanitizeYtErrorText("token AIzaSyDummyKeyValue0123456789xxxx leaked")).not.toMatch(/AIzaSy/);
+  });
+});
+
+describe("discoveryEmptyNote", () => {
+  it("tells the operator to configure a key when none is present", () => {
+    expect(discoveryEmptyNote({ key_present: false })).toContain("configure YOUTUBE_API_KEY");
+  });
+  it("reports playlist HTTP failures instead of a missing-key hint", () => {
+    expect(discoveryEmptyNote({ key_present: true, youtube_http: 403 })).toBe("youtube_playlist_http_403");
+  });
+  it("reports a title miss when the API returned uploads", () => {
+    expect(discoveryEmptyNote({ key_present: true, youtube_http: 200, playlist_items: 50, playlist_matched: 0 })).toBe("no_macro_minute_title_in_recent_uploads");
+  });
+  it("reports stale YouTube mirrors instead of ingesting them", () => {
+    expect(discoveryEmptyNote({
+      key_present: true,
+      youtube_http: 200,
+      search_http: 200,
+      search_items: 3,
+      search_matched: 3,
+      stale_matched: 3,
+    })).toBe("no_recent_macro_minute_on_youtube");
+  });
+});
+
+describe("isFreshPublished", () => {
+  it("accepts recent ISO dates and rejects undated or old clips", () => {
+    const now = Date.parse("2026-08-13T12:00:00Z");
+    expect(isFreshPublished("2026-08-11T21:00:00Z", { now })).toBe(true);
+    expect(isFreshPublished("2023-08-22T21:00:00Z", { now })).toBe(false);
+    expect(isFreshPublished("", { now })).toBe(false);
   });
 });
