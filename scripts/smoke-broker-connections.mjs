@@ -203,6 +203,28 @@ if (failed) {
   console.error(`\n${failed} check(s) failed. Body snapshot:\n`, html.slice(0, 2000));
   process.exit(1);
 }
+// Switch growth chart to 1W — must not collapse to a blank same-day line.
+const weekBtn = [...window.document.querySelectorAll("button")].find((b) => b.textContent === "1W");
+if (!weekBtn) {
+  failed++;
+  console.log("FAIL  1W range button missing");
+} else {
+  weekBtn.click();
+  await new Promise((r) => setTimeout(r, 80));
+  const weekHtml = window.document.body.innerHTML;
+  const weekOk = /\+\$22\.81/.test(weekHtml) && /flat across this window|Today's P(&amp;|&)L/.test(weekHtml);
+  if (!weekOk) {
+    failed++;
+    console.log("FAIL  1W chart rebuilds from day_pnl");
+  } else {
+    console.log("PASS  1W chart rebuilds from day_pnl");
+  }
+}
+
+if (failed) {
+  console.error(`\n${failed} check(s) failed after 1W switch.`);
+  process.exit(1);
+}
 console.log("\nAll checks passed — page renders with canned data.");
 // EquityCurve polls on an interval; force-exit so the harness does not hang.
 process.exit(0);
