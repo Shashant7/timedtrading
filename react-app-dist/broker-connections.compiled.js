@@ -2,10 +2,915 @@
 const {
   useState,
   useEffect,
-  useCallback
+  useCallback,
+  useMemo
 } = React;
-const h = React.createElement;
 const API_BASE = "";
+const PU = window.TimedPriceUtils || {};
+const fmtUsd = (v, opts = {}) => {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  const n = Number(v);
+  const abs = Math.abs(n);
+  const dec = opts.compact && abs >= 1000 ? 0 : 2;
+  return (n < 0 ? "-$" : "$") + abs.toLocaleString("en-US", {
+    minimumFractionDigits: dec,
+    maximumFractionDigits: dec
+  });
+};
+const fmtSigned = v => {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  const n = Number(v);
+  return (n >= 0 ? "+" : "-") + "$" + Math.abs(n).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+};
+const fmtQty = v => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return Math.abs(n % 1) < 1e-9 ? String(n) : n.toFixed(Math.abs(n) < 1 ? 5 : 3).replace(/0+$/, "").replace(/\.$/, "");
+};
+const fmtTime = ts => new Date(ts).toLocaleTimeString("en-US", {
+  timeZone: "America/New_York",
+  hour: "numeric",
+  minute: "2-digit"
+}) + " ET";
+const fmtDay = ts => new Date(ts).toLocaleDateString("en-US", {
+  timeZone: "America/New_York",
+  weekday: "short",
+  month: "short",
+  day: "numeric"
+});
+const minsAgo = ts => Math.max(0, Math.round((Date.now() - Number(ts)) / 60000));
+function humanizeReason(raw) {
+  const r = String(raw || "").toLowerCase();
+  if (!r) return null;
+  if (/duplicate_client_order_id/.test(r)) return "Duplicate order blocked (safety guard)";
+  if (/max_orders_per_day|daily_cap|orders.*day/.test(r)) return "Daily order cap reached for this account";
+  if (/notional_.*exceeds_cap|max_per_order|exceeds_cap/.test(r)) return "Order size above the per-order dollar cap";
+  if (/below_min_share_price/.test(r)) return "Per-order cap below one share price";
+  if (/mirror_suppressed/.test(r)) return "Mirroring suppressed after repeated drift — needs review";
+  if (/no_manifest_for_trade/.test(r)) return "No tracked entry for this trade on the account";
+  if (/reducer_blocked_by_sync_state:(\w+)/.test(r)) return "Sell blocked — position not in sync (" + r.match(/reducer_blocked_by_sync_state:(\w+)/)[1].replace(/_/g, " ") + ")";
+  if (/closer_blocked_by_sync_state/.test(r)) return "Close blocked — position not in sync";
+  if (/nothing_to_reduce|reducer_qty_rounded_to_zero/.test(r)) return "Nothing to sell on this account";
+  if (/qty_zero|rounded_to_zero/.test(r)) return "Order size rounded to zero for this account";
+  if (/insufficient|buying_power/.test(r)) return "Insufficient buying power";
+  if (/outside.*market|market.*closed|fractional/.test(r)) return "Requires regular market hours";
+  if (/investor_mirror_disabled/.test(r)) return "Long-term mirroring is off globally";
+  if (/broker_integration_disabled|mirror_off|not_enabled/.test(r)) return "Mirroring is off for this account";
+  if (/zone_exhausted|stage_|score_below/.test(r)) return "Model thesis gate declined the catch-up";
+  if (/too many request|rate.?limit/.test(r)) return "Broker rate limit — retried automatically";
+  if (/no_hmac_or_url|bridge/.test(r)) return "Mirror bridge unavailable";
+  if (/vehicle_.*_disabled/.test(r)) return "This order type is disabled for the account";
+  return String(raw).replace(/_/g, " ").slice(0, 120);
+}
+const AVATAR_HUES = [158, 190, 215, 262, 288, 330, 20, 42, 88, 130];
+function TickerAvatar({
+  ticker,
+  muted
+}) {
+  const t = String(ticker || "?");
+  let hash = 0;
+  for (let i = 0; i < t.length; i++) hash = hash * 31 + t.charCodeAt(i) >>> 0;
+  const hue = AVATAR_HUES[hash % AVATAR_HUES.length];
+  const bg = muted ? "rgba(255,255,255,0.06)" : `linear-gradient(135deg, hsl(${hue},72%,62%), hsl(${(hue + 40) % 360},68%,48%))`;
+  return React.createElement("div", {
+    className: "tk-avatar pos-a-av",
+    style: {
+      background: bg,
+      color: muted ? "var(--tt-text-dim)" : "#0b1410"
+    }
+  }, t.slice(0, 2));
+}
+function SyncDonut({
+  counts
+}) {
+  const total = counts.reduce((s, c) => s + c.n, 0);
+  if (!total) return null;
+  const R = 26,
+    C = 2 * Math.PI * R;
+  let offset = 0;
+  return React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14
+    }
+  }, React.createElement("svg", {
+    width: "68",
+    height: "68",
+    viewBox: "0 0 68 68",
+    "aria-hidden": "true"
+  }, React.createElement("circle", {
+    cx: "34",
+    cy: "34",
+    r: R,
+    fill: "none",
+    stroke: "rgba(255,255,255,0.06)",
+    strokeWidth: "8"
+  }), counts.filter(c => c.n > 0).map(c => {
+    const frac = c.n / total;
+    const el = React.createElement("circle", {
+      key: c.label,
+      cx: "34",
+      cy: "34",
+      r: R,
+      fill: "none",
+      stroke: c.color,
+      strokeWidth: "8",
+      strokeDasharray: `${frac * C} ${C}`,
+      strokeDashoffset: -offset * C,
+      transform: "rotate(-90 34 34)",
+      strokeLinecap: "butt"
+    });
+    offset += frac;
+    return el;
+  }), React.createElement("text", {
+    x: "34",
+    y: "38",
+    textAnchor: "middle",
+    fill: "var(--tt-text-1)",
+    fontSize: "15",
+    fontWeight: "800",
+    fontFamily: "Manrope, Inter, sans-serif"
+  }, total)), React.createElement("div", {
+    style: {
+      fontSize: 11,
+      lineHeight: 1.8
+    }
+  }, counts.filter(c => c.n > 0).map(c => React.createElement("div", {
+    key: c.label,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, React.createElement("span", {
+    style: {
+      width: 8,
+      height: 8,
+      borderRadius: 2,
+      background: c.color,
+      display: "inline-block"
+    }
+  }), React.createElement("span", {
+    className: "dim"
+  }, c.label), React.createElement("b", {
+    className: "mono",
+    style: {
+      fontSize: 11
+    }
+  }, c.n)))));
+}
+async function apiGet(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include"
+  });
+  return res.json().catch(() => null);
+}
+async function apiPost(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body || {})
+  });
+  return res.json().catch(() => null);
+}
+const EVENT_STYLE = {
+  ENTRY: {
+    label: "BUY",
+    color: "var(--tt-success)"
+  },
+  DCA_BUY: {
+    label: "DCA BUY",
+    color: "var(--tt-success)"
+  },
+  BUY: {
+    label: "BUY",
+    color: "var(--tt-success)"
+  },
+  TRIM: {
+    label: "TRIM",
+    color: "var(--tt-warning)"
+  },
+  EXIT: {
+    label: "EXIT",
+    color: "var(--tt-danger)"
+  },
+  SELL: {
+    label: "SELL",
+    color: "var(--tt-danger)"
+  }
+};
+const MIRROR_CHIP = {
+  mirrored: {
+    cls: "p-ok",
+    label: "MIRRORED"
+  },
+  forwarded: {
+    cls: "p-info",
+    label: "SENT TO BROKER"
+  },
+  rejected: {
+    cls: "p-err",
+    label: "REJECTED"
+  },
+  skipped: {
+    cls: "p-warn",
+    label: "SKIPPED"
+  },
+  not_mirrored: {
+    cls: "p-off",
+    label: "NOT MIRRORED"
+  }
+};
+const MODE_CHIP = {
+  investor: {
+    cls: "p-mint",
+    label: "LONG TERM"
+  },
+  trader: {
+    cls: "p-info",
+    label: "SHORT TERM"
+  },
+  mirror: {
+    cls: "p-off",
+    label: "MIRROR"
+  }
+};
+function ActionRow({
+  a,
+  isLast,
+  showDay
+}) {
+  const [open, setOpen] = useState(false);
+  const ev = EVENT_STYLE[a.event] || {
+    label: a.event,
+    color: "var(--tt-text-dim)"
+  };
+  const mc = MIRROR_CHIP[a.mirror] || MIRROR_CHIP.not_mirrored;
+  const reason = humanizeReason(a.mirror_reason);
+  const hasDetail = a.fills && a.fills.length || a.rejects && a.rejects.length || reason;
+  const pnl = Number(a.realized_pnl) || 0;
+  return React.createElement("div", null, showDay && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      padding: "10px 0 4px 26px"
+    }
+  }, fmtDay(a.ts)), React.createElement("div", {
+    className: "tl-row",
+    onClick: () => hasDetail && setOpen(!open),
+    role: hasDetail ? "button" : undefined
+  }, React.createElement("div", {
+    className: "tl-rail"
+  }, React.createElement("span", {
+    className: "tl-dot",
+    style: {
+      background: ev.color
+    }
+  }), !isLast && React.createElement("span", {
+    className: "tl-line"
+  })), React.createElement("div", {
+    className: "tl-main"
+  }, React.createElement("div", {
+    className: "tl-head"
+  }, React.createElement("span", {
+    className: "tl-time mono"
+  }, fmtTime(a.ts)), React.createElement("span", {
+    className: `bc-pill ${(MODE_CHIP[a.mode] || MODE_CHIP.mirror).cls}`
+  }, (MODE_CHIP[a.mode] || MODE_CHIP.mirror).label), React.createElement("span", {
+    style: {
+      fontWeight: 800,
+      fontSize: 13,
+      color: ev.color
+    }
+  }, ev.label), React.createElement("span", {
+    style: {
+      fontWeight: 800,
+      fontSize: 13
+    }
+  }, a.ticker), React.createElement("span", {
+    className: "mono dim",
+    style: {
+      fontSize: 12
+    }
+  }, fmtQty(a.qty), " sh @ ", fmtUsd(a.price)), (a.event === "TRIM" || a.event === "EXIT") && pnl !== 0 && React.createElement("span", {
+    className: `mono ${pnl >= 0 ? "up" : "dn"}`,
+    style: {
+      fontSize: 12,
+      fontWeight: 700
+    }
+  }, fmtSigned(pnl)), React.createElement("span", {
+    style: {
+      flex: 1
+    }
+  }), React.createElement("span", {
+    className: `bc-pill ${mc.cls}`
+  }, React.createElement("span", {
+    className: "dot"
+  }), mc.label, a.fills?.length > 1 ? ` ×${a.fills.length}` : "")), !open && reason && a.mirror !== "mirrored" && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 11,
+      marginTop: 3
+    }
+  }, reason), open && hasDetail && React.createElement("div", {
+    className: "tl-detail fade-in",
+    onClick: e => e.stopPropagation()
+  }, (a.fills || []).map((f, i) => React.createElement("div", {
+    key: "f" + i,
+    className: "tl-acct-row"
+  }, React.createElement("span", {
+    style: {
+      fontWeight: 600
+    }
+  }, f.account || "Account"), React.createElement("span", {
+    className: "mono"
+  }, fmtQty(f.qty), " sh @ ", fmtUsd(f.price), " ", React.createElement("span", {
+    className: "dim"
+  }, "\xB7"), " ", fmtUsd(f.value)), React.createElement("span", {
+    className: "bc-pill p-ok"
+  }, "FILLED"))), (a.rejects || []).map((r, i) => React.createElement("div", {
+    key: "r" + i,
+    className: "tl-acct-row"
+  }, React.createElement("span", {
+    style: {
+      fontWeight: 600
+    }
+  }, r.account || "Account"), React.createElement("span", {
+    className: "dim",
+    style: {
+      flex: 1
+    }
+  }, humanizeReason(r.reject_reason) || "Rejected"), React.createElement("span", {
+    className: "bc-pill p-err"
+  }, "REJECTED"))), !a.fills?.length && !a.rejects?.length && reason && React.createElement("div", {
+    className: "dim"
+  }, reason), a.note && React.createElement("div", {
+    className: "dim",
+    style: {
+      marginTop: 5,
+      fontSize: 11
+    }
+  }, "Model note: ", String(a.note).replace(/_/g, " "))))));
+}
+function DayActions({
+  refreshKey
+}) {
+  const [data, setData] = useState(null);
+  const [windowH, setWindowH] = useState(0);
+  const [autoWidened, setAutoWidened] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const q = windowH > 0 ? `?hours=${windowH}` : "";
+      const json = await apiGet(`/timed/broker/day-actions${q}`).catch(() => null);
+      if (!alive) return;
+      if (json?.ok) {
+        setData(json);
+        if (!autoWidened && windowH === 0 && (json.actions || []).length === 0) {
+          setAutoWidened(true);
+          setWindowH(72);
+        }
+      } else setData({
+        ok: false,
+        error: json?.error || "Request failed"
+      });
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [refreshKey, windowH]);
+  const actions = data?.actions || [];
+  const s = data?.summary || {};
+  let lastDay = null;
+  return React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "sec-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-sec-title"
+  }, windowH > 0 ? `Last ${Math.round(windowH / 24)} days` : "Today"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 18
+    }
+  }, "Model actions & mirror outcomes")), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, React.createElement("button", {
+    className: `bc-btn bc-btn-sm ${windowH === 0 ? "bc-btn-primary" : ""}`,
+    onClick: () => {
+      setWindowH(0);
+      setAutoWidened(true);
+    }
+  }, "Today"), React.createElement("button", {
+    className: `bc-btn bc-btn-sm ${windowH === 72 ? "bc-btn-primary" : ""}`,
+    onClick: () => setWindowH(72)
+  }, "3 days"))), React.createElement("p", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      margin: "0 0 10px",
+      lineHeight: 1.6
+    }
+  }, "Every trade the model executed, whether the mirror followed on the connected accounts, and why when it did not."), data === null && React.createElement("div", null, [0, 1, 2].map(i => React.createElement("div", {
+    key: i,
+    className: "skel",
+    style: {
+      height: 38,
+      marginBottom: 8
+    }
+  }))), data?.ok === false && React.createElement("div", {
+    className: "msg-err"
+  }, "Could not load the timeline: ", data.error), data?.ok && actions.length === 0 && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 13,
+      padding: "14px 0"
+    }
+  }, "No model actions in this window. The timeline fills in as the model trades."), data?.ok && actions.length > 0 && React.createElement("div", {
+    className: "tl"
+  }, actions.map((a, i) => {
+    const day = fmtDay(a.ts);
+    const showDay = windowH > 0 && day !== lastDay;
+    lastDay = day;
+    return React.createElement(ActionRow, {
+      key: i,
+      a: a,
+      isLast: i === actions.length - 1,
+      showDay: showDay
+    });
+  })), data?.ok && actions.length > 0 && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 11,
+      marginTop: 10
+    }
+  }, s.mirrored || 0, " mirrored \xB7 ", s.rejected || 0, " rejected \xB7 ", s.skipped || 0, " skipped", Number(s.realized_pnl) !== 0 && React.createElement("span", null, " \xB7 realized ", React.createElement("b", {
+    className: `mono ${s.realized_pnl >= 0 ? "up" : "dn"}`
+  }, fmtSigned(s.realized_pnl)), " (model)")));
+}
+const SYNC_CHIP = {
+  in_sync: {
+    cls: "p-ok",
+    label: "IN SYNC"
+  },
+  pending: {
+    cls: "p-warn",
+    label: "PENDING"
+  },
+  partial_fill: {
+    cls: "p-warn",
+    label: "PARTIAL FILL"
+  },
+  broker_orphan: {
+    cls: "p-err",
+    label: "AT BROKER ONLY"
+  },
+  mothership_orphan: {
+    cls: "p-err",
+    label: "MISSING HERE"
+  },
+  reconcile_error: {
+    cls: "p-warn",
+    label: "CHECK FAILED"
+  },
+  mirror_suppressed: {
+    cls: "p-off",
+    label: "SUPPRESSED"
+  },
+  untracked: {
+    cls: "p-off",
+    label: "NOT MIRRORED"
+  },
+  not_synced: {
+    cls: "p-warn",
+    label: "NOT SYNCED"
+  }
+};
+const HIST_CHIP = {
+  buy: {
+    cls: "p-ok",
+    label: "BUY"
+  },
+  trim: {
+    cls: "p-warn",
+    label: "TRIM"
+  },
+  sell: {
+    cls: "p-err",
+    label: "SELL"
+  },
+  exit: {
+    cls: "p-err",
+    label: "EXIT"
+  },
+  close: {
+    cls: "p-err",
+    label: "CLOSE"
+  }
+};
+function dailyChangeFor(it) {
+  if (!(Number(it.price) > 0)) return {
+    dayPct: null,
+    dayChg: null
+  };
+  try {
+    const t = {
+      price: it.price,
+      close: it.price,
+      _live_price: it.price,
+      prev_close: it.prev_close,
+      day_change: it.day_change,
+      day_change_pct: it.day_change_pct
+    };
+    const dc = PU.getDailyChange ? PU.getDailyChange(t) : {
+      dayPct: null,
+      dayChg: null
+    };
+    return dc || {
+      dayPct: null,
+      dayChg: null
+    };
+  } catch (_) {
+    return {
+      dayPct: null,
+      dayChg: null
+    };
+  }
+}
+function PositionRow({
+  it,
+  acct,
+  onSync,
+  syncBusy
+}) {
+  const [open, setOpen] = useState(false);
+  const chip = SYNC_CHIP[it.sync_state] || {
+    cls: "p-warn",
+    label: String(it.sync_state || "?").toUpperCase()
+  };
+  const qty = Number(it.broker_qty) || 0;
+  const holds = qty > 0.0001;
+  const upnl = Number(it.unrealized_pnl);
+  const upnlPct = Number(it.unrealized_pnl_pct);
+  const dc = dailyChangeFor(it);
+  const hasDetail = it.history && it.history.length || it.sync_note || it.syncable || it.sync_blocked_reason;
+  const barPct = Number.isFinite(upnlPct) ? Math.max(-20, Math.min(20, upnlPct)) : 0;
+  return React.createElement("div", null, React.createElement("div", {
+    className: "pos-row",
+    onClick: () => hasDetail && setOpen(!open)
+  }, React.createElement(TickerAvatar, {
+    ticker: it.ticker,
+    muted: !holds
+  }), React.createElement("div", {
+    className: "pos-a-tick",
+    style: {
+      minWidth: 0
+    }
+  }, React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 13.5
+    }
+  }, it.ticker, it.model_open && !it.managed && React.createElement("span", {
+    className: "bc-pill p-mint",
+    style: {
+      marginLeft: 7
+    }
+  }, "MODEL HOLDS")), React.createElement("div", {
+    className: "mono dim",
+    style: {
+      fontSize: 11
+    }
+  }, holds ? `${fmtQty(qty)} sh${Number(it.avg_cost) > 0 ? ` @ ${fmtUsd(it.avg_cost)}` : ""}` : "no shares here")), React.createElement("div", {
+    className: "pos-a-px mono",
+    style: {
+      fontSize: 12.5
+    }
+  }, Number(it.price) > 0 ? React.createElement("div", null, React.createElement("div", null, fmtUsd(it.price)), Number.isFinite(dc.dayPct) && dc.dayPct !== null && React.createElement("div", {
+    className: dc.dayPct >= 0 ? "up" : "dn",
+    style: {
+      fontSize: 11
+    }
+  }, dc.dayPct >= 0 ? "+" : "", Number(dc.dayPct).toFixed(2), "% today")) : React.createElement("span", {
+    className: "dim"
+  }, "\u2014")), React.createElement("div", {
+    className: "pos-a-val mono",
+    style: {
+      fontSize: 12.5
+    }
+  }, Number(it.market_value) > 0 ? fmtUsd(it.market_value) : React.createElement("span", {
+    className: "dim"
+  }, "\u2014")), React.createElement("div", {
+    className: "pos-a-pnl",
+    style: {
+      minWidth: 0
+    }
+  }, Number.isFinite(upnl) ? React.createElement("div", null, React.createElement("span", {
+    className: `mono ${upnl >= 0 ? "up" : "dn"}`,
+    style: {
+      fontSize: 12.5,
+      fontWeight: 700
+    }
+  }, fmtSigned(upnl), Number.isFinite(upnlPct) ? ` (${upnlPct >= 0 ? "+" : ""}${upnlPct.toFixed(1)}%)` : ""), React.createElement("div", {
+    className: "pnl-bar"
+  }, React.createElement("span", {
+    style: {
+      background: upnl >= 0 ? "var(--tt-success)" : "var(--tt-danger)",
+      left: barPct >= 0 ? "50%" : `${50 + barPct * 2.5}%`,
+      width: `${Math.abs(barPct) * 2.5}%`
+    }
+  }))) : React.createElement("span", {
+    className: "dim",
+    style: {
+      fontSize: 12
+    }
+  }, "\u2014")), React.createElement("div", {
+    className: "pos-a-sync",
+    style: {
+      textAlign: "right"
+    }
+  }, React.createElement("span", {
+    className: `bc-pill ${chip.cls}`,
+    title: it.sync_note || ""
+  }, chip.label))), open && React.createElement("div", {
+    className: "pos-detail fade-in",
+    onClick: e => e.stopPropagation()
+  }, it.syncable && React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      flexWrap: "wrap",
+      marginBottom: it.history?.length ? 10 : 0
+    }
+  }, React.createElement("span", {
+    className: "dim",
+    style: {
+      fontSize: 12
+    }
+  }, "The model holds this position. Sync buys it on this account (sized to the account, capped by the limits) and mirrors every later model action."), React.createElement("button", {
+    className: "bc-btn bc-btn-sm bc-btn-primary",
+    disabled: syncBusy,
+    onClick: () => {
+      if (confirm(`Sync ${it.ticker} to ${acct.label || "this account"}? A real buy order will be placed, sized to the account.`)) {
+        onSync(it.ticker);
+      }
+    }
+  }, syncBusy ? "Placing…" : `Sync ${it.ticker}`)), !it.syncable && it.sync_blocked_reason && it.model_open && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      marginBottom: it.history?.length ? 10 : 0
+    }
+  }, "Sync unavailable: ", it.sync_blocked_reason === "mirror_off" ? "mirroring is off for this account." : "the market is closed (fractional orders need regular hours)."), !it.managed && !it.model_open && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      marginBottom: it.history?.length ? 10 : 0
+    }
+  }, "Held at the broker but not managed by the model \u2014 no mirror action available."), it.sync_note && it.managed && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 11,
+      marginBottom: it.history?.length ? 8 : 0
+    }
+  }, "Reconciler: ", String(it.sync_note).replace(/_/g, " ")), it.history?.length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "lbl",
+    style: {
+      margin: "0 0 4px"
+    }
+  }, "Account history"), it.history.map((hrow, i) => {
+    const hc = HIST_CHIP[String(hrow.side || "").toLowerCase()] || (String(hrow.event_type || "").includes("EXIT") ? HIST_CHIP.exit : HIST_CHIP.buy);
+    const failed = hrow.status && hrow.status !== "ok" && hrow.status !== "filled";
+    return React.createElement("div", {
+      key: i,
+      className: "hist-row",
+      style: failed ? {
+        opacity: 0.75
+      } : null
+    }, React.createElement("span", {
+      className: "mono dim",
+      style: {
+        fontSize: 11,
+        minWidth: 108
+      }
+    }, fmtDay(hrow.ts), " ", fmtTime(hrow.ts)), React.createElement("span", {
+      className: `bc-pill ${failed ? "p-err" : hc.cls}`
+    }, failed ? "FAILED" : hc.label), React.createElement("span", {
+      className: "mono"
+    }, fmtQty(hrow.qty), " sh @ ", fmtUsd(hrow.price)), Number(hrow.value) > 0 && React.createElement("span", {
+      className: "mono dim"
+    }, fmtUsd(hrow.value)), failed && React.createElement("span", {
+      className: "dim",
+      style: {
+        fontSize: 11
+      }
+    }, humanizeReason(hrow.reject_reason)));
+  }))));
+}
+function PositionsSection({
+  refreshKey,
+  onData
+}) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
+  const [syncBusyFor, setSyncBusyFor] = useState(null);
+  const [syncMsg, setSyncMsg] = useState(null);
+  const [reloadTick, setReloadTick] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const json = await apiGet("/timed/broker/positions").catch(() => null);
+      if (!alive) return;
+      if (json?.ok) {
+        setData(json);
+        setErr(null);
+        onData && onData(json);
+      } else {
+        setData({
+          accounts: []
+        });
+        setErr(json?.error || "Request failed");
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [refreshKey, reloadTick]);
+  const doSync = async (accountId, ticker) => {
+    setSyncBusyFor(`${accountId}:${ticker}`);
+    setSyncMsg(null);
+    try {
+      const json = await apiPost("/timed/broker/sync-position", {
+        account_id: accountId,
+        ticker
+      });
+      if (json?.ok) {
+        setSyncMsg({
+          ok: true,
+          text: `${ticker} sync order placed — the reconciler confirms the fill within a few minutes.`
+        });
+        setTimeout(() => setReloadTick(x => x + 1), 1500);
+      } else {
+        setSyncMsg({
+          ok: false,
+          text: json?.note || humanizeReason(json?.reject_reason || json?.error) || "Sync failed"
+        });
+      }
+    } catch (e) {
+      setSyncMsg({
+        ok: false,
+        text: String(e?.message || e)
+      });
+    } finally {
+      setSyncBusyFor(null);
+    }
+  };
+  const accounts = data?.accounts || [];
+  const donutCounts = useMemo(() => {
+    let ok = 0,
+      attention = 0,
+      untracked = 0;
+    for (const a of accounts) for (const it of a.items || []) {
+      const st = String(it.sync_state || "");
+      if (st === "in_sync") ok++;else if (st === "untracked") untracked++;else attention++;
+    }
+    return [{
+      label: "In sync",
+      n: ok,
+      color: "var(--tt-success)"
+    }, {
+      label: "Attention",
+      n: attention,
+      color: "var(--tt-warning)"
+    }, {
+      label: "Not mirrored",
+      n: untracked,
+      color: "rgba(255,255,255,0.25)"
+    }];
+  }, [accounts]);
+  return React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "sec-head"
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-sec-title"
+  }, "Positions"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 18
+    }
+  }, "Holdings & sync manifest")), React.createElement(SyncDonut, {
+    counts: donutCounts
+  })), React.createElement("p", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      margin: "0 0 6px",
+      lineHeight: 1.6
+    }
+  }, "Each account's holdings against the model book. Tap a row for its action history. Positions the model holds long-term but this account does not can be synced; broker-only holdings are never touched."), data?.prices_included === false && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 11,
+      marginBottom: 8
+    }
+  }, "Live prices and P&L require a Pro subscription \u2014 showing account holdings only."), syncMsg && React.createElement("div", {
+    className: syncMsg.ok ? "msg-ok" : "msg-err",
+    style: {
+      margin: "6px 0"
+    }
+  }, syncMsg.text), err && React.createElement("div", {
+    className: "msg-err",
+    style: {
+      marginBottom: 8
+    }
+  }, err), data === null && [0, 1].map(i => React.createElement("div", {
+    key: i,
+    className: "skel",
+    style: {
+      height: 90,
+      marginBottom: 10
+    }
+  })), data !== null && accounts.length === 0 && !err && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 13
+    }
+  }, "No connected accounts yet."), accounts.map(acct => React.createElement("div", {
+    key: acct.account_id,
+    style: {
+      marginBottom: 20
+    }
+  }, React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 2
+    }
+  }, React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 800
+    }
+  }, acct.label || acct.account_id), !acct.mirror_enabled && React.createElement("span", {
+    className: "bc-pill p-off"
+  }, "MIRROR OFF"), acct.positions_stale && React.createElement("span", {
+    className: "bc-pill p-warn",
+    title: humanizeReason(acct.positions_stale_reason) || ""
+  }, "AS OF ", minsAgo(acct.positions_as_of), "M AGO")), (acct.summary?.positions_value > 0 || Number.isFinite(acct.summary?.day_pnl)) && React.createElement("div", {
+    className: "acct-summary mono"
+  }, acct.summary.positions_value > 0 && React.createElement("span", null, "Value ", React.createElement("b", null, fmtUsd(acct.summary.positions_value))), Number.isFinite(acct.summary.day_pnl) && acct.summary.day_pnl !== null && React.createElement("span", null, "Today ", React.createElement("b", {
+    className: acct.summary.day_pnl >= 0 ? "up" : "dn"
+  }, fmtSigned(acct.summary.day_pnl))), Number.isFinite(acct.summary.unrealized_pnl) && acct.summary.unrealized_pnl !== null && React.createElement("span", null, "Open P&L ", React.createElement("b", {
+    className: acct.summary.unrealized_pnl >= 0 ? "up" : "dn"
+  }, fmtSigned(acct.summary.unrealized_pnl)))), acct.positions_error && React.createElement("div", {
+    className: "msg-err",
+    style: {
+      fontSize: 12,
+      margin: "6px 0"
+    }
+  }, "Broker positions unavailable right now (", humanizeReason(acct.positions_error), "). The view retries automatically."), (acct.items || []).length === 0 && !acct.positions_error && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      padding: "6px 0"
+    }
+  }, "No positions."), (acct.items || []).length > 0 && React.createElement("div", null, React.createElement("div", {
+    className: "pos-head"
+  }, React.createElement("span", null), React.createElement("span", null, "Position"), React.createElement("span", null, "Price"), React.createElement("span", null, "Value"), React.createElement("span", null, "Open P&L"), React.createElement("span", {
+    style: {
+      textAlign: "right"
+    }
+  }, "Sync")), (acct.items || []).map(it => React.createElement(PositionRow, {
+    key: it.ticker,
+    it: it,
+    acct: acct,
+    syncBusy: syncBusyFor === `${acct.account_id}:${it.ticker}`,
+    onSync: tk => doSync(acct.account_id, tk)
+  }))))));
+}
 function AccountCard({
   acct,
   onChanged
@@ -20,27 +925,17 @@ function AccountCard({
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(body)
-      });
-      const json = await res.json().catch(() => null);
+      const json = await apiPost(path, body);
       if (json?.ok) {
         setMsg({
           ok: true,
           text: okText
         });
         onChanged();
-      } else {
-        setMsg({
-          ok: false,
-          text: json?.error || "Request failed"
-        });
-      }
+      } else setMsg({
+        ok: false,
+        text: json?.error || "Request failed"
+      });
     } catch (e) {
       setMsg({
         ok: false,
@@ -50,9 +945,12 @@ function AccountCard({
       setBusy(false);
     }
   };
-  return h("div", {
-    className: "card"
-  }, h("div", {
+  return React.createElement("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 12
+    }
+  }, React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
@@ -60,47 +958,49 @@ function AccountCard({
       flexWrap: "wrap",
       gap: 10
     }
-  }, h("div", null, h("div", {
+  }, React.createElement("div", null, React.createElement("div", {
     style: {
-      fontWeight: 700,
-      fontSize: 15
+      fontWeight: 800,
+      fontSize: 15,
+      fontFamily: "Manrope, Inter, sans-serif"
     }
-  }, acct.webull_account_label || acct.webull_account_class || "Account"), h("div", {
+  }, acct.webull_account_label || acct.webull_account_class || "Account"), React.createElement("div", {
+    className: "mono dim",
     style: {
       fontSize: 11,
-      color: "var(--faint)",
-      marginTop: 3,
-      fontFamily: "ui-monospace, Menlo, monospace"
+      marginTop: 3
     }
-  }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : "")), h("div", {
+  }, (acct.broker || "webull").toUpperCase(), acct.webull_account_id ? ` · ${acct.webull_account_id}` : "")), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
       gap: 10
     }
-  }, h("span", {
-    className: `pill ${enabled ? "pill-ok" : "pill-off"}`
-  }, enabled ? "MIRROR ON" : "MIRROR OFF"), h("button", {
+  }, React.createElement("span", {
+    className: `bc-pill ${enabled ? "p-ok" : "p-off"}`
+  }, React.createElement("span", {
+    className: "dot"
+  }), enabled ? "MIRROR ON" : "MIRROR OFF"), React.createElement("button", {
     className: "toggle",
     disabled: busy,
     title: enabled ? "Pause mirroring for this account" : "Enable mirroring for this account",
     style: {
-      background: enabled ? "rgba(52,211,153,0.55)" : "rgba(255,255,255,0.12)"
+      background: enabled ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.12)"
     },
     onClick: () => {
       const next = !enabled;
-      const warn = next ? "Enable live mirroring for this account? Model ENTRY/TRIM/EXIT signals will place real orders, sized to the account and capped by the limits below." : "Pause mirroring for this account? No further orders will be placed.";
+      const warn = next ? "Enable live mirroring for this account? Model BUY/TRIM/EXIT signals will place real orders, sized to the account and capped by the limits below." : "Pause mirroring for this account? No further orders will be placed.";
       if (confirm(warn)) call("/timed/broker/account/enable", {
         account_id: acct.user_id,
         enable: next
       }, next ? "Mirroring enabled" : "Mirroring paused");
     }
-  }, h("span", {
+  }, React.createElement("span", {
     className: "knob",
     style: {
-      left: enabled ? 21 : 3
+      left: enabled ? 22 : 3
     }
-  })))), h("div", {
+  })))), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "flex-end",
@@ -108,30 +1008,30 @@ function AccountCard({
       flexWrap: "wrap",
       marginTop: 14
     }
-  }, h("div", null, h("div", {
+  }, React.createElement("div", null, React.createElement("div", {
     className: "lbl",
     style: {
       margin: "0 0 5px"
     }
-  }, "Max $ / order"), h("input", {
+  }, "Max $ / order"), React.createElement("input", {
     className: "caps-input",
     type: "number",
-    min: 1,
+    min: "1",
     value: perOrder,
     onChange: e => setPerOrder(e.target.value)
-  })), h("div", null, h("div", {
+  })), React.createElement("div", null, React.createElement("div", {
     className: "lbl",
     style: {
       margin: "0 0 5px"
     }
-  }, "Max orders / day"), h("input", {
+  }, "Max orders / day"), React.createElement("input", {
     className: "caps-input",
     type: "number",
-    min: 0,
+    min: "0",
     value: perDay,
     onChange: e => setPerDay(e.target.value)
-  })), h("button", {
-    className: "btn",
+  })), React.createElement("button", {
+    className: "bc-btn bc-btn-sm",
     disabled: busy,
     onClick: () => {
       const body = {
@@ -141,281 +1041,71 @@ function AccountCard({
       if (perDay !== "") body.max_orders_per_day = Number(perDay);
       call("/timed/broker/account/caps", body, "Limits saved");
     }
-  }, "Save limits"), msg && h("span", {
+  }, "Save limits"), msg && React.createElement("span", {
     className: msg.ok ? "msg-ok" : "msg-err"
   }, msg.text)));
 }
-const SYNC_PILL = {
-  in_sync: {
-    cls: "pill-ok",
-    label: "IN SYNC"
-  },
-  pending: {
-    cls: "pill-warn",
-    label: "PENDING"
-  },
-  partial_fill: {
-    cls: "pill-warn",
-    label: "PARTIAL FILL"
-  },
-  broker_orphan: {
-    cls: "pill-err",
-    label: "AT BROKER ONLY"
-  },
-  mothership_orphan: {
-    cls: "pill-err",
-    label: "MISSING AT BROKER"
-  },
-  reconcile_error: {
-    cls: "pill-warn",
-    label: "CHECK FAILED"
-  },
-  mirror_suppressed: {
-    cls: "pill-off",
-    label: "SUPPRESSED"
-  },
-  untracked: {
-    cls: "pill-off",
-    label: "NOT MIRRORED"
-  }
-};
-function PositionSyncCard({
-  refreshKey
-}) {
-  const [data, setData] = useState(null);
-  const [err, setErr] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/timed/broker/positions`, {
-          credentials: "include"
-        });
-        const json = await res.json().catch(() => null);
-        if (!alive) return;
-        if (json?.ok) {
-          setData(json.accounts || []);
-          setErr(null);
-        } else {
-          setData([]);
-          setErr(json?.error || "Request failed");
-        }
-      } catch (e) {
-        if (alive) {
-          setData([]);
-          setErr(String(e?.message || e));
-        }
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [refreshKey]);
-  if (data === null) return h("div", {
-    className: "card"
-  }, h("p", {
-    style: {
-      fontSize: 13,
-      color: "var(--muted)",
-      margin: 0
-    }
-  }, "Checking position sync…"));
-  return h("div", {
-    className: "card"
-  }, h("div", {
-    style: {
-      fontWeight: 700,
-      fontSize: 15,
-      marginBottom: 4
-    }
-  }, "Position sync"), h("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--muted)",
-      margin: "0 0 12px",
-      lineHeight: 1.6
-    }
-  }, "Model-managed positions are checked against live broker holdings by the reconciler. ", "Positions marked NOT MIRRORED are held at the broker but not managed by the model."), err && h("div", {
-    style: {
-      color: "var(--warn)",
-      fontSize: 12,
-      marginBottom: 8
-    }
-  }, err), data.length === 0 && !err && h("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--faint)",
-      margin: 0
-    }
-  }, "No connected accounts."), data.map(acct => h("div", {
-    key: acct.account_id,
-    style: {
-      marginBottom: 14
-    }
-  }, h("div", {
-    style: {
-      fontSize: 12,
-      fontWeight: 700,
-      color: "var(--muted)",
-      marginBottom: 6
-    }
-  }, acct.label || acct.account_id, !acct.mirror_enabled && h("span", {
-    className: "pill pill-off",
-    style: {
-      marginLeft: 8
-    }
-  }, "MIRROR OFF")), acct.positions_error && h("div", {
-    style: {
-      fontSize: 11,
-      color: "var(--warn)",
-      marginBottom: 6
-    }
-  }, "Broker positions unavailable: ", acct.positions_error), acct.items.length === 0 && !acct.positions_error && h("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--faint)"
-    }
-  }, "No positions."), acct.items.length > 0 && h("table", {
-    style: {
-      width: "100%",
-      borderCollapse: "collapse",
-      fontSize: 12
-    }
-  }, h("thead", null, h("tr", {
-    style: {
-      color: "var(--faint)",
-      textAlign: "left"
-    }
-  }, h("th", {
-    style: {
-      padding: "4px 8px 4px 0",
-      fontWeight: 600
-    }
-  }, "Ticker"), h("th", {
-    style: {
-      padding: "4px 8px",
-      fontWeight: 600
-    }
-  }, "Broker qty"), h("th", {
-    style: {
-      padding: "4px 8px",
-      fontWeight: 600
-    }
-  }, "Model qty"), h("th", {
-    style: {
-      padding: "4px 8px",
-      fontWeight: 600
-    }
-  }, "Status"))), h("tbody", null, acct.items.map(it => {
-    const pill = SYNC_PILL[it.sync_state] || {
-      cls: "pill-warn",
-      label: String(it.sync_state || "?").toUpperCase()
-    };
-    return h("tr", {
-      key: it.ticker,
-      style: {
-        borderTop: "1px solid var(--border)"
-      }
-    }, h("td", {
-      style: {
-        padding: "6px 8px 6px 0",
-        fontWeight: 700
-      }
-    }, it.ticker), h("td", {
-      style: {
-        padding: "6px 8px",
-        fontFamily: "ui-monospace, Menlo, monospace"
-      }
-    }, it.broker_qty ?? "—"), h("td", {
-      style: {
-        padding: "6px 8px",
-        fontFamily: "ui-monospace, Menlo, monospace"
-      }
-    }, it.managed ? it.broker_filled_qty || it.model_qty || "—" : "—"), h("td", {
-      style: {
-        padding: "6px 8px"
-      }
-    }, h("span", {
-      className: `pill ${pill.cls}`,
-      title: it.sync_note || ""
-    }, pill.label)));
-  }))))));
-}
 function ConnectForm({
-  onConnected
+  onConnected,
+  compact
 }) {
   const [appKey, setAppKey] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
-  return h("div", {
-    className: "card"
-  }, h("div", {
-    style: {
-      fontWeight: 700,
-      fontSize: 15,
-      marginBottom: 4
-    }
-  }, "Connect Webull"), h("p", {
+  return React.createElement("div", null, !compact && React.createElement("div", null, React.createElement("p", {
+    className: "dim",
     style: {
       fontSize: 13,
-      color: "var(--muted)",
       margin: "0 0 4px",
       lineHeight: 1.6
     }
-  }, "Generate a personal API key pair in the Webull account that will mirror trades:"), h("ol", {
+  }, "Generate a personal API key pair in the Webull account that will mirror trades:"), React.createElement("ol", {
     className: "steps"
-  }, h("li", null, "Sign in at ", h("a", {
+  }, React.createElement("li", null, "Sign in at ", React.createElement("a", {
     href: "https://www.webull.com/open-api",
     target: "_blank",
     rel: "noopener",
     style: {
-      color: "var(--accent)"
+      color: "var(--vf-primary, #38F2A1)"
     }
-  }, "webull.com/open-api"), " with the brokerage login."), h("li", null, "Open ", h("b", null, "API Keys Management"), " → ", h("b", null, "Generate Key"), ". Leave 2FA unchecked."), h("li", null, "Copy the ", h("b", null, "App Key"), " and ", h("b", null, "App Secret"), " (the secret is shown once) and paste both below.")), h("div", {
+  }, "webull.com/open-api"), " with the brokerage login."), React.createElement("li", null, "Open ", React.createElement("b", null, "API Keys Management"), " \u2192 ", React.createElement("b", null, "Generate Key"), ". Leave 2FA unchecked."), React.createElement("li", null, "Copy the ", React.createElement("b", null, "App Key"), " and ", React.createElement("b", null, "App Secret"), " (the secret is shown once) and paste both below."))), React.createElement("div", {
     className: "lbl"
-  }, "App Key"), h("input", {
-    className: "input",
+  }, "App Key"), React.createElement("input", {
+    className: "bc-input",
     value: appKey,
     autoComplete: "off",
-    spellCheck: false,
-    placeholder: "wb_app_key…",
+    spellCheck: "false",
+    placeholder: "wb_app_key\u2026",
     onChange: e => setAppKey(e.target.value)
-  }), h("div", {
+  }), React.createElement("div", {
     className: "lbl"
-  }, "App Secret"), h("input", {
-    className: "input",
+  }, "App Secret"), React.createElement("input", {
+    className: "bc-input",
     value: appSecret,
     type: "password",
     autoComplete: "off",
-    placeholder: "••••••••••••",
+    placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022",
     onChange: e => setAppSecret(e.target.value)
-  }), h("div", {
+  }), React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
       gap: 12,
-      marginTop: 14
+      marginTop: 14,
+      flexWrap: "wrap"
     }
-  }, h("button", {
-    className: "btn btn-primary",
+  }, React.createElement("button", {
+    className: "bc-btn bc-btn-primary",
     disabled: busy || !appKey.trim() || !appSecret.trim(),
     onClick: async () => {
       setBusy(true);
       setMsg(null);
       try {
-        const res = await fetch(`${API_BASE}/timed/broker/webull/connect`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            app_key: appKey.trim(),
-            app_secret: appSecret.trim()
-          })
+        const json = await apiPost("/timed/broker/webull/connect", {
+          app_key: appKey.trim(),
+          app_secret: appSecret.trim()
         });
-        const json = await res.json().catch(() => null);
         if (json?.ok) {
           setMsg({
             ok: true,
@@ -439,16 +1129,16 @@ function ConnectForm({
         setBusy(false);
       }
     }
-  }, busy ? "Validating…" : "Connect"), msg && h("span", {
+  }, busy ? "Validating…" : "Connect"), msg && React.createElement("span", {
     className: msg.ok ? "msg-ok" : "msg-err"
-  }, msg.text)), h("p", {
+  }, msg.text)), React.createElement("p", {
+    className: "dim",
     style: {
       fontSize: 11,
-      color: "var(--faint)",
       margin: "12px 0 0",
       lineHeight: 1.6
     }
-  }, "The key pair is validated against Webull before anything is stored, then encrypted at rest. ", "Keys never appear in the browser again after this step."));
+  }, "The key pair is validated against Webull before anything is stored, then encrypted at rest. Keys never appear in the browser again after this step."));
 }
 function BrokerConnectionsApp({
   user
@@ -458,19 +1148,18 @@ function BrokerConnectionsApp({
   const [accounts, setAccounts] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [posData, setPosData] = useState(null);
+  const [dayData, setDayData] = useState(null);
   const refresh = useCallback(async () => {
     if (!provisioned) return;
     try {
-      const res = await fetch(`${API_BASE}/timed/broker/accounts`, {
-        credentials: "include"
-      });
-      const json = await res.json().catch(() => null);
+      const json = await apiGet("/timed/broker/accounts");
       if (json?.ok) {
         setAccounts(json.accounts || []);
         setErr(null);
       } else {
         setAccounts([]);
-        setErr(json?.error || `Request failed`);
+        setErr(json?.error || "Request failed");
       }
     } catch (e) {
       setAccounts([]);
@@ -480,154 +1169,272 @@ function BrokerConnectionsApp({
   useEffect(() => {
     refresh();
   }, [refresh]);
+  useEffect(() => {
+    if (!provisioned) return;
+    let alive = true;
+    apiGet("/timed/broker/day-actions").then(j => {
+      if (alive && j?.ok) setDayData(j);
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [provisioned, accounts]);
   if (!provisioned) {
-    return h("main", null, h("h1", null, "Broker Connections"), h("div", {
-      className: "card"
-    }, h("div", {
+    return React.createElement("main", null, React.createElement("div", {
+      className: "tt-status",
       style: {
-        fontWeight: 700,
+        marginBottom: 18
+      }
+    }, React.createElement("div", {
+      className: "label"
+    }, "Self-service mirror"), React.createElement("div", {
+      className: "greeting"
+    }, "Broker Connections")), React.createElement("div", {
+      className: "tt-card tt-card-pad"
+    }, React.createElement("div", {
+      style: {
+        fontWeight: 800,
         marginBottom: 6
       }
-    }, "Not enabled on this account"), h("p", {
+    }, "Not enabled on this account"), React.createElement("p", {
+      className: "dim",
       style: {
         fontSize: 13,
-        color: "var(--muted)",
         margin: 0,
         lineHeight: 1.6
       }
-    }, "Broker Connections is provisioned per account by the Timed Trading team. ", "Contact support to request access.")));
+    }, "Broker Connections is provisioned per account by the Timed Trading team. Contact support to request access.")));
   }
   const webullAccounts = (accounts || []).filter(a => (a.broker || "") === "webull");
   const otherAccounts = (accounts || []).filter(a => (a.broker || "") !== "webull");
-  const hasWebull = webullAccounts.length > 0;
+  const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
   const anyEnabled = (accounts || []).some(a => a.broker_integration_enabled === true);
-  return h("main", null, h("h1", null, "Broker Connections"), h("p", {
-    className: "sub"
-  }, "Optional auto-mirror sends model ENTRY/TRIM/EXIT signals to a connected brokerage account, ", "sized to the account with hard per-order and per-day limits. Live trading stays off until ", "explicitly enabled per account below."), err && h("div", {
-    className: "card",
-    style: {
-      borderColor: "rgba(251,191,36,0.35)"
+  const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
+  const totals = useMemo(() => {
+    const accs = posData?.accounts || [];
+    let value = 0,
+      day = 0,
+      open = 0,
+      hasPnl = false;
+    for (const a of accs) {
+      if (a.summary?.positions_value > 0) value += a.summary.positions_value;
+      if (Number.isFinite(a.summary?.day_pnl) && a.summary.day_pnl !== null) {
+        day += a.summary.day_pnl;
+        hasPnl = true;
+      }
+      if (Number.isFinite(a.summary?.unrealized_pnl) && a.summary.unrealized_pnl !== null) {
+        open += a.summary.unrealized_pnl;
+        hasPnl = true;
+      }
     }
-  }, h("div", {
+    return {
+      value,
+      day,
+      open,
+      hasPnl
+    };
+  }, [posData]);
+  const daySummary = dayData?.summary || null;
+  return React.createElement("main", null, React.createElement("div", {
+    className: "tt-status",
     style: {
-      color: "var(--warn)",
+      marginBottom: 16,
+      display: "flex",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+      flexWrap: "wrap",
+      gap: 10
+    }
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "label"
+  }, "Self-service mirror"), React.createElement("div", {
+    className: "greeting"
+  }, "Broker Connections")), React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexWrap: "wrap"
+    }
+  }, marketOpen != null && React.createElement("span", {
+    className: `bc-pill ${marketOpen ? "p-ok" : "p-off"}`
+  }, React.createElement("span", {
+    className: "dot"
+  }), marketOpen ? "MARKET OPEN" : "MARKET CLOSED"), hasAny && React.createElement("span", {
+    className: `bc-pill ${anyEnabled ? "p-mint" : "p-off"}`
+  }, anyEnabled ? "MIRROR ACTIVE" : "MIRROR PAUSED"))), err && React.createElement("div", {
+    className: "tt-card tt-card-pad",
+    style: {
+      borderColor: "rgba(245,158,11,0.35)",
+      marginBottom: 14
+    }
+  }, React.createElement("div", {
+    style: {
+      color: "var(--tt-warning)",
       fontSize: 13
     }
-  }, "Status: ", err)), accounts === null && h("div", {
-    className: "card"
-  }, h("p", {
+  }, "Status: ", err)), accounts === null && React.createElement("div", null, React.createElement("div", {
+    className: "kpi-strip"
+  }, [0, 1, 2, 3].map(i => React.createElement("div", {
+    key: i,
+    className: "skel",
     style: {
-      fontSize: 13,
-      color: "var(--muted)",
-      margin: 0
+      height: 74
     }
-  }, "Loading accounts…")), accounts !== null && hasWebull && h(React.Fragment, null, h("div", {
+  }))), React.createElement("div", {
+    className: "skel",
+    style: {
+      height: 180,
+      marginBottom: 16
+    }
+  })), accounts !== null && hasAny && React.createElement("div", {
+    className: "kpi-strip fade-in"
+  }, React.createElement("div", {
+    className: "kpi"
+  }, React.createElement("div", {
+    className: "k-lbl"
+  }, "Mirrored value"), React.createElement("div", {
+    className: "k-val"
+  }, totals.value > 0 ? fmtUsd(totals.value, {
+    compact: true
+  }) : "—"), React.createElement("div", {
+    className: "k-sub"
+  }, webullAccounts.length + otherAccounts.length, " account", webullAccounts.length + otherAccounts.length === 1 ? "" : "s")), React.createElement("div", {
+    className: "kpi"
+  }, React.createElement("div", {
+    className: "k-lbl"
+  }, "Today's P&L"), React.createElement("div", {
+    className: `k-val ${totals.hasPnl ? totals.day >= 0 ? "up" : "dn" : ""}`
+  }, totals.hasPnl ? fmtSigned(totals.day) : "—"), React.createElement("div", {
+    className: "k-sub"
+  }, "across mirrored positions")), React.createElement("div", {
+    className: "kpi"
+  }, React.createElement("div", {
+    className: "k-lbl"
+  }, "Open P&L"), React.createElement("div", {
+    className: `k-val ${totals.hasPnl ? totals.open >= 0 ? "up" : "dn" : ""}`
+  }, totals.hasPnl ? fmtSigned(totals.open) : "—"), React.createElement("div", {
+    className: "k-sub"
+  }, "unrealized, all accounts")), React.createElement("div", {
+    className: "kpi"
+  }, React.createElement("div", {
+    className: "k-lbl"
+  }, "Model actions today"), React.createElement("div", {
+    className: "k-val"
+  }, daySummary ? daySummary.actions : "—"), React.createElement("div", {
+    className: "k-sub"
+  }, daySummary ? `${daySummary.mirrored} mirrored · ${daySummary.rejected + daySummary.skipped} held back` : "loading…"))), accounts !== null && hasAny && React.createElement(DayActions, {
+    refreshKey: accounts
+  }), accounts !== null && hasAny && React.createElement(PositionsSection, {
+    refreshKey: accounts,
+    onData: setPosData
+  }), accounts !== null && hasAny && React.createElement("section", {
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "sec-head",
+    style: {
+      marginBottom: 10
+    }
+  }, React.createElement("div", null, React.createElement("div", {
+    className: "tt-sec-title"
+  }, "Accounts"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 18
+    }
+  }, "Mirror settings")), React.createElement("div", {
     style: {
       display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      flexWrap: "wrap",
       gap: 8,
-      margin: "0 0 10px"
+      flexWrap: "wrap"
     }
-  }, h("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--muted)"
-    }
-  }, `${webullAccounts.length} Webull account(s) connected`), h("div", {
-    style: {
-      display: "flex",
-      gap: 8
-    }
-  }, anyEnabled && h("button", {
-    className: "btn",
+  }, anyEnabled && React.createElement("button", {
+    className: "bc-btn bc-btn-sm",
     disabled: busy,
     style: {
-      borderColor: "rgba(251,191,36,0.4)",
-      color: "var(--warn)"
+      borderColor: "rgba(245,158,11,0.4)",
+      color: "var(--tt-warning)"
     },
-    title: "Kill switch — pause mirroring on every account at once",
+    title: "Kill switch \u2014 pause mirroring on every account at once",
     onClick: async () => {
       if (!confirm("Pause ALL mirroring? Every account stops receiving model orders immediately. Accounts stay connected and can be re-enabled individually.")) return;
       setBusy(true);
       try {
-        await fetch(`${API_BASE}/timed/broker/pause-all`, {
-          method: "POST",
-          credentials: "include"
-        });
+        await apiPost("/timed/broker/pause-all", {});
         refresh();
       } finally {
         setBusy(false);
       }
     }
-  }, "Pause all mirroring"), h("button", {
-    className: "btn btn-danger",
+  }, "Pause all mirroring"), webullAccounts.length > 0 && React.createElement("button", {
+    className: "bc-btn bc-btn-sm bc-btn-danger",
     disabled: busy,
     onClick: async () => {
       if (!confirm("Disconnect Webull? Mirroring stops for every account under this login and the stored keys are removed.")) return;
       setBusy(true);
       try {
-        await fetch(`${API_BASE}/timed/broker/webull/disconnect`, {
-          method: "POST",
-          credentials: "include"
-        });
+        await apiPost("/timed/broker/webull/disconnect", {});
         refresh();
       } finally {
         setBusy(false);
       }
     }
-  }, "Disconnect Webull"))), webullAccounts.map(acct => h(AccountCard, {
+  }, "Disconnect Webull"))), webullAccounts.map(acct => React.createElement(AccountCard, {
     key: acct.user_id,
-    acct,
+    acct: acct,
     onChanged: refresh
-  }))), accounts !== null && otherAccounts.map(acct => h(AccountCard, {
+  })), otherAccounts.map(acct => React.createElement(AccountCard, {
     key: acct.user_id,
-    acct,
+    acct: acct,
     onChanged: refresh
-  })), accounts !== null && (hasWebull || otherAccounts.length > 0) && h(PositionSyncCard, {
-    refreshKey: accounts
-  }), accounts !== null && !hasWebull && h(ConnectForm, {
+  }))), accounts !== null && !hasAny && React.createElement("section", {
+    className: "tt-card tt-card-pad",
+    style: {
+      marginBottom: 18
+    }
+  }, React.createElement("div", {
+    className: "tt-sec-title"
+  }, "Get started"), React.createElement("div", {
+    className: "tt-sec-h",
+    style: {
+      fontSize: 18,
+      marginBottom: 6
+    }
+  }, "Connect Webull"), React.createElement(ConnectForm, {
     onConnected: refresh
-  }), accounts !== null && hasWebull && h("div", {
-    className: "card",
-    style: {
-      opacity: 0.8
-    }
-  }, h("div", {
-    style: {
-      fontWeight: 700,
-      marginBottom: 6,
-      fontSize: 13
-    }
-  }, "Rotate keys"), h("p", {
-    style: {
-      fontSize: 12,
-      color: "var(--muted)",
-      margin: "0 0 10px",
-      lineHeight: 1.6
-    }
-  }, "If the Webull key pair is regenerated, paste the new pair here — accounts and settings are preserved."), h(ConnectForm, {
-    onConnected: refresh
-  })), h("p", {
+  })), accounts !== null && hasAny && React.createElement("details", {
+    className: "tt-disclose"
+  }, React.createElement("summary", null, React.createElement("span", {
+    className: "tt-disclose-title"
+  }, "Rotate keys"), React.createElement("span", {
+    className: "tt-disclose-sub"
+  }, "paste a regenerated Webull key pair \u2014 accounts and settings are preserved"), React.createElement("span", {
+    className: "tt-disclose-caret"
+  }, "\u25BC")), React.createElement("div", {
+    className: "tt-disclose-body"
+  }, React.createElement(ConnectForm, {
+    onConnected: refresh,
+    compact: true
+  }))), React.createElement("p", {
+    className: "dim",
     style: {
       fontSize: 11,
-      color: "var(--faint)",
       marginTop: 20,
       lineHeight: 1.6
     }
-  }, "Order confirmations and mirror-sync notices are emailed to the account holder and the Timed Trading admin desk. ", "Market data powered by Twelve Data."));
+  }, "Optional auto-mirror sends model BUY/TRIM/EXIT signals to connected brokerage accounts, sized per account with hard per-order and per-day limits. Order confirmations and mirror-sync notices are emailed to the account holder and the Timed Trading admin desk. Market data powered by Twelve Data."));
 }
 const AuthGate = window.TimedAuthGate;
-const app = AuthGate ? h(AuthGate, {
+const app = AuthGate ? React.createElement(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "free"
-}, user => h(BrokerConnectionsApp, {
+}, user => React.createElement(BrokerConnectionsApp, {
   user
-})) : h(BrokerConnectionsApp, {
+})) : React.createElement(BrokerConnectionsApp, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786494415864:559358149
+// cache-bust:1786589426101:215027180
 
-// cache-bust:1786494415864:559358149
+// cache-bust:1786589426101:215027180
