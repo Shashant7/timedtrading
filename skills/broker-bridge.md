@@ -474,6 +474,13 @@ Second pass (2026-08-13):
   `broker_account_id` (fan-out writes rows under the OWNER's base id —
   same fix the reconciler needed 2026-07-24), otherwise every
   model-managed position renders "untracked".
+- **Equity for all connected accounts** — reconciler snapshots are
+  mirror-on only. `bridge-equity-sync.js` stamps net liquidation into
+  `broker_account_snapshot` + 5-min equity history for every connected
+  account (mirror off included) from `/bridge/positions`,
+  `/bridge/equity-curve`, `/bridge/portfolio`, and a view-only reconciler
+  pass. Brokers page value cards/charts depend on this — without it
+  Futures/Cash/Margin stay `$0.00`.
 - **Day timeline** — `GET /timed/broker/day-actions` (session) and
   `GET /timed/admin/broker-bridge/day-actions` (ops; `?raw=1` = bridge
   passthrough, `?owner=` defaults to ADMIN_EMAIL) join the model's own
