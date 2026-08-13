@@ -1582,7 +1582,19 @@ function combineForwardFill(accts, sinceTs) {
     }
     return pts;
   });
-  const series = enriched.map(pts => pts.filter(p => p.ts >= sinceTs));
+  const series = enriched.map(pts => {
+    if (!sinceTs) return pts;
+    let seed = null;
+    for (const p of pts) {
+      if (p.ts < sinceTs) seed = p;else break;
+    }
+    const inWindow = pts.filter(p => p.ts >= sinceTs);
+    if (seed) return [{
+      ts: sinceTs,
+      equity: seed.equity
+    }, ...inWindow];
+    return inWindow;
+  });
   const allTs = new Set();
   for (const s of series) for (const p of s) allTs.add(p.ts);
   const tsList = [...allTs].sort((a, b) => a - b);
@@ -1612,6 +1624,90 @@ function combineForwardFill(accts, sinceTs) {
     return combineForwardFill(accts, 0);
   }
   return out;
+}
+function buildRangePath(points, liveEq, dayPnl, sinceTs) {
+  const now = Date.now();
+  const lastEq = Number.isFinite(liveEq) ? liveEq : points.length ? points[points.length - 1].equity : null;
+  if (!Number.isFinite(lastEq)) return {
+    points,
+    delta: null,
+    axisStart: sinceTs || null,
+    axisEnd: now
+  };
+  let pts = points.length ? points.map(p => ({
+    ...p
+  })) : [{
+    ts: now,
+    equity: lastEq
+  }];
+  const windowStart = sinceTs > 0 ? sinceTs : pts[0].ts;
+  if (pts[0].ts > windowStart) {
+    pts.unshift({
+      ts: windowStart,
+      equity: pts[0].equity
+    });
+  } else if (pts[0].ts < windowStart) {
+    const seedEq = pts[0].equity;
+    pts = [{
+      ts: windowStart,
+      equity: seedEq
+    }, ...pts.filter(p => p.ts >= windowStart)];
+  }
+  if (pts[pts.length - 1].ts < now - 500) {
+    pts.push({
+      ts: now,
+      equity: lastEq
+    });
+  } else {
+    pts[pts.length - 1] = {
+      ts: now,
+      equity: lastEq
+    };
+  }
+  const eqs = pts.map(p => p.equity);
+  const span = Math.max(...eqs) - Math.min(...eqs);
+  const flat = span < Math.max(1, Math.abs(Number(dayPnl) || 0) * 0.08);
+  if (flat && Number.isFinite(dayPnl) && Math.abs(dayPnl) >= 0.005) {
+    const prior = lastEq - dayPnl;
+    const rthOpen = nyWallClockMs(9, 30, now);
+    const rthClose = nyWallClockMs(16, 0, now);
+    const built = [{
+      ts: windowStart,
+      equity: prior
+    }];
+    const openTs = Math.max(windowStart, Math.min(rthOpen, now));
+    if (openTs > windowStart) built.push({
+      ts: openTs,
+      equity: prior
+    });
+    if (now > rthClose && rthClose > openTs) {
+      built.push({
+        ts: rthClose,
+        equity: lastEq
+      });
+      if (now > rthClose + 1000) built.push({
+        ts: now,
+        equity: lastEq
+      });
+    } else if (now > openTs) {
+      built.push({
+        ts: now,
+        equity: lastEq
+      });
+    }
+    return {
+      points: built,
+      delta: dayPnl,
+      axisStart: windowStart,
+      axisEnd: now
+    };
+  }
+  return {
+    points: pts,
+    delta: lastEq - pts[0].equity,
+    axisStart: windowStart,
+    axisEnd: now
+  };
 }
 function EquityCurve({
   liveAccounts
@@ -1697,17 +1793,54 @@ function EquityCurve({
     return n ? sum : null;
   }, [selected]);
   const dayBuilt = useMemo(() => {
-    if (range !== "1D" || sessionDayPnl == null) {
-      const first = rawPoints[0]?.equity;
-      const last = rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
-      const d = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
+    if (range === "1D") {
+      if (sessionDayPnl == null) {
+        const first = rawPoints[0]?.equity;
+        const last = rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
+        const d = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
+        return {
+          points: rawPoints,
+          delta: d,
+          axisStart: null,
+          axisEnd: null
+        };
+      }
+      const built = buildDayPath(rawPoints, liveEqSum, sessionDayPnl);
       return {
-        points: rawPoints,
-        delta: d
+        ...built,
+        axisStart: null,
+        axisEnd: null
       };
     }
-    return buildDayPath(rawPoints, liveEqSum, sessionDayPnl);
-  }, [range, rawPoints, liveEqSum, sessionDayPnl]);
+    if (range === "ALL") {
+      const first = rawPoints[0]?.equity;
+      const last = Number.isFinite(liveEqSum) ? liveEqSum : rawPoints.length ? rawPoints[rawPoints.length - 1].equity : null;
+      let pts = rawPoints;
+      if (pts.length && Number.isFinite(last)) {
+        const now = Date.now();
+        pts = [...pts];
+        if (pts[pts.length - 1].ts < now - 500) pts.push({
+          ts: now,
+          equity: last
+        });else pts[pts.length - 1] = {
+          ts: now,
+          equity: last
+        };
+      }
+      const span = pts.length ? Math.max(...pts.map(p => p.equity)) - Math.min(...pts.map(p => p.equity)) : 0;
+      if (span < 1 && sessionDayPnl != null && Math.abs(sessionDayPnl) >= 0.005) {
+        return buildRangePath(pts, liveEqSum, sessionDayPnl, pts[0]?.ts || Date.now() - 86400000);
+      }
+      const d = Number.isFinite(last) && Number.isFinite(first) ? last - first : null;
+      return {
+        points: pts,
+        delta: d,
+        axisStart: pts[0]?.ts || null,
+        axisEnd: Date.now()
+      };
+    }
+    return buildRangePath(rawPoints, liveEqSum, sessionDayPnl, sinceTs);
+  }, [range, rawPoints, liveEqSum, sessionDayPnl, sinceTs]);
   const points = dayBuilt.points;
   const markers = useMemo(() => {
     const rows = [];
@@ -1744,9 +1877,11 @@ function EquityCurve({
   let liveX = null,
     liveY = null;
   const marks = [];
+  const axisStartLabel = range === "1D" ? points[0] ? fmtTime(points[0].ts) : "" : fmtDay(dayBuilt.axisStart || points[0]?.ts || Date.now());
+  const axisEndLabel = range === "1D" ? "Now" : "Now";
   if (points.length >= 1) {
-    const t0 = points[0].ts;
-    const t1 = Math.max(points[points.length - 1].ts, range === "1D" ? Date.now() : points[points.length - 1].ts) || t0 + 1;
+    const t0 = range !== "1D" && dayBuilt.axisStart ? dayBuilt.axisStart : points[0].ts;
+    const t1 = range !== "1D" && dayBuilt.axisEnd ? dayBuilt.axisEnd : Math.max(points[points.length - 1].ts, Date.now());
     const eqs = points.map(p => p.equity);
     let lo = Math.min(...eqs),
       hi = Math.max(...eqs);
@@ -1762,7 +1897,7 @@ function EquityCurve({
     const xOf = ts => padL + (ts - t0) / Math.max(1, t1 - t0) * (W - padL - padR);
     const yOf = eq => padT + (1 - (eq - lo) / (hi - lo)) * (H - padT - padB);
     const plot = [...points];
-    if (range === "1D" && plot.length && plot[plot.length - 1].ts < t1 - 1000) {
+    if (plot.length && plot[plot.length - 1].ts < t1 - 1000) {
       plot.push({
         ts: t1,
         equity: plot[plot.length - 1].equity
@@ -1881,7 +2016,13 @@ function EquityCurve({
       fontSize: 12,
       marginBottom: 6
     }
-  }, sessionDayPnl != null ? "Day change matches Today's P&L (prior close → live equity). Intraday samples densify as the reconciler runs." : "Waiting on broker day marks to anchor prior close."), React.createElement("svg", {
+  }, sessionDayPnl != null ? "Day change matches Today's P&L (prior close → live equity). Intraday samples densify as the reconciler runs." : "Waiting on broker day marks to anchor prior close."), range !== "1D" && sessionDayPnl != null && Math.abs((delta || 0) - sessionDayPnl) < 0.02 && Math.abs(sessionDayPnl) >= 0.005 && React.createElement("div", {
+    className: "dim",
+    style: {
+      fontSize: 12,
+      marginBottom: 6
+    }
+  }, "Equity samples were flat across this window \u2014 showing the session move from Today's P&L until the reconciler builds a denser history."), React.createElement("svg", {
     className: "eq-chart",
     viewBox: `0 0 ${W} ${H}`,
     preserveAspectRatio: "none",
@@ -1935,13 +2076,13 @@ function EquityCurve({
     y: H - 6,
     fill: "#a3b5ad",
     fontSize: "10"
-  }, range === "1D" ? fmtTime(points[0].ts) : fmtDay(points[0].ts)), points.length > 0 && React.createElement("text", {
+  }, axisStartLabel), points.length > 0 && React.createElement("text", {
     x: W - padR,
     y: H - 6,
     fill: "#a3b5ad",
     fontSize: "10",
     textAnchor: "end"
-  }, range === "1D" ? "Now" : fmtDay(points[points.length - 1].ts))), points.length <= 2 && React.createElement("div", {
+  }, axisEndLabel)), range === "1D" && points.length <= 2 && React.createElement("div", {
     className: "dim",
     style: {
       fontSize: 11,
@@ -2418,6 +2559,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786610939074:717206958
+// cache-bust:1786612266900:887503441
 
-// cache-bust:1786610939074:717206958
+// cache-bust:1786612266900:887503441
