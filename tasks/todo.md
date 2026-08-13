@@ -21,7 +21,7 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **Macro Minute YouTube ingest (2026-08-13).** PR #1232 merged; `YOUTUBE_API_KEY` is on monolith + tt-research. First manual run returned `discovered:0` (opaque). Add ingest `diag` (playlist/search HTTP, sample titles, no key leakage), scan 50 uploads + `search.list`, deploy both workers, re-run, assess. PR #718 stays **closed** (stale duplicate, do not merge). Branch: `cursor/macro-minute-yt-diag-df0c`.
+- [x] **Macro Minute YouTube ingest (2026-08-13).** PR #1232 merged; `YOUTUBE_API_KEY` live on monolith + tt-research. First run `discovered:0` because discovery used leftover `@fundstrat` (1 video). Live channel is `@Fundstrat_Direct`; last 50 uploads + search have **no current Macro Minute** (daily MM is FSD/Vimeo). PR #718 stays **closed**. Follow-up: [#1234](https://github.com/Shashant7/timedtrading/pull/1234).
 - [x] **Broker Connections second pass (2026-08-13).** Operator asked for
       Robinhood-level polish + two bug fixes. Fixed: (1) AXON spurious
       "Partial Fill" email after a clean 50% trim — reconciler now honors
