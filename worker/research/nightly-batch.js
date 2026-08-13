@@ -244,6 +244,14 @@ async function runCroCtoLane(env) {
     const vr = await enrichMacroMinuteTranscripts(env, { limit: 8 });
     console.log(`[MACRO_MINUTE_VIMEO] scanned=${vr.scanned ?? 0} attempted=${vr.attempted ?? 0} ingested=${vr.ingested ?? 0}`);
     if (vr.ingested > 0) recordCronSuccess(env, "macro_minute_vimeo_enrich").catch(() => {});
+    if ((vr.ingested || 0) > 0) {
+      const { syncLatestMacroMinuteProposals } = await import("../cro/fsd-ingestion.js");
+      await syncLatestMacroMinuteProposals(env, { limit: 1, force: true });
+      const { runCRODaily } = await import("../cro/cro-service.js");
+      await runCRODaily(env, { force: true });
+    }
+    const { assessAndPersistMacroMinuteFreshness } = await import("../cro/macro-minute-freshness.js");
+    await assessAndPersistMacroMinuteFreshness(env);
   } catch (e) {
     console.error("[MACRO_MINUTE_VIMEO] threw:", String(e?.message || e).slice(0, 200));
     recordCronFailure(env, { op: "macro_minute_vimeo_enrich", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});

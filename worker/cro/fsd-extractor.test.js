@@ -28,4 +28,15 @@ describe("sector allocation publication classification", () => {
     expect(parsed.classification).toBe("tactical");
     expect(categorizeProposal(parsed)).toBe("actionable");
   });
+
+  it("marks Macro Minute as on-theme tactical so trusted FSD can auto-apply", () => {
+    const parsed = applyPublicationTypeHints(
+      { classification: "tactical", self_assessment: { confidence: 0.4, on_theme: false, review_recommended: true } },
+      { title: "Video: Macro Minute: CPI day", text: "--- VIDEO TRANSCRIPT ---\nGood evening" },
+    );
+    expect(parsed.classification).toBe("tactical");
+    expect(parsed.self_assessment.on_theme).toBe(true);
+    expect(parsed.self_assessment.review_recommended).toBe(false);
+    expect(parsed.self_assessment.confidence).toBe(0.85);
+  });
 });

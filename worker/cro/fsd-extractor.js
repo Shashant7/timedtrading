@@ -228,16 +228,29 @@ export function isSectorAllocationPublication(title, text = "") {
  */
 export function applyPublicationTypeHints(parsed, { title, text } = {}) {
   if (!parsed || typeof parsed !== "object") return parsed;
-  if (!isSectorAllocationPublication(title, text)) return parsed;
-  parsed.classification = "structural";
-  if (parsed.self_assessment && typeof parsed.self_assessment === "object") {
-    parsed.self_assessment.on_theme = parsed.self_assessment.on_theme !== false;
-    parsed.self_assessment.review_recommended = false;
-    if (!Number.isFinite(Number(parsed.self_assessment.confidence))) {
-      parsed.self_assessment.confidence = 0.85;
+  if (isSectorAllocationPublication(title, text)) {
+    parsed.classification = "structural";
+    if (parsed.self_assessment && typeof parsed.self_assessment === "object") {
+      parsed.self_assessment.on_theme = parsed.self_assessment.on_theme !== false;
+      parsed.self_assessment.review_recommended = false;
+      if (!Number.isFinite(Number(parsed.self_assessment.confidence))) {
+        parsed.self_assessment.confidence = 0.85;
+      }
+      parsed.self_assessment.rationale = parsed.self_assessment.rationale
+        || "Sector Allocation monthly deck — structural stance + weight refresh.";
     }
-    parsed.self_assessment.rationale = parsed.self_assessment.rationale
-      || "Sector Allocation monthly deck — structural stance + weight refresh.";
+    return parsed;
+  }
+  if (/macro[\s\-]?minute/i.test(String(title || ""))) {
+    if (parsed.classification !== "structural") parsed.classification = "tactical";
+    if (parsed.self_assessment && typeof parsed.self_assessment === "object") {
+      parsed.self_assessment.on_theme = true;
+      parsed.self_assessment.review_recommended = false;
+      const c = Number(parsed.self_assessment.confidence);
+      if (!Number.isFinite(c) || c < 0.8) parsed.self_assessment.confidence = 0.85;
+      parsed.self_assessment.rationale = parsed.self_assessment.rationale
+        || "Tom Lee Macro Minute night take — tactical calendar / index / policy briefing.";
+    }
   }
   return parsed;
 }

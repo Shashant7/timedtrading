@@ -1726,6 +1726,7 @@ const ROUTES = [
   ["POST", "/timed/alpaca-stream/stop", "POST /timed/alpaca-stream/stop"],
   ["GET", "/timed/admin/data-feed-health",  "GET /timed/admin/data-feed-health"],
   ["GET", "/timed/admin/cro/pipeline-health", "GET /timed/admin/cro/pipeline-health"],
+  ["GET", "/timed/admin/cro/macro-minute/freshness", "GET /timed/admin/cro/macro-minute/freshness"],
   ["GET", "/timed/price-stream/status", "GET /timed/price-stream/status"],
   ["POST", "/timed/price-stream/start", "POST /timed/price-stream/start"],
   ["POST", "/timed/price-stream/stop", "POST /timed/price-stream/stop"],
@@ -60206,6 +60207,7 @@ export default {
               fsd_scraper_config:   await readKV("cro:fsd:config", null),
               fsd_full_cycle_lock:  await readKV("cro:full_cycle_inline:lock", null),
               fsd_backfill_lock:    await readKV("cro:cashtag_backfill_inline:lock", null),
+              macro_minute_freshness: await readKV("timed:cro:mm-freshness", "assessed_at"),
             },
             // ── D1 table row counts ──
             d1: {
@@ -84641,7 +84643,37 @@ export default {
             youtube = { ok: false, error: String(ye?.message || ye).slice(0, 200) };
           }
           const ok = !!(vimeo?.ok);
-          return sendJSON({ ok, vimeo, youtube }, ok ? 200 : 500, corsHeaders(env, req));
+          let sync = null;
+          let freshness = null;
+          try {
+            const { syncLatestMacroMinuteProposals } = await import("./cro/fsd-ingestion.js");
+            sync = await syncLatestMacroMinuteProposals(env, {
+              limit: 1,
+              force: body?.force === true || (vimeo?.ingested || 0) > 0,
+            });
+          } catch (se) {
+            sync = { ok: false, error: String(se?.message || se).slice(0, 200) };
+          }
+          try {
+            const { assessAndPersistMacroMinuteFreshness } = await import("./cro/macro-minute-freshness.js");
+            freshness = await assessAndPersistMacroMinuteFreshness(env, {
+              syncedPubId: sync?.synced_pub_id || null,
+            });
+          } catch (fe) {
+            freshness = { ok: false, error: String(fe?.message || fe).slice(0, 200) };
+          }
+          return sendJSON({ ok, vimeo, youtube, sync, freshness }, ok ? 200 : 500, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
+        }
+      }
+      if (routeKey === "GET /timed/admin/cro/macro-minute/freshness") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const { assessAndPersistMacroMinuteFreshness } = await import("./cro/macro-minute-freshness.js");
+          const freshness = await assessAndPersistMacroMinuteFreshness(env);
+          return sendJSON({ ok: true, ...freshness }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 500) }, 500, corsHeaders(env, req));
         }

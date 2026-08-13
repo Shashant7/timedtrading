@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatCROBriefAddendumFromNote,
   formatCRONoteForBriefUI,
+  noteNeedsMacroMinuteRefresh,
 } from "../worker/cro/cro-service.js";
 
 describe("formatCRONoteForBriefUI", () => {
@@ -38,5 +39,29 @@ describe("formatCROBriefAddendumFromNote evening slot", () => {
     expect(addendum).toContain("EVENING WRAP INSTRUCTION");
     expect(addendum).toContain("day-end wrap");
     expect(addendum.length).toBeLessThan(4500);
+  });
+});
+
+describe("Tom Lee night take on the CRO note", () => {
+  it("surfaces the spoken excerpt in the brief addendum", () => {
+    const addendum = formatCROBriefAddendumFromNote({
+      as_of_date: "2026-08-13",
+      verdict: "Range-bound into CPI.",
+      night_take: {
+        pub_id: "1548863",
+        has_transcript: true,
+        published_at: "2026-08-12T22:10:00",
+        excerpt: "SPX still range-bound; watch oil if Iran headlines heat up.",
+      },
+    });
+    expect(addendum).toContain("Tom Lee night take");
+    expect(addendum).toContain("range-bound");
+  });
+
+  it("forces a CRO refresh until the note cites the current episode", () => {
+    expect(noteNeedsMacroMinuteRefresh(null, "1548863", true)).toBe(true);
+    expect(noteNeedsMacroMinuteRefresh({ night_take: { pub_id: "old" } }, "1548863", true)).toBe(true);
+    expect(noteNeedsMacroMinuteRefresh({ night_take: { pub_id: "1548863" } }, "1548863", true)).toBe(false);
+    expect(noteNeedsMacroMinuteRefresh({}, "1548863", false)).toBe(false);
   });
 });

@@ -217,6 +217,17 @@ the same Access application. Only the operator can edit policies in Cloudflare.
 
 ## Lessons (Critical)
 
+**Tom Lee Macro Minute is a first-class research arm (2026-08-13)**
+- Daily MM is FSD+Vimeo captions, not YouTube. HTML ingest is a ~600 char
+  teaser; CRO `collectFSDIntel` must pin `role=tom_lee_night_take` from the
+  spoken `--- VIDEO TRANSCRIPT ---` (4000 chars), not `text_excerpt.slice(0,1500)`.
+- Guard: KV `timed:cro:mm-freshness` + `fsd-evening` (00–03 UTC). Stale/missing
+  pages Discord. Do not widen `0 14-23` (that also gates investor rebalance).
+- Cascade is CRO `night_take` → CIO Layer 15c / Daily Brief, then the next
+  engine `*/5` tick. Do not force-fire entries/exits. Do not clobber a newer
+  Newton tactical overlay when applying an MM proposal.
+- Skill: `skills/macro-minute-ingest.md`. PR #718 stays closed.
+
 **Daily Brief silent-vanish — OpenAI quota exhaustion needs an operator page (2026-07-29)**
 - Symptom: `daily_briefs` D1 empty for Tue+Wed AM after Mon evening;
   `/timed/admin/cron-status` had no `daily_brief_*` tombstones and no
