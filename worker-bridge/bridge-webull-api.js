@@ -553,11 +553,18 @@ export function normalizeWebullBalance(balanceResp) {
   const ccyAssets = Array.isArray(row.account_currency_assets) ? row.account_currency_assets : [];
   const usd = ccyAssets.find((a) => String(a?.currency || "").toUpperCase() === "USD") || ccyAssets[0] || {};
 
+  // Margin accounts often expose NLV as total_equity / total_market_value /
+  // currency-asset net_liquidation_value rather than total_net_liquidation_value.
   const equity = parseWebullNumber(
     row.total_net_liquidation_value
+    ?? row.total_equity
+    ?? row.total_market_value
     ?? row.total_asset
     ?? usd.net_liquidation_value
+    ?? usd.total_market_value
+    ?? usd.equity
     ?? row.net_liquidation
+    ?? row.net_liquidation_value
     ?? row.totalAsset
     ?? row.equity,
   );
@@ -565,6 +572,7 @@ export function normalizeWebullBalance(balanceResp) {
     row.total_cash_balance
     ?? row.total_cash
     ?? usd.cash_balance
+    ?? usd.cash
     ?? row.cash_balance
     ?? row.totalCash
     ?? row.cash,

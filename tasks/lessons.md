@@ -6,6 +6,23 @@
 
 ---
 
+## Broker equity: Individual Margin frozen at first fetch [2026-08-13]
+
+**Symptom:** Account performance showed Individual Margin at a fixed
+`$2,109` (and other non-mirror accounts similarly stuck) while Webull
+moved; day P&L often `+$0.00`.
+
+**Root:** `refreshAccountEquitySnapshot` reused a "fresh" snapshot (<5
+min) then called `snapshotAccount` again with `synced_at = Date.now()`.
+Every Brokers page poll reset the freshness clock, so `getPortfolio`
+never ran again after the first success. Rate-limited failures also
+re-stamped stale KV equity as fresh via `portfolio_synced_at`.
+
+**Fix:** Persist only when `source` is `broker` or `positions_estimate`.
+Align freshness to 60s (positions cache). Fall back to cash + live
+position MVs when balance is rate-limited. Expand margin NLV field
+aliases (`total_equity`, currency-asset `net_liquidation_value`, …).
+
 ## Partner onboarding: daily digest never delivered [2026-08-13]
 
 **Symptom:** Sweep before letting a partner connect his own Webull login.
