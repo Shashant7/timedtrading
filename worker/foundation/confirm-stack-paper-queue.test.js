@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  CONFIRM_STACK_FAMILY,
   buildSequencePaperQueueProposal,
   buildConfirmStackOptionsFirstPlay,
   stampConfirmStackThinSlice,
   paperQueueSizeMult,
+  resolveEntryPaperSizeMult,
+  isCanonicalCapitalEntryPath,
   hydrateConfirmStackSliceInputs,
   thinSliceKvPatch,
   applyConfirmStackOptionsFirstToMenu,
@@ -55,6 +58,30 @@ describe("confirm-stack paper queue", () => {
       _sequence_queue_proposal: { paper: true, size_mult: 0.1 },
     }, {})).toBe(0.1);
     expect(paperQueueSizeMult({}, {})).toBe(1);
+  });
+
+  it("canonical capital paths are recognized (AXON Support Bounce class)", () => {
+    expect(isCanonicalCapitalEntryPath("tt_n_test_support")).toBe(true);
+    expect(isCanonicalCapitalEntryPath("tt_ath_breakout")).toBe(true);
+    expect(isCanonicalCapitalEntryPath("orb_long")).toBe(true);
+    expect(isCanonicalCapitalEntryPath("confirm_stack_ema21")).toBe(false);
+    expect(isCanonicalCapitalEntryPath("")).toBe(false);
+  });
+
+  it("resolveEntryPaperSizeMult ignores paper stamp on canonical paths (AXON repro)", () => {
+    const td = {
+      _sequence_queue_proposal: { paper: true, family: CONFIRM_STACK_FAMILY, size_mult: 0.1 },
+    };
+    // Stale/coincident Queued stamp must NOT crush Prime Support Bounce.
+    expect(resolveEntryPaperSizeMult(td, {}, "tt_n_test_support", {
+      continuationMult: 0.1,
+      cloudPivotMult: 0.1,
+    })).toBe(1);
+    // Thin-slice-only entry still papersizes.
+    expect(resolveEntryPaperSizeMult(td, {}, "confirm_stack_ema21", {
+      continuationMult: 1,
+      cloudPivotMult: 1,
+    })).toBe(0.1);
   });
 
   it("hydrateConfirmStackSliceInputs copies gates/sequences from prior KV", () => {

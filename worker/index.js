@@ -453,6 +453,7 @@ import { maybeStampSetupShadowOnPayload } from "./foundation/setup-shadow-stamp.
 import {
   stampConfirmStackThinSlice,
   paperQueueSizeMult,
+  resolveEntryPaperSizeMult,
   hydrateConfirmStackSliceInputs,
   thinSliceKvPatch,
   applyConfirmStackOptionsFirstToMenu,
@@ -15780,8 +15781,9 @@ function computeRiskBasedSize(confidence, accountValue, entryPrice, stopLoss, vi
     notional = maxPositionNotional;
     shares = notional / Number(entryPrice);
   }
-  // Legacy notional floor only when NOT using tier-based sizing
-  if (!usingTier && notional < cfg.MIN_NOTIONAL) {
+  // Always enforce the dollar floor — tier sizing used to skip it, which
+  // let wide stops / post-mult haircuts produce sub-$1k primes on a $100k book.
+  if (notional < cfg.MIN_NOTIONAL) {
     notional = cfg.MIN_NOTIONAL;
     shares = notional / Number(entryPrice);
   }
@@ -26552,15 +26554,26 @@ async function processTradeSimulation(
             }
           } catch (_) { /* */ }
           const _daCfgSz = tickerData?._env?._deepAuditConfig || env?._deepAuditConfig || {};
-          const _paperMult = Math.min(
-            paperQueueSizeMult(tickerData, _daCfgSz),
-            continuationPaperSizeMult(tickerData, _daCfgSz),
-            cloudPivotPaperSizeMult(tickerData, _daCfgSz),
+          // 2026-08-13 — Canonical capital paths (tt_n_test_support, etc.)
+          // ignore coincident paper-queue stamps. AXON Prime Support Bounce
+          // was crushed $20k → $648 by ×0.1 paper ×0.3 regime floor.
+          const _paperMult = resolveEntryPaperSizeMult(
+            tickerData,
+            _daCfgSz,
+            entryPath,
+            {
+              continuationMult: continuationPaperSizeMult(tickerData, _daCfgSz),
+              cloudPivotMult: cloudPivotPaperSizeMult(tickerData, _daCfgSz),
+            },
           );
           if (_paperMult < 1) {
             tickerData.__paper_queue_size_mult = _paperMult;
             const _fam = tickerData?._sequence_queue_proposal?.family || "paper";
             console.log(`[PAPER_QUEUE] ${sym}: size × ${_paperMult} (${_fam} Queued)`);
+          } else if (paperQueueSizeMult(tickerData, _daCfgSz) < 1
+            || continuationPaperSizeMult(tickerData, _daCfgSz) < 1
+            || cloudPivotPaperSizeMult(tickerData, _daCfgSz) < 1) {
+            console.log(`[PAPER_QUEUE] ${sym}: paper stamp ignored for canonical path ${entryPath}`);
           }
           const regimeAdjustedNotional = sizing.notional * _sizingMults.combined * _convSizeMult * _paperMult;
           let _liqCap = applyPullbackLiquidityCap({
@@ -26575,9 +26588,19 @@ async function processTradeSimulation(
             tickerData.__pullback_liq_cap = _liqCap;
           }
           notional = Math.min(_liqCap.notional, cash);
+          // Post-multiplier floor for full-size entries (paper stays tiny).
+          if (_paperMult >= 1 && notional < cfg.MIN_NOTIONAL && cash >= cfg.MIN_NOTIONAL) {
+            notional = Math.min(cfg.MIN_NOTIONAL, cash);
+          }
           shares = notional / entryPx;
           pointValue = 1;
-          sizingMeta = { ...sizing, ..._sizingMults.breakdown, effectiveMult: _sizingMults.combined };
+          sizingMeta = {
+            ...sizing,
+            ..._sizingMults.breakdown,
+            effectiveMult: _sizingMults.combined,
+            paperMult: _paperMult,
+            finalNotional: notional,
+          };
         } else {
           shares = null;
           notional = null;
