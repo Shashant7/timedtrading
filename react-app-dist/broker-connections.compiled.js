@@ -678,6 +678,74 @@ function PositionPlanBar({
     }
   }, React.createElement("span", null, sl != null ? `SL ${fmtUsd(sl)}` : ""), React.createElement("span", null, modelEntry != null ? `Model ${fmtUsd(modelEntry)}` : "", modelEntry != null && brokerEntry != null && Math.abs(brokerEntry - modelEntry) > 0.005 ? " · " : "", brokerEntry != null && (!modelEntry || Math.abs(brokerEntry - modelEntry) > 0.005) ? `Broker ${fmtUsd(brokerEntry)}` : ""), React.createElement("span", null, tp != null ? `${it.model_horizon === "investor" ? "Peak" : "TP"} ${fmtUsd(tp)}` : "")));
 }
+function positionGuidance(it) {
+  const stage = String(it.model_stage || "").toLowerCase();
+  const horizon = String(it.model_horizon || "").toLowerCase();
+  const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price);
+  const entry = Number(it.model_entry) > 0 ? Number(it.model_entry) : Number(it.avg_cost);
+  const above = Number.isFinite(px) && Number.isFinite(entry) && entry > 0 ? px >= entry : null;
+  if (it.auto_sync && !(Number(it.broker_qty) > 0.0001)) {
+    return {
+      text: "Model holds this; the mirror buys in on the next natural window (DCA / catch-up).",
+      tone: "mint"
+    };
+  }
+  if (it.adoptable) {
+    return {
+      text: "Bought outside the model — Sync to hand a model-sized sleeve to the mirror.",
+      tone: "mint"
+    };
+  }
+  if (!it.managed) return null;
+  if (horizon === "investor") {
+    if (stage === "accumulate") return {
+      text: above ? "Accumulating — already above entry; adds only in-zone." : "Accumulating in the entry zone — more adds if it holds.",
+      tone: "mint"
+    };
+    if (stage === "reduce") return {
+      text: "Reducing risk — trims triggered by the model's rules.",
+      tone: "warn"
+    };
+    if (stage === "watch" || stage === "core_hold") return {
+      text: above ? "Holding for target — model rides while structure holds." : "Holding through the pullback — no adds, no trims.",
+      tone: "info"
+    };
+    if (stage === "trim") return {
+      text: "Trim near target — banking gains while momentum holds.",
+      tone: "warn"
+    };
+    if (stage === "exit") return {
+      text: "Exit signal fired — the mirror closes on the next window.",
+      tone: "danger"
+    };
+    return {
+      text: above ? "Winning position — riding to the model's target." : "Managed long-term hold below entry — waiting for structure.",
+      tone: above ? "info" : "warn"
+    };
+  }
+  if (above) return {
+    text: "Riding to the target; SL trails the model's plan.",
+    tone: "mint"
+  };
+  if (above === false) return {
+    text: "Underwater vs entry — SL still armed by the model.",
+    tone: "warn"
+  };
+  return {
+    text: "Fresh entry — SL and TP set from the setup plan.",
+    tone: "info"
+  };
+}
+const HORIZON_CHIP = {
+  investor: {
+    cls: "p-mint",
+    label: "LONG TERM"
+  },
+  trader: {
+    cls: "p-info",
+    label: "SHORT TERM"
+  }
+};
 function PositionRow({
   it,
   acct,
@@ -698,7 +766,12 @@ function PositionRow({
   const showPlanBar = it.managed && holds && Number(it.model_entry) > 0;
   const barPct = Number.isFinite(upnlPct) ? Math.max(-20, Math.min(20, upnlPct)) : 0;
   const syncNoteHuman = it.sync_note ? humanizeReason(it.sync_note) || String(it.sync_note).replace(/_/g, " ") : null;
-  return React.createElement("div", null, React.createElement("div", {
+  const guide = positionGuidance(it);
+  const horizonChip = it.managed && HORIZON_CHIP[String(it.model_horizon || "").toLowerCase()];
+  const upBadge = Number.isFinite(upnl) && upnl > 0 ? "up" : Number.isFinite(upnl) && upnl < 0 ? "dn" : "flat";
+  return React.createElement("div", {
+    className: `pos-card pos-card--${holds ? upBadge : "flat"}`
+  }, React.createElement("div", {
     className: "pos-row",
     style: hasDetail ? {
       cursor: "pointer"
@@ -715,30 +788,36 @@ function PositionRow({
     }
   }, React.createElement("div", {
     style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      flexWrap: "wrap"
+    }
+  }, React.createElement("span", {
+    style: {
       fontWeight: 800,
-      fontSize: 13.5
+      fontSize: 14
     }
-  }, it.ticker, it.adoptable && React.createElement("span", {
-    className: "bc-pill p-mint",
-    style: {
-      marginLeft: 7
-    }
+  }, it.ticker), holds && it.managed && React.createElement("span", {
+    className: "bc-pill p-ok",
+    title: "Model-managed long position"
+  }, "Open ", String(it.model_direction || "LONG").toUpperCase() === "SHORT" ? "Short" : "Long"), horizonChip && React.createElement("span", {
+    className: `bc-pill ${horizonChip.cls}`
+  }, horizonChip.label), it.adoptable && React.createElement("span", {
+    className: "bc-pill p-mint"
   }, "CAN SYNC"), it.auto_sync && !it.adoptable && !holds && React.createElement("span", {
-    className: "bc-pill p-mint",
-    style: {
-      marginLeft: 7
-    }
+    className: "bc-pill p-mint"
   }, "MODEL HOLDS"), hasDetail && React.createElement("span", {
     className: "dim",
     style: {
-      marginLeft: 7,
       fontSize: 10,
       fontWeight: 600
     }
   }, open ? "▾" : "▸")), React.createElement("div", {
     className: "mono dim",
     style: {
-      fontSize: 11
+      fontSize: 11,
+      marginTop: 2
     }
   }, holds ? `${fmtQty(qty)} sh${Number(it.avg_cost) > 0 ? ` @ ${fmtUsd(it.avg_cost)}` : ""}` : "no shares here")), React.createElement("div", {
     className: "pos-a-px mono",
@@ -798,7 +877,12 @@ function PositionRow({
     title: syncNoteHuman || ""
   }, chip.label))), showPlanBar && React.createElement(PositionPlanBar, {
     it: it
-  }), open && hasDetail && React.createElement("div", {
+  }), guide && React.createElement("div", {
+    className: "pos-guide"
+  }, React.createElement("span", {
+    className: "g-icon",
+    title: "Model guidance"
+  }, "i"), React.createElement("span", null, guide.text)), open && hasDetail && React.createElement("div", {
     className: "pos-detail fade-in",
     onClick: e => e.stopPropagation()
   }, it.auto_sync && !it.adoptable && React.createElement("div", {
@@ -1679,8 +1763,16 @@ function BrokerConnectionsApp({
       }
     }, "Broker Connections is provisioned per account by the Timed Trading team. Contact support to request access.")));
   }
-  const webullAccounts = (accounts || []).filter(a => (a.broker || "") === "webull");
-  const otherAccounts = (accounts || []).filter(a => (a.broker || "") !== "webull");
+  const _sortMirrorFirst = (a, b) => {
+    const ea = a.broker_integration_enabled === true ? 1 : 0;
+    const eb = b.broker_integration_enabled === true ? 1 : 0;
+    if (ea !== eb) return eb - ea;
+    const la = a.webull_account_label || a.webull_account_class || a.user_id || "";
+    const lb = b.webull_account_label || b.webull_account_class || b.user_id || "";
+    return String(la).localeCompare(String(lb));
+  };
+  const webullAccounts = (accounts || []).filter(a => (a.broker || "") === "webull").slice().sort(_sortMirrorFirst);
+  const otherAccounts = (accounts || []).filter(a => (a.broker || "") !== "webull").slice().sort(_sortMirrorFirst);
   const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
   const anyEnabled = (accounts || []).some(a => a.broker_integration_enabled === true);
   const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
@@ -1722,18 +1814,58 @@ function BrokerConnectionsApp({
       }
     }
     const sessionOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
-    const showDay = hasDay && heldQty > 0 && (sessionOpen || Math.abs(day) >= 0.01);
+    const showDay = hasDay && heldQty > 0;
     return {
       value,
       day,
       open,
       hasDay: showDay,
+      dayLabel: sessionOpen ? "across mirrored positions" : "prior session",
       hasOpen: hasOpen && heldQty > 0,
       hasValue: value > 0,
       loaded: !!posData
     };
   }, [posData]);
   const daySummary = dayData?.summary || null;
+  const modelActionsTile = useMemo(() => {
+    if (!dayData) return {
+      count: null,
+      sub: "loading…"
+    };
+    const nowMs = Date.now();
+    const nyDate = new Date(nowMs).toLocaleDateString("en-US", {
+      timeZone: "America/New_York"
+    });
+    const bucket = new Map();
+    for (const a of dayData.actions || []) {
+      const key = new Date(Number(a.ts) || 0).toLocaleDateString("en-US", {
+        timeZone: "America/New_York"
+      });
+      if (!bucket.has(key)) bucket.set(key, []);
+      bucket.get(key).push(a);
+    }
+    const today = bucket.get(nyDate) || [];
+    if (today.length) {
+      const mirrored = today.filter(a => a.mirror === "mirrored").length;
+      const held = today.filter(a => a.mirror === "rejected" || a.mirror === "skipped").length;
+      return {
+        count: today.length,
+        sub: `${mirrored} mirrored · ${held} held back`
+      };
+    }
+    const keys = [...bucket.keys()].sort((a, b) => new Date(b) - new Date(a));
+    const prior = keys.length ? bucket.get(keys[0]) : [];
+    if (!prior.length) return {
+      count: 0,
+      sub: "0 mirrored · 0 held back"
+    };
+    const mirrored = prior.filter(a => a.mirror === "mirrored").length;
+    const held = prior.filter(a => a.mirror === "rejected" || a.mirror === "skipped").length;
+    return {
+      count: prior.length,
+      sub: `${mirrored} mirrored · ${held} held back · prior session`
+    };
+  }, [dayData]);
   return React.createElement("main", null, React.createElement("div", {
     className: "tt-status",
     style: {
@@ -1805,7 +1937,7 @@ function BrokerConnectionsApp({
     className: `k-val ${totals.hasDay ? totals.day >= 0 ? "up" : "dn" : ""}`
   }, !totals.loaded ? "…" : totals.hasDay ? fmtSigned(totals.day) : "—"), React.createElement("div", {
     className: "k-sub"
-  }, totals.hasDay ? "across mirrored positions" : "session not started")), React.createElement("div", {
+  }, totals.hasDay ? totals.dayLabel : "session not started")), React.createElement("div", {
     className: "kpi"
   }, React.createElement("div", {
     className: "k-lbl"
@@ -1819,9 +1951,9 @@ function BrokerConnectionsApp({
     className: "k-lbl"
   }, "Model actions today"), React.createElement("div", {
     className: "k-val"
-  }, daySummary ? daySummary.actions ?? 0 : "…"), React.createElement("div", {
+  }, modelActionsTile.count == null ? "…" : modelActionsTile.count), React.createElement("div", {
     className: "k-sub"
-  }, daySummary ? `${daySummary.mirrored || 0} mirrored · ${(daySummary.rejected || 0) + (daySummary.skipped || 0)} held back` : "loading…"))), accounts !== null && hasAny && React.createElement(EquityCurve, null), accounts !== null && hasAny && React.createElement(DayActions, {
+  }, modelActionsTile.sub))), accounts !== null && hasAny && React.createElement(EquityCurve, null), accounts !== null && hasAny && React.createElement(DayActions, {
     refreshKey: accounts
   }), accounts !== null && hasAny && React.createElement(PositionsSection, {
     refreshKey: accounts,
@@ -1934,6 +2066,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: null
 });
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786603260688:118878998
+// cache-bust:1786605337874:999636259
 
-// cache-bust:1786603260688:118878998
+// cache-bust:1786605337874:999636259

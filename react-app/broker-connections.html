@@ -18,6 +18,8 @@
     <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
     <script src="investor-nav-badge.js?v=20260622a"></script>
     <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
+    <script src="ds-components.js?v=20260501a"></script>
+    <script src="shared-lane-card.js?v=20260706-strip-v3"></script>
     <style>
       body { margin: 0; min-height: 100vh; }
       main { max-width: 1040px; margin: 0 auto; padding: 20px 20px 110px; }
@@ -90,8 +92,26 @@
       .tl-acct-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; flex-wrap: wrap; }
 
       /* ── positions ─────────────────────────────────────────────── */
-      .pos-row { display: grid; grid-template-columns: 34px minmax(90px, 1.2fr) 1fr 1fr 1.1fr auto; gap: 10px; align-items: center; padding: 10px 4px; border-top: 1px solid var(--tt-border-weak); }
-      .pos-row:hover { background: rgba(255,255,255,0.015); }
+      .pos-card {
+        position: relative; padding: 14px 16px; margin: 10px 0 0;
+        background: rgba(255,255,255,0.02); border: 1px solid var(--tt-border-weak);
+        border-radius: 14px; transition: background 0.12s, border-color 0.12s;
+      }
+      .pos-card:hover { background: rgba(255,255,255,0.035); border-color: rgba(255,255,255,0.14); }
+      .pos-card.pos-card--up { border-left: 3px solid var(--tt-success, #34d399); }
+      .pos-card.pos-card--dn { border-left: 3px solid var(--tt-danger, #ef4444); }
+      .pos-card.pos-card--flat { border-left: 3px solid rgba(255,255,255,0.12); }
+      .pos-row { display: grid; grid-template-columns: 34px minmax(90px, 1.2fr) 1fr 1fr 1.1fr auto; gap: 10px; align-items: center; padding: 0; }
+      .pos-guide {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        margin-top: 8px; font-size: 12px; color: var(--tt-text-2);
+      }
+      .pos-guide .g-icon {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 18px; height: 18px; border-radius: 999px;
+        background: rgba(56,242,161,0.14); color: var(--vf-primary, #38F2A1);
+        font-size: 10px; font-weight: 800;
+      }
       .pos-head { display: grid; grid-template-columns: 34px minmax(90px, 1.2fr) 1fr 1fr 1.1fr auto; gap: 10px; padding: 2px 4px 7px; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--tt-text-dim); }
       @media (max-width: 720px) {
         .pos-row { grid-template-columns: 30px 1fr auto; grid-template-areas: "av tick sync" "av px pnl"; row-gap: 4px; }
@@ -121,6 +141,12 @@
     </style>
   </head>
   <body class="vf-page">
+    <!-- Global nav (Today · Model · Portfolio · Insights …) — same shared
+         header used across the journey pages. Must come before the app root
+         so the deferred consumers (tt-nav-extras, tt-bottom-nav, investor
+         badge) find their mount target. -->
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260611a"></script>
     <div id="root"></div>
     <script type="text/babel">
       const { useState, useEffect, useCallback, useMemo } = React;
@@ -554,6 +580,41 @@
         );
       }
 
+      // Client-side guidance derived from model_stage + horizon + price vs entry.
+      // Kept in-page so the user always sees a plain-English "what the model
+      // is doing now" line without another server call.
+      function positionGuidance(it) {
+        const stage = String(it.model_stage || "").toLowerCase();
+        const horizon = String(it.model_horizon || "").toLowerCase();
+        const px = Number(it.price) > 0 ? Number(it.price) : Number(it.last_price);
+        const entry = Number(it.model_entry) > 0 ? Number(it.model_entry) : Number(it.avg_cost);
+        const above = Number.isFinite(px) && Number.isFinite(entry) && entry > 0 ? px >= entry : null;
+        if (it.auto_sync && !(Number(it.broker_qty) > 0.0001)) {
+          return { text: "Model holds this; the mirror buys in on the next natural window (DCA / catch-up).", tone: "mint" };
+        }
+        if (it.adoptable) {
+          return { text: "Bought outside the model — Sync to hand a model-sized sleeve to the mirror.", tone: "mint" };
+        }
+        if (!it.managed) return null;
+        if (horizon === "investor") {
+          if (stage === "accumulate") return { text: above ? "Accumulating — already above entry; adds only in-zone." : "Accumulating in the entry zone — more adds if it holds.", tone: "mint" };
+          if (stage === "reduce") return { text: "Reducing risk — trims triggered by the model's rules.", tone: "warn" };
+          if (stage === "watch" || stage === "core_hold") return { text: above ? "Holding for target — model rides while structure holds." : "Holding through the pullback — no adds, no trims.", tone: "info" };
+          if (stage === "trim") return { text: "Trim near target — banking gains while momentum holds.", tone: "warn" };
+          if (stage === "exit") return { text: "Exit signal fired — the mirror closes on the next window.", tone: "danger" };
+          return { text: above ? "Winning position — riding to the model's target." : "Managed long-term hold below entry — waiting for structure.", tone: above ? "info" : "warn" };
+        }
+        // Trader
+        if (above) return { text: "Riding to the target; SL trails the model's plan.", tone: "mint" };
+        if (above === false) return { text: "Underwater vs entry — SL still armed by the model.", tone: "warn" };
+        return { text: "Fresh entry — SL and TP set from the setup plan.", tone: "info" };
+      }
+
+      const HORIZON_CHIP = {
+        investor: { cls: "p-mint", label: "LONG TERM" },
+        trader:   { cls: "p-info", label: "SHORT TERM" },
+      };
+
       function PositionRow({ it, acct, onSync, syncBusy }) {
         const [open, setOpen] = useState(false);
         const chip = it.auto_sync && !it.managed
@@ -570,23 +631,29 @@
         const syncNoteHuman = it.sync_note
           ? (humanizeReason(it.sync_note) || String(it.sync_note).replace(/_/g, " "))
           : null;
+        const guide = positionGuidance(it);
+        const horizonChip = it.managed && HORIZON_CHIP[String(it.model_horizon || "").toLowerCase()];
+        const upBadge = Number.isFinite(upnl) && upnl > 0 ? "up" : (Number.isFinite(upnl) && upnl < 0 ? "dn" : "flat");
         return (
-          <div>
+          <div className={`pos-card pos-card--${holds ? upBadge : "flat"}`}>
             <div className="pos-row" style={hasDetail ? { cursor: "pointer" } : null}
               onClick={() => hasDetail && setOpen((v) => !v)}
               role={hasDetail ? "button" : undefined}>
               <TickerAvatar ticker={it.ticker} muted={!holds} />
               <div className="pos-a-tick" style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 13.5 }}>{it.ticker}
-                  {it.adoptable && <span className="bc-pill p-mint" style={{ marginLeft: 7 }}>CAN SYNC</span>}
-                  {it.auto_sync && !it.adoptable && !holds && <span className="bc-pill p-mint" style={{ marginLeft: 7 }}>MODEL HOLDS</span>}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  <span style={{ fontWeight: 800, fontSize: 14 }}>{it.ticker}</span>
+                  {holds && it.managed && (
+                    <span className="bc-pill p-ok" title="Model-managed long position">Open {String(it.model_direction || "LONG").toUpperCase() === "SHORT" ? "Short" : "Long"}</span>
+                  )}
+                  {horizonChip && <span className={`bc-pill ${horizonChip.cls}`}>{horizonChip.label}</span>}
+                  {it.adoptable && <span className="bc-pill p-mint">CAN SYNC</span>}
+                  {it.auto_sync && !it.adoptable && !holds && <span className="bc-pill p-mint">MODEL HOLDS</span>}
                   {hasDetail && (
-                    <span className="dim" style={{ marginLeft: 7, fontSize: 10, fontWeight: 600 }}>
-                      {open ? "▾" : "▸"}
-                    </span>
+                    <span className="dim" style={{ fontSize: 10, fontWeight: 600 }}>{open ? "▾" : "▸"}</span>
                   )}
                 </div>
-                <div className="mono dim" style={{ fontSize: 11 }}>
+                <div className="mono dim" style={{ fontSize: 11, marginTop: 2 }}>
                   {holds ? `${fmtQty(qty)} sh${Number(it.avg_cost) > 0 ? ` @ ${fmtUsd(it.avg_cost)}` : ""}` : "no shares here"}
                 </div>
               </div>
@@ -632,6 +699,12 @@
               </div>
             </div>
             {showPlanBar && <PositionPlanBar it={it} />}
+            {guide && (
+              <div className="pos-guide">
+                <span className="g-icon" title="Model guidance">i</span>
+                <span>{guide.text}</span>
+              </div>
+            )}
             {open && hasDetail && (
               <div className="pos-detail fade-in" onClick={(e) => e.stopPropagation()}>
                 {it.auto_sync && !it.adoptable && (
@@ -1234,8 +1307,17 @@
           );
         }
 
-        const webullAccounts = (accounts || []).filter((a) => (a.broker || "") === "webull");
-        const otherAccounts = (accounts || []).filter((a) => (a.broker || "") !== "webull");
+        // Mirror-on accounts lead; then other webull accounts; then non-webull.
+        const _sortMirrorFirst = (a, b) => {
+          const ea = a.broker_integration_enabled === true ? 1 : 0;
+          const eb = b.broker_integration_enabled === true ? 1 : 0;
+          if (ea !== eb) return eb - ea;
+          const la = a.webull_account_label || a.webull_account_class || a.user_id || "";
+          const lb = b.webull_account_label || b.webull_account_class || b.user_id || "";
+          return String(la).localeCompare(String(lb));
+        };
+        const webullAccounts = (accounts || []).filter((a) => (a.broker || "") === "webull").slice().sort(_sortMirrorFirst);
+        const otherAccounts = (accounts || []).filter((a) => (a.broker || "") !== "webull").slice().sort(_sortMirrorFirst);
         const hasAny = webullAccounts.length > 0 || otherAccounts.length > 0;
         const anyEnabled = (accounts || []).some((a) => a.broker_integration_enabled === true);
         const marketOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : null;
@@ -1274,19 +1356,48 @@
             }
           }
           const sessionOpen = PU.isNyRegularMarketOpen ? PU.isNyRegularMarketOpen() : false;
-          // Overnight vendor zeros must not light up Today's P&L as +$0.00.
-          const showDay = hasDay && heldQty > 0 && (sessionOpen || Math.abs(day) >= 0.01);
+          // Any Webull-native day_pnl means the broker already stamped a
+          // real number (usually yesterday's session). Show it and label the
+          // sub-copy accordingly instead of a bare em-dash.
+          const showDay = hasDay && heldQty > 0;
           return {
             value,
             day,
             open,
             hasDay: showDay,
+            dayLabel: sessionOpen ? "across mirrored positions" : "prior session",
             hasOpen: hasOpen && heldQty > 0,
             hasValue: value > 0,
             loaded: !!posData,
           };
         }, [posData]);
         const daySummary = dayData?.summary || null;
+        // Model Actions Today counts only today's fills; if today is dark,
+        // surface the prior session so the KPI never lies with "0".
+        const modelActionsTile = useMemo(() => {
+          if (!dayData) return { count: null, sub: "loading…" };
+          const nowMs = Date.now();
+          const nyDate = new Date(nowMs).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+          const bucket = new Map();
+          for (const a of dayData.actions || []) {
+            const key = new Date(Number(a.ts) || 0).toLocaleDateString("en-US", { timeZone: "America/New_York" });
+            if (!bucket.has(key)) bucket.set(key, []);
+            bucket.get(key).push(a);
+          }
+          const today = bucket.get(nyDate) || [];
+          if (today.length) {
+            const mirrored = today.filter((a) => a.mirror === "mirrored").length;
+            const held = today.filter((a) => a.mirror === "rejected" || a.mirror === "skipped").length;
+            return { count: today.length, sub: `${mirrored} mirrored · ${held} held back` };
+          }
+          // Newest ET date on record.
+          const keys = [...bucket.keys()].sort((a, b) => new Date(b) - new Date(a));
+          const prior = keys.length ? bucket.get(keys[0]) : [];
+          if (!prior.length) return { count: 0, sub: "0 mirrored · 0 held back" };
+          const mirrored = prior.filter((a) => a.mirror === "mirrored").length;
+          const held = prior.filter((a) => a.mirror === "rejected" || a.mirror === "skipped").length;
+          return { count: prior.length, sub: `${mirrored} mirrored · ${held} held back · prior session` };
+        }, [dayData]);
 
         return (
           <main>
@@ -1332,7 +1443,7 @@
                   <div className={`k-val ${totals.hasDay ? (totals.day >= 0 ? "up" : "dn") : ""}`}>
                     {!totals.loaded ? "…" : (totals.hasDay ? fmtSigned(totals.day) : "—")}
                   </div>
-                  <div className="k-sub">{totals.hasDay ? "across mirrored positions" : "session not started"}</div>
+                  <div className="k-sub">{totals.hasDay ? totals.dayLabel : "session not started"}</div>
                 </div>
                 <div className="kpi">
                   <div className="k-lbl">Open P&L</div>
@@ -1343,12 +1454,8 @@
                 </div>
                 <div className="kpi">
                   <div className="k-lbl">Model actions today</div>
-                  <div className="k-val">{daySummary ? (daySummary.actions ?? 0) : "…"}</div>
-                  <div className="k-sub">
-                    {daySummary
-                      ? `${daySummary.mirrored || 0} mirrored · ${(daySummary.rejected || 0) + (daySummary.skipped || 0)} held back`
-                      : "loading…"}
-                  </div>
+                  <div className="k-val">{modelActionsTile.count == null ? "…" : modelActionsTile.count}</div>
+                  <div className="k-sub">{modelActionsTile.sub}</div>
                 </div>
               </div>
             )}
