@@ -80,6 +80,10 @@ curl -s "${LIVE}/timed/admin/upticks" -H "X-API-Key: ${TIMED_API_KEY}" | jq .
 curl -s -X POST "${LIVE}/timed/admin/rescore-ticker?ticker=VLO" \
   -H "X-API-Key: ${TIMED_API_KEY}" -H 'content-type: application/json' -d '{}' | jq .
 # expect has_W/has_M true, sector Energy, non-null rank
+
+curl -s "${LIVE}/timed/admin/entry-explain?ticker=VLO" \
+  -H "X-API-Key: ${TIMED_API_KEY}" | jq '.diag|{conviction,tier,focus_bonuses,in_upticks,in_tt_selected}'
+# expect upticks:10, tt_selected:15, in_upticks/in_tt_selected true
 ```
 
 ## Macro Minute note
