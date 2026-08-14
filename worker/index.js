@@ -79186,6 +79186,8 @@ export default {
               prefs.trade_alerts = false;
               prefs.weekly_digest = false;
               prefs.re_engagement = false;
+              prefs.investor_alerts = false;
+              prefs.broker_daily_digest = false;
             } else {
               prefs[pref] = false;
             }
@@ -79221,7 +79223,15 @@ export default {
           if (!updates || typeof updates !== "object") {
             return sendJSON({ ok: false, error: "body must be an object of preference keys" }, 400, corsHeaders(env, req));
           }
-          const allowedKeys = new Set(["daily_brief_morning", "daily_brief_evening", "trade_alerts", "weekly_digest", "re_engagement"]);
+          const allowedKeys = new Set([
+            "daily_brief_morning",
+            "daily_brief_evening",
+            "trade_alerts",
+            "weekly_digest",
+            "re_engagement",
+            "investor_alerts",
+            "broker_daily_digest",
+          ]);
           const current = getUserEmailPrefs(user);
           for (const [k, v] of Object.entries(updates)) {
             if (allowedKeys.has(k) && typeof v === "boolean") current[k] = v;
@@ -83237,6 +83247,9 @@ export default {
           const {
             sendEmail,
             buildMirrorSyncDigestEmail,
+            buildDailyOwnerDigestEmail,
+            buildUnsubscribeUrl,
+            getUserEmailPrefs: getPrefsForDrain,
             groupMirrorNotifyItemsByUser,
             notifyItemToMirrorEvent,
           } = emailMod;
@@ -83283,12 +83296,40 @@ export default {
           let dailySent = 0, dailySkipped = 0;
           for (const item of dailyItems) {
             const to = String(item?.user_email || "").toLowerCase().trim();
-            const content = item?.content || {};
-            if (!to.includes("@") || !content.subject || item?.dry_run === true) {
+            let content = item?.content || {};
+            if (!to.includes("@") || item?.dry_run === true) {
               dailySkipped++;
               continue;
             }
             if (!env?.SENDGRID_API_KEY || typeof sendEmail !== "function") { dailySkipped++; continue; }
+            // Honor Account → Email Preferences → broker_daily_digest.
+            try {
+              const row = env?.DB
+                ? await env.DB.prepare(`SELECT email, tier, email_preferences FROM users WHERE email = ?`).bind(to).first()
+                : null;
+              if (row && typeof getPrefsForDrain === "function") {
+                const prefs = getPrefsForDrain(row);
+                if (prefs?.broker_daily_digest === false) { dailySkipped++; continue; }
+              }
+            } catch (_) { /* prefs check is best-effort */ }
+            // Re-render with branded emailLayout + unsubscribe when the
+            // bridge queued a structured digest_summary (preferred path).
+            if (item?.digest_summary && typeof buildDailyOwnerDigestEmail === "function") {
+              try {
+                const baseUrl = env?.WORKER_URL || "https://timed-trading.com";
+                const unsub = (typeof buildUnsubscribeUrl === "function" && env?.EMAIL_HMAC_SECRET)
+                  ? await buildUnsubscribeUrl(baseUrl, to, "broker_daily_digest", env.EMAIL_HMAC_SECRET)
+                  : null;
+                const rendered = buildDailyOwnerDigestEmail(item.digest_summary, {
+                  baseUrl,
+                  unsubscribeUrl: unsub,
+                });
+                if (rendered?.subject) content = rendered;
+              } catch (e) {
+                console.warn(`[NOTIFY_DRAIN] daily digest re-render failed for ${to}: ${String(e?.message || e).slice(0, 160)}`);
+              }
+            }
+            if (!content.subject) { dailySkipped++; continue; }
             try {
               await sendEmail(env, {
                 to,

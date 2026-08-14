@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>My Account — Timed Trading</title>
+    <meta name="description" content="Account hub — email preferences and subscription management." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260813-my-account" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="auth-gate.js?v=20260813-my-account"></script>
+    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="investor-nav-badge.js?v=20260622a"></script>
+    <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
+    <style>
+      body { margin: 0; min-height: 100vh; background: var(--tt-bg-0, #0b1410); color: var(--tt-text, #e8f0ec); }
+      main { max-width: 720px; margin: 0 auto; padding: 20px 20px 110px; }
+      .dim { color: var(--tt-text-dim, #6E867D); }
+      .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(11, 20, 16, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.08));
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand {
+        display: inline-flex; align-items: center; gap: 10px;
+        text-decoration: none; color: var(--tt-text, #e8f0ec); font-weight: 700;
+      }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: var(--tt-text-muted, #8aa399);
+        text-decoration: none; padding: 6px 12px; border-radius: 8px;
+      }
+      .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
+      .nav-link.active {
+        color: var(--tt-accent, #38F2A1);
+        background: rgba(56, 242, 161, 0.12);
+      }
+
+      .tt-card {
+        background: var(--tt-bg-1, #111a16);
+        border: 1px solid var(--tt-border-weak, rgba(255,255,255,0.08));
+        border-radius: 16px;
+        margin-bottom: 16px;
+      }
+      .tt-card-pad { padding: 20px 22px; }
+      .tt-sec-title {
+        font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--tt-text-dim); margin-bottom: 4px;
+      }
+      .tt-sec-h { font-family: Manrope, Inter, sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+
+      .bc-btn {
+        padding: 9px 16px; border-radius: 999px; font-size: 12px; font-weight: 700;
+        cursor: pointer; border: 1px solid var(--tt-border-strong, rgba(255,255,255,0.12));
+        background: rgba(255,255,255,0.04); color: var(--tt-text-1, #e8f0ec);
+      }
+      .bc-btn:hover:not(:disabled) { background: rgba(255,255,255,0.07); }
+      .bc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .bc-btn-primary {
+        background: rgba(56,242,161,0.13); color: var(--vf-primary, #38F2A1);
+        border-color: rgba(56,242,161,0.4);
+      }
+
+      .pref-row {
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+        padding: 14px 0; border-top: 1px solid var(--tt-border-weak, rgba(255,255,255,0.06));
+      }
+      .pref-row:first-of-type { border-top: none; padding-top: 4px; }
+      .pref-title { font-size: 14px; font-weight: 650; color: var(--tt-text, #e8f0ec); margin: 0 0 3px; }
+      .pref-desc { font-size: 12px; color: var(--tt-text-2, #a3b5ad); margin: 0; line-height: 1.5; }
+      .toggle {
+        position: relative; width: 42px; height: 23px; border-radius: 999px; border: none;
+        cursor: pointer; transition: background 0.15s; flex-shrink: 0; margin-top: 2px;
+      }
+      .toggle .knob {
+        position: absolute; top: 3px; width: 17px; height: 17px; border-radius: 50%;
+        background: #fff; transition: left 0.18s cubic-bezier(.4,1.6,.6,1);
+      }
+      .msg-ok { color: var(--tt-success, #34d399); font-size: 12px; }
+      .msg-err { color: var(--tt-danger, #ef4444); font-size: 12px; }
+      .chip {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+        background: rgba(56,242,161,0.10); color: var(--vf-primary, #38F2A1);
+        border: 1px solid rgba(56,242,161,0.28);
+      }
+      .hub-link {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 12px 0; border-top: 1px solid var(--tt-border-weak);
+        text-decoration: none; color: inherit;
+      }
+      .hub-link:first-of-type { border-top: none; }
+      .hub-link:hover .hub-link-title { color: var(--vf-primary, #38F2A1); }
+      .hub-link-title { font-size: 14px; font-weight: 650; transition: color 0.12s; }
+      .hub-link-sub { font-size: 12px; color: var(--tt-text-2); margin-top: 2px; }
+      .hub-chevron { color: var(--tt-text-dim); font-size: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="global-nav-root"></div>
+    <script src="shared-nav.js?v=20260813-my-account"></script>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useCallback } = React;
+      const API_BASE = "";
+
+      const PREF_DEFS = [
+        {
+          key: "daily_brief_morning",
+          title: "Morning brief",
+          desc: "Pre-market briefing with the model outlook for the session ahead.",
+        },
+        {
+          key: "daily_brief_evening",
+          title: "Evening brief",
+          desc: "End-of-day recap of what the model did and what matters next.",
+        },
+        {
+          key: "trade_alerts",
+          title: "Trade alerts",
+          desc: "Emails when Active Trader positions open, trim, or exit.",
+        },
+        {
+          key: "investor_alerts",
+          title: "Investor alerts",
+          desc: "Long-term accumulation, breakout, and thesis signals.",
+        },
+        {
+          key: "broker_daily_digest",
+          title: "Broker account digest",
+          desc: "End-of-day Account today email for connected brokerage accounts (fills, syncs, P&L).",
+        },
+        {
+          key: "weekly_digest",
+          title: "Weekly digest",
+          desc: "Weekly summary of model performance and open exposure.",
+        },
+        {
+          key: "re_engagement",
+          title: "Product updates",
+          desc: "Occasional product and onboarding notes when the account has been quiet.",
+        },
+      ];
+
+      function Toggle({ on, disabled, onToggle }) {
+        return (
+          <button
+            type="button"
+            className="toggle"
+            disabled={disabled}
+            aria-pressed={on}
+            onClick={onToggle}
+            style={{ background: on ? "rgba(56,242,161,0.55)" : "rgba(255,255,255,0.14)" }}
+          >
+            <span className="knob" style={{ left: on ? 22 : 3 }} />
+          </button>
+        );
+      }
+
+      function App({ user }) {
+        const [prefs, setPrefs] = useState(null);
+        const [sub, setSub] = useState(null);
+        const [busyKey, setBusyKey] = useState(null);
+        const [portalBusy, setPortalBusy] = useState(false);
+        const [msg, setMsg] = useState(null);
+
+        const load = useCallback(async () => {
+          try {
+            const [pRes, sRes] = await Promise.all([
+              fetch(`${API_BASE}/timed/email/preferences`, { credentials: "include" }),
+              fetch(`${API_BASE}/timed/subscription`, { credentials: "include" }),
+            ]);
+            const pJson = await pRes.json().catch(() => null);
+            const sJson = await sRes.json().catch(() => null);
+            if (pJson?.ok) setPrefs(pJson.preferences || {});
+            if (sJson?.ok || sJson?.tier) setSub(sJson);
+          } catch (e) {
+            setMsg({ ok: false, text: String(e?.message || e) });
+          }
+        }, []);
+
+        useEffect(() => { load(); }, [load]);
+
+        useEffect(() => {
+          if (location.hash === "#email") {
+            const el = document.getElementById("email");
+            if (el) setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+          }
+        }, [prefs]);
+
+        const setPref = async (key, value) => {
+          if (!prefs || busyKey) return;
+          setBusyKey(key);
+          setMsg(null);
+          const prev = prefs[key];
+          setPrefs({ ...prefs, [key]: value });
+          try {
+            const res = await fetch(`${API_BASE}/timed/email/preferences`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ [key]: value }),
+            });
+            const json = await res.json().catch(() => null);
+            if (!json?.ok) {
+              setPrefs({ ...prefs, [key]: prev });
+              setMsg({ ok: false, text: json?.error || "Could not save preference" });
+            } else {
+              setPrefs(json.preferences || { ...prefs, [key]: value });
+              setMsg({ ok: true, text: "Preferences saved" });
+            }
+          } catch (e) {
+            setPrefs({ ...prefs, [key]: prev });
+            setMsg({ ok: false, text: String(e?.message || e) });
+          } finally {
+            setBusyKey(null);
+          }
+        };
+
+        const openPortal = async () => {
+          setPortalBusy(true);
+          setMsg(null);
+          try {
+            const res = await fetch(`${API_BASE}/timed/stripe/portal`, {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ return_url: `${window.location.origin}/my-account.html` }),
+            });
+            const json = await res.json().catch(() => null);
+            if (json?.ok && json.url) {
+              window.location.href = json.url;
+              return;
+            }
+            setMsg({
+              ok: false,
+              text: json?.error === "stripe_not_configured"
+                ? "Subscription management is not available yet. Contact support."
+                : (json?.error || "Unable to open subscription portal"),
+            });
+          } catch (e) {
+            setMsg({ ok: false, text: String(e?.message || e) });
+          } finally {
+            setPortalBusy(false);
+          }
+        };
+
+        const tier = String(user?.tier || sub?.tier || "free").toLowerCase();
+        const status = String(sub?.subscription_status || user?.subscription_status || "").toLowerCase();
+        const showStripe = tier !== "vip" && (tier === "pro" || tier === "admin" || status === "trialing" || status === "active" || sub?.has_stripe);
+        const brokerEnabled = user?.broker_connections_enabled === true || tier === "admin" || user?.role === "admin";
+
+        return (
+          <main>
+            <div style={{ marginBottom: 22 }}>
+              <div className="tt-sec-title">Account</div>
+              <div className="tt-sec-h" style={{ fontSize: 26, marginBottom: 6 }}>My Account</div>
+              <p className="dim" style={{ margin: 0, fontSize: 13, lineHeight: 1.55 }}>
+                Email preferences, subscription, and shortcuts for this Timed Trading login.
+              </p>
+            </div>
+
+            <section className="tt-card tt-card-pad">
+              <div className="tt-sec-title">Profile</div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>{user?.display_name || user?.email || "—"}</div>
+                  <div className="dim mono" style={{ fontSize: 12, marginTop: 3 }}>{user?.email}</div>
+                </div>
+                <span className="chip">{tier.toUpperCase()}{status === "trialing" ? " · TRIAL" : ""}</span>
+              </div>
+            </section>
+
+            <section className="tt-card tt-card-pad" id="email">
+              <div className="tt-sec-title">Email</div>
+              <div className="tt-sec-h" style={{ fontSize: 18, marginBottom: 4 }}>Email preferences</div>
+              <p className="dim" style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.5 }}>
+                Choose which emails this account receives. Changes save immediately.
+              </p>
+              {!prefs && <p className="dim" style={{ fontSize: 13 }}>Loading preferences…</p>}
+              {prefs && PREF_DEFS.map((def) => (
+                <div className="pref-row" key={def.key}>
+                  <div style={{ minWidth: 0 }}>
+                    <p className="pref-title">{def.title}</p>
+                    <p className="pref-desc">{def.desc}</p>
+                  </div>
+                  <Toggle
+                    on={!!prefs[def.key]}
+                    disabled={busyKey === def.key}
+                    onToggle={() => setPref(def.key, !prefs[def.key])}
+                  />
+                </div>
+              ))}
+              {msg && (
+                <p className={msg.ok ? "msg-ok" : "msg-err"} style={{ margin: "12px 0 0" }}>{msg.text}</p>
+              )}
+            </section>
+
+            <section className="tt-card tt-card-pad" id="subscription">
+              <div className="tt-sec-title">Billing</div>
+              <div className="tt-sec-h" style={{ fontSize: 18, marginBottom: 4 }}>Subscription</div>
+              <p className="dim" style={{ margin: "0 0 14px", fontSize: 12, lineHeight: 1.5 }}>
+                Payment method, invoices, and plan changes are managed in the Stripe customer portal.
+              </p>
+              {showStripe ? (
+                <button type="button" className="bc-btn bc-btn-primary" disabled={portalBusy} onClick={openPortal}>
+                  {portalBusy ? "Opening…" : "Manage subscription"}
+                </button>
+              ) : (
+                <p className="dim" style={{ margin: 0, fontSize: 13 }}>
+                  {tier === "vip"
+                    ? "VIP access is managed by the Timed Trading team — contact support for plan changes."
+                    : "No active Stripe subscription on this login."}
+                </p>
+              )}
+            </section>
+
+            <section className="tt-card tt-card-pad">
+              <div className="tt-sec-title">Shortcuts</div>
+              <div className="tt-sec-h" style={{ fontSize: 18, marginBottom: 8 }}>More</div>
+              {brokerEnabled && (
+                <a className="hub-link" href="/broker-connections.html">
+                  <div>
+                    <div className="hub-link-title">Broker Connections</div>
+                    <div className="hub-link-sub">Link Webull, toggle mirroring, review account P&L</div>
+                  </div>
+                  <span className="hub-chevron">→</span>
+                </a>
+              )}
+              <a className="hub-link" href="/faq.html">
+                <div>
+                  <div className="hub-link-title">FAQ</div>
+                  <div className="hub-link-sub">Billing, data, and product answers</div>
+                </div>
+                <span className="hub-chevron">→</span>
+              </a>
+              <a className="hub-link" href="/today.html">
+                <div>
+                  <div className="hub-link-title">Today</div>
+                  <div className="hub-link-sub">Return to the daily brief</div>
+                </div>
+                <span className="hub-chevron">→</span>
+              </a>
+            </section>
+
+            <p className="dim" style={{ fontSize: 11, marginTop: 18, lineHeight: 1.6 }}>
+              Market data powered by Twelve Data.
+            </p>
+          </main>
+        );
+      }
+
+      const AuthGate = window.TimedAuthGate;
+      const rootEl = document.getElementById("root");
+      if (AuthGate && rootEl) {
+        ReactDOM.createRoot(rootEl).render(
+          React.createElement(AuthGate, { apiBase: API_BASE, requiredTier: "free" }, (user) =>
+            React.createElement(App, { user })
+          )
+        );
+      }
+    </script>
+  </body>
+</html>

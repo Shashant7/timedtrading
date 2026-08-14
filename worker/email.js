@@ -2054,6 +2054,8 @@ const DEFAULT_PREFS_PAID = {
   // RS breakout, thesis invalidation). Investor-mode users tend to
   // rely on email more than Discord for slower-cadence signals.
   investor_alerts: true,
+  // 2026-08-13 — Broker Connections end-of-day "Account today" digest.
+  broker_daily_digest: true,
 };
 
 const DEFAULT_PREFS_FREE = {
@@ -2063,6 +2065,7 @@ const DEFAULT_PREFS_FREE = {
   weekly_digest: false,
   re_engagement: true,
   investor_alerts: false,
+  broker_daily_digest: false,
 };
 
 export function getUserEmailPrefs(user) {
@@ -3077,6 +3080,114 @@ function _buildMirrorEventCard(ev) {
  * Build one consolidated Mirror Sync digest email from many drift events.
  * Returns { subject, html, text, count, worstSeverity } or null when empty.
  */
+/**
+ * Branded end-of-day broker account digest (Account today).
+ * Prefers structured `digest` from the bridge (`digest_summary` on the
+ * notify queue). Matches Mirror Sync / brief emailLayout styling.
+ */
+export function buildDailyOwnerDigestEmail(digest, opts = {}) {
+  if (!digest || digest.skip) return null;
+  const baseUrl = String(opts.baseUrl || "https://timed-trading.com").replace(/\/$/, "");
+  const total = Number(digest.day_pnl?.total) || 0;
+  const totalSign = total >= 0 ? "+" : "";
+  const totalUsd = `$${Math.abs(total).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const pctOfEquity = Number(digest.equity_end) > 0
+    ? `${(total / digest.equity_end * 100).toFixed(2)}%`
+    : "—";
+  const fills = Number(digest.fill_count ?? (digest.executed || []).filter((e) => e.kind !== "sync").length) || 0;
+  const syncs = Number(digest.sync_count ?? (digest.executed || []).filter((e) => e.kind === "sync").length) || 0;
+  const actionBits = [];
+  if (fills) actionBits.push(`${fills} fill${fills === 1 ? "" : "s"}`);
+  if (syncs) actionBits.push(`${syncs} sync${syncs === 1 ? "" : "s"}`);
+  if (!actionBits.length) actionBits.push("0 fills");
+  const actionHeadline = actionBits.join(", ");
+  const subject = `[Timed Trading] Account today — ${actionHeadline}, ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`;
+  const pnlColor = total >= 0 ? BRAND.green : BRAND.danger;
+
+  const actionRows = (digest.executed || []).slice(0, 40).map((t) => {
+    const label = _esc(t.label || t.side || "TRADE");
+    const qty = Number(t.qty) || 0;
+    const px = t.price != null ? ` @ $${Number(t.price).toFixed(2)}`
+      : (t.price_target != null ? ` @ $${Number(t.price_target).toFixed(2)}` : "");
+    return `<tr>
+      <td style="padding:7px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.textPrimary};font-size:13px">${label} <strong>${_esc(t.ticker)}</strong></td>
+      <td style="padding:7px 0;border-bottom:1px solid ${BRAND.border};text-align:right;color:${BRAND.textSecondary};font-family:${EMAIL_FONT_MONO};font-size:12px">${qty}${_esc(px)}</td>
+    </tr>`;
+  }).join("");
+
+  const posRows = (digest.positions || []).slice(0, 25).map((p) => {
+    const qty = Number(p.qty ?? p.position ?? p.quantity) || 0;
+    const pnl = Number(p.unrealizedPnl ?? p.unrealized_pnl) || 0;
+    const sign = pnl >= 0 ? "+" : "";
+    const col = pnl > 0 ? BRAND.green : pnl < 0 ? BRAND.danger : BRAND.textMuted;
+    return `<tr>
+      <td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};color:${BRAND.textPrimary};font-size:12px">${_esc(String(p.symbol || p.ticker || "?").toUpperCase())}</td>
+      <td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};text-align:right;color:${BRAND.textMuted};font-family:${EMAIL_FONT_MONO};font-size:11px">${qty} sh</td>
+      <td style="padding:6px 0;border-bottom:1px solid ${BRAND.border};text-align:right;color:${col};font-family:${EMAIL_FONT_MONO};font-size:11px">${sign}$${pnl.toFixed(2)}</td>
+    </tr>`;
+  }).join("");
+
+  const bodyHtml = `
+    <h2 style="margin:0 0 4px;font-size:20px;color:${BRAND.textPrimary};font-family:${EMAIL_FONT_EDITORIAL}">Account today</h2>
+    <p style="margin:0 0 16px;color:${BRAND.textSecondary};font-size:13px;line-height:1.5">
+      ${_esc(digest.broker || "BROKER")}${digest.broker_account_id ? ` · ${_esc(digest.broker_account_id)}` : ""}
+      · ${_esc(actionHeadline)}
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px;background:${BRAND.dark};border:1px solid ${BRAND.border};border-radius:10px">
+      <tr><td style="padding:16px 18px">
+        <div style="font-size:26px;font-weight:700;color:${pnlColor};font-family:${EMAIL_FONT_MONO}">${totalSign}${totalUsd} <span style="font-size:14px">(${totalSign}${pctOfEquity})</span></div>
+        <div style="font-size:11px;color:${BRAND.textMuted};margin-top:6px">
+          Realized $${Number(digest.day_pnl?.realized || 0).toFixed(2)}
+          · Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}
+          · Equity $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+        </div>
+      </td></tr>
+    </table>
+    <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:${BRAND.textMuted};letter-spacing:0.08em;text-transform:uppercase">Executed today</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">
+      ${actionRows || `<tr><td style="padding:6px 0;color:${BRAND.textMuted};font-size:12px">No fills or syncs today</td></tr>`}
+    </table>
+    <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:${BRAND.textMuted};letter-spacing:0.08em;text-transform:uppercase">Open positions</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px">
+      ${posRows || `<tr><td style="padding:6px 0;color:${BRAND.textMuted};font-size:12px">No open equity positions</td></tr>`}
+    </table>
+    <p style="margin:18px 0 0;font-size:12px">
+      <a href="${_esc(baseUrl)}/broker-connections.html" style="color:${BRAND.green};font-weight:700;text-decoration:none">Broker Connections →</a>
+      &nbsp;&nbsp;
+      <a href="${_esc(baseUrl)}/my-account.html#email" style="color:${BRAND.textSecondary};text-decoration:underline">Email preferences</a>
+    </p>
+  `;
+
+  const html = emailLayout(bodyHtml, {
+    unsubscribeUrl: opts.unsubscribeUrl || null,
+    preheader: `Account today — ${actionHeadline}, ${totalSign}${totalUsd}`,
+  });
+
+  const textLines = [
+    subject,
+    "",
+    `EXECUTED TODAY (${(digest.executed || []).length})`,
+    ...((digest.executed || []).length
+      ? digest.executed.map((t) => `  ${t.label || t.side || "TRADE"} ${t.qty} ${t.ticker}`)
+      : ["  (none)"]),
+    "",
+    `OPEN POSITIONS (${(digest.positions || []).length})`,
+    ...((digest.positions || []).slice(0, 30).map((p) => {
+      const qty = Number(p.qty ?? p.position ?? p.quantity) || 0;
+      const pnl = Number(p.unrealizedPnl ?? p.unrealized_pnl) || 0;
+      return `  ${String(p.symbol || p.ticker || "?").toUpperCase()}  ${qty} sh  ${pnl >= 0 ? "+" : ""}$${pnl.toFixed(2)}`;
+    })),
+    "",
+    `Day P&L ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`,
+    `Equity end $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+    "",
+    `Broker Connections: ${baseUrl}/broker-connections.html`,
+    `Email preferences: ${baseUrl}/my-account.html#email`,
+  ];
+
+  return { subject, html, text: textLines.join("\n"), actionHeadline, fill_count: fills, sync_count: syncs };
+}
+
 export function buildMirrorSyncDigestEmail(events, opts = {}) {
   const list = (Array.isArray(events) ? events : [])
     .filter((e) => e && e.sync_state && e.sync_state !== "in_sync");

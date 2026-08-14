@@ -1657,34 +1657,14 @@
                 daysLeft === 1 ? "day left in trial" : "days left in trial",
               );
             })(),
-            // My Account button (Stripe Customer Portal for subscription management)
-            // VIP users don't have Stripe subscriptions, so hide this for them
-            user.tier !== "vip" && (user.tier === "pro" || user.subscription_status === "trialing" || user.subscription_status === "active") &&
+            // 2026-08-13 — My Account hub (email prefs + Stripe portal).
+            // Previously this jumped straight to Stripe; subscription
+            // management now lives on /my-account.html#subscription.
             React.createElement(
-              "button",
+              "a",
               {
-                onClick: async () => {
-                  setShowMenu(false);
-                  try {
-                    const res = await fetch("/timed/stripe/portal", {
-                      method: "POST",
-                      credentials: "include",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ return_url: window.location.href }),
-                    });
-                    const json = await res.json();
-                    if (json.ok && json.url) {
-                      window.location.href = json.url;
-                    } else {
-                      const msg = json.error === "stripe_not_configured"
-                        ? "Account management is not available yet. Please contact support."
-                        : "Unable to open account management. Please try again.";
-                      alert(msg);
-                    }
-                  } catch (e) {
-                    alert("Unable to connect. Please check your network and try again.");
-                  }
-                },
+                href: "/my-account.html",
+                onClick: () => setShowMenu(false),
                 style: {
                   width: "100%",
                   padding: "8px 12px",
@@ -1699,6 +1679,8 @@
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
+                  textDecoration: "none",
+                  boxSizing: "border-box",
                 },
                 onMouseEnter: (e) =>
                   (e.currentTarget.style.background = "rgba(0, 200, 83, 0.06)"),
