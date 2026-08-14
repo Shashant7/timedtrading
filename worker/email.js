@@ -3300,6 +3300,27 @@ function _buildMirrorEventCard(ev) {
  * Returns { subject, html, text, count, worstSeverity } or null when empty.
  */
 /**
+ * How much of today's realized figure rests on a real cost basis.
+ *
+ * The broker ledger starts mid-life, so some sold shares have no recorded buy.
+ * Those are excluded from the total (partial) or priced off the broker's own
+ * average cost (estimated) — either way the email says so instead of
+ * presenting the number as exact.
+ */
+function _realizedBasisNote(dayPnl) {
+  const sells = Number(dayPnl?.realized_sell_count || 0);
+  if (sells <= 0) return "";
+  const plural = (n) => `${n} sell${n === 1 ? "" : "s"}`;
+  if (dayPnl?.realized_partial) {
+    const n = Number(dayPnl?.realized_unattributed_sells || 0);
+    return `partial — ${plural(n)} missing a recorded cost basis`;
+  }
+  const est = Number(dayPnl?.estimated_sells ?? dayPnl?.realized_estimated_sells ?? 0);
+  if (est > 0) return `${plural(est)} priced off the broker average cost`;
+  return plural(sells);
+}
+
+/**
  * Branded end-of-day broker account digest (Account today).
  * Prefers structured `digest` from the bridge (`digest_summary` on the
  * notify queue). Matches Mirror Sync / brief emailLayout styling.
@@ -3327,12 +3348,10 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
   // account ledger. Sells on positions that pre-date the ledger have no basis,
   // so say the figure is partial rather than presenting it as complete.
   const realized = Number(digest.day_pnl?.realized || 0);
-  const realizedSells = Number(digest.day_pnl?.realized_sell_count || 0);
-  const realizedNote = digest.day_pnl?.realized_partial
-    ? ` <span style="color:${BRAND.textMuted}">(partial — ${Number(digest.day_pnl?.realized_unattributed_sells || 0)} sell${Number(digest.day_pnl?.realized_unattributed_sells) === 1 ? "" : "s"} with no recorded cost basis)</span>`
-    : realizedSells > 0
-      ? ` <span style="color:${BRAND.textMuted}">(${realizedSells} sell${realizedSells === 1 ? "" : "s"})</span>`
-      : "";
+  const realizedNoteText = _realizedBasisNote(digest.day_pnl);
+  const realizedNote = realizedNoteText
+    ? ` <span style="color:${BRAND.textMuted}">(${_esc(realizedNoteText)})</span>`
+    : "";
 
   const actionRows = (digest.executed || []).slice(0, 40).map((t) => {
     const label = _esc(t.label || t.side || "TRADE");
@@ -3410,9 +3429,7 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
     "",
     `Day P&L ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`,
     `  Realized ${realized < 0 ? "-" : ""}$${Math.abs(realized).toFixed(2)}`
-      + (digest.day_pnl?.realized_partial
-        ? ` (partial — ${Number(digest.day_pnl?.realized_unattributed_sells || 0)} sell(s) with no recorded cost basis)`
-        : realizedSells > 0 ? ` (${realizedSells} sell${realizedSells === 1 ? "" : "s"})` : ""),
+      + (realizedNoteText ? ` (${realizedNoteText})` : ""),
     `  Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}`,
     `Equity end $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
     "",

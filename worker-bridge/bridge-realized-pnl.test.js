@@ -59,6 +59,44 @@ describe("computeRealizedFromLedger", () => {
 
     expect(r.realized).toBeCloseTo(100, 2);
     expect(r.partial).toBe(false);
+    expect(r.estimated_sells).toBe(1);
+  });
+
+  // The ledger started mid-life, so a position can have some recorded buys and
+  // still be larger than the walk ever saw. The book average must not be
+  // stretched over shares it never covered.
+  it("prices only the recorded shares at the book average when a sell exceeds it", () => {
+    const r = computeRealizedFromLedger([
+      { ts: YESTERDAY, ticker: "AMZN", side: "BUY", qty: 5, price: 100 },
+      { ts: TODAY, ticker: "AMZN", side: "SELL", qty: 17, price: 120 },
+    ], { sinceMs: TODAY, avgCostByTicker: { AMZN: 110 } });
+
+    // 5 shares from the book at 100 (+100), 12 residual at the broker avg 110 (+120)
+    expect(r.realized).toBeCloseTo(220, 2);
+    expect(r.estimated_sells).toBe(1);
+    expect(r.partial).toBe(false);
+  });
+
+  it("flags a sell as partial when the residual has no basis anywhere", () => {
+    const r = computeRealizedFromLedger([
+      { ts: YESTERDAY, ticker: "AMZN", side: "BUY", qty: 5, price: 100 },
+      { ts: TODAY, ticker: "AMZN", side: "SELL", qty: 17, price: 120 },
+    ], { sinceMs: TODAY });
+
+    // Only the 5 recorded shares contribute; the other 12 are excluded, not guessed.
+    expect(r.realized).toBeCloseTo(100, 2);
+    expect(r.unattributed_sells).toBe(1);
+    expect(r.partial).toBe(true);
+  });
+
+  it("does not stretch the book average over unrecorded shares", () => {
+    const withBadBasis = (5 * 20) + (12 * 20); // what the old code produced
+    const r = computeRealizedFromLedger([
+      { ts: YESTERDAY, ticker: "AMZN", side: "BUY", qty: 5, price: 100 },
+      { ts: TODAY, ticker: "AMZN", side: "SELL", qty: 17, price: 120 },
+    ], { sinceMs: TODAY });
+
+    expect(r.realized).not.toBeCloseTo(withBadBasis, 2);
   });
 
   it("flags the total as partial when a sell has no basis at all", () => {

@@ -437,10 +437,12 @@ export function ledgerRowSide(row) {
  * stored, so a day with sells still reported "Realized $0.00". Walking the
  * ledger gives a basis without a schema change.
  *
- * Sells with no attributable basis (position adopted before the ledger
- * existed) fall back to the live broker average cost, and are reported via
- * `unattributed` so the email can say the number is partial rather than
- * silently understating it.
+ * The ledger only goes back to its own creation, so a sell can cover more
+ * shares than the walk ever saw bought. Each sell is therefore priced in two
+ * parts: the shares the recorded buys cover, at the book's weighted average,
+ * and any residual at the live broker average cost. A residual with neither
+ * basis is left out of the total and counted, so the figure is reported as
+ * partial rather than resting on a fabricated cost.
  *
  * @param {Array} history  ledger rows ASC by ts (whole account history)
  * @param {object} opts    { sinceMs, avgCostByTicker }
@@ -450,6 +452,7 @@ export function computeRealizedFromLedger(history, { sinceMs = 0, avgCostByTicke
   let realized = 0;
   let sellCount = 0;
   let unattributed = 0;
+  let estimated = 0;
 
   for (const row of (history || [])) {
     const side = ledgerRowSide(row);
@@ -468,32 +471,47 @@ export function computeRealizedFromLedger(history, { sinceMs = 0, avgCostByTicke
       continue;
     }
 
-    // SELL — basis from the running book, else the live broker average cost
-    // (positions adopted before the ledger existed have no buy rows).
-    let avgCost = lot.shares > 0 ? lot.cost / lot.shares : null;
-    if (avgCost == null) {
-      const fallback = Number(avgCostByTicker?.[ticker]);
-      if (Number.isFinite(fallback) && fallback > 0) avgCost = fallback;
-    }
-    const soldFromBook = Math.min(qty, lot.shares);
-    if (soldFromBook > 0) {
-      lot.cost -= soldFromBook * (lot.cost / lot.shares);
-      lot.shares -= soldFromBook;
+    // SELL — split into the portion the recorded buys cover and the residual.
+    const bookAvg = lot.shares > 0 ? lot.cost / lot.shares : null;
+    const fromBook = Math.min(qty, lot.shares);
+    const residual = qty - fromBook;
+    if (fromBook > 0) {
+      lot.cost -= fromBook * bookAvg;
+      lot.shares -= fromBook;
       if (lot.shares <= 1e-9) { lot.shares = 0; lot.cost = 0; }
       book.set(ticker, lot);
     }
 
     if (ts < sinceMs) continue;
     sellCount++;
-    if (avgCost == null) { unattributed++; continue; }
-    realized += (price - avgCost) * qty;
+
+    let pnl = 0;
+    let covered = 0;
+    if (fromBook > 0) {
+      pnl += (price - bookAvg) * fromBook;
+      covered += fromBook;
+    }
+    if (residual > 1e-9) {
+      // Shares the ledger never saw bought — price them off the broker's own
+      // average cost when the position is still open enough to report one.
+      const fallback = Number(avgCostByTicker?.[ticker]);
+      if (Number.isFinite(fallback) && fallback > 0) {
+        pnl += (price - fallback) * residual;
+        covered += residual;
+        estimated++;
+      }
+    }
+    if (covered <= 1e-9) { unattributed++; continue; }
+    if (covered + 1e-9 < qty) unattributed++; // only part of the sell had a basis
+    realized += pnl;
   }
 
   return {
     realized: Math.round(realized * 100) / 100,
     sell_count: sellCount,
     unattributed_sells: unattributed,
-    // Partial when at least one of today's sells had no cost basis at all.
+    estimated_sells: estimated,
+    // Partial when any of today's sold shares had no cost basis at all.
     partial: unattributed > 0,
   };
 }
@@ -701,6 +719,7 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
       realized_sell_count: realizedInfo.sell_count,
       realized_partial: realizedInfo.partial,
       realized_unattributed_sells: realizedInfo.unattributed_sells,
+      realized_estimated_sells: realizedInfo.estimated_sells,
     },
     equity_end: equityEnd,
     open_trades: openTrades,
