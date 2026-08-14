@@ -33,4 +33,17 @@ describe("parseUpticksChanges", () => {
     expect(r.added).toEqual([]);
     expect(r.removed).toEqual([]);
   });
+
+  it("parses August 2026 Upticks additions and deletions", () => {
+    const body = `
+Upticks Additions Alphabet ($GOOGL – 346.36) Boeing ($BA – $230.33)
+Valero Corp. ($VLO – $342.92) Chevron Corp ($CVX – $197.70)
+Upticks Deletions M&T Bank – ($MTB – $253.25) Trane Technologies ($TT – $477.69)
+Celestica ($CLS – $347.63) UPTICKS Total Return vs. SPY, Year to Date
+Four additions: GOOGL, BA, VLO, and CVX, and three subtractions: MTB, TT, and CLS
+`;
+    const r = parseUpticksChanges(body);
+    expect(r.added.sort()).toEqual(["BA", "CVX", "GOOGL", "VLO"]);
+    expect(r.removed.sort()).toEqual(["CLS", "MTB", "TT"]);
+  });
 });

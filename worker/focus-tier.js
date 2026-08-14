@@ -30,8 +30,11 @@
 // Hard-coded curated set — user-maintained, backtest-safe (no lookahead).
 // Keep aligned with TT_SELECTED in worker/index.js:~31461.
 export const TT_SELECTED_DEFAULT = new Set([
-  "AMGN","AMZN","AXP","BABA","BG","BRK-B","CLS","CRS","CRWV","CSX",
-  "ETHA","GEV","GILD","JCI","MRK","MTB","PH","PWR","QXO","TSLA","TT","VST","WMT",
+  // Keep aligned with timed:admin:upticks + TT_SELECTED in worker/index.js.
+  // Aug 2026: +GOOGL +BA +VLO +CVX; -MTB -TT -CLS.
+  "ALL","AMGN","AMZN","APLD","BA","BABA","BG","BRK-B","CRS","CRWV","CSX",
+  "CVX","DAL","DBA","ETHA","GEV","GOOGL","GS","IRM","JCI","MAR","MRK","PH",
+  "PWR","TSLA","VLO","VST","WMT",
 ]);
 
 function _f(v, d = 0) {
