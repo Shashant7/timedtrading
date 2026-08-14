@@ -1043,14 +1043,40 @@ export async function ingestFromBlob(env, { title, source_url, content_type, bod
 }
 
 /**
- * Re-fetch recent Macro Minute FSD posts that still lack a Vimeo transcript
- * (thin ~600 char blurbs from before this path existed, or captions that
- * were not ready on first ingest).
+ * FSD series whose daily note is published as video.
+ *
+ * `%macro minute%` is Tom Lee's night take. `technical strategy %` is Newton's
+ * Daily Technical Strategy — matched on the leading word so it catches
+ * "Technical Strategy 08/14/2026" without sweeping in the intraday
+ * "Mark L. Newton, CMT – …" text flashes, which have no video and would
+ * otherwise be re-fetched on every pass.
  */
-export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 1500 } = {}) {
+export const VIDEO_POST_TITLE_PATTERNS = ["%macro minute%", "technical strategy %"];
+
+/** Days back to keep retrying a thin video post whose captions were not ready. */
+const VIDEO_ENRICH_WINDOW_DAYS = 10;
+
+/**
+ * Re-fetch recent video-backed FSD posts that still lack a Vimeo transcript
+ * (thin blurbs from before this path existed, or captions that were not ready
+ * on first ingest). Bounded by a recency window so a genuinely video-less post
+ * is not retried forever.
+ */
+export async function enrichVideoTranscripts(env, {
+  limit = 8,
+  maxChars = 1500,
+  titlePatterns = VIDEO_POST_TITLE_PATTERNS,
+  windowDays = VIDEO_ENRICH_WINDOW_DAYS,
+} = {}) {
   await ensureCROIngestionSchema(env);
+  const patterns = (Array.isArray(titlePatterns) && titlePatterns.length)
+    ? titlePatterns
+    : VIDEO_POST_TITLE_PATTERNS;
   let rows = [];
   try {
+    const titleClause = patterns.map(() => "lower(p.title) LIKE ?").join(" OR ");
+    const cutoffIso = new Date(Date.now() - Math.max(1, windowDays) * 86400000)
+      .toISOString().slice(0, 19);
     const q = await env.DB.prepare(`
       SELECT p.pub_id, p.title, p.source_url, p.published_at, p.post_type,
              IFNULL(t.char_count, 0) AS char_count,
@@ -1059,10 +1085,11 @@ export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 
       LEFT JOIN ${PUBLICATION_TEXT_TABLE} t ON t.pub_id = p.pub_id
       WHERE p.source = 'fsd'
         AND p.fetch_status = 'ok'
-        AND lower(p.title) LIKE '%macro minute%'
+        AND (${titleClause})
+        AND COALESCE(p.published_at, '') >= ?
       ORDER BY p.fetched_at DESC
       LIMIT 25
-    `).all();
+    `).bind(...patterns, cutoffIso).all();
     rows = q?.results || [];
   } catch (e) {
     return { ok: false, error_kind: "d1_query_failed", hint: String(e?.message || e).slice(0, 160), attempted: 0, ingested: 0 };
@@ -1090,6 +1117,7 @@ export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 
       }
       results.push({
         pub_id: r.pub_id,
+        title: r.title,
         ok: !!ing?.ok,
         skipped: ing?.skipped || null,
         char_count: ing?.char_count || null,
@@ -1097,7 +1125,7 @@ export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 
         error_kind: ing?.error_kind || null,
       });
     } catch (e) {
-      results.push({ pub_id: r.pub_id, ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 160) });
+      results.push({ pub_id: r.pub_id, title: r.title, ok: false, error_kind: "exception", hint: String(e?.message || e).slice(0, 160) });
     }
   }
   return {
@@ -1107,6 +1135,22 @@ export async function enrichMacroMinuteTranscripts(env, { limit = 8, maxChars = 
     ingested: results.filter((x) => x.ok && x.vimeo).length,
     results,
   };
+}
+
+/**
+ * Macro Minute view of the video enrichment pass.
+ * Kept so the freshness guard and the admin macro-minute route stay scoped to
+ * Tom Lee's night take rather than every video series.
+ */
+export async function enrichMacroMinuteTranscripts(env, opts = {}) {
+  return enrichVideoTranscripts(env, { ...opts, titlePatterns: ["%macro minute%"] });
+}
+
+/** How many Macro Minute episodes an enrichVideoTranscripts pass picked up. */
+export function countMacroMinuteIngested(enrichResult) {
+  return (enrichResult?.results || [])
+    .filter((r) => r?.ok && r?.vimeo && /macro[\s-]?minute/i.test(String(r.title || "")))
+    .length;
 }
 
 /**

@@ -313,11 +313,14 @@ export async function runCROIntradayCycle(env, { force = false } = {}) {
   await writeTombstone(env, summary).catch(() => {});
 
   try {
-    const { enrichMacroMinuteTranscripts, syncLatestMacroMinuteProposals } = await import("./fsd-ingestion.js");
-    summary.macro_minute = await enrichMacroMinuteTranscripts(env, { limit: 4 });
+    const { enrichVideoTranscripts, countMacroMinuteIngested, syncLatestMacroMinuteProposals } =
+      await import("./fsd-ingestion.js");
+    // Covers Tom Lee's Macro Minute and Newton's Daily Technical Strategy —
+    // both publish as video with a near-empty body.
+    summary.macro_minute = await enrichVideoTranscripts(env, { limit: 4 });
     summary.macro_minute_sync = await syncLatestMacroMinuteProposals(env, {
       limit: 1,
-      force: !!force || (summary.macro_minute?.ingested || 0) > 0,
+      force: !!force || countMacroMinuteIngested(summary.macro_minute) > 0,
     });
   } catch (e) {
     summary.errors.push(`macro_minute_enrich_failed: ${String(e?.message || e).slice(0, 200)}`);
@@ -515,11 +518,12 @@ export async function runCROFullCycle(env, { force = false } = {}) {
   // episode onto the strategy arm, then stamp freshness so a missed
   // evening post cannot look like research is current.
   try {
-    const { enrichMacroMinuteTranscripts, syncLatestMacroMinuteProposals } = await import("./fsd-ingestion.js");
-    summary.macro_minute = await enrichMacroMinuteTranscripts(env, { limit: 6 });
+    const { enrichVideoTranscripts, countMacroMinuteIngested, syncLatestMacroMinuteProposals } =
+      await import("./fsd-ingestion.js");
+    summary.macro_minute = await enrichVideoTranscripts(env, { limit: 6 });
     summary.macro_minute_sync = await syncLatestMacroMinuteProposals(env, {
       limit: 1,
-      force: !!force || (summary.macro_minute?.ingested || 0) > 0,
+      force: !!force || countMacroMinuteIngested(summary.macro_minute) > 0,
     });
   } catch (e) {
     summary.errors.push(`macro_minute_enrich_failed: ${String(e?.message || e).slice(0, 200)}`);
