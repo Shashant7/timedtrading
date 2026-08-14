@@ -56,8 +56,35 @@ curl -s "${LIVE}/timed/admin/cro/macro-minute/freshness" \
   -H "X-API-Key: ${TIMED_API_KEY}"
 ```
 
-New FSD ingests attach `--- VIDEO TRANSCRIPT ---` automatically when the title
-matches Macro Minute (or `Video:` + a Vimeo embed).
+New FSD ingests attach `--- VIDEO TRANSCRIPT ---` automatically whenever the
+post embeds a Vimeo player. `shouldFetchVimeoTranscript` no longer requires a
+`Video:` title prefix.
+
+## Other video-backed series
+
+Macro Minute is not the only note that ships as video. **Newton's Daily
+Technical Strategy** (`Technical Strategy MM/DD/YYYY`, first seen 2026-08-14)
+has a body that is only the "leave us a 5-star review" footer — ~174 chars —
+with the whole narrative and its support/resistance levels in the video.
+
+- Caption backfill for every video series: `enrichVideoTranscripts()`
+  (`VIDEO_POST_TITLE_PATTERNS` = macro minute + `technical strategy %`).
+  The Newton pattern is anchored so it catches the daily without sweeping in
+  the intraday `Mark L. Newton, CMT – …` text flashes.
+- `enrichMacroMinuteTranscripts()` is the Macro-Minute-scoped view; the night
+  take sync and the freshness guard stay Tom Lee only.
+- Newton videos need no special sync — once the transcript is attached, the
+  normal FSD extract → tactical overlay path picks up the levels.
+
+```bash
+# Widen the admin caption pass to every video series
+curl -s -X POST "${LIVE}/timed/admin/cro/macro-minute/ingest" \
+  -H "X-API-Key: ${TIMED_API_KEY}" -H 'content-type: application/json' \
+  -d '{"limit":10,"scope":"video"}'
+```
+
+Re-ingesting one publication by id preserves the stored title/url/date; pass
+`title` explicitly only when repairing a row.
 
 ## Verify
 
