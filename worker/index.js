@@ -79537,7 +79537,7 @@ export default {
           if (db) {
             try {
               userRow = await db.prepare(
-                `SELECT email, tier, subscription_status, display_name, last_login_at, email_preferences, stripe_customer_id, expires_at FROM users WHERE email = ?1`
+                `SELECT email, tier, subscription_status, display_name, last_login_at, email_preferences, stripe_customer_id, expires_at, status FROM users WHERE email = ?1`
               ).bind(targetEmail).first();
             } catch (e) {
               console.warn("[EMAIL DIAG] users SELECT failed:", String(e?.message || e).slice(0, 200));
@@ -79546,14 +79546,18 @@ export default {
           const prefs = userRow ? getUserEmailPrefs(userRow) : null;
           const tier = String(userRow?.tier || "free").toLowerCase();
           const isPaid = tier === "pro" || tier === "vip" || tier === "admin";
+          const accountStatus = String(userRow?.status || "active").toLowerCase();
+          const isActive = accountStatus === "active";
+          const mailable = isPaid && isActive;
 
           // What would the next cron actually do for this user?
           const wouldReceive = {
-            daily_brief_morning: !!(isPaid && prefs?.daily_brief_morning),
-            daily_brief_evening: !!(isPaid && prefs?.daily_brief_evening),
-            trade_alerts:        !!(isPaid && prefs?.trade_alerts),
-            weekly_digest:       !!(isPaid && prefs?.weekly_digest),
-            re_engagement:       !!(isPaid && prefs?.re_engagement),
+            daily_brief_morning: !!(mailable && prefs?.daily_brief_morning),
+            daily_brief_evening: !!(mailable && prefs?.daily_brief_evening),
+            trade_alerts:        !!(mailable && prefs?.trade_alerts),
+            weekly_digest:       !!(mailable && prefs?.weekly_digest),
+            re_engagement:       !!(mailable && prefs?.re_engagement),
+            investor_alerts:     !!(mailable && prefs?.investor_alerts),
           };
 
           // Last brief send snapshots — written by daily-brief.js.
@@ -79573,6 +79577,7 @@ export default {
           const diagnosis = [];
           if (!userRow) diagnosis.push("User not found in users table — provisioning likely never ran.");
           if (userRow && !isPaid) diagnosis.push(`Tier is "${tier}" — only pro/vip/admin tiers are queried by getEmailOptedInUsers.`);
+          if (userRow && !isActive) diagnosis.push(`Account status is "${accountStatus}" — removed/blocked accounts are excluded from every send.`);
           if (userRow && isPaid && prefs && !prefs.daily_brief_morning) diagnosis.push("daily_brief_morning preference is OFF for this user.");
           if (userRow && isPaid && prefs && !prefs.daily_brief_evening) diagnosis.push("daily_brief_evening preference is OFF for this user.");
           if (!providerStatus.EMAIL_ENABLED) diagnosis.push("EMAIL_ENABLED env var is NOT 'true' — sendEmail() short-circuits.");
@@ -83301,7 +83306,15 @@ export default {
             getUserEmailPrefs: getPrefsForDrain,
             groupMirrorNotifyItemsByUser,
             notifyItemToMirrorEvent,
+            findSuppressedRecipients,
           } = emailMod;
+          // Removed / blocked accounts must not receive per-account digests
+          // either — these paths look users up by address, so they bypass the
+          // status gate in getEmailOptedInUsers.
+          const _suppressed = typeof findSuppressedRecipients === "function"
+            ? await findSuppressedRecipients(env, (parsed.items || []).map((i) => i?.user_email))
+            : new Set();
+          const _isSuppressed = (addr) => _suppressed.has(String(addr || "").toLowerCase().trim());
           // 2026-06-01 — Direct-message escalation. When
           // BROKER_NOTIFY_DM_USER=true AND the user has linked Discord
           // (`users.discord_id` populated from the OAuth flow), we ALSO
@@ -83346,7 +83359,7 @@ export default {
           for (const item of dailyItems) {
             const to = String(item?.user_email || "").toLowerCase().trim();
             let content = item?.content || {};
-            if (!to.includes("@") || item?.dry_run === true) {
+            if (!to.includes("@") || item?.dry_run === true || _isSuppressed(to)) {
               dailySkipped++;
               continue;
             }
@@ -83398,6 +83411,7 @@ export default {
             : new Map();
           const digests = [];
           for (const [userEmail, items] of byUser) {
+            if (_isSuppressed(userEmail)) continue;
             const events = [];
             for (const item of items) {
               const ev = typeof notifyItemToMirrorEvent === "function"
