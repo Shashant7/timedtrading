@@ -89,6 +89,25 @@ async function updateTickerSources(KV, tickerOrTickers, source) {
   } catch (_) { /* best-effort */ }
 }
 
+async function removeTickerSource(KV, tickerOrTickers, source) {
+  if (!KV) return;
+  try {
+    const sources = (await kvGetJSON(KV, "timed:ticker-sources")) || {};
+    const tickers = Array.isArray(tickerOrTickers) ? tickerOrTickers : [tickerOrTickers];
+    let changed = false;
+    for (const t of tickers) {
+      const sym = String(t).toUpperCase();
+      if (!Array.isArray(sources[sym])) continue;
+      const next = sources[sym].filter((s) => s !== source);
+      if (next.length !== sources[sym].length) {
+        sources[sym] = next;
+        changed = true;
+      }
+    }
+    if (changed) await kvPutJSON(KV, "timed:ticker-sources", sources);
+  } catch (_) { /* best-effort */ }
+}
+
 async function ensureTickerInIndex(KV, ticker) {
   if (!KV || !ticker) return false;
   try {
@@ -168,6 +187,10 @@ export async function applyUpticksListChanges(env, { added = [], removed = [], p
 
   await kvPutJSON(KV, UPTICKS_KV_KEY, next);
   await updateTickerSources(KV, next, "UPTICKS");
+  if (appliedRemoved.length > 0) {
+    await removeTickerSource(KV, appliedRemoved, "UPTICKS");
+    await removeTickerSource(KV, appliedRemoved, "TT_SELECTED");
+  }
   await logUpticksDiff(env, {
     prior, next, added: appliedAdded, removed: appliedRemoved, pubId,
   });
@@ -176,11 +199,12 @@ export async function applyUpticksListChanges(env, { added = [], removed = [], p
   for (const t of appliedAdded) {
     const wasNew = await ensureTickerInIndex(KV, t);
     if (wasNew) indexAdded.push(t);
-    if (!SECTOR_MAP[t]) {
-      try {
-        await KV.put(`timed:sector_map:${t}`, "Unknown");
-      } catch (_) { /* best-effort */ }
-    }
+    const sector = SECTOR_MAP[t] || null;
+    try {
+      // Prefer the GICS sector from SECTOR_MAP; never leave "Unknown" when we know it.
+      if (sector) await KV.put(`timed:sector_map:${t}`, sector);
+      else if (!SECTOR_MAP[t]) await KV.put(`timed:sector_map:${t}`, "Unknown");
+    } catch (_) { /* best-effort */ }
   }
 
   const onboard = async () => {
@@ -247,6 +271,28 @@ export async function syncUpticksFromPublication(env, pubId, { title = null, ctx
     pubId: id,
     ctx,
   });
+
+  // Even when the list is already current, scrub stale UPTICKS/TT_SELECTED
+  // attribution from deleted names (sources KV can lag the list).
+  if (parsed.removed.length > 0) {
+    try {
+      const KV = env?.KV_TIMED || env?.KV;
+      if (KV) {
+        const sources = (await kvGetJSON(KV, "timed:ticker-sources")) || {};
+        let changed = false;
+        for (const t of parsed.removed) {
+          const sym = String(t).toUpperCase();
+          if (!Array.isArray(sources[sym])) continue;
+          const next = sources[sym].filter((s) => s !== "UPTICKS" && s !== "TT_SELECTED");
+          if (next.length !== sources[sym].length) {
+            sources[sym] = next;
+            changed = true;
+          }
+        }
+        if (changed) await kvPutJSON(KV, "timed:ticker-sources", sources);
+      }
+    } catch (_) { /* best-effort */ }
+  }
 
   return {
     ...applied,

@@ -197,6 +197,8 @@ const SECTOR_MAP = {
   'WFRD': 'Energy',
   'ENS': 'Energy',
   'CVX': 'Energy',
+  // 2026-08-14 — Newton Upticks August addition (refiner sleeve).
+  'VLO': 'Energy',
   'DINO': 'Energy',
   'DTM': 'Energy',
   'OKE': 'Energy',
