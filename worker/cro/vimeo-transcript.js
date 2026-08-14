@@ -15,12 +15,20 @@ const CONFIG_TIMEOUT_MS = 12_000;
 const VTT_TIMEOUT_MS = 10_000;
 const YT_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+/**
+ * True when a publication's captions are worth fetching.
+ *
+ * A Vimeo embed on Fundstrat Direct is never decoration — it IS the note.
+ * Newton's Daily Technical Strategy ("Technical Strategy 08/14/2026") ships
+ * as video with a ~174 char body, and the old `^video:` title prefix meant it
+ * was ingested as an empty post. Any embedded Vimeo player now qualifies, so
+ * new video series are covered without another title rule. The transcript is
+ * appended, never substituted, so a post with real prose loses nothing.
+ */
 export function shouldFetchVimeoTranscript(title, html) {
   const t = String(title || "");
   if (/macro[\s\-]?minute/i.test(t)) return true;
-  const h = String(html || "");
-  if (/^video:/i.test(t) && /vimeo\.com/i.test(h)) return true;
-  return false;
+  return /(?:player\.)?vimeo\.com\/(?:video\/)?\d+/i.test(String(html || ""));
 }
 
 /** Parse player.vimeo.com / vimeo.com embeds from WP content.rendered. */

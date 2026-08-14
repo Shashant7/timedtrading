@@ -8,10 +8,31 @@ import {
 } from "./vimeo-transcript.js";
 
 describe("shouldFetchVimeoTranscript", () => {
-  it("matches Macro Minute titles and Video: posts with a Vimeo embed", () => {
+  it("matches Macro Minute on title alone", () => {
     expect(shouldFetchVimeoTranscript("Video: Macro Minute: CPI day", "")).toBe(true);
+  });
+
+  it("matches any post carrying a Vimeo embed", () => {
     expect(shouldFetchVimeoTranscript("Video: Some webinar", "https://player.vimeo.com/video/1")).toBe(true);
-    expect(shouldFetchVimeoTranscript("Daily Technical Strategy", "https://player.vimeo.com/video/1")).toBe(false);
+    expect(shouldFetchVimeoTranscript("First Word", "<iframe src='https://vimeo.com/12345'></iframe>")).toBe(true);
+  });
+
+  // Newton's daily ships as video with a ~174 char body. The old `^video:`
+  // title rule skipped it, so the note was stored effectively empty.
+  it("matches Newton's Daily Technical Strategy video post", () => {
+    expect(shouldFetchVimeoTranscript(
+      "Technical Strategy 08/14/2026",
+      `<figure><iframe src="https://player.vimeo.com/video/1103377449?h=abc"></iframe></figure>`,
+    )).toBe(true);
+  });
+
+  it("skips posts with no video embed", () => {
+    expect(shouldFetchVimeoTranscript("Mark L. Newton, CMT – All quiet ahead of CPI", "<p>text only</p>")).toBe(false);
+    expect(shouldFetchVimeoTranscript("Upticks – August 2026", "")).toBe(false);
+  });
+
+  it("does not treat a bare vimeo.com mention as an embed", () => {
+    expect(shouldFetchVimeoTranscript("Some note", "follow us on vimeo.com for videos")).toBe(false);
   });
 });
 
