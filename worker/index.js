@@ -910,6 +910,7 @@ import {
   resolveInvestor4hTiming,
   buildInvestorDecisionInputs,
   compactInvestorScoreProvenance,
+  buildInvestorSignalContext,
 } from "./investor.js";
 import { enrichInvestorDayState } from "./seed-investor-daystate.js";
 import { resolveScoringUniverse } from "./universe.js";
@@ -38599,6 +38600,16 @@ function investorLotReasonLabel(reason) {
   if (r === "investor_score_very_low") return "Reduce — investor score fell sharply";
   if (r.startsWith("pre_earnings")) return "Pre-earnings risk reduction";
   if (r.startsWith("pre_")) return "Pre-event risk reduction";
+  // Buy-side reasons — the raw keys ("auto entry accumulate") read like debug
+  // output in an email, so spell out what the model actually did.
+  const stageWord = (key) => String(r.slice(key.length)).replace(/_/g, " ").trim();
+  if (r.startsWith("auto_entry_")) {
+    return `New starter position — ${stageWord("auto_entry_")} stage (portfolio rebalance)`;
+  }
+  if (r.startsWith("auto_rebalance_")) {
+    return `Scale-in to an existing position — ${stageWord("auto_rebalance_")} stage (portfolio rebalance)`;
+  }
+  if (r.startsWith("dca")) return "Scheduled DCA tranche";
   return String(reason || "Long Term portfolio action").replace(/_/g, " ");
 }
 
@@ -38791,15 +38802,26 @@ function scheduleInvestorBuyActionChannels(env, KV, payload) {
   const ticker = String(payload?.ticker || "").toUpperCase();
   if (!ticker) return;
   const invType = payload.investor_alert_type || "position_add";
+  // 2026-08-14 — signal_context carries the levels / sizing / regime / technical
+  // read that the Short Term entry email already had, so both horizons render
+  // the same sections. Explicit payload fields win over the derived context.
+  const ctx = payload.signal_context && typeof payload.signal_context === "object"
+    ? payload.signal_context
+    : {};
   const data = {
+    ...ctx,
     ticker,
     shares: payload.shares,
     price: payload.price,
     value: payload.value ?? (Number(payload.shares) * Number(payload.price)),
     reason: payload.reason,
-    stage: payload.stage ?? null,
-    score: payload.score ?? null,
+    reasonLabel: investorLotReasonLabel(payload.reason),
+    stage: payload.stage ?? ctx.stage ?? null,
+    score: payload.score ?? ctx.score ?? null,
     cio_reasoning: payload.cio_reasoning ?? null,
+    total_shares_after: payload.total_shares_after ?? null,
+    executed_at: Number(payload.ts) || Date.now(),
+    options_play: payload.options_play ?? null,
   };
   const action = deriveInvestorAlertAction(invType, data);
   const embed = createInvestorAlertEmbed(invType, data);
@@ -95787,6 +95809,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 lot_id: lotId,
                 ts: now,
                 cio_reasoning: _cioAddReasoning,
+                total_shares_after: newShares,
+                signal_context: buildInvestorSignalContext({
+                  tickerData: _tdAdd || _tdAddGate,
+                  scoreRow: _scoreRowAdd,
+                  position: t.existing,
+                  price: t.price,
+                  value,
+                  capital: INVESTOR_CAPITAL,
+                }),
               });
             } else {
               // New position
@@ -96042,6 +96073,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 lot_id: lotId,
                 ts: now,
                 cio_reasoning: _cioOpenReasoning,
+                total_shares_after: shares,
+                signal_context: buildInvestorSignalContext({
+                  tickerData: _tdOpen || _tdAddGate,
+                  scoreRow: _scoreRowOpen,
+                  price: t.price,
+                  value,
+                  capital: INVESTOR_CAPITAL,
+                }),
               });
             }
           }
