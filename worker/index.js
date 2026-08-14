@@ -97221,9 +97221,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // ── Consolidated rebalance digest — ONE email + ONE Discord for
           // trims/exits (operator: 35+ emails ahead of FOMC). Buys fire
           // per-ticker Discord embeds above so they match Queue alert visibility.
+          //
+          // 2026-08-14 — One email per action. Opens/adds already send a
+          // per-ticker Long Term email via scheduleInvestorBuyActionChannels,
+          // so including them here mailed the same buy twice (operator saw 3
+          // emails for 2 trades). The digest is now reductions-only; when a
+          // cycle only bought, no digest goes out at all.
           try {
-            if (_rebalDigestTrims.length > 0 || opened.length > 0 || added.length > 0) {
-              const _digestSummary = { trims: _rebalDigestTrims, added, opened, executed_at: now };
+            if (_rebalDigestTrims.length > 0) {
+              const _digestSummary = { trims: _rebalDigestTrims, added: [], opened: [], executed_at: now };
               const _emailMod = await import("./email.js");
               if (typeof _emailMod.sendInvestorRebalanceDigest === "function") {
                 queueBackground(_emailMod.sendInvestorRebalanceDigest(env, _digestSummary)
