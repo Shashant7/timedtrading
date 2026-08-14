@@ -67616,6 +67616,25 @@ export default {
           if (!result) return sendJSON({ ok: false, error: "no_scored_payload", ticker, hint: "no timed:latest and no candles in D1?" }, 500, corsHeaders(env, req));
 
           // 5) Attach the gating _env exactly like the */5 cron (index.js ~92911).
+          // Include live Upticks / granny holdings so focus-tier +10/+10 bonuses
+          // match production scoring (otherwise entry-explain understates conviction).
+          try {
+            if (!env._currentUpticks) {
+              const upticksList = await kvGetJSON(_kv, "timed:admin:upticks");
+              env._currentUpticks = new Set(
+                (Array.isArray(upticksList) ? upticksList : []).map((t) => String(t || "").toUpperCase()).filter(Boolean),
+              );
+            }
+          } catch (_) { env._currentUpticks = env._currentUpticks || null; }
+          try {
+            if (!env._currentGrannyHoldings) {
+              const { loadETFWeightMap } = await import("./etf-holdings.js");
+              const wm = await loadETFWeightMap(env).catch(() => null);
+              if (wm && typeof wm === "object") {
+                env._currentGrannyHoldings = new Set(Object.keys(wm).map((t) => String(t).toUpperCase()));
+              }
+            }
+          } catch (_) { /* optional */ }
           const tickerSector = SECTOR_MAP[ticker] || "Unknown";
           result._env = {
             ...(result._env || {}),
@@ -67629,6 +67648,8 @@ export default {
             _calibratedRankMin: env._calibratedRankMin || 0,
             _universeSize: env._tickerUniverseSize || Object.keys(SECTOR_MAP).length,
             _entryEngine: env.ENTRY_ENGINE || "tt_core",
+            _currentUpticks: env._currentUpticks || null,
+            _currentGrannyHoldings: env._currentGrannyHoldings || null,
           };
 
           // 6) Run the gate + the stage classifier (same calls as the cron).
@@ -67642,6 +67663,7 @@ export default {
           const _side = _sideRaw.startsWith("S") ? "S" : "L";
           const _combo = `${_safe(result.entry_path || result.setup_name)}:${_safe(result.regime_class)}:${_safe(result.ticker_personality || result._ticker_profile?.behavior_type)}:${_side}`;
           const _loop1adv = (env._loop1AdvisoryByCombo || {})[_combo] || null;
+          const _focusBonuses = result.__focus_conviction_breakdown?.bonuses || null;
 
           return sendJSON({
             ok: true,
@@ -67659,6 +67681,9 @@ export default {
               rank: result.score ?? result.rank,
               conviction: result.__focus_conviction_score,
               tier: result.__focus_tier,
+              focus_bonuses: _focusBonuses,
+              in_upticks: !!(env._currentUpticks && env._currentUpticks.has(ticker)),
+              in_tt_selected: TT_SELECTED_DEFAULT.has(ticker),
               regime_class: result.regime_class,
               entry_path: result.entry_path || result.setup_name || null,
               personality: result.ticker_personality || result._ticker_profile?.behavior_type || null,
