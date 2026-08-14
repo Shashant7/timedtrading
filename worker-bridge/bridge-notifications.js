@@ -418,6 +418,104 @@ function _normalizeDigestAction(row) {
   };
 }
 
+/** BUY / SELL for a ledger row, or null when the row moves no shares. */
+export function ledgerRowSide(row) {
+  const side = String(row?.side || "").toUpperCase();
+  const evt = String(row?.event_type || "").toUpperCase();
+  if (side === "SELL" || side === "TRIM" || side === "EXIT" || evt === "EXIT") return "SELL";
+  if (side === "BUY" || side === "LONG" || evt === "ENTRY") return "BUY";
+  // FILL / PARTIAL_FILL rows carry direction only on `side`; without it the
+  // row cannot be attributed to either leg.
+  return null;
+}
+
+/**
+ * Realized P&L for today's sells, using a weighted-average cost basis walked
+ * forward over the account's full fill history.
+ *
+ * The digest previously hardcoded realized to 0 because no per-lot basis was
+ * stored, so a day with sells still reported "Realized $0.00". Walking the
+ * ledger gives a basis without a schema change.
+ *
+ * The ledger only goes back to its own creation, so a sell can cover more
+ * shares than the walk ever saw bought. Each sell is therefore priced in two
+ * parts: the shares the recorded buys cover, at the book's weighted average,
+ * and any residual at the live broker average cost. A residual with neither
+ * basis is left out of the total and counted, so the figure is reported as
+ * partial rather than resting on a fabricated cost.
+ *
+ * @param {Array} history  ledger rows ASC by ts (whole account history)
+ * @param {object} opts    { sinceMs, avgCostByTicker }
+ */
+export function computeRealizedFromLedger(history, { sinceMs = 0, avgCostByTicker = {} } = {}) {
+  const book = new Map(); // ticker -> { shares, cost }
+  let realized = 0;
+  let sellCount = 0;
+  let unattributed = 0;
+  let estimated = 0;
+
+  for (const row of (history || [])) {
+    const side = ledgerRowSide(row);
+    if (!side) continue;
+    const ticker = String(row.ticker || "").toUpperCase();
+    const qty = Math.abs(Number(row.qty));
+    const price = Number(row.price);
+    if (!ticker || !(qty > 0) || !Number.isFinite(price) || price <= 0) continue;
+    const ts = Number(row.ts) || 0;
+
+    const lot = book.get(ticker) || { shares: 0, cost: 0 };
+    if (side === "BUY") {
+      lot.shares += qty;
+      lot.cost += qty * price;
+      book.set(ticker, lot);
+      continue;
+    }
+
+    // SELL — split into the portion the recorded buys cover and the residual.
+    const bookAvg = lot.shares > 0 ? lot.cost / lot.shares : null;
+    const fromBook = Math.min(qty, lot.shares);
+    const residual = qty - fromBook;
+    if (fromBook > 0) {
+      lot.cost -= fromBook * bookAvg;
+      lot.shares -= fromBook;
+      if (lot.shares <= 1e-9) { lot.shares = 0; lot.cost = 0; }
+      book.set(ticker, lot);
+    }
+
+    if (ts < sinceMs) continue;
+    sellCount++;
+
+    let pnl = 0;
+    let covered = 0;
+    if (fromBook > 0) {
+      pnl += (price - bookAvg) * fromBook;
+      covered += fromBook;
+    }
+    if (residual > 1e-9) {
+      // Shares the ledger never saw bought — price them off the broker's own
+      // average cost when the position is still open enough to report one.
+      const fallback = Number(avgCostByTicker?.[ticker]);
+      if (Number.isFinite(fallback) && fallback > 0) {
+        pnl += (price - fallback) * residual;
+        covered += residual;
+        estimated++;
+      }
+    }
+    if (covered <= 1e-9) { unattributed++; continue; }
+    if (covered + 1e-9 < qty) unattributed++; // only part of the sell had a basis
+    realized += pnl;
+  }
+
+  return {
+    realized: Math.round(realized * 100) / 100,
+    sell_count: sellCount,
+    unattributed_sells: unattributed,
+    estimated_sells: estimated,
+    // Partial when any of today's sold shares had no cost basis at all.
+    partial: unattributed > 0,
+  };
+}
+
 export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   const db = env?.BRIDGE_DB;
   if (!db) return null;
@@ -521,9 +619,42 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
   // 4. Day P&L.
   const unrealized = positions.reduce((acc, p) => acc + (Number(p.unrealizedPnl) || Number(p.unrealized_pnl) || 0), 0)
     + optionsPositions.reduce((acc, p) => acc + (Number(p.unrealizedPnl) || Number(p.unrealized_pnl) || 0), 0);
-  // Realized from EXIT ledger notional is not true realized P&L — keep 0
-  // until per-lot cost basis is wired. Unrealized still drives the day card.
-  const realized = 0;
+
+  // Realized — walk the account's whole fill history to build a weighted-average
+  // cost basis, then price today's sells against it. Live broker average cost
+  // covers positions adopted before the ledger existed.
+  const avgCostByTicker = {};
+  for (const p of positions) {
+    const sym = String(p.ticker || p.symbol || "").toUpperCase();
+    const avg = Number(p.avg_cost ?? p.avgCost ?? p.average_cost);
+    if (sym && Number.isFinite(avg) && avg > 0) avgCostByTicker[sym] = avg;
+  }
+  let realizedInfo = { realized: 0, sell_count: 0, unattributed_sells: 0, partial: false };
+  try {
+    const histSql = brokerAccountId
+      ? `SELECT ts, ticker, side, qty, price, event_type
+           FROM broker_account_ledger
+          WHERE status = 'ok' AND (user_id = ?1 OR broker_account_id = ?2)
+            AND UPPER(COALESCE(event_type, '')) IN ('ENTRY','EXIT','FILL','PARTIAL_FILL')
+          ORDER BY ts ASC LIMIT 5000`
+      : `SELECT ts, ticker, side, qty, price, event_type
+           FROM broker_account_ledger
+          WHERE status = 'ok' AND user_id = ?1
+            AND UPPER(COALESCE(event_type, '')) IN ('ENTRY','EXIT','FILL','PARTIAL_FILL')
+          ORDER BY ts ASC LIMIT 5000`;
+    const hs = db.prepare(histSql);
+    const hr = await (brokerAccountId
+      ? hs.bind(userId, String(brokerAccountId)).all()
+      : hs.bind(userId).all()
+    ).catch(() => ({ results: [] }));
+    realizedInfo = computeRealizedFromLedger(hr?.results || [], {
+      sinceMs: midnightEtMs,
+      avgCostByTicker,
+    });
+  } catch (e) {
+    console.warn(`[DAILY DIGEST] realized computation failed for ${userId}: ${String(e?.message || e).slice(0, 160)}`);
+  }
+  const realized = realizedInfo.realized;
   const equityEnd = Number(portfolio?.equity_usd) || Number(portfolio?.equity) || 0;
   const fillCount = executed.filter((e) => e.kind === "fill").length;
   const syncCount = executed.filter((e) => e.kind === "sync").length;
@@ -581,7 +712,15 @@ export async function buildDailyOwnerDigest(env, user, brokerAdapter) {
     sync_count: syncCount,
     rejected_count: rejected.length,
     positions, options_positions: optionsPositions,
-    day_pnl: { realized, unrealized, total: realized + unrealized },
+    day_pnl: {
+      realized,
+      unrealized,
+      total: realized + unrealized,
+      realized_sell_count: realizedInfo.sell_count,
+      realized_partial: realizedInfo.partial,
+      realized_unattributed_sells: realizedInfo.unattributed_sells,
+      realized_estimated_sells: realizedInfo.estimated_sells,
+    },
     equity_end: equityEnd,
     open_trades: openTrades,
     audit_total: audit.length,

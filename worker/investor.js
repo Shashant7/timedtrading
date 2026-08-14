@@ -969,6 +969,159 @@ export function extractInvestorTfSignalMap(tickerData) {
   return Object.keys(out).length ? out : null;
 }
 
+/** Highest posterior probability in an HMM posterior map (0-1), or null. */
+function _hmmPosteriorConfidence(posterior) {
+  if (posterior == null) return null;
+  if (typeof posterior === "number") return Number.isFinite(posterior) ? posterior : null;
+  if (typeof posterior !== "object") return null;
+  const vals = Object.values(posterior).map((v) => Number(v)).filter(Number.isFinite);
+  return vals.length ? Math.max(...vals) : null;
+}
+
+/** Most probable state + probability from a Markov forecast distribution. */
+function _markovTop(dist) {
+  if (!dist || typeof dist !== "object") return null;
+  let bestState = null;
+  let bestProb = -1;
+  for (const [state, raw] of Object.entries(dist)) {
+    const p = Number(raw);
+    if (!Number.isFinite(p) || p <= bestProb) continue;
+    bestProb = p;
+    bestState = state;
+  }
+  return bestState ? { state: bestState, prob: bestProb } : null;
+}
+
+const _TF_READ_ORDER = [["M", "Monthly"], ["W", "Weekly"], ["D", "Daily"], ["4H", "4-hour"]];
+
+/**
+ * Long-horizon signal context for notifications (email + Discord).
+ *
+ * Long Term alerts historically carried only a small facts table while Short
+ * Term alerts carried levels, sizing, regime and technical read. This collects
+ * the same classes of context from the live snapshot + score row so both
+ * horizons can render the same sections.
+ */
+export function buildInvestorSignalContext({
+  tickerData = null,
+  scoreRow = null,
+  position = null,
+  price = null,
+  value = null,
+  capital = null,
+} = {}) {
+  const td = tickerData && typeof tickerData === "object" ? tickerData : null;
+  const row = scoreRow && typeof scoreRow === "object" ? scoreRow : null;
+  const pos = position && typeof position === "object" ? position : null;
+
+  // ── Levels: invalidation floor is the long-horizon analogue of a stop ──
+  const invalidationPrice = (() => {
+    const candidates = [
+      row?.thesisInvalidationPrice, row?.thesis_invalidation_price,
+      row?.primaryInvalidation?.price, row?.primary_invalidation?.price,
+      pos?.thesis_invalidation_price,
+    ];
+    for (const c of candidates) {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+  })();
+  const invalidationLabel = String(
+    row?.primaryInvalidation?.label || row?.primary_invalidation?.label
+    || row?.primaryInvalidation?.type || row?.primary_invalidation?.type || "",
+  ).replace(/_/g, " ").trim() || null;
+
+  const fv = row?.fairValue || row?.fair_value || null;
+  const targetPrice = (() => {
+    const n = Number(fv?.fair_value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
+
+  const thesisInvalidation = (() => {
+    const raw = row?.thesisInvalidation ?? row?.thesis_invalidation;
+    if (Array.isArray(raw)) return raw.filter(Boolean).map(String).slice(0, 6);
+    if (typeof raw === "string" && raw.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.filter(Boolean).map(String).slice(0, 6);
+      } catch (_) { /* plain string below */ }
+      return [raw.trim()];
+    }
+    return [];
+  })();
+
+  // ── Sizing: percent of the long-horizon book, and a per-$1k scale hint ──
+  const bookCapital = Number(capital);
+  const notional = Number(value) > 0 ? Number(value) : null;
+  const sizingPct = Number.isFinite(bookCapital) && bookCapital > 0 && notional
+    ? (notional / bookCapital) * 100
+    : null;
+  const perThousand = sizingPct != null ? (sizingPct / 100) * 1000 : null;
+
+  // ── Regime: HMM latent state + Markov continuation odds ──
+  const lr = td?.latent_regime || null;
+  const fc = td?.regime_forecast || null;
+  const nextTop = _markovTop(fc?.p_next);
+  const dayTop = _markovTop(fc?.p_1d);
+  const regime = {
+    hmm_state: lr?.state ? String(lr.state) : null,
+    hmm_confidence: _hmmPosteriorConfidence(lr?.posterior),
+    market_state: td?.state ? String(td.state) : null,
+    markov_next_state: nextTop?.state || null,
+    markov_next_prob: nextTop ? nextTop.prob : null,
+    markov_1d_state: dayTop?.state || null,
+    markov_1d_prob: dayTop ? dayTop.prob : null,
+  };
+  const hasRegime = Object.values(regime).some((v) => v != null);
+
+  // ── Technical read across the timeframes the long-horizon book scores on ──
+  const tfMap = td ? extractInvestorTfSignalMap(td) : null;
+  const technicals = [];
+  for (const [tfKey, tfLabel] of _TF_READ_ORDER) {
+    const sig = tfMap?.[tfKey]?.signals;
+    if (!sig) continue;
+    const bits = [];
+    if (sig.supertrend === 1) bits.push("SuperTrend bullish");
+    else if (sig.supertrend === -1) bits.push("SuperTrend bearish");
+    if (sig.st_slope === 1) bits.push("slope rising");
+    else if (sig.st_slope === -1) bits.push("slope falling");
+    if (sig.ema_cross === 1) bits.push("EMA stack positive");
+    else if (sig.ema_cross === -1) bits.push("EMA stack negative");
+    if (Number.isFinite(Number(sig.rsi))) bits.push(`RSI ${Math.round(Number(sig.rsi))}`);
+    if (bits.length) technicals.push(`${tfLabel}: ${bits.join(" · ")}`);
+  }
+  const timingPrimary = row?.timing_primary || row?.timingPrimary || null;
+  if (timingPrimary) technicals.push(`Timing: ${String(timingPrimary).replace(/_/g, " ")}`);
+
+  return {
+    stage: row?.stage ?? pos?.investor_stage ?? null,
+    stage_reason: row?.stageReason ?? row?.stage_reason ?? null,
+    score: Number.isFinite(Number(row?.score)) ? Number(row.score) : null,
+    rs_rank: Number.isFinite(Number(row?.rsRank ?? row?.rs_rank))
+      ? Number(row?.rsRank ?? row?.rs_rank)
+      : null,
+    confidence: Number.isFinite(Number(row?.accumZone?.confidence))
+      ? Number(row.accumZone.confidence)
+      : null,
+    zone_type: row?.accumZone?.zoneType || row?.accumZone?.zone_type || null,
+    thesis: row?.thesis ? String(row.thesis).slice(0, 600) : (pos?.thesis || null),
+    thesis_invalidation: thesisInvalidation,
+    invalidation_price: invalidationPrice,
+    invalidation_label: invalidationLabel,
+    target_price: targetPrice,
+    target_label: fv?.fv_class ? String(fv.fv_class).replace(/_/g, " ") : null,
+    quality_grade: fv?.quality_grade || null,
+    sizing_pct: sizingPct,
+    per_thousand: perThousand,
+    avg_entry: Number.isFinite(Number(pos?.avg_entry)) ? Number(pos.avg_entry) : null,
+    price: Number.isFinite(Number(price)) ? Number(price) : null,
+    components: row?.components || null,
+    regime: hasRegime ? regime : null,
+    technicals: technicals.slice(0, 6),
+  };
+}
+
 /** Merge live tickerData TF grid (+ h4) into decision inputs for Autopsy. */
 export function enrichInvestorDecisionInputsWithTickerData(inputs, tickerData) {
   if (!inputs || typeof inputs !== "object") return inputs;

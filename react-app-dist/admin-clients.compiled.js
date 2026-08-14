@@ -430,14 +430,17 @@ function AdminClientsPage({
   };
   const stats = useMemo(() => {
     const now = Date.now();
-    const total = users.length;
-    const pro = users.filter(u => u.tier === "pro").length;
-    const vip = users.filter(u => u.tier === "vip").length;
-    const admin = users.filter(u => u.tier === "admin").length;
+    const removed = users.filter(u => u.status === "removed").length;
+    const roster = users.filter(u => u.status !== "removed");
+    const total = roster.length;
+    const pro = roster.filter(u => u.tier === "pro").length;
+    const vip = roster.filter(u => u.tier === "vip").length;
+    const admin = roster.filter(u => u.tier === "admin").length;
     const members = total - pro - vip - admin;
-    const active7d = users.filter(u => u.last_login_at && (now - u.last_login_at) / 86400000 <= 7).length;
-    const active30d = users.filter(u => u.last_login_at && (now - u.last_login_at) / 86400000 <= 30).length;
-    const termsAccepted = users.filter(u => u.terms_accepted_at).length;
+    const active7d = roster.filter(u => u.last_login_at && (now - u.last_login_at) / 86400000 <= 7).length;
+    const active30d = roster.filter(u => u.last_login_at && (now - u.last_login_at) / 86400000 <= 30).length;
+    const termsAccepted = roster.filter(u => u.terms_accepted_at).length;
+    const emailable = roster.filter(u => u.status !== "blocked" && ["pro", "vip", "admin"].includes(String(u.tier || "").toLowerCase())).length;
     return {
       total,
       pro,
@@ -446,7 +449,9 @@ function AdminClientsPage({
       members,
       active7d,
       active30d,
-      termsAccepted
+      termsAccepted,
+      removed,
+      emailable
     };
   }, [users]);
   const thClass = "px-2 py-2.5 text-left text-[10px] font-semibold text-[#8AA39A] uppercase tracking-wider cursor-pointer hover:text-[#E8F2EC] select-none whitespace-nowrap";
@@ -561,6 +566,14 @@ function AdminClientsPage({
     label: "Terms OK",
     value: stats.termsAccepted,
     color: "#34d399"
+  }, {
+    label: "Emailable",
+    value: stats.emailable,
+    color: "#38F2A1"
+  }, {
+    label: "Removed",
+    value: stats.removed,
+    color: "#8AA39A"
   }].map(s => React.createElement("div", {
     key: s.label,
     className: "tt-stat"
@@ -1128,6 +1141,6 @@ root.render(React.createElement(AuthGate, {
 }, user => React.createElement(AdminClientsPage, {
   user: user
 })));
-// cache-bust:1786662191628:916120809
+// cache-bust:1786745177723:80378833
 
-// cache-bust:1786662191628:916120809
+// cache-bust:1786745177723:80378833

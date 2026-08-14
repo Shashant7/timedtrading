@@ -2095,6 +2095,222 @@ export function getUserEmailPrefs(user) {
  * @param {object} env
  * @param {object} alert - { type: "accumulation_zone"|"rs_breakout"|"thesis_invalidation", data: {...} }
  */
+const _INVESTOR_ALERT_ICON = {
+  position_open: "🟢",
+  position_add: "🟢",
+  position_trim: "✂️",
+  position_close: "🏁",
+  accumulation_zone: "🎯",
+  rs_breakout: "📈",
+  thesis_invalidation: "⚠️",
+};
+
+/** Long Term equivalent of the trader "Position" block. */
+function _investorPositionLines(type, data) {
+  const lines = [];
+  const isBuy = type === "position_open" || type === "position_add";
+  const isSell = type === "position_trim" || type === "position_close";
+  const px = Number(data.price);
+  const num = (n, dp = 2) => Number(n).toFixed(dp).replace(/\.?0+$/, "");
+
+  if (Number.isFinite(px) && px > 0) {
+    const label = isBuy ? "Entry" : isSell ? "Exit price" : "Price";
+    lines.push(`${label}: <strong style="color:white">$${px.toFixed(2)}</strong>`);
+  }
+  if (Number.isFinite(Number(data.avg_entry)) && Number(data.avg_entry) > 0 && !isBuy) {
+    lines.push(`Average entry: <strong style="color:white">$${Number(data.avg_entry).toFixed(2)}</strong>`);
+  }
+  if (Number.isFinite(Number(data.invalidation_price)) && Number(data.invalidation_price) > 0) {
+    const lbl = data.invalidation_label ? ` <span style="color:${BRAND.textMuted}">(${_esc(data.invalidation_label)})</span>` : "";
+    lines.push(`Invalidation floor: <strong style="color:#f43f5e">$${Number(data.invalidation_price).toFixed(2)}</strong>${lbl}`);
+  }
+  if (Number.isFinite(Number(data.target_price)) && Number(data.target_price) > 0) {
+    const lbl = data.target_label ? ` <span style="color:${BRAND.textMuted}">(${_esc(data.target_label)})</span>` : "";
+    lines.push(`Fair-value target: <strong style="color:#10b981">$${Number(data.target_price).toFixed(2)}</strong>${lbl}`);
+  }
+  if (Number.isFinite(Number(data.shares)) && Number(data.shares) > 0) {
+    const verb = isSell ? "Shares sold" : "Shares";
+    const valPart = Number.isFinite(Number(data.value)) && Number(data.value) > 0
+      ? ` &nbsp;|&nbsp; Notional: <strong style="color:white">$${Math.round(Number(data.value)).toLocaleString()}</strong>`
+      : "";
+    lines.push(`${verb}: <strong style="color:white">${num(data.shares, 4)}</strong>${valPart}`);
+  }
+  if (Number.isFinite(Number(data.sizing_pct)) && Number(data.sizing_pct) > 0) {
+    lines.push(`Sizing: <strong style="color:white">${Number(data.sizing_pct).toFixed(1)}% of the long-horizon book</strong>`);
+    if (Number.isFinite(Number(data.per_thousand)) && Number(data.per_thousand) > 0) {
+      lines.push(`Scale to any account size: <strong style="color:white">≈ $${Number(data.per_thousand).toFixed(0)} per $1k</strong>`);
+    }
+  }
+  const remaining = data.total_shares_after ?? data.remaining;
+  if (Number.isFinite(Number(remaining))) {
+    lines.push(Number(remaining) <= 0.0001
+      ? `Position: <strong style="color:white">closed — 0 shares remaining</strong>`
+      : `Total after action: <strong style="color:white">${num(remaining, 2)} shares</strong>`);
+  }
+  if (Number.isFinite(Number(data.pnl))) {
+    const p = Number(data.pnl);
+    lines.push(`Realized P&amp;L: <strong style="color:${p >= 0 ? "#10b981" : "#f43f5e"}">${p >= 0 ? "+" : "-"}$${Math.abs(p).toFixed(2)}</strong>`);
+  }
+  if (Number.isFinite(Number(data.score))) {
+    lines.push(`Long Term Score: <strong style="color:white">${Math.round(Number(data.score))}/100</strong>`);
+  }
+  return lines;
+}
+
+/** Long Term equivalent of the trader "Signal Quality" block. */
+function _investorSignalQualityLines(data) {
+  const lines = [];
+  if (Number.isFinite(Number(data.score))) lines.push(`Long Term Score: <strong style="color:white">${Math.round(Number(data.score))}/100</strong>`);
+  if (Number.isFinite(Number(data.confidence))) lines.push(`Zone confidence: <strong style="color:white">${Math.round(Number(data.confidence))}%</strong>`);
+  if (Number.isFinite(Number(data.rsRank ?? data.rs_rank))) {
+    lines.push(`RS Rank: <strong style="color:white">${Math.round(Number(data.rsRank ?? data.rs_rank))}th percentile</strong>`);
+  }
+  if (data.zoneType) lines.push(`Zone type: <strong style="color:white">${_esc(String(data.zoneType).replace(/_/g, " "))}</strong>`);
+  const comps = data.components;
+  if (comps && typeof comps === "object") {
+    const top = Object.entries(comps)
+      .filter(([, v]) => Number.isFinite(Number(v)) && Number(v) !== 0)
+      .sort((a, b) => Math.abs(Number(b[1])) - Math.abs(Number(a[1])))
+      .slice(0, 4)
+      .map(([k, v]) => `${String(k).replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()).trim()} ${Number(v) > 0 ? "+" : ""}${Number(v)}`);
+    if (top.length) lines.push(`Score drivers: <strong style="color:white">${_esc(top.join(" · "))}</strong>`);
+  }
+  if (Array.isArray(data.signals) && data.signals.length) {
+    lines.push(`Signals: ${_esc(data.signals.map((s) => String(s).replace(/_/g, " ")).join(", "))}`);
+  }
+  return lines;
+}
+
+/** HMM latent regime + Markov continuation + per-timeframe technical read. */
+function _investorTechnicalLines(data) {
+  const lines = [];
+  const r = data.regime;
+  if (r && typeof r === "object") {
+    if (r.hmm_state) {
+      const conf = Number.isFinite(Number(r.hmm_confidence))
+        ? ` <span style="color:${BRAND.textMuted}">(${Math.round(Number(r.hmm_confidence) * 100)}% posterior)</span>`
+        : "";
+      lines.push(`HMM latent regime: <strong style="color:white">${_esc(String(r.hmm_state).replace(/_/g, " "))}</strong>${conf}`);
+    }
+    if (r.market_state) {
+      lines.push(`Multi-timeframe state: <strong style="color:white">${_esc(String(r.market_state).replace(/_/g, " "))}</strong>`);
+    }
+    if (r.markov_next_state && Number.isFinite(Number(r.markov_next_prob))) {
+      lines.push(`Markov next bar: <strong style="color:white">${_esc(String(r.markov_next_state).replace(/_/g, " "))} ${Math.round(Number(r.markov_next_prob) * 100)}%</strong>`);
+    }
+    if (r.markov_1d_state && Number.isFinite(Number(r.markov_1d_prob))) {
+      lines.push(`Markov 1-day: <strong style="color:white">${_esc(String(r.markov_1d_state).replace(/_/g, " "))} ${Math.round(Number(r.markov_1d_prob) * 100)}%</strong>`);
+    }
+  }
+  if (Array.isArray(data.technicals)) {
+    for (const t of data.technicals.slice(0, 6)) lines.push(_esc(t));
+  }
+  return lines;
+}
+
+/**
+ * Build the Long Term signal email body (exported for tests).
+ *
+ * Section order intentionally mirrors sendTradeAlertEmail so Short Term and
+ * Long Term signals read the same way: chart, position, setup, options,
+ * signal quality, technical read, why, AI CIO, CTA.
+ */
+export function buildInvestorSignalEmailBody({ type, data, meta, action, chartImgHtml, chartUrl, baseUrl }) {
+  const sym = String(data.ticker || "").toUpperCase();
+  const tone = action?.color || BRAND.green;
+  const icon = _INVESTOR_ALERT_ICON[type] || "▶";
+  const url = `${baseUrl || "https://timed-trading.com"}/today.html?ticker=${encodeURIComponent(sym)}`;
+  const px = Number(data.price);
+  const priceFmt = Number.isFinite(px) && px > 0 ? `$${px.toFixed(2)}` : "N/A";
+  const etTime = _fmtEtClock(data.executed_at);
+
+  const posLines = _investorPositionLines(type, data);
+  const sqLines = _investorSignalQualityLines(data);
+  const techLines = _investorTechnicalLines(data);
+
+  const setupLines = [];
+  if (data.stage) setupLines.push(`Stage: <strong style="color:white">${_esc(String(data.stage).replace(/_/g, " "))}</strong>`);
+  if (data.quality_grade) setupLines.push(`Quality grade: <strong style="color:white">${_esc(data.quality_grade)}</strong>`);
+  if (data.thesis) setupLines.push(`<div style="margin:6px 0 0;color:${BRAND.textSecondary};white-space:pre-wrap">${_esc(data.thesis)}</div>`);
+  if (Array.isArray(data.thesis_invalidation) && data.thesis_invalidation.length) {
+    setupLines.push(`<div style="margin:8px 0 0"><span style="color:${BRAND.textMuted}">Thesis breaks if:</span> ${_esc(data.thesis_invalidation.join("; "))}</div>`);
+  }
+
+  let optionsPlaySection = "";
+  if ((type === "position_open" || type === "position_add") && data.options_play) {
+    const html = data.options_play.shadow
+      ? shadowOptionsPlayEmailHtml(data.options_play)
+      : optionsPlayEmailHtml(data.options_play);
+    if (html) optionsPlaySection = _section("Options Play (LEAP · Long Term)", html);
+  }
+
+  const whyText = data.reasonLabel || data.reason;
+  const whySection = whyText
+    ? _section(
+        type === "position_trim" || type === "position_close" ? "Why The Model Reduced" : "Why The Model Bought",
+        `<strong style="color:white">${_esc(String(whyText).replace(/_/g, " "))}</strong>`
+          + (data.stage_reason ? `<div style="margin:6px 0 0;color:${BRAND.textMuted};font-size:12px">${_esc(String(data.stage_reason).replace(/_/g, " "))}</div>` : ""),
+      )
+    : "";
+
+  const cioSection = data.cio_reasoning
+    ? _section("AI CIO Guidance", `
+        ${data.cio_decision ? `<div style="margin:0 0 8px"><strong style="color:#a78bfa;font-size:14px">${_esc(data.cio_decision)}</strong></div>` : ""}
+        <div style="color:${BRAND.textSecondary};white-space:pre-wrap">${_esc(data.cio_reasoning)}</div>`)
+    : "";
+
+  const bodyHtml = `
+    <div style="border-left:3px solid ${tone};padding:0 0 0 14px;margin:0 0 8px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.14em;color:#a78bfa;text-transform:uppercase;margin:0 0 4px">Long Term Signal</div>
+      <h1 style="margin:0 0 4px;font-size:18px;font-weight:700;color:white">
+        ${icon} ${_esc(meta.headline)}: ${_esc(sym)} <span style="color:${tone}">LONG</span> @ ${priceFmt}
+      </h1>
+      <p style="margin:0;font-size:12px;color:${BRAND.textMuted}">
+        ${_esc(etTime || new Date().toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" }))}
+      </p>
+    </div>
+
+    <div style="margin:14px 0 0;padding:14px 16px;border-radius:10px;background:${tone}1A;border:1px solid ${tone}55">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>
+      <div style="font-size:18px;font-weight:700;color:${tone};letter-spacing:0.02em;margin-bottom:6px">${_esc(action.verb)}</div>
+      <div style="font-size:13px;line-height:1.55;color:${BRAND.textSecondary}">${_esc(action.one_liner)}</div>
+    </div>
+
+    <p style="margin:14px 0 0;font-size:14px;line-height:1.55;color:${BRAND.textSecondary}">${meta.lede}</p>
+    ${chartImgHtml || ""}
+    ${posLines.length ? _section("Position", posLines.join("<br>")) : ""}
+    ${setupLines.length ? _section("Setup &amp; Thesis", setupLines.join("<br>")) : ""}
+    ${optionsPlaySection}
+    ${sqLines.length ? _section("Signal Quality", sqLines.join("<br>")) : ""}
+    ${techLines.length ? _section("Technical Read", techLines.join("<br>")) : ""}
+    ${whySection}
+    ${cioSection}
+    <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 0">
+      <tr><td style="background:${tone};border-radius:8px;padding:10px 24px">
+        <a href="${url}" style="color:#0a0a0f;font-size:13px;font-weight:700;text-decoration:none;display:inline-block">Open in Model (Long Term)</a>
+      </td></tr>
+    </table>
+    <p style="margin:18px 0 0;font-size:11px;color:${BRAND.textMuted};line-height:1.6">
+      Long-horizon model action — not a short-term trade signal and not investment advice.
+    </p>
+  `;
+
+  const plain = (s) => String(s || "").replace(/<[^>]+>/g, "");
+  const txt = [`${meta.headline}: ${sym} LONG @ ${priceFmt}`];
+  if (etTime) txt.push(etTime);
+  txt.push("", `TT Model signal — ${action.verb}`, action.one_liner, "", plain(meta.lede));
+  if (posLines.length) txt.push("", "Position:", ...posLines.map((l) => "  " + plain(l)));
+  if (setupLines.length) txt.push("", "Setup & Thesis:", ...setupLines.map((l) => "  " + plain(l)));
+  if (sqLines.length) txt.push("", "Signal Quality:", ...sqLines.map((l) => "  " + plain(l)));
+  if (techLines.length) txt.push("", "Technical Read:", ...techLines.map((l) => "  " + plain(l)));
+  if (whyText) txt.push("", `Why: ${String(whyText).replace(/_/g, " ")}`);
+  if (data.cio_reasoning) txt.push("", "AI CIO guidance:", String(data.cio_reasoning).trim());
+  txt.push("", `View: ${url}`);
+  if (chartUrl) txt.push(`Chart: ${chartUrl}`);
+
+  return { bodyHtml, text: txt.join("\n") };
+}
+
 export async function sendInvestorAlertEmails(env, alert) {
   const opted = await getEmailOptedInUsers(env, "investor_alerts").catch(() => []);
   if (!opted.length) return { sent: 0, recipients: 0 };
@@ -2167,26 +2383,14 @@ export async function sendInvestorAlertEmails(env, alert) {
   };
   const meta = TYPE_META[type];
   if (!meta) return { sent: 0, recipients: opted.length };
-  const tone = action.color;
-
-  const factsHtml = (() => {
-    const rows = [];
-    if (data.score != null) rows.push(["Long Term Score", `${data.score} / 100`]);
-    if (data.confidence != null) rows.push(["Confidence", `${data.confidence}%`]);
-    if (data.rsRank != null) rows.push(["RS Rank", `${data.rsRank}th percentile`]);
-    if (data.zoneType) rows.push(["Zone Type", String(data.zoneType).replace(/_/g, " ")]);
-    if (Array.isArray(data.signals) && data.signals.length) rows.push(["Signals", data.signals.map((s) => String(s).replace(/_/g, " ")).join(", ")]);
-    if (data.shares != null) rows.push(["Shares", `${Number(data.shares).toFixed(2)}`]);
-    if (data.price != null) rows.push(["Price", `$${Number(data.price).toFixed(2)}`]);
-    if (data.pnl != null) rows.push(["Realized P&L", `$${Number(data.pnl).toFixed(2)}`]);
-    if (data.remaining != null) rows.push(["Remaining", `${Number(data.remaining).toFixed(2)} shares`]);
-    if (data.reasonLabel || data.reason) rows.push(["Reason", String(data.reasonLabel || data.reason).replace(/_/g, " ")]);
-    return rows.map(([k, v]) => `<tr><td style="padding:6px 12px 6px 0;color:#9ca3af;font-size:12px;vertical-align:top">${k}</td><td style="padding:6px 0;color:#e5e7eb;font-size:13px;font-weight:600">${v}</td></tr>`).join("");
-  })();
 
   // 1H chart — ~2 trading days of context (aligned with rebalance execution emails).
   const _workerUrl = env?.WORKER_URL || "https://timed-trading.com";
-  const _alertKind = type === "position_close" ? "close" : type === "position_trim" ? "trim" : null;
+  const _alertKind = type === "position_close" ? "close"
+    : type === "position_trim" ? "trim"
+    : type === "position_open" ? "open"
+    : type === "position_add" ? "add"
+    : null;
   const _chartImgUrl = _investorChartUrl(data.ticker, _workerUrl, {
     price: data.price,
     invalidation_price: data.invalidation_price,
@@ -2201,55 +2405,33 @@ export async function sendInvestorAlertEmails(env, alert) {
   <div style="margin:4px 2px 0;font-size:10px;color:#6b7280">1H chart · last ~2 trading days · refreshes every 5 min</div>
 </div>`;
 
-  const tickerUrl = `https://timed-trading.com/today.html?ticker=${encodeURIComponent(data.ticker)}`;
   const subject = `[LONG TERM · ${action.verb}] ${meta.subjectBase} — Timed Trading`;
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${subject}</title></head>
-<body style="margin:0;background:#0a0a0f;color:#e5e7eb;font-family:'Inter',Helvetica,Arial,sans-serif">
-<table width="100%" cellspacing="0" cellpadding="0" style="background:#0a0a0f;padding:24px 16px">
-<tr><td align="center">
-<table width="560" cellspacing="0" cellpadding="0" style="max-width:560px;background:#141821;border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:24px">
-<tr><td>
-<div style="font-size:10px;font-weight:700;letter-spacing:0.14em;color:#a78bfa;text-transform:uppercase;margin-bottom:6px">LONG TERM SIGNAL</div>
-<div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:8px">${meta.headline}</div>
-<h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#f0f6fc">${data.ticker}</h1>
 
-<!-- Action badge — the single most important thing in this email -->
-<div style="margin:0 0 14px;padding:14px 16px;border-radius:10px;background:${tone}1A;border:1px solid ${tone}55">
-  <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:${tone};text-transform:uppercase;margin-bottom:4px">▶ TT Model signal</div>
-  <div style="font-size:18px;font-weight:700;color:${tone};letter-spacing:0.02em;margin-bottom:6px">${action.verb}</div>
-  <div style="font-size:13px;line-height:1.55;color:#e5e7eb">${action.one_liner}</div>
-</div>
+  // 2026-08-14 — Long Term signals now render the same sections as Short Term
+  // (position, setup, options, signal quality, technical read, AI CIO) through
+  // the shared emailLayout instead of a bespoke facts table.
+  const { bodyHtml, text } = buildInvestorSignalEmailBody({
+    type, data, meta, action,
+    chartImgHtml, chartUrl: _chartImgUrl, baseUrl: _workerUrl,
+  });
 
-<p style="margin:0 0 8px;font-size:14px;line-height:1.55;color:#cbd5e1">${meta.lede}</p>
-
-${chartImgHtml}
-
-<table cellspacing="0" cellpadding="0" style="margin:14px 0 18px">${factsHtml}</table>
-${data.cio_reasoning ? `
-<div style="margin:0 0 16px;padding:14px 16px;border-radius:10px;background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.25)">
-  <div style="font-size:10px;font-weight:700;letter-spacing:0.12em;color:#a78bfa;text-transform:uppercase;margin-bottom:6px">AI CIO guidance</div>
-  <div style="font-size:13px;line-height:1.55;color:#e5e7eb;white-space:pre-wrap">${String(data.cio_reasoning).replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
-</div>` : ""}
-<a href="${tickerUrl}" style="display:inline-block;padding:10px 18px;background:${tone};color:#0a0a0f;border-radius:8px;font-size:13px;font-weight:700;text-decoration:none">View ${data.ticker} in TT →</a>
-<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06);font-size:11px;color:#6b7280;line-height:1.6">
-Informational model signal only — not investment advice. The TT Long Term model portfolio tracks this in simulation; live broker mirroring requires the Phase 1 share-mirror config.<br>
-You're receiving this because Long Term Signal emails are enabled. <a href="https://timed-trading.com/today.html" style="color:${tone};text-decoration:none">Manage preferences</a>.
-</div>
-</td></tr></table></td></tr></table></body></html>`;
   let sent = 0, failed = 0;
   for (const u of opted) {
     try {
+      const unsubscribeUrl = env?.EMAIL_HMAC_SECRET
+        ? await buildUnsubscribeUrl(_workerUrl, u.email, "investor_alerts", env.EMAIL_HMAC_SECRET).catch(() => null)
+        : null;
       const r = await sendEmail(env, {
         to: u.email,
         subject,
-        html,
-        text: `[LONG TERM · ${action.verb}] ${meta.headline}: ${data.ticker}\n\n` +
-              `TT Model signal — ${action.verb}\n${action.one_liner}\n\n` +
-              `${meta.lede.replace(/<[^>]+>/g, "")}\n\n` +
-              (data.cio_reasoning ? `AI CIO guidance:\n${String(data.cio_reasoning).trim()}\n\n` : "") +
-              `View: ${tickerUrl}\nChart: ${_chartImgUrl}\n\nManage email preferences at https://timed-trading.com/today.html.`,
+        html: emailLayout(bodyHtml, {
+          unsubscribeUrl,
+          preheader: `${meta.headline}: ${data.ticker} @ $${Number(data.price || 0).toFixed(2)} — ${action.verb}`,
+        }),
+        text,
+        category: "investor_alert",
       });
-      if (r?.ok) sent++; else failed++;
+      if (r?.ok !== false) sent++; else failed++;
     } catch (e) {
       failed++;
       console.warn(`[INVESTOR ALERT EMAIL] ${u.email} failed:`, String(e?.message || e).slice(0, 200));
@@ -2267,8 +2449,15 @@ export async function getEmailOptedInUsers(env, prefKey) {
   const db = env?.DB;
   if (!db) return [];
   try {
+    // 2026-08-14 — Removed / blocked accounts are a soft delete (users.status),
+    // which left them on every bulk send. An admin removing an account is an
+    // explicit statement that it should stop being contacted, so status is now
+    // part of the recipient query, not just the admin table filter.
     const { results } = await db.prepare(
-      `SELECT email, display_name, tier, email_preferences, last_login_at FROM users WHERE tier IN ('pro', 'vip', 'admin')`
+      `SELECT email, display_name, tier, email_preferences, last_login_at, status
+         FROM users
+        WHERE tier IN ('pro', 'vip', 'admin')
+          AND COALESCE(status, 'active') = 'active'`
     ).all();
     return (results || []).filter(u => {
       const prefs = getUserEmailPrefs(u);
@@ -2278,6 +2467,36 @@ export async function getEmailOptedInUsers(env, prefKey) {
     console.warn("[EMAIL] Failed to query opted-in users:", String(e?.message || e).slice(0, 200));
     return [];
   }
+}
+
+/**
+ * Emails that must not be contacted because the account was removed or blocked.
+ *
+ * Per-account sends (broker digests, mirror-sync digests) look users up by
+ * address rather than going through getEmailOptedInUsers, so they need the
+ * same status gate. Unknown addresses are NOT suppressed — bridge digests can
+ * legitimately target an operator address that has no users row.
+ */
+export async function findSuppressedRecipients(env, emails) {
+  const suppressed = new Set();
+  const list = [...new Set((emails || [])
+    .map((e) => String(e || "").toLowerCase().trim())
+    .filter((e) => e.includes("@")))];
+  if (!env?.DB || list.length === 0) return suppressed;
+  try {
+    const placeholders = list.map((_, i) => `?${i + 1}`).join(", ");
+    const { results } = await env.DB.prepare(
+      `SELECT email, status FROM users
+        WHERE lower(email) IN (${placeholders})
+          AND COALESCE(status, 'active') != 'active'`,
+    ).bind(...list).all();
+    for (const row of results || []) {
+      suppressed.add(String(row.email || "").toLowerCase().trim());
+    }
+  } catch (e) {
+    console.warn("[EMAIL] suppression lookup failed:", String(e?.message || e).slice(0, 160));
+  }
+  return suppressed;
 }
 
 /** ISO week key in America/New_York (YYYY-Www) for weekly email idempotency. */
@@ -3081,6 +3300,27 @@ function _buildMirrorEventCard(ev) {
  * Returns { subject, html, text, count, worstSeverity } or null when empty.
  */
 /**
+ * How much of today's realized figure rests on a real cost basis.
+ *
+ * The broker ledger starts mid-life, so some sold shares have no recorded buy.
+ * Those are excluded from the total (partial) or priced off the broker's own
+ * average cost (estimated) — either way the email says so instead of
+ * presenting the number as exact.
+ */
+function _realizedBasisNote(dayPnl) {
+  const sells = Number(dayPnl?.realized_sell_count || 0);
+  if (sells <= 0) return "";
+  const plural = (n) => `${n} sell${n === 1 ? "" : "s"}`;
+  if (dayPnl?.realized_partial) {
+    const n = Number(dayPnl?.realized_unattributed_sells || 0);
+    return `partial — ${plural(n)} missing a recorded cost basis`;
+  }
+  const est = Number(dayPnl?.estimated_sells ?? dayPnl?.realized_estimated_sells ?? 0);
+  if (est > 0) return `${plural(est)} priced off the broker average cost`;
+  return plural(sells);
+}
+
+/**
  * Branded end-of-day broker account digest (Account today).
  * Prefers structured `digest` from the bridge (`digest_summary` on the
  * notify queue). Matches Mirror Sync / brief emailLayout styling.
@@ -3103,6 +3343,15 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
   const actionHeadline = actionBits.join(", ");
   const subject = `[Timed Trading] Account today — ${actionHeadline}, ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`;
   const pnlColor = total >= 0 ? BRAND.green : BRAND.danger;
+
+  // Realized is priced off a weighted-average cost basis walked from the
+  // account ledger. Sells on positions that pre-date the ledger have no basis,
+  // so say the figure is partial rather than presenting it as complete.
+  const realized = Number(digest.day_pnl?.realized || 0);
+  const realizedNoteText = _realizedBasisNote(digest.day_pnl);
+  const realizedNote = realizedNoteText
+    ? ` <span style="color:${BRAND.textMuted}">(${_esc(realizedNoteText)})</span>`
+    : "";
 
   const actionRows = (digest.executed || []).slice(0, 40).map((t) => {
     const label = _esc(t.label || t.side || "TRADE");
@@ -3137,7 +3386,7 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
       <tr><td style="padding:16px 18px">
         <div style="font-size:26px;font-weight:700;color:${pnlColor};font-family:${EMAIL_FONT_MONO}">${totalSign}${totalUsd} <span style="font-size:14px">(${totalSign}${pctOfEquity})</span></div>
         <div style="font-size:11px;color:${BRAND.textMuted};margin-top:6px">
-          Realized $${Number(digest.day_pnl?.realized || 0).toFixed(2)}
+          Realized <span style="color:${realized > 0 ? BRAND.green : realized < 0 ? BRAND.danger : BRAND.textMuted}">${realized < 0 ? "-" : ""}$${Math.abs(realized).toFixed(2)}</span>${realizedNote}
           · Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}
           · Equity $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
         </div>
@@ -3179,6 +3428,9 @@ export function buildDailyOwnerDigestEmail(digest, opts = {}) {
     })),
     "",
     `Day P&L ${totalSign}${totalUsd} (${totalSign}${pctOfEquity})`,
+    `  Realized ${realized < 0 ? "-" : ""}$${Math.abs(realized).toFixed(2)}`
+      + (realizedNoteText ? ` (${realizedNoteText})` : ""),
+    `  Unrealized $${Number(digest.day_pnl?.unrealized || 0).toFixed(2)}`,
     `Equity end $${Number(digest.equity_end || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
     "",
     `Broker Connections: ${baseUrl}/broker-connections.html`,

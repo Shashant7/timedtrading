@@ -910,6 +910,7 @@ import {
   resolveInvestor4hTiming,
   buildInvestorDecisionInputs,
   compactInvestorScoreProvenance,
+  buildInvestorSignalContext,
 } from "./investor.js";
 import { enrichInvestorDayState } from "./seed-investor-daystate.js";
 import { resolveScoringUniverse } from "./universe.js";
@@ -38599,6 +38600,16 @@ function investorLotReasonLabel(reason) {
   if (r === "investor_score_very_low") return "Reduce — investor score fell sharply";
   if (r.startsWith("pre_earnings")) return "Pre-earnings risk reduction";
   if (r.startsWith("pre_")) return "Pre-event risk reduction";
+  // Buy-side reasons — the raw keys ("auto entry accumulate") read like debug
+  // output in an email, so spell out what the model actually did.
+  const stageWord = (key) => String(r.slice(key.length)).replace(/_/g, " ").trim();
+  if (r.startsWith("auto_entry_")) {
+    return `New starter position — ${stageWord("auto_entry_")} stage (portfolio rebalance)`;
+  }
+  if (r.startsWith("auto_rebalance_")) {
+    return `Scale-in to an existing position — ${stageWord("auto_rebalance_")} stage (portfolio rebalance)`;
+  }
+  if (r.startsWith("dca")) return "Scheduled DCA tranche";
   return String(reason || "Long Term portfolio action").replace(/_/g, " ");
 }
 
@@ -38791,15 +38802,26 @@ function scheduleInvestorBuyActionChannels(env, KV, payload) {
   const ticker = String(payload?.ticker || "").toUpperCase();
   if (!ticker) return;
   const invType = payload.investor_alert_type || "position_add";
+  // 2026-08-14 — signal_context carries the levels / sizing / regime / technical
+  // read that the Short Term entry email already had, so both horizons render
+  // the same sections. Explicit payload fields win over the derived context.
+  const ctx = payload.signal_context && typeof payload.signal_context === "object"
+    ? payload.signal_context
+    : {};
   const data = {
+    ...ctx,
     ticker,
     shares: payload.shares,
     price: payload.price,
     value: payload.value ?? (Number(payload.shares) * Number(payload.price)),
     reason: payload.reason,
-    stage: payload.stage ?? null,
-    score: payload.score ?? null,
+    reasonLabel: investorLotReasonLabel(payload.reason),
+    stage: payload.stage ?? ctx.stage ?? null,
+    score: payload.score ?? ctx.score ?? null,
     cio_reasoning: payload.cio_reasoning ?? null,
+    total_shares_after: payload.total_shares_after ?? null,
+    executed_at: Number(payload.ts) || Date.now(),
+    options_play: payload.options_play ?? null,
   };
   const action = deriveInvestorAlertAction(invType, data);
   const embed = createInvestorAlertEmbed(invType, data);
@@ -79515,7 +79537,7 @@ export default {
           if (db) {
             try {
               userRow = await db.prepare(
-                `SELECT email, tier, subscription_status, display_name, last_login_at, email_preferences, stripe_customer_id, expires_at FROM users WHERE email = ?1`
+                `SELECT email, tier, subscription_status, display_name, last_login_at, email_preferences, stripe_customer_id, expires_at, status FROM users WHERE email = ?1`
               ).bind(targetEmail).first();
             } catch (e) {
               console.warn("[EMAIL DIAG] users SELECT failed:", String(e?.message || e).slice(0, 200));
@@ -79524,14 +79546,18 @@ export default {
           const prefs = userRow ? getUserEmailPrefs(userRow) : null;
           const tier = String(userRow?.tier || "free").toLowerCase();
           const isPaid = tier === "pro" || tier === "vip" || tier === "admin";
+          const accountStatus = String(userRow?.status || "active").toLowerCase();
+          const isActive = accountStatus === "active";
+          const mailable = isPaid && isActive;
 
           // What would the next cron actually do for this user?
           const wouldReceive = {
-            daily_brief_morning: !!(isPaid && prefs?.daily_brief_morning),
-            daily_brief_evening: !!(isPaid && prefs?.daily_brief_evening),
-            trade_alerts:        !!(isPaid && prefs?.trade_alerts),
-            weekly_digest:       !!(isPaid && prefs?.weekly_digest),
-            re_engagement:       !!(isPaid && prefs?.re_engagement),
+            daily_brief_morning: !!(mailable && prefs?.daily_brief_morning),
+            daily_brief_evening: !!(mailable && prefs?.daily_brief_evening),
+            trade_alerts:        !!(mailable && prefs?.trade_alerts),
+            weekly_digest:       !!(mailable && prefs?.weekly_digest),
+            re_engagement:       !!(mailable && prefs?.re_engagement),
+            investor_alerts:     !!(mailable && prefs?.investor_alerts),
           };
 
           // Last brief send snapshots — written by daily-brief.js.
@@ -79551,6 +79577,7 @@ export default {
           const diagnosis = [];
           if (!userRow) diagnosis.push("User not found in users table — provisioning likely never ran.");
           if (userRow && !isPaid) diagnosis.push(`Tier is "${tier}" — only pro/vip/admin tiers are queried by getEmailOptedInUsers.`);
+          if (userRow && !isActive) diagnosis.push(`Account status is "${accountStatus}" — removed/blocked accounts are excluded from every send.`);
           if (userRow && isPaid && prefs && !prefs.daily_brief_morning) diagnosis.push("daily_brief_morning preference is OFF for this user.");
           if (userRow && isPaid && prefs && !prefs.daily_brief_evening) diagnosis.push("daily_brief_evening preference is OFF for this user.");
           if (!providerStatus.EMAIL_ENABLED) diagnosis.push("EMAIL_ENABLED env var is NOT 'true' — sendEmail() short-circuits.");
@@ -83279,7 +83306,15 @@ export default {
             getUserEmailPrefs: getPrefsForDrain,
             groupMirrorNotifyItemsByUser,
             notifyItemToMirrorEvent,
+            findSuppressedRecipients,
           } = emailMod;
+          // Removed / blocked accounts must not receive per-account digests
+          // either — these paths look users up by address, so they bypass the
+          // status gate in getEmailOptedInUsers.
+          const _suppressed = typeof findSuppressedRecipients === "function"
+            ? await findSuppressedRecipients(env, (parsed.items || []).map((i) => i?.user_email))
+            : new Set();
+          const _isSuppressed = (addr) => _suppressed.has(String(addr || "").toLowerCase().trim());
           // 2026-06-01 — Direct-message escalation. When
           // BROKER_NOTIFY_DM_USER=true AND the user has linked Discord
           // (`users.discord_id` populated from the OAuth flow), we ALSO
@@ -83324,7 +83359,7 @@ export default {
           for (const item of dailyItems) {
             const to = String(item?.user_email || "").toLowerCase().trim();
             let content = item?.content || {};
-            if (!to.includes("@") || item?.dry_run === true) {
+            if (!to.includes("@") || item?.dry_run === true || _isSuppressed(to)) {
               dailySkipped++;
               continue;
             }
@@ -83376,6 +83411,7 @@ export default {
             : new Map();
           const digests = [];
           for (const [userEmail, items] of byUser) {
+            if (_isSuppressed(userEmail)) continue;
             const events = [];
             for (const item of items) {
               const ev = typeof notifyItemToMirrorEvent === "function"
@@ -95787,6 +95823,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 lot_id: lotId,
                 ts: now,
                 cio_reasoning: _cioAddReasoning,
+                total_shares_after: newShares,
+                signal_context: buildInvestorSignalContext({
+                  tickerData: _tdAdd || _tdAddGate,
+                  scoreRow: _scoreRowAdd,
+                  position: t.existing,
+                  price: t.price,
+                  value,
+                  capital: INVESTOR_CAPITAL,
+                }),
               });
             } else {
               // New position
@@ -96042,6 +96087,14 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 lot_id: lotId,
                 ts: now,
                 cio_reasoning: _cioOpenReasoning,
+                total_shares_after: shares,
+                signal_context: buildInvestorSignalContext({
+                  tickerData: _tdOpen || _tdAddGate,
+                  scoreRow: _scoreRowOpen,
+                  price: t.price,
+                  value,
+                  capital: INVESTOR_CAPITAL,
+                }),
               });
             }
           }
@@ -97182,9 +97235,15 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           // ── Consolidated rebalance digest — ONE email + ONE Discord for
           // trims/exits (operator: 35+ emails ahead of FOMC). Buys fire
           // per-ticker Discord embeds above so they match Queue alert visibility.
+          //
+          // 2026-08-14 — One email per action. Opens/adds already send a
+          // per-ticker Long Term email via scheduleInvestorBuyActionChannels,
+          // so including them here mailed the same buy twice (operator saw 3
+          // emails for 2 trades). The digest is now reductions-only; when a
+          // cycle only bought, no digest goes out at all.
           try {
-            if (_rebalDigestTrims.length > 0 || opened.length > 0 || added.length > 0) {
-              const _digestSummary = { trims: _rebalDigestTrims, added, opened, executed_at: now };
+            if (_rebalDigestTrims.length > 0) {
+              const _digestSummary = { trims: _rebalDigestTrims, added: [], opened: [], executed_at: now };
               const _emailMod = await import("./email.js");
               if (typeof _emailMod.sendInvestorRebalanceDigest === "function") {
                 queueBackground(_emailMod.sendInvestorRebalanceDigest(env, _digestSummary)
