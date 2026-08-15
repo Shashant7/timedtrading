@@ -21,6 +21,17 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **July ST autopsy — patterns batch 1 (2026-08-15).** Operator graded
+      5 short-term July trades (PKG, BRK-B, XLI, INTC, MTB). Forensics vs
+      D1 + tape found: stale/phantom entry prints (INTC ~2h stale, XLI
+      above traded range, MTB exact premarket print), opening-window
+      chasing (no TT-setup gate), premium-zone + adverse-div admits,
+      1 trim in 32 trades (MFE round-trips), non-sticky breakeven ratchet,
+      forced exits at lows, admission matrix leaks (blocked Confirmed-ATH
+      entered live). Full analysis + proposed engine response:
+      [2026-08-15-july-st-autopsy-feedback.md](2026-08-15-july-st-autopsy-feedback.md).
+      Awaiting operator confirmation before implementing; more July
+      feedback batches incoming. Branch: `cursor/july-st-autopsy-patterns-dbdd`.
 - [x] **Macro Minute YouTube ingest (2026-08-13).** PR #1232 merged; `YOUTUBE_API_KEY` live on monolith + tt-research. First run `discovered:0` because discovery used leftover `@fundstrat` (1 video). Live channel is `@Fundstrat_Direct`; last 50 uploads + search have **no current Macro Minute** (daily MM is FSD/Vimeo). PR #718 stays **closed**. Follow-up: [#1234](https://github.com/Shashant7/timedtrading/pull/1234).
 - [x] **Broker Connections second pass (2026-08-13).** Operator asked for
       Robinhood-level polish + two bug fixes. Fixed: (1) AXON spurious

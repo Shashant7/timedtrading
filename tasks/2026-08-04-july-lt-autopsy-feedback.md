@@ -47,3 +47,9 @@ Long-term horizon does **not** excuse rushing the first print — wait for stabi
 9. **Done (ANET)**: MFE extension trim (≥10% peak, bank ~25%) so 171→190 is not
    a zero-bank ride.
 10. **Open**: Continue grading remaining July LT trades for more themes.
+
+Short-term lane companion (batch 1, 2026-08-15):
+[2026-08-15-july-st-autopsy-feedback.md](2026-08-15-july-st-autopsy-feedback.md)
+— shares themes 1 (rushing first print), 2 (entering under unbroken
+structure), 3 (exiting drawdowns at lows); adds entry-price integrity and
+no-profit-banking findings.
