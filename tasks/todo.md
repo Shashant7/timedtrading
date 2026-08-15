@@ -21,6 +21,28 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **July ST autopsy — patterns batches 1+2+3 (2026-08-15).** Operator
+      graded 10 short-term July trades (PKG, BRK-B, XLI×2, INTC, MTB, WAL,
+      GRNY, KO, CIBR). Batch 3 (CIBR) added: reclaim-sequence entries
+      missing from ST lane (Jun 26/29 EMA-21 reclaim + 4H ST break never
+      fired; first entry Jul 10 = worst point of leg), no re-entry
+      doctrine (+11% second leg watched from flat), leg-maturity
+      blindness, SSL/liquidity as context not just stop-plumbing, and a
+      NEW duplicate daily-bar bug (Jul 6–10 D candles stored twice,
+      indicators double-counted). Forensics vs D1 + tape found 13 patterns: stale/phantom
+      entry prints, **phantom exits (4 of 30 audited — KO×2 + JCI
+      fabricated SL breaches in the opening minutes, fills booked at the
+      SL level)**, opening-window chasing (no TT-setup gate), premium-zone
+      + adverse-div admits, ATR/$-cap stops instead of level-anchored
+      stops (levels engine is display-only), no expected-move screen
+      (GRNY), liquidation-tranche "trims" polluting analytics (WAL),
+      non-sticky breakeven ratchet, forced exits at lows, admission matrix
+      leaks. Newton August Upticks ingested levels cross-referenced (his
+      MTB/TT deletions mirror our July losses). Full analysis + proposed
+      engine response:
+      [2026-08-15-july-st-autopsy-feedback.md](2026-08-15-july-st-autopsy-feedback.md).
+      Awaiting operator confirmation before implementing; more July
+      feedback batches incoming. Branch: `cursor/july-st-autopsy-patterns-dbdd`.
 - [x] **Macro Minute YouTube ingest (2026-08-13).** PR #1232 merged; `YOUTUBE_API_KEY` live on monolith + tt-research. First run `discovered:0` because discovery used leftover `@fundstrat` (1 video). Live channel is `@Fundstrat_Direct`; last 50 uploads + search have **no current Macro Minute** (daily MM is FSD/Vimeo). PR #718 stays **closed**. Follow-up: [#1234](https://github.com/Shashant7/timedtrading/pull/1234).
 - [x] **Broker Connections second pass (2026-08-13).** Operator asked for
       Robinhood-level polish + two bug fixes. Fixed: (1) AXON spurious

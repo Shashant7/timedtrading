@@ -22798,6 +22798,37 @@ async function processTradeSimulation(
       // Protects "gave-back" trades that went green then lost it all.
       // HTF OVERRIDE: When 4H+Daily strongly confirm direction, raise threshold to 2%
       // and add a 0.3% buffer below entry so normal pullbacks don't trigger it.
+      // ── JULY-2026 AUTOPSY G5 (P5): POST-TRIM ENTRY FLOOR ────────────────
+      // Flag-gated (deep_audit_ja_post_trim_floor, default OFF). Operator
+      // rule from BRK-B/PPG July grading: after a trim, the floor for the
+      // remainder is entry. Bypasses the trimmed-runner skip and the
+      // protection-stage gate that let BRK-B ride +2.3% back below entry
+      // and PPG's runner ride a +2.2% trim to a max_loss exit.
+      // See tasks/2026-08-15-july-st-autopsy-feedback.md (P5).
+      if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
+        const _jaFloorOn = String(tickerData?._env?._deepAuditConfig?.deep_audit_ja_post_trim_floor ?? "false") === "true";
+        const _jaTrimmedPct = clamp(Number(openTrade?.trimmedPct ?? openTrade?.trimmed_pct ?? 0), 0, 1);
+        if (_jaFloorOn && _jaTrimmedPct >= 0.25) {
+          const _jaEntry = Number(openTrade.entryPrice);
+          const _jaDir = String(openTrade.direction || "").toUpperCase();
+          if (Number.isFinite(_jaEntry) && _jaEntry > 0 && (_jaDir === "LONG" || _jaDir === "SHORT")) {
+            const _jaFloorBufPct = Number(tickerData?._env?._deepAuditConfig?.deep_audit_ja_post_trim_floor_buffer_pct) || 0.15;
+            const _jaPnlPct = _jaDir === "LONG"
+              ? ((pxNow - _jaEntry) / _jaEntry) * 100
+              : ((_jaEntry - pxNow) / _jaEntry) * 100;
+            if (_jaPnlPct <= -_jaFloorBufPct) {
+              const _jaReason = "POST_TRIM_ENTRY_FLOOR";
+              console.log(`[POST_TRIM_ENTRY_FLOOR] ${sym} trimmed=${(_jaTrimmedPct * 100).toFixed(0)}% pnl=${_jaPnlPct.toFixed(2)}% <= -${_jaFloorBufPct}% → close remainder at entry floor`);
+              tickerData.__exit_reason = _jaReason;
+              await closeTradeAtPrice(openTrade, pxNow, _jaReason);
+              const _jaExec = { ...execState, lastExitMs: now };
+              if (isReplay && replayCtx?.execStates) replayCtx.execStates.set(sym, _jaExec);
+              else if (!isReplay) await kvPutJSON(KV, execKey, _jaExec);
+              fuseExitFired = true;
+            }
+          }
+        }
+      }
       if (!_sameIntervalAsTrade && !fuseExitFired && openTrade && isOpenTradeStatus(openTrade.status) && Number.isFinite(pxNow)) {
         const _beMfePct = Number(openTrade.maxFavorableExcursion) || 0;
         const _beDir = String(openTrade.direction || "").toUpperCase();

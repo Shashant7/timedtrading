@@ -13,6 +13,7 @@ import {
   getSectorRating as getSectorRatingForFocus,
 } from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
+import { julyAutopsyGateBlock, julyAutopsyDefaultDeny } from "../july-autopsy-gates.js";
 import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   evaluateIndexEtfModelEntry,
@@ -498,6 +499,26 @@ export function evaluateEntry(ctx) {
       });
     }
     // ─────────────────────────────────────────────────────────────────
+    // JULY-2026 ST AUTOPSY GATE PACK (2026-08-15) — P2/P3/P11.
+    // All deep_audit_ja_* flags default OFF; zero live behavior change.
+    // See tasks/2026-08-15-july-st-autopsy-feedback.md + worker/july-autopsy-gates.js.
+    // ─────────────────────────────────────────────────────────────────
+    try {
+      const _jaEt = getEasternParts(new Date(Number(ctx.asOfTs) || Date.now()));
+      const _jaBlock = julyAutopsyGateBlock({
+        d,
+        daCfg,
+        path,
+        direction: effectiveDir,
+        etParts: _jaEt,
+      });
+      if (_jaBlock) {
+        return rejectEntry(_jaBlock.reason, { july_autopsy_gate: _jaBlock.detail });
+      }
+    } catch (_jaErr) {
+      // Gate-pack failure must never block legit entries.
+    }
+    // ─────────────────────────────────────────────────────────────────
     // PHASE C — Stage 1 (2026-05-04) — Context-Aware Setup Admission.
     //
     // Final gate before an entry is accepted. Evaluates the
@@ -623,6 +644,22 @@ export function evaluateEntry(ctx) {
               rr: _rrForAdmission,
               matched_key: _admission.matched_key,
               cohort_stats: _admission.cohortStat,
+            },
+          });
+        }
+        // JULY-2026 AUTOPSY G4 (P8) — default-deny admission holes.
+        // Flag-gated (deep_audit_ja_default_deny, default OFF). Rejects
+        // entries that passed admission only via missing_inputs_default_allow
+        // or no_matrix_entry — the leak Speculative-ATH rode all July.
+        const _jaDeny = julyAutopsyDefaultDeny(daCfg, _admission);
+        if (_jaDeny) {
+          return rejectEntry(_jaDeny.reason, {
+            july_autopsy_gate: _jaDeny.detail,
+            setup_admission: {
+              setup: path,
+              grade: _gradeForAdmission,
+              direction: side,
+              regime: _regimeForAdmission,
             },
           });
         }
