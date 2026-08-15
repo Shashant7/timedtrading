@@ -688,6 +688,36 @@ work first.)
   (BRK-B/CIBR/PPG-class winners must survive), net PnL, MFE capture,
   post-trim giveback.
 
+## Backtest execution log (2026-08-15)
+
+- **Prep:** preprod deployed from this branch; live model_config synced
+  (500-key cap warning noted); candles Jun 9 → Aug 1 backfilled for the
+  28-ticker universe + SPY/QQQ/IWM/VIX + sector ETFs (221,801 rows,
+  duplicate-D bars deduped on copy); `daily_market_snapshots` (44) +
+  `market_events` (1,321) + 38/39 ticker_profiles copied (NEU profile row
+  failed; runs on defaults).
+- **Baseline (`ja-baseline-jul26`)**: 22 sessions, 30m cadence, clean
+  finalize. **15 trades, 4W/11L, sum −1.95%.** Confirmed-ATH cohort
+  entered 4× (GRNY, UNP, MTB, BRK-B) — the P8 leak reproduces in replay.
+- **Gates-on v1 (`ja-gates-jul26`)**: INVALID — trades identical to
+  baseline. Root cause: `REPLAY_DA_KEYS` allowlist filtered the new
+  `ja_*` flags out of replay config. Fixed (allowlist + redeploy), run
+  discarded.
+- **Gates-on v2 (`ja-gates-jul26-v2`, all 5 gates)**: blocking every
+  TT-setup entry through mid-month (0 trades vs baseline's 8 by Jul 13),
+  including the baseline's winners.
+- **FINDING (P8 root cause, behaviorally confirmed):**
+  `deep_audit_setup_admission_enabled` is "true" and the matrix rows are
+  correct — but always-blocked cohorts still enter because **`setup_grade`
+  is empty at admission time** (graded later, before the D1 write).
+  `admitSetup` returns `missing_inputs_default_allow` for essentially
+  every TT-setup entry → **the admission matrix has been a no-op on this
+  lane**. `ja_default_deny` therefore blocks *all* TT entries (correct
+  per its spec, too blunt as a bundle) — the real fix is computing the
+  grade *before* admission, then default-deny becomes a safety tripwire.
+- **Arm 3 (`ja-gates-nodeny-jul26`)**: G1+G2+G3+G5 with default-deny off,
+  to isolate the tactical gates. Results below.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
