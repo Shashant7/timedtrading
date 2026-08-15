@@ -248,6 +248,64 @@ SPHB+XLK 13:33, HALO+RTX+XLRE 15:02–15:08, DE+WM 15:05–15:06.
 
 ---
 
+## Batch 4 per-trade forensics (operator feedback 2026-08-15 PM)
+
+### 11. GRNI — Jul 13, 9:35:11 AM ET · Support Bounce · Speculative
+- **Operator:** lasted less than a day on a ticker meant to be held a
+  while; it has been in a $1 range for months.
+- **Row:** entry 21.28 → `thesis_flip_htf` 4.4h later at 21.12 (−0.75%).
+- **Engine finding:** P11 (expected-move screen) + horizon mismatch — the
+  ST lane both *selected* a months-long $1-range ticker and then
+  *churned* it intraday. Entry at 9:35 (P2), adverse 1h phase div +
+  premium_approach + TRANSITIONAL + Speculative (P3).
+
+### 12. UNP — Jul 14, 10:06:53 AM ET · ATH Breakout · Confirmed
+- **Operator:** like CIBR — entered mid-trend, and the actual support
+  bounce happened as we exited. The bounce (60m 72-89 cloud, held) was
+  where the entry should have been — or at minimum hold through it
+  knowing it is support. UNP went on to break 300.
+- **Row:** entry 289.58 → 65% trim Jul 14 3:29 PM at 291.08 (+0.52%) →
+  exit Jul 15 at 285.95 (`early_dead_money_flatten`, −0.10% net).
+- **Engine findings:** `tt_ath_breakout:LONG:Confirmed` — **the
+  always-blocked cohort's third live July entry** (XLI Jul 1, KO Jul 10,
+  UNP Jul 14) — with `daily_adverse_prep: 15` in its own snapshot.
+  Mid-leg admit (P14), then the flatten sold **at the mapped support**
+  (P6/P13: a clock-family exit with zero awareness it was printing into a
+  holding 60m cloud), then no re-entry as UNP ran to 300+ (P16). The
+  chart the operator attached shows exit at the pivot low.
+
+### 13. KO #2 — Jul 15, 11:04:27 AM ET · ATH Breakout · Speculative
+- **Operator:** re-entry was pre-bounce (early), and the exit looks like
+  phantom price again.
+- **Engine finding:** confirmed by the P10 audit — the exit was booked
+  Jul 17 **9:43 AM** at 81.400009 when the tape's low to that point was
+  82.79; 81.40 did not trade until ~1:20 PM. Fill recorded at the SL
+  level. Second phantom on the same ticker at the same level. Also
+  +3.04% MFE with zero trim before the exit (P4).
+
+### 14. JCI — Jul 15, 11:04:57 AM ET · Range Reversal · Speculative
+- **Operator:** bad entry — entered as it was losing trend with EMAs
+  crossing down; exited as price stabilized.
+- **Row:** entry 142.50 → `max_loss` Jul 17 at 137.655 (−3.40%). MFE
+  +2.84 untrimmed.
+- **Engine finding:** the most damning admit in the lane: the snapshot
+  had **`is_f4_severe: true` (adverse RSI div AND adverse phase div,
+  weekly-strongest)** in a CHOPPY regime, Speculative grade — and it was
+  admitted anyway. Same 11:04 batch cycle as KO #2 (P7). Exit fill also
+  flagged marginal in the P10 audit (9:34 AM opening window, 0.16% below
+  tape).
+
+### 15. PPG — Jul 16, 12:21:09 PM ET · Range Reversal · Confirmed
+- **Operator:** trim well done, exit fair, entry ok (trying to reverse up).
+- **Row:** entry 118.23 → 50% trim Jul 17 at 120.83 (+2.2%) → runner
+  exited `max_loss` Jul 20 at 115.69 (−2.15% below entry); net +0.03%.
+- **Engine finding:** cleanest illustration of P5 — a well-executed +2.2%
+  trim followed by the runner riding to a *max_loss* below entry because
+  no post-trim floor exists. The trade's entire profit was one flag away
+  from being banked.
+
+---
+
 ## Mark Newton August Upticks — external reference (ingested)
 
 Publication `1549439` ("Upticks – August 2026", `cro_publication_text`)
@@ -567,6 +625,68 @@ New in this batch (not seen in LT): **entry price integrity (P1)** and
     tf='D' for duplicate (ticker, date) rows across midnight conventions;
     dedupe; fix the writer to one canonical day key; re-verify daily
     indicators for the affected window.
+
+## Consolidated verdict (batches 1–4, 15 graded trades)
+
+Every graded trade reduces to five root causes:
+
+| Root cause | Trades hit | Patterns |
+|---|---|---|
+| **Price/data integrity** (stale entries, phantom exits, degenerate candles, duplicate daily bars) | INTC, XLI×2, MTB, KO×2, JCI, CIBR-adjacent | P1, P10, P18 |
+| **Location/timing-blind admission** (premium zone + adverse divs + leg maturity + opening window + matrix leaks) | PKG, XLI×2, MTB, WAL, GRNI, JCI, CIBR, UNP, KO | P2, P3, P8, P14 |
+| **Stops/exits are math, not structure** (ATR/$ caps, clock exits, exits into support/flush) | WAL, MTB, UNP, BRK-B | P6, P9, P13 |
+| **No banking / no floor / no re-entry** (MFE round-trips, post-trim giveback, missed second legs) | KO#2, JCI, DE, WM, PPG, BRK-B, CIBR, UNP | P4, P5, P16 |
+| **Selection/horizon mismatch** (slow movers in the ST lane) | GRNY, GRNI, KO | P11 |
+
+The lane's July record (8W/22L) overstates the model's badness (phantom
+losses) AND understates its potential (CIBR/UNP/KO were correctly
+identified moves whose meat was missed). Both distortions come from the
+same place: the engine trades its signals without structure (levels,
+legs, liquidity) and without verifying its own prices.
+
+---
+
+## Targeted July-2026 backtest (approved 2026-08-15 — execution plan)
+
+**Goal:** replay July 2026 on the ST lane's traded universe with a
+flag-gated "autopsy gate pack", baseline vs gates-on, and measure: blocked
+bad admits, preserved good trades, post-trim floor effect.
+
+**Gate pack (all default-OFF `deep_audit_ja_*` flags — live unaffected):**
+1. `ja_opening_gate` — no TT-setup entries before 9:45 ET (P2).
+2. `ja_location_gate` — block LONG when PDZ premium/premium_approach on
+   BOTH D and 4H with any adverse divergence active; block `is_f4_severe`
+   in CHOPPY/TRANSITIONAL regimes (P3).
+3. `ja_expected_move_gate` — block when daily ATR% of price < floor
+   (default 1.4%) (P11).
+4. `ja_default_deny` — admission returning `missing_inputs_default_allow`
+   / `no_matrix_entry` rejects instead of allowing (P8).
+5. `ja_post_trim_floor` — after any trim, remainder exits at
+   entry−0.15% floor, bypassing the trimmed-runner skip (P5).
+
+(Level-anchored stops P9/P13, reclaim entries P15, re-entry watch P16 are
+larger builds — deliberately NOT in this pack; they need the levels-engine
+work first.)
+
+**Mechanism (per tasks/lessons.md 2026-04-17 backtest lessons):**
+- **Preprod only** (`--env=preprod`, own D1 `timed-trading-ledger-preprod`
+  + own KV): replays poison `ticker_candles`/`/timed/all` if run on prod,
+  and prod D1 already tripped the billing read threshold.
+- **Direct loop, never the DO runner**: `scripts/monthly-slice.sh
+  --month=2026-07 --api-base=<preprod>` (PID lock, single-writer guard on
+  `timed:replay:lock`, watchdog, resume-from-checkpoint, clean-slate).
+- **Pinned config**: flags set in preprod `model_config` per arm (preprod
+  is isolated); never send `config_override` in replay bodies.
+- **Data prep**: preprod candles end 2026-06-08 → backfill Jun 9–Aug 1
+  for the targeted universe (~30 tickers × all TFs, ~100–150k rows,
+  batched INSERTs; trivial reads from prod).
+- **Cost control**: targeted universe only (the ~28 July-traded tickers +
+  SPY/QQQ), 30m interval (the proven cadence), one month, two arms. No
+  unbounded scans; all candle reads are PK-range queries.
+- **Compare**: `backtest_run_trades` for run A (baseline) vs run B
+  (gates-on): trades blocked (which graded losers disappear), trades kept
+  (BRK-B/CIBR/PPG-class winners must survive), net PnL, MFE capture,
+  post-trim giveback.
 
 ## Verification items (before coding)
 
