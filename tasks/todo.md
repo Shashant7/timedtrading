@@ -21,9 +21,15 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
-- [ ] **July ST autopsy — patterns batches 1+2 (2026-08-15).** Operator
-      graded 9 short-term July trades (PKG, BRK-B, XLI×2, INTC, MTB, WAL,
-      GRNY, KO). Forensics vs D1 + tape found 13 patterns: stale/phantom
+- [ ] **July ST autopsy — patterns batches 1+2+3 (2026-08-15).** Operator
+      graded 10 short-term July trades (PKG, BRK-B, XLI×2, INTC, MTB, WAL,
+      GRNY, KO, CIBR). Batch 3 (CIBR) added: reclaim-sequence entries
+      missing from ST lane (Jun 26/29 EMA-21 reclaim + 4H ST break never
+      fired; first entry Jul 10 = worst point of leg), no re-entry
+      doctrine (+11% second leg watched from flat), leg-maturity
+      blindness, SSL/liquidity as context not just stop-plumbing, and a
+      NEW duplicate daily-bar bug (Jul 6–10 D candles stored twice,
+      indicators double-counted). Forensics vs D1 + tape found 13 patterns: stale/phantom
       entry prints, **phantom exits (4 of 30 audited — KO×2 + JCI
       fabricated SL breaches in the opening minutes, fills booked at the
       SL level)**, opening-window chasing (no TT-setup gate), premium-zone

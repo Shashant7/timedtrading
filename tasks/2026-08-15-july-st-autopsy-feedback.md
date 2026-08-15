@@ -188,6 +188,66 @@ SPHB+XLK 13:33, HALO+RTX+XLRE 15:02–15:08, DE+WM 15:05–15:06.
 
 ---
 
+## Batch 3 per-trade forensics (operator feedback 2026-08-15 PM)
+
+### 10. CIBR — Jul 10, 2:04:31 PM ET · ATH Breakout · Speculative
+- **Operator:** good entry (4H ST bounce), nice trim, exit at entry area
+  was good protection. But the 200 EMA → 4H 233 EMA bounce began ~3 weeks
+  earlier — the trend was mature and we entered near the peak of that
+  leg. Our entry level became sellside liquidity; when price failed to
+  break above the Daily 5-12 cloud and closed below it, the SSL was the
+  draw (exit good). After an SSL sweep, a subsequent support bounce is an
+  ideal entry — price has shown promise. CIBR then hit the 233 EMA,
+  bounced at 87–88, reclaimed the Daily 5-12 cloud, and ran to 100. **We
+  identify a good move, catch a part, and miss the meat.** Why no entry
+  Jun 26 (Daily 21 EMA reclaim) or Jun 29 (4H ST break after the reclaim —
+  strong confirmation)? With the order block mapped, that entry rides the
+  drawdown after a trim and sits +10% now. And the re-entry on the reclaim
+  should have caught the second leg. Entry timing and re-entry are
+  intertwined — we could have caught both moves or one large move.
+- **Row:** entry 91.93 → 50% trim Jul 14 10:20 AM at 94.79 (+3.1%) → exit
+  Jul 16 at 92.16 (`PROFIT_GIVEBACK_COOLING_HOLD`, +1.68% net). MFE +4.37 /
+  MAE −1.51.
+- **Tape verification (daily):** validates the timeline nearly to the day —
+  Jun 26 first daily close back above the 21 EMA (85.36) after 8 sessions
+  below; Jun 29 +3.7% confirmation thrust (88.50); our Jul 10 entry came
+  **14 sessions and +11% into the leg**, 2 sessions before the 95.96 peak;
+  the pullback bottomed 86.84–87.29 (Jul 23–28, the 233-EMA area); the
+  reclaim fired Jul 31 (91.83) and CIBR ran to 102.20 by Aug 13 —
+  **a +11% second leg from right where we exited (92.16), watched from
+  flat.** From a Jun 29 entry (~87–88): +16% to the Aug high.
+- **Engine findings:**
+  1. Entry snapshot again had the warnings: adverse 4H phase divergence +
+     premium_approach on D and 4H, MIXED personality — and Speculative ATH
+     breakout rode the pre-Jul-30 default-allow hole (P8 instance #3 for
+     that cohort in July: XLI Jul 7, MTB Jul 7, KO Jul 15, CIBR Jul 10,
+     WM Jul 29).
+  2. **Reclaim triggers are not an ST entry family in practice.** The
+     Jun 26/29 sequence (HTF EMA reclaim → LTF trend-break confirmation)
+     is exactly what the LT lane built after ANET (daily EMA-21
+     test/reclaim signal) — the ST lane's first CIBR entry of the whole
+     leg was Jul 10, the worst admit point in it. Why `tt_pullback_reclaim`
+     never fired Jun 26–30 on CIBR needs a decision-trace check.
+  3. **No re-entry doctrine.** After an exit, the only mechanism is a
+     5-minute cooldown (worker/index.js ~19921) and passive waiting for a
+     fresh setup trigger. Nothing arms a re-entry watch on a mapped level
+     (233 EMA test → Daily 5-12 reclaim) for a ticker whose HTF thesis
+     stayed intact. KO batch-2 feedback said the same ("if it does work
+     later, be on guard and ready to re-enter").
+  4. **SSL/liquidity zones are SL-only.** The engine tracks 4H/D
+     liquidity zones with `swept` flags but consumes them only for stop
+     anchoring at entry — not as entry-quality context (post-sweep support
+     bounce preference) and not as memory that our own entry/exit prints
+     created liquidity levels.
+  5. **NEW data bug — duplicate daily bars.** CIBR's D candles for
+     Jul 6–10 exist TWICE (ts at 00:00 UTC and 04:00 UTC, same OHLC,
+     different `updated_at` — two day-key conventions from a mid-July
+     writer change). Every daily indicator scanning those rows (EMA 21/233,
+     RSI, D SuperTrend, swing detection) double-counted that week — the
+     exact week of these trades. Ties directly into P13 level accuracy.
+
+---
+
 ## Mark Newton August Upticks — external reference (ingested)
 
 Publication `1549439` ("Upticks – August 2026", `cro_publication_text`)
@@ -350,6 +410,50 @@ support / max-decline — Newton's format), and air-pocket awareness
 ("break of X has no support until Y"). Our own levels engine has most of
 the raw inputs; it lacks tiering, volume confirmation, and any consumer.
 
+**P14 — Leg-maturity blindness (CIBR).** Nothing measures where in the
+move an entry sits. CIBR admitted 14 sessions and +11% into a leg, 2
+sessions from its peak, with the 4H adverse phase div already flagging
+maturity in our own snapshot. Newton's MTB deletion is the same concept
+at HTF scale (RSI divergence + exhaustion after the runup = don't chase).
+Admission needs a leg-age / distance-from-origin input: sessions since
+the HTF reclaim that started the leg, % extension off the anchor EMA
+(21/233), and exhaustion prep — chase entries demote or pass.
+
+**P15 — Reclaim confirmations don't produce ST entries.** The highest
+quality entry sequence the operator identified — HTF EMA reclaim (Jun 26)
+→ trend-break confirmation (Jun 29, 4H ST break after the reclaim) — is
+not something the ST lane trades. The LT lane already built the daily
+EMA-21 test/reclaim signal (ANET); the ST lane's first entry of the
+entire CIBR leg was Jul 10, the worst admit point in it. "We identify a
+good move, catch a part, and miss the meat" — the model's entries are
+timed by setup-trigger *coincidence*, not by the reclaim sequence that
+defines where the move starts.
+
+**P16 — No re-entry doctrine.** Post-exit there is a 5-minute cooldown
+and passive hope that a fresh trigger fires. CIBR's Jul 31 Daily 5-12
+reclaim after the 233-EMA test at 87–88 was a mapped, textbook re-entry —
++11% to 102 from exactly where we had exited two weeks earlier — and
+nothing was watching. Same ask as KO ("be on guard and ready to
+re-enter"). Needs a post-exit watch state (the movie pattern again): when
+an exit happens but the HTF thesis stays intact, arm re-entry triggers at
+the mapped levels (order block, 233 EMA, cloud reclaim) with the ticker's
+prior-trade context attached.
+
+**P17 — Liquidity zones are stop-plumbing, not context.** Swept-zone
+data exists (4H/D, `swept` flags) but is consumed only for SL anchoring.
+The operator's read: our entry price *became* SSL; the failure at the
+Daily 5-12 cloud made that SSL the draw; and **after the sweep, the next
+support bounce is a high-quality entry** (price has shown promise). That
+post-sweep-bounce preference — and memory that our own prints create
+liquidity — exists nowhere in admission.
+
+**P18 — Duplicate daily bars (new data-integrity bug).** CIBR D candles
+Jul 6–10 are stored twice under two midnight conventions (00:00 vs 04:00
+UTC). Daily EMAs/RSI/SuperTrend/swing detection double-counted that week.
+Scope unknown — needs a cross-ticker duplicate audit and a writer fix.
+Every level and indicator inaccuracy the operator is pointing at (P13)
+gets amplified by bugs like this.
+
 ---
 
 ## Cross-lane synthesis (vs the LT July doc)
@@ -441,6 +545,28 @@ New in this batch (not seen in LT): **entry price integrity (P1)** and
     4H/D 233 test-and-hold) to the trade record at entry so hold/exit
     decisions can weigh "why this move exists" — the operator's
     "this should work and why" doctrine — instead of trading naked levels.
+15. **Reclaim-sequence entry family for the ST lane (P15).** Promote the
+    HTF-reclaim → LTF-confirmation sequence (daily EMA-21 reclaim, then
+    4H ST break / 5-12 establish) to a first-class ST entry trigger with
+    order-block/233 referenced stops — the entry the operator wanted on
+    CIBR Jun 26/29. Reuse the LT lane's ANET reclaim machinery.
+16. **Leg-age gate at admission (P14).** Compute sessions-since-reclaim +
+    % extension off anchor EMA for the active leg; late-leg chases (like
+    CIBR Jul 10 at 14 sessions / +11%) demote to pass unless a fresh
+    consolidation/re-anchor has formed.
+17. **Post-exit re-entry watch (P16).** On exit with HTF thesis intact,
+    arm a per-ticker re-entry movie: watch mapped levels (order block,
+    233 EMA, D 5-12 cloud reclaim); trigger re-entry on reclaim-confirm;
+    expire on thesis break. Would have captured CIBR's +11% second leg
+    and KO's post-phantom recovery.
+18. **Post-sweep bounce preference + liquidity memory (P17).** Feed
+    swept-zone events into admission: a support bounce *after* an SSL
+    sweep upgrades quality (GRNY/CIBR observation); persist our own
+    entry/exit prints as liquidity levels in ticker memory.
+19. **Daily-bar dedupe + writer fix (P18).** Audit `ticker_candles`
+    tf='D' for duplicate (ticker, date) rows across midnight conventions;
+    dedupe; fix the writer to one canonical day key; re-verify daily
+    indicators for the affected window.
 
 ## Verification items (before coding)
 
@@ -464,3 +590,9 @@ New in this batch (not seen in LT): **entry price integrity (P1)** and
       `live-long-term-2026-07` + August-to-date.
 - [ ] (Batch 2) Compare our levels-engine output for GOOGL/BA/VLO/CVX
       against Newton's August tiers as the first accuracy benchmark.
+- [ ] (Batch 3) Decision-trace check: why did `tt_pullback_reclaim` (or
+      any trigger) not fire on CIBR Jun 26–30 after the daily EMA-21
+      reclaim + 4H ST break? Universe/scan coverage vs trigger conditions.
+- [ ] (Batch 3) Cross-ticker duplicate daily-bar audit (P18): how many
+      tickers/dates have double D rows? Which indicators consumed them
+      during July?
