@@ -118,6 +118,30 @@ export function julyAutopsyGateBlock({ d, daCfg, path, direction, etParts }) {
 }
 
 /**
+ * P15 — HTF reclaim context detector. True when the ticker is in the
+ * "fresh daily EMA-21 reclaim with HTF support" state the operator
+ * identified as the highest-quality entry (CIBR Jun 26 / Jul 31).
+ * Used twice: (a) as a conviction-floor carve-out — on reclaim days the
+ * conviction score is structurally low because the scoring system likes
+ * mature trends (CIBR Jul 31 was blocked by focus_conviction_below_floor
+ * on all 14 bars of its reclaim day), and (b) by the tt_htf_reclaim
+ * trigger, which adds the LTF confirmation on top.
+ */
+export function isHtfReclaimContext(d, tf, daCfg) {
+  const ds = d?.daily_structure || {};
+  const pctE21 = Number(ds.pct_above_e21);
+  const slope = Number(ds.e21_slope_5d_pct);
+  const maxExt = Number(daCfg?.deep_audit_ja_htf_reclaim_max_ext_pct) || 2.5;
+  const st4 = Number(tf?.h4?.stDir) || 0;
+  const c4h512 = tf?.h4?.ripster?.c5_12;
+  const fourHSupportive = st4 === -1 || !!(c4h512?.bull || c4h512?.above);
+  const freshAbove = Number.isFinite(pctE21) && pctE21 >= 0 && pctE21 <= maxExt;
+  const slopeOk = !Number.isFinite(slope) || slope > -0.5;
+  const trendOk = ds.above_e200 !== false;
+  return freshAbove && slopeOk && trendOk && fourHSupportive;
+}
+
+/**
  * G4 — default-deny for admission holes (P8). Call with the admitSetup
  * result: when the only reason a cohort is allowed is a missing grade or a
  * missing matrix row, reject instead.

@@ -13,7 +13,7 @@ import {
   getSectorRating as getSectorRatingForFocus,
 } from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
-import { julyAutopsyGateBlock, julyAutopsyDefaultDeny } from "../july-autopsy-gates.js";
+import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext } from "../july-autopsy-gates.js";
 import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   evaluateIndexEtfModelEntry,
@@ -1080,6 +1080,27 @@ export function evaluateEntry(ctx) {
         d,
         daCfg,
       );
+
+      // JULY-2026 AUTOPSY (P15) — HTF-reclaim conviction carve-out.
+      // Reclaim days score LOW conviction by construction (the conviction
+      // model rewards mature trends), so the highest-quality entries the
+      // operator identified were structurally excluded before the entry
+      // engine even ran (CIBR Jul 31: focus_conviction_below_floor on all
+      // 14 bars of its reclaim day; the leg then ran +11%). When the
+      // ticker is in a fresh HTF-reclaim context, lower the floor so the
+      // tt_htf_reclaim trigger (which adds LTF confirmation) gets a
+      // chance to evaluate. Flag-gated with the reclaim entry itself.
+      if (String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+          && isHtfReclaimContext(d, tf, daCfg)) {
+        // CIBR Jul 31 probe: conviction scored 42 on the reclaim day
+        // (trend=0, phase=0, saty=0 — the conviction model structurally
+        // dislikes reclaim days, and the signal is documented as
+        // non-discriminating: corr(conviction, win) = -0.02, Tier-C
+        // suspended). Floor down to 40 by default for reclaim context;
+        // the trigger's own HTF/LTF confirmations carry selectivity.
+        const _jaReclaimFloor = Number(daCfg.deep_audit_ja_htf_reclaim_conviction_floor) || 40;
+        _entryMinConviction = Math.min(_entryMinConviction, Math.max(35, _jaReclaimFloor));
+      }
 
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
