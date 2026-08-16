@@ -1660,17 +1660,12 @@
       .tt-mp-movers-compact-grid--quad {
         grid-template-columns: repeat(4, minmax(0, 1fr));
       }
-      .tt-mp-movers-ext-block {
-        margin-top: 10px;
-        padding-top: 10px;
-        border-top: 1px solid rgba(255,255,255,0.10);
-      }
+      /* Phones: 2×2 (RTH on top row, EXT below) — avoids a 4-up row that
+         pushed EXT below the fold, without duplicating RTH in the DOM. */
       @media (max-width: 900px) {
-        /* Stacked RTH + EXT rows — 4-up grid hid EXT below the fold on phones. */
-        .tt-mp-movers-embed--stacked .tt-mp-movers-compact-grid--quad { display: none; }
-      }
-      @media (min-width: 901px) {
-        .tt-mp-movers-embed--stacked .tt-mp-movers-ext-block { display: none; }
+        .tt-mp-movers-compact-grid--quad {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
       .tt-mover-compact-col {
         padding: 8px 10px;
@@ -5939,27 +5934,19 @@
             h(CompactMoversCol, { title: "RTH GAINERS", items: rthGain, mode: "rth", onSelectTicker }),
             h(CompactMoversCol, { title: "RTH LOSERS", items: rthLoss, mode: "rth", onSelectTicker }),
           );
-          const extCols = h(React.Fragment, null,
+          const extCols = showExt ? h(React.Fragment, null,
             h(CompactMoversCol, { title: "EXT GAINERS", items: extGain, mode: "ext", onSelectTicker }),
             h(CompactMoversCol, { title: "EXT LOSERS", items: extLoss, mode: "ext", onSelectTicker }),
-          );
-          return h("div", { className: `tt-mp-movers-embed${inPanel && showExt ? " tt-mp-movers-embed--stacked" : ""}` },
+          ) : null;
+          // Single grid only — previous inPanel+showExt path rendered RTH
+          // twice (2-col row + 4-col row) and relied on CSS hide which left
+          // both visible on desktop.
+          return h("div", { className: "tt-mp-movers-embed" },
             !inPanel && h("div", { className: "tt-sec-title", style: { marginBottom: 4 } }, "TOP MOVERS"),
-            inPanel && showExt
-              ? h(React.Fragment, null,
-                  h("div", { className: "tt-mp-movers-compact-grid" }, rthCols),
-                  h("div", { className: "tt-mp-movers-ext-block" },
-                    h("div", { className: "tt-mp-movers-compact-grid" }, extCols),
-                  ),
-                  h("div", { className: "tt-mp-movers-compact-grid tt-mp-movers-compact-grid--quad" },
-                    rthCols,
-                    extCols,
-                  ),
-                )
-              : h("div", { className: `tt-mp-movers-compact-grid${showExt ? " tt-mp-movers-compact-grid--quad" : ""}` },
-                  rthCols,
-                  showExt && extCols,
-                ),
+            h("div", { className: `tt-mp-movers-compact-grid${showExt ? " tt-mp-movers-compact-grid--quad" : ""}` },
+              rthCols,
+              extCols,
+            ),
           );
         }
 
