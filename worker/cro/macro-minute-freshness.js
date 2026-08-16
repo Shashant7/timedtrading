@@ -26,21 +26,71 @@ export function etClock(nowMs = Date.now()) {
   return { dow: map[wk] ?? 0, hour: Number.isFinite(hour) ? hour : 0 };
 }
 
+/** ET calendar date (YYYY-MM-DD) plus hour for a timestamp. */
+export function etDateParts(ms) {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "numeric", hour12: false,
+  });
+  const parts = dtf.formatToParts(new Date(ms));
+  const get = (t) => (parts.find((p) => p.type === t) || {}).value;
+  const hourRaw = Number(get("hour"));
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: hourRaw === 24 ? 0 : (Number.isFinite(hourRaw) ? hourRaw : 0),
+  };
+}
+
 /**
- * How old the latest spoken MM may be before we call it stale.
- * Weekday after 10 PM ET: tonight's episode should already be in.
- * Weekday daytime: yesterday evening is OK.
- * Weekend / Monday morning: Friday's episode is OK.
+ * Evening after which that day's episode should have landed. Episodes post
+ * ~5-7 PM ET and the fsd-evening catch-up runs 8-11 PM ET.
  */
-export function expectedMaxAgeHours(etDow, etHour) {
-  const dow = Number(etDow);
-  const hour = Number(etHour);
-  // Macro Minute is frequent but not strictly daily (Fridays / some sessions skip).
-  // Weekend / Monday morning: Friday's episode is OK.
-  // Weekdays: allow one skipped session so a quiet CPI day does not page.
-  if (dow === 0 || dow === 6) return 90;
-  if (dow === 1 && hour < 18) return 90;
-  return 48;
+export const MM_SESSION_CUTOFF_ET_HOUR = 22;
+
+/** Consecutive expected evenings that may pass before the desk is stale. */
+export const MM_MAX_MISSED_SESSIONS = 2;
+
+/**
+ * Days a Macro Minute is actually expected: Monday through Thursday.
+ *
+ * The show is not daily. Across Jul-Aug 2026 every single Friday was skipped
+ * (7 of 7) and weekends never publish, so counting those hours as staleness
+ * paged on Sundays for a source that had nothing to publish.
+ */
+export function isMacroMinuteSessionDay(isoDate) {
+  const [y, m, d] = String(isoDate).split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return dow >= 1 && dow <= 4;
+}
+
+function addDays(isoDate, n) {
+  const [y, m, d] = String(isoDate).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/**
+ * How many expected evening slots have closed with no new episode.
+ *
+ * Calendar arithmetic rather than elapsed hours, so Fridays, weekends and DST
+ * shifts cannot accrue staleness. The publish day itself never counts — it
+ * produced an episode.
+ */
+export function countMissedMacroMinuteSessions(publishedAtMs, nowMs = Date.now()) {
+  if (!Number.isFinite(publishedAtMs)) return Infinity;
+  const pub = etDateParts(publishedAtMs);
+  const now = etDateParts(nowMs);
+  let missed = 0;
+  let day = addDays(pub.date, 1);
+  for (let guard = 0; day <= now.date && guard < 400; guard++) {
+    if (isMacroMinuteSessionDay(day)) {
+      const closed = day < now.date || now.hour >= MM_SESSION_CUTOFF_ET_HOUR;
+      if (closed) missed++;
+    }
+    day = addDays(day, 1);
+  }
+  return missed;
 }
 
 export function assessMacroMinuteFreshness({
@@ -48,20 +98,22 @@ export function assessMacroMinuteFreshness({
   publishedAt = null,
   hasTranscript = false,
   charCount = 0,
+  maxMissedSessions = MM_MAX_MISSED_SESSIONS,
 } = {}) {
   const { dow, hour } = etClock(nowMs);
-  const maxAgeH = expectedMaxAgeHours(dow, hour);
   const pubMs = Date.parse(publishedAt);
   const ageH = Number.isFinite(pubMs) ? (nowMs - pubMs) / 3600000 : Infinity;
+  const missed = countMissedMacroMinuteSessions(pubMs, nowMs);
   const thin = !hasTranscript || Number(charCount) < 1500;
   let status = "fresh";
   if (!publishedAt || !Number.isFinite(pubMs)) status = "missing";
   else if (thin) status = "thin";
-  else if (ageH > maxAgeH) status = "stale";
+  else if (missed >= maxMissedSessions) status = "stale";
   return {
     status,
     age_hours: Number.isFinite(ageH) ? Math.round(ageH * 10) / 10 : null,
-    max_age_hours: maxAgeH,
+    missed_sessions: Number.isFinite(missed) ? missed : null,
+    max_missed_sessions: maxMissedSessions,
     has_transcript: !!hasTranscript,
     char_count: Number(charCount) || 0,
     published_at: publishedAt || null,
@@ -119,9 +171,15 @@ export async function assessAndPersistMacroMinuteFreshness(env, { nowMs = Date.n
   if (report.status === "fresh") {
     recordCronSuccess(env, "macro_minute_freshness").catch(() => {});
   } else if (report.status === "stale" || report.status === "missing") {
+    // Say what is actually wrong. "stale age_h=90.1" read like our cron broke
+    // when the real condition is Fundstrat not publishing on expected evenings.
+    const detail = report.status === "missing"
+      ? "no Macro Minute episode found in the research store"
+      : `no new episode across ${report.missed_sessions} expected evenings (Mon-Thu)`
+        + `; last was ${report.published_at || "unknown"}`;
     recordCronFailure(env, {
       op: "macro_minute_freshness",
-      error: `${report.status} age_h=${report.age_hours} pub=${report.pub_id || "none"}`,
+      error: `${detail} — source gap, not a pipeline failure`,
       caller: "macro_minute_guard",
     }).catch(() => {});
   } else if (report.status === "thin") {

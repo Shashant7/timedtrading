@@ -84672,12 +84672,22 @@ export default {
           // synthesize a minimal pub stub and ingest just that one.
           if (body?.pub_id) {
             const { ingestSinglePublication } = await import("./cro/fsd-ingestion.js");
+            // Re-ingest must not rewrite the row's identity. Without hydrating
+            // from D1 first, a re-fetch replaced the stored title with the
+            // "(re-ingest pub …)" placeholder and blanked source_url /
+            // published_at, which then leaked into the rewrite attribution.
+            let existing = null;
+            try {
+              existing = await env.DB.prepare(
+                `SELECT title, source_url, published_at FROM cro_publications WHERE pub_id = ?1`,
+              ).bind(String(body.pub_id)).first();
+            } catch (_) { /* new pub — fall through to the stub */ }
             const stub = {
               id: String(body.pub_id),
-              title: body.title || `(re-ingest pub ${body.pub_id})`,
+              title: body.title || existing?.title || `(re-ingest pub ${body.pub_id})`,
               source: "fsd",
-              source_url: body.source_url || "",
-              published_at: body.published_at || null,
+              source_url: body.source_url || existing?.source_url || "",
+              published_at: body.published_at || existing?.published_at || null,
             };
             const r = await ingestSinglePublication(env, stub, { reFetch: true });
             let pipeline = null;
@@ -84922,15 +84932,20 @@ export default {
       // POST /timed/admin/cro/macro-minute/ingest — Tom Lee Macro Minute.
       // Primary: re-fetch FSD posts and attach Vimeo spoken captions.
       // Optional: YouTube discovery when YOUTUBE_API_KEY is set (mirrors are rare).
-      // Body: { limit?, force? }.
+      // Body: { limit?, force?, scope? }.
+      //   scope "video" widens the caption pass to every video-backed FSD
+      //   series (adds Newton's Daily Technical Strategy); default stays
+      //   Macro-Minute-only so the night-take sync keeps its semantics.
       if (routeKey === "POST /timed/admin/cro/macro-minute/ingest") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
           const body = await req.json().catch(() => ({}));
           const limit = Math.min(15, Math.max(1, Number(body?.limit) || 5));
-          const { enrichMacroMinuteTranscripts, ingestFromBlob } = await import("./cro/fsd-ingestion.js");
-          const vimeo = await enrichMacroMinuteTranscripts(env, { limit });
+          const { enrichMacroMinuteTranscripts, enrichVideoTranscripts, ingestFromBlob } = await import("./cro/fsd-ingestion.js");
+          const vimeo = String(body?.scope || "").toLowerCase() === "video"
+            ? await enrichVideoTranscripts(env, { limit })
+            : await enrichMacroMinuteTranscripts(env, { limit });
           let youtube = null;
           try {
             const { isMacroMinuteYtEnabled, ingestMacroMinuteFromYoutube } = await import("./cro/macro-minute-youtube.js");

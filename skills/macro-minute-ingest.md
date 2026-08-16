@@ -20,7 +20,7 @@ auto-captions. That VTT is the night take.
 | Hourly FSD 14–23 UTC | Same-day posts that land by ~7 PM ET. |
 | `fsd-evening` 00–03 UTC | 8–11 PM ET catch-up so 9 AM ET morning brief has it. |
 | Nightly 22:00 UTC | Full CRO cycle enriches thin blurbs, syncs the episode, synthesizes CRO note. |
-| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. Weekday max age 48h (one skipped session OK); weekend / Monday morning 90h. |
+| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. Staleness counts **missed Mon-Thu evenings**, not elapsed hours — stale at 2 consecutive misses. |
 | YouTube Data API | Optional mirror only. `@Fundstrat_Direct` is interviews, not current MM. |
 
 Cascade (do **not** force-fire broker orders):
@@ -56,8 +56,35 @@ curl -s "${LIVE}/timed/admin/cro/macro-minute/freshness" \
   -H "X-API-Key: ${TIMED_API_KEY}"
 ```
 
-New FSD ingests attach `--- VIDEO TRANSCRIPT ---` automatically when the title
-matches Macro Minute (or `Video:` + a Vimeo embed).
+New FSD ingests attach `--- VIDEO TRANSCRIPT ---` automatically whenever the
+post embeds a Vimeo player. `shouldFetchVimeoTranscript` no longer requires a
+`Video:` title prefix.
+
+## Other video-backed series
+
+Macro Minute is not the only note that ships as video. **Newton's Daily
+Technical Strategy** (`Technical Strategy MM/DD/YYYY`, first seen 2026-08-14)
+has a body that is only the "leave us a 5-star review" footer — ~174 chars —
+with the whole narrative and its support/resistance levels in the video.
+
+- Caption backfill for every video series: `enrichVideoTranscripts()`
+  (`VIDEO_POST_TITLE_PATTERNS` = macro minute + `technical strategy %`).
+  The Newton pattern is anchored so it catches the daily without sweeping in
+  the intraday `Mark L. Newton, CMT – …` text flashes.
+- `enrichMacroMinuteTranscripts()` is the Macro-Minute-scoped view; the night
+  take sync and the freshness guard stay Tom Lee only.
+- Newton videos need no special sync — once the transcript is attached, the
+  normal FSD extract → tactical overlay path picks up the levels.
+
+```bash
+# Widen the admin caption pass to every video series
+curl -s -X POST "${LIVE}/timed/admin/cro/macro-minute/ingest" \
+  -H "X-API-Key: ${TIMED_API_KEY}" -H 'content-type: application/json' \
+  -d '{"limit":10,"scope":"video"}'
+```
+
+Re-ingesting one publication by id preserves the stored title/url/date; pass
+`title` explicitly only when repairing a row.
 
 ## Verify
 
@@ -74,6 +101,19 @@ wrangler d1 execute timed-trading-ledger --remote --json --command \
 `char_count` should be multiple thousand (spoken 5 min), not ~600. `has_tr` > 0.
 Pipeline-health `kv.macro_minute_freshness.status` should be `fresh`.
 `timed:cro:latest` should include `night_take.has_transcript=true`.
+
+## Cadence — Macro Minute is NOT daily
+
+Mon-Thu only. Across Jul 1 - Aug 14 2026 **every Friday was skipped (7 of 7)**
+and Thursdays are roughly half. Weekends never publish.
+
+`macro_minute_freshness` therefore measures missed *publication opportunities*
+(`countMissedMacroMinuteSessions`), not wall-clock age. An elapsed-hours model
+paged on Sundays — a Wednesday episode hits 90h by Sunday afternoon even
+though Fundstrat had no expected slot in between and nobody could act. The
+slot closes at 22:00 ET; two consecutive closed slots with no episode is
+stale. Before assuming a real gap, confirm the desk is not simply publishing
+under a different title (see the Newton case below).
 
 ## Notes
 

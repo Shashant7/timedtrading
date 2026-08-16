@@ -240,13 +240,18 @@ async function runCroCtoLane(env) {
   // is in the overnight extraction window; fsd-evening (00-03 UTC) catches
   // later posts before the 9 AM ET morning brief.
   try {
-    const { enrichMacroMinuteTranscripts } = await import("../cro/fsd-ingestion.js");
-    const vr = await enrichMacroMinuteTranscripts(env, { limit: 8 });
-    console.log(`[MACRO_MINUTE_VIMEO] scanned=${vr.scanned ?? 0} attempted=${vr.attempted ?? 0} ingested=${vr.ingested ?? 0}`);
+    const { enrichVideoTranscripts, countMacroMinuteIngested } = await import("../cro/fsd-ingestion.js");
+    // Macro Minute and Newton's Daily Technical Strategy both ship as video.
+    const vr = await enrichVideoTranscripts(env, { limit: 8 });
+    console.log(`[FSD_VIDEO_VIMEO] scanned=${vr.scanned ?? 0} attempted=${vr.attempted ?? 0} ingested=${vr.ingested ?? 0}`);
     if (vr.ingested > 0) recordCronSuccess(env, "macro_minute_vimeo_enrich").catch(() => {});
     if ((vr.ingested || 0) > 0) {
-      const { syncLatestMacroMinuteProposals } = await import("../cro/fsd-ingestion.js");
-      await syncLatestMacroMinuteProposals(env, { limit: 1, force: true });
+      // The night-take sync is Macro Minute only; a Newton video still flows
+      // through the normal FSD extract path below.
+      if (countMacroMinuteIngested(vr) > 0) {
+        const { syncLatestMacroMinuteProposals } = await import("../cro/fsd-ingestion.js");
+        await syncLatestMacroMinuteProposals(env, { limit: 1, force: true });
+      }
       const { runCRODaily } = await import("../cro/cro-service.js");
       await runCRODaily(env, { force: true });
     }
