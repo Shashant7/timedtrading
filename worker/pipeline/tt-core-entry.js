@@ -2049,21 +2049,57 @@ export function evaluateEntry(ctx) {
       const _ntMinRvol = Number(daCfg.deep_audit_n_test_min_rvol ?? 1.0);
       const _ntRvol = Number(ctx?.rvol?.best) || Number(d?.rvol_map?.["30"]?.vr) || Number(d?.rvol_best) || 0;
 
+      // ── Sequence confirmation (2026-08-16) ───────────────────────────
+      // Touching a level is a LOCATION, not a signal. This trigger fired on
+      // location + touch count + RVOL alone, with no momentum confirmation
+      // and no divergence check, even though the engine has already computed
+      // both a few hundred lines above. Live Jul/Aug: tt_n_test_support is
+      // the worst path in the book — 19 trades, 21% WR — and the losers all
+      // share the shape of catching a relief bounce inside a continuing leg
+      // down (SPHB/XLK Jul 22 entered as the gap closed and rejected; the
+      // hourly EMA-233 was still trending down and price never crossed it).
+      //
+      // Require the bounce to be CONFIRMED by at least one momentum event
+      // (SuperTrend flip, EMA 13/48 cross, squeeze release, or LTF
+      // recovery), and refuse it when higher-timeframe momentum is actively
+      // diverging against the direction (NEU Jul 21: price cleared the prior
+      // swing high while RSI and phase did not).
+      //
+      // DEFAULT OFF pending a replay arm — flip
+      // deep_audit_ja_n_test_confirm_required to "true" to enable.
+      const _ntConfirmOn = String(daCfg.deep_audit_ja_n_test_confirm_required ?? "false") === "true";
+      const _ntMomentumConfirm = side === "LONG"
+        ? (hasStFlipBull || hasEmaCrossBull || hasSqRelease || ltfRecovering)
+        : (hasStFlipBear || hasEmaCrossBear || hasSqRelease);
+      const _ntAdvRsi = Number(adverseRsiDivSummary?.count)
+        || (adverseRsiDivSummary?.anyActive ? 1 : 0);
+      const _ntAdvPhase = Number(adversePhaseDivSummary?.count)
+        || (adversePhaseDivSummary?.anyActive ? 1 : 0);
+      const _ntDivBlocked = _ntConfirmOn && (_ntAdvRsi >= 1 && _ntAdvPhase >= 1);
+      const _ntConfirmOk = !_ntConfirmOn || (_ntMomentumConfirm && !_ntDivBlocked);
+
       if (side === "LONG" && _nts.support
           && _nts.support.long_setup_active
           && _nts.support.n_touches >= _ntMinTouches
-          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)) {
+          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)
+          && _ntConfirmOk) {
         nTestSupportTrigger = true;
       } else if (side === "SHORT" && _nts.resistance
           && _nts.resistance.short_setup_active
           && _nts.resistance.n_touches >= _ntMinTouches
-          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)) {
+          && (_ntRvol === 0 || _ntRvol >= _ntMinRvol)
+          && _ntConfirmOk) {
         nTestSupportTrigger = true;
       }
 
       d.__n_test_support_diag = {
         side,
         fired: nTestSupportTrigger,
+        confirm_required: _ntConfirmOn,
+        momentum_confirm: _ntMomentumConfirm,
+        adverse_rsi: _ntAdvRsi,
+        adverse_phase: _ntAdvPhase,
+        divergence_blocked: _ntDivBlocked,
         support: _nts.support,
         resistance: _nts.resistance,
         rvol: _ntRvol,

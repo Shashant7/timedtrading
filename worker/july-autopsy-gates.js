@@ -162,6 +162,54 @@ export function isHtfReclaimContext(d, tf, daCfg) {
 }
 
 /**
+ * Minimum profit an EXHAUSTION-driven trim must have before it may cut the
+ * position, expressed relative to what the ticker normally moves in a day.
+ *
+ * Why: the exhaustion trims used a flat +0.5% floor, and the protective
+ * first-trim guard (which requires +1.0% and a mature move) was applied ONLY
+ * to SLOW_GRINDER personalities. That is inverted — the names that travel
+ * furthest got the least protection:
+ *   HALO (VOLATILE_RUNNER) trimmed 50% at +0.74% via TD_HTF_EXHAUSTION on a
+ *   move that ran to +8.35% MFE, capturing 9% of it.
+ *   NEU  (MODERATE)        trimmed 50% at +0.59% via ATR_RANGE_EXHAUST
+ *   12 minutes after entry.
+ * Across the live July/August book, 7 of 17 trims fired below +0.75%.
+ *
+ * A trim at half a percent on a name with a 3% daily range is banking noise,
+ * not exhaustion. Scaling the floor by daily ATR% makes the threshold mean
+ * the same thing on a slow ETF and on a volatile runner.
+ *
+ * Returns the required profit percent. `deep_audit_ja_exhaust_trim_atr_frac`
+ * of 0 disables the scaling and restores the flat floor.
+ */
+export function exhaustTrimMinProfitPct(d, daCfg, absFloorPct = 0.5) {
+  // DEFAULT 0 (DISABLED) — VALIDATED NEGATIVE 2026-08-16.
+  // The July 10m replay arm with this at 0.35 scored $1,143 vs the
+  // baseline's $2,088 (realized $402 vs $1,345, WR 57% -> 48%). Raising the
+  // floor moved 6 trades from trimmed to untrimmed and the trimmed cohort's
+  // average fell from +2.27% to +1.16%.
+  //
+  // The reason is that in this book the early trim IS the profit mechanism:
+  // trimmed trades finish 28/34 winners (+2.27% avg), untrimmed 1/17
+  // (-1.22% avg). HALO — an early trim capping an 8.35% move — is the
+  // exception, not the rule, and the giveback there was on the RUNNER leg
+  // after the trim, not the trim itself. The correct fix is a
+  // structure-referenced stop on the post-trim runner, not a later trim.
+  const frac = Number(daCfg?.deep_audit_ja_exhaust_trim_atr_frac);
+  const fracEff = Number.isFinite(frac) ? frac : 0;
+  if (!(fracEff > 0)) return absFloorPct;
+
+  const price = Number(d?.price) || Number(d?._live_price) || 0;
+  const atr = Number(d?.atr) || Number(d?.atr_d) || 0;
+  if (!(price > 0) || !(atr > 0)) return absFloorPct;
+
+  const atrPct = (atr / price) * 100;
+  const cap = Number(daCfg?.deep_audit_ja_exhaust_trim_max_floor_pct);
+  const capEff = Number.isFinite(cap) && cap > 0 ? cap : 2.5;
+  return Math.min(capEff, Math.max(absFloorPct, atrPct * fracEff));
+}
+
+/**
  * G4 — default-deny for admission holes (P8). Call with the admitSetup
  * result: when the only reason a cohort is allowed is a missing grade or a
  * missing matrix row, reject instead.
@@ -181,4 +229,9 @@ export function julyAutopsyDefaultDeny(daCfg, admission) {
   return null;
 }
 
-export default { julyAutopsyGateBlock, julyAutopsyDefaultDeny };
+export default {
+  julyAutopsyGateBlock,
+  julyAutopsyDefaultDeny,
+  isHtfReclaimContext,
+  exhaustTrimMinProfitPct,
+};

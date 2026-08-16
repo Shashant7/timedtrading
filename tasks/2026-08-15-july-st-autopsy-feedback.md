@@ -1220,6 +1220,315 @@ tactical flags false to return to baseline. Next cron cycle picks it up.
 Tighten rather than kill: `deep_audit_ja_reclaim_daily_max=1..2`, or
 `deep_audit_ja_htf_reclaim_max_days_above=3` (the 55% WR cut).
 
+## Batch 3 — trade management: capturing more of the move (2026-08-16)
+
+Operator feedback on RTX Jul 20, NEU Jul 21, SPHB Jul 22, XLK Jul 22 and
+HALO Jul 22, with the stated theme: *better trade management to capture
+more of the move*. Analysis run against the 47 live trades since Jul 1.
+
+### The two numbers that frame it
+
+1. **We capture 37% of the favourable move on winners.** 30.8 points left
+   on the table across 15 winners — against a book that is net negative.
+   Worst offenders: PPG 1% of a 2.57% MFE, JD 7% of 2.54%, HALO 31% of
+   8.35%. On the four winners with a real (>3%) move we average ~50%.
+2. **12 of 46 exits fired between 09:30 and 09:45 ET — every one a
+   stop-out — together −24.4 points**, while every other hour of the
+   session combined was **+4.8**. Ten of the twelve traded back above
+   their stop within the same session.
+
+| Exit window (ET) | Exits | Stop-outs | Sum P&L |
+|---|---|---|---|
+| 09:30–09:45 | 12 | **12** | **−24.38** |
+| 09:45–10:00 | 3 | 1 | +6.19 |
+| 10:00–11:00 | 15 | 6 | +8.51 |
+| 11:00–16:00 | 16 | 6 | −9.94 |
+
+### What was already fixed (do not re-litigate)
+
+Three of those twelve exited at prices the tape never traded in that
+window (KO Jul 13 at 81.40 when the low was 83.78; KO Jul 17; JCI Jul 17).
+All three **predate the close-price sanity gate shipped 2026-07-20**
+(`evaluateClosePriceSanity`). Every post-gate case is within 0.34% of the
+bar low — tick-vs-bar granularity, not a phantom. The ghost-fill problem
+is closed.
+
+### Root causes found, per trade
+
+| Trade | Operator read | Mechanism found |
+|---|---|---|
+| **RTX Jul 20** (−2.92%) | flash drop to close the gap, wick up, then rallied to ATH | Stop poked by **0.13%** at 09:35 ET; next 10m bar closed 1.4% higher. RTH carried **zero** wick cushion while extended hours had 1% |
+| **NEU Jul 21** (−0.71%) | entry late, trim 12 min later, then reversed | Trim was `ATR_RANGE_EXHAUST` at **+0.59%**. Entry path `tt_n_test_support` fired on location alone |
+| **SPHB Jul 22** (−1.04%) | entered as the gap closed and rejected; hourly 233 still trending down | `tt_n_test_support` — no momentum confirmation required, no 233 posture check |
+| **XLK Jul 22** (−0.82%) | same as SPHB; RSI/phase peaked and dripping | Same path. Engine DID flag `has_adverse_phase_div: true` (30m) — and nothing consumed it |
+| **HALO Jul 22** (+2.63%, MFE 8.35%) | great entry, unnecessary early trim, exit left a huge gain | Trim was `TD_HTF_EXHAUSTION` at **+0.74%**; that path's floor is a flat `pnl > 0.5%` |
+
+### The inverted trim floor (the HALO bug)
+
+`canTakeInitialSignalTrim` requires +1.0% profit AND a mature move — but
+it is applied **only when personality is `SLOW_GRINDER`**
+(`_exhNeedsFirstTrimGuard`). Every other personality bypasses it with
+`{ allow: true }` and trims at the flat +0.5%. So the personality that
+travels least is the only one protected, and `VOLATILE_RUNNER` names like
+HALO — the ones most likely to keep running — get no floor at all.
+
+Live book: **7 of 17 trims fired below +0.75%**, and one (WAL) fired at
+−4.22%, i.e. a trim while losing.
+
+**Shipped**: exhaustion-trim floor now scales with daily ATR%
+(`deep_audit_ja_exhaust_trim_atr_frac`, default 0.35, capped 2.5%), so the
+threshold means the same thing on a slow ETF and a volatile runner. Both
+flagged trims (HALO +0.74%, NEU +0.59%) fall below the new floor.
+
+### The opening-window stop (the RTX bug)
+
+`_extWickCushion` gives 1% tolerance outside RTH and **0% inside it** —
+including the opening 15 minutes, the thinnest and most gap-driven
+liquidity of the session.
+
+Measured on the twelve: RTX overshoot 0.13%, WM 0.10% (both wick-only,
+both recovered); CF 1.1% and JD 0.6% closed decisively through.
+
+**Shipped**: a 0.35% opening-window cushion
+(`deep_audit_ja_opening_stop_confirm`, 09:30–09:45), placed *after* the
+1% material-breach and max-loss overrides so real breakdowns are
+unaffected. It is a per-tick tolerance, not a hold.
+
+**Honest caveat**: a naive "defer the stop to 09:45" simulation across all
+twelve gained only **+1.1 points**, because several survivors kept falling
+(SPHB −2.16, JD −2.62). The cushion is deliberately much narrower than
+that simulation — it only forgives sub-0.35% nicks, which is where RTX and
+WM sit and where CF/JD do not.
+
+### Support Bounce is location-only
+
+`tt_n_test_support` is the worst path in the live book — **19 trades,
+21% WR, sum −2.19%** — yet its MFE sum is **+47.77%** (avg 2.5% favourable
+per trade). These entries do get follow-through; we convert almost none of
+it. Both halves of the problem are live here.
+
+The trigger requires exactly three things: `long_setup_active` (price at
+the level), `n_touches >= 3`, and RVOL. **No momentum confirmation, no
+divergence check, no phase posture, no EMA-233 posture** — despite the
+engine having already computed `hasStFlipBull`, `hasEmaCrossBull`,
+`hasSqRelease`, `ltfRecovering`, `adverseRsiDivSummary` and
+`adversePhaseDivSummary` a few hundred lines earlier in the same function.
+
+**Shipped default OFF**: `deep_audit_ja_n_test_confirm_required` requires
+at least one momentum confirmation and refuses the entry when HTF
+momentum diverges against it on both RSI and phase. Diagnostics stamped on
+`__n_test_support_diag` regardless, so the block rate is measurable before
+the flag is flipped.
+
+### What the winners actually have in common (47 live trades)
+
+The operator's question — "our winners should provide us insight on the
+things that were present during good entries". Entry snapshots compared,
+winners (15) vs losers (32):
+
+| Feature at entry | Winners | Losers | Verdict |
+|---|---|---|---|
+| `has_adverse_phase_div` | 60% | 53% | **no discrimination** |
+| `has_adverse_rsi_div` | 13% | 13% | **none** |
+| any adverse divergence | 60% | 56% | **none** (33% WR with vs 30% without) |
+| `is_f4_severe` | 13% | 9% | none |
+| `daily_td9_adverse` | 0% | 0% | never fires — dead signal |
+| `setup_grade` | Spec 8 / Conf 5 / Prime 2 | Spec 16 / Conf 14 / Prime 2 | **none** (33/26/50% WR) — consistent with the admission matrix being a no-op |
+| PDZ premium on D **and** 4H | — | — | same 32% WR either way, but **−13.19 vs −4.50** sum: premium entries lose bigger, not more often |
+| **`regime_class` CHOPPY** | 1 | 8 | **11% WR — the strongest negative** |
+| **`personality`** | PULLBACK_PLAYER 8 | PULLBACK_PLAYER 6 | **PULLBACK_PLAYER 57% WR vs 32% book**; MEAN_REVERT **0 of 4**, SLOW_GRINDER 1 of 6 |
+
+Two usable discriminators (CHOPPY regime, personality) and a list of
+things that are NOT discriminating as currently computed — which is worth
+as much, because it says where not to spend effort. Note this is 47 trades;
+treat as directional, not conclusive.
+
+### The headline: the entries find moves, the management loses them
+
+| Path | n | WR | Sum P&L | Sum MFE |
+|---|---|---|---|---|
+| `tt_ath_breakout` | 20 | 45% | −4.35 | **+36.17** |
+| `tt_n_test_support` | 19 | 21% | −2.19 | **+47.77** |
+| `tt_range_reversal_long` | 4 | 25% | −8.28 | +6.49 |
+| `tt_pullback` | 4 | 25% | −2.88 | +3.29 |
+| **Total** | **47** | **32%** | **−17.70** | **+93.72** |
+
+**The book generated 93.7 points of favourable excursion and realised
+−17.7.** Every path is MFE-positive. Even the worst entry family
+(`tt_n_test_support`, 21% WR) averages +2.5% of favourable movement per
+trade. This is the strongest possible support for the operator's stated
+theme: the entry engine is finding moves, and management is giving them
+back. Entry selectivity is worth less than exit discipline right now.
+
+### Open gap — the divergence detector is structurally blind at the entry bar
+
+Entry snapshots recorded `has_adverse_rsi_div: false` and
+`has_adverse_phase_div: false` for NEU, SPHB and HALO, where the operator
+reads clear divergence off the 60m chart. `detectSeriesDivergence` needs
+TWO confirmed swing pivots, and `findSwingPivots` requires 5 bars of
+right-side confirmation — so a divergence forming **at the current high**,
+which is exactly when we enter, cannot exist yet.
+
+A "forming divergence" variant (current bar vs last confirmed pivot) is
+the obvious fix, but a direct test on NEU's own hourly tape did not
+reproduce the operator's read (RSI at the entry bar was 67.3 vs 62.6 at
+the prior pivot — a higher high, not a lower one), so the discriminator is
+probably the proprietary Phase series rather than RSI. **Not shipped** —
+needs the Phase series reconstructed at entry time before any rule is
+written on top of it. This is the highest-value open item on the entry
+side, because the G2 location gate already depends on this detector and is
+therefore only as good as it.
+
+## Batch 4 — final July feedback + the validation that killed batch 3
+   (2026-08-16)
+
+### The batch-3 management changes VALIDATED NEGATIVE — both defaulted OFF
+
+July 10m replay arm (`ja-mgmt-jul26`) vs the matching baseline
+(`ja-10m-jul26`), same cadence / ticker batch / flags:
+
+| Window | Arm | Trades | WR | Total $ | Realized $ |
+|---|---|---|---|---|---|
+| July | baseline | 51 | 57% | **+2,088** | +1,345 |
+| July | + trim floor + wick cushion | 50 | 48% | **+1,143** | +402 |
+| Aug 3–14 | baseline | 24 | 75% | +2,359 | +1,370 |
+| Aug 3–14 | + trim floor + wick cushion | 24 | 75% | +2,436 | +1,428 |
+
+August is a wash (identical trade count and win rate, +$77) — the floor
+barely binds in a strong trending tape. **All of the damage is July**, the
+chop month, which is precisely the regime the changes were meant to help.
+Net across both windows: **−$868**.
+
+**Diagnosis — the trim is not the problem, and raising its floor is
+actively harmful.** The floor moved 6 trades from trimmed to untrimmed and
+the trimmed cohort's average fell from +2.27% to +1.16%:
+
+| Cohort | Baseline | Arm |
+|---|---|---|
+| trimmed | 34 trades, 28 wins, +77.02 | 28 trades, 23 wins, +32.61 |
+| untrimmed | 17 trades, **1 win**, −20.68 | 22 trades, **1 win**, −27.79 |
+
+In this book the early trim **is** the profit mechanism — trimmed trades
+finish 28/34 winners (+2.27% avg) against untrimmed 1/17 (−1.22% avg).
+Some of that is tautological (a trade gets trimmed because it rose), but
+the drop *within* the trimmed cohort is not: banking earlier converts more
+of the excursion than holding for a bigger trim does.
+
+**HALO is the exception, not the rule — and its giveback was on the RUNNER
+leg, not the trim.** HALO trimmed 50% at +0.74% and then let the remaining
+half round-trip from an 8.35% MFE down to a +2.63% exit. The correct fix
+is a structure-referenced stop on the post-trim runner. That is the next
+piece of work; "trim later" is dead.
+
+Both flags now default OFF (`deep_audit_ja_exhaust_trim_atr_frac=0`,
+`deep_audit_ja_opening_stop_confirm=false`). The wick cushion was never
+isolated in its own arm, so it is off rather than shipped on an
+unattributed result.
+
+**Process note**: this is the second time a plausible, well-motivated
+change has been killed by a replay arm (the 72h cooldown was the first).
+Neither would have been caught by reasoning alone. Nothing ships default-ON
+without an arm.
+
+### XLRE Jul 22 — the timestamps and the TP/exit price
+
+Both operator observations are correct, and they are two different things:
+
+- **The 5:32 PM stamp is real, not a display bug.** `trim_ts` and
+  `exit_ts` are both 2026-07-24 21:32:40Z = **17:32 ET**, 1.5 hours after
+  the close. The TP level (45.94) was first traded at **10:00 ET** that
+  morning. So the position was flat-in-name-only for 7.5 hours and the
+  exit was booked by a post-close sweep at the level itself.
+- **The price is legitimate.** Jul 24 tape ranged 45.835–46.21, so 45.94
+  traded. This is NOT a phantom fill — it is a *booking-latency* defect:
+  right price, wrong time, and the fill is synthetic (booked AT the TP
+  rather than at a real print).
+- **TP == exit and trim_ts == exit_ts** because `TP_FULL` closes the whole
+  position in one event; the "trim" row is an artifact of that single
+  event, not a separate action. The UI renders it as a distinct trim.
+
+Follow-up: find why TP_FULL is settled by a post-close sweep rather than
+at the touch, and stop emitting a phantom trim row for full-TP exits.
+
+### NVDA Jul 24 — confirmed: we never re-entered
+
+**One NVDA trade in the entire live book since Jul 1** (Jul 24, −0.75%,
+`max_loss`, `TT Pullback Reclaim`). The operator's hope that we got back in
+during August is not met. The exit itself was good — it capped a deeper
+drawdown — but the name then reclaimed the hourly EMA-233 and ran, and we
+had no re-entry mechanism watching it. This is P16 (re-entry watch), still
+unbuilt, and it now has a concrete cost attached.
+
+### NEU Jul 27 — the stop sat inside the level's noise band
+
+Recomputed on a properly warmed hourly EMA-233 (1,298 bars = 5.6x the
+period, SMA seed; the earlier pass used ~280 bars and was unreliable):
+
+| Moment | Price | hourly EMA-233 | Price vs level |
+|---|---|---|---|
+| Entry Jul 27 19:06Z | 781.75 | 773.06 | **+1.42%** |
+| Trim Jul 28 13:59Z | 779.52 | 773.26 | +2.01% |
+| **Exit Jul 29 14:17Z** | 772.17 | 774.81 | −0.55% |
+| Jul 30 14:00Z | **848.10** | 777.42 | +9.09% |
+| Aug 14 | **959.42** | 876.10 | +9.51% |
+
+The entry location was good — 1.4% above the level. The Jul 29 dip put in
+a low of **770.00, piercing the 233 by only 0.62%**, and hourly closes
+recovered above it. **Our stop at 770.54 sat 0.55% below the level, i.e.
+inside the pierce.** We were removed by the very test that confirmed the
+support. From our exit the name ran **+24.7%**.
+
+Cross-section of all 25 LONG stop-outs, asking whether the stop sat within
+one hourly ATR of the 233 (close enough that a routine test reaches it):
+
+| Cohort | n | Sum P&L |
+|---|---|---|
+| stop INSIDE the level's noise band | 4 (TT, NVDA, NEU, CF) | −3.86% |
+| stop outside it | 21 | −7.19% |
+
+**So the shape is real but rare — 4 of 25.** Its damage is not the
+realised loss (−3.86%) but the forgone move: NEU alone gave up +24.7%. And
+it does not point one way: widening NEU's stop by an ATR captures the run,
+while CF (which kept falling) would have lost more.
+
+**Deliberately NOT shipped.** A stop-clearance rule ("a LONG stop must
+clear a major HTF level by ~1 hourly ATR, and if that breaks the risk
+budget, size down rather than tighten") is the top candidate for the next
+validation arm — but batch 3 just demonstrated what happens when this
+class of change ships on reasoning instead of an arm.
+
+### DE Jul 29 and WM Jul 29 — location without confirmation
+
+Both entered ~15:05 ET on Jul 29 and both stopped out in the opening
+window the next morning (09:34, 09:44 ET).
+
+**DE** (`TT Support Bounce`, Speculative, −2.97%): the entry snapshot shows
+15m Bear EMA + Bear ST, 30m Bear EMA + Bear ST, 1H Bull EMA but **Bear
+ST** — the entire low timeframe was bearish, and only 4H/D/W were bull.
+MFE +3.07% against MAE −7.78% (capture 0.4x). This is exactly the operator's
+description: a weak bounce that never cleared the hourly EMA-21 with the
+SuperTrend bearish and trending down.
+
+**WM** (`TT ATH Breakout`, −3.43%): same session, same shape, different
+family — an ATH breakout taken without hourly structural support.
+
+These are the trades the batch-3 support-bounce confirmation gate targets
+(`deep_audit_ja_n_test_confirm_required`, shipped default OFF): it requires
+at least one momentum confirmation and refuses entries with adverse HTF
+divergence on both RSI and phase. **DE would need the momentum leg to be
+strict enough** — `ltfRecovering` alone (`scores.ltf > -10`) may still pass
+a bar like DE's, so the gate likely needs an explicit LTF-structure
+condition (not both 15m and 30m bearish on EMA *and* ST) before it is worth
+turning on.
+
+**WM is not covered at all** — it is `tt_ath_breakout`, a different family.
+The operator's rule ("if we do enter ATH, it must be structurally
+supportive on the LTF let alone HTF") needs the same confirmation applied
+to the breakout path.
+
+Both remain unvalidated. Next arm should test: n-test confirmation with an
+explicit LTF-structure leg, plus the same leg on ATH breakout.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?

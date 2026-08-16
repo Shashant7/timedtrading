@@ -679,7 +679,10 @@ import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
    Source-of-truth: tasks/phase-c/accumulation-trend-deep-dive.md. */
 import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
-import { isHtfReclaimContext as jaIsHtfReclaimContext } from "./july-autopsy-gates.js";
+import {
+  isHtfReclaimContext as jaIsHtfReclaimContext,
+  exhaustTrimMinProfitPct as jaExhaustTrimMinProfitPct,
+} from "./july-autopsy-gates.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 /* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
@@ -12579,11 +12582,47 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         // wicks even when the price is fresh.
         const _extWickCushion = !isNyRegularMarketOpen() ? 0.010 : 0;
 
+        // ── Opening-window wick cushion (2026-08-16) ────────────────────
+        // The first minutes of RTH are the thinnest, most gap-driven
+        // liquidity of the session, but carried ZERO wick tolerance while
+        // extended hours got 1%. Live July/August: 12 of 46 exits fired
+        // between 09:30 and 09:45 ET, ALL of them stop-outs, together
+        // -24.4 points while every other hour combined was +4.8; 10 of the
+        // 12 traded back above the stop in the same session.
+        //
+        // RTX Jul 21 is the archetype: a gap-fill flush poked 0.13% through
+        // the stop, the very next 10m bar closed 1.4% higher, and the name
+        // ran to an all-time high (the re-entry two days later made +9.9%).
+        // WM Jul 30 has the same 0.10% shape.
+        //
+        // This is a per-tick tolerance, not a hold: price still below the
+        // stop on the next cycle exits then. The 1% material-breach and
+        // max-loss overrides below are untouched, so a real breakdown
+        // (CF -1.1% through, JD -0.6%) still exits immediately.
+        const _openWickCushion = (() => {
+          const _owCfg = tickerData?._env?._deepAuditConfig;
+          // DEFAULT OFF — shipped untested alongside the exhaustion-trim
+          // floor, and the combined July arm came in below baseline
+          // ($1,143 vs $2,088). The trim floor accounts for most of that
+          // gap, but this cushion has not been isolated in its own arm yet,
+          // so it stays off until it is.
+          if (String(_owCfg?.deep_audit_ja_opening_stop_confirm ?? "false") !== "true") return 0;
+          if (!isNyRegularMarketOpen()) return 0;
+          try {
+            const { hour, minute } = getEasternParts(new Date());
+            const mins = Number(hour) * 60 + Number(minute);
+            const endMin = Number(_owCfg?.deep_audit_ja_opening_stop_confirm_end_minute) || 45;
+            if (mins < 9 * 60 + 30 || mins >= 9 * 60 + endMin) return 0;
+          } catch (_) { return 0; }
+          const pct = Number(_owCfg?.deep_audit_ja_opening_stop_cushion_pct);
+          return (Number.isFinite(pct) && pct > 0 ? pct : 0.35) / 100;
+        })();
+
         const baseCushion = _inFavorableZone && _regimeConfirms && _hasFvgSupport ? 0.005 : 0;
         // RTH: cap HTF deferral at 0.5% — a 1%+ breach below SL is not a wick.
         const _htfCushionRaw = _htfTrendSupports ? 0.012 : 0;
         const htfCushion = isNyRegularMarketOpen() ? Math.min(_htfCushionRaw, 0.005) : _htfCushionRaw;
-        const allowedOvershoot = Math.max(baseCushion, htfCushion) + _extWickCushion;
+        const allowedOvershoot = Math.max(baseCushion, htfCushion, _openWickCushion) + _extWickCushion;
 
         if (slOvershoot >= allowedOvershoot) {
           tickerData.__exit_reason = "sl_breached";
@@ -12602,6 +12641,16 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         if (pnlPct <= _slDeferMaxLossPct || _slMaterialBreach) {
           tickerData.__exit_reason = "sl_breached";
           return "exit";
+        }
+        if (_openWickCushion > 0 && slOvershoot < _openWickCushion) {
+          tickerData.__defend_reason = "sl_opening_wick_defer";
+          _trackSLGuard("opening_wick_defer", {
+            ticker: tickerData?.ticker,
+            overshoot_pct: slOvershoot * 100,
+            cushion_pct: _openWickCushion * 100,
+          });
+          console.log(`[SL_OPENING_WICK_DEFER] ${tickerData?.ticker || "?"} overshoot=${(slOvershoot * 100).toFixed(2)}% < cushion=${(_openWickCushion * 100).toFixed(2)}% — opening-window wick, deferring to next tick`);
+          return "defend";
         }
         if (_extWickCushion > 0 && slOvershoot < _extWickCushion) {
           tickerData.__defend_reason = "sl_ext_wick_defer";
@@ -22443,8 +22492,16 @@ async function processTradeSimulation(
               || ""
             ).trim().toUpperCase();
             const _exhNeedsFirstTrimGuard = _exhPersonality === "SLOW_GRINDER";
+            // Scale the floor by what this ticker normally travels in a day.
+            // A flat 0.5% banks noise on a wide-range name (NEU trimmed 50%
+            // at +0.59%, 12 minutes after entry).
+            const _exhMinPnl = jaExhaustTrimMinProfitPct(
+              tickerData,
+              env?._deepAuditConfig,
+              0.5,
+            );
 
-            if (_exhPnlPct > 0.5 && _exhTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+            if (_exhPnlPct > _exhMinPnl && _exhTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
               const _exhFirstTrimGuard = _exhNeedsFirstTrimGuard
                 ? canTakeInitialSignalTrim(_exhPnlPct, "ATR_RANGE_EXHAUST")
                 : { allow: true };
@@ -22620,7 +22677,15 @@ async function processTradeSimulation(
             else if (!isReplay) await kvPutJSON(KV, execKey, execState);
           }
 
-          if (execState.tdHtfExhSeen && _tdPnlPct > 0.5) {
+          // Same ATR-scaled floor as the ATR exhaustion path: HALO
+          // (VOLATILE_RUNNER) trimmed 50% here at +0.74% on a move that ran
+          // to +8.35%, banking 9% of it.
+          const _tdMinPnl = jaExhaustTrimMinProfitPct(
+            tickerData,
+            env?._deepAuditConfig,
+            0.5,
+          );
+          if (execState.tdHtfExhSeen && _tdPnlPct > _tdMinPnl) {
             const _tdTH = assessTrendHealth(tickerData, String(openTrade.direction || ""));
             const _tdCloudExp = _tdTH.cloudExpansion || {};
             const _tdCloudAligned = _tdCloudExp.allAligned && !_tdCloudExp.isCompressing;
