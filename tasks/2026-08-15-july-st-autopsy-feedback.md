@@ -881,6 +881,66 @@ deploys. Go-live sequence:
 4. **Rollback = config-only**: set the five true flags to "false"
    (no deploy needed, next cron cycle picks it up).
 
+## Tuning pass 2 — loss-pattern analysis (2026-08-16, operator-directed)
+
+Full feature reconstruction for all 80 reclaim trades (Jul + Aug tactical
+arms): ticker daily structure at entry, SPY posture, VIX (VX1! futures),
+HMM input proxies, sequence, timing.
+
+### What separates the 46 losses from the 34 wins
+
+| Feature | Winners | Losers | Verdict |
+|---|---|---|---|
+| **Days above EMA-21 before entry** | median 3 | median 7 | **THE signal** — ≤3: 55% WR; >3: 34% WR. Entries hovering above e21 for weeks (MTB: 51 days) are drift, not reclaims |
+| Distance above EMA-21 | 1.11% | 1.72% | mild (2.0 cap tested: overfit risk, kept 2.5) |
+| Prior-day ticker return | +0.44% | −0.14% | real but cuts SPHB +17.1 (entered after −1.9% day); not shipped |
+| SPY above its EMA-21 | 37% WR when true | **71% WR when false** | inverted! Reclaims work best on market turn days (Jul 30, Aug 3); any "SPY must be healthy" filter destroys the best trades |
+| VIX (VX1!) level | 18.2 | 18.1 | non-discriminating (all trades in the 17–20 band) |
+| VIX 5-day change | — | — | WR unchanged, but rising-VIX trades paid +6.7 total vs +115.1 for flat/falling → future SIZING modifier, not a filter |
+| Sequence (nth attempt, prior result) | 2.83 | 2.64 | **no signal** — confirms the cooldown was the wrong tool |
+| rr, completion, phase, hour, 4H prep | — | — | no separation |
+| MAE | −0.37 | −1.43 | winners never go against entry — structural stops working |
+
+**HMM**: only the latest state is persisted (`timed:regime:hmm:latest`,
+BULL_TREND/CHOP/BEAR_TREND from SPY ret/ATR, VIX, breadth, dispersion).
+Its input features were tested via proxies above — the SPY-posture
+inversion means a naive "HMM says BULL" filter would cut the turn-day
+winners. A proper historical decode (per-date states) is future work;
+expectations low given the proxy results.
+
+### Shipped: time-freshness (`days_above_e21 ≤ 5`)
+
+`indicators.js` now computes consecutive prior daily closes above the
+EMA-21 (`daily_structure.days_above_e21`); `isHtfReclaimContext` requires
+≤ 5 (config `deep_audit_ja_htf_reclaim_max_days_above`). Simulated on the
+80: kept 9/11 big winners, removed 2× more loss than win, PnL 121.8 →
+127.2 with 12% fewer positions.
+
+### Validation replays (same mechanism as before)
+
+| Window | Baseline | Tactical v1 (live) | v1 + freshness |
+|---|---|---|---|
+| July | −1.95 | +54.54 (62t, 42% WR) | +44.27 (47t, 45% WR) |
+| Aug 3–14 | +64.23 | +84.71 (30t, 60% WR) | **+77.58 (21t, 71% WR)** |
+
+Freshness trades −17 total PnL in this path for +10-11 pts WR, ~30% fewer
+positions, and per-trade expectancy 1.51 → 1.79. The July gap is one
+cascade casualty (JCI Jul 30 +18.5 — days-above 0, NOT blocked by the
+rule; the reshuffled sequence took a different JCI trade Jul 22 and the
+Jul 30 re-entry never re-triggered — same replay path-dependence seen in
+every arm pair). Direct rule measurement: removed 19 losses (−17.2) vs
+10 wins (+24.5, of which +18.5 was the cascade, not the rule).
+
+**Decision: ship freshness at default 5** — definitionally correct
+(a "reclaim" 51 days above the level is not a reclaim), higher expectancy
+and WR, relaxable via config.
+
+### Go-live status
+
+Tactical v1 went LIVE 2026-08-16 ~05:45 UTC (merge → CI deployed monolith
++ tt-engine; pre-staged flags armed). Freshness (this pass) rides the next
+merge.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
