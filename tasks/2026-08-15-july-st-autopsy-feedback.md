@@ -1617,6 +1617,52 @@ live tape numbers (NEU cushion 0.45% > 0.07% pierce → defer; CF 1.09% flush
 > cushion + 1% override → exit). Given the bounded worst case (per-tick
 defer only, max-loss / material-breach caps untouched), this is arm-able.
 
+### Arm F result — n-test confirm + forming divergence: replay-neutral
+
+| Run | Trades | Wins | Realized $ |
+|---|---|---|---|
+| ja-10m-jul26 (baseline) | 51 | 29 | 1,345 |
+| **ja-div-jul26** | 51 | 29 | 1,333 |
+| ja-10m-aug26 (baseline) | 24 | 18 | 1,370 |
+| **ja-div-aug26** | 24 | 18 | **1,370** (zero trade diff) |
+
+July's entire diff is ONE clean swap: the gate blocked the GRNI Jul 6
+unconfirmed support bounce (−$32) and GRNI re-entered next day via HTF
+reclaim (−$44) — net −$12. EXEL Jul 29 (−$473, the other n-test loser)
+STILL entered: its bounce carried a momentum confirm via the loose
+`ltfRecovering` leg (`scores.ltf > -10`), confirming the batch-4 note that
+the momentum leg needs an explicit LTF-structure condition to catch
+DE/EXEL-class bounces. Known limitation, follow-up candidate.
+
+The replay universe simply doesn't carry the live exposure: 2 n-test trades
+in replay-July vs 19 live (21% WR, the worst family in the book). Replay
+proves the gate doesn't hurt; the live evidence is why it should be on.
+
+### Go-live (staged 2026-08-16, activates with the Monday deploy)
+
+Armed in PROD `model_config` (rows inserted; struct/forming keys are inert
+until PR #1261 merges and deploys — n_test_confirm activates on the
+already-deployed PR-1259 code, market closed until Monday):
+
+- `deep_audit_ja_struct_stop_guard=true`
+- `deep_audit_ja_n_test_confirm_required=true`
+- `deep_audit_ja_forming_div_gate=true`
+
+Rollback is config-only: flip any row to `false`, no deploy needed.
+
+Monday watch list additions:
+- `[SL_STRUCT_LEVEL_DEFER]` log lines / `struct_level_defer` guard events —
+  expect a fire on names testing their hourly 233; verify the deferred name
+  either recovers (NEU shape) or exits within a tick or two on genuine
+  breaks (CF shape, via material-breach).
+- `__n_test_support_diag` on any support-bounce candidate: fields
+  `forming_gate`, `adverse_rsi_forming`, `adverse_phase_forming`,
+  `divergence_blocked` now populated.
+- Forming-divergence measurement is free everywhere:
+  `__entry_divergence_summary.adverse_rsi_forming` / `adverse_phase_forming`
+  in every setup snapshot — after a week, correlate against entry outcomes
+  to decide whether forming divergence should graduate into G2.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
