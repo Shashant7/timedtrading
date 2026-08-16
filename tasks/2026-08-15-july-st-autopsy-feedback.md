@@ -688,6 +688,69 @@ work first.)
   (BRK-B/CIBR/PPG-class winners must survive), net PnL, MFE capture,
   post-trim giveback.
 
+## Backtest execution log (2026-08-15)
+
+- **Prep:** preprod deployed from this branch; live model_config synced
+  (500-key cap warning noted); candles Jun 9 → Aug 1 backfilled for the
+  28-ticker universe + SPY/QQQ/IWM/VIX + sector ETFs (221,801 rows,
+  duplicate-D bars deduped on copy); `daily_market_snapshots` (44) +
+  `market_events` (1,321) + 38/39 ticker_profiles copied (NEU profile row
+  failed; runs on defaults).
+- **Baseline (`ja-baseline-jul26`)**: 22 sessions, 30m cadence, clean
+  finalize. **15 trades, 4W/11L, sum −1.95%.** Confirmed-ATH cohort
+  entered 4× (GRNY, UNP, MTB, BRK-B) — the P8 leak reproduces in replay.
+- **Gates-on v1 (`ja-gates-jul26`)**: INVALID — trades identical to
+  baseline. Root cause: `REPLAY_DA_KEYS` allowlist filtered the new
+  `ja_*` flags out of replay config. Fixed (allowlist + redeploy), run
+  discarded.
+- **Gates-on v2 (`ja-gates-jul26-v2`, all 5 gates)**: blocking every
+  TT-setup entry through mid-month (0 trades vs baseline's 8 by Jul 13),
+  including the baseline's winners.
+- **FINDING (P8 root cause, behaviorally confirmed):**
+  `deep_audit_setup_admission_enabled` is "true" and the matrix rows are
+  correct — but always-blocked cohorts still enter because **`setup_grade`
+  is empty at admission time** (graded later, before the D1 write).
+  `admitSetup` returns `missing_inputs_default_allow` for essentially
+  every TT-setup entry → **the admission matrix has been a no-op on this
+  lane**. `ja_default_deny` therefore blocks *all* TT entries (correct
+  per its spec, too blunt as a bundle) — the real fix is computing the
+  grade *before* admission, then default-deny becomes a safety tripwire.
+- **Gates-on v2 final: 0 trades in 22 sessions.** The full pack (incl.
+  G4) suppresses the entire month — G4 alone is a lane-wide kill switch
+  while the grade-timing hole exists.
+- **Arm 3 (`ja-gates-nodeny-jul26`, G1+G2+G3+G5, default-deny off):**
+  **11 trades, 5W/6L (45% WR vs baseline 27%), sum −5.35%.**
+
+### Arm 3 vs baseline — trade-level
+
+| Effect | Detail |
+|---|---|
+| Blocked (6) | JCI SB −0.54, AMZN ATH −0.83, GRNY SB −0.40, GRNY SB −0.58, BRK-B ATH −0.08 — **5 losses removed**; NEU SB +0.47 (a 9:30:00 open entry — G1 blocked it on principle) |
+| Post-trim floor saves | EXEL −0.67 → **+0.23**; AMZN Jul 20 −0.02 → **+0.15** |
+| Post-trim floor costs | UNP +1.64 → +0.14 (floor cut the dip that later recovered); AMZN Jul 9 +0.80 → +0.63 |
+| Reshuffle hazard | Blocking JCI's 10:00 support bounce freed the slot for a **JCI Confirmed-ATH entry at 13:00 that lost −4.35%** — a cohort the admission matrix is supposed to kill on sight |
+
+### Verdict
+
+1. **The tactical gates work**: win rate 27% → 45%; 5 of 6 blocked trades
+   were losses; the one blocked winner was an opening-chase the operator's
+   own doctrine rejects.
+2. **The headline PnL (−5.35 vs −1.95) is worse for exactly one reason**:
+   the slot freed by a correct block was refilled by a blocked-cohort
+   trade (JCI Confirmed-ATH, −4.35%) that only entered because of the
+   grade-at-admission hole. Excluding that single leak, arm 3 = −1.00%
+   vs baseline −1.95% with half the losers. **The admission-grade timing
+   fix is the P0** — every other gate's benefit is capped until the
+   matrix actually enforces.
+3. **G4 sequencing**: default-deny is correct as a tripwire but must ship
+   AFTER grade-before-admission, not alongside (it currently
+   default-denies everything because everything is grade-less at
+   admission).
+4. **G5 nuance matches the operator's own MTB feedback**: a hard floor
+   sometimes exits into a dip that recovers (UNP). Next iteration: floor
+   arms at the flush and fires on failed reclaim (the sweep-reclaim movie)
+   instead of market-exiting at the level.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?

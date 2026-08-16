@@ -438,6 +438,16 @@ export const REPLAY_DA_KEYS = [
   // V15 P0.7.59 (2026-05-04) — Setup admission + exit doctrine flags
   "deep_audit_setup_admission_enabled",
   "deep_audit_exit_doctrine_enabled",
+  // 2026-08-15 — July ST autopsy gate pack (P2/P3/P5/P8/P11).
+  // See worker/july-autopsy-gates.js + tasks/2026-08-15-july-st-autopsy-feedback.md.
+  "deep_audit_ja_opening_gate",
+  "deep_audit_ja_opening_gate_end_minute",
+  "deep_audit_ja_location_gate",
+  "deep_audit_ja_expected_move_gate",
+  "deep_audit_ja_expected_move_min_atr_pct",
+  "deep_audit_ja_default_deny",
+  "deep_audit_ja_post_trim_floor",
+  "deep_audit_ja_post_trim_floor_buffer_pct",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
   "deep_audit_cluster_throttle_window_min",

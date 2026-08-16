@@ -29,7 +29,13 @@
       doctrine (+11% second leg watched from flat), leg-maturity
       blindness, SSL/liquidity as context not just stop-plumbing, and a
       NEW duplicate daily-bar bug (Jul 6–10 D candles stored twice,
-      indicators double-counted). Forensics vs D1 + tape found 13 patterns: stale/phantom
+      indicators double-counted). Batch 4 (GRNI/UNP/KO#2/JCI/PPG) + doc
+      solidified (5 root causes). **Targeted July-2026 backtest executed
+      in preprod** (gate pack flag-gated, 3 arms): tactical gates lift WR
+      27%→45%; grade-empty-at-admission proven as the matrix no-op root
+      cause (P0); post-trim floor saves EXEL/AMZN, costs UNP dip-recovery
+      (→ needs reclaim movie). Next: grade-before-admission fix, then
+      default-deny tripwire. Forensics vs D1 + tape found 13 patterns: stale/phantom
       entry prints, **phantom exits (4 of 30 audited — KO×2 + JCI
       fabricated SL breaches in the opening minutes, fills booked at the
       SL level)**, opening-window chasing (no TT-setup gate), premium-zone
