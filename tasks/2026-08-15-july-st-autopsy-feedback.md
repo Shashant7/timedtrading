@@ -1584,6 +1584,39 @@ May 2), above the 233-bar EMA warm-up minimum; replay loads 600.
 Reference: `ja-10m-jul26` $2,088 total / $1,345 realized (57% WR).
 Results to be appended below.
 
+### Arm S result — no harm, no replay-visible fires (2026-08-16)
+
+| Run | Trades | Wins | Realized $ | Open-mark $ |
+|---|---|---|---|---|
+| ja-10m-jul26 (baseline) | 51 | 29 | 1,345 | 470* |
+| **ja-struct-jul26** | 51 | 29 | **1,345** | 743 |
+| ja-10m-aug26 (baseline) | 24 | 18 | 1,370 | 664* |
+| **ja-struct-aug26** | 24 | 18 | **1,370** | 989 |
+
+*Baseline open-marks predate the sizing fix and are understated; realized
+columns are directly comparable and are IDENTICAL to the dollar — the guard
+changed zero trades in both months.
+
+Why identical is the expected (and acceptable) result:
+
+1. **The failure mode is sub-cadence.** NEU's live stop-out was a tick-level
+   wick pierce (0.07% past the stop for minutes) caught by a live */5 cron
+   tick. The replay evaluates SL on 10m BAR CLOSES — a wick that pierces and
+   recovers inside the bar never even registers as a breach. The exact shape
+   the guard fixes is structurally invisible to this harness.
+2. **The July replay had exactly one in-band candidate** (checked all 8
+   sl_breached exits against the h1 EMA-233 ± ATR band): SPHB Jul 13 — and
+   that one was an overnight gap through the stop at the 09:30 open, which
+   the guard correctly refuses to defer (material-breach override).
+3. **The replay never entered NEU Jul 27 or CF Aug 3** (path dependence),
+   so neither archetype could appear.
+
+So replay validates the guard's DOWNSIDE (no regression, no held losers,
+gap-throughs still exit); the save case is pinned by unit tests against the
+live tape numbers (NEU cushion 0.45% > 0.07% pierce → defer; CF 1.09% flush
+> cushion + 1% override → exit). Given the bounded worst case (per-tick
+defer only, max-loss / material-breach caps untouched), this is arm-able.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
