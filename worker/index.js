@@ -19816,15 +19816,17 @@ async function processTradeSimulation(
 
     // ── JULY-2026 AUTOPSY — failed-reclaim cooldown (P15 tuning) ──────────
     // After a tt_htf_reclaim LOSS on a ticker, block another reclaim entry
-    // for N hours (default 72). July replay: repeated same-ticker reclaim
-    // attempts (GRNY ×4, GRNI, XLRE ×2, EXEL) bled small losses without
-    // any winner requiring re-entry inside 72h (JCI's Jul 27 loss-exit →
-    // Jul 30 +18.5% re-entry clears 72h by an hour; KO's Jul 1 → Jul 6
-    // +2.35% clears comfortably). Flag-gated with the reclaim entry.
+    // for N hours. DEFAULT 0 (DISABLED): the 72h variant VALIDATED NEGATIVE
+    // in the July replay (+54.5% → +20.5%) — it saved ~1% of repeat losses
+    // but the slot-reshuffle cascade re-sequenced mid-July entries and a
+    // shifted JCI loss-exit then cooldown-blocked the Jul 30 +18.5%
+    // re-entry. Keep as an operator knob
+    // (deep_audit_ja_htf_reclaim_cooldown_hours) pending a re-test with a
+    // high-confidence override.
     let _jaReclaimCooldownBlock = false;
     if (String(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
         && String(tickerData?.__entry_path || "") === "tt_htf_reclaim") {
-      const _jaRcHours = Number(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_cooldown_hours) || 72;
+      const _jaRcHours = Number(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_cooldown_hours) || 0;
       const _jaLastReclaimLoss = _recentClosedOnTicker.find(t =>
         String(t?.entry_path || t?.entryPath || "").toLowerCase() === "tt_htf_reclaim"
         && t?.status === "LOSS");
