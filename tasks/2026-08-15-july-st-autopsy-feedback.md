@@ -941,6 +941,42 @@ Tactical v1 went LIVE 2026-08-16 ~05:45 UTC (merge → CI deployed monolith
 + tt-engine; pre-staged flags armed). Freshness (this pass) rides the next
 merge.
 
+## Experiments: cadence + limits (2026-08-16, operator-directed)
+
+### 1. 10m vs 30m replay cadence (freshness build, normal limits)
+
+| Window | 30m | 10m |
+|---|---|---|
+| July | 47t, 45% WR, +44.27% | **51t, 57% WR, +56.34%** |
+| Aug 3–14 | 21t, 71% WR, +77.58% | **24t, 75% WR, +80.08%** |
+| Total | +121.9 | **+136.4** |
+
+10m wins both windows on both WR and PnL — finer entry resolution catches
+reclaim triggers earlier (BRK-B +14.4 vs +11.3, new NEU +8.0 winner) and
+the historical "10m hurts" lesson (P0.7.17: exits tripping intra-bar
+wicks) no longer applies because the 30m management-cadence gate holds
+exits to 30m boundaries regardless of scoring cadence.
+
+**Interpretation — no live change needed**: the LIVE engine already scores
+every 5 minutes (*/5 cron on tt-engine), so live entry detection is
+ALREADY finer than the 30m replays. The experiment's real conclusions:
+(a) live should behave at least as well as the 10m replays, which are the
+better predictor; (b) **adopt 10m as the standard validation cadence**
+(3× replay cost, materially closer to live behavior).
+
+### 2. No slot / sector / direction limits (30m, freshness build)
+
+Bypassed smart gates 0–3 (position cap 35, proportional sector cap,
+same-direction 25, correlation quality gate) + disabled the cluster
+throttle. Result: **a wash** — July 47t +44.50% (vs +44.27% with limits),
+August byte-identical (21t +77.58%). At the 28-ticker universe the caps
+never bind; they are not the constraint. Caveat for later: on the full
+~200-ticker live universe, sector caps and the cluster throttle are more
+likely to bind exactly on turn days (Jul 30 / Aug 3 pattern where winners
+cluster) — retest with a full-universe replay before trusting them there.
+The bypass flag (`deep_audit_ja_no_slot_sector_limits`, default OFF) stays
+as experiment infrastructure.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
