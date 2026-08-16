@@ -315,6 +315,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   requiredTier: "admin"
 }, React.createElement(Audit, null)) : React.createElement(Audit, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786745177723:80378833
+// cache-bust:1786904662481:283593577
 
-// cache-bust:1786745177723:80378833
+// cache-bust:1786904662481:283593577

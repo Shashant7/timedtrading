@@ -3916,7 +3916,7 @@ function TopMovers({
       mode: "rth",
       onSelectTicker
     }));
-    const extCols = h(React.Fragment, null, h(CompactMoversCol, {
+    const extCols = showExt ? h(React.Fragment, null, h(CompactMoversCol, {
       title: "EXT GAINERS",
       items: extGain,
       mode: "ext",
@@ -3926,25 +3926,17 @@ function TopMovers({
       items: extLoss,
       mode: "ext",
       onSelectTicker
-    }));
+    })) : null;
     return h("div", {
-      className: `tt-mp-movers-embed${inPanel && showExt ? " tt-mp-movers-embed--stacked" : ""}`
+      className: "tt-mp-movers-embed"
     }, !inPanel && h("div", {
       className: "tt-sec-title",
       style: {
         marginBottom: 4
       }
-    }, "TOP MOVERS"), inPanel && showExt ? h(React.Fragment, null, h("div", {
-      className: "tt-mp-movers-compact-grid"
-    }, rthCols), h("div", {
-      className: "tt-mp-movers-ext-block"
-    }, h("div", {
-      className: "tt-mp-movers-compact-grid"
-    }, extCols)), h("div", {
-      className: "tt-mp-movers-compact-grid tt-mp-movers-compact-grid--quad"
-    }, rthCols, extCols)) : h("div", {
+    }, "TOP MOVERS"), h("div", {
       className: `tt-mp-movers-compact-grid${showExt ? " tt-mp-movers-compact-grid--quad" : ""}`
-    }, rthCols, showExt && extCols));
+    }, rthCols, extCols));
   }
   if (strip) {
     const moverChip = (t, mode) => {
@@ -7263,6 +7255,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1786745177723:80378833
+// cache-bust:1786904662481:283593577
 
-// cache-bust:1786745177723:80378833
+// cache-bust:1786904662481:283593577
