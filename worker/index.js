@@ -25175,10 +25175,19 @@ async function processTradeSimulation(
           }
         }
         
+        // JULY-2026 AUTOPSY experiment (2026-08-16): bypass slot/sector/
+        // direction/correlation caps (Gates 0-3). Flag-gated, default OFF.
+        // Keeps the absolute 50-position runaway backstop. Cluster throttle
+        // has its own flag (deep_audit_cluster_throttle_enabled).
+        const _jaNoLimits = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_ja_no_slot_sector_limits ?? "false"
+        ) === "true";
+
         // Gate 0: Total open position cap
-        if (openPositions.length >= MAX_OPEN_POSITIONS) {
+        const _jaGate0Cap = _jaNoLimits ? MAX_OPEN_POSITIONS_HARD_LIMIT : MAX_OPEN_POSITIONS;
+        if (openPositions.length >= _jaGate0Cap) {
           smartGateBlocked = true;
-          smartGateReason = `position_cap:${openPositions.length}/${MAX_OPEN_POSITIONS}`;
+          smartGateReason = `position_cap:${openPositions.length}/${_jaGate0Cap}`;
           console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
         }
 
@@ -25187,7 +25196,7 @@ async function processTradeSimulation(
         // large sectors (Industrials 44 tickers → only 9% could trade).
         let sectorCount = 0;
         let sectorCapForCandidate = MAX_PER_SECTOR_FLOOR;
-        if (!smartGateBlocked) {
+        if (!smartGateBlocked && !_jaNoLimits) {
           for (const pos of openPositions) {
             const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
             if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
@@ -25214,7 +25223,7 @@ async function processTradeSimulation(
         }
         
         // Gate 2: Directional concentration
-        if (!smartGateBlocked) {
+        if (!smartGateBlocked && !_jaNoLimits) {
           let dirCount = 0;
           for (const pos of openPositions) {
             if (String(pos.direction).toUpperCase() === candidateDir) dirCount++;
@@ -25233,7 +25242,7 @@ async function processTradeSimulation(
           MAX_PER_SECTOR_FLOOR - 1,
           Math.ceil(sectorCapForCandidate * 0.75)
         );
-        if (!smartGateBlocked && sectorCount >= correlationThreshold) {
+        if (!smartGateBlocked && !_jaNoLimits && sectorCount >= correlationThreshold) {
           const eqScore = Number(tickerData?.entry_quality?.score || tickerData?.__entry_quality) || 0;
           const requiredQuality = 80;
           if (eqScore > 0 && eqScore < requiredQuality) {
