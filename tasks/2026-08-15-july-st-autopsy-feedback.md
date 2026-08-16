@@ -1066,6 +1066,71 @@ good and the extra reclaim entries neither help nor hurt much. That is the
 right shape for a defensive+selective change — it raises the floor rather
 than the ceiling.
 
+## Go-live plan for Monday (2026-08-17) — minimal deviation
+
+### Where we actually stand
+
+Tactical v1 is LIVE (merged + deployed 2026-08-16 ~05:45 UTC). Restated on
+true sizing it is **thin**: +$597 July, and −$711 vs baseline in August —
+net ~+$209 across six weeks, most of it unrealized marks. **Freshness is
+the change that makes the pack pay** (July +$1,441 at 24 tickers; and in
+the cadence-matched 5m test, +$2,679 vs baseline in July). It is NOT yet
+on `main`.
+
+### Ship (in this order)
+
+1. **PR #1256 — freshness + reclaim daily budget.** The freshness rule is
+   the validated edge; the budget is the guardrail that keeps live inside
+   the envelope we measured (see universe scaling: ~8x more candidates
+   live than in replay). Merging both together is the point — freshness
+   without the budget ships an unranked family into an 8x-larger pool.
+2. **PR #1257 — replay PnL sizing fix.** Zero live-path impact, but every
+   future model decision reads these numbers.
+
+### Keep OFF (unchanged)
+
+| Flag | Value | Why |
+|---|---|---|
+| `deep_audit_ja_grade_wildcard` | false | enforcing canon ATH policy suppressed August's ATH-driven month; the canon calibration is regime-misaligned |
+| `deep_audit_ja_default_deny` | false | still a lane-wide kill switch until grade-before-admission lands |
+| `deep_audit_ja_htf_reclaim_cooldown_hours` | 0 | validated negative (July −$1,183) |
+| `deep_audit_ja_no_slot_sector_limits` | false | experiment infrastructure only; the caps are the safety rail that matters most at live universe size |
+
+### Known live-vs-replay deviations, ranked
+
+1. **Universe 8x** (~40-46 reclaim candidates/day live vs ~5 in replay).
+   Mitigated by `deep_audit_ja_reclaim_daily_max=5`. **This is the one to
+   watch on Monday.** If the budget binds every day, the family is
+   demand-constrained and needs real ranking, not a bigger budget.
+2. **Fills.** Replay fills at candle snapshots; live crosses real spreads,
+   and the July audit found 4 of 30 exits outside the true tape (P10).
+   Expect live to underperform replay on identical decisions.
+3. **Open marks.** 40-60% of replay P&L sat in positions still open at the
+   window edge. Live has to actually manage those exits; the exit engine
+   is unchanged and is not what this work validated.
+4. **Cadence.** Live 5m vs validation 10m — measured as immaterial above.
+5. **Slot/sector caps.** Non-binding in replay, will bind live. Untested
+   interaction; the budget reduces the pressure.
+
+### Monday watch list
+
+- `[JA_RECLAIM_BUDGET]` — how often it fires. Never = fine; every day =
+  the family is over-supplied and selection is unranked.
+- `[JA_RECLAIM_COOLDOWN]` — must NOT appear (disabled).
+- Opening gate blocking entries before 09:45 ET.
+- First reclaim entries carry `setup_name = TT HTF Reclaim` with SL just
+  below the daily EMA-21, and `days_above_e21 <= 5` on the entry snapshot.
+- Realized P&L per closed trade vs the replay's realized figures — the
+  open-mark component is where replay flatters itself.
+
+### Rollback
+
+Config-only, no deploy: set `deep_audit_ja_htf_reclaim_entry` to `false`
+(kills the new entry family, keeps the defensive gates), or set all five
+tactical flags false to return to baseline. Next cron cycle picks it up.
+Tighten rather than kill: `deep_audit_ja_reclaim_daily_max=1..2`, or
+`deep_audit_ja_htf_reclaim_max_days_above=3` (the 55% WR cut).
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
