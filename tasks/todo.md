@@ -40,7 +40,17 @@
       +54.54%, Aug +64.23% → +84.71%; CIBR Jul 30 reclaim +32.1% (the
       operator's meat-of-the-move trade). All flags OFF in prod. Next:
       tune reclaim (failed-reclaim cooldown, market-regime filter),
-      recalibrate canon ATH policy, then operator decision on enabling.** Forensics vs D1 + tape found 13 patterns: stale/phantom
+      recalibrate canon ATH policy, then operator decision on enabling.**
+      Tuning pass (2026-08-16): 72h reclaim cooldown validated NEGATIVE
+      in July chop (reshuffle cascade blocked JCI +18.5) → shipped as
+      default-0 knob; SPY-posture market filter rejected by data (Jul 30
+      winners fired with SPY below e21). **GO-LIVE STAGED**: validated
+      tactical flag set written to prod model_config (inert until the new
+      bundle deploys — old allowlist filters the keys). Merge → CI deploy
+      → live at Monday open. Rollback = flip 5 flags false, no deploy.
+      Next iterations: max_ext 2.0 validation, cooldown high-confidence
+      override, canon ATH recalibration, grade-before-admission +
+      tripwires. Forensics vs D1 + tape found 13 patterns: stale/phantom
       entry prints, **phantom exits (4 of 30 audited — KO×2 + JCI
       fabricated SL breaches in the opening minutes, fills booked at the
       SL level)**, opening-window chasing (no TT-setup gate), premium-zone
