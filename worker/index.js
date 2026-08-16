@@ -12601,7 +12601,12 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         // (CF -1.1% through, JD -0.6%) still exits immediately.
         const _openWickCushion = (() => {
           const _owCfg = tickerData?._env?._deepAuditConfig;
-          if (String(_owCfg?.deep_audit_ja_opening_stop_confirm ?? "true") !== "true") return 0;
+          // DEFAULT OFF — shipped untested alongside the exhaustion-trim
+          // floor, and the combined July arm came in below baseline
+          // ($1,143 vs $2,088). The trim floor accounts for most of that
+          // gap, but this cushion has not been isolated in its own arm yet,
+          // so it stays off until it is.
+          if (String(_owCfg?.deep_audit_ja_opening_stop_confirm ?? "false") !== "true") return 0;
           if (!isNyRegularMarketOpen()) return 0;
           try {
             const { hour, minute } = getEasternParts(new Date());

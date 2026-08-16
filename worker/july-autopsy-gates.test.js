@@ -13,38 +13,37 @@ describe("exhaustTrimMinProfitPct — ATR-scaled exhaustion trim floor", () => {
   const halo = { price: 78, atr: 2.5 };
   // NEU Jul 21: ~$780, ~1.9% ATR, trimmed 50% at +0.59% twelve minutes in.
   const neu = { price: 780, atr: 15 };
+  const ON = { deep_audit_ja_exhaust_trim_atr_frac: 0.35 };
 
-  it("blocks the HALO trim that banked 9% of an 8.35% move", () => {
-    const floor = exhaustTrimMinProfitPct(halo, {}, 0.5);
-    expect(floor).toBeGreaterThan(0.74);
-  });
-
-  it("blocks the NEU 12-minute trim at +0.59%", () => {
-    const floor = exhaustTrimMinProfitPct(neu, {}, 0.5);
-    expect(floor).toBeGreaterThan(0.59);
-  });
-
-  it("never drops below the absolute floor on a very quiet name", () => {
-    expect(exhaustTrimMinProfitPct({ price: 100, atr: 0.2 }, {}, 0.5)).toBe(0.5);
-  });
-
-  it("caps the floor so a violently volatile name still trims", () => {
-    const floor = exhaustTrimMinProfitPct({ price: 10, atr: 3 }, {}, 0.5);
-    expect(floor).toBe(2.5);
-  });
-
-  it("respects a configured cap", () => {
-    const floor = exhaustTrimMinProfitPct({ price: 10, atr: 3 }, { deep_audit_ja_exhaust_trim_max_floor_pct: 1.5 }, 0.5);
-    expect(floor).toBe(1.5);
-  });
-
-  it("frac=0 restores the flat legacy floor", () => {
+  it("is DISABLED by default (validated negative in the July replay)", () => {
+    expect(exhaustTrimMinProfitPct(halo, {}, 0.5)).toBe(0.5);
     expect(exhaustTrimMinProfitPct(halo, { deep_audit_ja_exhaust_trim_atr_frac: 0 }, 0.5)).toBe(0.5);
   });
 
+  it("when enabled, blocks the HALO trim that banked 9% of an 8.35% move", () => {
+    expect(exhaustTrimMinProfitPct(halo, ON, 0.5)).toBeGreaterThan(0.74);
+  });
+
+  it("when enabled, blocks the NEU 12-minute trim at +0.59%", () => {
+    expect(exhaustTrimMinProfitPct(neu, ON, 0.5)).toBeGreaterThan(0.59);
+  });
+
+  it("never drops below the absolute floor on a very quiet name", () => {
+    expect(exhaustTrimMinProfitPct({ price: 100, atr: 0.2 }, ON, 0.5)).toBe(0.5);
+  });
+
+  it("caps the floor so a violently volatile name still trims", () => {
+    expect(exhaustTrimMinProfitPct({ price: 10, atr: 3 }, ON, 0.5)).toBe(2.5);
+  });
+
+  it("respects a configured cap", () => {
+    const cfg = { ...ON, deep_audit_ja_exhaust_trim_max_floor_pct: 1.5 };
+    expect(exhaustTrimMinProfitPct({ price: 10, atr: 3 }, cfg, 0.5)).toBe(1.5);
+  });
+
   it("falls back to the flat floor when ATR or price is unavailable", () => {
-    expect(exhaustTrimMinProfitPct({ price: 78 }, {}, 0.5)).toBe(0.5);
-    expect(exhaustTrimMinProfitPct(null, {}, 0.5)).toBe(0.5);
+    expect(exhaustTrimMinProfitPct({ price: 78 }, ON, 0.5)).toBe(0.5);
+    expect(exhaustTrimMinProfitPct(null, ON, 0.5)).toBe(0.5);
   });
 });
 

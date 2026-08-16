@@ -183,8 +183,20 @@ export function isHtfReclaimContext(d, tf, daCfg) {
  * of 0 disables the scaling and restores the flat floor.
  */
 export function exhaustTrimMinProfitPct(d, daCfg, absFloorPct = 0.5) {
+  // DEFAULT 0 (DISABLED) — VALIDATED NEGATIVE 2026-08-16.
+  // The July 10m replay arm with this at 0.35 scored $1,143 vs the
+  // baseline's $2,088 (realized $402 vs $1,345, WR 57% -> 48%). Raising the
+  // floor moved 6 trades from trimmed to untrimmed and the trimmed cohort's
+  // average fell from +2.27% to +1.16%.
+  //
+  // The reason is that in this book the early trim IS the profit mechanism:
+  // trimmed trades finish 28/34 winners (+2.27% avg), untrimmed 1/17
+  // (-1.22% avg). HALO — an early trim capping an 8.35% move — is the
+  // exception, not the rule, and the giveback there was on the RUNNER leg
+  // after the trim, not the trim itself. The correct fix is a
+  // structure-referenced stop on the post-trim runner, not a later trim.
   const frac = Number(daCfg?.deep_audit_ja_exhaust_trim_atr_frac);
-  const fracEff = Number.isFinite(frac) ? frac : 0.35;
+  const fracEff = Number.isFinite(frac) ? frac : 0;
   if (!(fracEff > 0)) return absFloorPct;
 
   const price = Number(d?.price) || Number(d?._live_price) || 0;
