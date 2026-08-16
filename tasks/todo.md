@@ -34,8 +34,13 @@
       in preprod** (gate pack flag-gated, 3 arms): tactical gates lift WR
       27%→45%; grade-empty-at-admission proven as the matrix no-op root
       cause (P0); post-trim floor saves EXEL/AMZN, costs UNP dip-recovery
-      (→ needs reclaim movie). Next: grade-before-admission fix, then
-      default-deny tripwire. Forensics vs D1 + tape found 13 patterns: stale/phantom
+      (→ needs reclaim movie). **Offense slice (2026-08-16): new
+      `tt_htf_reclaim` entry family + six gate-gauntlet carve-outs +
+      wildcard grade admission. Tactical config replay: July −1.95% →
+      +54.54%, Aug +64.23% → +84.71%; CIBR Jul 30 reclaim +32.1% (the
+      operator's meat-of-the-move trade). All flags OFF in prod. Next:
+      tune reclaim (failed-reclaim cooldown, market-regime filter),
+      recalibrate canon ATH policy, then operator decision on enabling.** Forensics vs D1 + tape found 13 patterns: stale/phantom
       entry prints, **phantom exits (4 of 30 audited — KO×2 + JCI
       fabricated SL breaches in the opening minutes, fills booked at the
       SL level)**, opening-window chasing (no TT-setup gate), premium-zone
