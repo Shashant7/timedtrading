@@ -5316,3 +5316,45 @@ state,mergedAt,headRefOid`; if merged, cherry-pick the new commits onto a
 fresh branch off origin/main and open a new PR. Deploys from an unmerged
 branch also mean main no longer matches production until the follow-up PR
 lands — flag that in the PR body.
+
+### Lesson (2026-08-16) — the backtest number we optimised against was wrong
+Building a dollar-denominated results table exposed that `pnl` stopped
+reconciling with `notional`. `closeReplayPositionsAtDate` marked positions
+still open at the end of a replay window by recomputing share count from the
+legacy `TRADE_SIZE` ($1,000) constant, while the realized trim carry on the
+same row was booked on the REAL position — two scales in one number. Dollars
+came out ~`notional/1000` too low; `pnl_pct` came out INFLATED for trimmed
+positions. CIBR Jul 30, celebrated as "+32.14%", actually made +3.99%.
+
+Only `replay_end_close` rows were affected (55 of 385), but they carried 658
+of the ~700 points of reported "sum PnL %", so every headline in the July
+autopsy was distorted. Restating on true sizing flipped one conclusion
+outright (the August baseline actually beat tactical v1) and shrank every
+magnitude by roughly an order of magnitude.
+
+Three habits that would have caught it sooner, now in
+`skills/backtest-replay.md`:
+1. **Never quote `SUM(pnl_pct)`** — it weights a $1k position like a $12k one
+   and is not a portfolio return. The replay book is $100k, so quote dollars.
+2. **Always split realized from open marks.** `replay_end_close` rows are
+   unrealized and path-dependent; a change that merely leaves more positions
+   open at the boundary looks profitable.
+3. **Reconcile the columns against each other** (`pnl` vs
+   `pnl_pct * notional / 100`) before trusting a run. The mismatch was one
+   query away the whole time.
+
+Related methodology traps found the same session: `--ticker-batch` TRUNCATES
+the replay universe instead of chunking it (28 tickers at batch 24 scored only
+the first 24 — NVDA/DE/WM/CF never traded in any arm and nobody noticed);
+`REPLAY_DA_KEYS` silently drops config keys not on its allowlist, producing a
+run identical to baseline that reads as "the change did nothing"; and 5m
+cadence trips the Workers CPU limit (1102) above ~1900 scored ticker-intervals
+per request.
+
+Also measured: replay universes are not live universes. The HTF-reclaim
+context pre-filter surfaced ~5 candidates/day across the 24-ticker replay
+slice and ~40-46/day across the ~314-ticker live universe (~8x). For any rule
+with a context pre-filter, measure candidate density on BOTH before assuming
+the validated entry rate carries over — otherwise a family that bypasses the
+ranking gates (as the reclaim family deliberately does) gets its slots by
+scan order rather than by quality.
