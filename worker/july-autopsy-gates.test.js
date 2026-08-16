@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { julyAutopsyGateBlock, julyAutopsyDefaultDeny } from "./july-autopsy-gates.js";
+import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext } from "./july-autopsy-gates.js";
 import { admitSetup } from "./phase-c-setup-admission.js";
 
 describe("admitSetup wildcard grade fallback (P8 fix)", () => {
@@ -185,6 +185,42 @@ describe("G3 expected move (P11)", () => {
       d: { price: 0, atr: 0 }, daCfg: { deep_audit_ja_expected_move_gate: "true" },
       path: "tt_n_test_support", direction: "LONG", etParts: { hour: 10, minute: 0 },
     })).toBeNull();
+  });
+});
+
+describe("isHtfReclaimContext — time freshness (tuning pass 2)", () => {
+  const base = (over = {}) => ({
+    daily_structure: {
+      pct_above_e21: 1.2, e21_slope_5d_pct: 0.3, above_e200: true,
+      days_above_e21: 2, ...over,
+    },
+  });
+
+  it("fresh reclaim (2 days above) qualifies", () => {
+    expect(isHtfReclaimContext(base(), null, {})).toBe(true);
+  });
+
+  it("stale hover (7 days above) is NOT a reclaim (MTB 51-day drift case)", () => {
+    expect(isHtfReclaimContext(base({ days_above_e21: 7 }), null, {})).toBe(false);
+    expect(isHtfReclaimContext(base({ days_above_e21: 51 }), null, {})).toBe(false);
+  });
+
+  it("boundary: 5 days passes with the default cap", () => {
+    expect(isHtfReclaimContext(base({ days_above_e21: 5 }), null, {})).toBe(true);
+  });
+
+  it("configurable cap", () => {
+    expect(isHtfReclaimContext(base({ days_above_e21: 5 }), null, { deep_audit_ja_htf_reclaim_max_days_above: 3 })).toBe(false);
+  });
+
+  it("missing days_above_e21 (older snapshots) does not block", () => {
+    expect(isHtfReclaimContext(base({ days_above_e21: null }), null, {})).toBe(true);
+  });
+
+  it("distance/slope/trend conditions still enforced", () => {
+    expect(isHtfReclaimContext(base({ pct_above_e21: 4.0 }), null, {})).toBe(false);
+    expect(isHtfReclaimContext(base({ e21_slope_5d_pct: -1.2 }), null, {})).toBe(false);
+    expect(isHtfReclaimContext(base({ above_e200: false }), null, {})).toBe(false);
   });
 });
 

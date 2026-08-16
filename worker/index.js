@@ -19837,6 +19837,39 @@ async function processTradeSimulation(
       }
     }
 
+    // ── JULY-2026 AUTOPSY — reclaim daily admission budget ───────────────
+    // The reclaim family was validated on the 28-ticker July/August replay
+    // universe, which surfaces ~5-6 reclaim-context candidates per session
+    // and produced at most 5 reclaim entries in any one session. The live
+    // universe is ~310 tickers and surfaces ~40-46 candidates per session
+    // (measured on live daily candles, Jul + Aug) — roughly 8x.
+    //
+    // That matters because the family deliberately bypasses the conviction,
+    // Tier-C, rank and consensus gates (they are mature-trend biased and
+    // structurally reject fresh reclaims). Nothing else ranks these
+    // candidates, so with 8x the supply the open slots go to whichever
+    // ticker the scoring cycle happens to reach first rather than to the
+    // best setup. Cap new reclaim entries per NY trading day at the rate
+    // validation actually exercised; 0 disables the cap.
+    let _jaReclaimBudgetBlock = false;
+    if (String(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+        && String(tickerData?.__entry_path || "") === "tt_htf_reclaim") {
+      const _jaDailyMaxRaw = env?._deepAuditConfig?.deep_audit_ja_reclaim_daily_max;
+      const _jaDailyMax = Number(_jaDailyMaxRaw == null || _jaDailyMaxRaw === "" ? 5 : _jaDailyMaxRaw);
+      if (Number.isFinite(_jaDailyMax) && _jaDailyMax > 0) {
+        const _jaTodayKey = nyTradingDayKey(now);
+        const _jaTodayReclaims = allTrades.filter((t) => {
+          if (String(t?.entry_path || t?.entryPath || "").toLowerCase() !== "tt_htf_reclaim") return false;
+          const ets = Number(t?.entry_ts) || 0;
+          return ets > 0 && nyTradingDayKey(ets) === _jaTodayKey;
+        }).length;
+        if (_jaTodayReclaims >= _jaDailyMax) {
+          _jaReclaimBudgetBlock = true;
+          console.log(`[JA_RECLAIM_BUDGET] ${sym} blocked: ${_jaTodayReclaims} reclaim entries already today (max ${_jaDailyMax})`);
+        }
+      }
+    }
+
     // ── B1 (2026-06-11) — Re-confirmation-based re-entry ──────────────────
     // The blanket 4h ENTER_COOLDOWN treats every re-entry as churn. The
     // move-discovery data says churn is a PATTERN (73% of churns start with
@@ -19889,6 +19922,7 @@ async function processTradeSimulation(
     const enterCooldownOk =
       !_consecutiveMlBlock &&
       !_jaReclaimCooldownBlock &&
+      !_jaReclaimBudgetBlock &&
       (_reconfirmWaiver || !Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS);
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
@@ -25175,10 +25209,19 @@ async function processTradeSimulation(
           }
         }
         
+        // JULY-2026 AUTOPSY experiment (2026-08-16): bypass slot/sector/
+        // direction/correlation caps (Gates 0-3). Flag-gated, default OFF.
+        // Keeps the absolute 50-position runaway backstop. Cluster throttle
+        // has its own flag (deep_audit_cluster_throttle_enabled).
+        const _jaNoLimits = String(
+          tickerData?._env?._deepAuditConfig?.deep_audit_ja_no_slot_sector_limits ?? "false"
+        ) === "true";
+
         // Gate 0: Total open position cap
-        if (openPositions.length >= MAX_OPEN_POSITIONS) {
+        const _jaGate0Cap = _jaNoLimits ? MAX_OPEN_POSITIONS_HARD_LIMIT : MAX_OPEN_POSITIONS;
+        if (openPositions.length >= _jaGate0Cap) {
           smartGateBlocked = true;
-          smartGateReason = `position_cap:${openPositions.length}/${MAX_OPEN_POSITIONS}`;
+          smartGateReason = `position_cap:${openPositions.length}/${_jaGate0Cap}`;
           console.log(`[SMART_GATE] Blocked ${sym}: ${smartGateReason}`);
         }
 
@@ -25187,7 +25230,7 @@ async function processTradeSimulation(
         // large sectors (Industrials 44 tickers → only 9% could trade).
         let sectorCount = 0;
         let sectorCapForCandidate = MAX_PER_SECTOR_FLOOR;
-        if (!smartGateBlocked) {
+        if (!smartGateBlocked && !_jaNoLimits) {
           for (const pos of openPositions) {
             const posSector = getSector(String(pos.ticker).toUpperCase()) || "UNKNOWN";
             if (posSector === candidateSector && candidateSector !== "UNKNOWN") sectorCount++;
@@ -25214,7 +25257,7 @@ async function processTradeSimulation(
         }
         
         // Gate 2: Directional concentration
-        if (!smartGateBlocked) {
+        if (!smartGateBlocked && !_jaNoLimits) {
           let dirCount = 0;
           for (const pos of openPositions) {
             if (String(pos.direction).toUpperCase() === candidateDir) dirCount++;
@@ -25233,7 +25276,7 @@ async function processTradeSimulation(
           MAX_PER_SECTOR_FLOOR - 1,
           Math.ceil(sectorCapForCandidate * 0.75)
         );
-        if (!smartGateBlocked && sectorCount >= correlationThreshold) {
+        if (!smartGateBlocked && !_jaNoLimits && sectorCount >= correlationThreshold) {
           const eqScore = Number(tickerData?.entry_quality?.score || tickerData?.__entry_quality) || 0;
           const requiredQuality = 80;
           if (eqScore > 0 && eqScore < requiredQuality) {

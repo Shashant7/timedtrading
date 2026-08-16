@@ -2999,7 +2999,6 @@ export function evaluateEntry(ctx) {
     const _jaPctE21 = Number(_jaDs.pct_above_e21);
     const _jaE21 = Number(_jaDs.e21);
     const _jaSlope = Number(_jaDs.e21_slope_5d_pct);
-    const _jaMaxExt = Number(daCfg.deep_audit_ja_htf_reclaim_max_ext_pct) || 2.5;
     const _jaSt4 = Number(tf?.h4?.stDir) || 0;
     const _jaC4h512 = h4?.ripster?.c5_12;
     const _jaFourHSupportive = _jaSt4 === -1 || !!(_jaC4h512?.bull || _jaC4h512?.above);
@@ -3014,11 +3013,11 @@ export function evaluateEntry(ctx) {
       || hasStFlipBull
       || hasEmaCrossBull
       || _jaSt30Bull;
-    const _jaFreshAbove = Number.isFinite(_jaPctE21) && _jaPctE21 >= 0 && _jaPctE21 <= _jaMaxExt;
-    const _jaSlopeOk = !Number.isFinite(_jaSlope) || _jaSlope > -0.5;
-    const _jaTrendOk = _jaDs.above_e200 !== false;
+    // Shared context (distance freshness + slope + e200 trend + TIME
+    // freshness days_above_e21 — tuning pass 2) lives in
+    // isHtfReclaimContext so the carve-outs and the trigger agree.
     const _jaRsiOk = !Number.isFinite(rsiD) || rsiD <= 70;
-    if (_jaFreshAbove && _jaSlopeOk && _jaTrendOk && _jaRsiOk
+    if (isHtfReclaimContext(d, tf, daCfg) && _jaRsiOk
         && _jaLtfConfirm && !inOpeningNoise) {
       if (d && Number.isFinite(_jaE21) && _jaE21 > 0) {
         // Structure-referenced SL anchor (P9 first consumer): the stop
@@ -3036,6 +3035,7 @@ export function evaluateEntry(ctx) {
           e21: Number.isFinite(_jaE21) ? _jaE21 : null,
           pct_above_e21: Number.isFinite(_jaPctE21) ? _jaPctE21 : null,
           e21_slope_5d_pct: Number.isFinite(_jaSlope) ? _jaSlope : null,
+          days_above_e21: Number.isFinite(Number(_jaDs.days_above_e21)) ? Number(_jaDs.days_above_e21) : null,
           st4: _jaSt4,
           fourh_supportive: _jaFourHSupportive,
           ltf_confirm: _jaLtfConfirm,

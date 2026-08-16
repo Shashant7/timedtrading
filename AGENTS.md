@@ -43,6 +43,7 @@ should read. It tells you what to look at, in what order, and why.
 | Deploy a worker / frontend change | [skills/deploy.md](skills/deploy.md) |
 | Fix a ticker with stale or wrong data | [skills/rescore-ticker.md](skills/rescore-ticker.md) |
 | Backfill candles (D / W / M) | [skills/backfill-candles.md](skills/backfill-candles.md) |
+| Run a backtest / candle replay | [skills/backtest-replay.md](skills/backtest-replay.md) |
 | Read or update the Investor / Trader UI | [skills/mission-control-tour.md](skills/mission-control-tour.md) |
 | Debug a 401 / 403 / 404 / 503 | [skills/debug-http-codes.md](skills/debug-http-codes.md) |
 | Query D1 directly | [skills/d1-debugging.md](skills/d1-debugging.md) |

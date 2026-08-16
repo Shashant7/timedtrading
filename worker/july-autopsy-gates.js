@@ -140,6 +140,17 @@ export function isHtfReclaimContext(d, tf, daCfg) {
   const freshAbove = Number.isFinite(pctE21) && pctE21 >= 0 && pctE21 <= maxExt;
   const slopeOk = !Number.isFinite(slope) || slope > -0.5;
   const trendOk = ds.above_e200 !== false;
+  // Tuning pass 2 (2026-08-16, 80-trade Jul+Aug replay analysis):
+  // freshness by TIME, not just distance. Winners had a median of 3 daily
+  // closes above the EMA-21 before entry; losers 7. Entries hovering
+  // above for >5 closes are mid-trend drift, not reclaims (daysAbove>3:
+  // 34% WR; <=3: 55%; the <=5 cut kept 9/11 big winners and RAISED total
+  // PnL 121.8 -> 127.2 with 12% fewer positions). Backward compatible:
+  // when days_above_e21 is absent (older snapshots), do not block.
+  const maxDays = Number(daCfg?.deep_audit_ja_htf_reclaim_max_days_above);
+  const maxDaysEff = Number.isFinite(maxDays) && maxDays > 0 ? maxDays : 5;
+  const daysAbove = Number(ds.days_above_e21);
+  const freshInTime = !Number.isFinite(daysAbove) || daysAbove <= maxDaysEff;
   // NOTE (CIBR Jul 31 probe): do NOT require 4H ST/cloud agreement here.
   // The operator's sequence is two-stage — daily EMA-21 reclaim first
   // (Jun 26), 4H trend break days later (Jun 29). On the reclaim day
@@ -147,7 +158,7 @@ export function isHtfReclaimContext(d, tf, daCfg) {
   // simultaneously means the fresh-reclaim window never qualifies. The
   // tt_htf_reclaim trigger layers 4H/LTF confirmation on top of this
   // context (4H agreement upgrades confidence).
-  return freshAbove && slopeOk && trendOk;
+  return freshAbove && slopeOk && trendOk && freshInTime;
 }
 
 /**
