@@ -778,7 +778,14 @@ takes. Implemented (all flag-gated, default OFF):
    **the canon calibration itself is regime-misaligned** (kept OFF in the
    tactical config pending recalibration).
 
-### Results (preprod replays, 28-ticker universe, 30m cadence, same data both arms)
+### Results (preprod replays, 24 tickers scored, 30m cadence, same data both arms)
+
+> **Universe correction (2026-08-16):** these runs passed 28 tickers with
+> `--ticker-batch=24`, and the direct loop TRUNCATES rather than chunks —
+> only the first 24 were ever scored (`scored = intervals x tickers`
+> confirms it, and NVDA/DE/WM/CF never appear in any arm). Every arm used
+> the same 24, so arm-vs-arm comparisons hold; the universe label does not.
+> See [skills/backtest-replay.md](../skills/backtest-replay.md).
 
 | Window | Baseline | Tactical (gates + reclaim + floor, no wildcard) |
 |---|---|---|
@@ -969,13 +976,44 @@ better predictor; (b) **adopt 10m as the standard validation cadence**
 Bypassed smart gates 0–3 (position cap 35, proportional sector cap,
 same-direction 25, correlation quality gate) + disabled the cluster
 throttle. Result: **a wash** — July 47t +44.50% (vs +44.27% with limits),
-August byte-identical (21t +77.58%). At the 28-ticker universe the caps
+August byte-identical (21t +77.58%). At the 24-ticker scored universe the caps
 never bind; they are not the constraint. Caveat for later: on the full
 ~200-ticker live universe, sector caps and the cluster throttle are more
 likely to bind exactly on turn days (Jul 30 / Aug 3 pattern where winners
 cluster) — retest with a full-universe replay before trusting them there.
 The bypass flag (`deep_audit_ja_no_slot_sector_limits`, default OFF) stays
 as experiment infrastructure.
+
+### 3. Universe scaling — the biggest live/replay deviation
+
+Measured directly from live daily candles (314 tickers with daily history,
+312 of them with 30+ bars, so the freshness rule computes for effectively
+the whole universe — it will not silently no-op in production).
+
+Reclaim-context candidates per session (`0 ≤ pct_above_e21 ≤ 2.5` and
+`days_above_e21 ≤ 5`, i.e. the `isHtfReclaimContext` pre-filter):
+
+| Window | Replay universe (24 scored) | Full live universe | Ratio |
+|---|---|---|---|
+| July 2026 | 5.0/day (17.9%) | 39.7/day (12.8%) | **7.9x** |
+| Aug 3–14 | 6.5/day (23.2%) | 46.4/day (14.9%) | **7.1x** |
+
+The validated arms took 2.1 entries/day on average and never more than 5
+reclaim entries in a single session. Live will see ~8x the candidate
+supply against the same 35-position cap.
+
+This is not a sizing detail, it is a selection problem: the reclaim family
+deliberately bypasses the conviction, Tier-C, rank and consensus gates
+(they are mature-trend biased and structurally reject fresh reclaims), so
+**nothing ranks these candidates**. At 5 candidates/day that was harmless.
+At 40/day the open slots go to whichever ticker the scoring cycle reaches
+first, not to the best setup — a behaviour no replay has exercised.
+
+**Shipped guardrail**: `deep_audit_ja_reclaim_daily_max` (default 5, the
+max any validated session produced; 0 disables) caps new reclaim entries
+per NY trading day, keeping live inside the envelope that was actually
+measured. Ranking the candidates properly is the follow-up; the budget is
+the stopgap that makes the first live week interpretable.
 
 ## CORRECTION: every headline PnL above was wrong (2026-08-16)
 
@@ -1066,6 +1104,121 @@ The rule removed a net *loser*. The two "big winners" it appeared to cost
 us (reported +$1,051 and +$650) are +$128 and +$99 once sized correctly —
 and MTB had been above its EMA-21 for 51 days, i.e. not a reclaim by our
 own definition. **No meaningful difference; the change is an improvement.**
+## 5m cadence ladder + cadence-matched baseline (2026-08-16)
+
+Two questions the earlier experiments could not answer: does replaying at
+the live 5m cadence change the picture, and is the new pack actually
+better than what is live today when both run at the SAME cadence (every
+prior baseline was 30m while the tactical arms were compared at 10m).
+
+**Setup.** 5m at 24 tickers/request trips the Workers CPU ceiling
+(HTTP 503 `error code: 1102`) on busy days and retries do not clear it, so
+this ladder runs at `--ticker-batch=10` — the first 10 names
+(PKG, BRK-B, XLI, INTC, MTB, WAL, GRNY, KO, CIBR, GRNI). Every arm below
+uses that identical 10-ticker slice, so they are directly comparable to
+each other but not to the 24-ticker arms above.
+
+### Does 5m beat 10m? No — they are the same
+
+| Window | 10m | 5m | Delta |
+|---|---|---|---|
+| July | 18t, 56% WR, **$1,648** | 18t, 56% WR, **$1,679** | +$31 |
+| Aug 3–14 | 9t, 67% WR, **$705** | 9t, 67% WR, **$716** | +$11 |
+
+Identical trade counts and win rates in both windows; the ~2% dollar edge
+is marginally better fill timing on the same trades. So the cadence effect
+is real but it saturates: **30m → 10m matters, 10m → 5m does not.**
+
+Practical consequence: **10m stays the standard validation cadence.** It is
+CPU-safe at batch 24, ~3x faster in wall clock, and faithfully represents
+live's 5m scoring. No reason to pay for 5m replays again.
+
+### Is the pack better than live? Yes in July, a wash in August
+
+Baseline = every `ja_*` flag off, i.e. the model as it behaved before this
+work. Same 10 tickers, same 5m cadence, same tape.
+
+| Window | Baseline | Tactical + freshness | Delta |
+|---|---|---|---|
+| July | 9t, 22% WR, **−$1,000** | 18t, 56% WR, **+$1,679** | **+$2,679** |
+| Aug 3–14 | 9t, 78% WR, **+$905** | 9t, 67% WR, **+$716** | −$189 |
+| **Total** | **−$95** | **+$2,395** | **+$2,490** |
+
+Realized-only (open marks excluded): July −$84 → +$937; August +$835 →
++$820. Net realized **+$1,006**, so the result does not depend on how the
+window boundary happens to mark open positions.
+
+Read: the pack earns its keep in chop and on turn days, which is exactly
+where the old model bled (July baseline: 22% WR, −$1,000). In a strong
+trending tape (August) the baseline's concentrated ATH trades are already
+good and the extra reclaim entries neither help nor hurt much. That is the
+right shape for a defensive+selective change — it raises the floor rather
+than the ceiling.
+
+## Go-live plan for Monday (2026-08-17) — minimal deviation
+
+### Where we actually stand
+
+Tactical v1 is LIVE (merged + deployed 2026-08-16 ~05:45 UTC). Restated on
+true sizing it is **thin**: +$597 July, and −$711 vs baseline in August —
+net ~+$209 across six weeks, most of it unrealized marks. **Freshness is
+the change that makes the pack pay** (July +$1,441 at 24 tickers; and in
+the cadence-matched 5m test, +$2,679 vs baseline in July). It is NOT yet
+on `main`.
+
+### Ship (in this order)
+
+1. **PR #1256 — freshness + reclaim daily budget.** The freshness rule is
+   the validated edge; the budget is the guardrail that keeps live inside
+   the envelope we measured (see universe scaling: ~8x more candidates
+   live than in replay). Merging both together is the point — freshness
+   without the budget ships an unranked family into an 8x-larger pool.
+2. **PR #1257 — replay PnL sizing fix.** Zero live-path impact, but every
+   future model decision reads these numbers.
+
+### Keep OFF (unchanged)
+
+| Flag | Value | Why |
+|---|---|---|
+| `deep_audit_ja_grade_wildcard` | false | enforcing canon ATH policy suppressed August's ATH-driven month; the canon calibration is regime-misaligned |
+| `deep_audit_ja_default_deny` | false | still a lane-wide kill switch until grade-before-admission lands |
+| `deep_audit_ja_htf_reclaim_cooldown_hours` | 0 | validated negative (July −$1,183) |
+| `deep_audit_ja_no_slot_sector_limits` | false | experiment infrastructure only; the caps are the safety rail that matters most at live universe size |
+
+### Known live-vs-replay deviations, ranked
+
+1. **Universe 8x** (~40-46 reclaim candidates/day live vs ~5 in replay).
+   Mitigated by `deep_audit_ja_reclaim_daily_max=5`. **This is the one to
+   watch on Monday.** If the budget binds every day, the family is
+   demand-constrained and needs real ranking, not a bigger budget.
+2. **Fills.** Replay fills at candle snapshots; live crosses real spreads,
+   and the July audit found 4 of 30 exits outside the true tape (P10).
+   Expect live to underperform replay on identical decisions.
+3. **Open marks.** 40-60% of replay P&L sat in positions still open at the
+   window edge. Live has to actually manage those exits; the exit engine
+   is unchanged and is not what this work validated.
+4. **Cadence.** Live 5m vs validation 10m — measured as immaterial above.
+5. **Slot/sector caps.** Non-binding in replay, will bind live. Untested
+   interaction; the budget reduces the pressure.
+
+### Monday watch list
+
+- `[JA_RECLAIM_BUDGET]` — how often it fires. Never = fine; every day =
+  the family is over-supplied and selection is unranked.
+- `[JA_RECLAIM_COOLDOWN]` — must NOT appear (disabled).
+- Opening gate blocking entries before 09:45 ET.
+- First reclaim entries carry `setup_name = TT HTF Reclaim` with SL just
+  below the daily EMA-21, and `days_above_e21 <= 5` on the entry snapshot.
+- Realized P&L per closed trade vs the replay's realized figures — the
+  open-mark component is where replay flatters itself.
+
+### Rollback
+
+Config-only, no deploy: set `deep_audit_ja_htf_reclaim_entry` to `false`
+(kills the new entry family, keeps the defensive gates), or set all five
+tactical flags false to return to baseline. Next cron cycle picks it up.
+Tighten rather than kill: `deep_audit_ja_reclaim_daily_max=1..2`, or
+`deep_audit_ja_htf_reclaim_max_days_above=3` (the 55% WR cut).
 
 ## Verification items (before coding)
 

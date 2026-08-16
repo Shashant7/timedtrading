@@ -19837,6 +19837,39 @@ async function processTradeSimulation(
       }
     }
 
+    // ── JULY-2026 AUTOPSY — reclaim daily admission budget ───────────────
+    // The reclaim family was validated on the 28-ticker July/August replay
+    // universe, which surfaces ~5-6 reclaim-context candidates per session
+    // and produced at most 5 reclaim entries in any one session. The live
+    // universe is ~310 tickers and surfaces ~40-46 candidates per session
+    // (measured on live daily candles, Jul + Aug) — roughly 8x.
+    //
+    // That matters because the family deliberately bypasses the conviction,
+    // Tier-C, rank and consensus gates (they are mature-trend biased and
+    // structurally reject fresh reclaims). Nothing else ranks these
+    // candidates, so with 8x the supply the open slots go to whichever
+    // ticker the scoring cycle happens to reach first rather than to the
+    // best setup. Cap new reclaim entries per NY trading day at the rate
+    // validation actually exercised; 0 disables the cap.
+    let _jaReclaimBudgetBlock = false;
+    if (String(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+        && String(tickerData?.__entry_path || "") === "tt_htf_reclaim") {
+      const _jaDailyMaxRaw = env?._deepAuditConfig?.deep_audit_ja_reclaim_daily_max;
+      const _jaDailyMax = Number(_jaDailyMaxRaw == null || _jaDailyMaxRaw === "" ? 5 : _jaDailyMaxRaw);
+      if (Number.isFinite(_jaDailyMax) && _jaDailyMax > 0) {
+        const _jaTodayKey = nyTradingDayKey(now);
+        const _jaTodayReclaims = allTrades.filter((t) => {
+          if (String(t?.entry_path || t?.entryPath || "").toLowerCase() !== "tt_htf_reclaim") return false;
+          const ets = Number(t?.entry_ts) || 0;
+          return ets > 0 && nyTradingDayKey(ets) === _jaTodayKey;
+        }).length;
+        if (_jaTodayReclaims >= _jaDailyMax) {
+          _jaReclaimBudgetBlock = true;
+          console.log(`[JA_RECLAIM_BUDGET] ${sym} blocked: ${_jaTodayReclaims} reclaim entries already today (max ${_jaDailyMax})`);
+        }
+      }
+    }
+
     // ── B1 (2026-06-11) — Re-confirmation-based re-entry ──────────────────
     // The blanket 4h ENTER_COOLDOWN treats every re-entry as churn. The
     // move-discovery data says churn is a PATTERN (73% of churns start with
@@ -19889,6 +19922,7 @@ async function processTradeSimulation(
     const enterCooldownOk =
       !_consecutiveMlBlock &&
       !_jaReclaimCooldownBlock &&
+      !_jaReclaimBudgetBlock &&
       (_reconfirmWaiver || !Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS);
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
