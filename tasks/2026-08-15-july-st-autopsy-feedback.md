@@ -1220,6 +1220,125 @@ tactical flags false to return to baseline. Next cron cycle picks it up.
 Tighten rather than kill: `deep_audit_ja_reclaim_daily_max=1..2`, or
 `deep_audit_ja_htf_reclaim_max_days_above=3` (the 55% WR cut).
 
+## Batch 3 — trade management: capturing more of the move (2026-08-16)
+
+Operator feedback on RTX Jul 20, NEU Jul 21, SPHB Jul 22, XLK Jul 22 and
+HALO Jul 22, with the stated theme: *better trade management to capture
+more of the move*. Analysis run against the 47 live trades since Jul 1.
+
+### The two numbers that frame it
+
+1. **We capture 37% of the favourable move on winners.** 30.8 points left
+   on the table across 15 winners — against a book that is net negative.
+   Worst offenders: PPG 1% of a 2.57% MFE, JD 7% of 2.54%, HALO 31% of
+   8.35%. On the four winners with a real (>3%) move we average ~50%.
+2. **12 of 46 exits fired between 09:30 and 09:45 ET — every one a
+   stop-out — together −24.4 points**, while every other hour of the
+   session combined was **+4.8**. Ten of the twelve traded back above
+   their stop within the same session.
+
+| Exit window (ET) | Exits | Stop-outs | Sum P&L |
+|---|---|---|---|
+| 09:30–09:45 | 12 | **12** | **−24.38** |
+| 09:45–10:00 | 3 | 1 | +6.19 |
+| 10:00–11:00 | 15 | 6 | +8.51 |
+| 11:00–16:00 | 16 | 6 | −9.94 |
+
+### What was already fixed (do not re-litigate)
+
+Three of those twelve exited at prices the tape never traded in that
+window (KO Jul 13 at 81.40 when the low was 83.78; KO Jul 17; JCI Jul 17).
+All three **predate the close-price sanity gate shipped 2026-07-20**
+(`evaluateClosePriceSanity`). Every post-gate case is within 0.34% of the
+bar low — tick-vs-bar granularity, not a phantom. The ghost-fill problem
+is closed.
+
+### Root causes found, per trade
+
+| Trade | Operator read | Mechanism found |
+|---|---|---|
+| **RTX Jul 20** (−2.92%) | flash drop to close the gap, wick up, then rallied to ATH | Stop poked by **0.13%** at 09:35 ET; next 10m bar closed 1.4% higher. RTH carried **zero** wick cushion while extended hours had 1% |
+| **NEU Jul 21** (−0.71%) | entry late, trim 12 min later, then reversed | Trim was `ATR_RANGE_EXHAUST` at **+0.59%**. Entry path `tt_n_test_support` fired on location alone |
+| **SPHB Jul 22** (−1.04%) | entered as the gap closed and rejected; hourly 233 still trending down | `tt_n_test_support` — no momentum confirmation required, no 233 posture check |
+| **XLK Jul 22** (−0.82%) | same as SPHB; RSI/phase peaked and dripping | Same path. Engine DID flag `has_adverse_phase_div: true` (30m) — and nothing consumed it |
+| **HALO Jul 22** (+2.63%, MFE 8.35%) | great entry, unnecessary early trim, exit left a huge gain | Trim was `TD_HTF_EXHAUSTION` at **+0.74%**; that path's floor is a flat `pnl > 0.5%` |
+
+### The inverted trim floor (the HALO bug)
+
+`canTakeInitialSignalTrim` requires +1.0% profit AND a mature move — but
+it is applied **only when personality is `SLOW_GRINDER`**
+(`_exhNeedsFirstTrimGuard`). Every other personality bypasses it with
+`{ allow: true }` and trims at the flat +0.5%. So the personality that
+travels least is the only one protected, and `VOLATILE_RUNNER` names like
+HALO — the ones most likely to keep running — get no floor at all.
+
+Live book: **7 of 17 trims fired below +0.75%**, and one (WAL) fired at
+−4.22%, i.e. a trim while losing.
+
+**Shipped**: exhaustion-trim floor now scales with daily ATR%
+(`deep_audit_ja_exhaust_trim_atr_frac`, default 0.35, capped 2.5%), so the
+threshold means the same thing on a slow ETF and a volatile runner. Both
+flagged trims (HALO +0.74%, NEU +0.59%) fall below the new floor.
+
+### The opening-window stop (the RTX bug)
+
+`_extWickCushion` gives 1% tolerance outside RTH and **0% inside it** —
+including the opening 15 minutes, the thinnest and most gap-driven
+liquidity of the session.
+
+Measured on the twelve: RTX overshoot 0.13%, WM 0.10% (both wick-only,
+both recovered); CF 1.1% and JD 0.6% closed decisively through.
+
+**Shipped**: a 0.35% opening-window cushion
+(`deep_audit_ja_opening_stop_confirm`, 09:30–09:45), placed *after* the
+1% material-breach and max-loss overrides so real breakdowns are
+unaffected. It is a per-tick tolerance, not a hold.
+
+**Honest caveat**: a naive "defer the stop to 09:45" simulation across all
+twelve gained only **+1.1 points**, because several survivors kept falling
+(SPHB −2.16, JD −2.62). The cushion is deliberately much narrower than
+that simulation — it only forgives sub-0.35% nicks, which is where RTX and
+WM sit and where CF/JD do not.
+
+### Support Bounce is location-only
+
+`tt_n_test_support` is the worst path in the live book — **19 trades,
+21% WR, sum −2.19%** — yet its MFE sum is **+47.77%** (avg 2.5% favourable
+per trade). These entries do get follow-through; we convert almost none of
+it. Both halves of the problem are live here.
+
+The trigger requires exactly three things: `long_setup_active` (price at
+the level), `n_touches >= 3`, and RVOL. **No momentum confirmation, no
+divergence check, no phase posture, no EMA-233 posture** — despite the
+engine having already computed `hasStFlipBull`, `hasEmaCrossBull`,
+`hasSqRelease`, `ltfRecovering`, `adverseRsiDivSummary` and
+`adversePhaseDivSummary` a few hundred lines earlier in the same function.
+
+**Shipped default OFF**: `deep_audit_ja_n_test_confirm_required` requires
+at least one momentum confirmation and refuses the entry when HTF
+momentum diverges against it on both RSI and phase. Diagnostics stamped on
+`__n_test_support_diag` regardless, so the block rate is measurable before
+the flag is flipped.
+
+### Open gap — the divergence detector is structurally blind at the entry bar
+
+Entry snapshots recorded `has_adverse_rsi_div: false` and
+`has_adverse_phase_div: false` for NEU, SPHB and HALO, where the operator
+reads clear divergence off the 60m chart. `detectSeriesDivergence` needs
+TWO confirmed swing pivots, and `findSwingPivots` requires 5 bars of
+right-side confirmation — so a divergence forming **at the current high**,
+which is exactly when we enter, cannot exist yet.
+
+A "forming divergence" variant (current bar vs last confirmed pivot) is
+the obvious fix, but a direct test on NEU's own hourly tape did not
+reproduce the operator's read (RSI at the entry bar was 67.3 vs 62.6 at
+the prior pivot — a higher high, not a lower one), so the discriminator is
+probably the proprietary Phase series rather than RSI. **Not shipped** —
+needs the Phase series reconstructed at entry time before any rule is
+written on top of it. This is the highest-value open item on the entry
+side, because the G2 location gate already depends on this detector and is
+therefore only as good as it.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
