@@ -977,6 +977,37 @@ cluster) — retest with a full-universe replay before trusting them there.
 The bypass flag (`deep_audit_ja_no_slot_sector_limits`, default OFF) stays
 as experiment infrastructure.
 
+### 3. Universe scaling — the biggest live/replay deviation
+
+Measured directly from live daily candles (314 tickers with daily history,
+312 of them with 30+ bars, so the freshness rule computes for effectively
+the whole universe — it will not silently no-op in production).
+
+Reclaim-context candidates per session (`0 ≤ pct_above_e21 ≤ 2.5` and
+`days_above_e21 ≤ 5`, i.e. the `isHtfReclaimContext` pre-filter):
+
+| Window | 28-ticker replay universe | Full live universe | Ratio |
+|---|---|---|---|
+| July 2026 | 5.0/day (17.9%) | 39.7/day (12.8%) | **7.9x** |
+| Aug 3–14 | 6.5/day (23.2%) | 46.4/day (14.9%) | **7.1x** |
+
+The validated arms took 2.1 entries/day on average and never more than 5
+reclaim entries in a single session. Live will see ~8x the candidate
+supply against the same 35-position cap.
+
+This is not a sizing detail, it is a selection problem: the reclaim family
+deliberately bypasses the conviction, Tier-C, rank and consensus gates
+(they are mature-trend biased and structurally reject fresh reclaims), so
+**nothing ranks these candidates**. At 5 candidates/day that was harmless.
+At 40/day the open slots go to whichever ticker the scoring cycle reaches
+first, not to the best setup — a behaviour no replay has exercised.
+
+**Shipped guardrail**: `deep_audit_ja_reclaim_daily_max` (default 5, the
+max any validated session produced; 0 disables) caps new reclaim entries
+per NY trading day, keeping live inside the envelope that was actually
+measured. Ranking the candidates properly is the follow-up; the budget is
+the stopgap that makes the first live week interpretable.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
