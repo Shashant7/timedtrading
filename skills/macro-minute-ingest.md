@@ -20,7 +20,7 @@ auto-captions. That VTT is the night take.
 | Hourly FSD 14–23 UTC | Same-day posts that land by ~7 PM ET. |
 | `fsd-evening` 00–03 UTC | 8–11 PM ET catch-up so 9 AM ET morning brief has it. |
 | Nightly 22:00 UTC | Full CRO cycle enriches thin blurbs, syncs the episode, synthesizes CRO note. |
-| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. Weekday max age 48h (one skipped session OK); weekend / Monday morning 90h. |
+| Freshness guard | KV `timed:cro:mm-freshness`. Stale/missing pages Discord; thin is tombstone-only. Staleness counts **missed Mon-Thu evenings**, not elapsed hours — stale at 2 consecutive misses. |
 | YouTube Data API | Optional mirror only. `@Fundstrat_Direct` is interviews, not current MM. |
 
 Cascade (do **not** force-fire broker orders):
@@ -101,6 +101,19 @@ wrangler d1 execute timed-trading-ledger --remote --json --command \
 `char_count` should be multiple thousand (spoken 5 min), not ~600. `has_tr` > 0.
 Pipeline-health `kv.macro_minute_freshness.status` should be `fresh`.
 `timed:cro:latest` should include `night_take.has_transcript=true`.
+
+## Cadence — Macro Minute is NOT daily
+
+Mon-Thu only. Across Jul 1 - Aug 14 2026 **every Friday was skipped (7 of 7)**
+and Thursdays are roughly half. Weekends never publish.
+
+`macro_minute_freshness` therefore measures missed *publication opportunities*
+(`countMissedMacroMinuteSessions`), not wall-clock age. An elapsed-hours model
+paged on Sundays — a Wednesday episode hits 90h by Sunday afternoon even
+though Fundstrat had no expected slot in between and nobody could act. The
+slot closes at 22:00 ET; two consecutive closed slots with no episode is
+stale. Before assuming a real gap, confirm the desk is not simply publishing
+under a different title (see the Newton case below).
 
 ## Notes
 
