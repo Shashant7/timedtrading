@@ -679,6 +679,7 @@ import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
    Source-of-truth: tasks/phase-c/accumulation-trend-deep-dive.md. */
 import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
+import { isHtfReclaimContext as jaIsHtfReclaimContext } from "./july-autopsy-gates.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 /* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
@@ -7178,6 +7179,18 @@ function qualifiesForEnter(d, asOfTs = null) {
             }
           } catch (_e) { /* swallow — defensive */ }
         }
+        // JULY-2026 AUTOPSY (P15) — HTF-reclaim conviction carve-out.
+        // Mirror of the tt-core-entry.js carve: reclaim days score LOW
+        // conviction by construction (CIBR Jul 31: conv 42-70 vs floor 80
+        // on all 14 bars of its reclaim day; leg ran +11%). Flag-gated
+        // with the reclaim entry, default OFF.
+        const _jaReclaimCtx =
+          String(_focusDaCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+          && jaIsHtfReclaimContext(d, null, _focusDaCfg);
+        if (_jaReclaimCtx) {
+          const _jaFloor = Number(_focusDaCfg.deep_audit_ja_htf_reclaim_conviction_floor) || 40;
+          _entryMinConv = Math.min(_entryMinConv, Math.max(35, _jaFloor));
+        }
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -7196,7 +7209,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         // non-discriminating signal. Suspend by default; reversible via
         // deep_audit_focus_suspend_tier_c="false".
         const _suspendTierCLegacy = String(_focusDaCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-        if (_focusConv.tier === "C" && _suspendTierCLegacy) {
+        if (_focusConv.tier === "C" && _suspendTierCLegacy && !_jaReclaimCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_suspended",
@@ -7209,7 +7222,7 @@ function qualifiesForEnter(d, asOfTs = null) {
           };
         }
         const _tierCFloor = Math.max(_floorHardMin, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
-        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
+        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor && !_jaReclaimCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_below_c_floor",

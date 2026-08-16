@@ -75,7 +75,12 @@ export function julyAutopsyGateBlock({ d, daCfg, path, direction, etParts }) {
   }
 
   // ── G2: location / adverse divergence (P3) ──
-  if (flagOn(daCfg.deep_audit_ja_location_gate) && isLong) {
+  // tt_htf_reclaim is exempt: a fresh reclaim sits just above the daily
+  // EMA-21 — the correct location by definition — but PDZ zone math is
+  // range-relative and labels post-pullback reclaims "premium" (CIBR
+  // Jul 31 probe: G2 vetoed the reclaim on 9 of 14 bars).
+  if (flagOn(daCfg.deep_audit_ja_location_gate) && isLong
+      && String(path || "") !== "tt_htf_reclaim") {
     const div = d?.__entry_divergence_summary || {};
     const advRsi = advCount(div.adverse_rsi);
     const advPhase = advCount(div.adverse_phase);
@@ -132,13 +137,17 @@ export function isHtfReclaimContext(d, tf, daCfg) {
   const pctE21 = Number(ds.pct_above_e21);
   const slope = Number(ds.e21_slope_5d_pct);
   const maxExt = Number(daCfg?.deep_audit_ja_htf_reclaim_max_ext_pct) || 2.5;
-  const st4 = Number(tf?.h4?.stDir) || 0;
-  const c4h512 = tf?.h4?.ripster?.c5_12;
-  const fourHSupportive = st4 === -1 || !!(c4h512?.bull || c4h512?.above);
   const freshAbove = Number.isFinite(pctE21) && pctE21 >= 0 && pctE21 <= maxExt;
   const slopeOk = !Number.isFinite(slope) || slope > -0.5;
   const trendOk = ds.above_e200 !== false;
-  return freshAbove && slopeOk && trendOk && fourHSupportive;
+  // NOTE (CIBR Jul 31 probe): do NOT require 4H ST/cloud agreement here.
+  // The operator's sequence is two-stage — daily EMA-21 reclaim first
+  // (Jun 26), 4H trend break days later (Jun 29). On the reclaim day
+  // itself the 4H is still bearish by construction; requiring both
+  // simultaneously means the fresh-reclaim window never qualifies. The
+  // tt_htf_reclaim trigger layers 4H/LTF confirmation on top of this
+  // context (4H agreement upgrades confidence).
+  return freshAbove && slopeOk && trendOk;
 }
 
 /**
