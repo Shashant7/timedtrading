@@ -1,6 +1,52 @@
 import { describe, it, expect } from "vitest";
-import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext } from "./july-autopsy-gates.js";
+import {
+  julyAutopsyGateBlock,
+  julyAutopsyDefaultDeny,
+  isHtfReclaimContext,
+  exhaustTrimMinProfitPct,
+} from "./july-autopsy-gates.js";
 import { admitSetup } from "./phase-c-setup-admission.js";
+
+describe("exhaustTrimMinProfitPct — ATR-scaled exhaustion trim floor", () => {
+  // HALO Jul 22: $77.93 entry, ~3.2% daily ATR, trimmed 50% at +0.74% via
+  // TD_HTF_EXHAUSTION on a move that ran to +8.35% MFE.
+  const halo = { price: 78, atr: 2.5 };
+  // NEU Jul 21: ~$780, ~1.9% ATR, trimmed 50% at +0.59% twelve minutes in.
+  const neu = { price: 780, atr: 15 };
+
+  it("blocks the HALO trim that banked 9% of an 8.35% move", () => {
+    const floor = exhaustTrimMinProfitPct(halo, {}, 0.5);
+    expect(floor).toBeGreaterThan(0.74);
+  });
+
+  it("blocks the NEU 12-minute trim at +0.59%", () => {
+    const floor = exhaustTrimMinProfitPct(neu, {}, 0.5);
+    expect(floor).toBeGreaterThan(0.59);
+  });
+
+  it("never drops below the absolute floor on a very quiet name", () => {
+    expect(exhaustTrimMinProfitPct({ price: 100, atr: 0.2 }, {}, 0.5)).toBe(0.5);
+  });
+
+  it("caps the floor so a violently volatile name still trims", () => {
+    const floor = exhaustTrimMinProfitPct({ price: 10, atr: 3 }, {}, 0.5);
+    expect(floor).toBe(2.5);
+  });
+
+  it("respects a configured cap", () => {
+    const floor = exhaustTrimMinProfitPct({ price: 10, atr: 3 }, { deep_audit_ja_exhaust_trim_max_floor_pct: 1.5 }, 0.5);
+    expect(floor).toBe(1.5);
+  });
+
+  it("frac=0 restores the flat legacy floor", () => {
+    expect(exhaustTrimMinProfitPct(halo, { deep_audit_ja_exhaust_trim_atr_frac: 0 }, 0.5)).toBe(0.5);
+  });
+
+  it("falls back to the flat floor when ATR or price is unavailable", () => {
+    expect(exhaustTrimMinProfitPct({ price: 78 }, {}, 0.5)).toBe(0.5);
+    expect(exhaustTrimMinProfitPct(null, {}, 0.5)).toBe(0.5);
+  });
+});
 
 describe("admitSetup wildcard grade fallback (P8 fix)", () => {
   it("grade-less ATH breakout must clear the Prime bar when wildcard enabled", () => {

@@ -679,7 +679,10 @@ import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
    Source-of-truth: tasks/phase-c/accumulation-trend-deep-dive.md. */
 import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
-import { isHtfReclaimContext as jaIsHtfReclaimContext } from "./july-autopsy-gates.js";
+import {
+  isHtfReclaimContext as jaIsHtfReclaimContext,
+  exhaustTrimMinProfitPct as jaExhaustTrimMinProfitPct,
+} from "./july-autopsy-gates.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 /* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
@@ -22443,8 +22446,16 @@ async function processTradeSimulation(
               || ""
             ).trim().toUpperCase();
             const _exhNeedsFirstTrimGuard = _exhPersonality === "SLOW_GRINDER";
+            // Scale the floor by what this ticker normally travels in a day.
+            // A flat 0.5% banks noise on a wide-range name (NEU trimmed 50%
+            // at +0.59%, 12 minutes after entry).
+            const _exhMinPnl = jaExhaustTrimMinProfitPct(
+              tickerData,
+              env?._deepAuditConfig,
+              0.5,
+            );
 
-            if (_exhPnlPct > 0.5 && _exhTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
+            if (_exhPnlPct > _exhMinPnl && _exhTrimPct < THREE_TIER_CONFIG.TRIM.trimPct - 0.01) {
               const _exhFirstTrimGuard = _exhNeedsFirstTrimGuard
                 ? canTakeInitialSignalTrim(_exhPnlPct, "ATR_RANGE_EXHAUST")
                 : { allow: true };
@@ -22620,7 +22631,15 @@ async function processTradeSimulation(
             else if (!isReplay) await kvPutJSON(KV, execKey, execState);
           }
 
-          if (execState.tdHtfExhSeen && _tdPnlPct > 0.5) {
+          // Same ATR-scaled floor as the ATR exhaustion path: HALO
+          // (VOLATILE_RUNNER) trimmed 50% here at +0.74% on a move that ran
+          // to +8.35%, banking 9% of it.
+          const _tdMinPnl = jaExhaustTrimMinProfitPct(
+            tickerData,
+            env?._deepAuditConfig,
+            0.5,
+          );
+          if (execState.tdHtfExhSeen && _tdPnlPct > _tdMinPnl) {
             const _tdTH = assessTrendHealth(tickerData, String(openTrade.direction || ""));
             const _tdCloudExp = _tdTH.cloudExpansion || {};
             const _tdCloudAligned = _tdCloudExp.allAligned && !_tdCloudExp.isCompressing;

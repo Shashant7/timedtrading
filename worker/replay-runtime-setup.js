@@ -455,6 +455,8 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_htf_reclaim_cooldown_hours",
   "deep_audit_ja_htf_reclaim_max_days_above",
   "deep_audit_ja_reclaim_daily_max",
+  "deep_audit_ja_exhaust_trim_atr_frac",
+  "deep_audit_ja_exhaust_trim_max_floor_pct",
   "deep_audit_ja_no_slot_sector_limits",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
