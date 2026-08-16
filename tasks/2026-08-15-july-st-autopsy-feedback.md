@@ -1387,10 +1387,17 @@ therefore only as good as it.
 July 10m replay arm (`ja-mgmt-jul26`) vs the matching baseline
 (`ja-10m-jul26`), same cadence / ticker batch / flags:
 
-| Arm | Trades | WR | Total $ | Realized $ |
-|---|---|---|---|---|
-| baseline | 51 | 57% | **+2,088** | +1,345 |
-| + ATR trim floor + opening wick cushion | 50 | 48% | **+1,143** | +402 |
+| Window | Arm | Trades | WR | Total $ | Realized $ |
+|---|---|---|---|---|---|
+| July | baseline | 51 | 57% | **+2,088** | +1,345 |
+| July | + trim floor + wick cushion | 50 | 48% | **+1,143** | +402 |
+| Aug 3–14 | baseline | 24 | 75% | +2,359 | +1,370 |
+| Aug 3–14 | + trim floor + wick cushion | 24 | 75% | +2,436 | +1,428 |
+
+August is a wash (identical trade count and win rate, +$77) — the floor
+barely binds in a strong trending tape. **All of the damage is July**, the
+chop month, which is precisely the regime the changes were meant to help.
+Net across both windows: **−$868**.
 
 **Diagnosis — the trim is not the problem, and raising its floor is
 actively harmful.** The floor moved 6 trades from trimmed to untrimmed and
