@@ -19814,6 +19814,27 @@ async function processTradeSimulation(
       }
     }
 
+    // ── JULY-2026 AUTOPSY — failed-reclaim cooldown (P15 tuning) ──────────
+    // After a tt_htf_reclaim LOSS on a ticker, block another reclaim entry
+    // for N hours (default 72). July replay: repeated same-ticker reclaim
+    // attempts (GRNY ×4, GRNI, XLRE ×2, EXEL) bled small losses without
+    // any winner requiring re-entry inside 72h (JCI's Jul 27 loss-exit →
+    // Jul 30 +18.5% re-entry clears 72h by an hour; KO's Jul 1 → Jul 6
+    // +2.35% clears comfortably). Flag-gated with the reclaim entry.
+    let _jaReclaimCooldownBlock = false;
+    if (String(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+        && String(tickerData?.__entry_path || "") === "tt_htf_reclaim") {
+      const _jaRcHours = Number(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_cooldown_hours) || 72;
+      const _jaLastReclaimLoss = _recentClosedOnTicker.find(t =>
+        String(t?.entry_path || t?.entryPath || "").toLowerCase() === "tt_htf_reclaim"
+        && t?.status === "LOSS");
+      const _jaLastLossExit = Number(_jaLastReclaimLoss?.exit_ts) || 0;
+      if (_jaLastLossExit > 0 && (now - _jaLastLossExit) < _jaRcHours * 3600e3) {
+        _jaReclaimCooldownBlock = true;
+        console.log(`[JA_RECLAIM_COOLDOWN] ${sym} blocked: reclaim loss ${((now - _jaLastLossExit) / 3600e3).toFixed(1)}h ago (need ${_jaRcHours}h)`);
+      }
+    }
+
     // ── B1 (2026-06-11) — Re-confirmation-based re-entry ──────────────────
     // The blanket 4h ENTER_COOLDOWN treats every re-entry as churn. The
     // move-discovery data says churn is a PATTERN (73% of churns start with
@@ -19865,6 +19886,7 @@ async function processTradeSimulation(
 
     const enterCooldownOk =
       !_consecutiveMlBlock &&
+      !_jaReclaimCooldownBlock &&
       (_reconfirmWaiver || !Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS);
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m

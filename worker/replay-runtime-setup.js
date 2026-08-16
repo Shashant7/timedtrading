@@ -452,6 +452,7 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_htf_reclaim_entry",
   "deep_audit_ja_htf_reclaim_max_ext_pct",
   "deep_audit_ja_htf_reclaim_conviction_floor",
+  "deep_audit_ja_htf_reclaim_cooldown_hours",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
   "deep_audit_cluster_throttle_window_min",
