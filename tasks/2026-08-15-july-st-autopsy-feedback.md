@@ -977,6 +977,96 @@ cluster) — retest with a full-universe replay before trusting them there.
 The bypass flag (`deep_audit_ja_no_slot_sector_limits`, default OFF) stays
 as experiment infrastructure.
 
+## CORRECTION: every headline PnL above was wrong (2026-08-16)
+
+While building a dollar-denominated results table, the `pnl` column stopped
+reconciling with `notional`. Root cause in
+`closeReplayPositionsAtDate` (`worker/replay-admin-helpers.js`): the
+end-of-window mark recomputed share count from the legacy `TRADE_SIZE`
+($1,000) constant, while the realized trim carry on the same row was booked
+on the REAL position. Two different scales in one number:
+
+- `pnl` (dollars) came out ~`notional/1000` too small (~10x low).
+- `pnl_pct` was **inflated** for any trimmed position open at the window
+  edge, because a real-dollar carry was divided by a $1,000 base.
+
+Blast radius: `replay_end_close` rows only — 55 of 385 ja-* rows, but they
+carried 658 of the ~700 points of reported "sum PnL %". Every other exit
+reason reconciles exactly (`pnl = pnl_pct * notional / 100`). Closed trades
+were always right; the open marks were not.
+
+**Concretely: CIBR Jul 30, reported "+32.14% / $321", actually made
++3.99% / $477 on its $11,955 position** (entry 89.29, half banked ~5%
+higher, remainder marked 91.83). The move was real; the 32% was not.
+
+Fixed + regression-tested (`worker/replay-close-sizing.test.js`). Existing
+rows are NOT rewritten — they are restated below by reconstructing the true
+figure from `shares`/`notional`.
+
+### Restated results — true dollars on the $100k replay book
+
+`PORTFOLIO_START_CASH = 100000`, so dollars are directly portfolio return.
+"Realized" = trades that actually closed; "open mark" = still open at the
+window edge, marked at last close (unrealized, path-dependent).
+
+| Window | Arm | Trades | WR | **Total $** | Realized $ | Open-mark $ |
+|---|---|---|---|---|---|---|
+| July | baseline (30m) | 15 | 33% | **−323** | −324 | +2 |
+| July | gates only, no-deny (30m) | 11 | 45% | **−715** | −715 | 0 |
+| July | tactical v1 = LIVE (30m) | 62 | 42% | **+597** | −377 | +974 |
+| July | v1 + freshness (30m) | 47 | 45% | **+1,441** | +754 | +687 |
+| July | v1 + freshness (10m) | 51 | 57% | **+2,088** | +1,345 | +743 |
+| July | + 72h cooldown (30m) | 59 | 41% | **−1,183** | −1,852 | +669 |
+| July | no slot/sector limits (30m) | 47 | 47% | **+1,427** | +740 | +687 |
+| Aug 3–14 | baseline (30m) | 11 | 73% | **+2,428** | +1,642 | +786 |
+| Aug 3–14 | tactical v1 = LIVE (30m) | 30 | 60% | **+1,717** | +514 | +1,202 |
+| Aug 3–14 | v1 + freshness (30m) | 21 | 71% | **+1,787** | +737 | +1,049 |
+| Aug 3–14 | v1 + freshness (10m) | 24 | 75% | **+2,359** | +1,370 | +989 |
+| Aug 3–14 | + 72h cooldown (30m) | 29 | 62% | **+1,738** | +504 | +1,234 |
+
+### What the correction changes about our conclusions
+
+1. **Magnitudes collapse.** "July +54.54% / August +84.71%" is really
+   +0.6% / +1.7% of the book. The direction of every arm-vs-arm comparison
+   survives; the size does not. Sum-of-per-trade-percent was never a
+   portfolio return and should not be quoted again.
+2. **August baseline BEATS tactical v1** (+2,428 vs +1,717). The earlier
+   read ("tactical improved August +64 → +85") was purely the artifact:
+   tactical held 10 open positions at the window edge vs baseline's 4, and
+   open marks were the inflated ones. In a strong-tape sample the extra
+   reclaim entries diluted a concentrated ATH-driven month.
+3. **Freshness is now unambiguously good** — better in BOTH windows on
+   total dollars (Jul +1,441 vs +597; Aug +1,787 vs +1,717) and much
+   better on realized dollars (Jul +754 vs −377). See the August question
+   below.
+4. **Tactical v1 alone (what is live right now) is thin**: +597 July,
+   −711 vs baseline in August → net ~+209 across six weeks. Most of its
+   apparent edge was open marks. Freshness is what makes the pack pay.
+5. **The 72h cooldown is confirmed bad** (−1,183 July, realized −1,852).
+   Staying at default 0.
+6. **Realized vs unrealized is the honest lens.** Even in the best arm,
+   a third to a half of the total sits in open marks the live engine will
+   actually have to manage. Judge future arms on realized dollars first.
+
+### The August "84.71 → 77.58" question, answered
+
+That pair was sum-of-percent, not win rate (WR went 60% → 71%). On
+corrected dollars August freshness is **+1,787 vs +1,717 — better, not
+worse.** Direct measurement of the 10 trades freshness removed:
+
+| Removed trade | True $ |
+|---|---|
+| KO Aug 7 (open mark) | +128 |
+| MTB Aug 11 (open mark) | +99 |
+| MTB Aug 6, UNP Aug 13 | +25, +19 |
+| JCI, XLI, TT, PKG, BRK-B, KO Aug 3 | −8, −32, −33, −41, −86, −126 |
+| **Net** | **−55** |
+
+The rule removed a net *loser*. The two "big winners" it appeared to cost
+us (reported +$1,051 and +$650) are +$128 and +$99 once sized correctly —
+and MTB had been above its EMA-21 for 51 days, i.e. not a reclaim by our
+own definition. **No meaningful difference; the change is an improvement.**
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
