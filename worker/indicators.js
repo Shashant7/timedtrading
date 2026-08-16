@@ -1043,6 +1043,16 @@ export function computeTfBundle(bars, anchors = null) {
     ? ((e48 - e48_10bar_ago) / e48_10bar_ago) * 100
     : null;
 
+  // ── Consecutive closed bars above EMA21 BEFORE the current bar ──
+  // Freshness of a reclaim: 0 = the current bar is the first above.
+  // July/Aug 2026 reclaim autopsy: winners median 3 bars, losers median 7 —
+  // entries hovering above e21 for >5 bars are drift, not reclaims.
+  let barsAboveE21 = 0;
+  for (let i = last - 1; i >= 0; i--) {
+    if (Number.isFinite(e21s[i]) && Number.isFinite(closes[i]) && closes[i] > e21s[i]) barsAboveE21++;
+    else break;
+  }
+
   // ── EMA TRIPLET: depth, structure, momentum ──
   //
   // emaDepth (0-10): How many EMAs price is above. Direct conviction ladder.
@@ -1876,6 +1886,7 @@ export function computeTfBundle(bars, anchors = null) {
     e3, e5, e8, e9, e12, e13, e21, e34, e48, e50, e72, e89, e180, e200, e233,
     eFast, eSlow,
     e21_slope_5bar_pct, e48_slope_10bar_pct,
+    barsAboveE21,
     emaDepth, emaStructure, emaMomentum, ribbonSpread,
     stLine, stDir, stLinePrev, stSlopeUp, stSlopeDn,
     stFlip, stFlipDir, stFlip_ts, stBarsSinceFlip,
@@ -5187,6 +5198,7 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
         pct_above_e200: pct(de200),
         e21_slope_5d_pct: Number.isFinite(bD.e21_slope_5bar_pct)
           ? Math.round(bD.e21_slope_5bar_pct * 100) / 100 : null,
+        days_above_e21: Number.isFinite(bD.barsAboveE21) ? bD.barsAboveE21 : null,
         e48_slope_10d_pct: Number.isFinite(bD.e48_slope_10bar_pct)
           ? Math.round(bD.e48_slope_10bar_pct * 100) / 100 : null,
         bull_stack: bullStack,
