@@ -346,7 +346,16 @@ export async function closeReplayPositionsAtDate(args = {}) {
     const entryPx = Number(row.entry_price);
     const lastPx = replayPrices.get(sym) || (KV ? Number((await kvGetJSON(KV, `timed:latest:${sym}`))?.price) || 0 : 0) || entryPx;
     const dir = String(row.direction).toUpperCase() === "SHORT" ? -1 : 1;
-    const shares = entryPx > 0 ? TRADE_SIZE / entryPx : 0;
+    // Size the open leg off the position's real share count. The realized
+    // carry below is booked on the real position, so sizing the remaining
+    // leg off the legacy TRADE_SIZE nominal mixes two scales and corrupts
+    // both pnl (10x low) and pnl_pct (inflated for trimmed positions).
+    const notionalShares = Number(row.notional) > 0 && entryPx > 0
+      ? Number(row.notional) / entryPx
+      : 0;
+    const shares = Number(row.shares) > 0
+      ? Number(row.shares)
+      : (notionalShares || (entryPx > 0 ? TRADE_SIZE / entryPx : 0));
     const trimPct = Number(row.trimmed_pct) || 0;
     const remainingShares = shares * Math.max(0, 1 - trimPct);
     const realizedCarry = Number(row.pnl) || 0;
