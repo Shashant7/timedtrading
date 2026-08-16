@@ -1320,6 +1320,46 @@ momentum diverges against it on both RSI and phase. Diagnostics stamped on
 `__n_test_support_diag` regardless, so the block rate is measurable before
 the flag is flipped.
 
+### What the winners actually have in common (47 live trades)
+
+The operator's question — "our winners should provide us insight on the
+things that were present during good entries". Entry snapshots compared,
+winners (15) vs losers (32):
+
+| Feature at entry | Winners | Losers | Verdict |
+|---|---|---|---|
+| `has_adverse_phase_div` | 60% | 53% | **no discrimination** |
+| `has_adverse_rsi_div` | 13% | 13% | **none** |
+| any adverse divergence | 60% | 56% | **none** (33% WR with vs 30% without) |
+| `is_f4_severe` | 13% | 9% | none |
+| `daily_td9_adverse` | 0% | 0% | never fires — dead signal |
+| `setup_grade` | Spec 8 / Conf 5 / Prime 2 | Spec 16 / Conf 14 / Prime 2 | **none** (33/26/50% WR) — consistent with the admission matrix being a no-op |
+| PDZ premium on D **and** 4H | — | — | same 32% WR either way, but **−13.19 vs −4.50** sum: premium entries lose bigger, not more often |
+| **`regime_class` CHOPPY** | 1 | 8 | **11% WR — the strongest negative** |
+| **`personality`** | PULLBACK_PLAYER 8 | PULLBACK_PLAYER 6 | **PULLBACK_PLAYER 57% WR vs 32% book**; MEAN_REVERT **0 of 4**, SLOW_GRINDER 1 of 6 |
+
+Two usable discriminators (CHOPPY regime, personality) and a list of
+things that are NOT discriminating as currently computed — which is worth
+as much, because it says where not to spend effort. Note this is 47 trades;
+treat as directional, not conclusive.
+
+### The headline: the entries find moves, the management loses them
+
+| Path | n | WR | Sum P&L | Sum MFE |
+|---|---|---|---|---|
+| `tt_ath_breakout` | 20 | 45% | −4.35 | **+36.17** |
+| `tt_n_test_support` | 19 | 21% | −2.19 | **+47.77** |
+| `tt_range_reversal_long` | 4 | 25% | −8.28 | +6.49 |
+| `tt_pullback` | 4 | 25% | −2.88 | +3.29 |
+| **Total** | **47** | **32%** | **−17.70** | **+93.72** |
+
+**The book generated 93.7 points of favourable excursion and realised
+−17.7.** Every path is MFE-positive. Even the worst entry family
+(`tt_n_test_support`, 21% WR) averages +2.5% of favourable movement per
+trade. This is the strongest possible support for the operator's stated
+theme: the entry engine is finding moves, and management is giving them
+back. Entry selectivity is worth less than exit discipline right now.
+
 ### Open gap — the divergence detector is structurally blind at the entry bar
 
 Entry snapshots recorded `has_adverse_rsi_div: false` and
