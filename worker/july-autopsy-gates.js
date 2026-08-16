@@ -75,7 +75,12 @@ export function julyAutopsyGateBlock({ d, daCfg, path, direction, etParts }) {
   }
 
   // ── G2: location / adverse divergence (P3) ──
-  if (flagOn(daCfg.deep_audit_ja_location_gate) && isLong) {
+  // tt_htf_reclaim is exempt: a fresh reclaim sits just above the daily
+  // EMA-21 — the correct location by definition — but PDZ zone math is
+  // range-relative and labels post-pullback reclaims "premium" (CIBR
+  // Jul 31 probe: G2 vetoed the reclaim on 9 of 14 bars).
+  if (flagOn(daCfg.deep_audit_ja_location_gate) && isLong
+      && String(path || "") !== "tt_htf_reclaim") {
     const div = d?.__entry_divergence_summary || {};
     const advRsi = advCount(div.adverse_rsi);
     const advPhase = advCount(div.adverse_phase);
@@ -115,6 +120,34 @@ export function julyAutopsyGateBlock({ d, daCfg, path, direction, etParts }) {
   }
 
   return null;
+}
+
+/**
+ * P15 — HTF reclaim context detector. True when the ticker is in the
+ * "fresh daily EMA-21 reclaim with HTF support" state the operator
+ * identified as the highest-quality entry (CIBR Jun 26 / Jul 31).
+ * Used twice: (a) as a conviction-floor carve-out — on reclaim days the
+ * conviction score is structurally low because the scoring system likes
+ * mature trends (CIBR Jul 31 was blocked by focus_conviction_below_floor
+ * on all 14 bars of its reclaim day), and (b) by the tt_htf_reclaim
+ * trigger, which adds the LTF confirmation on top.
+ */
+export function isHtfReclaimContext(d, tf, daCfg) {
+  const ds = d?.daily_structure || {};
+  const pctE21 = Number(ds.pct_above_e21);
+  const slope = Number(ds.e21_slope_5d_pct);
+  const maxExt = Number(daCfg?.deep_audit_ja_htf_reclaim_max_ext_pct) || 2.5;
+  const freshAbove = Number.isFinite(pctE21) && pctE21 >= 0 && pctE21 <= maxExt;
+  const slopeOk = !Number.isFinite(slope) || slope > -0.5;
+  const trendOk = ds.above_e200 !== false;
+  // NOTE (CIBR Jul 31 probe): do NOT require 4H ST/cloud agreement here.
+  // The operator's sequence is two-stage — daily EMA-21 reclaim first
+  // (Jun 26), 4H trend break days later (Jun 29). On the reclaim day
+  // itself the 4H is still bearish by construction; requiring both
+  // simultaneously means the fresh-reclaim window never qualifies. The
+  // tt_htf_reclaim trigger layers 4H/LTF confirmation on top of this
+  // context (4H agreement upgrades confidence).
+  return freshAbove && slopeOk && trendOk;
 }
 
 /**

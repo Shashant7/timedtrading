@@ -1,5 +1,53 @@
 import { describe, it, expect } from "vitest";
 import { julyAutopsyGateBlock, julyAutopsyDefaultDeny } from "./july-autopsy-gates.js";
+import { admitSetup } from "./phase-c-setup-admission.js";
+
+describe("admitSetup wildcard grade fallback (P8 fix)", () => {
+  it("grade-less ATH breakout must clear the Prime bar when wildcard enabled", () => {
+    // The July no-op: grade empty at admission → default allow. With
+    // wildcard: unknown-grade ATH breakout in TRANSITIONAL regime rejects.
+    const out = admitSetup({
+      setup: "tt_ath_breakout", grade: "", direction: "LONG",
+      regime: "TRANSITIONAL", rr: 2.5, allowWildcard: true,
+    }, null);
+    expect(out.allow).toBe(false);
+    expect(out.matched_key).toBe("tt_ath_breakout:LONG:*");
+  });
+
+  it("grade-less ATH breakout in STRONG_BULL with rr>=2 passes the wildcard", () => {
+    const out = admitSetup({
+      setup: "tt_ath_breakout", grade: "", direction: "LONG",
+      regime: "STRONG_BULL", rr: 2.4, allowWildcard: true,
+    }, null);
+    expect(out.allow).toBe(true);
+  });
+
+  it("without allowWildcard, legacy behavior unchanged (default allow)", () => {
+    const out = admitSetup({
+      setup: "tt_ath_breakout", grade: "", direction: "LONG",
+      regime: "TRANSITIONAL", rr: 1.0,
+    }, null);
+    expect(out.allow).toBe(true);
+    expect(out.reason).toBe("missing_inputs_default_allow");
+  });
+
+  it("exact grade rows still take precedence over the wildcard", () => {
+    const out = admitSetup({
+      setup: "tt_ath_breakout", grade: "Confirmed", direction: "LONG",
+      regime: "STRONG_BULL", rr: 5, allowWildcard: true,
+    }, null);
+    expect(out.allow).toBe(false);
+    expect(out.matched_key).toBe("tt_ath_breakout:LONG:Confirmed");
+  });
+
+  it("unknown setups without a wildcard row still default-allow", () => {
+    const out = admitSetup({
+      setup: "tt_htf_reclaim", grade: "", direction: "LONG",
+      regime: "TRANSITIONAL", allowWildcard: true,
+    }, null);
+    expect(out.allow).toBe(true);
+  });
+});
 
 const ON = { deep_audit_ja_opening_gate: "true", deep_audit_ja_location_gate: "true", deep_audit_ja_expected_move_gate: "true" };
 

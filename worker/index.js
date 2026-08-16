@@ -679,6 +679,7 @@ import * as ExitDoctrine from "./phase-c-exit-doctrine.js";
    Source-of-truth: tasks/phase-c/accumulation-trend-deep-dive.md. */
 import * as TrendHold from "./trend-hold.js";
 import * as SetupAdmission from "./phase-c-setup-admission.js";
+import { isHtfReclaimContext as jaIsHtfReclaimContext } from "./july-autopsy-gates.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 /* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
@@ -7178,6 +7179,18 @@ function qualifiesForEnter(d, asOfTs = null) {
             }
           } catch (_e) { /* swallow — defensive */ }
         }
+        // JULY-2026 AUTOPSY (P15) — HTF-reclaim conviction carve-out.
+        // Mirror of the tt-core-entry.js carve: reclaim days score LOW
+        // conviction by construction (CIBR Jul 31: conv 42-70 vs floor 80
+        // on all 14 bars of its reclaim day; leg ran +11%). Flag-gated
+        // with the reclaim entry, default OFF.
+        const _jaReclaimCtx =
+          String(_focusDaCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+          && jaIsHtfReclaimContext(d, null, _focusDaCfg);
+        if (_jaReclaimCtx) {
+          const _jaFloor = Number(_focusDaCfg.deep_audit_ja_htf_reclaim_conviction_floor) || 40;
+          _entryMinConv = Math.min(_entryMinConv, Math.max(35, _jaFloor));
+        }
         if (_focusConv.score < _entryMinConv) {
           return {
             qualifies: false,
@@ -7196,7 +7209,7 @@ function qualifiesForEnter(d, asOfTs = null) {
         // non-discriminating signal. Suspend by default; reversible via
         // deep_audit_focus_suspend_tier_c="false".
         const _suspendTierCLegacy = String(_focusDaCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-        if (_focusConv.tier === "C" && _suspendTierCLegacy) {
+        if (_focusConv.tier === "C" && _suspendTierCLegacy && !_jaReclaimCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_suspended",
@@ -7209,7 +7222,7 @@ function qualifiesForEnter(d, asOfTs = null) {
           };
         }
         const _tierCFloor = Math.max(_floorHardMin, Number(_focusDaCfg.deep_audit_focus_tier_c_floor ?? 65));
-        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor) {
+        if (_focusConv.tier === "C" && _focusConv.score < _tierCFloor && !_jaReclaimCtx) {
           return {
             qualifies: false,
             reason: "focus_tier_c_below_c_floor",
@@ -15560,6 +15573,7 @@ const SETUP_NAME_MAP = {
   tt_mean_revert:             "TT Mean Reversion",
   tt_n_test_support:          "TT Support Bounce",
   tt_n_test_resistance:       "TT Resistance Fade",
+  tt_htf_reclaim:             "TT HTF Reclaim",
   tt_range_reversal_long:     "TT Range Reversal (Long)",
   tt_range_reversal_short:    "TT Range Reversal (Short)",
   tt_gap_reversal_long:       "TT Gap Reversal (Long)",
@@ -19800,6 +19814,29 @@ async function processTradeSimulation(
       }
     }
 
+    // ── JULY-2026 AUTOPSY — failed-reclaim cooldown (P15 tuning) ──────────
+    // After a tt_htf_reclaim LOSS on a ticker, block another reclaim entry
+    // for N hours. DEFAULT 0 (DISABLED): the 72h variant VALIDATED NEGATIVE
+    // in the July replay (+54.5% → +20.5%) — it saved ~1% of repeat losses
+    // but the slot-reshuffle cascade re-sequenced mid-July entries and a
+    // shifted JCI loss-exit then cooldown-blocked the Jul 30 +18.5%
+    // re-entry. Keep as an operator knob
+    // (deep_audit_ja_htf_reclaim_cooldown_hours) pending a re-test with a
+    // high-confidence override.
+    let _jaReclaimCooldownBlock = false;
+    if (String(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+        && String(tickerData?.__entry_path || "") === "tt_htf_reclaim") {
+      const _jaRcHours = Number(env?._deepAuditConfig?.deep_audit_ja_htf_reclaim_cooldown_hours) || 0;
+      const _jaLastReclaimLoss = _recentClosedOnTicker.find(t =>
+        String(t?.entry_path || t?.entryPath || "").toLowerCase() === "tt_htf_reclaim"
+        && t?.status === "LOSS");
+      const _jaLastLossExit = Number(_jaLastReclaimLoss?.exit_ts) || 0;
+      if (_jaLastLossExit > 0 && (now - _jaLastLossExit) < _jaRcHours * 3600e3) {
+        _jaReclaimCooldownBlock = true;
+        console.log(`[JA_RECLAIM_COOLDOWN] ${sym} blocked: reclaim loss ${((now - _jaLastLossExit) / 3600e3).toFixed(1)}h ago (need ${_jaRcHours}h)`);
+      }
+    }
+
     // ── B1 (2026-06-11) — Re-confirmation-based re-entry ──────────────────
     // The blanket 4h ENTER_COOLDOWN treats every re-entry as churn. The
     // move-discovery data says churn is a PATTERN (73% of churns start with
@@ -19851,6 +19888,7 @@ async function processTradeSimulation(
 
     const enterCooldownOk =
       !_consecutiveMlBlock &&
+      !_jaReclaimCooldownBlock &&
       (_reconfirmWaiver || !Number.isFinite(lastEnterMs) || now - lastEnterMs >= ENTER_COOLDOWN_MS);
     const trimCooldownOk =
       !Number.isFinite(lastTrimMs) || now - lastTrimMs >= 5 * 60 * 1000; // 5m
@@ -26086,6 +26124,23 @@ async function processTradeSimulation(
               slCandidate = Math.round(_orbSL * 100) / 100;
             }
           }
+        }
+      }
+
+      // ── JULY-2026 AUTOPSY — HTF Reclaim structure SL anchor (P9) ──
+      // tt_htf_reclaim entries stamp the reclaimed daily EMA-21 on
+      // __ja_reclaim_level. The stop belongs just below that level:
+      // "support lost = thesis dead", not an ATR multiple. Tighten only
+      // (never widen past the ATR stop) and keep >=0.3% from entry.
+      const _jaReclaimLvl = Number(tickerData?.__ja_reclaim_level);
+      if (String(entryPath || "") === "tt_htf_reclaim"
+          && direction === "LONG"
+          && Number.isFinite(_jaReclaimLvl) && _jaReclaimLvl > 0
+          && Number.isFinite(slCandidate) && slCandidate > 0) {
+        const _jaStructSL = _jaReclaimLvl * 0.99;
+        const _jaDistPct = (entryPx - _jaStructSL) / entryPx;
+        if (_jaStructSL < entryPx && _jaStructSL > slCandidate && _jaDistPct >= 0.003) {
+          slCandidate = Math.round(_jaStructSL * 100) / 100;
         }
       }
 

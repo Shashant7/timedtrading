@@ -13,7 +13,7 @@ import {
   getSectorRating as getSectorRatingForFocus,
 } from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
-import { julyAutopsyGateBlock, julyAutopsyDefaultDeny } from "../july-autopsy-gates.js";
+import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext } from "../july-autopsy-gates.js";
 import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   evaluateIndexEtfModelEntry,
@@ -557,6 +557,11 @@ export function evaluateEntry(ctx) {
               regime: _regimeForAdmission,
               conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
               rr: _rrForAdmission,
+              // July autopsy P8 (2026-08-15): grade is empty at admission
+              // time (computed post-qualify), which made the matrix a
+              // no-op. Wildcard rows apply the family's strictest policy
+              // when the grade is unknown. Flag-gated, default OFF.
+              allowWildcard: String(daCfg.deep_audit_ja_grade_wildcard ?? "false") === "true",
             },
             // Pass null matrix so admitSetup uses the embedded default.
             // Replay-runtime can override by calling loadAdmissionMatrix
@@ -1076,6 +1081,27 @@ export function evaluateEntry(ctx) {
         daCfg,
       );
 
+      // JULY-2026 AUTOPSY (P15) — HTF-reclaim conviction carve-out.
+      // Reclaim days score LOW conviction by construction (the conviction
+      // model rewards mature trends), so the highest-quality entries the
+      // operator identified were structurally excluded before the entry
+      // engine even ran (CIBR Jul 31: focus_conviction_below_floor on all
+      // 14 bars of its reclaim day; the leg then ran +11%). When the
+      // ticker is in a fresh HTF-reclaim context, lower the floor so the
+      // tt_htf_reclaim trigger (which adds LTF confirmation) gets a
+      // chance to evaluate. Flag-gated with the reclaim entry itself.
+      if (String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+          && isHtfReclaimContext(d, tf, daCfg)) {
+        // CIBR Jul 31 probe: conviction scored 42 on the reclaim day
+        // (trend=0, phase=0, saty=0 — the conviction model structurally
+        // dislikes reclaim days, and the signal is documented as
+        // non-discriminating: corr(conviction, win) = -0.02, Tier-C
+        // suspended). Floor down to 40 by default for reclaim context;
+        // the trigger's own HTF/LTF confirmations carry selectivity.
+        const _jaReclaimFloor = Number(daCfg.deep_audit_ja_htf_reclaim_conviction_floor) || 40;
+        _entryMinConviction = Math.min(_entryMinConviction, Math.max(35, _jaReclaimFloor));
+      }
+
       // ─────────────────────────────────────────────────────────────────
       // V15 P0.5 — HARD VETOES (2026-04-26)
       //
@@ -1163,8 +1189,17 @@ export function evaluateEntry(ctx) {
       // and cost money. Suspend them by default. Reversible via config
       // (set deep_audit_focus_suspend_tier_c="false") once the signal
       // separates winners from losers again.
+      // JULY-2026 AUTOPSY (P15) — reclaim entries bypass the Tier-C
+      // suspension + extra floor. Reclaim days are LOW-conviction by
+      // construction (the conviction model rewards mature trends and the
+      // signal is documented non-discriminating). The tt_htf_reclaim
+      // trigger carries its own HTF/LTF confirmations. Flag-gated with
+      // the reclaim entry; all other Tier-C behavior unchanged.
+      const _jaReclaimTierBypass =
+        String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+        && isHtfReclaimContext(d, tf, daCfg);
       const _suspendTierC = String(daCfg.deep_audit_focus_suspend_tier_c ?? "true") === "true";
-      if (_focusTier === "C" && _suspendTierC) {
+      if (_focusTier === "C" && _suspendTierC && !_jaReclaimTierBypass) {
         return rejectEntry("focus_tier_c_suspended", {
           score: _focusConviction.score, tier: _focusTier,
           note: "Tier C entries suspended pending conviction-signal repair (Part 4)",
@@ -1174,7 +1209,7 @@ export function evaluateEntry(ctx) {
       // needs stricter entry because we're casting a wider exploratory
       // net). If conviction < tier_c_floor AND tier is C, the entry is
       // rejected. Tier A/B pass if above _entryMinConviction.
-      if (_focusTier === "C" && _focusConviction.score < _tierCFloor) {
+      if (_focusTier === "C" && _focusConviction.score < _tierCFloor && !_jaReclaimTierBypass) {
         return rejectEntry("focus_tier_c_below_c_floor", {
           score: _focusConviction.score, tierFloor: _tierCFloor,
         });
@@ -1346,7 +1381,15 @@ export function evaluateEntry(ctx) {
       } else if (cycle === "transitional" || cycle === "") {
         // Transitional (or unknown) — bumped rank floor still applies via _h3RankFloor above
         const _transRankMin = Number(daCfg.deep_audit_regime_transitional_rank_min) || 0;
-        if (_transRankMin > 0 && rankScore < _transRankMin) {
+        // JULY-2026 AUTOPSY (P15): reclaim-context bars bypass the
+        // transitional rank floor — rank, like conviction, is LOW on the
+        // reclaim day by construction (scores reward established trends;
+        // CIBR Jul 31 ranked 53-61 on its reclaim day, then ran +11%).
+        const _jaReclaimRankBypass =
+          side === "LONG"
+          && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+          && isHtfReclaimContext(d, tf, daCfg);
+        if (_transRankMin > 0 && rankScore < _transRankMin && !_jaReclaimRankBypass) {
           return rejectEntry("h3_rank_below_transitional_floor", {
             cycle: cycle || "unknown", rank: rankScore, rankMin: _transRankMin,
           });
@@ -1418,7 +1461,15 @@ export function evaluateEntry(ctx) {
       }
 
       const _h3MinSignals = Number(daCfg.deep_audit_consensus_min_signals) || 3;
-      if (signals < _h3MinSignals) {
+      // JULY-2026 AUTOPSY (P15): reclaim-context bars bypass the consensus
+      // minimum — trend/momentum/phase consensus is low on the reclaim day
+      // by construction (the move is just starting; consensus confirms
+      // mature moves). The reclaim trigger carries its own confirmations.
+      const _jaReclaimConsensusBypass =
+        isLong
+        && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true"
+        && isHtfReclaimContext(d, tf, daCfg);
+      if (signals < _h3MinSignals && !_jaReclaimConsensusBypass) {
         return rejectEntry("h3_consensus_below_min", {
           signals, min: _h3MinSignals, breakdown,
         });
@@ -2930,6 +2981,68 @@ export function evaluateEntry(ctx) {
       hasStFlipBull,
       entrySupport: summarizeEntrySupport(entrySupportProfile),
     });
+  }
+
+  // ── JULY-2026 AUTOPSY — HTF RECLAIM ENTRY (P15, flag-gated, default OFF) ──
+  // The operator-identified highest-quality entry the ST lane never takes:
+  // fresh daily EMA-21 reclaim (price still near the level = leg-age
+  // freshness built in) + LTF confirmation, with 4H agreement upgrading
+  // confidence. CIBR Jun 26 reclaim → +16% over six weeks; CIBR Jul 31
+  // reclaim → +11%, while the lane's only entry was Jul 10 near the leg
+  // peak. Placed BEFORE the pullback/momentum rejection cascade: reclaim
+  // days score low on rank/conviction/pullback-depth by construction, so
+  // the cascade structurally rejects them (probe: CIBR Jul 31 blocked on
+  // all 14 bars by conviction floor → tier-C floor → transitional rank
+  // floor → pullback_not_deep_enough).
+  if (side === "LONG" && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true") {
+    const _jaDs = d?.daily_structure || {};
+    const _jaPctE21 = Number(_jaDs.pct_above_e21);
+    const _jaE21 = Number(_jaDs.e21);
+    const _jaSlope = Number(_jaDs.e21_slope_5d_pct);
+    const _jaMaxExt = Number(daCfg.deep_audit_ja_htf_reclaim_max_ext_pct) || 2.5;
+    const _jaSt4 = Number(tf?.h4?.stDir) || 0;
+    const _jaC4h512 = h4?.ripster?.c5_12;
+    const _jaFourHSupportive = _jaSt4 === -1 || !!(_jaC4h512?.bull || _jaC4h512?.above);
+    // LTF confirmation: fresh 10m 8/9 cross-up / 5-12 bull thrust / ST
+    // flip / EMA cross, OR 30m ST already bullish. On the reclaim day
+    // the 4H is often still bearish (two-stage sequence: daily reclaim
+    // first, 4H break later per the operator's CIBR Jun 26/29 read) —
+    // so 4H agreement upgrades confidence but is not required.
+    const _jaSt30Bull = Number(tf?.m30?.stDir) === -1;
+    const _jaLtfConfirm = !!(c10_8?.crossUp)
+      || !!(c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
+      || hasStFlipBull
+      || hasEmaCrossBull
+      || _jaSt30Bull;
+    const _jaFreshAbove = Number.isFinite(_jaPctE21) && _jaPctE21 >= 0 && _jaPctE21 <= _jaMaxExt;
+    const _jaSlopeOk = !Number.isFinite(_jaSlope) || _jaSlope > -0.5;
+    const _jaTrendOk = _jaDs.above_e200 !== false;
+    const _jaRsiOk = !Number.isFinite(rsiD) || rsiD <= 70;
+    if (_jaFreshAbove && _jaSlopeOk && _jaTrendOk && _jaRsiOk
+        && _jaLtfConfirm && !inOpeningNoise) {
+      if (d && Number.isFinite(_jaE21) && _jaE21 > 0) {
+        // Structure-referenced SL anchor (P9 first consumer): the stop
+        // belongs just below the reclaimed level, not at an ATR multiple.
+        d.__ja_reclaim_level = _jaE21;
+      }
+      const _jaConf = _jaFourHSupportive ? "high" : "medium";
+      return qualifyEntry("tt_htf_reclaim", _jaConf, "daily_e21_reclaim_ltf_confirm", {
+        pdz: 1.0, meanRevert: 1.0, regime: 1.0, danger: 1.0,
+        rvol: 1.0, spy: 1.0, orb: 1.0, internals: 1.0,
+      }, {
+        triggerType: "htf_reclaim_daily_e21",
+        pdzZone: { D: String(d?.pdz_zone_D || "unknown"), h4: String(tf?.h4?.pdz?.zone || d?.pdz_zone_4h || "unknown") },
+        reclaim: {
+          e21: Number.isFinite(_jaE21) ? _jaE21 : null,
+          pct_above_e21: Number.isFinite(_jaPctE21) ? _jaPctE21 : null,
+          e21_slope_5d_pct: Number.isFinite(_jaSlope) ? _jaSlope : null,
+          st4: _jaSt4,
+          fourh_supportive: _jaFourHSupportive,
+          ltf_confirm: _jaLtfConfirm,
+        },
+        adverseRsiDivergence: adverseRsiDivSummary,
+      });
+    }
   }
 
   stDir15m = Number(m15?.stDir) || 0;

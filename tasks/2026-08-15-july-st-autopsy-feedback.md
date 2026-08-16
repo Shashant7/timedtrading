@@ -751,6 +751,136 @@ work first.)
    arms at the flush and fires on failed reclaim (the sweep-reclaim movie)
    instead of market-exiting at the level.
 
+## Offense slice results (2026-08-16 — "what gets us real improvement")
+
+The defensive gate pack alone could only pull a losing month toward zero.
+The offense slice attacks the actual gap: the entries the model never
+takes. Implemented (all flag-gated, default OFF):
+
+1. **`tt_htf_reclaim` entry family (P15)** — fresh daily EMA-21 reclaim
+   (price within 2.5% of the level = leg-age freshness built in) + LTF
+   confirmation; 4H agreement upgrades confidence. SL anchors just below
+   the reclaimed level (P9's first structure-referenced stop).
+2. **The gate gauntlet teardown** — the reason entries were always late.
+   Probing CIBR's Jul 31 reclaim day found SIX stacked mature-trend-biased
+   gates rejecting it on every bar: conviction floor (scored 42-70 vs 80 —
+   the conviction model rewards mature trends and is documented
+   non-discriminating), Tier-C suspension, Tier-C floor, transitional rank
+   floor (reclaim-day rank 53-61), consensus minimum, and pullback-depth.
+   Plus our own G2 location gate (PDZ math labels post-pullback reclaims
+   "premium"). Each got a reclaim-context carve-out — in BOTH gate
+   implementations (index.js `qualifiesForEnter` AND pipeline
+   `tt-core-entry`; they are duplicated).
+3. **Wildcard grade admission (P8 fix)** — `setup:DIR:*` rows apply each
+   family's strictest policy when the grade is unknown at admission.
+   Works as designed, but enforcing canon policy (ATH breakout only in
+   STRONG_BULL + rr≥2) suppressed August's +64% ATH-driven month —
+   **the canon calibration itself is regime-misaligned** (kept OFF in the
+   tactical config pending recalibration).
+
+### Results (preprod replays, 28-ticker universe, 30m cadence, same data both arms)
+
+| Window | Baseline | Tactical (gates + reclaim + floor, no wildcard) |
+|---|---|---|
+| July 2026 | 15 trades, 4W/11L, **−1.95%** | 62 trades, 26W/36L, **+54.54%** |
+| Aug 3–14 2026 | 11 trades, 8W/3L, **+64.23%** | 30 trades, 18W/12L, **+84.71%** |
+
+- **CIBR HTF Reclaim Jul 30 → +32.1%** — the exact meat-of-the-move
+  capture from the operator's feedback (the lane's real July trade on the
+  same leg made +1.68%). A failed first reclaim attempt Jul 20 lost −1.60%
+  — small, structure-stopped.
+- HTF Reclaim July: 57 trades, +53.85% at 42% WR — the asymmetry the
+  operator described: small stops at the reclaimed level, occasional
+  large runners (SPHB +17.1, RPG +36.6, KO +8.7, XLRE +6.7, MTB +5.4 in
+  August).
+- POST_TRIM_ENTRY_FLOOR banked several marginal reclaims at small
+  positives instead of round-trips.
+
+### Honest caveats
+
+- Big winners exit as `replay_end_close` (open at window end) — real but
+  unrealized; both arms use identical management so the comparison holds.
+- The reclaim family is untuned: 36 July losses include repeated attempts
+  on the same tickers (XLI/WAL/TT/PKG) — needs a per-ticker failed-reclaim
+  cooldown and possibly a market-regime filter.
+- Replay fills are 30m-snapshot based; absolute magnitudes are replay
+  artifacts. Arm-vs-arm deltas are the signal.
+- Everything remains flag-gated OFF in production.
+
+### Execution learnings (for the next replay session)
+
+- `REPLAY_DA_KEYS` allowlist silently filters new config keys from replay.
+- The conviction/tier gates exist TWICE (index.js `qualifiesForEnter` +
+  pipeline); patches must land in both.
+- Preprod candle depth matters: tickers outside the original clone had no
+  daily history → `daily_structure` null → regimes/EMA logic blind. Deep
+  backfill (2y D, W/M, 2026 4H) required before daily-structure features
+  can replay.
+
+## Tuning pass + go-live staging (2026-08-16)
+
+### Backtested-trade evaluation (80 reclaim trades across Jul + Aug)
+
+- **Loss anatomy**: 46 losses totaling −45.3 (avg −0.99) vs 34 wins
+  totaling +153 — the asymmetry comes from structural stops at the
+  reclaimed level. Management exits (`tt_cloud_pivot_5_12_close_exit`,
+  `thesis_flip_htf`) correctly cut failed reclaims in 4–30h at small size.
+- **Winner concentration on market turn days**: Jul 30 12:00 produced
+  CIBR +32.1, JCI +18.5, BRK-B +11.1 simultaneously — SPY's own
+  sweep-reverse day (Jul 29 −1.42% flush → Jul 30 +0.77% reclaim). Do NOT
+  cap same-cycle reclaim admits.
+- **Market-filter idea REJECTED by data**: SPY was *below* its daily
+  EMA-21 on the biggest winner day (Jul 30) and *above* it during the
+  Jul 1/Jul 14 loss clusters. Every SPY-posture filter tested on paper
+  removes more winner than loser. Not shipped.
+- **Failed-reclaim cooldown VALIDATED NEGATIVE at 72h**: July replay
+  +54.5% → +20.5%. It removed the intended repeat losses (GRNY/GRNI/XLRE/
+  EXEL, ~1%) but the slot-reshuffle cascade re-sequenced mid-July entries
+  and a shifted JCI loss-exit then cooldown-blocked the Jul 30 +18.5%
+  re-entry. August: +86.96% vs +84.71 (neutral-positive in trend).
+  **Shipped as a knob, default 0 (disabled)**; revisit with a
+  high-confidence override (allow re-entry inside cooldown when 4H is
+  supportive).
+- **Worst-loss driver identified**: entries at max extension (2.5% above
+  the EMA-21) put the structural stop ~3.5% away (SPHB −4.4). The
+  extension cap is already a config knob
+  (`deep_audit_ja_htf_reclaim_max_ext_pct`); tightening to 2.0 is a
+  candidate for the next validation cycle — not changed blind.
+
+### Go-live configuration (staged in PROD model_config 2026-08-16)
+
+The validated tactical set — exactly the config that produced
+July +54.54% / Aug +84.71%:
+
+| Flag | Value |
+|---|---|
+| `deep_audit_ja_opening_gate` | true |
+| `deep_audit_ja_location_gate` | true (reclaim path exempt) |
+| `deep_audit_ja_expected_move_gate` | true (ATR% ≥ 1.4) |
+| `deep_audit_ja_post_trim_floor` | true (entry −0.15%) |
+| `deep_audit_ja_htf_reclaim_entry` | true (+ conviction/tier/rank/consensus carve-outs) |
+| `deep_audit_ja_grade_wildcard` | **false** (pending canon ATH recalibration) |
+| `deep_audit_ja_default_deny` | **false** (pending grade-before-admission) |
+| `deep_audit_ja_htf_reclaim_cooldown_hours` | 0 (validated negative at 72h) |
+
+**The flags are INERT on the current live bundle** (its `REPLAY_DA_KEYS`
+allowlist predates them) — they arm automatically when the new code
+deploys. Go-live sequence:
+
+1. Merge the PR → CI deploys monolith + tt-engine (+ feed/research) from
+   `main` (`deploy-worker.yml` / `deploy-engine.yml`). Manual fallback:
+   `cd worker && wrangler deploy && wrangler deploy --env production`,
+   then `cd worker-engine && wrangler deploy`.
+2. Verify: `/timed/health` ok on monolith + tt-engine; next */5 scoring
+   cron clean; `wrangler tail` (or decision records) shows
+   `ja_*` block reasons and/or `tt_htf_reclaim` evaluations.
+3. Monday-open watch: [JA_RECLAIM_COOLDOWN] should NOT appear (disabled);
+   opening gate must show blocks before 9:45 ET; first reclaim entries
+   carry `setup_name = TT HTF Reclaim` with SL just below the daily
+   EMA-21.
+4. **Rollback = config-only**: set the five true flags to "false"
+   (no deploy needed, next cron cycle picks it up).
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
