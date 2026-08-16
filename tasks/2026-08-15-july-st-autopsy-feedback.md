@@ -778,7 +778,14 @@ takes. Implemented (all flag-gated, default OFF):
    **the canon calibration itself is regime-misaligned** (kept OFF in the
    tactical config pending recalibration).
 
-### Results (preprod replays, 28-ticker universe, 30m cadence, same data both arms)
+### Results (preprod replays, 24 tickers scored, 30m cadence, same data both arms)
+
+> **Universe correction (2026-08-16):** these runs passed 28 tickers with
+> `--ticker-batch=24`, and the direct loop TRUNCATES rather than chunks —
+> only the first 24 were ever scored (`scored = intervals x tickers`
+> confirms it, and NVDA/DE/WM/CF never appear in any arm). Every arm used
+> the same 24, so arm-vs-arm comparisons hold; the universe label does not.
+> See [skills/backtest-replay.md](../skills/backtest-replay.md).
 
 | Window | Baseline | Tactical (gates + reclaim + floor, no wildcard) |
 |---|---|---|
@@ -969,7 +976,7 @@ better predictor; (b) **adopt 10m as the standard validation cadence**
 Bypassed smart gates 0–3 (position cap 35, proportional sector cap,
 same-direction 25, correlation quality gate) + disabled the cluster
 throttle. Result: **a wash** — July 47t +44.50% (vs +44.27% with limits),
-August byte-identical (21t +77.58%). At the 28-ticker universe the caps
+August byte-identical (21t +77.58%). At the 24-ticker scored universe the caps
 never bind; they are not the constraint. Caveat for later: on the full
 ~200-ticker live universe, sector caps and the cluster throttle are more
 likely to bind exactly on turn days (Jul 30 / Aug 3 pattern where winners
@@ -986,7 +993,7 @@ the whole universe — it will not silently no-op in production).
 Reclaim-context candidates per session (`0 ≤ pct_above_e21 ≤ 2.5` and
 `days_above_e21 ≤ 5`, i.e. the `isHtfReclaimContext` pre-filter):
 
-| Window | 28-ticker replay universe | Full live universe | Ratio |
+| Window | Replay universe (24 scored) | Full live universe | Ratio |
 |---|---|---|---|
 | July 2026 | 5.0/day (17.9%) | 39.7/day (12.8%) | **7.9x** |
 | Aug 3–14 | 6.5/day (23.2%) | 46.4/day (14.9%) | **7.1x** |
