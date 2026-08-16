@@ -682,6 +682,7 @@ import * as SetupAdmission from "./phase-c-setup-admission.js";
 import {
   isHtfReclaimContext as jaIsHtfReclaimContext,
   exhaustTrimMinProfitPct as jaExhaustTrimMinProfitPct,
+  structStopCushion as jaStructStopCushion,
 } from "./july-autopsy-gates.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
@@ -12618,11 +12619,32 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
           return (Number.isFinite(pct) && pct > 0 ? pct : 0.35) / 100;
         })();
 
+        // ── Structural stop guard (2026-08-16, NEU Jul 27 / CF Aug 3) ───
+        // When the stop sits inside the hourly EMA-233's noise band, a
+        // routine test of the level pierces the stop by a few cents even
+        // when the level HOLDS (NEU: 0.07% pierce, then +24.7% without us).
+        // Extend the defer tolerance down to `level − 1×ATR_h1` so only a
+        // genuine break through the band exits (CF's 1.1% flush still exits
+        // via the 1% material-breach override below). Flag-gated, default
+        // OFF until the replay arm validates it. Full rationale + NEU/CF
+        // numbers pinned in july-autopsy-gates.js.
+        const _structStopCushion = (() => {
+          const _ssCfg = tickerData?._env?._deepAuditConfig;
+          const _ssH1 = tickerData?.tf_tech?.["1H"] || tickerData?.tf_tech?.["60"];
+          return jaStructStopCushion({
+            direction,
+            sl: positionSL,
+            level: _ssH1?.ema?.ema233,
+            atrPct: _ssH1?.atrPct,
+            daCfg: _ssCfg,
+          });
+        })();
+
         const baseCushion = _inFavorableZone && _regimeConfirms && _hasFvgSupport ? 0.005 : 0;
         // RTH: cap HTF deferral at 0.5% — a 1%+ breach below SL is not a wick.
         const _htfCushionRaw = _htfTrendSupports ? 0.012 : 0;
         const htfCushion = isNyRegularMarketOpen() ? Math.min(_htfCushionRaw, 0.005) : _htfCushionRaw;
-        const allowedOvershoot = Math.max(baseCushion, htfCushion, _openWickCushion) + _extWickCushion;
+        const allowedOvershoot = Math.max(baseCushion, htfCushion, _openWickCushion, _structStopCushion) + _extWickCushion;
 
         if (slOvershoot >= allowedOvershoot) {
           tickerData.__exit_reason = "sl_breached";
@@ -12641,6 +12663,16 @@ function classifyKanbanStage(tickerData, openPosition = null, asOfTs = null) {
         if (pnlPct <= _slDeferMaxLossPct || _slMaterialBreach) {
           tickerData.__exit_reason = "sl_breached";
           return "exit";
+        }
+        if (_structStopCushion > 0 && slOvershoot < _structStopCushion) {
+          tickerData.__defend_reason = "sl_struct_level_defer";
+          _trackSLGuard("struct_level_defer", {
+            ticker: tickerData?.ticker,
+            overshoot_pct: slOvershoot * 100,
+            cushion_pct: _structStopCushion * 100,
+          });
+          console.log(`[SL_STRUCT_LEVEL_DEFER] ${tickerData?.ticker || "?"} overshoot=${(slOvershoot * 100).toFixed(2)}% < cushion=${(_structStopCushion * 100).toFixed(2)}% — stop inside h1 EMA-233 noise band, level test not confirmed as break, deferring`);
+          return "defend";
         }
         if (_openWickCushion > 0 && slOvershoot < _openWickCushion) {
           tickerData.__defend_reason = "sl_opening_wick_defer";

@@ -242,6 +242,89 @@ export function detectRsiDivergence(bars, rsiArr, pivotLookback = 5, maxAge = 10
 }
 
 /**
+ * Detect FORMING divergence at the right edge of the tape (2026-08-16,
+ * NEU Jul 21 autopsy).
+ *
+ * detectSeriesDivergence needs two CONFIRMED swing pivots, and a pivot only
+ * confirms after `pivotLookback` bars print to its right. A divergence that
+ * is forming AT the current high — price pushing above the last confirmed
+ * swing high while the oscillator fails to follow — is structurally
+ * invisible to it until ~5 bars after the top, which is exactly when the
+ * information stopped being useful. NEU Jul 21: entry at the retest high,
+ * hourly Phase/RSI already below their prior-peak readings, detector silent.
+ *
+ * This variant compares the extreme of the UNCONFIRMED right-edge window
+ * (bars printed after the last confirmed pivot) against that confirmed
+ * pivot:
+ *   Bearish forming: right-edge high > last confirmed swing high, AND
+ *     oscillator at the new-high bar < oscillator at the pivot.
+ *   Bullish forming: mirrored on lows.
+ *
+ * The new extreme must be recent (within `maxAge` bars of the current bar)
+ * so the signal describes the tape now, not a stale mid-window spike.
+ * Forming signals are inherently less reliable than confirmed ones — the
+ * bar can keep running and repair the divergence — so consumers gate on
+ * strength and treat this as a caution flag, not a standalone trigger.
+ *
+ * @param {Array} bars         - OHLC bars sorted ascending { o, h, l, c, ts }
+ * @param {number[]} valueArr  - oscillator series aligned with bars
+ * @param {number} pivotLookback - bars on each side for confirmed swing pivots
+ * @param {number} maxAge      - max bars since the right-edge extreme
+ * @returns {{ bear: {strength,barsSince,forming}|null, bull: {strength,barsSince,forming}|null }}
+ */
+export function detectFormingSeriesDivergence(bars, valueArr, pivotLookback = 5, maxAge = 3) {
+  const result = { bear: null, bull: null };
+  if (!bars || !valueArr || bars.length < pivotLookback * 2 + 2) return result;
+
+  const pivots = findSwingPivots(bars, pivotLookback);
+  const lastIdx = bars.length - 1;
+
+  if (pivots.highs.length >= 1) {
+    const ph = pivots.highs[pivots.highs.length - 1];
+    let iNew = -1;
+    let hNew = -Infinity;
+    for (let i = ph.idx + 1; i <= lastIdx; i++) {
+      const h = Number(bars[i]?.h);
+      if (Number.isFinite(h) && h > hNew) { hNew = h; iNew = i; }
+    }
+    if (iNew >= 0 && hNew > ph.price && (lastIdx - iNew) <= maxAge) {
+      const vPivot = valueArr[ph.idx];
+      const vNew = valueArr[iNew];
+      if (Number.isFinite(vPivot) && Number.isFinite(vNew) && vNew < vPivot) {
+        result.bear = {
+          strength: Math.round((vPivot - vNew) * 10) / 10,
+          barsSince: lastIdx - iNew,
+          forming: true,
+        };
+      }
+    }
+  }
+
+  if (pivots.lows.length >= 1) {
+    const pl = pivots.lows[pivots.lows.length - 1];
+    let iNew = -1;
+    let lNew = Infinity;
+    for (let i = pl.idx + 1; i <= lastIdx; i++) {
+      const l = Number(bars[i]?.l);
+      if (Number.isFinite(l) && l < lNew) { lNew = l; iNew = i; }
+    }
+    if (iNew >= 0 && lNew < pl.price && (lastIdx - iNew) <= maxAge) {
+      const vPivot = valueArr[pl.idx];
+      const vNew = valueArr[iNew];
+      if (Number.isFinite(vPivot) && Number.isFinite(vNew) && vNew > vPivot) {
+        result.bull = {
+          strength: Math.round((vNew - vPivot) * 10) / 10,
+          barsSince: lastIdx - iNew,
+          forming: true,
+        };
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
  * Standard deviation series (population stdev, matching Pine ta.stdev).
  */
 export function stdevSeries(values, period) {
@@ -1295,6 +1378,12 @@ export function computeTfBundle(bars, anchors = null) {
 
   // RSI Divergence
   const rsiDiv = detectRsiDivergence(bars, rsiArr, 5, 10);
+  // Forming divergence at the right edge (2026-08-16, NEU Jul 21 autopsy):
+  // price above the last confirmed swing high with RSI failing to follow.
+  // Attached to the same object so tf_tech emission stays one shape.
+  const rsiDivForming = detectFormingSeriesDivergence(bars, rsiArr, 5, 3);
+  if (rsiDivForming.bear) rsiDiv.formingBear = rsiDivForming.bear;
+  if (rsiDivForming.bull) rsiDiv.formingBull = rsiDivForming.bull;
 
   // Multi-factor Phase
   const piv = e21;
@@ -1339,6 +1428,9 @@ export function computeTfBundle(bars, anchors = null) {
   // Computes full series for proper zone-exit detection (prev bar vs current bar)
   const satyPhase = satyPhaseSeries(bars, closes, e21s, atr14Arr, 3);
   const phaseDiv = detectSeriesDivergence(bars, satyPhase.series, 2, 12);
+  const phaseDivForming = detectFormingSeriesDivergence(bars, satyPhase.series, 2, 3);
+  if (phaseDivForming.bear) phaseDiv.formingBear = phaseDivForming.bear;
+  if (phaseDivForming.bull) phaseDiv.formingBull = phaseDivForming.bull;
 
   // Compression (Bollinger expansion logic from Pine)
   let compressed = false;
@@ -4762,19 +4854,29 @@ export function assembleTickerData(ticker, bundles, existingData = null, opts = 
       stDir: Number.isFinite(b.stDir) ? b.stDir : 0,
       stSlope: b.stSlopeUp ? 1 : b.stSlopeDn ? -1 : 0,
       atr: atrBand ? { ...atrBand, ...(atrCross || {}) } : (atrCross || undefined),
+      // Raw ATR(14) as % of price — the structural stop guard needs the
+      // hourly ATR magnitude, not just the band labels above.
+      atrPct: (Number.isFinite(b.atr14) && Number.isFinite(b.px) && b.px > 0)
+        ? Math.round((b.atr14 / b.px) * 10000) / 100
+        : undefined,
       sq: { s: b.sqOn ? 1 : 0, r: b.sqRelease ? 1 : 0, c: b.compressed ? 1 : 0 },
       rsi: {
         r5: Number.isFinite(b.rsi) ? Math.round(b.rsi * 10) / 10 : undefined,
         // V15 P0.2 — 5-bar slope (RSI points / bar)
         slope5: Number.isFinite(b.rsi_slope_5bar) ? b.rsi_slope_5bar : undefined,
       },
-      rsiDiv: b.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull) ? {
+      rsiDiv: b.rsiDiv && (b.rsiDiv.bear || b.rsiDiv.bull || b.rsiDiv.formingBear || b.rsiDiv.formingBull) ? {
         bear: b.rsiDiv.bear ? { s: b.rsiDiv.bear.strength, bs: b.rsiDiv.bear.barsSince, a: b.rsiDiv.bear.active } : undefined,
         bull: b.rsiDiv.bull ? { s: b.rsiDiv.bull.strength, bs: b.rsiDiv.bull.barsSince, a: b.rsiDiv.bull.active } : undefined,
+        // Forming (unconfirmed right-edge) divergence — NEU Jul 21 autopsy.
+        fb: b.rsiDiv.formingBear ? { s: b.rsiDiv.formingBear.strength, bs: b.rsiDiv.formingBear.barsSince } : undefined,
+        fu: b.rsiDiv.formingBull ? { s: b.rsiDiv.formingBull.strength, bs: b.rsiDiv.formingBull.barsSince } : undefined,
       } : undefined,
-      phaseDiv: b.phaseDiv && (b.phaseDiv.bear || b.phaseDiv.bull) ? {
+      phaseDiv: b.phaseDiv && (b.phaseDiv.bear || b.phaseDiv.bull || b.phaseDiv.formingBear || b.phaseDiv.formingBull) ? {
         bear: b.phaseDiv.bear ? { s: b.phaseDiv.bear.strength, bs: b.phaseDiv.bear.barsSince, a: b.phaseDiv.bear.active } : undefined,
         bull: b.phaseDiv.bull ? { s: b.phaseDiv.bull.strength, bs: b.phaseDiv.bull.barsSince, a: b.phaseDiv.bull.active } : undefined,
+        fb: b.phaseDiv.formingBear ? { s: b.phaseDiv.formingBear.strength, bs: b.phaseDiv.formingBear.barsSince } : undefined,
+        fu: b.phaseDiv.formingBull ? { s: b.phaseDiv.formingBull.strength, bs: b.phaseDiv.formingBull.barsSince } : undefined,
       } : undefined,
       ripster: b.ripsterClouds || undefined,
       // V15 P0.7.33 — VWAP fields per TF (cumulative + rolling 20-bar)
