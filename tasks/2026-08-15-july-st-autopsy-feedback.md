@@ -1379,6 +1379,149 @@ written on top of it. This is the highest-value open item on the entry
 side, because the G2 location gate already depends on this detector and is
 therefore only as good as it.
 
+## Batch 4 — final July feedback + the validation that killed batch 3
+   (2026-08-16)
+
+### The batch-3 management changes VALIDATED NEGATIVE — both defaulted OFF
+
+July 10m replay arm (`ja-mgmt-jul26`) vs the matching baseline
+(`ja-10m-jul26`), same cadence / ticker batch / flags:
+
+| Arm | Trades | WR | Total $ | Realized $ |
+|---|---|---|---|---|
+| baseline | 51 | 57% | **+2,088** | +1,345 |
+| + ATR trim floor + opening wick cushion | 50 | 48% | **+1,143** | +402 |
+
+**Diagnosis — the trim is not the problem, and raising its floor is
+actively harmful.** The floor moved 6 trades from trimmed to untrimmed and
+the trimmed cohort's average fell from +2.27% to +1.16%:
+
+| Cohort | Baseline | Arm |
+|---|---|---|
+| trimmed | 34 trades, 28 wins, +77.02 | 28 trades, 23 wins, +32.61 |
+| untrimmed | 17 trades, **1 win**, −20.68 | 22 trades, **1 win**, −27.79 |
+
+In this book the early trim **is** the profit mechanism — trimmed trades
+finish 28/34 winners (+2.27% avg) against untrimmed 1/17 (−1.22% avg).
+Some of that is tautological (a trade gets trimmed because it rose), but
+the drop *within* the trimmed cohort is not: banking earlier converts more
+of the excursion than holding for a bigger trim does.
+
+**HALO is the exception, not the rule — and its giveback was on the RUNNER
+leg, not the trim.** HALO trimmed 50% at +0.74% and then let the remaining
+half round-trip from an 8.35% MFE down to a +2.63% exit. The correct fix
+is a structure-referenced stop on the post-trim runner. That is the next
+piece of work; "trim later" is dead.
+
+Both flags now default OFF (`deep_audit_ja_exhaust_trim_atr_frac=0`,
+`deep_audit_ja_opening_stop_confirm=false`). The wick cushion was never
+isolated in its own arm, so it is off rather than shipped on an
+unattributed result.
+
+**Process note**: this is the second time a plausible, well-motivated
+change has been killed by a replay arm (the 72h cooldown was the first).
+Neither would have been caught by reasoning alone. Nothing ships default-ON
+without an arm.
+
+### XLRE Jul 22 — the timestamps and the TP/exit price
+
+Both operator observations are correct, and they are two different things:
+
+- **The 5:32 PM stamp is real, not a display bug.** `trim_ts` and
+  `exit_ts` are both 2026-07-24 21:32:40Z = **17:32 ET**, 1.5 hours after
+  the close. The TP level (45.94) was first traded at **10:00 ET** that
+  morning. So the position was flat-in-name-only for 7.5 hours and the
+  exit was booked by a post-close sweep at the level itself.
+- **The price is legitimate.** Jul 24 tape ranged 45.835–46.21, so 45.94
+  traded. This is NOT a phantom fill — it is a *booking-latency* defect:
+  right price, wrong time, and the fill is synthetic (booked AT the TP
+  rather than at a real print).
+- **TP == exit and trim_ts == exit_ts** because `TP_FULL` closes the whole
+  position in one event; the "trim" row is an artifact of that single
+  event, not a separate action. The UI renders it as a distinct trim.
+
+Follow-up: find why TP_FULL is settled by a post-close sweep rather than
+at the touch, and stop emitting a phantom trim row for full-TP exits.
+
+### NVDA Jul 24 — confirmed: we never re-entered
+
+**One NVDA trade in the entire live book since Jul 1** (Jul 24, −0.75%,
+`max_loss`, `TT Pullback Reclaim`). The operator's hope that we got back in
+during August is not met. The exit itself was good — it capped a deeper
+drawdown — but the name then reclaimed the hourly EMA-233 and ran, and we
+had no re-entry mechanism watching it. This is P16 (re-entry watch), still
+unbuilt, and it now has a concrete cost attached.
+
+### NEU Jul 27 — the stop sat inside the level's noise band
+
+Recomputed on a properly warmed hourly EMA-233 (1,298 bars = 5.6x the
+period, SMA seed; the earlier pass used ~280 bars and was unreliable):
+
+| Moment | Price | hourly EMA-233 | Price vs level |
+|---|---|---|---|
+| Entry Jul 27 19:06Z | 781.75 | 773.06 | **+1.42%** |
+| Trim Jul 28 13:59Z | 779.52 | 773.26 | +2.01% |
+| **Exit Jul 29 14:17Z** | 772.17 | 774.81 | −0.55% |
+| Jul 30 14:00Z | **848.10** | 777.42 | +9.09% |
+| Aug 14 | **959.42** | 876.10 | +9.51% |
+
+The entry location was good — 1.4% above the level. The Jul 29 dip put in
+a low of **770.00, piercing the 233 by only 0.62%**, and hourly closes
+recovered above it. **Our stop at 770.54 sat 0.55% below the level, i.e.
+inside the pierce.** We were removed by the very test that confirmed the
+support. From our exit the name ran **+24.7%**.
+
+Cross-section of all 25 LONG stop-outs, asking whether the stop sat within
+one hourly ATR of the 233 (close enough that a routine test reaches it):
+
+| Cohort | n | Sum P&L |
+|---|---|---|
+| stop INSIDE the level's noise band | 4 (TT, NVDA, NEU, CF) | −3.86% |
+| stop outside it | 21 | −7.19% |
+
+**So the shape is real but rare — 4 of 25.** Its damage is not the
+realised loss (−3.86%) but the forgone move: NEU alone gave up +24.7%. And
+it does not point one way: widening NEU's stop by an ATR captures the run,
+while CF (which kept falling) would have lost more.
+
+**Deliberately NOT shipped.** A stop-clearance rule ("a LONG stop must
+clear a major HTF level by ~1 hourly ATR, and if that breaks the risk
+budget, size down rather than tighten") is the top candidate for the next
+validation arm — but batch 3 just demonstrated what happens when this
+class of change ships on reasoning instead of an arm.
+
+### DE Jul 29 and WM Jul 29 — location without confirmation
+
+Both entered ~15:05 ET on Jul 29 and both stopped out in the opening
+window the next morning (09:34, 09:44 ET).
+
+**DE** (`TT Support Bounce`, Speculative, −2.97%): the entry snapshot shows
+15m Bear EMA + Bear ST, 30m Bear EMA + Bear ST, 1H Bull EMA but **Bear
+ST** — the entire low timeframe was bearish, and only 4H/D/W were bull.
+MFE +3.07% against MAE −7.78% (capture 0.4x). This is exactly the operator's
+description: a weak bounce that never cleared the hourly EMA-21 with the
+SuperTrend bearish and trending down.
+
+**WM** (`TT ATH Breakout`, −3.43%): same session, same shape, different
+family — an ATH breakout taken without hourly structural support.
+
+These are the trades the batch-3 support-bounce confirmation gate targets
+(`deep_audit_ja_n_test_confirm_required`, shipped default OFF): it requires
+at least one momentum confirmation and refuses entries with adverse HTF
+divergence on both RSI and phase. **DE would need the momentum leg to be
+strict enough** — `ltfRecovering` alone (`scores.ltf > -10`) may still pass
+a bar like DE's, so the gate likely needs an explicit LTF-structure
+condition (not both 15m and 30m bearish on EMA *and* ST) before it is worth
+turning on.
+
+**WM is not covered at all** — it is `tt_ath_breakout`, a different family.
+The operator's rule ("if we do enter ATH, it must be structurally
+supportive on the LTF let alone HTF") needs the same confirmation applied
+to the breakout path.
+
+Both remain unvalidated. Next arm should test: n-test confirmation with an
+explicit LTF-structure leg, plus the same leg on ATH breakout.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
