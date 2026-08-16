@@ -1015,6 +1015,57 @@ per NY trading day, keeping live inside the envelope that was actually
 measured. Ranking the candidates properly is the follow-up; the budget is
 the stopgap that makes the first live week interpretable.
 
+## 5m cadence ladder + cadence-matched baseline (2026-08-16)
+
+Two questions the earlier experiments could not answer: does replaying at
+the live 5m cadence change the picture, and is the new pack actually
+better than what is live today when both run at the SAME cadence (every
+prior baseline was 30m while the tactical arms were compared at 10m).
+
+**Setup.** 5m at 24 tickers/request trips the Workers CPU ceiling
+(HTTP 503 `error code: 1102`) on busy days and retries do not clear it, so
+this ladder runs at `--ticker-batch=10` — the first 10 names
+(PKG, BRK-B, XLI, INTC, MTB, WAL, GRNY, KO, CIBR, GRNI). Every arm below
+uses that identical 10-ticker slice, so they are directly comparable to
+each other but not to the 24-ticker arms above.
+
+### Does 5m beat 10m? No — they are the same
+
+| Window | 10m | 5m | Delta |
+|---|---|---|---|
+| July | 18t, 56% WR, **$1,648** | 18t, 56% WR, **$1,679** | +$31 |
+| Aug 3–14 | 9t, 67% WR, **$705** | 9t, 67% WR, **$716** | +$11 |
+
+Identical trade counts and win rates in both windows; the ~2% dollar edge
+is marginally better fill timing on the same trades. So the cadence effect
+is real but it saturates: **30m → 10m matters, 10m → 5m does not.**
+
+Practical consequence: **10m stays the standard validation cadence.** It is
+CPU-safe at batch 24, ~3x faster in wall clock, and faithfully represents
+live's 5m scoring. No reason to pay for 5m replays again.
+
+### Is the pack better than live? Yes in July, a wash in August
+
+Baseline = every `ja_*` flag off, i.e. the model as it behaved before this
+work. Same 10 tickers, same 5m cadence, same tape.
+
+| Window | Baseline | Tactical + freshness | Delta |
+|---|---|---|---|
+| July | 9t, 22% WR, **−$1,000** | 18t, 56% WR, **+$1,679** | **+$2,679** |
+| Aug 3–14 | 9t, 78% WR, **+$905** | 9t, 67% WR, **+$716** | −$189 |
+| **Total** | **−$95** | **+$2,395** | **+$2,490** |
+
+Realized-only (open marks excluded): July −$84 → +$937; August +$835 →
++$820. Net realized **+$1,006**, so the result does not depend on how the
+window boundary happens to mark open positions.
+
+Read: the pack earns its keep in chop and on turn days, which is exactly
+where the old model bled (July baseline: 22% WR, −$1,000). In a strong
+trending tape (August) the baseline's concentrated ATH trades are already
+good and the extra reclaim entries neither help nor hurt much. That is the
+right shape for a defensive+selective change — it raises the floor rather
+than the ceiling.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?
