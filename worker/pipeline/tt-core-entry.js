@@ -557,6 +557,11 @@ export function evaluateEntry(ctx) {
               regime: _regimeForAdmission,
               conviction: Number.isFinite(_convForAdmission) ? _convForAdmission : undefined,
               rr: _rrForAdmission,
+              // July autopsy P8 (2026-08-15): grade is empty at admission
+              // time (computed post-qualify), which made the matrix a
+              // no-op. Wildcard rows apply the family's strictest policy
+              // when the grade is unknown. Flag-gated, default OFF.
+              allowWildcard: String(daCfg.deep_audit_ja_grade_wildcard ?? "false") === "true",
             },
             // Pass null matrix so admitSetup uses the embedded default.
             // Replay-runtime can override by calling loadAdmissionMatrix
@@ -4245,6 +4250,57 @@ export function evaluateEntry(ctx) {
         movePhase: movePhaseSummary,
         adverseRsiDivergence: adverseRsiDivSummary,
       });
+  }
+
+  // ── JULY-2026 AUTOPSY — HTF RECLAIM ENTRY (P15, flag-gated, default OFF) ──
+  // The operator-identified highest-quality entry the ST lane never takes:
+  // daily EMA-21 reclaim (fresh, price still near the level = leg-age
+  // freshness built in) + 4H trend confirmation + LTF trigger. CIBR
+  // Jun 26/29: reclaim at ~85, +16% over the following six weeks while the
+  // lane's only entry was Jul 10 near the leg peak. Placed after all
+  // standard triggers so existing setups keep priority; this catches the
+  // reclaim days where nothing else fires.
+  if (side === "LONG" && String(daCfg.deep_audit_ja_htf_reclaim_entry ?? "false") === "true") {
+    const _jaDs = d?.daily_structure || {};
+    const _jaPctE21 = Number(_jaDs.pct_above_e21);
+    const _jaE21 = Number(_jaDs.e21);
+    const _jaSlope = Number(_jaDs.e21_slope_5d_pct);
+    const _jaMaxExt = Number(daCfg.deep_audit_ja_htf_reclaim_max_ext_pct) || 2.5;
+    const _jaSt4 = Number(tf?.h4?.stDir) || 0;
+    const _jaC4h512 = h4?.ripster?.c5_12;
+    const _jaFourHSupportive = _jaSt4 === -1 || !!(_jaC4h512?.bull || _jaC4h512?.above);
+    const _jaLtfConfirm = !!(c10_8?.crossUp)
+      || !!(c10_5?.bull && Number(c10_5?.fastSlope) >= 0)
+      || hasStFlipBull
+      || hasEmaCrossBull;
+    const _jaFreshAbove = Number.isFinite(_jaPctE21) && _jaPctE21 >= 0 && _jaPctE21 <= _jaMaxExt;
+    const _jaSlopeOk = !Number.isFinite(_jaSlope) || _jaSlope > -0.5;
+    const _jaTrendOk = _jaDs.above_e200 !== false;
+    const _jaRsiOk = !Number.isFinite(rsiD) || rsiD <= 70;
+    if (_jaFreshAbove && _jaSlopeOk && _jaTrendOk && _jaRsiOk
+        && _jaFourHSupportive && _jaLtfConfirm && !inOpeningNoise) {
+      if (d && Number.isFinite(_jaE21) && _jaE21 > 0) {
+        // Structure-referenced SL anchor (P9 first consumer): the stop
+        // belongs just below the reclaimed level, not at an ATR multiple.
+        d.__ja_reclaim_level = _jaE21;
+      }
+      const _jaConf = (_jaSt4 === -1 && (_jaC4h512?.bull || _jaC4h512?.above)) ? "high" : "medium";
+      return qualifyEntry("tt_htf_reclaim", _jaConf, "daily_e21_reclaim_4h_confirm", {
+        ...baseSizing,
+      }, {
+        triggerType: "htf_reclaim_daily_e21",
+        pdzZone: { D: pdzZoneD, h4: pdzZone4h },
+        reclaim: {
+          e21: Number.isFinite(_jaE21) ? _jaE21 : null,
+          pct_above_e21: Number.isFinite(_jaPctE21) ? _jaPctE21 : null,
+          e21_slope_5d_pct: Number.isFinite(_jaSlope) ? _jaSlope : null,
+          st4: _jaSt4,
+          fourh_cloud_bull: !!(_jaC4h512?.bull || _jaC4h512?.above),
+          ltf_confirm: _jaLtfConfirm,
+        },
+        adverseRsiDivergence: adverseRsiDivSummary,
+      });
+    }
   }
 
   return rejectEntry("tt_no_trigger", { cloudAlignment: cloudMeta });

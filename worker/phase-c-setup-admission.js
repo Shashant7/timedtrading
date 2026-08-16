@@ -245,6 +245,51 @@ const DEFAULT_ADMISSION_MATRIX = {
     block_when: "always",
     reason: "N-Test Resistance Speculative: same logic as Confirmed",
   },
+
+  // ───────────────────────────────────────────────────────────────────
+  // WILDCARD ROWS (2026-08-15, July ST autopsy P8) — grade-unknown
+  // fallbacks. setup_grade is computed AFTER entry qualification
+  // (computeSetupTier reads the qualify result's confidence), so at
+  // admission time the grade is empty and admitSetup returned
+  // missing_inputs_default_allow for essentially every TT entry — the
+  // matrix was a no-op on the live short-term lane all July (XLI Jul 1,
+  // KO Jul 10, UNP Jul 14 all entered as always-blocked Confirmed-ATH).
+  // These rows apply the STRICTEST surviving policy of each family when
+  // the grade cannot be proven. Consulted only when the caller passes
+  // allowWildcard (flag deep_audit_ja_grade_wildcard, default OFF).
+  // ───────────────────────────────────────────────────────────────────
+  "tt_ath_breakout:LONG:*": {
+    allow_only_in: ["STRONG_BULL", "EARLY_BULL"],
+    min_rr: 2.0,
+    reason: "grade unknown at admission — must clear the Prime bar (bull regimes + rr>=2.0)",
+  },
+  "tt_atl_breakdown:SHORT:*": {
+    allow_only_in: ["STRONG_BEAR", "LATE_BEAR"],
+    reason: "grade unknown — ATL breakdowns only in bear regimes",
+  },
+  "tt_range_reversal_long:LONG:*": {
+    allow_only_in: ["NEUTRAL", "EARLY_BULL", "COUNTER_TREND_BULL"],
+    min_rr: 2.5,
+    reason: "grade unknown — must clear the Prime bar (chop/early-bull + rr>=2.5)",
+  },
+  "tt_range_reversal_short:SHORT:*": {
+    allow_only_in: ["NEUTRAL", "EARLY_BEAR", "LATE_BULL"],
+    min_rr: 2.5,
+    reason: "grade unknown — must clear the Prime bar",
+  },
+  "tt_n_test_support:LONG:*": {
+    allow_only_in: ["EARLY_BULL", "STRONG_BULL", "NEUTRAL"],
+    min_rr: 2.5,
+    reason: "grade unknown — must clear the Prime/Speculative bar (bull/neutral + rr>=2.5)",
+  },
+  "tt_n_test_resistance:SHORT:*": {
+    block_when: "always",
+    reason: "grade unknown — family is 0% WR in canon outside ultra-picky Prime; block",
+  },
+  "tt_gap_reversal_short:SHORT:*": {
+    allow_only_in: ["LATE_BEAR", "STRONG_BEAR", "EARLY_BEAR", "COUNTER_TREND_BULL"],
+    reason: "grade unknown — shorts only in bear/exhaustion regimes (Prime bar)",
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -303,7 +348,7 @@ export function clearAdmissionMatrixCache() {
  * @returns {{allow: boolean, reason: string, cohortStat?: object, matched_key?: string}}
  */
 export function admitSetup(args, matrix) {
-  const { setup, grade, direction, regime } = args || {};
+  const { setup, grade, direction, regime, allowWildcard } = args || {};
   if (!matrix) matrix = DEFAULT_ADMISSION_MATRIX;
 
   const setupKey = String(setup || "").toLowerCase().trim();
@@ -311,18 +356,40 @@ export function admitSetup(args, matrix) {
   const dirKey = String(direction || "").toUpperCase().trim();
   const regimeKey = String(regime || "").toUpperCase().trim();
 
-  // No grade means we can't decide; default to allow (safer than blocking).
-  if (!setupKey || !gradeKey || !dirKey) {
+  if (!setupKey || !dirKey) {
+    return { allow: true, reason: "missing_inputs_default_allow" };
+  }
+
+  // 2026-08-15 (July autopsy P8) — grade is computed AFTER qualification,
+  // so at admission time it is usually empty. When allowWildcard is set,
+  // fall back to the family's `${setup}:${dir}:*` row (strictest policy)
+  // instead of default-allowing on a missing grade / missing exact row.
+  const wildcardKey = `${setupKey}:${dirKey}:*`;
+
+  // No grade means we can't decide; default to allow (safer than blocking)
+  // unless a wildcard row exists and the caller opted in.
+  if (!gradeKey) {
+    if (allowWildcard && matrix[wildcardKey]) {
+      return evaluateAdmissionEntry(matrix[wildcardKey], wildcardKey, regimeKey, args);
+    }
     return { allow: true, reason: "missing_inputs_default_allow" };
   }
 
   const matrixKey = `${setupKey}:${dirKey}:${gradeKey}`;
   const entry = matrix[matrixKey];
 
-  // No matrix entry → not on the watchlist → allow.
+  // No matrix entry → not on the watchlist → allow (or wildcard when opted in).
   if (!entry) {
+    if (allowWildcard && matrix[wildcardKey]) {
+      return evaluateAdmissionEntry(matrix[wildcardKey], wildcardKey, regimeKey, args);
+    }
     return { allow: true, reason: "no_matrix_entry", matched_key: matrixKey };
   }
+
+  return evaluateAdmissionEntry(entry, matrixKey, regimeKey, args);
+}
+
+function evaluateAdmissionEntry(entry, matrixKey, regimeKey, args) {
 
   // 1. Hard kill
   if (entry.block_when === "always") {

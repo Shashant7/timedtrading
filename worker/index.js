@@ -15560,6 +15560,7 @@ const SETUP_NAME_MAP = {
   tt_mean_revert:             "TT Mean Reversion",
   tt_n_test_support:          "TT Support Bounce",
   tt_n_test_resistance:       "TT Resistance Fade",
+  tt_htf_reclaim:             "TT HTF Reclaim",
   tt_range_reversal_long:     "TT Range Reversal (Long)",
   tt_range_reversal_short:    "TT Range Reversal (Short)",
   tt_gap_reversal_long:       "TT Gap Reversal (Long)",
@@ -26086,6 +26087,23 @@ async function processTradeSimulation(
               slCandidate = Math.round(_orbSL * 100) / 100;
             }
           }
+        }
+      }
+
+      // ── JULY-2026 AUTOPSY — HTF Reclaim structure SL anchor (P9) ──
+      // tt_htf_reclaim entries stamp the reclaimed daily EMA-21 on
+      // __ja_reclaim_level. The stop belongs just below that level:
+      // "support lost = thesis dead", not an ATR multiple. Tighten only
+      // (never widen past the ATR stop) and keep >=0.3% from entry.
+      const _jaReclaimLvl = Number(tickerData?.__ja_reclaim_level);
+      if (String(entryPath || "") === "tt_htf_reclaim"
+          && direction === "LONG"
+          && Number.isFinite(_jaReclaimLvl) && _jaReclaimLvl > 0
+          && Number.isFinite(slCandidate) && slCandidate > 0) {
+        const _jaStructSL = _jaReclaimLvl * 0.99;
+        const _jaDistPct = (entryPx - _jaStructSL) / entryPx;
+        if (_jaStructSL < entryPx && _jaStructSL > slCandidate && _jaDistPct >= 0.003) {
+          slCandidate = Math.round(_jaStructSL * 100) / 100;
         }
       }
 
