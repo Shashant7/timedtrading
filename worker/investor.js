@@ -6,6 +6,7 @@ import { detectCompounderDipBuy } from "./growth-compounder.js";
 import { resolveModelLifecycle, modelLifecycleLineage } from "./model-lifecycle.js";
 import {
   weeklySupertrendBull,
+  weeklySupertrendBear,
   deferForSessionClose,
 } from "./investor-autopsy-gates.js";
 
@@ -1381,10 +1382,13 @@ export function computeInvestorScore(tickerData, opts = {}) {
   const regime = tickerData.regime;
 
   if (tfW || emaW) {
-    // Weekly SuperTrend direction: +8 bullish, -4 bearish
-    const wStDir = tfW?.atr?.xs;
-    if (wStDir === 1) components.weeklyTrend += 8;
-    else if (wStDir === -1) components.weeklyTrend -= 4;
+    // Weekly SuperTrend direction: +8 bullish, -4 bearish.
+    // Read through the resolver — the raw `atr.xs` this used to use is
+    // flip-only and sign-mirrored, so both branches were inverted and neither
+    // ever fired (see weeklySupertrendBull).
+    const _wbForSt = resolveInvestorHorizonBundles(tickerData).wb;
+    if (weeklySupertrendBull({ tfW, wb: _wbForSt, daCfg: _daCfg })) components.weeklyTrend += 8;
+    else if (weeklySupertrendBear({ tfW, wb: _wbForSt, daCfg: _daCfg })) components.weeklyTrend -= 4;
 
     // Weekly EMA stack depth (0-10): map to 0-10 pts
     const wDepth = emaW?.depth ?? tfW?.ema?.depth ?? 0;
@@ -1454,7 +1458,7 @@ export function computeInvestorScore(tickerData, opts = {}) {
   }
 
   // ── Accumulation Signal (15 pts) ──
-  const accumZone = detectAccumulationZone(tickerData, _scoreCfg);
+  const accumZone = detectAccumulationZone(tickerData, _scoreCfg, _daCfg);
   if (accumZone.inZone) {
     components.accumulationSignal = Math.round(accumZone.confidence * 15 / 100);
   }
@@ -2271,7 +2275,6 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     return r;
   };
   const mb = tickerData.monthly_bundle;
-  const wStDir = tickerData.tf_tech?.W?.atr?.xs;
   // 2026-06-01 — Surface tf_tech.D / tf_tech.W at function scope so the
   // exhaustion gate (added below for momentum_runner downgrade) can read
   // TD9 setup_count + Phase zone + RSI without a separate optional-chain
@@ -2279,6 +2282,9 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
   // ReferenceError that aborted the entire /timed/investor/compute run.
   const tfD = tickerData.tf_tech?.D;
   const tfW = tickerData.tf_tech?.W;
+  const _wbStage = resolveInvestorHorizonBundles(tickerData).wb;
+  const _wStBull = weeklySupertrendBull({ tfW, wb: _wbStage, daCfg });
+  const _wStBear = weeklySupertrendBear({ tfW, wb: _wbStage, daCfg });
 
   // If position is closed or monthly trend invalidated
   if (existingPosition?.status === "CLOSED") {
@@ -2331,13 +2337,14 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     // at 70+ score, then daily fluctuations dropped them below 40 the next day → instant sell.
     // Lowered all thresholds significantly and require weekly/monthly confirmation for sells.
     // The 2-consecutive-reduce-days gate in runInvestorDailyReplay provides additional protection.
-    if (investorScore < 30 && wStDir !== 1) {
+    if (investorScore < 30 && !_wStBull) {
       return finalize({ stage: "reduce", reason: "investor_score_very_low" });
     }
-    // wStDir is tf_tech.W.atr.xs (STANDARD convention: +1=bull, -1=bear).
     // mb.supertrend_dir is monthly_bundle.supertrend_dir (PINE convention: -1=bull).
     // "weekly bear AND monthly NOT bull" → reduce. Pine "not bull" = !== -1.
-    if (wStDir === -1 && mb?.supertrend_dir !== -1) {
+    // The weekly leg used to read the raw `atr.xs` inverted, so it fired on a
+    // BULLISH weekly flip and was dead the rest of the time.
+    if (_wStBear && mb?.supertrend_dir !== -1) {
       return finalize({ stage: "reduce", reason: "weekly_supertrend_bearish" });
     }
     if (rsRank < 20 && investorScore < 40) {
@@ -2532,7 +2539,8 @@ export function detectExhaustionWarnings(tickerData) {
  *                         Controls Phase 3.9e momentum-runner branch tunables.
  * @returns {{ inZone: boolean, zoneType: string, confidence: number, signals: string[] }}
  */
-export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG) {
+export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG, daCfg = null) {
+  const _azDaCfg = daCfg;
   const signals = [];
   let confidence = 0;
 
@@ -2603,8 +2611,8 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
       mrSignals.push("monthly_supertrend_bull");
       mrConfidence += 14;
     }
-    // 4. Weekly SuperTrend bull (STANDARD convention: atr.xs === 1)
-    if (tfW?.atr?.xs === 1) {
+    // 4. Weekly SuperTrend bull
+    if (weeklySupertrendBull({ tfW, wb: tickerData?.weekly_bundle, daCfg: _azDaCfg })) {
       mrSignals.push("weekly_supertrend_bull");
       mrConfidence += 14;
     }
@@ -2905,8 +2913,9 @@ export function generateThesis(tickerData, rsRank = 50, daCfg = null) {
     invalidation.push(annotateDistance(base, wb?.ema200));
   }
 
-  // Weekly SuperTrend
-  if (tfW?.atr?.xs === 1) {
+  // Weekly SuperTrend. This line was absent from every entry-provenance blob
+  // on record because the raw `atr.xs` read here never evaluated true.
+  if (weeklySupertrendBull({ tfW, wb, daCfg })) {
     conditions.push("Weekly SuperTrend bullish");
     const wStLvl = fmtUsd(wb?.supertrend_line);
     const base = wStLvl ? `Weekly SuperTrend flips bearish (below ${wStLvl})` : "Weekly SuperTrend flips bearish";
@@ -3142,11 +3151,14 @@ export function pickPrimaryInvalidationPrice(tickerData, criteria = {}, invalida
  * @param {number} currentRsRank - current RS rank
  * @returns {{ invalidated: boolean, reasons: string[] }}
  */
-export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRank = 50) {
+export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRank = 50, daCfg = null) {
   const reasons = [];
   const mb = currentTickerData.monthly_bundle;
   const emaW = currentTickerData.ema_map?.W;
   const tfW = currentTickerData.tf_tech?.W;
+  const _wStBearHealth = weeklySupertrendBear({
+    tfW, wb: currentTickerData?.weekly_bundle, daCfg,
+  });
 
   // Monthly SuperTrend flip (was bull at thesis time, now bear in Pine = +1)
   if (thesisCriteria.monthlyST && mb?.supertrend_dir === 1) {
@@ -3159,7 +3171,7 @@ export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRa
   }
 
   // Weekly SuperTrend flip
-  if (thesisCriteria.weeklyST && tfW?.atr?.xs === -1) {
+  if (thesisCriteria.weeklyST && _wStBearHealth) {
     reasons.push("Weekly SuperTrend flipped bearish");
   }
 
@@ -3170,7 +3182,7 @@ export function checkThesisHealth(thesisCriteria, currentTickerData, currentRsRa
 
   // Weekly bearish divergence confirmed with price below Weekly SuperTrend
   const _chkDivW = currentTickerData?.rsi_divergence?.W || currentTickerData?.tf_tech?.W?.rsiDiv;
-  if (_chkDivW?.bear?.active && tfW?.atr?.xs === -1) {
+  if (_chkDivW?.bear?.active && _wStBearHealth) {
     reasons.push("Weekly momentum divergence confirmed — SuperTrend flipped bearish");
   }
 

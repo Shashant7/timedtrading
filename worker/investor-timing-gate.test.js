@@ -78,7 +78,11 @@ describe("revalidateInvestorTickerAtRead", () => {
       monthly_bundle: { supertrend_dir: -1, ema_structure: 1, rsi: 75 },
       tf_tech: {
         D: { atr: { xs: 1 }, stDir: -1, ema: { priceAboveEma21: true }, phase: { v: 90.96, z: "HIGH" }, rsi: { r5: 78 } },
-        W: { atr: { xs: 1 }, rsi: { r5: 72 } },
+        // stDir is the persistent field (Pine: -1 = bull); atr.xs is emitted
+        // only on a flip bar. The D block above already carries both, meaning
+        // "bullish" — mirror that here so the weekly reads bullish under the
+        // corrected resolver too.
+        W: { stDir: -1, atr: { xs: 1 }, rsi: { r5: 72 } },
       },
       td_sequential: { per_tf: { D: { bearish_prep_count: 8 }, W: { bearish_prep_count: 8 } } },
       regime_forecast: { p_1d: { HTF_BEAR_LTF_BEAR: 0.6, HTF_BULL_LTF_BULL: 0.1 } },

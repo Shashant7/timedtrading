@@ -96,11 +96,48 @@ export function weeklySupertrendBull({ tfW = null, wb = null, daCfg = null } = {
   if (flagOffExplicit(daCfg?.deep_audit_investor_weekly_st_dir_fix)) {
     return tfW?.atr?.xs === 1;
   }
+  return weeklySupertrendDir({ tfW, wb }) === 1;
+}
+
+/**
+ * D2 companion — the bearish half. Kept separate from `!weeklySupertrendBull`
+ * because "unknown" must not read as bearish: several call sites use the bear
+ * reading to trigger a REDUCE, and `weekly_supertrend_bearish` is in
+ * `IMMEDIATE_INVESTOR_REDUCE_REASONS` (it skips `reduce_trim_min_sessions`).
+ * Missing data has to mean "no signal", never "sell".
+ *
+ * @param {object} args
+ * @param {object} args.tfW   — tickerData.tf_tech.W
+ * @param {object} args.wb    — resolved weekly bundle
+ * @param {object} args.daCfg — deep-audit config
+ * @returns {boolean} weekly SuperTrend is bearish
+ */
+export function weeklySupertrendBear({ tfW = null, wb = null, daCfg = null } = {}) {
+  if (flagOffExplicit(daCfg?.deep_audit_investor_weekly_st_dir_fix)) {
+    return tfW?.atr?.xs === -1;
+  }
+  return weeklySupertrendDir({ tfW, wb }) === -1;
+}
+
+/**
+ * Tri-state weekly SuperTrend direction, normalised to the *plain* convention
+ * so callers read naturally: `1` = bull, `-1` = bear, `0` = unknown.
+ *
+ * Note this is the OPPOSITE sign to the raw Pine field it reads from, which is
+ * exactly the trap that produced the bug — so the conversion happens here,
+ * once, instead of at eight call sites.
+ *
+ * @param {object} args
+ * @param {object} args.tfW — tickerData.tf_tech.W
+ * @param {object} args.wb  — resolved weekly bundle
+ * @returns {1|-1|0}
+ */
+export function weeklySupertrendDir({ tfW = null, wb = null } = {}) {
   const stDir = num(tfW?.stDir);
-  if (stDir !== null && stDir !== 0) return stDir === -1;
+  if (stDir !== null && stDir !== 0) return stDir < 0 ? 1 : -1;
   const bundleDir = num(wb?.supertrend_dir);
-  if (bundleDir !== null && bundleDir !== 0) return bundleDir === -1;
-  return false;
+  if (bundleDir !== null && bundleDir !== 0) return bundleDir < 0 ? 1 : -1;
+  return 0;
 }
 
 /**
