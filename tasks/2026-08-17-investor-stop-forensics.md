@@ -419,6 +419,58 @@ is precisely the failure the revalidation was written to prevent. The persisted
 value is still returned as `position.investor_stage`, and still wins when no
 revalidation happened.
 
+### Lane-wide audit — four further confirmed defects
+
+A read-only audit of the whole investor lane (`investor.js`,
+`growth-compounder.js`, `seed-investor-daystate.js`, the investor sections of
+`index.js`, and the `indicators.js` producer sites) turned up four more, each
+traced producer→consumer and confirmed against live data.
+
+**1. `signals.trendW` / `trendD` written inverted into `entry_provenance_json`**
+(`index.js:91340`). The label was `stDir > 0 ? "up" : "down"` — the Pine sign
+read literally, when `-1` is bull. Live D1 confirmation:
+
+| ticker | stored `trendW` | actual `W.stDir` |
+|---|---|---|
+| IWM, GE, KO, NVDA, TSM, CF, DE, PANW, BNY, TJX, WTS | `"down"` | `-1` (**bullish**) |
+
+This is the field the autopsies read. **Every forensic conclusion drawn from
+`signals.trendW`/`trendD` on a pre-fix record is backwards**, and the stored rows
+were not backfilled. `_invSignals` is only written by the compute cron, so
+corrected labels appear from the next compute onward.
+
+**2. `detectAccumulationZone` read the weekly SuperTrend level from
+`st_support.W`** — but `buildSTSupportMap` keys its output under
+`st_support.map.<tf>` and stores `{dir, slope, aligned}`, not a price.
+`st_support.W` is `undefined` on every live payload sampled, so the block never
+ran and its **25 confidence points** — the largest single signal in the
+function — were unreachable. Now reads `weekly_bundle.supertrend_line`. Zero of
+47 sampled tickers sit within the 3% band today, so this arms the signal without
+moving anything now.
+
+**3. `detectWeeklyBreakoutRetest` led its `??` chain with the same dead
+`st_support.W` term.** Harmless while the key is undefined, but if it ever held
+the `{dir, slope}` object, `Number()` would poison the chain with `NaN`. Removed.
+
+**4. `buildInvestorSignalSnapshotFromDecision`'s `stDir` fallback inverted Pine**
+relative to the `is4hBull` branch directly above it, so two branches assigning
+the same field disagreed and an older `decision_record` carrying only `stDir`
+got the opposite label from an identical one carrying the flags. Pinned by test.
+
+Also threaded `daCfg` through `revalidateInvestorTickerAtRead` into
+`computeInvestorScore` / `generateThesis` / `classifyInvestorStage`, so the
+read-time path honours the same config as the compute cron.
+
+Two test fixtures had been built around the phantom shapes and passed only
+because fixture and code shared the same wrong key — `investor-timing-gate`
+(weekly `atr.xs` with no `stDir`) and `investor-invalidation-movie`
+(`st_support.W = 810`). Both corrected to the shapes production actually emits.
+
+Ruled out, investigated and not bugs: `monthly_bundle.supertrend_dir`
+(correct — only its comment is wrong), `seed-investor-daystate.js`,
+`growth-compounder.js`, the trader-path `st4HBull` read, and
+`resolveInvestor4hTiming` / `applyInvestor4hStageGate`.
+
 ### Open follow-up: re-center the thresholds
 
 `accumulate_strong_score_min` (60) and `auto_init_min_score` (65) were
