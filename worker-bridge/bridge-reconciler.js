@@ -892,10 +892,13 @@ async function _verifyPostExecutionAudit(env, row, liveHeldQty) {
     });
   } catch (_) { /* audit best-effort */ }
   try {
+    // `reconcile_error` told the operator "the bridge could not fetch broker
+    // positions" — the opposite of what happened here: positions were read
+    // fine and the fill did not match. Its own state gets its own explanation.
     await emitDriftNotification(env, {
       ...row,
-      sync_state: "reconcile_error",
-      sync_note: `post-exec drift on ${audit.kind}: expected ~${expected.toFixed(4)} held, live ${live.toFixed(4)} (drift ${drift.toFixed(4)} sh)`,
+      sync_state: "execution_drift",
+      sync_note: `post-exec drift on ${audit.kind}: expected ~${expected.toFixed(4)} held, live ${live.toFixed(4)} (drift ${drift.toFixed(4)} sh, ${reason})`,
     }, "critical");
   } catch (_) { /* notify best-effort */ }
   return "drift";
@@ -1071,9 +1074,20 @@ export async function reconcileUser(env, user, brokerAdapter, opts = {}) {
     // or emit a post_exec_drift notification so the operator sees a
     // first-class alert when a reducer signal didn't take.
     try {
-      const brokerQty = Number(classification.broker_state?.qty) || 0;
-      const userAdded = Number(classification.broker_state?.user_added) || 0;
-      const liveHeld = Math.max(0, brokerQty - userAdded);
+      // 2026-08-17 — Compare on the SAME basis the expectation was built from.
+      // `expected_post_held_qty` derives from `pre_held_qty`, which is the
+      // WHOLE-ticker broker position at order time. When a second model trade
+      // holds the same ticker in the same account, the classifier deliberately
+      // reports `broker_state.qty` as this row's residual (0 for a closed row
+      // whose shares are claimed by an open sibling) and puts the account total
+      // on `account_qty`. Comparing that residual against a whole-account
+      // expectation made XLRE alert CRITICAL every cycle on an exit that had
+      // filled exactly as intended.
+      const bs = classification.broker_state || {};
+      const accountQty = Number(bs.account_qty);
+      const rowQty = Number(bs.qty) || 0;
+      const userAdded = Number(bs.user_added) || 0;
+      const liveHeld = Math.max(0, (Number.isFinite(accountQty) ? accountQty : rowQty) - userAdded);
       const audit = readLastActionAudit(row);
       if (audit && !audit.verified) {
         const outcome = await _verifyPostExecutionAudit(env, row, liveHeld);
