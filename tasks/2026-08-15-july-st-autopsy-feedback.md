@@ -1714,7 +1714,40 @@ gate's scope). 55 gate-pack tests, full suite 2,439 green.
 
 Flags: live trio (struct stop + n-test confirm + forming div) PLUS
 `deep_audit_ja_ltf_structure_confirm=true`. Runs `ja-ltf-jul26` /
-`ja-ltf-aug26`. Results appended below when complete.
+`ja-ltf-aug26`, 10m, 28-ticker slice, vs Arm F (`ja-div-*`, same trio
+without the LTF gate).
+
+| Arm | Month | Trades | W | WR | Total $ | Realized $ | Open-mark $ |
+|---|---|---|---|---|---|---|---|
+| Arm F (trio) | Jul | 51 | 29 | 57% | 2,349 | 1,333 | 1,016 |
+| **Arm L (+LTF)** | Jul | 51 | 29 | 57% | 2,349 | 1,333 | 1,016 |
+| Arm F (trio) | Aug | 24 | 18 | 75% | 2,684 | 1,370 | 1,314 |
+| **Arm L (+LTF)** | Aug | 24 | 18 | 75% | 2,714 | 1,338 | 1,376 |
+
+July is byte-identical. August has the same 24 trades on both arms —
+the ±$30 drift is entry/exit timing noise on five shared positions
+(XLI exited STALL_FORCE_CLOSE instead of end-mark, and slightly
+different fills on SPHB/XLK/XLRE/NEU), not blocked or added trades.
+
+Reading, per the established replay caveat: the 28-ticker slice never
+re-creates the exact SN/PH/WM/DE live entries (universe density,
+cadence), so replay's role here is the no-harm cascade check — passed
+clean. The gate's direct effect is carried by the 6/6 pinned live
+snapshots in `july-autopsy-gates.test.js`.
+
+### Go-live (staged 2026-08-17)
+
+`deep_audit_ja_ltf_structure_confirm=true` inserted in PROD
+`model_config` — inert until PR #1262 merges and auto-deploys.
+Rollback is config-only (flip the row to `false`).
+
+Monday/Tuesday watch list additions:
+- `__ath_breakout_diag.ltf_structure_block=true` on any would-be ATH
+  entry — expect occasional fires on drifting near-high names; verify
+  the blocked names kept falling (SN/PH shape) and that no washed-out
+  flush (15m RSI <= 32) got blocked.
+- `__ja_ltf_struct_diag` stamps carry the struct/ST/RSI inputs for
+  post-hoc calibration of the washout cutoff (32).
 
 ## Verification items (before coding)
 
