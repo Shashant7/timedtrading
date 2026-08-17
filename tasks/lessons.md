@@ -77,6 +77,17 @@ history. Wired into positions, equity-curve, portfolio, and a view-only
 reconciler pass. Preserve finite `0` equity; suppress pct when
 `|base| < 1`.
 
+## Trade Review: double nav (FAQ/Learn mismatch) [2026-08-17]
+
+**Symptom:** `/trade-review` showed two nav rows — extras journey strip
+above `tt-topnav-scaffold` (missing Daily Brief; FAQ/Learn order
+swapped; FAQ looked "active").
+
+**Root / Fix:** Mount `shared-nav.js` via `#global-nav-root` + page-local
+`.topnav` CSS (same as Broker Connections). Add `/trade-review` to
+`JOURNEY_PATHS` in `tt-nav-extras.js` so the duplicate strip is not
+injected.
+
 ## Broker Connections: double nav, password form, Model KPI, 1D curve [2026-08-13]
 
 **Symptom:** Broker Connections showed two overlapping nav rows; console
