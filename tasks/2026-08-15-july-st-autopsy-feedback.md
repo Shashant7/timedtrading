@@ -1663,6 +1663,92 @@ Monday watch list additions:
   in every setup snapshot — after a week, correlate against entry outcomes
   to decide whether forming divergence should graduate into G2.
 
+## Batch 6 — LTF structure confirmation gate (2026-08-17)
+
+PR #1261 merged and deployed (worker + engine green 00:41 UTC), so the
+batch-5 trio is live code with flags armed for Monday's open.
+
+### August books loaded into Trade Autopsy
+
+- `/trade-autopsy.html?run_id=live-short-term-2026-08` — 31 trades
+  (19 closed: 7 W / 10 L / 2 flat, realized −$7.39; 12 still open).
+  Archived by INSERT…SELECT from live `trades` (trade IDs preserved so
+  the autopsy hydrates entry/exit snapshots from live
+  `direction_accuracy`). All 19 closed rows verified to return signal
+  snapshots through the API.
+- `/trade-autopsy.html?run_id=live-long-term-2026-08` — 6 investor
+  positions opened in August, archived via the archive-investor
+  endpoint (snapshots stamped at persist time).
+
+### The pass: why LTF structure, and why now
+
+The fresh August book independently confirms the July diagnosis. The
+ATH-breakout path shipped SN (−$27) and PH (−$12) with the 15m/30m tape
+actively breaking down at entry, exactly the WM Jul 29 (−$108) shape;
+DE Jul 29 (−$95) was the same shape through the support-bounce path.
+Meanwhile RTX Aug (+$17) entered with an equally broken LTF — but as a
+washed-out capitulation flush (15m RSI 28.5) at HTF support, the
+Jul 20 RTX archetype the operator flagged as a trade we must keep.
+
+Predicate (`ltfStructureBlock` in `july-autopsy-gates.js`, LONG only,
+flag `deep_audit_ja_ltf_structure_confirm`, default OFF):
+
+- bear15 = 15m ema.structure <= −0.5, OR bear ST with structure < 0
+- bear30 = same on 30m
+- block when bear15 AND bear30, UNLESS
+  - hourly is strong (structure >= 0.5 with bull ST), or
+  - LTF is washed out: min(15m RSI, 30m RSI) <= 32
+    (`deep_audit_ja_ltf_washout_rsi`; RTX printed 28.5/30.5, nearest
+    blocked loser PH printed 38.4 — 32 splits them with margin)
+
+Applied to the `tt_ath_breakout` trigger and folded into the n-test
+support confirmation. Diag stamps: `__ja_ltf_struct_diag`,
+`__ath_breakout_diag.ltf_structure_block`,
+`__n_test_support_diag.ltf_structure_block`.
+
+Pinned 6/6 against live entry snapshots (DE, WM, PH-loss blocked; RTX,
+SN, PH-win pass — SN's loss had a fully bullish LTF and is out of this
+gate's scope). 55 gate-pack tests, full suite 2,439 green.
+
+### Validation (Arm L, replay 10m, 28-ticker slice)
+
+Flags: live trio (struct stop + n-test confirm + forming div) PLUS
+`deep_audit_ja_ltf_structure_confirm=true`. Runs `ja-ltf-jul26` /
+`ja-ltf-aug26`, 10m, 28-ticker slice, vs Arm F (`ja-div-*`, same trio
+without the LTF gate).
+
+| Arm | Month | Trades | W | WR | Total $ | Realized $ | Open-mark $ |
+|---|---|---|---|---|---|---|---|
+| Arm F (trio) | Jul | 51 | 29 | 57% | 2,349 | 1,333 | 1,016 |
+| **Arm L (+LTF)** | Jul | 51 | 29 | 57% | 2,349 | 1,333 | 1,016 |
+| Arm F (trio) | Aug | 24 | 18 | 75% | 2,684 | 1,370 | 1,314 |
+| **Arm L (+LTF)** | Aug | 24 | 18 | 75% | 2,714 | 1,338 | 1,376 |
+
+July is byte-identical. August has the same 24 trades on both arms —
+the ±$30 drift is entry/exit timing noise on five shared positions
+(XLI exited STALL_FORCE_CLOSE instead of end-mark, and slightly
+different fills on SPHB/XLK/XLRE/NEU), not blocked or added trades.
+
+Reading, per the established replay caveat: the 28-ticker slice never
+re-creates the exact SN/PH/WM/DE live entries (universe density,
+cadence), so replay's role here is the no-harm cascade check — passed
+clean. The gate's direct effect is carried by the 6/6 pinned live
+snapshots in `july-autopsy-gates.test.js`.
+
+### Go-live (staged 2026-08-17)
+
+`deep_audit_ja_ltf_structure_confirm=true` inserted in PROD
+`model_config` — inert until PR #1262 merges and auto-deploys.
+Rollback is config-only (flip the row to `false`).
+
+Monday/Tuesday watch list additions:
+- `__ath_breakout_diag.ltf_structure_block=true` on any would-be ATH
+  entry — expect occasional fires on drifting near-high names; verify
+  the blocked names kept falling (SN/PH shape) and that no washed-out
+  flush (15m RSI <= 32) got blocked.
+- `__ja_ltf_struct_diag` stamps carry the struct/ST/RSI inputs for
+  post-hoc calibration of the washout cutoff (32).
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?

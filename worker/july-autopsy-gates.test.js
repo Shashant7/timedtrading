@@ -5,6 +5,7 @@ import {
   isHtfReclaimContext,
   exhaustTrimMinProfitPct,
   structStopCushion,
+  ltfStructureBlock,
 } from "./july-autopsy-gates.js";
 import { admitSetup } from "./phase-c-setup-admission.js";
 
@@ -374,5 +375,116 @@ describe("G4 default deny (P8)", () => {
 
   it("is a no-op when the flag is off", () => {
     expect(julyAutopsyDefaultDeny({}, { allow: true, reason: "no_matrix_entry" })).toBeNull();
+  });
+});
+
+describe("ltfStructureBlock — LTF structure confirmation (pinned live entries)", () => {
+  const ON = { deep_audit_ja_ltf_structure_confirm: "true" };
+  // Values from live direction_accuracy entry snapshots. Snapshot supertrend
+  // is +1=bull; tf_tech stDir is INVERTED (+1=bear), so signs are flipped here.
+
+  // DE Jul 29 (TT Support Bounce, −$95): 15m/30m struct −1 + bear ST,
+  // hourly struct 0.221 with bear ST. The knife catch this gate exists for.
+  const de = {
+    side: "LONG",
+    struct15: -1, st15: 1, rsi15: 39.7,
+    struct30: -1, st30: 1, rsi30: 39.7,
+    struct1h: 0.221, st1h: 1,
+    daCfg: ON,
+  };
+  // WM Jul 29 (TT ATH Breakout, −$108): structure broken on 15m/30m even
+  // though supertrend was still bull; hourly weak (0.221).
+  const wm = {
+    side: "LONG",
+    struct15: -1, st15: -1, rsi15: 44.9,
+    struct30: -1, st30: -1, rsi30: 47.3,
+    struct1h: 0.221, st1h: -1,
+    daCfg: ON,
+  };
+  // PH Aug (TT ATH Breakout, −$12): 15m struct −1; 30m struct only −0.04
+  // but bear ST — caught by the (st bear && struct < 0) leg.
+  const phLoss = {
+    side: "LONG",
+    struct15: -1, st15: 1, rsi15: 38.4,
+    struct30: -0.04, st30: 1, rsi30: 40.1,
+    struct1h: 0.4, st1h: 1,
+    daCfg: ON,
+  };
+  // RTX Aug (TT ATH Breakout, +$17): same broken LTF shape as PH but RSI
+  // 28.5/30.5 — a washed-out capitulation flush at support. Must pass.
+  const rtx = {
+    side: "LONG",
+    struct15: -1, st15: 1, rsi15: 28.5,
+    struct30: -1, st30: 1, rsi30: 30.5,
+    struct1h: 0.4, st1h: 1,
+    daCfg: ON,
+  };
+  // SN Aug (TT ATH Breakout, −$27): LTF fully bullish at entry — its
+  // failure mode is not this gate's target. Must pass.
+  const sn = {
+    side: "LONG",
+    struct15: 1, st15: -1, rsi15: 50,
+    struct30: 1, st30: -1, rsi30: 51.8,
+    struct1h: 1, st1h: 1,
+    daCfg: ON,
+  };
+  // PH Aug win (+$41): everything aligned bull. Must pass.
+  const phWin = {
+    side: "LONG",
+    struct15: 1, st15: -1, rsi15: 52.2,
+    struct30: 1, st30: -1, rsi30: 54.5,
+    struct1h: 1, st1h: -1,
+    daCfg: ON,
+  };
+
+  it("defaults OFF — no block without the flag", () => {
+    expect(ltfStructureBlock({ ...de, daCfg: {} })).toBeNull();
+    expect(ltfStructureBlock({ ...de, daCfg: { deep_audit_ja_ltf_structure_confirm: "false" } })).toBeNull();
+  });
+
+  it("blocks DE Jul 29 — support bounce into a breaking 15m+30m tape", () => {
+    const b = ltfStructureBlock(de);
+    expect(b?.reason).toBe("ja_ltf_structure_block");
+  });
+
+  it("blocks WM Jul 29 — ATH entry with broken structure despite bull ST", () => {
+    expect(ltfStructureBlock(wm)?.reason).toBe("ja_ltf_structure_block");
+  });
+
+  it("blocks PH Aug loss — shallow 30m struct caught by the bear-ST leg", () => {
+    expect(ltfStructureBlock(phLoss)?.reason).toBe("ja_ltf_structure_block");
+  });
+
+  it("passes RTX Aug — washout exemption (RSI 28.5 <= 32)", () => {
+    expect(ltfStructureBlock(rtx)).toBeNull();
+  });
+
+  it("passes SN Aug — LTF bullish, out of scope", () => {
+    expect(ltfStructureBlock(sn)).toBeNull();
+  });
+
+  it("passes PH Aug win — all TFs aligned", () => {
+    expect(ltfStructureBlock(phWin)).toBeNull();
+  });
+
+  it("strong hourly overrides broken LTF", () => {
+    expect(ltfStructureBlock({ ...de, struct1h: 0.8, st1h: -1 })).toBeNull();
+  });
+
+  it("does not block SHORT (no pinning data yet)", () => {
+    expect(ltfStructureBlock({ ...de, side: "SHORT" })).toBeNull();
+  });
+
+  it("does not block when structure data is missing", () => {
+    expect(ltfStructureBlock({ ...de, struct15: undefined })).toBeNull();
+    expect(ltfStructureBlock({ ...de, struct30: null })).toBeNull();
+  });
+
+  it("washout cutoff is configurable via deep_audit_ja_ltf_washout_rsi", () => {
+    // Raise the cutoff to 45 and DE (rsi 39.7) becomes exempt.
+    expect(ltfStructureBlock({
+      ...de,
+      daCfg: { ...ON, deep_audit_ja_ltf_washout_rsi: 45 },
+    })).toBeNull();
   });
 });

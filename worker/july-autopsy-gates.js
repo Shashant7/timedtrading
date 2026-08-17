@@ -280,6 +280,84 @@ export function structStopCushion({ direction, sl, level, atrPct, daCfg }) {
 }
 
 /**
+ * G7 — LTF structure confirmation (Aug-17 pass, flag
+ * `deep_audit_ja_ltf_structure_confirm`, default OFF).
+ *
+ * Blocks LONG entries whose 15m AND 30m structure are actively broken
+ * while the hourly is not strong — the DE Jul 29 / WM Jul 29 / PH Aug
+ * (−$12) archetype: buying a drifting tape mid-breakdown. Exempts the
+ * capitulation flush (LTF RSI washed out at HTF support — RTX Aug +$17
+ * archetype), because a washed-out flush at support is a different trade
+ * than a mid-drift knife catch.
+ *
+ * Pinned against live entry snapshots (all TT ATH Breakout / Support
+ * Bounce LONGs):
+ *   BLOCK: PH Aug (15m struct −1, 30m ST bear + struct −0.04, RSI 38–40)
+ *   BLOCK: WM Jul 29 (15m/30m struct −1, h1 struct 0.221, RSI 45–47)
+ *   BLOCK: DE Jul 29 (15m/30m struct −1 + ST bear, h1 0.221, RSI ~40)
+ *   PASS:  RTX Aug (same broken LTF but RSI 28.5/30.5 → washout exempt)
+ *   PASS:  SN Aug (15m/30m fully bullish — different failure mode)
+ *   PASS:  PH Aug win (all TFs aligned bull)
+ *
+ * Conventions: struct* is ema.structure in [−1, +1]; st* is tf_tech stDir
+ * where +1 = BEARISH supertrend and −1 = BULLISH (index.js `_htfStBull`
+ * convention). rsi* is rsi.r5.
+ *
+ * @returns {{reason: string, detail: object}|null} block or null (pass)
+ */
+export function ltfStructureBlock({
+  side,
+  struct15, st15, rsi15,
+  struct30, st30, rsi30,
+  struct1h, st1h,
+  daCfg,
+}) {
+  if (!flagOn(daCfg?.deep_audit_ja_ltf_structure_confirm)) return null;
+  if (side !== "LONG") return null; // book is long-dominant; no SHORT pinning data yet
+
+  const s15 = Number(struct15);
+  const s30 = Number(struct30);
+  // Missing structure data → don't block (soft gate).
+  if (!Number.isFinite(s15) || !Number.isFinite(s30)) return null;
+
+  const bear15 = s15 <= -0.5 || (Number(st15) === 1 && s15 < 0);
+  const bear30 = s30 <= -0.5 || (Number(st30) === 1 && s30 < 0);
+  if (!bear15 || !bear30) return null;
+
+  // Strong hourly overrides broken LTF (trend intact one TF up).
+  const s1h = Number(struct1h);
+  const h1Strong = Number.isFinite(s1h) && s1h >= 0.5 && Number(st1h) === -1;
+  if (h1Strong) return null;
+
+  // Capitulation-flush exemption: washed-out LTF RSI = flush at support,
+  // not a mid-drift breakdown. RTX Aug printed 28.5/30.5; the nearest
+  // blocked loser (PH Aug) printed 38.4 — 32 splits them with margin.
+  const washRaw = Number(daCfg?.deep_audit_ja_ltf_washout_rsi);
+  const washRsi = Number.isFinite(washRaw) && washRaw > 0 ? washRaw : 32;
+  const r15 = Number(rsi15);
+  const r30 = Number(rsi30);
+  const rMin = Math.min(
+    Number.isFinite(r15) ? r15 : Infinity,
+    Number.isFinite(r30) ? r30 : Infinity,
+  );
+  if (rMin <= washRsi) return null;
+
+  return {
+    reason: "ja_ltf_structure_block",
+    detail: {
+      struct15: s15,
+      struct30: s30,
+      struct1h: Number.isFinite(s1h) ? s1h : null,
+      st15: Number(st15) || 0,
+      st30: Number(st30) || 0,
+      st1h: Number(st1h) || 0,
+      rsi_min: Number.isFinite(rMin) ? rMin : null,
+      washout_rsi: washRsi,
+    },
+  };
+}
+
+/**
  * G4 — default-deny for admission holes (P8). Call with the admitSetup
  * result: when the only reason a cohort is allowed is a missing grade or a
  * missing matrix row, reject instead.
@@ -305,4 +383,5 @@ export default {
   isHtfReclaimContext,
   exhaustTrimMinProfitPct,
   structStopCushion,
+  ltfStructureBlock,
 };
