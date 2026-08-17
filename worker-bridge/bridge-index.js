@@ -43,7 +43,7 @@ import {
 import { orchestrateOcoForReducer } from "./bridge-oco.js";
 import {
   drainNotifyQueue, buildDailyOwnerDigest, renderDailyOwnerDigestEmail,
-  emitDriftNotification, resolveNotifyRecipients,
+  emitDriftNotification, resolveNotifyRecipients, shouldBuildDailyDigest,
 } from "./bridge-notifications.js";
 import * as RobinhoodAdapter from "./bridge-robinhood.js";
 import * as IbkrAdapter from "./bridge-ibkr.js";
@@ -1665,6 +1665,15 @@ export default {
 
       // ── Daily Owner Digest cron (21:30 UTC) ─────────────────────────
       if (cron === "30 21 * * *") {
+        // Weekends and market holidays produced a "0 fills / No fills or syncs
+        // today" email restating unchanged positions. Set
+        // DAILY_DIGEST_IGNORE_CALENDAR=true to send every day again.
+        const ignoreCalendar = String(env?.DAILY_DIGEST_IGNORE_CALENDAR || "false").toLowerCase() === "true";
+        const calendar = shouldBuildDailyDigest(Date.now(), { ignoreCalendar });
+        if (!calendar.send) {
+          console.log(`[DAILY_DIGEST] skipped et_date=${calendar.et_date} reason=${calendar.reason}`);
+          return;
+        }
         const dryRun = String(env?.DAILY_DIGEST_DRY_RUN || "false").toLowerCase() === "true";
         const users = await listConnectedUsers(env, 100);
         const eligible = users.filter(u => u && u.status === "connected" && u.broker_integration_enabled);

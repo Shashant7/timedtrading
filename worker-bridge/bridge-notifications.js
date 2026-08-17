@@ -26,6 +26,11 @@
 //     coalesce many tickers into ONE Mirror Sync digest email.
 
 import { listConnectedUsers, readUser } from "./bridge-storage.js";
+// Pure, no-binding calendar module shared with the main worker. Imported
+// rather than copied: the holiday tables already exist in three places with a
+// CI parity test (tests/calendar-parity.test.js) guarding them, and a fourth
+// copy in the bridge is exactly the drift that test was written to catch.
+import { isTradingDay, etDateStr } from "../worker/foundation/trading-calendar.js";
 
 /**
  * 2026-08-11 — Partner notification routing. Accounts belonging to a
@@ -416,6 +421,27 @@ function _normalizeDigestAction(row) {
     label,
     source: row.source || "unknown",
   };
+}
+
+/**
+ * Whether the daily Account digest should be built for this moment.
+ *
+ * The digest cron fires at 21:30 UTC every day, which is after the close on
+ * the same ET date — so on weekends and market holidays it produced a "0 fills
+ * / No fills or syncs today" email that only restated unchanged positions.
+ * Limiting to trading days keeps the inbox to days the account could actually
+ * have moved. Half-days still send: the market traded.
+ *
+ * Only gates the scheduled build; the admin preview route stays available so a
+ * digest can be rendered on demand any day.
+ */
+export function shouldBuildDailyDigest(nowMs = Date.now(), { ignoreCalendar = false } = {}) {
+  const etDate = etDateStr(nowMs);
+  if (ignoreCalendar) return { send: true, et_date: etDate, reason: "calendar_override" };
+  if (!isTradingDay(etDate)) {
+    return { send: false, et_date: etDate, reason: "not_a_trading_day" };
+  }
+  return { send: true, et_date: etDate, reason: "trading_day" };
 }
 
 /** BUY / SELL for a ledger row, or null when the row moves no shares. */
