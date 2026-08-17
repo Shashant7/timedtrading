@@ -91,6 +91,12 @@ export async function addIssueLabel(env, issueNumber, label) {
  * issue simply carries the agent-ready label and a human (or a scheduled
  * automation watching that label) picks it up — the label is the contract,
  * the dispatch is an accelerator.
+ *
+ * Model selection defaults to Cursor Router Auto (`auto-smart` /
+ * `optimize_for=balanced`) — the same "Auto" mode in the model picker.
+ * Override with env:
+ *   CURSOR_AGENT_MODEL          — explicit model id (skips Router)
+ *   CURSOR_AGENT_OPTIMIZE_FOR   — cost | balanced | intelligence
  */
 export async function dispatchAgent(env, { title, body, issueUrl }) {
   const key = env?.CURSOR_API_KEY;
@@ -109,13 +115,29 @@ export async function dispatchAgent(env, { title, body, issueUrl }) {
     `Follow AGENTS.md: plan in tasks/ first, flag-gate the behaviour default OFF, add unit tests pinning the cited trade, validate with a replay arm, and open a PR.`,
   ].filter(Boolean).join("\n");
 
+  const explicitModel = String(env?.CURSOR_AGENT_MODEL || "").trim();
+  const optimizeFor = String(env?.CURSOR_AGENT_OPTIMIZE_FOR || "balanced").trim().toLowerCase();
+  const model = explicitModel
+    ? { id: explicitModel }
+    : {
+        id: "auto-smart",
+        params: [{
+          id: "optimize_for",
+          value: ["cost", "balanced", "intelligence"].includes(optimizeFor) ? optimizeFor : "balanced",
+        }],
+      };
+
   try {
-    const resp = await fetch("https://api.cursor.com/v0/agents", {
+    // v1 Cloud Agents API — durable agent + run. Auth accepts Bearer or Basic.
+    const resp = await fetch("https://api.cursor.com/v1/agents", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         prompt: { text: prompt.slice(0, 20_000) },
-        source: { repository: `https://github.com/${repo}`, ref: "main" },
+        model,
+        repos: [{ url: `https://github.com/${repo}`, startingRef: "main" }],
+        autoCreatePR: true,
+        mode: "agent",
       }),
       signal: AbortSignal.timeout(20_000),
     });
@@ -124,7 +146,14 @@ export async function dispatchAgent(env, { title, body, issueUrl }) {
       return { ok: false, error: `cursor_http_${resp.status}`, detail: text.slice(0, 300) };
     }
     const data = await resp.json().catch(() => ({}));
-    return { ok: true, agent_id: data?.id || null, agent_url: data?.target?.url || data?.url || null };
+    const agent = data?.agent || data;
+    return {
+      ok: true,
+      agent_id: agent?.id || null,
+      agent_url: agent?.url || data?.target?.url || null,
+      run_id: data?.run?.id || null,
+      model,
+    };
   } catch (e) {
     const aborted = e?.name === "AbortError" || e?.name === "TimeoutError";
     return { ok: false, error: aborted ? "cursor_timeout" : String(e?.message || e).slice(0, 200) };

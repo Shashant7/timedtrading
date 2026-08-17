@@ -124,6 +124,15 @@ If `CURSOR_API_KEY` is set on the worker, filing also dispatches a
 background agent against the one-pager. Without the key the issue is
 still filed and labelled; only the automatic hand-off is skipped.
 
+Dispatch uses the **v1 Cloud Agents API** with Cursor Router **Auto**
+(`model.id = auto-smart`, `optimize_for = balanced`) and
+`autoCreatePR: true`. Override with Worker secrets/vars:
+
+| Var | Effect |
+|---|---|
+| `CURSOR_AGENT_OPTIMIZE_FOR` | `cost` / `balanced` (default) / `intelligence` |
+| `CURSOR_AGENT_MODEL` | Pin an explicit model id; skips Router Auto |
+
 Requires `GITHUB_TOKEN` (with `issues:write`) + `GITHUB_REPO`, already
 configured for the screener workflow dispatch.
 

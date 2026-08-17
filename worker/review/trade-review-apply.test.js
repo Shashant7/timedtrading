@@ -190,4 +190,80 @@ describe("dispatchAgent", () => {
     expect(res.skipped).toBe(true);
     expect(res.error).toBe("cursor_api_key_missing");
   });
+
+  it("dispatches on v1 with Cursor Router Auto (auto-smart / balanced) and autoCreatePR", async () => {
+    const { dispatchAgent } = await import("./trade-review-github.js");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        agent: { id: "bc-abc", url: "https://cursor.com/agents/bc-abc" },
+        run: { id: "run-1" },
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await dispatchAgent(
+      { CURSOR_API_KEY: "crsr_test", GITHUB_REPO: "Shashant7/timedtrading" },
+      { title: "Fix X", body: "Do the thing", issueUrl: "https://github.com/Shashant7/timedtrading/issues/1" },
+    );
+
+    expect(res.ok).toBe(true);
+    expect(res.agent_id).toBe("bc-abc");
+    expect(res.run_id).toBe("run-1");
+    expect(res.model).toEqual({
+      id: "auto-smart",
+      params: [{ id: "optimize_for", value: "balanced" }],
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.cursor.com/v1/agents");
+    const sent = JSON.parse(init.body);
+    expect(sent.model).toEqual(res.model);
+    expect(sent.autoCreatePR).toBe(true);
+    expect(sent.mode).toBe("agent");
+    expect(sent.repos).toEqual([{
+      url: "https://github.com/Shashant7/timedtrading",
+      startingRef: "main",
+    }]);
+    expect(sent.prompt.text).toContain("Fix X");
+    expect(sent.prompt.text).toContain("issues/1");
+    vi.unstubAllGlobals();
+  });
+
+  it("honours CURSOR_AGENT_MODEL / CURSOR_AGENT_OPTIMIZE_FOR overrides", async () => {
+    const { dispatchAgent } = await import("./trade-review-github.js");
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ agent: { id: "bc-x" }, run: { id: "run-x" } }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await dispatchAgent(
+      {
+        CURSOR_API_KEY: "crsr_test",
+        GITHUB_REPO: "o/r",
+        CURSOR_AGENT_OPTIMIZE_FOR: "intelligence",
+      },
+      { title: "t", body: "b" },
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toEqual({
+      id: "auto-smart",
+      params: [{ id: "optimize_for", value: "intelligence" }],
+    });
+
+    fetchMock.mockClear();
+    await dispatchAgent(
+      {
+        CURSOR_API_KEY: "crsr_test",
+        GITHUB_REPO: "o/r",
+        CURSOR_AGENT_MODEL: "claude-4.5-sonnet-thinking",
+      },
+      { title: "t", body: "b" },
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).model).toEqual({
+      id: "claude-4.5-sonnet-thinking",
+    });
+    vi.unstubAllGlobals();
+  });
 });
