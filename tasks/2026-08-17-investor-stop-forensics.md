@@ -154,7 +154,12 @@ across all 28 exits — statistically identical to the tick the engine sold at.
 
 `worker/investor-autopsy-gates.js` + `worker/investor-autopsy-gates.test.js` (22 tests).
 
-### D2 — `deep_audit_investor_weekly_st_dir_fix`
+### D2 — `deep_audit_investor_weekly_st_dir_fix` — **SHIPPED ON 2026-08-17**
+
+> Follow-up pass found this was systemic: **eight** sites in `investor.js`, not
+> two. See §11 for the full list, the measured blast radius, and the live
+> post-deploy verification. It now ships ON as a defect fix; the flag is a kill
+> switch.
 
 A genuine bug with two independent failure modes. Producer, `worker/indicators.js`:
 
@@ -310,6 +315,87 @@ Buying a 25-48% premium and then placing a 4-12% stop under it is a structural
 mismatch. But n=7 with no closed outcomes — do not gate on this yet. What would
 settle it: `entry_provenance_json` on >= 40 closed positions, or a replay that
 backfills the provenance blob for the 38 positions that lack it.
+
+---
+
+## 11. Follow-up pass — the weekly SuperTrend defect was systemic (2026-08-17)
+
+Operator direction: fix the genuine bugs and be ready for the open; hold the
+tuning. Re-auditing every `atr.xs` consumer found the defect in **eight**
+places in `investor.js`, not two — and found that the SHORT-TERM lane already
+reads the field correctly, which is what makes it provable:
+
+```js
+// worker/index.js:22240-22241 — CORRECT
+const st4HBear = st4HFlip?.x === "bear" || st4HFlip?.xs === 1;
+const st4HBull = st4HFlip?.x === "bull" || st4HFlip?.xs === -1;
+```
+
+Every `investor.js` site had it backwards, each with a comment asserting a
+`"STANDARD convention: +1=bull"` that the producer does not implement.
+
+| Site | What was wrong |
+|---|---|
+| `computeInvestorScore` weeklyTrend | `+8` on `xs===1` / `-4` on `xs===-1` — inverted AND flip-only, so the 8-point weekly SuperTrend term never contributed |
+| `computeInvestorScore` trendDurability | same field; **0 on all 302 scored names** |
+| `classifyInvestorStage` `score < 30 && wStDir !== 1` | `undefined !== 1` is always true, so the reduce fired purely on score. Fixing it means **strictly fewer** reduces |
+| `classifyInvestorStage` `weekly_supertrend_bearish` | dead on live data; when it did fire, it fired on a **bullish** flip |
+| `detectAccumulationZone` momentum-runner | 14 confidence points for `weekly_supertrend_bull` that could never be awarded |
+| `generateThesis` | why the Weekly SuperTrend line is in **0 of 13** recorded entry-provenance blobs |
+| `checkThesisHealth` ×2 | reported "flipped bearish" on a bullish flip — dead code (imported into `index.js`, never called) |
+
+All eight now route through one resolver in
+`worker/investor-autopsy-gates.js`. `weeklySupertrendBear` is deliberately not
+`!weeklySupertrendBull`: unknown must not read as bearish, because
+`weekly_supertrend_bearish` is in `IMMEDIATE_INVESTOR_REDUCE_REASONS` and skips
+`reduce_trim_min_sessions`, so missing data must never mean "sell". Pinned by
+test.
+
+`investor.js:651` is deliberately untouched — it uses `atr.xs` as a fallback for
+`stDir` and reads the result as Pine (`is4hBull: stDir === -1`), which is
+correct because `atr.xs` preserves `stDir`'s sign.
+
+### Measured before shipping (legacy vs fixed, real `timed:latest:*` payloads)
+
+- **Scores**: mean **+16.7** on the open book. Weekly-bull +18..+25;
+  weekly-bear (FN, IONQ) **−4**. That is the discrimination the component was
+  supposed to provide and never did.
+- **Stages**: across the top 30 unowned candidates, `accumulate` count is
+  **0 before and 0 after, zero stage flips**. Stage is governed by the
+  accumulation-zone / exhaustion / timing gates, not the raw score threshold.
+  All 17 open positions stay `watch`/`reduce`. Deployment is separately capped
+  at `max_new_positions_per_day = 3`.
+- **Stops**: only **IWM** changes — from a `"12% trailing stop"` percentage
+  fallback to a real Weekly SuperTrend level at $279.49 (8.4% cushion).
+  CAT/PWR/TJX gain a candidate *below* their existing floor, so unchanged.
+  Nothing tightened into the hair-trigger band.
+- **New reduce triggers**: **0 of 17** would newly fire
+  `weekly_supertrend_bearish` — all 17 have a bullish monthly and the predicate
+  requires monthly *not* bull. IONQ picks up `rs_rank_declining`, which is
+  structural not immediate, so it needs 2 consecutive reduce sessions to trim.
+
+### Live post-deploy verification
+
+Deployed to monolith (default + production), `tt-engine` and `tt-research`.
+`GET /timed/investor/ticker` against the deployed worker matched the local
+simulation exactly:
+
+| | weeklyTrend | trendDurability | score | `weekly_supertrend_bull` signal |
+|---|---|---|---|---|
+| PANW (weekly bull) | 13 → **21** | 0 → **10** | 72 → **92** | now present |
+| FN (weekly bear) | 13 → **9** | 0 (correct) | 47 → **43** | correctly absent |
+
+`investor-session` is inactive at UTC hour 4, so the first full recompute lands
+on the 08:00 UTC hourly cron — about 5.5 hours before the open.
+
+### Open follow-up: re-center the thresholds
+
+`accumulate_strong_score_min` (60) and `auto_init_min_score` (65) were
+calibrated against a distribution with these components dead. Restoring ~20
+points to weekly-bullish names widens what they admit. It changes nothing
+measurable today (zero stage flips; only 3 positions/day can open regardless),
+but they should be re-centered deliberately rather than left where a broken
+score put them.
 
 ---
 
