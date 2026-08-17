@@ -64,6 +64,17 @@
       [2026-08-15-july-st-autopsy-feedback.md](2026-08-15-july-st-autopsy-feedback.md).
       Awaiting operator confirmation before implementing; more July
       feedback batches incoming. Branch: `cursor/july-st-autopsy-patterns-dbdd`.
+      **Batch 5 (2026-08-16, merged PR #1261)**: struct stop guard +
+      n-test confirm + forming divergence — armed in prod for Monday.
+      **Batch 6 (2026-08-17, PR #1262)**: LTF structure confirmation
+      gate (`deep_audit_ja_ltf_structure_confirm`) — blocks LONG
+      ATH-breakout/support-bounce into a broken 15m+30m tape unless
+      washed out (RSI ≤ 32); pinned 6/6 on DE/WM Jul + SN/PH/RTX Aug
+      snapshots; replay Arm L no-harm Jul+Aug; prod flag staged (inert
+      until merge). **August autopsy books loaded**:
+      `live-short-term-2026-08` (31 trades) +
+      `live-long-term-2026-08` (6 positions) — awaiting operator
+      grading. Branch: `cursor/ltf-structure-confirm-dbdd`.
 - [x] **Macro Minute YouTube ingest (2026-08-13).** PR #1232 merged; `YOUTUBE_API_KEY` live on monolith + tt-research. First run `discovered:0` because discovery used leftover `@fundstrat` (1 video). Live channel is `@Fundstrat_Direct`; last 50 uploads + search have **no current Macro Minute** (daily MM is FSD/Vimeo). PR #718 stays **closed**. Follow-up: [#1234](https://github.com/Shashant7/timedtrading/pull/1234).
 - [x] **Broker Connections second pass (2026-08-13).** Operator asked for
       Robinhood-level polish + two bug fixes. Fixed: (1) AXON spurious
