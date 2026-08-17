@@ -39,14 +39,25 @@ All flags live in `model_config` (D1 `timed-trading-ledger`).
 | `trade_review_github_enabled` | `false` | allow filing one-pagers as issues |
 
 ```bash
-cd worker && ../node_modules/.bin/wrangler d1 execute timed-trading-ledger --remote \
-  --command "INSERT INTO model_config (config_key, config_value, updated_at)
-             VALUES ('trade_review_enabled','true',strftime('%s','now')*1000)
-             ON CONFLICT(config_key) DO UPDATE SET config_value='true'"
+curl -sX POST "$WORKER_URL/timed/admin/model-config?key=$TIMED_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"updates":[{"key":"trade_review_enabled","value":"true"}]}'
 ```
+
+Every one of these keys must also appear in `REPLAY_DA_KEYS`
+(`worker/replay-runtime-setup.js`). That allowlist is what the live
+scoring cron loads into `env._deepAuditConfig`; a key missing from it is
+invisible to the engine no matter what `model_config` says. Admin HTTP
+requests and the 22:00 cron do not load that config at all, which is why
+every reviewer entry point calls `loadTradeReviewConfig(env)` first.
 
 Enqueueing is a single D1 insert on the ledger path — **no LLM runs
 during a trade**. Reviews happen on the nightly drain or on demand.
+
+**Live as of 2026-08-17:** `trade_review_enabled`, `trade_review_auto_run`
+and `trade_review_github_enabled` are `true` in production with
+`trade_review_batch=12`. Backfilled 64 legs across the last 21 days of
+live trades; all 64 graded.
 
 ---
 
@@ -140,6 +151,18 @@ configured for the screener workflow dispatch.
 - **The dominant move may start after the exit.** "Captured 49% of the
   move" reads very differently when the move began once we were flat. The
   prompt distinguishes the two cases explicitly.
+- **The model swaps `grade` and `verdict`.** In the first production drain,
+  17 of 25 reviews came back with a verdict code sitting in `grade` and a
+  sentence in `verdict`, so both fields normalised to null. The prompt now
+  spells out that grade is a letter and verdict is a code, and
+  `normalizeReviewPayload` salvages a verdict found in the grade field and
+  folds `B+`/`C-` down to `B`/`C`. When either field still ends up null the
+  raw values are kept in `analysis._raw` — check there first.
+- **A review row with `status='reviewed'` is not proof it worked.** Grade
+  and verdict can both be null on a "successful" review. After any prompt
+  or model change, re-drain and count nulls:
+  `SELECT COUNT(*) FROM trade_reviews WHERE status='reviewed' AND (grade IS NULL OR verdict IS NULL)`.
+  Reset those rows to `pending` and drain again.
 
 ---
 
