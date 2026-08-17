@@ -68988,11 +68988,20 @@ export default {
           // If we have an archive run_id, read from the immutable backtest_run_trades archive
           if (archiveRunId) {
             // Investor / long-term autopsy books include OPEN rows (opened-in-month
-            // grading). Trader archives still hide OPEN unless include_open=1.
+            // grading). Trader archives still hide OPEN unless include_open=1 or
+            // the book itself was archived with the include_open tag — a live
+            // month like live-short-term-2026-08 is 12/31 still open and the
+            // operator is grading those entries right now.
             const includeOpenParam = url.searchParams.get("include_open");
+            let _archiveTags = null;
+            try {
+              const _tagRow = await db.prepare(`SELECT tags_json FROM backtest_runs WHERE run_id = ?1`).bind(archiveRunId).first();
+              _archiveTags = parseJSONSafe(_tagRow?.tags_json, null);
+            } catch (_) { /* tags are advisory */ }
             const includeOpen = shouldIncludeOpenAutopsyTrades({
               runId: archiveRunId,
               includeOpen: includeOpenParam === "1" || includeOpenParam === "true",
+              tags: Array.isArray(_archiveTags) ? _archiveTags : [],
             });
             const statusSql = includeOpen
               ? `brt.status IS NULL OR brt.status NOT IN ('TP_HIT_TRIM')`

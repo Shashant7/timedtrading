@@ -65,6 +65,17 @@ describe("investor-autopsy-archive", () => {
     expect(snap.tf.D.signals.ema_cross).toBe(1);
   });
 
+  it("honours the include_open tag on live trader books", () => {
+    expect(shouldIncludeOpenAutopsyTrades({
+      runId: "live-short-term-2026-08",
+      tags: ["trader", "short_term", "trade-autopsy", "2026-08", "include_open", "live"],
+    })).toBe(true);
+    expect(shouldIncludeOpenAutopsyTrades({
+      runId: "live-short-term-2026-08",
+      tags: ["trader", "short_term"],
+    })).toBe(false);
+  });
+
   it("maps entry_provenance_json into signal_snapshot_json", () => {
     const trade = mapInvestorPositionToAutopsyTrade(
       {

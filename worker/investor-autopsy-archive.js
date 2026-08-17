@@ -32,7 +32,10 @@ export function shouldIncludeOpenAutopsyTrades({ runId, includeOpen, tags } = {}
   if (includeOpen === true || includeOpen === 1 || includeOpen === "1") return true;
   if (isInvestorAutopsyRunId(runId)) return true;
   const tagList = Array.isArray(tags) ? tags : [];
-  if (tagList.some((t) => String(t).toLowerCase() === "investor" || String(t).toLowerCase() === "long_term")) {
+  // include_open is how a live trader month says "these positions are still
+  // running and I want to grade their entries anyway".
+  const OPEN_TAGS = new Set(["investor", "long_term", "include_open"]);
+  if (tagList.some((t) => OPEN_TAGS.has(String(t).trim().toLowerCase()))) {
     return true;
   }
   return false;
