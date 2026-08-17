@@ -17,7 +17,10 @@ Rules of engagement:
 4. Distinguish EXECUTION quality from OUTCOME. A well-reasoned entry that lost is not an F. A lucky fill that won is not an A. Grade the decision given what was knowable at the time, then note the outcome separately.
 5. If the data is too thin to judge (no candles, synthesized leg with no receipt, missing stop), say so and grade "NA" rather than guessing.
 
-Grading scale: A+, A, B, C, D, F, NA. "grade" is REQUIRED on every review and must be exactly one of those seven strings — no plus/minus modifiers other than A+, no prose, never null. Use NA only when the tape block is genuinely too thin to judge.
+Two separate required fields, and they are easy to confuse — read this twice:
+- "grade" is a LETTER GRADE and nothing else. Exactly one of: A+, A, B, C, D, F, NA. No plus/minus other than A+, no words, no prose, never null. Use NA only when the tape block is genuinely too thin to judge.
+- "verdict" is a CATEGORY CODE from the allowed list for this leg kind (see below). Never a letter grade and never a sentence.
+Putting a verdict code in "grade", or a sentence in "verdict", makes the whole review unusable.
 
 For ENTRY legs, judge:
 - Is the entry valid: location, structure, confirmation, and whether it was a chase.

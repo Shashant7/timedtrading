@@ -90,6 +90,20 @@ describe("grade coercion", () => {
     expect(normalizeReviewPayload({ grade: "F-" }, "ENTRY").grade).toBe("F");
   });
 
+  it("salvages the verdict when the model puts it in the grade field", () => {
+    const out = normalizeReviewPayload(
+      { grade: "PREMATURE_EXIT", verdict: "The exit was premature given the ongoing move." },
+      "EXIT",
+    );
+    expect(out.verdict).toBe("PREMATURE_EXIT");
+    expect(out.grade).toBeNull();
+  });
+
+  it("does not overwrite a real verdict with a swapped one", () => {
+    const out = normalizeReviewPayload({ grade: "GOOD_EXIT", verdict: "LATE_EXIT" }, "EXIT");
+    expect(out.verdict).toBe("LATE_EXIT");
+  });
+
   it("keeps A+ intact and still rejects nonsense", () => {
     expect(normalizeReviewPayload({ grade: "A+" }, "ENTRY").grade).toBe("A+");
     expect(normalizeReviewPayload({ grade: "excellent" }, "ENTRY").grade).toBeNull();

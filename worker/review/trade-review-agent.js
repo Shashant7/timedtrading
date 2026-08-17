@@ -189,11 +189,21 @@ export function normalizeReviewPayload(raw, legKind) {
   };
   if (!raw || typeof raw !== "object") return out;
 
-  out.grade = coerceGrade(raw.grade);
-
-  const verdict = String(raw.verdict || "").toUpperCase().trim();
   const allowed = VALID_VERDICTS[String(legKind || "").toUpperCase()] || null;
-  out.verdict = allowed && allowed.has(verdict) ? verdict : null;
+  const asVerdict = (v) => {
+    const s = String(v ?? "").toUpperCase().trim();
+    return allowed && allowed.has(s) ? s : null;
+  };
+
+  out.grade = coerceGrade(raw.grade);
+  out.verdict = asVerdict(raw.verdict);
+
+  // Models routinely put the verdict code in "grade" and prose in "verdict".
+  // Salvage that rather than throwing away both fields.
+  if (!out.grade && !out.verdict) {
+    const swapped = asVerdict(raw.grade);
+    if (swapped) out.verdict = swapped;
+  }
 
   const str = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
   out.headline = str(raw.headline, 200);
@@ -265,7 +275,13 @@ async function callReviewModel(env, { system, user, model, timeoutMs = 45_000 })
     try { parsed = JSON.parse(content); } catch {
       return { ok: false, error: "unparseable_json", detail: String(content).slice(0, 300), latency_ms: Date.now() - started };
     }
-    return { ok: true, payload: parsed, latency_ms: Date.now() - started, usage: data?.usage || null };
+    return {
+      ok: true,
+      payload: parsed,
+      finish_reason: data?.choices?.[0]?.finish_reason || null,
+      latency_ms: Date.now() - started,
+      usage: data?.usage || null,
+    };
   } catch (e) {
     const aborted = e?.name === "AbortError";
     return { ok: false, error: aborted ? "timeout" : String(e?.message || e).slice(0, 200), latency_ms: Date.now() - started };
@@ -330,6 +346,16 @@ export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq =
   }
 
   const analysis = normalizeReviewPayload(llm.payload, kind);
+  // A review with no grade or no verdict is close to useless, and the only
+  // way to tell whether the model omitted the field or emitted something out
+  // of contract is to keep what it actually said.
+  if (analysis.grade == null || analysis.verdict == null) {
+    analysis._raw = {
+      grade: llm.payload?.grade ?? null,
+      verdict: llm.payload?.verdict ?? null,
+      finish_reason: llm.finish_reason || null,
+    };
+  }
   const now = Date.now();
   try {
     await env.DB.prepare(
