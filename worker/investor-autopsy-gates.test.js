@@ -13,47 +13,67 @@ import {
 const ON = (k, extra = {}) => ({ [k]: "true", ...extra });
 
 describe("weeklySupertrendBull (D2 — atr.xs is flip-only and sign-mirrored)", () => {
-  it("is a no-op when the flag is off: legacy reads atr.xs === 1", () => {
-    expect(weeklySupertrendBull({ tfW: { atr: { xs: 1 } }, daCfg: null })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: { atr: { xs: -1 } }, daCfg: null })).toBe(false);
-    // The live shape: no flip bar, so atr carries band labels but no xs.
-    expect(weeklySupertrendBull({ tfW: { stDir: -1, atr: { s: "up", lo: "0.5" } }, daCfg: null })).toBe(false);
+  const OFF = { deep_audit_investor_weekly_st_dir_fix: "false" };
+
+  it("ships ON: an unset config gets the corrected reading, not the legacy one", () => {
+    // Pine convention: -1 = bull.
+    expect(weeklySupertrendBull({ tfW: { stDir: -1 }, daCfg: null })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: { stDir: 1 }, daCfg: null })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: { stDir: -1 }, daCfg: {} })).toBe(true);
   });
 
-  it("reads the persistent stDir when armed (Pine convention: -1 = bull)", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
-    expect(weeklySupertrendBull({ tfW: { stDir: -1 }, daCfg: cfg })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: { stDir: 1 }, daCfg: cfg })).toBe(false);
+  it("the kill switch restores the legacy atr.xs === 1 reading", () => {
+    expect(weeklySupertrendBull({ tfW: { atr: { xs: 1 } }, daCfg: OFF })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: { atr: { xs: -1 } }, daCfg: OFF })).toBe(false);
+    // Legacy on the live shape: no flip bar, so no xs, so always false.
+    expect(weeklySupertrendBull({ tfW: { stDir: -1, atr: { s: "up", lo: "0.5" } }, daCfg: OFF })).toBe(false);
   });
 
-  it("corrects the inversion: xs === 1 was reported bullish but means stDir >= 0", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
+  it("corrects the inversion: xs === 1 was read as bullish but means stDir >= 0", () => {
     // Producer: atr.xs = stDir < 0 ? -1 : 1. A bearish weekly (stDir=+1)
     // therefore emits xs=+1, which the legacy consumer scored as bullish.
     const bearishWeeklyOnAFlipBar = { stDir: 1, atr: { xs: 1 } };
-    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: null })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: cfg })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: OFF })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: null })).toBe(false);
   });
 
   it("recovers the reading on a non-flip bar, where legacy always scored 0", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
     // This is the shape on ~every live pass: no stFlip, so no atr.xs at all.
+    // Verified 2026-08-17: undefined on all 17 open positions.
     const tfW = { stDir: -1, atr: { s: "up", lo: "1.0", hi: "1.5" } };
-    expect(weeklySupertrendBull({ tfW, daCfg: null })).toBe(false);
-    expect(weeklySupertrendBull({ tfW, daCfg: cfg })).toBe(true);
+    expect(weeklySupertrendBull({ tfW, daCfg: OFF })).toBe(false);
+    expect(weeklySupertrendBull({ tfW, daCfg: null })).toBe(true);
   });
 
   it("falls back to the weekly bundle when tf_tech has no usable stDir", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
-    expect(weeklySupertrendBull({ tfW: { stDir: 0 }, wb: { supertrend_dir: -1 }, daCfg: cfg })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: null, wb: { supertrend_dir: 1 }, daCfg: cfg })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: { stDir: 0 }, wb: { supertrend_dir: -1 }, daCfg: null })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: null, wb: { supertrend_dir: 1 }, daCfg: null })).toBe(false);
   });
 
   it("returns false rather than throwing when everything is missing", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
-    expect(weeklySupertrendBull({ daCfg: cfg })).toBe(false);
-    expect(weeklySupertrendBull({ tfW: {}, wb: {}, daCfg: cfg })).toBe(false);
+    expect(weeklySupertrendBull({ daCfg: null })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: {}, wb: {} })).toBe(false);
     expect(weeklySupertrendBull({})).toBe(false);
+  });
+
+  it("matches the live book: 15 of 17 open positions read bullish once fixed", () => {
+    // W.stDir / weekly_bundle.supertrend_dir pulled from timed:latest:<T>
+    // on 2026-08-17. atr.xs was undefined on every one of them.
+    const book = {
+      PANW: -1, PLTR: -1, CF: -1, TSM: -1, DE: -1, GE: -1, CAT: -1, PWR: -1,
+      FN: 1, KO: -1, NVDA: -1, TJX: -1, WTS: -1, IONQ: 1, BNY: -1, ANET: -1, IWM: -1,
+    };
+    const legacy = [];
+    const fixed = [];
+    for (const [t, stDir] of Object.entries(book)) {
+      const tfW = { stDir, atr: { s: "up", lo: "0.5" } }; // no xs — not a flip bar
+      if (weeklySupertrendBull({ tfW, daCfg: OFF })) legacy.push(t);
+      if (weeklySupertrendBull({ tfW, daCfg: null })) fixed.push(t);
+    }
+    expect(legacy).toEqual([]);
+    expect(fixed).toHaveLength(15);
+    expect(fixed).not.toContain("FN");
+    expect(fixed).not.toContain("IONQ");
   });
 });
 
