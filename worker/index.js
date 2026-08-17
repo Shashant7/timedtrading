@@ -527,7 +527,7 @@ import { executeCandleReplayBatches } from "./replay-candle-batches.js";
 import { createCandleReplayStep } from "./replay-candle-step.js";
 import { createIntervalReplayStep } from "./replay-interval-step.js";
 import { closeReplayPositionsAtDate, parseQueryBool, resetReplayState } from "./replay-admin-helpers.js";
-import { finalizeBacktestRun, summarizeRunMetrics, validateSentinelBasket } from "./backtest-run-archive-helpers.js";
+import { finalizeBacktestRun, summarizeRunMetrics, validateSentinelBasket, backfillMissingRunTradeCounts } from "./backtest-run-archive-helpers.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -684,6 +684,27 @@ import {
   exhaustTrimMinProfitPct as jaExhaustTrimMinProfitPct,
   structStopCushion as jaStructStopCushion,
 } from "./july-autopsy-gates.js";
+/* Trade Review Agent (2026-08-17) — independent per-leg grading of every
+   ENTRY / TRIM / EXIT. The enqueue is a single D1 insert on the ledger
+   path; the LLM runs from the cron drain or the admin page. See
+   tasks/2026-08-17-trade-review-agent.md. */
+import {
+  enqueueTradeReview as enqueueTradeReviewLeg,
+  enqueueTradeLegs,
+  runTradeReview,
+  drainTradeReviewQueue,
+  tradeReviewEnabled,
+  tradeReviewAutoRun,
+  loadTradeReviewConfig,
+  normalizeReviewPayload as normalizeTradeReviewPayload,
+} from "./review/trade-review-agent.js";
+import { ensureTradeReviewSchema } from "./review/trade-review-schema.js";
+import {
+  applyTradeReview,
+  mergeOperatorPatch,
+  loadExecMemos,
+} from "./review/trade-review-apply.js";
+import { fileProposal as fileTradeReviewProposal } from "./review/trade-review-github.js";
 import * as EtfProfile from "./etf-profile.js";
 import * as ClusterThrottle from "./phase-c-cluster-throttle.js";
 /* 2026-05-22 — Markov regime framework. Tier 1.1 / 1.2 / 4.7 / 4.8 of
@@ -1917,6 +1938,15 @@ const ROUTES = [
   // account_ledger TRIM row + cascades the balance forward.
   ["POST", "/timed/admin/trade-autopsy/correct-trim", "POST /timed/admin/trade-autopsy/correct-trim"],
   ["POST", "/timed/admin/trade-autopsy/reverse-trim", "POST /timed/admin/trade-autopsy/reverse-trim"],
+  // Trade Review Agent (2026-08-17) — independent per-leg grading desk.
+  ["GET", "/timed/admin/trade-review/trades", "GET /timed/admin/trade-review/trades"],
+  ["GET", "/timed/admin/trade-review/detail", "GET /timed/admin/trade-review/detail"],
+  ["POST", "/timed/admin/trade-review/enqueue", "POST /timed/admin/trade-review/enqueue"],
+  ["POST", "/timed/admin/trade-review/run", "POST /timed/admin/trade-review/run"],
+  ["POST", "/timed/admin/trade-review/decide", "POST /timed/admin/trade-review/decide"],
+  ["GET", "/timed/admin/trade-review/proposals", "GET /timed/admin/trade-review/proposals"],
+  ["POST", "/timed/admin/trade-review/proposal/file", "POST /timed/admin/trade-review/proposal/file"],
+  ["GET", "/timed/admin/exec-memos", "GET /timed/admin/exec-memos"],
   // 2026-05-27 (PR #321): nuke a ticker entirely — closes/deletes all
   // open trades + positions + lots + execution_actions + trade_events +
   // account_ledger rows, removes from universe overlay, blocks future
@@ -42740,10 +42770,49 @@ async function d1InsertTradeEvent(env, tradeId, event, ctx = {}) {
       ticker: ctx.trade?.ticker || ctx.tickerData?.ticker || event.ticker || null,
     }).catch(() => {});
 
+    // ── Trade Review Agent queue ───────────────────────────────────────
+    // One cheap INSERT marking this leg as needing an independent review.
+    // No LLM on this path: the reviewer runs later from the cron drain or
+    // an operator's "Review now", so a slow model can never delay a fill.
+    // Live only — replay legs would flood the queue with synthetic trades.
+    if (!env._isReplay) await loadTradeReviewConfig(env).catch(() => {});
+    if (!env._isReplay && tradeReviewEnabled(env)) {
+      const _trLegKind = String(type || "").toUpperCase();
+      if (["ENTRY", "TRIM", "EXIT", "SCALE_IN"].includes(_trLegKind)) {
+        await enqueueTradeReviewLeg(env, {
+          tradeId,
+          ticker: ctx.trade?.ticker || ctx.tickerData?.ticker || event.ticker || null,
+          direction: ctx.trade?.direction || event.direction || null,
+          legKind: _trLegKind === "SCALE_IN" ? "ENTRY" : _trLegKind,
+          legSeq: await _tradeReviewNextSeq(env, tradeId, _trLegKind === "SCALE_IN" ? "ENTRY" : _trLegKind),
+          eventId,
+          ts,
+          price: event.price != null ? Number(event.price) : null,
+          qtyPct: qtyPctDelta ?? null,
+        }).catch(() => {});
+      }
+    }
+
     return { ok: true, event_id: eventId };
   } catch (err) {
     console.error(`[D1 LEDGER] Trade event insert failed for ${tradeId}:`, err);
     return { ok: false, error: String(err) };
+  }
+}
+
+/**
+ * Next leg sequence for a (trade, leg kind) pair. Repeated trims each get
+ * their own review row; a re-fired event for a leg we already queued
+ * resolves to the same review_id and updates in place.
+ */
+async function _tradeReviewNextSeq(env, tradeId, legKind) {
+  try {
+    const row = await env?.DB?.prepare(
+      `SELECT COUNT(*) AS n FROM trade_reviews WHERE trade_id = ?1 AND leg_kind = ?2`
+    ).bind(String(tradeId), String(legKind)).first();
+    return Math.max(0, Number(row?.n) || 0);
+  } catch {
+    return 0;
   }
 }
 
@@ -68919,11 +68988,20 @@ export default {
           // If we have an archive run_id, read from the immutable backtest_run_trades archive
           if (archiveRunId) {
             // Investor / long-term autopsy books include OPEN rows (opened-in-month
-            // grading). Trader archives still hide OPEN unless include_open=1.
+            // grading). Trader archives still hide OPEN unless include_open=1 or
+            // the book itself was archived with the include_open tag — a live
+            // month like live-short-term-2026-08 is 12/31 still open and the
+            // operator is grading those entries right now.
             const includeOpenParam = url.searchParams.get("include_open");
+            let _archiveTags = null;
+            try {
+              const _tagRow = await db.prepare(`SELECT tags_json FROM backtest_runs WHERE run_id = ?1`).bind(archiveRunId).first();
+              _archiveTags = parseJSONSafe(_tagRow?.tags_json, null);
+            } catch (_) { /* tags are advisory */ }
             const includeOpen = shouldIncludeOpenAutopsyTrades({
               runId: archiveRunId,
               includeOpen: includeOpenParam === "1" || includeOpenParam === "true",
+              tags: Array.isArray(_archiveTags) ? _archiveTags : [],
             });
             const statusSql = includeOpen
               ? `brt.status IS NULL OR brt.status NOT IN ('TP_HIT_TRIM')`
@@ -69214,6 +69292,361 @@ export default {
       // Archive investor positions opened in a month into backtest_run_trades for Trade Autopsy.
       // Body: { run_id, month: "YYYY-MM", include_open?: true, trades?: [...], source?: string }
       // If `trades` is omitted, loads from this env's investor_positions by first_entry_ts.
+      // ────────────────────────────────────────────────────────────────
+      // TRADE REVIEW AGENT (2026-08-17)
+      // Independent per-leg grading desk. See
+      // tasks/2026-08-17-trade-review-agent.md.
+      // ────────────────────────────────────────────────────────────────
+
+      // GET /timed/admin/trade-review/trades — trades with their leg reviews
+      //   ?status=pending|reviewed|approved|modified|rejected|undecided
+      //   ?ticker=NVDA  ?limit=100  ?days=30
+      if (routeKey === "GET /timed/admin/trade-review/trades") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const limit = Math.max(1, Math.min(400, Number(url.searchParams.get("limit")) || 150));
+          const days = Math.max(1, Math.min(365, Number(url.searchParams.get("days")) || 60));
+          const tickerFilter = String(url.searchParams.get("ticker") || "").trim().toUpperCase();
+          const statusFilter = String(url.searchParams.get("status") || "").trim().toLowerCase();
+          const sinceTs = Date.now() - days * 86_400_000;
+
+          const where = ["r.leg_ts >= ?1"];
+          const binds = [sinceTs];
+          if (tickerFilter) { binds.push(tickerFilter); where.push(`r.ticker = ?${binds.length}`); }
+          if (statusFilter === "undecided") {
+            where.push(`r.status IN ('pending','reviewed','error')`);
+          } else if (statusFilter) {
+            binds.push(statusFilter); where.push(`r.status = ?${binds.length}`);
+          }
+          binds.push(limit);
+
+          const { results } = await db.prepare(
+            `SELECT r.review_id, r.trade_id, r.ticker, r.direction, r.leg_kind, r.leg_seq,
+                    r.leg_ts, r.leg_price, r.leg_qty_pct, r.status, r.grade, r.verdict,
+                    r.success_prob, r.headline, r.capture_json, r.model, r.error,
+                    r.operator_note, r.decided_by, r.decided_at, r.updated_at,
+                    t.setup_name, t.setup_grade, t.entry_path, t.status AS trade_status,
+                    t.entry_ts, t.entry_price, t.exit_ts, t.exit_price, t.exit_reason,
+                    t.pnl, t.pnl_pct, t.shares
+               FROM trade_reviews r
+               LEFT JOIN trades t ON t.trade_id = r.trade_id
+              WHERE ${where.join(" AND ")}
+              ORDER BY r.leg_ts DESC
+              LIMIT ?${binds.length}`
+          ).bind(...binds).all();
+
+          // Roll legs up under their trade so the UI renders one row per
+          // trade with its legs nested underneath.
+          const byTrade = new Map();
+          for (const r of (results || [])) {
+            if (!byTrade.has(r.trade_id)) {
+              byTrade.set(r.trade_id, {
+                trade_id: r.trade_id,
+                ticker: r.ticker,
+                direction: r.direction,
+                setup_name: r.setup_name || null,
+                setup_grade: r.setup_grade || null,
+                entry_path: r.entry_path || null,
+                trade_status: r.trade_status || null,
+                entry_ts: r.entry_ts ?? null,
+                entry_price: r.entry_price ?? null,
+                exit_ts: r.exit_ts ?? null,
+                exit_price: r.exit_price ?? null,
+                exit_reason: r.exit_reason || null,
+                pnl: r.pnl ?? null,
+                pnl_pct: r.pnl_pct ?? null,
+                legs: [],
+              });
+            }
+            let capture = null;
+            try { capture = r.capture_json ? JSON.parse(r.capture_json) : null; } catch { /* ignore */ }
+            byTrade.get(r.trade_id).legs.push({
+              review_id: r.review_id, leg_kind: r.leg_kind, leg_seq: r.leg_seq,
+              leg_ts: r.leg_ts, leg_price: r.leg_price, leg_qty_pct: r.leg_qty_pct,
+              status: r.status, grade: r.grade, verdict: r.verdict,
+              success_prob: r.success_prob, headline: r.headline, model: r.model,
+              error: r.error, operator_note: r.operator_note, decided_by: r.decided_by,
+              decided_at: r.decided_at, updated_at: r.updated_at,
+              capture_summary: capture ? {
+                realized_pct: capture.realized_pct ?? null,
+                mfe_pct: capture.mfe_pct ?? null,
+                mae_pct: capture.mae_pct ?? null,
+                capture_ratio: capture.capture_ratio ?? null,
+                big_move_pct: capture.big_move?.pct ?? null,
+                big_move_capture_ratio: capture.big_move_capture_ratio ?? null,
+                post_exit_pct: capture.post_exit_pct ?? null,
+              } : null,
+            });
+          }
+          const trades = Array.from(byTrade.values()).map((t) => ({
+            ...t,
+            legs: t.legs.sort((a, b) => (a.leg_ts || 0) - (b.leg_ts || 0)),
+          })).sort((a, b) => (b.entry_ts || 0) - (a.entry_ts || 0));
+
+          const counts = await db.prepare(
+            `SELECT status, COUNT(*) AS n FROM trade_reviews GROUP BY status`
+          ).all().catch(() => ({ results: [] }));
+
+          return sendJSON({
+            ok: true,
+            enabled: tradeReviewEnabled(env),
+            count: trades.length,
+            leg_count: (results || []).length,
+            status_counts: Object.fromEntries((counts?.results || []).map((c) => [c.status, c.n])),
+            trades,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trade-review/detail?review_id=... — full review
+      if (routeKey === "GET /timed/admin/trade-review/detail") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const reviewId = String(url.searchParams.get("review_id") || "").trim();
+          if (!reviewId) return sendJSON({ ok: false, error: "review_id_required" }, 400, corsHeaders(env, req));
+          const row = await db.prepare(`SELECT * FROM trade_reviews WHERE review_id = ?1`)
+            .bind(reviewId).first();
+          if (!row) return sendJSON({ ok: false, error: "review_not_found" }, 404, corsHeaders(env, req));
+          const safeParse = (raw) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+          const { results: proposals } = await db.prepare(
+            `SELECT proposal_id, kind, title, status, github_issue_number, github_url,
+                    github_error, agent_dispatched_at, created_at
+               FROM trade_review_proposals WHERE review_id = ?1 ORDER BY created_at DESC`
+          ).bind(reviewId).all().catch(() => ({ results: [] }));
+          return sendJSON({
+            ok: true,
+            review: {
+              ...row,
+              capture: safeParse(row.capture_json),
+              context: safeParse(row.context_json),
+              analysis: safeParse(row.analysis_json),
+              operator_patch: safeParse(row.operator_patch_json),
+              applied: safeParse(row.applied_json),
+            },
+            proposals: proposals || [],
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-review/enqueue — body { trade_id } or { days }
+      // Backfills review rows for trades that predate the ledger hook.
+      if (routeKey === "POST /timed/admin/trade-review/enqueue") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const body = await req.json().catch(() => ({}));
+          const tradeId = String(body?.trade_id || "").trim();
+          if (tradeId) {
+            const res = await enqueueTradeLegs(env, tradeId);
+            return sendJSON({ ok: res.ok, ...res }, res.ok ? 200 : 404, corsHeaders(env, req));
+          }
+          const days = Math.max(1, Math.min(180, Number(body?.days) || 30));
+          const limit = Math.max(1, Math.min(200, Number(body?.limit) || 50));
+          const since = Date.now() - days * 86_400_000;
+          const { results } = await db.prepare(
+            `SELECT trade_id FROM trades WHERE entry_ts >= ?1 ORDER BY entry_ts DESC LIMIT ?2`
+          ).bind(since, limit).all();
+          let queued = 0;
+          let trades = 0;
+          for (const r of (results || [])) {
+            const res = await enqueueTradeLegs(env, r.trade_id);
+            if (res.ok) { queued += res.queued || 0; trades += 1; }
+          }
+          return sendJSON({ ok: true, trades, queued, days }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-review/run — body { review_id } | { drain: true, limit }
+      if (routeKey === "POST /timed/admin/trade-review/run") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await loadTradeReviewConfig(env);
+          const body = await req.json().catch(() => ({}));
+          if (body?.drain === true || body?.drain === "true") {
+            const res = await drainTradeReviewQueue(env, { limit: Number(body?.limit) || undefined });
+            return sendJSON(res, res.ok ? 200 : 500, corsHeaders(env, req));
+          }
+          const reviewId = String(body?.review_id || "").trim();
+          if (!reviewId) return sendJSON({ ok: false, error: "review_id_or_drain_required" }, 400, corsHeaders(env, req));
+          const res = await runTradeReview(env, {
+            reviewId,
+            force: body?.force === true,
+            // dry_run returns the exact prompt the reviewer would see,
+            // without spending a model call.
+            dryRun: body?.dry_run === true || body?.dry_run === "true",
+          });
+          return sendJSON(res, res.ok ? 200 : 502, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-review/decide
+      // body { review_id, decision: approve|modify|reject, note, patch }
+      if (routeKey === "POST /timed/admin/trade-review/decide") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const body = await req.json().catch(() => ({}));
+          const reviewId = String(body?.review_id || "").trim();
+          const decision = String(body?.decision || "").trim().toLowerCase();
+          if (!reviewId) return sendJSON({ ok: false, error: "review_id_required" }, 400, corsHeaders(env, req));
+          if (!["approve", "modify", "reject"].includes(decision)) {
+            return sendJSON({ ok: false, error: "decision_must_be_approve_modify_or_reject" }, 400, corsHeaders(env, req));
+          }
+          const row = await db.prepare(`SELECT * FROM trade_reviews WHERE review_id = ?1`)
+            .bind(reviewId).first();
+          if (!row) return sendJSON({ ok: false, error: "review_not_found" }, 404, corsHeaders(env, req));
+          if (row.status === "pending") {
+            return sendJSON({ ok: false, error: "review_not_run_yet" }, 409, corsHeaders(env, req));
+          }
+
+          const user = await authenticateUser(req, env).catch(() => null);
+          const decidedBy = user?.email || "admin";
+          const note = typeof body?.note === "string" ? body.note.trim().slice(0, 4000) : null;
+          let analysis = null;
+          try { analysis = row.analysis_json ? JSON.parse(row.analysis_json) : null; } catch { /* ignore */ }
+
+          // Modify: operator edits win, but are validated through the same
+          // normalizer as the model's own output.
+          let patch = null;
+          let effective = analysis;
+          if (decision === "modify") {
+            patch = body?.patch && typeof body.patch === "object" ? body.patch : {};
+            effective = normalizeTradeReviewPayload(
+              mergeOperatorPatch(analysis, patch),
+              row.leg_kind,
+            );
+          }
+
+          const now = Date.now();
+          let applied = null;
+          if (decision === "approve" || decision === "modify") {
+            const res = await applyTradeReview(env, {
+              review: row, analysis: effective, operatorNote: note, decidedBy,
+            });
+            applied = res.applied || null;
+          }
+
+          const status = decision === "approve" ? "approved" : decision === "modify" ? "modified" : "rejected";
+          await db.prepare(
+            `UPDATE trade_reviews
+                SET status = ?2, operator_note = ?3, operator_patch_json = ?4,
+                    decided_by = ?5, decided_at = ?6, applied_json = ?7,
+                    grade = COALESCE(?8, grade), verdict = COALESCE(?9, verdict),
+                    updated_at = ?6
+              WHERE review_id = ?1`
+          ).bind(
+            reviewId, status, note, patch ? JSON.stringify(patch) : null,
+            decidedBy, now, applied ? JSON.stringify(applied) : null,
+            decision === "modify" ? (effective?.grade ?? null) : null,
+            decision === "modify" ? (effective?.verdict ?? null) : null,
+          ).run();
+
+          return sendJSON({
+            ok: true, review_id: reviewId, status, decided_by: decidedBy, applied,
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/trade-review/proposals — one-pagers awaiting filing
+      if (routeKey === "GET /timed/admin/trade-review/proposals") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        const db = env?.DB;
+        if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const statusFilter = String(url.searchParams.get("status") || "").trim().toLowerCase();
+          const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 60));
+          const sql = statusFilter
+            ? `SELECT * FROM trade_review_proposals WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2`
+            : `SELECT * FROM trade_review_proposals ORDER BY created_at DESC LIMIT ?1`;
+          const stmt = statusFilter
+            ? db.prepare(sql).bind(statusFilter, limit)
+            : db.prepare(sql).bind(limit);
+          const { results } = await stmt.all();
+          return sendJSON({
+            ok: true,
+            github_configured: !!(env?.GITHUB_TOKEN && env?.GITHUB_REPO),
+            agent_dispatch_configured: !!env?.CURSOR_API_KEY,
+            count: (results || []).length,
+            proposals: results || [],
+          }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // POST /timed/admin/trade-review/proposal/file
+      // body { proposal_id, agent_ready?: bool, dispatch?: bool }
+      if (routeKey === "POST /timed/admin/trade-review/proposal/file") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const body = await req.json().catch(() => ({}));
+          const proposalId = String(body?.proposal_id || "").trim();
+          if (!proposalId) return sendJSON({ ok: false, error: "proposal_id_required" }, 400, corsHeaders(env, req));
+          const res = await fileTradeReviewProposal(env, {
+            proposalId,
+            agentReady: body?.agent_ready === true || body?.agent_ready === "true",
+            dispatch: body?.dispatch === true || body?.dispatch === "true",
+          });
+          return sendJSON(res, res.ok ? 200 : 502, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // GET /timed/admin/exec-memos?audience=cio — the desk feed
+      if (routeKey === "GET /timed/admin/exec-memos") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
+        try {
+          await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
+          const audience = String(url.searchParams.get("audience") || "cio").trim().toLowerCase();
+          const limit = Number(url.searchParams.get("limit")) || 20;
+          const memos = await loadExecMemos(env, { audience, limit });
+          return sendJSON({ ok: true, audience, count: memos.length, memos }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
+        }
+      }
+
       if (routeKey === "POST /timed/admin/trade-autopsy/archive-investor") {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
@@ -74867,7 +75300,8 @@ export default {
           const limit = Math.min(Number(url.searchParams.get("limit")) || 60, 200);
           const includeArchived = url.searchParams.get("include_archived") === "1";
           const where = includeArchived ? "" : "WHERE (r.archived_at IS NULL OR r.archived_at = 0)";
-          const rows = (await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id ${where} ORDER BY r.created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          const rows = (await db.prepare(`SELECT r.*, m.total_trades, m.closed_trades, m.open_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id ${where} ORDER BY r.created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          await backfillMissingRunTradeCounts(db, rows);
           const summaries = rows.map(r => parseRunRecord(r));
           const runs = summaries.map((run) => ({
             ...run,
@@ -103665,6 +104099,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         } catch (e) {
           console.error("[FUNDAMENTALS nightly] threw:", String(e?.message || e).slice(0, 200));
           recordCronFailure(env, { op: "fundamentals_refresh", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
+        }
+      })());
+
+      // Trade Review Agent drain (2026-08-17). Grades the legs queued by
+      // the day's executions. Bounded by trade_review_batch so one night
+      // can never run away with the LLM budget; the queue simply carries
+      // over to the next tick. Gated on trade_review_auto_run so the
+      // operator can leave enqueueing on while reviewing by hand.
+      ctx.waitUntil((async () => {
+        try {
+          await loadTradeReviewConfig(env);
+          if (!tradeReviewEnabled(env) || !tradeReviewAutoRun(env)) return;
+          const r = await drainTradeReviewQueue(env);
+          console.log(`[TRADE_REVIEW nightly] processed=${r.processed ?? 0} pending_seen=${r.pending_seen ?? 0}`);
+          recordCronSuccess(env, "trade_review_drain").catch(() => {});
+        } catch (e) {
+          console.error("[TRADE_REVIEW nightly] threw:", String(e?.message || e).slice(0, 200));
+          recordCronFailure(env, { op: "trade_review_drain", error: String(e?.message || e).slice(0, 200), caller: "scheduled_event" }).catch(() => {});
         }
       })());
 

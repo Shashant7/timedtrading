@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Timed Trading" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Trade Review — Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=1786935283352" />
+    <script defer src="/vendor/react.production.min.js?v=1786935283352"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1786935283352"></script>
+<script defer src="auth-gate.js?v=1786935283352"></script>
+    <script src="tt-bottom-nav.js?v=1786935283352" defer></script>
+    <script src="tt-nav-extras.js?v=1786935283352" defer></script>
+    <style>
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-red: #FF6B6B;
+        --tt-amber: #F5C451;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); -webkit-font-smoothing: antialiased; }
+      .tt-page { max-width: 1500px; margin: 0 auto; padding: 18px 24px 96px; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
+      .tt-card-pad { padding: 18px 20px 16px; }
+      .tt-page-title { margin: 0 0 6px; font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+      .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); max-width: 780px; }
+      .tt-stat { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px; padding: 10px 14px; min-width: 92px; }
+      .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
+      .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 20px; font-weight: 700; }
+      .tt-btn { border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, opacity .15s; }
+      .tt-btn:disabled { opacity: .45; cursor: not-allowed; }
+      .tt-btn--primary { background: var(--tt-accent); color: #0B1410; }
+      .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
+      .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
+      .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
+      .tt-btn--danger { background: rgba(255,107,107,.12); border-color: rgba(255,107,107,.35); color: var(--tt-red); }
+      .tt-input, .tt-select, .tt-textarea { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--tt-text); font-family: inherit; }
+      .tt-textarea { width: 100%; resize: vertical; min-height: 64px; line-height: 1.5; }
+      .tt-input:focus, .tt-select:focus, .tt-textarea:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
+      .tt-tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--tt-border); overflow-x: auto; }
+      .tt-tab { padding: 10px 16px; font-size: 13px; font-weight: 600; border: none; background: transparent; color: var(--tt-text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+      .tt-tab.active { color: var(--tt-text); border-bottom-color: var(--tt-accent); }
+      .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; border-radius: 8px; font-family: var(--tt-font-mono); font-size: 13px; font-weight: 700; padding: 0 6px; }
+      .grade--good { background: rgba(56,242,161,.16); color: var(--tt-accent); }
+      .grade--mid { background: rgba(245,196,81,.14); color: var(--tt-amber); }
+      .grade--bad { background: rgba(255,107,107,.14); color: var(--tt-red); }
+      .grade--none { background: var(--tt-bg-elev); color: var(--tt-text-faint); }
+      .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+      .pill--pending { background: var(--tt-bg-elev); color: var(--tt-text-dim); }
+      .pill--reviewed { background: rgba(103,232,249,.12); color: #67E8F9; }
+      .pill--approved { background: rgba(56,242,161,.16); color: var(--tt-accent); }
+      .pill--modified { background: rgba(245,196,81,.16); color: var(--tt-amber); }
+      .pill--rejected { background: rgba(255,107,107,.14); color: var(--tt-red); }
+      .pill--error { background: rgba(255,107,107,.2); color: var(--tt-red); }
+      .leg-kind { font-family: var(--tt-font-mono); font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--tt-text-muted); }
+      .trade-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 14px 18px; cursor: pointer; border-bottom: 1px solid var(--tt-border); }
+      .trade-row:hover { background: rgba(255,255,255,.02); }
+      .mono { font-family: var(--tt-font-mono); }
+      .muted { color: var(--tt-text-muted); }
+      .dim { color: var(--tt-text-dim); }
+      .faint { color: var(--tt-text-faint); }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 8px; margin: 12px 0; }
+      .metric { background: var(--tt-bg-base); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; }
+      .metric-label { font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--tt-text-faint); font-weight: 600; }
+      .metric-value { margin-top: 3px; font-family: var(--tt-font-mono); font-size: 15px; font-weight: 700; }
+      .pos { color: var(--tt-accent); }
+      .neg { color: var(--tt-red); }
+      .section-h { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--tt-text-faint); margin: 14px 0 5px; }
+      .prose { font-size: 13px; line-height: 1.6; color: var(--tt-text); margin: 0; }
+      .fail-list { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--tt-text-muted); }
+      .bar { height: 6px; border-radius: 3px; background: var(--tt-bg-base); overflow: hidden; margin-top: 6px; }
+      .bar-fill { height: 100%; background: var(--tt-accent); }
+      .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+    </style>
+  </head>
+  <body class="vf-page">
+    <script defer src="tt-topnav-scaffold.js"></script>
+    <div id="root"></div>
+    <script defer src="trade-review.compiled.js?v=1786935283352"></script>
+  </body>
+</html>
+
+<!-- cache-bust:1786935283352:716594660 -->

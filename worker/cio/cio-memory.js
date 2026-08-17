@@ -797,6 +797,39 @@ export function buildCIOMemory(sym, direction, tickerData, allTrades, memoryCach
     // CRO note enrichment is best-effort — never break CIO memory.
   }
 
+  // ── Layer 15c-2: Trade Review Agent memos (2026-08-17) ───────────────────
+  // Approved (or operator-modified) verdicts from the independent review
+  // desk. These are graded post-mortems of THIS engine's own executions, so
+  // they carry more weight than external research: a memo saying "support
+  // bounce entries into a breaking 15m tape graded D four times" is direct
+  // evidence about the CIO's own approval behaviour.
+  //
+  // Preloaded into memoryCache.execMemos (KV ring) so this layer stays
+  // synchronous. Ticker-specific memos are surfaced first, then the most
+  // recent desk-wide lessons.
+  try {
+    const memos = Array.isArray(memoryCache?.execMemos) ? memoryCache.execMemos : [];
+    if (memos.length) {
+      const symUpper = String(sym).toUpperCase();
+      const mine = memos.filter((m) => String(m?.ticker || "").toUpperCase() === symUpper);
+      const others = memos.filter((m) => String(m?.ticker || "").toUpperCase() !== symUpper);
+      const picked = [...mine.slice(0, 3), ...others.slice(0, 2)];
+      if (picked.length) {
+        mem.trade_review_memos = {
+          this_ticker: mine.length,
+          items: picked.map((m) => ({
+            ticker: m.ticker || null,
+            headline: String(m.headline || "").slice(0, 200),
+            created_at: m.created_at || null,
+          })),
+          note: "Independent per-leg reviews of this engine's own executions, approved by the operator. Strong prior on execution quality — especially for repeat setups on this ticker.",
+        };
+      }
+    }
+  } catch (_) {
+    // Memo enrichment is best-effort — never break CIO memory.
+  }
+
   // ── Layer 15e: Per-ticker FSD research-desk intel (2026-06-06) ───────────
   // Surfaces recent Fundstrat Direct publications that mention this ticker
   // (cashtag-tagged during CRO ingestion). Preloaded into

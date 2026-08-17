@@ -201,6 +201,65 @@ export async function summarizeRunMetrics(db, runId) {
   };
 }
 
+/**
+ * Rows returned from the runs list LEFT JOIN backtest_run_metrics carry NULL
+ * counts whenever the metrics row was never written (hand-archived books,
+ * runs that never hit runs/finalize). The Trade Autopsy picker drops any
+ * completed run whose counts are all zero, so a book with real trades in
+ * backtest_run_trades silently disappears. Recover the counts for just the
+ * page being returned — one grouped read on the (run_id, status) index.
+ */
+export async function backfillMissingRunTradeCounts(db, rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!db || !list.length) return list;
+  const needed = list
+    .filter((r) => r && r.total_trades == null)
+    .map((r) => String(r.run_id || "").trim())
+    .filter(Boolean);
+  const uniq = [...new Set(needed)];
+  if (!uniq.length) return list;
+
+  const counts = new Map(); // run_id -> { total, open, closed, wins, losses }
+  const CHUNK = 60;
+  for (let i = 0; i < uniq.length; i += CHUNK) {
+    const chunk = uniq.slice(i, i + CHUNK);
+    const ph = chunk.map((_, idx) => `?${idx + 1}`).join(",");
+    try {
+      const { results } = await db.prepare(
+        `SELECT run_id, COALESCE(status,'UNKNOWN') AS status, COUNT(*) AS n
+           FROM backtest_run_trades
+          WHERE run_id IN (${ph})
+          GROUP BY run_id, status`,
+      ).bind(...chunk).all();
+      for (const row of results || []) {
+        const rid = String(row.run_id || "").trim();
+        if (!rid) continue;
+        const st = String(row.status || "").toUpperCase();
+        const n = Number(row.n || 0);
+        const acc = counts.get(rid) || { total: 0, open: 0, closed: 0, wins: 0, losses: 0 };
+        acc.total += n;
+        if (st === "OPEN" || st === "TP_HIT_TRIM") acc.open += n;
+        else acc.closed += n;
+        if (st === "WIN") acc.wins += n;
+        if (st === "LOSS") acc.losses += n;
+        counts.set(rid, acc);
+      }
+    } catch (_) { /* table missing on older envs — leave counts null */ }
+  }
+
+  for (const row of list) {
+    const acc = counts.get(String(row?.run_id || "").trim());
+    if (!acc) continue;
+    row.total_trades = acc.total;
+    row.closed_trades = acc.closed;
+    row.open_trades = acc.open;
+    row.wins = acc.wins;
+    row.losses = acc.losses;
+    row.counts_source = "backtest_run_trades";
+  }
+  return list;
+}
+
 export const SENTINEL_BASKET_V1 = ["RIOT", "GRNY", "FIX", "SOFI", "CSCO", "SWK"];
 
 export async function resolveSentinelReferenceRunId(db, candidateRunId) {

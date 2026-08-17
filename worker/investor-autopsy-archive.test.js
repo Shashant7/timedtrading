@@ -65,6 +65,17 @@ describe("investor-autopsy-archive", () => {
     expect(snap.tf.D.signals.ema_cross).toBe(1);
   });
 
+  it("honours the include_open tag on live trader books", () => {
+    expect(shouldIncludeOpenAutopsyTrades({
+      runId: "live-short-term-2026-08",
+      tags: ["trader", "short_term", "trade-autopsy", "2026-08", "include_open", "live"],
+    })).toBe(true);
+    expect(shouldIncludeOpenAutopsyTrades({
+      runId: "live-short-term-2026-08",
+      tags: ["trader", "short_term"],
+    })).toBe(false);
+  });
+
   it("maps entry_provenance_json into signal_snapshot_json", () => {
     const trade = mapInvestorPositionToAutopsyTrade(
       {
@@ -231,6 +242,28 @@ describe("investor-autopsy-archive", () => {
     );
     expect(trade.status).toBe("OPEN");
     expect(trade.exit_ts).toBeNull();
+    expect(trade.pnl).toBeNull();
+  });
+
+  it("keeps OPEN positions as OPEN when D1 hands back an explicit NULL closed_at", () => {
+    // D1 returns closed_at: null for open positions; Number(null) is 0, which
+    // used to archive the whole August investor book as FLAT/investor_closed.
+    const trade = mapInvestorPositionToAutopsyTrade(
+      {
+        id: "inv-CAT-auto-1786543362571",
+        ticker: "CAT",
+        status: "OPEN",
+        avg_entry: 864.41,
+        total_shares: 8.098,
+        first_entry_ts: 1786543362571,
+        closed_at: null,
+        investor_stage: "accumulate",
+      },
+      [{ action: "BUY", shares: 8.098, price: 864.41, value: 7000, ts: 1786543362571, reason: "investor_buy" }],
+    );
+    expect(trade.status).toBe("OPEN");
+    expect(trade.exit_ts).toBeNull();
+    expect(trade.exit_reason).toBeNull();
     expect(trade.pnl).toBeNull();
   });
 

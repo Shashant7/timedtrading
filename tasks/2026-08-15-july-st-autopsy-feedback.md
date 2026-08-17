@@ -1777,3 +1777,65 @@ Monday/Tuesday watch list additions:
 - [ ] (Batch 3) Cross-ticker duplicate daily-bar audit (P18): how many
       tickers/dates have double D rows? Which indicators consumed them
       during July?
+
+---
+
+## Prod readiness audit — 2026-08-17
+
+Full sweep of everything shipped 2026-08-15 → 2026-08-17, checked three ways:
+the flag is armed in prod `model_config`, the key survives the `REPLAY_DA_KEYS`
+allowlist that feeds `env._deepAuditConfig` on the live scoring cron, and the
+code that reads it is on the deployed bundle of the worker that owns the lane.
+
+### Armed in production
+
+| Flag | Value | Reader | Allowlisted | Validation |
+|---|---|---|---|---|
+| `deep_audit_ja_opening_gate` | true | `july-autopsy-gates.js` | yes | Jul/Aug replay |
+| `deep_audit_ja_location_gate` | true | `july-autopsy-gates.js` | yes | Jul/Aug replay |
+| `deep_audit_ja_expected_move_gate` | true | `july-autopsy-gates.js` | yes | Jul/Aug replay |
+| `deep_audit_ja_post_trim_floor` | true | `index.js` | yes | Jul/Aug replay |
+| `deep_audit_ja_htf_reclaim_entry` | true | `tt-core-entry.js` | yes | offense arm, Jul/Aug |
+| `deep_audit_ja_htf_reclaim_max_days_above` | 5 | `july-autopsy-gates.js` | yes | 80-trade freshness study |
+| `deep_audit_ja_reclaim_daily_max` | (default 5) | `index.js` | yes | universe-scaling budget |
+| `deep_audit_ja_struct_stop_guard` | true | `index.js` via `jaStructStopCushion` | yes | unit-pinned NEU/CF; replay no-harm |
+| `deep_audit_ja_n_test_confirm_required` | true | `tt-core-entry.js` | yes | replay no-harm |
+| `deep_audit_ja_forming_div_gate` | true | `tt-core-entry.js` | yes | unit-pinned; replay no-harm |
+| `deep_audit_ja_ltf_structure_confirm` | true | `tt-core-entry.js` | yes | 6/6 pinned live snapshots; replay no-harm |
+
+### Deliberately OFF
+
+- `deep_audit_ja_exhaust_trim_atr_frac` and `deep_audit_ja_opening_stop_confirm`
+  — negative validation (batch 4, −$945 in July). Do not re-arm without a new arm.
+- `deep_audit_ja_default_deny` and `deep_audit_ja_grade_wildcard` — the admission
+  matrix is still effectively default-allow when `setup_grade` is empty at
+  admission time. The real fix is computing the grade before admission; arming
+  the wildcard is a blunt substitute and was never validated forward. Open item.
+- `deep_audit_ja_no_slot_sector_limits` — measured a wash at 28 tickers, unknown
+  at 314. Not worth the concentration risk.
+
+### Two plumbing traps found during this audit
+
+1. **`REPLAY_DA_KEYS` is a hard allowlist for the live engine, not just replay.**
+   `loadDeepAuditConfigFromDb(env.DB, REPLAY_DA_KEYS)` is what the */5 scoring cron
+   and `processTradeSimulation` use. A key absent from that list is invisible to
+   the engine no matter what `model_config` says. All eleven armed keys check out;
+   the `trade_review_*` keys did not, and were added.
+2. **Admin HTTP requests and the 22:00 cron never load `_deepAuditConfig` at all.**
+   Any flag read outside the scoring path needs its own loader. Added
+   `loadTradeReviewConfig()` for the reviewer.
+
+### Worker topology
+
+The `*/5` scoring lane runs on **tt-engine** (`engineExternal=true`) and the
+22:00 nightly on **tt-research**. Deploying only the monolith leaves both stale.
+All three were deployed from this branch, plus the production environment of the
+monolith. `npm test`: 2518 passing.
+
+### Monday watch list
+
+- First live `sl_struct_level_defer` log line — confirm the cushion is bounded
+  (should never exceed 1%) and that a material breach still exits.
+- First `ltf_structure_block` in `__ath_breakout_diag` / `__n_test_support_diag`
+  — confirm it is blocking the DE/WM archetype and not the RTX flush archetype.
+- Trade Review desk after the 22:00 drain: 12 legs graded, zero `error` rows.

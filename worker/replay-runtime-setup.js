@@ -468,6 +468,15 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_ltf_structure_confirm",
   "deep_audit_ja_ltf_washout_rsi",
   "deep_audit_ja_no_slot_sector_limits",
+  // 2026-08-17 — Trade Review Agent. Read on the live ledger + cron paths via
+  // env._deepAuditConfig, so they have to survive this allowlist or the flags
+  // in model_config are invisible to the worker.
+  "trade_review_enabled",
+  "trade_review_auto_run",
+  "trade_review_github_enabled",
+  "trade_review_model",
+  "trade_review_batch",
+  "trade_review_lookahead_days",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
   "deep_audit_cluster_throttle_window_min",

@@ -32,7 +32,10 @@ export function shouldIncludeOpenAutopsyTrades({ runId, includeOpen, tags } = {}
   if (includeOpen === true || includeOpen === 1 || includeOpen === "1") return true;
   if (isInvestorAutopsyRunId(runId)) return true;
   const tagList = Array.isArray(tags) ? tags : [];
-  if (tagList.some((t) => String(t).toLowerCase() === "investor" || String(t).toLowerCase() === "long_term")) {
+  // include_open is how a live trader month says "these positions are still
+  // running and I want to grade their entries anyway".
+  const OPEN_TAGS = new Set(["investor", "long_term", "include_open"]);
+  if (tagList.some((t) => OPEN_TAGS.has(String(t).trim().toLowerCase()))) {
     return true;
   }
   return false;
@@ -284,6 +287,9 @@ export async function hydrateAutopsyTradeSignals(db, trades, { runId } = {}) {
 }
 
 function num(v, fallback = null) {
+  // Number(null) and Number("") are both 0, which would turn a NULL closed_at
+  // into a real close timestamp and archive every open position as closed.
+  if (v == null || v === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -319,7 +325,8 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
   const notional = num(firstBuy?.value) ?? (entryPrice != null && shares != null ? entryPrice * shares : null);
 
   const posStatus = String(pos.status || "").toUpperCase();
-  const isClosed = posStatus === "CLOSED" || lastSell != null || num(pos.closed_at) != null;
+  const closedAt = num(pos.closed_at);
+  const isClosed = posStatus === "CLOSED" || lastSell != null || (closedAt != null && closedAt > 0);
 
   let exitTs = null;
   let exitPrice = null;

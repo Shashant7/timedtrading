@@ -306,6 +306,7 @@
     { href: "/screener.html",              label: "Screener" },
     { href: "/ticker-management.html",     label: "Tickers" },
     { href: "/trade-autopsy.html",         label: "Trade Autopsy" },
+    { href: "/trade-review.html",          label: "Trade Review" },
     { href: "/admin-clients.html",         label: "Admin Clients" },
     { href: "/model-performance.html",     label: "Model Performance" },
     { href: "/system-intelligence.html",   label: "System Intelligence" },

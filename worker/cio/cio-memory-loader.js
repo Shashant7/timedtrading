@@ -53,10 +53,11 @@ export async function ensureCioMemoryCache(env, opts = {}) {
     fsdAccuracy: null,
     macroWirePulse: null,
     fsdIntelByTicker: env?._cioMemoryCache?.fsdIntelByTicker || {},
+    execMemos: [],
   };
 
   if (KV) {
-    const [croRaw, ovRaw, ctoRaw, macroRaw, pulseRaw, lpRaw, gapsRaw, gameplanRaw, fsdAccRaw, mwRaw] = await Promise.all([
+    const [croRaw, ovRaw, ctoRaw, macroRaw, pulseRaw, lpRaw, gapsRaw, gameplanRaw, fsdAccRaw, mwRaw, memoRaw] = await Promise.all([
       KV.get("timed:cro:latest").catch(() => null),
       KV.get("cro:tactical_overrides").catch(() => null),
       KV.get("timed:cto:latest").catch(() => null),
@@ -67,6 +68,9 @@ export async function ensureCioMemoryCache(env, opts = {}) {
       KV.get("timed:discovery:gameplan").catch(() => null),
       KV.get("timed:fsd:accuracy").catch(() => null),
       KV.get("timed:discovery:macro-wire-pulse").catch(() => null),
+      // Trade Review Agent memo ring (2026-08-17) — approved per-leg
+      // verdicts on this engine's own executions.
+      KV.get("timed:exec:memos").catch(() => null),
     ]);
     cache.croNote = parseJson(croRaw);
     cache.tacticalOverride = parseJson(ovRaw);
@@ -78,6 +82,8 @@ export async function ensureCioMemoryCache(env, opts = {}) {
     cache.discoveryGameplan = parseJson(gameplanRaw);
     cache.fsdAccuracy = parseJson(fsdAccRaw);
     cache.macroWirePulse = parseJson(mwRaw);
+    const memos = parseJson(memoRaw);
+    cache.execMemos = Array.isArray(memos) ? memos.slice(0, 20) : [];
   }
 
   if (env?.DB) {
