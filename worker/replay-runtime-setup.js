@@ -468,6 +468,15 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_ltf_structure_confirm",
   "deep_audit_ja_ltf_washout_rsi",
   "deep_audit_ja_no_slot_sector_limits",
+  // 2026-08-17 — Investor (long-horizon) stop forensics gate pack. Read on the
+  // investor scoring cron AND the auto-rebalance invalidation loop via
+  // env._deepAuditConfig, so they have to survive this allowlist.
+  // See tasks/2026-08-17-investor-stop-forensics.md.
+  "deep_audit_investor_weekly_st_dir_fix",          // default false — atr.xs is flip-only + sign-mirrored
+  "deep_audit_investor_require_session_close",      // default false — only session_close_mark may fire in RTH
+  "deep_audit_investor_shallow_breach_score_hold",  // default false
+  "deep_audit_investor_shallow_breach_pct",         // default 2.0
+  "deep_audit_investor_breach_hold_score_min",      // default 65
   // 2026-08-17 — Trade Review Agent. Read on the live ledger + cron paths via
   // env._deepAuditConfig, so they have to survive this allowlist or the flags
   // in model_config are invisible to the worker.

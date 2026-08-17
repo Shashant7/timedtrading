@@ -4,6 +4,10 @@ import {
 } from "./timing-signals.js";
 import { detectCompounderDipBuy } from "./growth-compounder.js";
 import { resolveModelLifecycle, modelLifecycleLineage } from "./model-lifecycle.js";
+import {
+  weeklySupertrendBull,
+  deferForSessionClose,
+} from "./investor-autopsy-gates.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Investor Intelligence Module
@@ -1361,6 +1365,7 @@ export function shouldBlockInvestorReentry(closesForTicker, now, cfg) {
  */
 export function computeInvestorScore(tickerData, opts = {}) {
   const _scoreCfg = opts.cfg || DEFAULT_INVESTOR_CONFIG;
+  const _daCfg = opts.daCfg || null;
   const components = {
     weeklyTrend: 0,
     monthlyTrend: 0,
@@ -1455,18 +1460,16 @@ export function computeInvestorScore(tickerData, opts = {}) {
   }
 
   // ── Trend Durability (10 pts) ──
-  // How long has the weekly trend been intact? Use weekly SuperTrend flip age
-  const wCross = tfW?.atr;
-  if (wCross) {
-    // If weekly SuperTrend is bullish (xs=1) and has been for a while
-    if (wCross.xs === 1) {
-      // Fresh cross = less durable (just started), established trend = more durable
-      // We give base 5 pts for being in a weekly uptrend, +5 if it's established
-      components.trendDurability += 5;
-      // EMA structure confirms: if weekly structure > 0.5, trend is well-established
-      if (emaW && emaW.structure > 0.5) components.trendDurability += 5;
-      else if (emaW && emaW.structure > 0) components.trendDurability += 3;
-    }
+  // How long has the weekly trend been intact? Use weekly SuperTrend direction.
+  // Legacy read was `tf_tech.W.atr.xs === 1`, which is present only on a flip
+  // bar and inverted (see weeklySupertrendBull) — it scored 0 on every live
+  // entry. deep_audit_investor_weekly_st_dir_fix switches to persistent stDir.
+  if (weeklySupertrendBull({ tfW, wb: resolveInvestorHorizonBundles(tickerData).wb, daCfg: _daCfg })) {
+    // Base 5 pts for being in a weekly uptrend, +5 if EMA structure confirms
+    // the trend is established rather than freshly crossed.
+    components.trendDurability += 5;
+    if (emaW && emaW.structure > 0.5) components.trendDurability += 5;
+    else if (emaW && emaW.structure > 0) components.trendDurability += 3;
   }
   components.trendDurability = Math.max(0, Math.min(10, components.trendDurability));
 
@@ -2253,6 +2256,8 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
     cfg = DEFAULT_INVESTOR_CONFIG,
     compounder = null,
     dipBuy: dipBuyOpt = null,
+    daCfg = null,
+    marketOpen = false,
   } = opts;
   const timing = resolveInvestorTimingOverlay(tickerData);
   const dipBuy = dipBuyOpt || detectCompounderDipBuy(tickerData, timing, accumZone);
@@ -2300,7 +2305,12 @@ export function classifyInvestorStage(tickerData, investorScore, existingPositio
       rsRank,
       primaryInvalidation: opts.primaryInvalidation,
     }, tickerData);
-    if (_invBreach) {
+    // deep_audit_investor_require_session_close — this path has no confirm
+    // discipline at all (it fires on a raw live tick and
+    // primary_invalidation_breach is in IMMEDIATE_INVESTOR_REDUCE_REASONS, so
+    // it skips reduce_trim_min_sessions too). When the gate is armed, only let
+    // it fire outside RTH, where the mark IS the session close.
+    if (_invBreach && !deferForSessionClose({ confirm: "sustained_hold_below", marketOpen, daCfg })) {
       return finalize({ stage: "reduce", reason: "primary_invalidation_breach" });
     }
 
@@ -2829,7 +2839,7 @@ function resolveInvestorHorizonBundles(tickerData) {
   return { wb, mb };
 }
 
-export function generateThesis(tickerData, rsRank = 50) {
+export function generateThesis(tickerData, rsRank = 50, daCfg = null) {
   const { wb, mb } = resolveInvestorHorizonBundles(tickerData);
   const emaW = tickerData.ema_map?.W;
   const tfW = tickerData.tf_tech?.W;
@@ -3000,7 +3010,10 @@ export function generateThesis(tickerData, rsRank = 50) {
     criteria: {
       monthlyST: mb?.supertrend_dir === -1,    // Pine convention: -1 = bull
       weeklyAbove200: emaW?.structure > 0.5,
-      weeklyST: tfW?.atr?.xs === 1,             // STANDARD convention for atr.xs: +1 = up-cross / bull
+      // `atr.xs` exists only on a SuperTrend FLIP bar and mirrors the sign of
+      // stDir, so `xs === 1` is bearish under the Pine convention used above.
+      // deep_audit_investor_weekly_st_dir_fix reads the persistent stDir.
+      weeklyST: weeklySupertrendBull({ tfW, wb, daCfg }),
       rsRank,
     },
   };
@@ -3236,6 +3249,7 @@ export function resolvePrimaryInvalidationMovie({
   cfg = DEFAULT_INVESTOR_CONFIG,
   now = Date.now(),
   marketOpen = false,
+  daCfg = null,
 } = {}) {
   const px = Number(price);
   if (!(px > 0)) {
@@ -3306,12 +3320,18 @@ export function resolvePrimaryInvalidationMovie({
   // Prior/completed daily close already below floor and live still below —
   // thesis broken yesterday; don't wait for another full session.
   if (marketOpen && closeConfirmed && px < invPx) {
+    if (deferForSessionClose({ confirm: "prior_daily_close", marketOpen, daCfg })) {
+      return { fire: false, state, deferReason: "awaiting_session_close", confirm: null, breach };
+    }
     return { fire: true, state, deferReason: null, confirm: "prior_daily_close", breach };
   }
 
   // Sustained hold-below without reclaim (RTH movie of a real break).
   const belowForMs = ts - Number(state.armed_ts || ts);
   if (px < invPx && belowForMs >= holdMs) {
+    if (deferForSessionClose({ confirm: "sustained_hold_below", marketOpen, daCfg })) {
+      return { fire: false, state, deferReason: "awaiting_session_close", confirm: null, breach };
+    }
     return { fire: true, state, deferReason: null, confirm: "sustained_hold_below", breach };
   }
 
