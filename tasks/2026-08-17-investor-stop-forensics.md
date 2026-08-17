@@ -388,6 +388,37 @@ simulation exactly:
 `investor-session` is inactive at UTC hour 4, so the first full recompute lands
 on the 08:00 UTC hourly cron — about 5.5 hours before the open.
 
+### Second defect found while verifying: the stage overlay clobbers the recompute
+
+`GET /timed/investor/ticker` runs `revalidateInvestorTickerAtRead` to correct a
+stale cached stage against live price — the sibling call site documents the case
+as *"cached stage=accumulate but live re-score drops to watch when price gaps
+-12%"*. The position overlay immediately below then did:
+
+```js
+if (posRow.investor_stage) outData.stage = String(posRow.investor_stage).toLowerCase();
+```
+
+reinstating `investor_positions.investor_stage`, which is written at rebalance
+time and is **staler** than the KV cache the revalidation just corrected. It ran
+only for OWNED positions, so the guard was defeated in exactly the case where a
+wrong `accumulate` matters most, and `stage` ended up contradicting the
+freshly-computed `stageReason` next to it. The scores LIST route has no such
+overlay, so list and detail could disagree on the same ticker.
+
+Observed live before the fix, and after:
+
+| | before | after | persisted (now surfaced separately) |
+|---|---|---|---|
+| IONQ | `accumulate / rs_rank_declining` | `reduce / rs_rank_declining` | `accumulate` |
+| CAT | `accumulate / score_declining` | `watch / score_declining` | `accumulate` |
+| IWM | `reduce / exhaustion_detected…` | `watch / exhaustion_detected…` | `reduce` |
+
+IONQ is weekly-bear, RS-declining and scores 36 — publishing `accumulate` there
+is precisely the failure the revalidation was written to prevent. The persisted
+value is still returned as `position.investor_stage`, and still wins when no
+revalidation happened.
+
 ### Open follow-up: re-center the thresholds
 
 `accumulate_strong_score_min` (60) and `auto_init_min_score` (65) were
