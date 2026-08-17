@@ -1183,11 +1183,8 @@ import {
   ensureCioMemoryCache as _ensureCioMemoryCache,
   preloadFsdIntelForTickers as _preloadFsdIntelForTickers,
 } from "./cio/cio-memory-loader.js";
-import {
-  runSanitySweep as _runSanitySweep,
-  persistSweep as _persistSanitySweep,
-  sanitySweepCron as _sanitySweepCron,
-} from "./sanity-sweep.js";
+import { sanitySweepCron as _sanitySweepCron } from "./sanity-sweep.js";
+import { getOpenIncidents } from "./sanity-incidents.js";
 import {
   runCooDailyCycle as _runCooDailyCycle,
   runCooCalibrationCycle as _runCooCalibrationCycle,
@@ -2073,6 +2070,7 @@ const ROUTES = [
   ["GET",  "/timed/admin/sanity-sweep",       "GET /timed/admin/sanity-sweep"],
   ["POST", "/timed/admin/sanity-sweep",       "POST /timed/admin/sanity-sweep"],
   ["GET",  "/timed/admin/sanity-sweep/latest", "GET /timed/admin/sanity-sweep/latest"],
+  ["GET",  "/timed/admin/sanity-sweep/incidents", "GET /timed/admin/sanity-sweep/incidents"],
   // 2026-06-02 — Ledger audit + repair. The sanity-sweep
   // portfolio_reconcile check flagged the investor ledger drifted -27%
   // vs initial $100k seed. This pair lets the operator diagnose +
@@ -66055,10 +66053,8 @@ export default {
         const authFail = await requireKeyOrAdmin(req, env);
         if (authFail) return authFail;
         try {
-          const sweep = await _runSanitySweep(env, ctx);
-          // Persist async — never block the response on KV write.
-          if (ctx?.waitUntil) ctx.waitUntil(_persistSanitySweep(env, sweep).catch(() => {}));
-          else _persistSanitySweep(env, sweep).catch(() => {});
+          // Full path: sweep + heal + incident sync + Discord (same as cron).
+          const sweep = await _sanitySweepCron(env, ctx, "full");
           return sendJSON(sweep, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
@@ -66077,6 +66073,20 @@ export default {
             }, 200, corsHeaders(env, req));
           }
           return sendJSON({ ...JSON.parse(raw), cached: true }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      if (routeKey === "GET /timed/admin/sanity-sweep/incidents") {
+        const authFail = await requireKeyOrAdmin(req, env);
+        if (authFail) return authFail;
+        try {
+          const needsPr = url.searchParams.get("needs_pr") === "1"
+            || String(url.searchParams.get("needs_pr") || "").toLowerCase() === "true";
+          const kind = String(url.searchParams.get("kind") || "").trim() || null;
+          const incidents = await getOpenIncidents(env, { needs_pr: needsPr, kind });
+          return sendJSON({ ok: true, ts: Date.now(), ...incidents }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }

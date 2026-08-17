@@ -1,0 +1,191 @@
+name: Sanity sweep agent triage
+
+# Polls open sanity-sweep incidents that need a code fix and opens
+# GitHub issues tagged for a Cursor Cloud Agent (or human) to pick up.
+#
+# Required repo secrets:
+#   TIMED_TRADING_API_KEY — admin key for /timed/admin/sanity-sweep/incidents
+#
+# Optional (Auto dispatch, same as Trade Review):
+#   CURSOR_API_KEY — POST https://api.cursor.com/v1/agents with model auto-smart
+#                    when a new sanity-sweep-agent issue is opened.
+# Without CURSOR_API_KEY, connect Cursor Cloud Agents to the
+# sanity-sweep-agent label in the Cursor dashboard instead.
+
+on:
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: sanity-sweep-agent
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    name: Open agent issues for code-fix incidents
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch open PR-needed incidents
+        id: fetch
+        env:
+          TIMED_TRADING_API_KEY: ${{ secrets.TIMED_TRADING_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TIMED_TRADING_API_KEY:-}" ]; then
+            echo "::warning::TIMED_TRADING_API_KEY not set — skipping agent triage"
+            echo 'incidents=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BODY=$(curl -sS -m 30 \
+            -H "X-TT-Admin-Key: ${TIMED_TRADING_API_KEY}" \
+            "https://timed-trading-ingest.shashant.workers.dev/timed/admin/sanity-sweep/incidents?needs_pr=1" \
+            || echo '{"ok":false,"open":[]}')
+          if ! echo "$BODY" | jq -e . >/dev/null 2>&1; then
+            echo "::warning::Non-JSON incidents response"
+            echo 'incidents=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          OPEN=$(echo "$BODY" | jq -c '.open // []')
+          echo "incidents=${OPEN}" >> "$GITHUB_OUTPUT"
+          echo "$BODY" | jq '{ok, open_count, needs_pr_count, escalated_count}'
+
+      - name: Create GitHub issues for new incidents
+        id: issues
+        uses: actions/github-script@v7
+        env:
+          INCIDENTS_JSON: ${{ steps.fetch.outputs.incidents }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        with:
+          script: |
+            const incidents = JSON.parse(process.env.INCIDENTS_JSON || "[]");
+            if (!Array.isArray(incidents) || incidents.length === 0) {
+              core.info("No open code-fix incidents");
+              return;
+            }
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const label = "sanity-sweep-agent";
+            const cursorKey = (process.env.CURSOR_API_KEY || "").trim();
+            try {
+              await github.rest.issues.createLabel({
+                owner, repo, name: label,
+                color: "d97706",
+                description: "Auto-opened from sanity sweep — needs coding agent / PR",
+              });
+            } catch (_) { /* label may exist */ }
+
+            async function dispatchCursorAuto({ title, body, issueUrl }) {
+              if (!cursorKey) return { skipped: true, reason: "cursor_api_key_missing" };
+              const prompt = [
+                "Fix the following Timed Trading sanity-sweep incident.",
+                `Source issue: ${issueUrl}`,
+                "",
+                `# ${title}`,
+                "",
+                body,
+                "",
+                "Follow AGENTS.md: plan in tasks/ when non-trivial, add/adjust unit tests,",
+                "run npm test, open a PR against main. Prefer minimal, targeted fixes.",
+              ].join("\n");
+              const resp = await fetch("https://api.cursor.com/v1/agents", {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${cursorKey}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  prompt: { text: prompt.slice(0, 20000) },
+                  model: {
+                    id: "auto-smart",
+                    params: [{ id: "optimize_for", value: "balanced" }],
+                  },
+                  repos: [{
+                    url: `https://github.com/${owner}/${repo}`,
+                    startingRef: "main",
+                  }],
+                  autoCreatePR: true,
+                  mode: "agent",
+                }),
+              });
+              if (!resp.ok) {
+                const text = await resp.text().catch(() => "");
+                return { ok: false, error: `cursor_http_${resp.status}`, detail: text.slice(0, 300) };
+              }
+              const data = await resp.json().catch(() => ({}));
+              return {
+                ok: true,
+                agent_id: data?.agent?.id || data?.id || null,
+                agent_url: data?.agent?.url || data?.target?.url || null,
+              };
+            }
+
+            for (const inc of incidents) {
+              const title = `[sanity] ${inc.id} — ${inc.label || inc.id}`;
+              const { data: existing } = await github.rest.issues.listForRepo({
+                owner, repo, state: "open", labels: label, per_page: 100,
+              });
+              const dup = existing.find((i) => i.title.includes(`[sanity] ${inc.id}`));
+              if (dup) {
+                core.info(`Skip duplicate issue for ${inc.id}: #${dup.number}`);
+                continue;
+              }
+              const body = [
+                "## Sanity sweep incident (auto-opened)",
+                "",
+                `**Check:** \`${inc.id}\` — ${inc.label || ""}`,
+                `**Severity:** ${inc.severity || "?"}`,
+                `**Status:** ${inc.status || "open"}`,
+                `**Kind:** ${inc.kind || "?"}${inc.needs_pr ? " (code fix expected)" : ""}`,
+                "",
+                "### Anomalies",
+                ...(inc.anomalies || []).map((a) => `- ${a.ticker ? `\`${a.ticker}\` ` : ""}${a.detail || ""}`),
+                "",
+                "### Remediation",
+                inc.remediation || "(none)",
+                "",
+                "### Agent task",
+                inc.agent_prompt || "Investigate and fix the failing sanity check.",
+                "",
+                inc.files_hint?.length ? "### Files\n" + inc.files_hint.map((f) => `- \`${f}\``).join("\n") : "",
+                "",
+                "---",
+                "Opened by `.github/workflows/sanity-sweep-agent.yml`.",
+                "Cursor Auto (or a human) should fix, run `npm test`, and open a PR.",
+              ].join("\n");
+              const { data: issue } = await github.rest.issues.create({
+                owner, repo, title, body, labels: [label],
+              });
+              core.info(`Opened #${issue.number} for ${inc.id}`);
+
+              const dispatched = await dispatchCursorAuto({
+                title,
+                body,
+                issueUrl: issue.html_url,
+              });
+              if (dispatched?.skipped) {
+                core.info(`Cursor Auto skipped for #${issue.number}: ${dispatched.reason}`);
+              } else if (dispatched?.ok) {
+                core.info(`Cursor Auto dispatched for #${issue.number}: ${dispatched.agent_url || dispatched.agent_id}`);
+                try {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: issue.number,
+                    body: [
+                      "Cursor Cloud Agent dispatched in Auto mode.",
+                      dispatched.agent_url ? `Agent: ${dispatched.agent_url}` : `agent_id: \`${dispatched.agent_id}\``,
+                    ].join("\n"),
+                  });
+                } catch (e) {
+                  core.warning(`Could not comment on #${issue.number}: ${e.message}`);
+                }
+              } else {
+                core.warning(`Cursor Auto failed for #${issue.number}: ${dispatched?.error || "unknown"} ${dispatched?.detail || ""}`);
+              }
+            }

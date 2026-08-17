@@ -10,6 +10,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | Situation | Skill |
 |---|---|
 | **"Is everything healthy?" / weekly system check / post-deploy verification** | [mc-holistic-smoke-test.md](mc-holistic-smoke-test.md) |
+| **Sanity sweep Discord alert / wire agent auto-fix loop** | [sanity-sweep-agent.md](sanity-sweep-agent.md) |
 | **Before enabling real broker orders / a trade entered or exited on a price that "never traded"** | [pre-go-live-execution-audit.md](pre-go-live-execution-audit.md) |
 | Backfill missing daily / weekly / monthly candles for a ticker | [backfill-candles.md](backfill-candles.md) |
 | Run a backtest / candle replay and read the results correctly | [backtest-replay.md](backtest-replay.md) |
