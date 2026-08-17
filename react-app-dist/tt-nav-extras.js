@@ -453,6 +453,10 @@
       "/broker-connections",
       "/account-brokers",
       "/my-account",
+      // 2026-08-17 — Trade Review migrated off tt-topnav-scaffold.js onto
+      // shared-nav.js. Without this entry extras injected a second strip
+      // (FAQ/Learn order mismatch + FAQ looking "active").
+      "/trade-review",
     ]);
     if (JOURNEY_PATHS.has(path)) {
       // If a prior version of this script injected the strip on a
@@ -753,4 +757,4 @@
   })();
 })();
 
-// cache-bust:1786935283352:716594660
+// cache-bust:1786985420462:896669568

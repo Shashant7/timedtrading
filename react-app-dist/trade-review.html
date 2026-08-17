@@ -15,12 +15,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1786935283352" />
-    <script defer src="/vendor/react.production.min.js?v=1786935283352"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1786935283352"></script>
-<script defer src="auth-gate.js?v=1786935283352"></script>
-    <script src="tt-bottom-nav.js?v=1786935283352" defer></script>
-    <script src="tt-nav-extras.js?v=1786935283352" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1786985420462" />
+    <script defer src="/vendor/react.production.min.js?v=1786985420462"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1786985420462"></script>
+<script defer src="auth-gate.js?v=1786985420462"></script>
+    <script src="tt-bottom-nav.js?v=1786985420462" defer></script>
+    <script src="tt-nav-extras.js?v=1786985420462" defer></script>
     <style>
       :root {
         --tt-bg-base: var(--vf-ink, #0B1410);
@@ -98,13 +98,52 @@
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
       body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+
+      /* Top nav — same structure as journey pages (shared-nav.js).
+         Without these rules the brand + links stack and look like a
+         second broken nav row above the real header. */
+      nav.topnav {
+        position: sticky; top: 0; z-index: 50;
+        background: rgba(11, 20, 16, 0.92);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--tt-border, rgba(255,255,255,0.08));
+      }
+      .nav-row {
+        max-width: 1600px; margin: 0 auto;
+        padding: 12px 24px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .nav-brand {
+        display: inline-flex; align-items: center; gap: 10px;
+        text-decoration: none; color: var(--tt-text, #e8f0ec); font-weight: 700;
+      }
+      .nav-links { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+      .nav-link {
+        font-size: 12.5px; color: var(--tt-text-muted, #8aa399);
+        text-decoration: none; padding: 6px 12px; border-radius: 8px;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .nav-link:hover { color: var(--tt-text, #e8f0ec); background: rgba(255,255,255,0.05); }
+      .nav-link.active {
+        color: var(--tt-accent, #38F2A1);
+        background: rgba(56, 242, 161, 0.12);
+      }
+      .nav-link.learn { color: var(--tt-up-soft, #6ee7b7); }
+      .nav-link.faq { color: var(--tt-text-2, #a3b5ad); }
     </style>
   </head>
   <body class="vf-page">
-    <script defer src="tt-topnav-scaffold.js"></script>
+    <!-- Global nav (Today · Model · Portfolio · Insights · Daily Brief …)
+         Same shared header as Broker Connections / journey pages. Must come
+         before #root so deferred consumers (tt-nav-extras, tt-bottom-nav)
+         find their mount target. Listed in JOURNEY_PATHS so extras does not
+         inject a duplicate journey strip above this row. -->
+    <div id="global-nav-root"></div>
+    <script defer src="shared-nav.js?v=1786985420462"></script>
     <div id="root"></div>
-    <script defer src="trade-review.compiled.js?v=1786935283352"></script>
+    <script defer src="trade-review.compiled.js?v=1786985420462"></script>
   </body>
 </html>
 
-<!-- cache-bust:1786935283352:716594660 -->
+<!-- cache-bust:1786985420462:896669568 -->
