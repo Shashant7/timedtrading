@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { normalizeReviewPayload, tradeReviewEnabled } from "./trade-review-agent.js";
+import {
+  normalizeReviewPayload,
+  tradeReviewEnabled,
+  tradeReviewAutoRun,
+  loadTradeReviewConfig,
+} from "./trade-review-agent.js";
 import { buildTradeReviewUserPrompt } from "./trade-review-prompts.js";
 import { condenseSnapshot, pickTimeframe } from "./trade-review-context.js";
 
@@ -85,6 +90,54 @@ describe("tradeReviewEnabled", () => {
     expect(tradeReviewEnabled({ _deepAuditConfig: { trade_review_enabled: "false" } })).toBe(false);
     expect(tradeReviewEnabled({ _deepAuditConfig: { trade_review_enabled: "true" } })).toBe(true);
     expect(tradeReviewEnabled({ _deepAuditConfig: { trade_review_enabled: true } })).toBe(true);
+  });
+});
+
+describe("loadTradeReviewConfig", () => {
+  function envWithRows(rows, calls = { n: 0 }) {
+    return {
+      calls,
+      DB: {
+        prepare() {
+          calls.n += 1;
+          return { bind: () => ({ all: async () => ({ results: rows }) }) };
+        },
+      },
+    };
+  }
+
+  it("hydrates the reviewer flags on paths that never loaded the deep-audit config", async () => {
+    // Admin HTTP requests and the 22:00 cron arrive with an empty
+    // _deepAuditConfig, which used to read as "feature off" regardless of
+    // what model_config said.
+    const env = envWithRows([
+      { config_key: "trade_review_enabled", config_value: "true" },
+      { config_key: "trade_review_auto_run", config_value: "true" },
+      { config_key: "trade_review_batch", config_value: "12" },
+    ]);
+    expect(tradeReviewEnabled(env)).toBe(false);
+    await loadTradeReviewConfig(env);
+    expect(tradeReviewEnabled(env)).toBe(true);
+    expect(tradeReviewAutoRun(env)).toBe(true);
+    expect(env._deepAuditConfig.trade_review_batch).toBe(12);
+  });
+
+  it("only hits D1 once per isolate", async () => {
+    const calls = { n: 0 };
+    const env = envWithRows([{ config_key: "trade_review_enabled", config_value: "true" }], calls);
+    await loadTradeReviewConfig(env);
+    await loadTradeReviewConfig(env);
+    await loadTradeReviewConfig(env);
+    expect(calls.n).toBe(1);
+  });
+
+  it("leaves the feature off when the lookup throws", async () => {
+    const env = {
+      DB: { prepare() { throw new Error("no such table: model_config"); } },
+    };
+    await loadTradeReviewConfig(env);
+    expect(tradeReviewEnabled(env)).toBe(false);
+    expect(tradeReviewAutoRun(env)).toBe(false);
   });
 });
 

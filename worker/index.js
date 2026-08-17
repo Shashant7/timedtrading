@@ -694,6 +694,8 @@ import {
   runTradeReview,
   drainTradeReviewQueue,
   tradeReviewEnabled,
+  tradeReviewAutoRun,
+  loadTradeReviewConfig,
   normalizeReviewPayload as normalizeTradeReviewPayload,
 } from "./review/trade-review-agent.js";
 import { ensureTradeReviewSchema } from "./review/trade-review-schema.js";
@@ -42773,6 +42775,7 @@ async function d1InsertTradeEvent(env, tradeId, event, ctx = {}) {
     // No LLM on this path: the reviewer runs later from the cron drain or
     // an operator's "Review now", so a slow model can never delay a fill.
     // Live only — replay legs would flood the queue with synthetic trades.
+    if (!env._isReplay) await loadTradeReviewConfig(env).catch(() => {});
     if (!env._isReplay && tradeReviewEnabled(env)) {
       const _trLegKind = String(type || "").toUpperCase();
       if (["ENTRY", "TRIM", "EXIT", "SCALE_IN"].includes(_trLegKind)) {
@@ -69296,6 +69299,7 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const limit = Math.max(1, Math.min(400, Number(url.searchParams.get("limit")) || 150));
           const days = Math.max(1, Math.min(365, Number(url.searchParams.get("days")) || 60));
           const tickerFilter = String(url.searchParams.get("ticker") || "").trim().toUpperCase();
@@ -69400,6 +69404,7 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const reviewId = String(url.searchParams.get("review_id") || "").trim();
           if (!reviewId) return sendJSON({ ok: false, error: "review_id_required" }, 400, corsHeaders(env, req));
           const row = await db.prepare(`SELECT * FROM trade_reviews WHERE review_id = ?1`)
@@ -69437,6 +69442,7 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const body = await req.json().catch(() => ({}));
           const tradeId = String(body?.trade_id || "").trim();
           if (tradeId) {
@@ -69496,6 +69502,7 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const body = await req.json().catch(() => ({}));
           const reviewId = String(body?.review_id || "").trim();
           const decision = String(body?.decision || "").trim().toLowerCase();
@@ -69568,6 +69575,7 @@ export default {
         if (!db) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const statusFilter = String(url.searchParams.get("status") || "").trim().toLowerCase();
           const limit = Math.max(1, Math.min(200, Number(url.searchParams.get("limit")) || 60));
           const sql = statusFilter
@@ -69597,6 +69605,7 @@ export default {
         if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const body = await req.json().catch(() => ({}));
           const proposalId = String(body?.proposal_id || "").trim();
           if (!proposalId) return sendJSON({ ok: false, error: "proposal_id_required" }, 400, corsHeaders(env, req));
@@ -69618,6 +69627,7 @@ export default {
         if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
           await ensureTradeReviewSchema(env);
+          await loadTradeReviewConfig(env);
           const audience = String(url.searchParams.get("audience") || "cio").trim().toLowerCase();
           const limit = Number(url.searchParams.get("limit")) || 20;
           const memos = await loadExecMemos(env, { audience, limit });
@@ -104089,9 +104099,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
       // operator can leave enqueueing on while reviewing by hand.
       ctx.waitUntil((async () => {
         try {
-          const cfg = env?._deepAuditConfig || {};
-          const autoRun = String(cfg.trade_review_auto_run ?? "false").toLowerCase() === "true";
-          if (!tradeReviewEnabled(env) || !autoRun) return;
+          await loadTradeReviewConfig(env);
+          if (!tradeReviewEnabled(env) || !tradeReviewAutoRun(env)) return;
           const r = await drainTradeReviewQueue(env);
           console.log(`[TRADE_REVIEW nightly] processed=${r.processed ?? 0} pending_seen=${r.pending_seen ?? 0}`);
           recordCronSuccess(env, "trade_review_drain").catch(() => {});

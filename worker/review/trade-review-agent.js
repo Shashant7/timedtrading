@@ -26,9 +26,52 @@ const VALID_VERDICTS = {
 
 const flagOn = (v) => v === true || String(v ?? "").toLowerCase() === "true";
 
+const TRADE_REVIEW_CONFIG_KEYS = [
+  "trade_review_enabled",
+  "trade_review_auto_run",
+  "trade_review_github_enabled",
+  "trade_review_model",
+  "trade_review_batch",
+  "trade_review_lookahead_days",
+];
+
+/**
+ * env._deepAuditConfig is only populated on the scoring cron and inside
+ * processTradeSimulation. Admin HTTP requests and the 22:00 cron reach the
+ * reviewer with an empty config, which read as "feature off" no matter what
+ * model_config said. Load just the reviewer's own keys on those paths —
+ * a six-key point lookup, memoised per isolate.
+ */
+export async function loadTradeReviewConfig(env) {
+  if (!env) return {};
+  env._deepAuditConfig = env._deepAuditConfig || {};
+  if (env._tradeReviewConfigLoaded) return env._deepAuditConfig;
+  if (!env.DB) return env._deepAuditConfig;
+  try {
+    const ph = TRADE_REVIEW_CONFIG_KEYS.map((_, i) => `?${i + 1}`).join(",");
+    const { results } = await env.DB.prepare(
+      `SELECT config_key, config_value FROM model_config WHERE config_key IN (${ph})`,
+    ).bind(...TRADE_REVIEW_CONFIG_KEYS).all();
+    for (const row of results || []) {
+      let v = row.config_value;
+      try { v = JSON.parse(row.config_value); } catch { /* raw string */ }
+      env._deepAuditConfig[row.config_key] = v;
+    }
+    env._tradeReviewConfigLoaded = true;
+  } catch (e) {
+    console.warn("[TRADE_REVIEW] config load failed:", String(e?.message || e).slice(0, 140));
+  }
+  return env._deepAuditConfig;
+}
+
 export function tradeReviewEnabled(env) {
   const cfg = env?._deepAuditConfig || {};
   return flagOn(cfg.trade_review_enabled ?? env?.TRADE_REVIEW_ENABLED ?? false);
+}
+
+export function tradeReviewAutoRun(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return flagOn(cfg.trade_review_auto_run ?? env?.TRADE_REVIEW_AUTO_RUN ?? false);
 }
 
 function cfgNum(env, key, fallback) {
