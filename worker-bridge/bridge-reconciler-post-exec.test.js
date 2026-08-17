@@ -244,3 +244,89 @@ describe("reconcileUser — post-execution audit SKIP paths", () => {
     expect(stats.post_exec_pending || 0).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-08-17 — XLRE regression. Two model trades held the same ticker in one
+// broker account: an exiting trade (17.3812 sh) and an older open one
+// (1.35379 sh). The exit filled exactly as intended, but the audit compared
+// its whole-account expectation (18.73499 - 17.3812 = 1.35379) against the
+// CLOSED row's per-row residual, which the classifier reports as 0 because
+// the open sibling claims those shares. Result: a CRITICAL "reducer
+// overexecuted" alert every reconciler cycle on a clean exit.
+// ─────────────────────────────────────────────────────────────────────────
+describe("reconcileUser — post-exec audit with a sibling trade on the same ticker", () => {
+  const exitAudit = {
+    ts: Date.now(),
+    kind: "exit",
+    intended_qty: 17.3812,
+    pre_held_qty: 18.73499,          // whole-account XLRE position at order time
+    expected_post_held_qty: 1.35379, // the sibling trade's shares
+    client_order_id: "tt-exit-XLRE-1",
+    broker_order_id: "wb-xlre-1",
+    verify_after_ms: 0,
+    verified: false,
+    verified_at: null,
+    drift_qty: null,
+  };
+
+  const closedRow = {
+    user_id: "op@x.com",
+    trade_id: "XLRE-exiting",
+    broker_account_id: "WB-ROTH",
+    ticker: "XLRE",
+    mode: "trader",
+    instrument_type: "equity",
+    model_status: "CLOSED",
+    sync_state: "in_sync",
+    model_intended_qty: 17.3812,
+    broker_filled_qty: 17.3812,
+    broker_remaining_qty: 0,
+    sync_last_checked_at: 0,
+    sync_drift_count: 0,
+    mirror_suppressed: 0,
+    sync_last_action_json: JSON.stringify(exitAudit),
+  };
+
+  const openSibling = {
+    ...closedRow,
+    trade_id: "XLRE-older-open",
+    model_status: "OPEN",
+    model_intended_qty: 1.35379,
+    broker_filled_qty: 1.35379,
+    broker_remaining_qty: 1.35379,
+    sync_last_action_json: null,
+  };
+
+  it("verifies the exit when the broker still holds exactly the sibling's shares", async () => {
+    const db = makeDb({ rows: [closedRow, openSibling] });
+    const adapter = {
+      async getEquityPositions() {
+        // Broker holds only the older trade's shares — the exit did its job.
+        return { ok: true, positions: [{ symbol: "XLRE", qty: 1.35379, avg_cost: 45.2 }] };
+      },
+    };
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, adapter, {});
+    expect(stats.post_exec_verified).toBe(1);
+    expect(stats.post_exec_drift || 0).toBe(0);
+  });
+
+  it("still flags drift when the broker really did liquidate the sibling too", async () => {
+    const db = makeDb({ rows: [closedRow, openSibling] });
+    const adapter = {
+      async getEquityPositions() {
+        return { ok: true, positions: [] }; // account genuinely flat
+      },
+    };
+    const stats = await reconcileUser({ BRIDGE_DB: db }, perAccountUser, adapter, {});
+    expect(stats.post_exec_drift).toBe(1);
+  });
+
+  it("reports execution_drift rather than a connection error", async () => {
+    const db = makeDb({ rows: [closedRow, openSibling] });
+    const adapter = { async getEquityPositions() { return { ok: true, positions: [] }; } };
+    await reconcileUser({ BRIDGE_DB: db }, perAccountUser, adapter, {});
+    const alert = db.audits.find(a => a.args.some(x => String(x).includes("post_exec_drift")));
+    expect(alert).toBeTruthy();
+    expect(alert.args.some(x => String(x).includes("reducer_overexecuted"))).toBe(true);
+  });
+});
