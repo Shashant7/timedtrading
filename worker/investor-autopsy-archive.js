@@ -75,9 +75,11 @@ export function buildInvestorSignalSnapshotFromDecision(inputs = {}, { eventType
     if (h4.is4hBull === true) supertrend = 1;
     else if (h4.is4hBear === true) supertrend = -1;
     else if (Number.isFinite(Number(h4.stDir))) {
-      // Prefer explicit bull/bear flags; fall back to stDir sign.
+      // Prefer explicit bull/bear flags; fall back to stDir sign. Pine
+      // convention: stDir -1 = BULL, +1 = bear — so the sign inverts on the way
+      // into this snapshot, where 1 = bull to match the is4hBull branch above.
       const d = Number(h4.stDir);
-      supertrend = d > 0 ? 1 : d < 0 ? -1 : 0;
+      supertrend = d < 0 ? 1 : d > 0 ? -1 : 0;
     }
     let stSlope = null;
     if (h4.stSlopeUp === true) stSlope = 1;

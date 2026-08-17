@@ -91337,8 +91337,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const volTier = td?.volatility_tier || null;
 
               return {
-                trendD: stD > 0 ? "up" : stD < 0 ? "down" : "flat",
-                trendW: stW > 0 ? "up" : stW < 0 ? "down" : "flat",
+                // Pine convention: stDir -1 = BULL, +1 = bear. Reading the sign
+                // literally inverted every label written into
+                // entry_provenance_json — the field the autopsies read.
+                trendD: stD < 0 ? "up" : stD > 0 ? "down" : "flat",
+                trendW: stW < 0 ? "up" : stW > 0 ? "down" : "flat",
                 phaseD: phD,
                 phaseW: phW,
                 td: tdSummary,
@@ -94728,6 +94731,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               marketHealth: _mhScore,
               existingPosition: _existingPos,
               cfg: _invCfgScores,
+              daCfg: env?._deepAuditConfig || {},
             });
             if (_rev.revalidated && _rev.data) {
               Object.assign(entry, _rev.data);
@@ -94912,6 +94916,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               marketHealth: Number(health?.score) || 50,
               existingPosition: _existingPos,
               cfg: _invCfgRead,
+              daCfg: env?._deepAuditConfig || {},
             });
             if (_rev.revalidated) {
               outData = _rev.data;

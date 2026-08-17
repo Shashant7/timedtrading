@@ -2036,6 +2036,7 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     sectorRsRank = 50,
     existingPosition = null,
     cfg = DEFAULT_INVESTOR_CONFIG,
+    daCfg = null,
   } = opts;
 
   const td = { ...latestTd, ticker: String(latestTd.ticker || cached.ticker || "").toUpperCase() };
@@ -2044,8 +2045,9 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     sectorRsRank,
     marketHealth,
     cfg,
+    daCfg,
   });
-  const thesis = generateThesis(td, rsRank);
+  const thesis = generateThesis(td, rsRank, daCfg);
   const _livePx = Number(td?._live_price || td?.price) || 0;
   const primaryInvalidation = resolveStickyPrimaryInvalidation(
     cached?.primaryInvalidation,
@@ -2058,6 +2060,7 @@ export function revalidateInvestorTickerAtRead(cached, latestTd, opts = {}) {
     marketHealth,
     accumZone,
     cfg,
+    daCfg,
     primaryInvalidation,
   });
   const timing = resolveInvestorTimingOverlay(td);
@@ -2683,8 +2686,15 @@ export function detectAccumulationZone(tickerData, cfg = DEFAULT_INVESTOR_CONFIG
     }
   }
 
-  // Weekly SuperTrend support proximity (live print — week-low test handled below)
-  const wStLine = tickerData.st_support?.W;
+  // Weekly SuperTrend support proximity (live print — week-low test handled below).
+  // NOT `st_support.W`: buildSTSupportMap keys its output under `st_support.map.<tf>`
+  // and stores {dir, slope, aligned}, not a price. `st_support.W` is undefined, so
+  // this block never ran and its 25 confidence points were unreachable.
+  const wStLine = Number(
+    tickerData?.weekly_bundle?.supertrend_line
+    ?? tickerData?.tf_tech?.W?.supertrend?.line
+    ?? tickerData?.tf_tech?.W?.stLine,
+  );
   if (wStLine && wStLine > 0) {
     const distFromWST = Math.abs(price - wStLine) / wStLine;
     if (distFromWST < 0.03) {
@@ -3373,8 +3383,11 @@ export function detectWeeklyBreakoutRetest(tickerData, opts = {}) {
     ?? tickerData?.ema_map?.W?.ema21,
   );
   const wSt = Number(
-    tickerData?.st_support?.W
-    ?? tickerData?.weekly_bundle?.supertrend_line
+    // `st_support.W` is deliberately absent from this chain: the producer keys
+    // that map under `st_support.map.<tf>` and stores {dir, slope, aligned}, so
+    // a leading `??` term there can only ever be undefined (harmless) or an
+    // object that poisons the whole chain with NaN.
+    tickerData?.weekly_bundle?.supertrend_line
     ?? tickerData?.tf_tech?.W?.atr?.st
     ?? tickerData?.tf_tech?.W?.supertrend?.line
     ?? tickerData?.tf_tech?.W?.stLine,
