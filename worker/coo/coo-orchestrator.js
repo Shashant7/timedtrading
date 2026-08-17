@@ -334,17 +334,19 @@ export async function runSelfHealing(env, options = {}) {
   const healed = [];
   const skipped = [];
 
-  let sweep;
-  try {
-    const raw = await env.KV_TIMED.get("sanity_sweep:latest");
-    if (!raw) {
-      skipped.push({ reason: "no_cached_sweep" });
+  let sweep = options.sweep && typeof options.sweep === "object" ? options.sweep : null;
+  if (!sweep) {
+    try {
+      const raw = await env.KV_TIMED.get("sanity_sweep:latest");
+      if (!raw) {
+        skipped.push({ reason: "no_cached_sweep" });
+        return { healed, skipped, elapsed_ms: Date.now() - t0 };
+      }
+      sweep = JSON.parse(raw);
+    } catch (e) {
+      skipped.push({ reason: `read_sweep_failed: ${String(e?.message || e).slice(0, 120)}` });
       return { healed, skipped, elapsed_ms: Date.now() - t0 };
     }
-    sweep = JSON.parse(raw);
-  } catch (e) {
-    skipped.push({ reason: `read_sweep_failed: ${String(e?.message || e).slice(0, 120)}` });
-    return { healed, skipped, elapsed_ms: Date.now() - t0 };
   }
 
   const SELF_HEAL_IDS = new Set([
@@ -354,6 +356,8 @@ export async function runSelfHealing(env, options = {}) {
     // 2026-07-30 — Missed broker mirrors (ETH fractional reject, missing
     // forward call). Gated catch-up replays only when thesis/price intact.
     "investor_signal_bridge_coverage",
+    // 2026-08-17 (evolved from PR #896) — stale investor compute.
+    "compute_freshness",
   ]);
   const failing = (sweep.checks || []).filter((c) =>
     c.status === "fail" || (c.status === "warn" && SELF_HEAL_IDS.has(c.id)),
@@ -399,6 +403,10 @@ export async function runSelfHealing(env, options = {}) {
       action = enabled
         ? await _healInvestorBridgeCatchup(env, baseUrl, adminKey)
         : { ok: true, dry_run: true, would_do: "POST /timed/admin/broker-bridge/catchup-investor {dry_run:false,hours:72,max_ops:8}" };
+    } else if (check.id === "compute_freshness") {
+      action = enabled
+        ? await _healComputeFreshness(env)
+        : { ok: true, dry_run: true, would_do: "POST /timed/investor/compute" };
     } else {
       action = { ok: false, reason: `no_handler_for_${check.id}` };
     }
@@ -526,6 +534,18 @@ async function _healInvalidationDistance(env) {
     return r?.ok
       ? { ok: true, tightened: r.count, tickers: (r.tightened || []).map((t) => t.ticker) }
       : { ok: false, error: r?.error || "tighten_failed" };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+async function _healComputeFreshness(env) {
+  try {
+    const r = await _dispatch(env, "/timed/investor/compute", { method: "POST" });
+    const j = await r.json().catch(() => ({}));
+    return j?.ok
+      ? { ok: true, computed: j.computed ?? j.tickers ?? true }
+      : { ok: false, error: j?.error || `HTTP ${r.status}` };
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 200) };
   }
