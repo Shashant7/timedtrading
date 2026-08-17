@@ -90927,6 +90927,20 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         const _authFail = requireKeyOr401(req, env);
         if (_authFail) return _authFail;
         try {
+          // Fresh-isolate self-dispatch from the investor cron — same trap as
+          // auto-rebalance. Load deep-audit config so weekly-ST / session-close
+          // / shallow-breach flags reach computeInvestorScore + classifyInvestorStage.
+          if (!env._deepAuditConfig || Object.keys(env._deepAuditConfig).length === 0) {
+            try {
+              const loaded = await loadDeepAuditConfigFromDb(env.DB, REPLAY_DA_KEYS);
+              env._deepAuditConfig = loaded.config || {};
+              if (loaded.configHash) env._configHash = loaded.configHash;
+            } catch (_daLoadErr) {
+              console.warn("[INVESTOR COMPUTE] deep-audit config load failed:", String(_daLoadErr?.message || _daLoadErr).slice(0, 160));
+              env._deepAuditConfig = env._deepAuditConfig || {};
+            }
+          }
+
           const canonicalTickers = Object.keys(SECTOR_MAP);
           const kvTickers = (await kvGetJSON(env.KV_TIMED, "timed:tickers")) || [];
           const tickerListResp = url.searchParams.get("universe") === "all"
@@ -95955,6 +95969,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         try {
           await ensureInvestorPositionsSchema(env.DB, env.KV_TIMED);
           await ensureAccountLedgerSchema(env.DB, env.KV_TIMED);
+
+          // Self-dispatch from the investor cron arrives on a fresh isolate, so
+          // env._deepAuditConfig is empty unless we load it here. Without this,
+          // deep_audit_investor_* gates (shallow-breach hold, session-close
+          // deferral, weekly ST kill switch) are silently OFF even when armed
+          // in model_config — the same trap we hit on the trade-review routes.
+          if (!env._deepAuditConfig || Object.keys(env._deepAuditConfig).length === 0) {
+            try {
+              const loaded = await loadDeepAuditConfigFromDb(env.DB, REPLAY_DA_KEYS);
+              env._deepAuditConfig = loaded.config || {};
+              if (loaded.configHash) env._configHash = loaded.configHash;
+            } catch (_daLoadErr) {
+              console.warn("[AUTO-REBALANCE] deep-audit config load failed:", String(_daLoadErr?.message || _daLoadErr).slice(0, 160));
+              env._deepAuditConfig = env._deepAuditConfig || {};
+            }
+          }
+
           const now = Date.now();
           const _skipTrims = String(url.searchParams.get("trims") || "").toLowerCase() === "skip";
           const _skipScoreTrims = String(url.searchParams.get("score_trims") || "").toLowerCase() === "skip";
