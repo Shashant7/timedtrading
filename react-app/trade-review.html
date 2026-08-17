@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Trade Review — Timed Trading</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2048%2048%27%20fill%3D%27none%27%3E%3Crect%20width%3D%2748%27%20height%3D%2748%27%20rx%3D%2711%27%20fill%3D%27%23000%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%2717%27%20stroke%3D%27%2334d399%27%20stroke-width%3D%272.5%27%20fill%3D%27none%27%2F%3E%3Ccircle%20cx%3D%2724%27%20cy%3D%2724%27%20r%3D%273.2%27%20fill%3D%27%2330d158%27%2F%3E%3C%2Fsvg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="tt-tokens.css?v=20260610-verda4" />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="auth-gate.js?v=20260601-nav-inject"></script>
+    <script src="tt-bottom-nav.js?v=20260610-verda3" defer></script>
+    <script src="tt-nav-extras.js?v=20260610-verda3" defer></script>
+    <style>
+      :root {
+        --tt-bg-base: var(--vf-ink, #0B1410);
+        --tt-bg-surface: var(--vf-bark, #13201A);
+        --tt-bg-elev: var(--vf-bark-hi, #1A2B22);
+        --tt-border: var(--vf-moss, #1F3128);
+        --tt-border-hi: var(--vf-moss-hi, #2A4136);
+        --tt-text: var(--vf-cream, #E8F2EC);
+        --tt-text-muted: var(--vf-sage, #8AA39A);
+        --tt-text-dim: #6E867D;
+        --tt-text-faint: #51635A;
+        --tt-accent: var(--vf-mint, #38F2A1);
+        --tt-accent-dim: var(--vf-mint-dim, rgba(56,242,161,0.14));
+        --tt-red: #FF6B6B;
+        --tt-amber: #F5C451;
+        --tt-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --tt-font-display: "Manrope", "Inter", -apple-system, sans-serif;
+        --tt-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--tt-bg-base); color: var(--tt-text); font-family: var(--tt-font); -webkit-font-smoothing: antialiased; }
+      .tt-page { max-width: 1500px; margin: 0 auto; padding: 18px 24px 96px; }
+      .tt-card { background: var(--tt-bg-surface); border: 1px solid var(--tt-border); border-radius: var(--vf-radius-md, 18px); }
+      .tt-card-pad { padding: 18px 20px 16px; }
+      .tt-page-title { margin: 0 0 6px; font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+      .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); max-width: 780px; }
+      .tt-stat { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px; padding: 10px 14px; min-width: 92px; }
+      .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
+      .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 20px; font-weight: 700; }
+      .tt-btn { border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, opacity .15s; }
+      .tt-btn:disabled { opacity: .45; cursor: not-allowed; }
+      .tt-btn--primary { background: var(--tt-accent); color: #0B1410; }
+      .tt-btn--primary:hover:not(:disabled) { filter: brightness(1.05); }
+      .tt-btn--ghost { background: var(--tt-bg-elev); border-color: var(--tt-border); color: var(--tt-text-muted); }
+      .tt-btn--ghost:hover:not(:disabled) { border-color: var(--tt-border-hi); color: var(--tt-text); }
+      .tt-btn--danger { background: rgba(255,107,107,.12); border-color: rgba(255,107,107,.35); color: var(--tt-red); }
+      .tt-input, .tt-select, .tt-textarea { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: var(--tt-text); font-family: inherit; }
+      .tt-textarea { width: 100%; resize: vertical; min-height: 64px; line-height: 1.5; }
+      .tt-input:focus, .tt-select:focus, .tt-textarea:focus { outline: none; border-color: var(--tt-accent); box-shadow: 0 0 0 2px var(--tt-accent-dim); }
+      .tt-tab-bar { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--tt-border); overflow-x: auto; }
+      .tt-tab { padding: 10px 16px; font-size: 13px; font-weight: 600; border: none; background: transparent; color: var(--tt-text-muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+      .tt-tab.active { color: var(--tt-text); border-bottom-color: var(--tt-accent); }
+      .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 26px; border-radius: 8px; font-family: var(--tt-font-mono); font-size: 13px; font-weight: 700; padding: 0 6px; }
+      .grade--good { background: rgba(56,242,161,.16); color: var(--tt-accent); }
+      .grade--mid { background: rgba(245,196,81,.14); color: var(--tt-amber); }
+      .grade--bad { background: rgba(255,107,107,.14); color: var(--tt-red); }
+      .grade--none { background: var(--tt-bg-elev); color: var(--tt-text-faint); }
+      .pill { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+      .pill--pending { background: var(--tt-bg-elev); color: var(--tt-text-dim); }
+      .pill--reviewed { background: rgba(103,232,249,.12); color: #67E8F9; }
+      .pill--approved { background: rgba(56,242,161,.16); color: var(--tt-accent); }
+      .pill--modified { background: rgba(245,196,81,.16); color: var(--tt-amber); }
+      .pill--rejected { background: rgba(255,107,107,.14); color: var(--tt-red); }
+      .pill--error { background: rgba(255,107,107,.2); color: var(--tt-red); }
+      .leg-kind { font-family: var(--tt-font-mono); font-size: 11px; font-weight: 700; letter-spacing: .06em; color: var(--tt-text-muted); }
+      .trade-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 14px 18px; cursor: pointer; border-bottom: 1px solid var(--tt-border); }
+      .trade-row:hover { background: rgba(255,255,255,.02); }
+      .mono { font-family: var(--tt-font-mono); }
+      .muted { color: var(--tt-text-muted); }
+      .dim { color: var(--tt-text-dim); }
+      .faint { color: var(--tt-text-faint); }
+      .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); gap: 8px; margin: 12px 0; }
+      .metric { background: var(--tt-bg-base); border: 1px solid var(--tt-border); border-radius: 10px; padding: 8px 10px; }
+      .metric-label { font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; color: var(--tt-text-faint); font-weight: 600; }
+      .metric-value { margin-top: 3px; font-family: var(--tt-font-mono); font-size: 15px; font-weight: 700; }
+      .pos { color: var(--tt-accent); }
+      .neg { color: var(--tt-red); }
+      .section-h { font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--tt-text-faint); margin: 14px 0 5px; }
+      .prose { font-size: 13px; line-height: 1.6; color: var(--tt-text); margin: 0; }
+      .fail-list { margin: 4px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; color: var(--tt-text-muted); }
+      .bar { height: 6px; border-radius: 3px; background: var(--tt-bg-base); overflow: hidden; margin-top: 6px; }
+      .bar-fill { height: 100%; background: var(--tt-accent); }
+      .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--tt-border-hi); border-top-color: var(--tt-accent); border-radius: 50%; animation: spin .7s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: var(--tt-border-hi); border-radius: 3px; }
+      body:not([data-user-role="admin"]) a[data-admin-only] { display: none !important; }
+    </style>
+  </head>
+  <body class="vf-page">
+    <script src="tt-topnav-scaffold.js"></script>
+    <div id="root"></div>
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useCallback } = React;
+      const API_BASE = "";
+      const fetchOpts = { credentials: "include", cache: "no-store" };
+
+      const GOOD = ["A+", "A", "B"];
+      const BAD = ["D", "F"];
+
+      function gradeClass(g) {
+        if (!g || g === "NA") return "grade--none";
+        if (GOOD.includes(g)) return "grade--good";
+        if (BAD.includes(g)) return "grade--bad";
+        return "grade--mid";
+      }
+
+      const fmtPct = (v, d = 2) => (v == null || !Number.isFinite(Number(v)) ? "—" : `${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(d)}%`);
+      const fmtRatio = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : `${Math.round(Number(v) * 100)}%`);
+      const fmtUsd = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : `${Number(v) < 0 ? "-" : ""}$${Math.abs(Number(v)).toFixed(2)}`);
+      const fmtPx = (v) => (v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(2));
+      const fmtTs = (ts) => {
+        if (!ts) return "—";
+        const d = new Date(Number(ts));
+        return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
+      };
+      const signClass = (v) => (v == null ? "" : Number(v) > 0 ? "pos" : Number(v) < 0 ? "neg" : "");
+
+      async function api(path, opts = {}) {
+        const res = await fetch(`${API_BASE}${path}`, { ...fetchOpts, ...opts });
+        const data = await res.json().catch(() => ({ ok: false, error: `bad_json_${res.status}` }));
+        if (!res.ok && data.ok !== true) throw new Error(data.error || `http_${res.status}`);
+        return data;
+      }
+      const post = (path, body) => api(path, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}),
+      });
+
+      // ── Capture metrics ─────────────────────────────────────────────────
+      function CaptureMetrics({ capture }) {
+        if (!capture) return null;
+        const big = capture.big_move || null;
+        return (
+          <div className="metrics">
+            <div className="metric">
+              <div className="metric-label">Realized</div>
+              <div className={`metric-value ${signClass(capture.realized_pct)}`}>{fmtPct(capture.realized_pct)}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">MFE open</div>
+              <div className="metric-value pos">{fmtPct(capture.mfe_pct)}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">MAE open</div>
+              <div className="metric-value neg">{fmtPct(capture.mae_pct)}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">Captured of MFE</div>
+              <div className="metric-value">{fmtRatio(capture.capture_ratio)}</div>
+              {capture.capture_ratio != null && (
+                <div className="bar"><div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, capture.capture_ratio * 100))}%` }} /></div>
+              )}
+            </div>
+            <div className="metric">
+              <div className="metric-label">Dominant move</div>
+              <div className="metric-value">{big ? fmtPct(big.pct) : "—"}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">Of that captured</div>
+              <div className="metric-value">{fmtRatio(capture.big_move_capture_ratio)}</div>
+              {capture.big_move_capture_ratio != null && (
+                <div className="bar"><div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, capture.big_move_capture_ratio * 100))}%` }} /></div>
+              )}
+            </div>
+            <div className="metric">
+              <div className="metric-label">Ran after exit</div>
+              <div className={`metric-value ${capture.post_exit_pct > 2 ? "neg" : ""}`}>{fmtPct(capture.post_exit_pct)}</div>
+            </div>
+            <div className="metric">
+              <div className="metric-label">Heat first</div>
+              <div className="metric-value neg">{fmtPct(capture.heat_before_payoff_pct)}</div>
+            </div>
+          </div>
+        );
+      }
+
+      // ── Operator decision controls ──────────────────────────────────────
+      function DecisionPanel({ review, analysis, onDecided, busy, setBusy }) {
+        const [note, setNote] = useState("");
+        const [editing, setEditing] = useState(false);
+        const [patch, setPatch] = useState({});
+        const [err, setErr] = useState(null);
+        const decided = ["approved", "modified", "rejected"].includes(review.status);
+
+        const decide = async (decision) => {
+          setBusy(true); setErr(null);
+          try {
+            await post("/timed/admin/trade-review/decide", {
+              review_id: review.review_id, decision,
+              note: note || undefined,
+              patch: decision === "modify" ? patch : undefined,
+            });
+            await onDecided();
+            setEditing(false);
+          } catch (e) { setErr(String(e.message || e)); }
+          setBusy(false);
+        };
+
+        if (decided) {
+          return (
+            <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--tt-border)" }}>
+              <span className={`pill pill--${review.status}`}>{review.status}</span>
+              <span className="dim" style={{ fontSize: 12, marginLeft: 10 }}>
+                by {review.decided_by || "operator"} · {fmtTs(review.decided_at)}
+              </span>
+              {review.operator_note && <p className="prose muted" style={{ marginTop: 8 }}>{review.operator_note}</p>}
+              {review.applied && (
+                <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>
+                  Applied: {review.applied.proposals?.length || 0} config proposal(s),{" "}
+                  {review.applied.one_pagers?.length || 0} one-pager(s), memo{" "}
+                  {review.applied.memo_id ? "sent to CIO/CRO/COO" : "not written"}.
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--tt-border)" }}>
+            <div className="section-h">Operator commentary</div>
+            <textarea className="tt-textarea" value={note} placeholder="Add context, correct the reasoning, or record why this is being rejected…"
+              onChange={(e) => setNote(e.target.value)} />
+            {editing && (
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <select className="tt-select" value={patch.grade || analysis?.grade || ""}
+                    onChange={(e) => setPatch({ ...patch, grade: e.target.value })}>
+                    {["A+", "A", "B", "C", "D", "F", "NA"].map((g) => <option key={g} value={g}>Grade {g}</option>)}
+                  </select>
+                  <input className="tt-input" style={{ flex: 1, minWidth: 220 }} placeholder="Verdict (e.g. PREMATURE_EXIT)"
+                    value={patch.verdict ?? (analysis?.verdict || "")}
+                    onChange={(e) => setPatch({ ...patch, verdict: e.target.value.toUpperCase() })} />
+                </div>
+                <textarea className="tt-textarea" placeholder="Replace the assessment (leave blank to keep the agent's)"
+                  value={patch.assessment ?? ""} onChange={(e) => setPatch({ ...patch, assessment: e.target.value })} />
+              </div>
+            )}
+            {err && <div className="neg" style={{ fontSize: 12, marginTop: 8 }}>{err}</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <button className="tt-btn tt-btn--primary" disabled={busy} onClick={() => decide("approve")}>Approve &amp; apply</button>
+              {editing
+                ? <button className="tt-btn tt-btn--primary" disabled={busy} onClick={() => decide("modify")}>Save changes &amp; apply</button>
+                : <button className="tt-btn tt-btn--ghost" disabled={busy} onClick={() => setEditing(true)}>Modify</button>}
+              <button className="tt-btn tt-btn--danger" disabled={busy} onClick={() => decide("reject")}>Reject</button>
+              {busy && <span className="spinner" style={{ alignSelf: "center" }} />}
+            </div>
+            <p className="faint" style={{ fontSize: 11.5, marginTop: 8, marginBottom: 0 }}>
+              Approve or modify routes config findings to the learning-proposal bus (always operator-gated), files engine work as a one-page proposal, and memos the CIO, CRO and COO desks.
+            </p>
+          </div>
+        );
+      }
+
+      // ── One leg ─────────────────────────────────────────────────────────
+      function LegCard({ leg, tradeId, onRefresh }) {
+        const [detail, setDetail] = useState(null);
+        const [open, setOpen] = useState(false);
+        const [busy, setBusy] = useState(false);
+        const [err, setErr] = useState(null);
+
+        const load = useCallback(async () => {
+          const d = await api(`/timed/admin/trade-review/detail?review_id=${encodeURIComponent(leg.review_id)}`);
+          setDetail(d.review);
+          return d.review;
+        }, [leg.review_id]);
+
+        const toggle = async () => {
+          const next = !open;
+          setOpen(next);
+          if (next && !detail) {
+            try { await load(); } catch (e) { setErr(String(e.message || e)); }
+          }
+        };
+
+        const runReview = async (force) => {
+          setBusy(true); setErr(null);
+          try {
+            await post("/timed/admin/trade-review/run", { review_id: leg.review_id, force: !!force });
+            await load();
+            await onRefresh();
+            setOpen(true);
+          } catch (e) { setErr(String(e.message || e)); }
+          setBusy(false);
+        };
+
+        const analysis = detail?.analysis || null;
+        const capture = detail?.capture || null;
+        const summary = leg.capture_summary || null;
+
+        return (
+          <div style={{ borderTop: "1px solid var(--tt-border)", padding: "12px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", cursor: "pointer" }} onClick={toggle}>
+              <span className={`grade ${gradeClass(leg.grade)}`}>{leg.grade || "—"}</span>
+              <span className="leg-kind">{leg.leg_kind}{leg.leg_seq ? ` #${leg.leg_seq + 1}` : ""}</span>
+              <span className="mono muted" style={{ fontSize: 12 }}>{fmtPx(leg.leg_price)}</span>
+              <span className="dim" style={{ fontSize: 12 }}>{fmtTs(leg.leg_ts)}</span>
+              {leg.leg_qty_pct != null && <span className="faint" style={{ fontSize: 12 }}>{Math.round(leg.leg_qty_pct)}%</span>}
+              <span className={`pill pill--${leg.status}`}>{leg.status}</span>
+              {leg.verdict && <span className="mono dim" style={{ fontSize: 11.5 }}>{leg.verdict}</span>}
+              {leg.success_prob != null && (
+                <span className="dim" style={{ fontSize: 11.5 }}>p(success) {Math.round(leg.success_prob * 100)}%</span>
+              )}
+              <span style={{ flex: 1 }} />
+              {summary?.capture_ratio != null && (
+                <span className="faint" style={{ fontSize: 11.5 }}>captured {fmtRatio(summary.capture_ratio)} of MFE</span>
+              )}
+              <span className="faint" style={{ fontSize: 12 }}>{open ? "▾" : "▸"}</span>
+            </div>
+
+            {leg.headline && !open && (
+              <p className="prose muted" style={{ marginTop: 6, fontSize: 12.5 }}>{leg.headline}</p>
+            )}
+
+            {open && (
+              <div style={{ marginTop: 12 }}>
+                {err && <div className="neg" style={{ fontSize: 12, marginBottom: 8 }}>{err}</div>}
+                {leg.status === "pending" && (
+                  <div>
+                    <p className="muted" style={{ fontSize: 13 }}>This leg has not been reviewed yet.</p>
+                    <button className="tt-btn tt-btn--primary" disabled={busy} onClick={() => runReview(false)}>
+                      {busy ? "Reviewing…" : "Review now"}
+                    </button>
+                  </div>
+                )}
+                {leg.status === "error" && (
+                  <div>
+                    <p className="neg" style={{ fontSize: 13 }}>Review failed: {leg.error}</p>
+                    <button className="tt-btn tt-btn--ghost" disabled={busy} onClick={() => runReview(true)}>Retry</button>
+                  </div>
+                )}
+
+                {analysis && (
+                  <div>
+                    {analysis.headline && <p className="prose" style={{ fontWeight: 600 }}>{analysis.headline}</p>}
+                    <CaptureMetrics capture={capture} />
+                    {analysis.price_action && (<>
+                      <div className="section-h">Price action</div>
+                      <p className="prose">{analysis.price_action}</p>
+                    </>)}
+                    {analysis.assessment && (<>
+                      <div className="section-h">Assessment</div>
+                      <p className="prose">{analysis.assessment}</p>
+                    </>)}
+                    {analysis.capture_commentary && (<>
+                      <div className="section-h">Capture</div>
+                      <p className="prose">{analysis.capture_commentary}</p>
+                    </>)}
+                    {analysis.probability_of_success != null && (<>
+                      <div className="section-h">Probability of success at entry</div>
+                      <p className="prose mono">{Math.round(analysis.probability_of_success * 100)}%</p>
+                    </>)}
+                    {Array.isArray(analysis.failure_modes) && analysis.failure_modes.length > 0 && (<>
+                      <div className="section-h">How this fails</div>
+                      <ul className="fail-list">{analysis.failure_modes.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                    </>)}
+                    {Array.isArray(analysis.engine_findings) && analysis.engine_findings.length > 0 && (<>
+                      <div className="section-h">Findings for the model</div>
+                      {analysis.engine_findings.map((f, i) => (
+                        <div key={i} className="metric" style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{f.finding}</div>
+                          <div className="dim" style={{ fontSize: 12, marginTop: 3 }}>
+                            {f.kind === "config" ? `config · ${f.config_key} → ${f.proposed_value}` : f.kind} · {f.scope}
+                          </div>
+                          {f.rationale && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{f.rationale}</div>}
+                        </div>
+                      ))}
+                    </>)}
+
+                    {Array.isArray(detail?.proposals) && detail.proposals.length > 0 && (<>
+                      <div className="section-h">One-pagers from this review</div>
+                      {detail.proposals.map((p) => (
+                        <div key={p.proposal_id} className="dim" style={{ fontSize: 12, marginBottom: 4 }}>
+                          {p.title} — <span className={`pill pill--${p.status === "filed" || p.status === "agent_ready" ? "approved" : "pending"}`}>{p.status}</span>
+                          {p.github_url && <> · <a href={p.github_url} target="_blank" rel="noreferrer" style={{ color: "var(--tt-accent)" }}>issue #{p.github_issue_number}</a></>}
+                        </div>
+                      ))}
+                    </>)}
+
+                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                      <button className="tt-btn tt-btn--ghost" disabled={busy} onClick={() => runReview(true)}>Re-run review</button>
+                      <span className="faint" style={{ alignSelf: "center", fontSize: 11.5 }}>
+                        {detail?.model || ""}{detail?.latency_ms ? ` · ${detail.latency_ms}ms` : ""}
+                      </span>
+                    </div>
+
+                    <DecisionPanel
+                      review={detail} analysis={analysis} busy={busy} setBusy={setBusy}
+                      onDecided={async () => { await load(); await onRefresh(); }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ── One trade ───────────────────────────────────────────────────────
+      function TradeCard({ trade, onRefresh }) {
+        const [open, setOpen] = useState(false);
+        const grades = trade.legs.map((l) => l.grade).filter(Boolean);
+        const undecided = trade.legs.filter((l) => !["approved", "modified", "rejected"].includes(l.status)).length;
+
+        return (
+          <div>
+            <div className="trade-row" onClick={() => setOpen(!open)}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span className="faint" style={{ fontSize: 12, width: 12 }}>{open ? "▾" : "▸"}</span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{trade.ticker}</span>
+                <span className="pill pill--pending">{trade.direction}</span>
+                <span className="muted" style={{ fontSize: 12.5 }}>{trade.setup_name || trade.entry_path || "—"}</span>
+                <span className="dim" style={{ fontSize: 12 }}>{fmtTs(trade.entry_ts)}</span>
+                <span className="faint" style={{ fontSize: 12 }}>{trade.legs.length} leg{trade.legs.length === 1 ? "" : "s"}</span>
+                {grades.length > 0 && (
+                  <span style={{ display: "inline-flex", gap: 4 }}>
+                    {trade.legs.map((l) => <span key={l.review_id} className={`grade ${gradeClass(l.grade)}`} style={{ minWidth: 26, height: 20, fontSize: 11 }}>{l.grade || "·"}</span>)}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {undecided > 0 && <span className="pill pill--reviewed">{undecided} to review</span>}
+                <span className={`mono ${signClass(trade.pnl)}`} style={{ fontSize: 14, fontWeight: 700 }}>{fmtUsd(trade.pnl)}</span>
+              </div>
+            </div>
+            {open && trade.legs.map((leg) => (
+              <LegCard key={leg.review_id} leg={leg} tradeId={trade.trade_id} onRefresh={onRefresh} />
+            ))}
+          </div>
+        );
+      }
+
+      // ── Proposals tab ───────────────────────────────────────────────────
+      function ProposalsTab() {
+        const [data, setData] = useState(null);
+        const [busyId, setBusyId] = useState(null);
+        const [err, setErr] = useState(null);
+
+        const load = useCallback(async () => {
+          try { setData(await api("/timed/admin/trade-review/proposals")); }
+          catch (e) { setErr(String(e.message || e)); }
+        }, []);
+        useEffect(() => { load(); }, [load]);
+
+        const file = async (id, agentReady) => {
+          setBusyId(id); setErr(null);
+          try {
+            await post("/timed/admin/trade-review/proposal/file", {
+              proposal_id: id, agent_ready: agentReady, dispatch: agentReady,
+            });
+            await load();
+          } catch (e) { setErr(String(e.message || e)); }
+          setBusyId(null);
+        };
+
+        if (!data) return <div className="muted" style={{ padding: 20 }}>Loading…</div>;
+
+        return (
+          <div>
+            <div className="tt-card tt-card-pad" style={{ marginBottom: 16 }}>
+              <p className="tt-page-lede" style={{ margin: 0 }}>
+                Engine work surfaced by approved reviews, written as one-page requirements. Filing creates a GitHub issue;
+                marking it agent-ready adds the <span className="mono">agent-ready</span> label and hands the requirement to a coding agent when one is configured.
+              </p>
+              <div className="dim" style={{ fontSize: 12, marginTop: 8 }}>
+                GitHub {data.github_configured ? "configured" : "not configured"} · agent dispatch {data.agent_dispatch_configured ? "configured" : "not configured"}
+              </div>
+            </div>
+            {err && <div className="neg" style={{ fontSize: 13, marginBottom: 10 }}>{err}</div>}
+            {data.proposals.length === 0 && <div className="muted" style={{ padding: 20 }}>No proposals yet.</div>}
+            {data.proposals.map((p) => (
+              <div key={p.proposal_id} className="tt-card tt-card-pad" style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span className={`pill pill--${p.status === "draft" ? "pending" : p.status === "error" ? "error" : "approved"}`}>{p.status}</span>
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>{p.title}</span>
+                  <span className="faint" style={{ fontSize: 12 }}>{p.ticker || ""}</span>
+                  {p.github_url && <a href={p.github_url} target="_blank" rel="noreferrer" style={{ color: "var(--tt-accent)", fontSize: 12 }}>issue #{p.github_issue_number}</a>}
+                </div>
+                {p.github_error && <div className="neg" style={{ fontSize: 12, marginTop: 6 }}>{p.github_error}</div>}
+                <details style={{ marginTop: 10 }}>
+                  <summary className="dim" style={{ fontSize: 12, cursor: "pointer" }}>Requirement</summary>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, lineHeight: 1.55, color: "var(--tt-text-muted)", fontFamily: "var(--tt-font-mono)", marginTop: 8 }}>{p.body_md}</pre>
+                </details>
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button className="tt-btn tt-btn--ghost" disabled={busyId === p.proposal_id} onClick={() => file(p.proposal_id, false)}>File to GitHub</button>
+                  <button className="tt-btn tt-btn--primary" disabled={busyId === p.proposal_id} onClick={() => file(p.proposal_id, true)}>File as agent-ready</button>
+                  {busyId === p.proposal_id && <span className="spinner" style={{ alignSelf: "center" }} />}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      // ── Page ────────────────────────────────────────────────────────────
+      function App() {
+        const [tab, setTab] = useState("reviews");
+        const [data, setData] = useState(null);
+        const [err, setErr] = useState(null);
+        const [status, setStatus] = useState("undecided");
+        const [ticker, setTicker] = useState("");
+        const [days, setDays] = useState(60);
+        const [busy, setBusy] = useState(false);
+
+        const load = useCallback(async () => {
+          setErr(null);
+          try {
+            const qs = new URLSearchParams({ days: String(days), limit: "300" });
+            if (status) qs.set("status", status);
+            if (ticker.trim()) qs.set("ticker", ticker.trim().toUpperCase());
+            setData(await api(`/timed/admin/trade-review/trades?${qs}`));
+          } catch (e) { setErr(String(e.message || e)); }
+        }, [status, ticker, days]);
+
+        useEffect(() => { load(); }, [load]);
+
+        const backfill = async () => {
+          setBusy(true); setErr(null);
+          try { await post("/timed/admin/trade-review/enqueue", { days, limit: 60 }); await load(); }
+          catch (e) { setErr(String(e.message || e)); }
+          setBusy(false);
+        };
+        const drain = async () => {
+          setBusy(true); setErr(null);
+          try { await post("/timed/admin/trade-review/run", { drain: true }); await load(); }
+          catch (e) { setErr(String(e.message || e)); }
+          setBusy(false);
+        };
+
+        const counts = data?.status_counts || {};
+
+        return (
+          <div className="tt-page">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20, flexWrap: "wrap", marginBottom: 18 }}>
+              <div>
+                <h1 className="tt-page-title">Trade Review</h1>
+                <p className="tt-page-lede">
+                  An independent agent grades every entry, trim and exit the model executes — against the tape, not against the
+                  model's own reasoning. Approve, modify or reject each review; approved findings flow to the learning bus, the
+                  executive desks, and engine work becomes a one-page proposal.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div className="tt-stat"><div className="tt-stat-label">Pending</div><div className="tt-stat-value">{counts.pending || 0}</div></div>
+                <div className="tt-stat"><div className="tt-stat-label">Reviewed</div><div className="tt-stat-value">{counts.reviewed || 0}</div></div>
+                <div className="tt-stat"><div className="tt-stat-label">Approved</div><div className="tt-stat-value" style={{ color: "var(--tt-accent)" }}>{(counts.approved || 0) + (counts.modified || 0)}</div></div>
+                <div className="tt-stat"><div className="tt-stat-label">Rejected</div><div className="tt-stat-value">{counts.rejected || 0}</div></div>
+              </div>
+            </div>
+
+            {data && data.enabled === false && (
+              <div className="tt-card tt-card-pad" style={{ marginBottom: 16, borderColor: "var(--tt-amber)" }}>
+                <div style={{ fontSize: 13, color: "var(--tt-amber)", fontWeight: 600 }}>Automatic queueing is off</div>
+                <p className="muted" style={{ fontSize: 12.5, margin: "6px 0 0" }}>
+                  New legs are not being queued for review. Set <span className="mono">trade_review_enabled=true</span> in model config to
+                  start capturing them live. Backfill still works for trades already in the ledger.
+                </p>
+              </div>
+            )}
+
+            <div className="tt-tab-bar">
+              <button className={`tt-tab ${tab === "reviews" ? "active" : ""}`} onClick={() => setTab("reviews")}>Reviews</button>
+              <button className={`tt-tab ${tab === "proposals" ? "active" : ""}`} onClick={() => setTab("proposals")}>Proposals</button>
+            </div>
+
+            {tab === "proposals" ? <ProposalsTab /> : (
+              <div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
+                  <select className="tt-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+                    <option value="undecided">Needs a decision</option>
+                    <option value="">All</option>
+                    <option value="pending">Pending review</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="approved">Approved</option>
+                    <option value="modified">Modified</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="error">Errors</option>
+                  </select>
+                  <input className="tt-input" style={{ width: 110 }} placeholder="Ticker" value={ticker}
+                    onChange={(e) => setTicker(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
+                  <select className="tt-select" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+                    {[7, 30, 60, 120, 365].map((d) => <option key={d} value={d}>Last {d} days</option>)}
+                  </select>
+                  <button className="tt-btn tt-btn--ghost" onClick={load}>Refresh</button>
+                  <span style={{ flex: 1 }} />
+                  <button className="tt-btn tt-btn--ghost" disabled={busy} onClick={backfill}>Queue recent trades</button>
+                  <button className="tt-btn tt-btn--primary" disabled={busy} onClick={drain}>Run pending reviews</button>
+                  {busy && <span className="spinner" style={{ alignSelf: "center" }} />}
+                </div>
+
+                {err && <div className="neg" style={{ fontSize: 13, marginBottom: 10 }}>{err}</div>}
+                {!data && <div className="muted" style={{ padding: 20 }}>Loading…</div>}
+                {data && data.trades.length === 0 && (
+                  <div className="tt-card tt-card-pad muted" style={{ fontSize: 13 }}>
+                    No legs match this filter. Use “Queue recent trades” to enqueue trades already in the ledger, then “Run pending reviews”.
+                  </div>
+                )}
+                {data && data.trades.length > 0 && (
+                  <div className="tt-card" style={{ overflow: "hidden" }}>
+                    {data.trades.map((t) => <TradeCard key={t.trade_id} trade={t} onRefresh={load} />)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>
