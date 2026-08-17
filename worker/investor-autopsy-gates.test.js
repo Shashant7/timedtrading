@@ -6,54 +6,183 @@
 import { describe, it, expect } from "vitest";
 import {
   weeklySupertrendBull,
+  weeklySupertrendBear,
+  weeklySupertrendDir,
   deferForSessionClose,
   shallowBreachScoreHold,
 } from "./investor-autopsy-gates.js";
+import {
+  computeInvestorScore,
+  classifyInvestorStage,
+  generateThesis,
+} from "./investor.js";
 
 const ON = (k, extra = {}) => ({ [k]: "true", ...extra });
 
 describe("weeklySupertrendBull (D2 — atr.xs is flip-only and sign-mirrored)", () => {
-  it("is a no-op when the flag is off: legacy reads atr.xs === 1", () => {
-    expect(weeklySupertrendBull({ tfW: { atr: { xs: 1 } }, daCfg: null })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: { atr: { xs: -1 } }, daCfg: null })).toBe(false);
-    // The live shape: no flip bar, so atr carries band labels but no xs.
-    expect(weeklySupertrendBull({ tfW: { stDir: -1, atr: { s: "up", lo: "0.5" } }, daCfg: null })).toBe(false);
+  const OFF = { deep_audit_investor_weekly_st_dir_fix: "false" };
+
+  it("ships ON: an unset config gets the corrected reading, not the legacy one", () => {
+    // Pine convention: -1 = bull.
+    expect(weeklySupertrendBull({ tfW: { stDir: -1 }, daCfg: null })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: { stDir: 1 }, daCfg: null })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: { stDir: -1 }, daCfg: {} })).toBe(true);
   });
 
-  it("reads the persistent stDir when armed (Pine convention: -1 = bull)", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
-    expect(weeklySupertrendBull({ tfW: { stDir: -1 }, daCfg: cfg })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: { stDir: 1 }, daCfg: cfg })).toBe(false);
+  it("the kill switch restores the legacy atr.xs === 1 reading", () => {
+    expect(weeklySupertrendBull({ tfW: { atr: { xs: 1 } }, daCfg: OFF })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: { atr: { xs: -1 } }, daCfg: OFF })).toBe(false);
+    // Legacy on the live shape: no flip bar, so no xs, so always false.
+    expect(weeklySupertrendBull({ tfW: { stDir: -1, atr: { s: "up", lo: "0.5" } }, daCfg: OFF })).toBe(false);
   });
 
-  it("corrects the inversion: xs === 1 was reported bullish but means stDir >= 0", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
+  it("corrects the inversion: xs === 1 was read as bullish but means stDir >= 0", () => {
     // Producer: atr.xs = stDir < 0 ? -1 : 1. A bearish weekly (stDir=+1)
     // therefore emits xs=+1, which the legacy consumer scored as bullish.
     const bearishWeeklyOnAFlipBar = { stDir: 1, atr: { xs: 1 } };
-    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: null })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: cfg })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: OFF })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: bearishWeeklyOnAFlipBar, daCfg: null })).toBe(false);
   });
 
   it("recovers the reading on a non-flip bar, where legacy always scored 0", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
     // This is the shape on ~every live pass: no stFlip, so no atr.xs at all.
+    // Verified 2026-08-17: undefined on all 17 open positions.
     const tfW = { stDir: -1, atr: { s: "up", lo: "1.0", hi: "1.5" } };
-    expect(weeklySupertrendBull({ tfW, daCfg: null })).toBe(false);
-    expect(weeklySupertrendBull({ tfW, daCfg: cfg })).toBe(true);
+    expect(weeklySupertrendBull({ tfW, daCfg: OFF })).toBe(false);
+    expect(weeklySupertrendBull({ tfW, daCfg: null })).toBe(true);
   });
 
   it("falls back to the weekly bundle when tf_tech has no usable stDir", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
-    expect(weeklySupertrendBull({ tfW: { stDir: 0 }, wb: { supertrend_dir: -1 }, daCfg: cfg })).toBe(true);
-    expect(weeklySupertrendBull({ tfW: null, wb: { supertrend_dir: 1 }, daCfg: cfg })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: { stDir: 0 }, wb: { supertrend_dir: -1 }, daCfg: null })).toBe(true);
+    expect(weeklySupertrendBull({ tfW: null, wb: { supertrend_dir: 1 }, daCfg: null })).toBe(false);
   });
 
   it("returns false rather than throwing when everything is missing", () => {
-    const cfg = ON("deep_audit_investor_weekly_st_dir_fix");
-    expect(weeklySupertrendBull({ daCfg: cfg })).toBe(false);
-    expect(weeklySupertrendBull({ tfW: {}, wb: {}, daCfg: cfg })).toBe(false);
+    expect(weeklySupertrendBull({ daCfg: null })).toBe(false);
+    expect(weeklySupertrendBull({ tfW: {}, wb: {} })).toBe(false);
     expect(weeklySupertrendBull({})).toBe(false);
+  });
+
+  it("matches the live book: 15 of 17 open positions read bullish once fixed", () => {
+    // W.stDir / weekly_bundle.supertrend_dir pulled from timed:latest:<T>
+    // on 2026-08-17. atr.xs was undefined on every one of them.
+    const book = {
+      PANW: -1, PLTR: -1, CF: -1, TSM: -1, DE: -1, GE: -1, CAT: -1, PWR: -1,
+      FN: 1, KO: -1, NVDA: -1, TJX: -1, WTS: -1, IONQ: 1, BNY: -1, ANET: -1, IWM: -1,
+    };
+    const legacy = [];
+    const fixed = [];
+    for (const [t, stDir] of Object.entries(book)) {
+      const tfW = { stDir, atr: { s: "up", lo: "0.5" } }; // no xs — not a flip bar
+      if (weeklySupertrendBull({ tfW, daCfg: OFF })) legacy.push(t);
+      if (weeklySupertrendBull({ tfW, daCfg: null })) fixed.push(t);
+    }
+    expect(legacy).toEqual([]);
+    expect(fixed).toHaveLength(15);
+    expect(fixed).not.toContain("FN");
+    expect(fixed).not.toContain("IONQ");
+  });
+});
+
+describe("weeklySupertrendBear / weeklySupertrendDir", () => {
+  const OFF = { deep_audit_investor_weekly_st_dir_fix: "false" };
+
+  it("normalises to the plain convention: 1 = bull, -1 = bear, 0 = unknown", () => {
+    expect(weeklySupertrendDir({ tfW: { stDir: -1 } })).toBe(1);
+    expect(weeklySupertrendDir({ tfW: { stDir: 1 } })).toBe(-1);
+    expect(weeklySupertrendDir({ tfW: { stDir: 0 } })).toBe(0);
+    expect(weeklySupertrendDir({})).toBe(0);
+    expect(weeklySupertrendDir({ tfW: {}, wb: { supertrend_dir: -1 } })).toBe(1);
+  });
+
+  it("UNKNOWN MUST NOT READ AS BEARISH — the bear reading drives an immediate reduce", () => {
+    // weekly_supertrend_bearish is in IMMEDIATE_INVESTOR_REDUCE_REASONS, so it
+    // skips reduce_trim_min_sessions. Missing data must never mean "sell".
+    expect(weeklySupertrendBear({ daCfg: null })).toBe(false);
+    expect(weeklySupertrendBear({ tfW: {}, wb: {}, daCfg: null })).toBe(false);
+    expect(weeklySupertrendBear({ tfW: { stDir: 0 }, daCfg: null })).toBe(false);
+    expect(weeklySupertrendBear({ tfW: { stDir: null }, daCfg: null })).toBe(false);
+  });
+
+  it("bull and bear are mutually exclusive and never both true", () => {
+    for (const stDir of [-1, 0, 1, null, undefined]) {
+      const tfW = { stDir };
+      const bull = weeklySupertrendBull({ tfW, daCfg: null });
+      const bear = weeklySupertrendBear({ tfW, daCfg: null });
+      expect(bull && bear).toBe(false);
+    }
+  });
+
+  it("the kill switch restores the legacy bear reading too", () => {
+    expect(weeklySupertrendBear({ tfW: { atr: { xs: -1 } }, daCfg: OFF })).toBe(true);
+    expect(weeklySupertrendBear({ tfW: { stDir: 1 }, daCfg: OFF })).toBe(false);
+  });
+});
+
+describe("investor.js call sites that read the corrected direction", () => {
+  const OFF = { deep_audit_investor_weekly_st_dir_fix: "false" };
+  // A bullish weekly on a normal (non-flip) bar — the shape seen on every
+  // live pass: stDir populated, atr present with band labels but no xs.
+  const bullWeekly = () => ({
+    ticker: "TEST",
+    price: 100,
+    _live_price: 100,
+    tf_tech: {
+      W: { stDir: -1, atr: { s: "up", lo: "0.5" }, ema: { ema21: 92, ema200: 70 } },
+      D: { stDir: -1 },
+    },
+    ema_map: { W: { structure: 1, depth: 8 } },
+    weekly_bundle: { supertrend_dir: -1, supertrend_line: 88, ema21: 92, ema200: 70 },
+    monthly_bundle: { supertrend_dir: -1, supertrend_line: 60 },
+  });
+
+  it("computeInvestorScore: trendDurability and weeklyTrend were both dead, now score", () => {
+    const td = bullWeekly();
+    const legacy = computeInvestorScore(td, { rsRank: 70, sectorRsRank: 50, marketHealth: 70, daCfg: OFF });
+    const fixed = computeInvestorScore(td, { rsRank: 70, sectorRsRank: 50, marketHealth: 70 });
+    expect(legacy.components.trendDurability).toBe(0);
+    expect(fixed.components.trendDurability).toBeGreaterThan(0);
+    expect(fixed.components.weeklyTrend).toBe(legacy.components.weeklyTrend + 8);
+    expect(fixed.score).toBeGreaterThan(legacy.score);
+  });
+
+  it("generateThesis: weeklyST criterion and the SuperTrend invalidation line come back", () => {
+    const td = bullWeekly();
+    const legacy = generateThesis(td, 70, OFF);
+    const fixed = generateThesis(td, 70);
+    expect(legacy.criteria.weeklyST).toBe(false);
+    expect(fixed.criteria.weeklyST).toBe(true);
+    expect(legacy.invalidation.some((s) => /Weekly SuperTrend/i.test(s))).toBe(false);
+    expect(fixed.invalidation.some((s) => /Weekly SuperTrend/i.test(s))).toBe(true);
+  });
+
+  it("classifyInvestorStage: a bullish weekly no longer trips weekly_supertrend_bearish", () => {
+    // Monthly NOT bull + weekly bear is the shape that should reduce. Monthly
+    // is left neutral (0) so the earlier monthly_supertrend_bearish check
+    // doesn't claim the result first.
+    const bearWeeklyMonthlyNotBull = {
+      ...bullWeekly(),
+      tf_tech: { W: { stDir: 1, atr: { s: "dn", lo: "0.5" } }, D: { stDir: 1 } },
+      weekly_bundle: { supertrend_dir: 1 },
+      monthly_bundle: { supertrend_dir: 0 },
+    };
+    const reduced = classifyInvestorStage(bearWeeklyMonthlyNotBull, 55, { status: "OPEN", avg_entry: 100 }, {});
+    expect(reduced.reason).toBe("weekly_supertrend_bearish");
+
+    // A bullish weekly must NOT reduce for that reason.
+    const held = classifyInvestorStage(bullWeekly(), 55, { status: "OPEN", avg_entry: 100 }, {});
+    expect(held.reason).not.toBe("weekly_supertrend_bearish");
+  });
+
+  it("classifyInvestorStage: missing weekly data must not fire the bearish reduce", () => {
+    const noWeekly = {
+      ...bullWeekly(),
+      tf_tech: { W: {}, D: {} },
+      weekly_bundle: {},
+      monthly_bundle: { supertrend_dir: 0 },
+    };
+    const r = classifyInvestorStage(noWeekly, 55, { status: "OPEN", avg_entry: 100 }, {});
+    expect(r.reason).not.toBe("weekly_supertrend_bearish");
   });
 });
 

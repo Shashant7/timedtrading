@@ -2,9 +2,8 @@
 // Investor (long-horizon) lane gate pack — from
 // tasks/2026-08-17-investor-stop-forensics.md.
 //
-// Every gate is driven by a `deep_audit_investor_*` flag and is DEFAULT OFF,
-// so deploying this module changes nothing on live until a flag is armed in
-// model_config.
+// D2 is a DEFECT FIX and ships ON (its flag is a kill switch). D3 and D4 are
+// tuning gates and are DEFAULT OFF until armed in model_config.
 //
 // The finding these answer: 44 of 47 closed long-term positions (2026-05 ->
 // 2026-08) exited on PRIMARY_INVALIDATION_BREACH for -$11k, on a MEDIAN breach
@@ -16,7 +15,7 @@
 // touched is profitable.
 //
 // Gates:
-//   D2 weekly_st_dir_fix         — `tf_tech.W.atr.xs` is only present on a
+//   D2 weekly_st_dir_fix   [ON]  — `tf_tech.W.atr.xs` is only present on a
 //                                  SuperTrend flip bar AND encodes the sign of
 //                                  stDir, so `xs === 1` means BEARISH under the
 //                                  Pine convention (-1 = bull) used everywhere
@@ -56,6 +55,11 @@
 const flagOn = (v) =>
   v === true || v === 1 || String(v ?? "").toLowerCase() === "true";
 
+// For defect fixes that ship ON. The flag exists only as a kill switch, so an
+// unset key means "corrected behaviour" and only an explicit false reverts.
+const flagOffExplicit = (v) =>
+  v === false || v === 0 || String(v ?? "").toLowerCase() === "false";
+
 const num = (v, fallback = null) => {
   if (v === null || v === undefined || v === "") return fallback;
   const n = Number(v);
@@ -72,9 +76,15 @@ const num = (v, fallback = null) => {
  * (`-1 = bull` — see the monthly check in generateThesis and the daily
  * SuperTrend bonus in computeInvestorScore) `xs === 1` therefore means BEARISH.
  *
- * With the flag OFF this returns the legacy `atr.xs === 1` reading so nothing
- * changes. With it ON it reads `stDir === -1` off the persistent field, with
- * the weekly bundle's `supertrend_dir` as a fallback.
+ * This is a DEFECT FIX and ships ON — `deep_audit_investor_weekly_st_dir_fix`
+ * is a kill switch, so only an explicit `false` restores the legacy
+ * `atr.xs === 1` reading. Corrected, it reads `stDir === -1` off the
+ * persistent field with the weekly bundle's `supertrend_dir` as a fallback.
+ *
+ * Verified against the live book 2026-08-17: `W.atr.xs` was undefined on all
+ * 17 open positions and `trendDurability` was 0 on all 302 scored names, while
+ * `W.stDir` was populated and agreed with `weekly_bundle.supertrend_dir` in
+ * every case.
  *
  * @param {object} args
  * @param {object} args.tfW   — tickerData.tf_tech.W
@@ -83,14 +93,51 @@ const num = (v, fallback = null) => {
  * @returns {boolean} weekly SuperTrend is bullish
  */
 export function weeklySupertrendBull({ tfW = null, wb = null, daCfg = null } = {}) {
-  if (!flagOn(daCfg?.deep_audit_investor_weekly_st_dir_fix)) {
+  if (flagOffExplicit(daCfg?.deep_audit_investor_weekly_st_dir_fix)) {
     return tfW?.atr?.xs === 1;
   }
+  return weeklySupertrendDir({ tfW, wb }) === 1;
+}
+
+/**
+ * D2 companion — the bearish half. Kept separate from `!weeklySupertrendBull`
+ * because "unknown" must not read as bearish: several call sites use the bear
+ * reading to trigger a REDUCE, and `weekly_supertrend_bearish` is in
+ * `IMMEDIATE_INVESTOR_REDUCE_REASONS` (it skips `reduce_trim_min_sessions`).
+ * Missing data has to mean "no signal", never "sell".
+ *
+ * @param {object} args
+ * @param {object} args.tfW   — tickerData.tf_tech.W
+ * @param {object} args.wb    — resolved weekly bundle
+ * @param {object} args.daCfg — deep-audit config
+ * @returns {boolean} weekly SuperTrend is bearish
+ */
+export function weeklySupertrendBear({ tfW = null, wb = null, daCfg = null } = {}) {
+  if (flagOffExplicit(daCfg?.deep_audit_investor_weekly_st_dir_fix)) {
+    return tfW?.atr?.xs === -1;
+  }
+  return weeklySupertrendDir({ tfW, wb }) === -1;
+}
+
+/**
+ * Tri-state weekly SuperTrend direction, normalised to the *plain* convention
+ * so callers read naturally: `1` = bull, `-1` = bear, `0` = unknown.
+ *
+ * Note this is the OPPOSITE sign to the raw Pine field it reads from, which is
+ * exactly the trap that produced the bug — so the conversion happens here,
+ * once, instead of at eight call sites.
+ *
+ * @param {object} args
+ * @param {object} args.tfW — tickerData.tf_tech.W
+ * @param {object} args.wb  — resolved weekly bundle
+ * @returns {1|-1|0}
+ */
+export function weeklySupertrendDir({ tfW = null, wb = null } = {}) {
   const stDir = num(tfW?.stDir);
-  if (stDir !== null && stDir !== 0) return stDir === -1;
+  if (stDir !== null && stDir !== 0) return stDir < 0 ? 1 : -1;
   const bundleDir = num(wb?.supertrend_dir);
-  if (bundleDir !== null && bundleDir !== 0) return bundleDir === -1;
-  return false;
+  if (bundleDir !== null && bundleDir !== 0) return bundleDir < 0 ? 1 : -1;
+  return 0;
 }
 
 /**

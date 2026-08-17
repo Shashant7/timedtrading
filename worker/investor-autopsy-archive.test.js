@@ -52,6 +52,40 @@ describe("investor-autopsy-archive", () => {
     expect(snap.investor.accum_zone.signals).toContain("monthly_trend_bullish");
   });
 
+  it("the stDir fallback agrees with the is4hBull branch (Pine -1 = bull)", () => {
+    // Both branches assign the same `supertrend` field, where 1 = bull. The
+    // fallback used to read the Pine sign literally (`d > 0 ? 1 : -1`), so an
+    // older decision_record with only stDir got the OPPOSITE label from an
+    // identical record that happened to carry the flags.
+    const viaFlag = buildInvestorSignalSnapshotFromDecision(
+      { score: 70, h4_timing: { timeframe: "4H", is4hBull: true } },
+      { eventType: "ENTRY" },
+    );
+    const viaStDir = buildInvestorSignalSnapshotFromDecision(
+      { score: 70, h4_timing: { timeframe: "4H", stDir: -1 } },
+      { eventType: "ENTRY" },
+    );
+    expect(viaFlag.tf["4H"].signals.supertrend).toBe(1);
+    expect(viaStDir.tf["4H"].signals.supertrend).toBe(viaFlag.tf["4H"].signals.supertrend);
+
+    const bearFlag = buildInvestorSignalSnapshotFromDecision(
+      { score: 70, h4_timing: { timeframe: "4H", is4hBear: true } },
+      { eventType: "ENTRY" },
+    );
+    const bearStDir = buildInvestorSignalSnapshotFromDecision(
+      { score: 70, h4_timing: { timeframe: "4H", stDir: 1 } },
+      { eventType: "ENTRY" },
+    );
+    expect(bearFlag.tf["4H"].signals.supertrend).toBe(-1);
+    expect(bearStDir.tf["4H"].signals.supertrend).toBe(bearFlag.tf["4H"].signals.supertrend);
+
+    const flat = buildInvestorSignalSnapshotFromDecision(
+      { score: 70, h4_timing: { timeframe: "4H", stDir: 0 } },
+      { eventType: "ENTRY" },
+    );
+    expect(flat.tf["4H"].signals.supertrend).toBe(0);
+  });
+
   it("prefers full TF grid stamped at decision time over h4-only fallback", () => {
     const snap = buildInvestorSignalSnapshotFromDecision({
       score: 80,

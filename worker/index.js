@@ -91337,8 +91337,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               const volTier = td?.volatility_tier || null;
 
               return {
-                trendD: stD > 0 ? "up" : stD < 0 ? "down" : "flat",
-                trendW: stW > 0 ? "up" : stW < 0 ? "down" : "flat",
+                // Pine convention: stDir -1 = BULL, +1 = bear. Reading the sign
+                // literally inverted every label written into
+                // entry_provenance_json — the field the autopsies read.
+                trendD: stD < 0 ? "up" : stD > 0 ? "down" : "flat",
+                trendW: stW < 0 ? "up" : stW > 0 ? "down" : "flat",
                 phaseD: phD,
                 phaseW: phW,
                 td: tdSummary,
@@ -94728,6 +94731,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               marketHealth: _mhScore,
               existingPosition: _existingPos,
               cfg: _invCfgScores,
+              daCfg: env?._deepAuditConfig || {},
             });
             if (_rev.revalidated && _rev.data) {
               Object.assign(entry, _rev.data);
@@ -94834,6 +94838,11 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
         }
 
         let outData = data;
+        // Whether read-time revalidation produced a live stage. If it did, the
+        // persisted investor_positions.investor_stage column below must NOT
+        // clobber it — that column is written at rebalance time and is staler
+        // than the KV cache the revalidation just corrected.
+        let _stageRevalidated = false;
         try {
           let latestTd = await kvGetJSON(env.KV_TIMED, `timed:latest:${ticker}`);
           if (latestTd?.price) {
@@ -94907,8 +94916,12 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               marketHealth: Number(health?.score) || 50,
               existingPosition: _existingPos,
               cfg: _invCfgRead,
+              daCfg: env?._deepAuditConfig || {},
             });
-            if (_rev.revalidated) outData = _rev.data;
+            if (_rev.revalidated) {
+              outData = _rev.data;
+              _stageRevalidated = true;
+            }
           }
         } catch (revErr) {
           console.warn("[INVESTOR_TICKER] read-time revalidation failed:", String(revErr?.message || revErr).slice(0, 150));
@@ -94950,7 +94963,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 last_action_shares: posRow.last_action_shares || null,
                 last_action_reason: posRow.last_action_reason || null,
               };
-              if (posRow.investor_stage) outData.stage = String(posRow.investor_stage).toLowerCase();
+              // The persisted stage is the one the last rebalance wrote. Surface
+              // it either way, but only let it BE the stage when read-time
+              // revalidation did not produce a live one — otherwise this line
+              // reinstates the stale `accumulate` that the revalidation above
+              // exists to correct, and `stage` ends up contradicting the
+              // freshly-computed `stageReason` sitting next to it.
+              if (posRow.investor_stage) {
+                const _persistedStage = String(posRow.investor_stage).toLowerCase();
+                outData.position.investor_stage = _persistedStage;
+                if (!_stageRevalidated) outData.stage = _persistedStage;
+              }
             } else if (outData?.position?.owned) {
               outData.position = { owned: false };
             }

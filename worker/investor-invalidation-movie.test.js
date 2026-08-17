@@ -130,8 +130,12 @@ describe("detectWeeklyBreakoutRetest (CAT)", () => {
     ticker: "CAT",
     price: 876.54,
     week_low: 804.57,
-    st_support: { W: 810 },
-    weekly_bundle: { ema21: 808 },
+    // The weekly SuperTrend PRICE lives on weekly_bundle. `st_support` is keyed
+    // under `.map.<tf>` and holds {dir, slope, aligned}, never a level — this
+    // fixture used to assert against `st_support.W`, a shape production has
+    // never produced.
+    st_support: { map: { W: { dir: "bull", slope: "rising", aligned: true } } },
+    weekly_bundle: { ema21: 808, supertrend_line: 810 },
     tf_tech: { W: { ema: { ema21: 808, priceAboveEma21: true }, low: 804.57 } },
   };
 
