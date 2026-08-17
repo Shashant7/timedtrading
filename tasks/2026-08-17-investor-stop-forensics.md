@@ -506,3 +506,36 @@ that moves entry scores, so it needs its own before/after on entry counts rather
 than being confounded with two exit changes.
 
 Rollback is a config flip in `model_config`; no redeploy.
+
+## 12. Armed mid-session 2026-08-17 (~12:30 ET) — live breach on PANW/CF
+
+Post-open verification after the 08:00 UTC recompute found:
+
+| Ticker | Score | Floor cushion | Stage |
+|---|---|---|---|
+| **PANW** | 92 | **−0.28%** (breached) | `reduce / primary_invalidation_breach` |
+| **CF** | 69 | **−0.35%** (breached) | watch |
+| PLTR | 86 | +4.76% | watch |
+
+PANW is a +10% winner on a 28 bp dip through a ratcheted Weekly ATR floor —
+exactly the hair-trigger pattern this pack was written for.
+
+### Plumbing prerequisite (shipped in PR #1268)
+
+`POST /timed/investor/auto-rebalance` and `POST /timed/investor/compute` did
+**not** load `_deepAuditConfig`. Cron self-dispatches them onto a fresh
+isolate, so every `deep_audit_investor_*` gate was silently OFF even when
+armed in `model_config`. Same trap as the trade-review routes. Both routes
+now call `loadDeepAuditConfigFromDb(env.DB, REPLAY_DA_KEYS)`.
+
+### Flags armed in prod `model_config`
+
+| Key | Value |
+|---|---|
+| `deep_audit_investor_shallow_breach_score_hold` | `true` |
+| `deep_audit_investor_shallow_breach_pct` | `2` |
+| `deep_audit_investor_breach_hold_score_min` | `65` |
+| `deep_audit_investor_require_session_close` | `true` |
+
+Simulated: PANW hold=true (0.36% @ 92), CF hold=true (0.34% @ 69). Both
+positions still open after arming. Rollback is a config flip; no redeploy.
