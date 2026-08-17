@@ -371,6 +371,32 @@ async function collectOverrideStatus(env) {
   }
 }
 
+/**
+ * Approved Trade Review Agent memos (2026-08-17). Execution-quality
+ * evidence from our own book, as opposed to the external research streams
+ * above. Best-effort: the table may not exist on a fresh environment.
+ */
+async function collectTradeReviewMemos(env) {
+  try {
+    const { loadExecMemos } = await import("../review/trade-review-apply.js");
+    const memos = await loadExecMemos(env, { audience: "cro", limit: 12 });
+    if (!memos.length) return { memos: [], note: "no approved trade reviews in window" };
+    return {
+      count: memos.length,
+      memos: memos.map((m) => ({
+        ticker: m.ticker,
+        headline: m.headline,
+        setup_name: m.evidence?.setup_name || null,
+        entry_path: m.evidence?.entry_path || null,
+        failure_modes: (m.evidence?.failure_modes || []).slice(0, 3),
+        created_at: m.created_at,
+      })),
+    };
+  } catch (_) {
+    return { memos: [], note: "trade review desk unavailable" };
+  }
+}
+
 // ── Prompt builder ────────────────────────────────────────────────────────────
 function buildSynthesisPrompt(sources, asOfDate) {
   return {
@@ -411,6 +437,10 @@ function buildSynthesisPrompt(sources, asOfDate) {
       "",
       "### 6. Active Playbook + Tactical Override Status",
       JSON.stringify({ playbook: sources.playbook, override: sources.override }, null, 2),
+      "",
+      "### 7. Trade Review Desk memos (approved per-leg grades of our OWN executions)",
+      "These are the independent Trade Review Agent's verdicts on entries, trims and exits the engine actually made, after the operator approved or modified them. Unlike the external research above, this is direct evidence about execution quality. When several memos share a pattern (same setup graded poorly, same premature-exit shape), surface it as an observation cited to `trade_review` and, if it contradicts the active playbook, add it to `notable_drifts`.",
+      JSON.stringify(sources.trade_review || { memos: [], note: "no memos" }, null, 2),
       "",
       "## Output Schema",
       "",
@@ -500,6 +530,7 @@ export async function runCRODaily(env, { asOfDate = null, force = false, model =
     discovery:  await collectDiscoveryPulse(env),
     playbook:   collectPlaybookSnapshot(),
     override:   await collectOverrideStatus(env),
+    trade_review: await collectTradeReviewMemos(env),
   };
 
   const { system, user } = buildSynthesisPrompt(sources, today);
