@@ -21,6 +21,27 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Trade Review Agent (2026-08-17).** Independent per-leg grading of
+      every ENTRY / TRIM / EXIT, with an operator approve / modify /
+      reject loop. Admin page `/trade-review.html`; design in
+      [2026-08-17-trade-review-agent.md](2026-08-17-trade-review-agent.md);
+      playbook in [skills/trade-review-agent.md](../skills/trade-review-agent.md).
+      Built: D1 schema (`trade_reviews`, `trade_review_proposals`,
+      `exec_memos`), deterministic capture math (MFE/MAE, capture ratio,
+      dominant-move overlay, post-exit continuation, entry geometry),
+      reviewer prompt that treats the engine's record as a CLAIM,
+      validated JSON output, ledger enqueue hook + nightly drain, eight
+      admin endpoints, apply pipeline (learning_proposals tier2 + exec
+      memos into CIO memory and CRO synthesis + one-page GitHub issues
+      with `agent-ready` label and optional Cursor agent dispatch).
+      Verified end-to-end on preprod against real trades: leg extraction,
+      capture math, prompt, approve → proposal + memo + one-pager.
+      **All flags default OFF.** Operator next: review a dry run, then
+      set `trade_review_enabled=true` (and `trade_review_auto_run=true`
+      for the nightly drain). GitHub filing needs
+      `trade_review_github_enabled=true`; agent dispatch needs a
+      `CURSOR_API_KEY` secret. Branch:
+      `cursor/trade-review-agent-dbdd`.
 - [ ] **July ST autopsy — patterns batches 1+2+3 (2026-08-15).** Operator
       graded 10 short-term July trades (PKG, BRK-B, XLI×2, INTC, MTB, WAL,
       GRNY, KO, CIBR). Batch 3 (CIBR) added: reclaim-sequence entries
