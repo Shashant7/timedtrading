@@ -527,7 +527,7 @@ import { executeCandleReplayBatches } from "./replay-candle-batches.js";
 import { createCandleReplayStep } from "./replay-candle-step.js";
 import { createIntervalReplayStep } from "./replay-interval-step.js";
 import { closeReplayPositionsAtDate, parseQueryBool, resetReplayState } from "./replay-admin-helpers.js";
-import { finalizeBacktestRun, summarizeRunMetrics, validateSentinelBasket } from "./backtest-run-archive-helpers.js";
+import { finalizeBacktestRun, summarizeRunMetrics, validateSentinelBasket, backfillMissingRunTradeCounts } from "./backtest-run-archive-helpers.js";
 import {
   kvGetJSON,
   kvPutJSON,
@@ -75280,7 +75280,8 @@ export default {
           const limit = Math.min(Number(url.searchParams.get("limit")) || 60, 200);
           const includeArchived = url.searchParams.get("include_archived") === "1";
           const where = includeArchived ? "" : "WHERE (r.archived_at IS NULL OR r.archived_at = 0)";
-          const rows = (await db.prepare(`SELECT r.*, m.total_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id ${where} ORDER BY r.created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          const rows = (await db.prepare(`SELECT r.*, m.total_trades, m.closed_trades, m.open_trades, m.wins, m.losses, m.win_rate, m.realized_pnl, m.realized_pnl_pct, m.avg_win_pct, m.avg_loss_pct FROM backtest_runs r LEFT JOIN backtest_run_metrics m ON r.run_id = m.run_id ${where} ORDER BY r.created_at DESC LIMIT ?1`).bind(limit).all())?.results || [];
+          await backfillMissingRunTradeCounts(db, rows);
           const summaries = rows.map(r => parseRunRecord(r));
           const runs = summaries.map((run) => ({
             ...run,

@@ -234,6 +234,28 @@ describe("investor-autopsy-archive", () => {
     expect(trade.pnl).toBeNull();
   });
 
+  it("keeps OPEN positions as OPEN when D1 hands back an explicit NULL closed_at", () => {
+    // D1 returns closed_at: null for open positions; Number(null) is 0, which
+    // used to archive the whole August investor book as FLAT/investor_closed.
+    const trade = mapInvestorPositionToAutopsyTrade(
+      {
+        id: "inv-CAT-auto-1786543362571",
+        ticker: "CAT",
+        status: "OPEN",
+        avg_entry: 864.41,
+        total_shares: 8.098,
+        first_entry_ts: 1786543362571,
+        closed_at: null,
+        investor_stage: "accumulate",
+      },
+      [{ action: "BUY", shares: 8.098, price: 864.41, value: 7000, ts: 1786543362571, reason: "investor_buy" }],
+    );
+    expect(trade.status).toBe("OPEN");
+    expect(trade.exit_ts).toBeNull();
+    expect(trade.exit_reason).toBeNull();
+    expect(trade.pnl).toBeNull();
+  });
+
   it("maps MNST loser correctly", () => {
     const trade = mapInvestorPositionToAutopsyTrade(
       { id: "inv-pos-MNST-2025-07-01", ticker: "MNST", status: "CLOSED", avg_entry: 63.54, first_entry_ts: 1751400000000 },

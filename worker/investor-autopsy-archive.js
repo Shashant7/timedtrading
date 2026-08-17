@@ -284,6 +284,9 @@ export async function hydrateAutopsyTradeSignals(db, trades, { runId } = {}) {
 }
 
 function num(v, fallback = null) {
+  // Number(null) and Number("") are both 0, which would turn a NULL closed_at
+  // into a real close timestamp and archive every open position as closed.
+  if (v == null || v === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -319,7 +322,8 @@ export function mapInvestorPositionToAutopsyTrade(position, lots = []) {
   const notional = num(firstBuy?.value) ?? (entryPrice != null && shares != null ? entryPrice * shares : null);
 
   const posStatus = String(pos.status || "").toUpperCase();
-  const isClosed = posStatus === "CLOSED" || lastSell != null || num(pos.closed_at) != null;
+  const closedAt = num(pos.closed_at);
+  const isClosed = posStatus === "CLOSED" || lastSell != null || (closedAt != null && closedAt > 0);
 
   let exitTs = null;
   let exitPrice = null;
