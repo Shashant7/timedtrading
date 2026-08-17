@@ -83,6 +83,20 @@ describe("normalizeReviewPayload", () => {
   });
 });
 
+describe("grade coercion", () => {
+  it("folds plus/minus modifiers into the base letter instead of dropping the grade", () => {
+    expect(normalizeReviewPayload({ grade: "B+" }, "ENTRY").grade).toBe("B");
+    expect(normalizeReviewPayload({ grade: "c-" }, "ENTRY").grade).toBe("C");
+    expect(normalizeReviewPayload({ grade: "F-" }, "ENTRY").grade).toBe("F");
+  });
+
+  it("keeps A+ intact and still rejects nonsense", () => {
+    expect(normalizeReviewPayload({ grade: "A+" }, "ENTRY").grade).toBe("A+");
+    expect(normalizeReviewPayload({ grade: "excellent" }, "ENTRY").grade).toBeNull();
+    expect(normalizeReviewPayload({ grade: null }, "ENTRY").grade).toBeNull();
+  });
+});
+
 describe("tradeReviewEnabled", () => {
   it("is off unless the flag is explicitly true", () => {
     expect(tradeReviewEnabled({})).toBe(false);

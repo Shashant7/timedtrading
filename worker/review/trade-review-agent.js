@@ -162,6 +162,20 @@ function buildOpenAIBody(model, messages, maxCompletionTokens) {
 }
 
 /**
+ * Models reach for the full letter scale (B+, C-) even when the brief lists
+ * only A+/A/B/C/D/F. Dropping those to null threw away the reviewer's whole
+ * grade, so fold the modifier into the base letter instead. A+ is the one
+ * modified grade the scale actually carries.
+ */
+function coerceGrade(raw) {
+  const g = String(raw ?? "").toUpperCase().replace(/\s+/g, "");
+  if (!g) return null;
+  if (VALID_GRADES.has(g)) return g;
+  const m = g.match(/^([ABCDF])[+-]$/);
+  return m ? m[1] : null;
+}
+
+/**
  * Coerce the model's JSON into the stored shape. Anything out of contract
  * is dropped rather than persisted — a review with a hallucinated verdict
  * is worse than no review.
@@ -175,8 +189,7 @@ export function normalizeReviewPayload(raw, legKind) {
   };
   if (!raw || typeof raw !== "object") return out;
 
-  const grade = String(raw.grade || "").toUpperCase().trim();
-  out.grade = VALID_GRADES.has(grade) ? grade : null;
+  out.grade = coerceGrade(raw.grade);
 
   const verdict = String(raw.verdict || "").toUpperCase().trim();
   const allowed = VALID_VERDICTS[String(legKind || "").toUpperCase()] || null;

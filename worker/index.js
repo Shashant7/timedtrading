@@ -69473,6 +69473,7 @@ export default {
         if (authFail) return authFail;
         if (!env?.DB) return sendJSON({ ok: false, error: "d1_not_configured" }, 503, corsHeaders(env, req));
         try {
+          await loadTradeReviewConfig(env);
           const body = await req.json().catch(() => ({}));
           if (body?.drain === true || body?.drain === "true") {
             const res = await drainTradeReviewQueue(env, { limit: Number(body?.limit) || undefined });
