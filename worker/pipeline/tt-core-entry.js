@@ -13,7 +13,7 @@ import {
   getSectorRating as getSectorRatingForFocus,
 } from "../sector-mapping.js";
 import { admitSetup as admitSetupContext } from "../phase-c-setup-admission.js";
-import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext } from "../july-autopsy-gates.js";
+import { julyAutopsyGateBlock, julyAutopsyDefaultDeny, isHtfReclaimContext, ltfStructureBlock } from "../july-autopsy-gates.js";
 import { STRATEGY_TACTICAL_TITLE } from "../strategy-context.js";
 import {
   evaluateIndexEtfModelEntry,
@@ -1712,6 +1712,28 @@ export function evaluateEntry(ctx) {
   //   3. State doesn't need HTF_BULL_LTF_PULLBACK — any state where
   //      side is bullish-aligned is acceptable for a LONG breakout.
   //
+  // ── LTF STRUCTURE CONFIRMATION (2026-08-17, flag-gated) ──────────────
+  // Shared by the ATH-breakout and n-test-support triggers below. Blocks
+  // LONGs bought into an actively breaking 15m+30m tape without a strong
+  // hourly, unless the LTF is washed out (capitulation flush at support).
+  // Pinned cases live in july-autopsy-gates.js. DEFAULT OFF — flip
+  // deep_audit_ja_ltf_structure_confirm to "true" to enable.
+  const _jaLtfStructBlock = ltfStructureBlock({
+    side,
+    struct15: m15?.ema?.structure,
+    st15: m15?.stDir,
+    rsi15: m15?.rsi?.r5,
+    struct30: m30?.ema?.structure,
+    st30: m30?.stDir,
+    rsi30: m30?.rsi?.r5,
+    struct1h: h1?.ema?.structure,
+    st1h: h1?.stDir,
+    daCfg,
+  });
+  if (_jaLtfStructBlock) {
+    d.__ja_ltf_struct_diag = _jaLtfStructBlock.detail;
+  }
+
   // DA-keyed so we can disable via deep_audit_ath_breakout_enabled=false.
   const _athBreakoutEnabled = String(daCfg.deep_audit_ath_breakout_enabled ?? "true") === "true";
   const _momentumEarlyQualify = String(
@@ -1821,10 +1843,18 @@ export function evaluateEntry(ctx) {
         }
       }
 
+      // LTF structure confirmation (2026-08-17): an ATH breakout bought
+      // into a breaking 15m+30m tape is the SN/PH/WM-class loser. The
+      // washed-out flush (RTX Aug) is exempted inside the helper.
+      if (athBreakoutTrigger && _jaLtfStructBlock) {
+        athBreakoutTrigger = false;
+      }
+
       // Diagnostic stamp — useful for validation against blocked-bar data.
       d.__ath_breakout_diag = {
         side,
         fired: athBreakoutTrigger,
+        ltf_structure_block: !!_jaLtfStructBlock,
         pct_below_high_252: _ath.pct_below_high_252,
         pct_above_low_252: _ath.pct_above_low_252,
         breakout_above_prev_high: _ath.breakout_above_prev_high,
@@ -2100,7 +2130,11 @@ export function evaluateEntry(ctx) {
       const _ntAdvPhase = (Number(adversePhaseDivSummary?.count)
         || (adversePhaseDivSummary?.anyActive ? 1 : 0)) + _ntFormPhase;
       const _ntDivBlocked = _ntConfirmOn && (_ntAdvRsi >= 1 && _ntAdvPhase >= 1);
-      const _ntConfirmOk = !_ntConfirmOn || (_ntMomentumConfirm && !_ntDivBlocked);
+      // LTF structure confirmation (2026-08-17): a support bounce with the
+      // 15m+30m tape actively breaking down (DE Jul 29) is a knife catch,
+      // not a bounce. Own flag; independent of the confirm gate above.
+      const _ntConfirmOk = (!_ntConfirmOn || (_ntMomentumConfirm && !_ntDivBlocked))
+        && !_jaLtfStructBlock;
 
       if (side === "LONG" && _nts.support
           && _nts.support.long_setup_active
@@ -2127,6 +2161,7 @@ export function evaluateEntry(ctx) {
         adverse_rsi_forming: _ntFormRsi,
         adverse_phase_forming: _ntFormPhase,
         divergence_blocked: _ntDivBlocked,
+        ltf_structure_block: !!_jaLtfStructBlock,
         support: _nts.support,
         resistance: _nts.resistance,
         rvol: _ntRvol,
