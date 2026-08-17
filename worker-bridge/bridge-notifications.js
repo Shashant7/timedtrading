@@ -141,6 +141,8 @@ export function meaningForSyncState(syncState) {
       return "The position was closed manually at the broker. The mirror is suppressed for this trade; no further actions will be sent.";
     case "reconcile_error":
       return "The bridge could not fetch broker positions on the last cycle. It will retry automatically; persistent failures escalate.";
+    case "execution_drift":
+      return "Broker positions were read successfully, but a TRIM or EXIT did not leave the position the model expected — an execution mismatch, not a connection problem. Compare the fills against the intended quantity before acting.";
     case "expired":
       return "This options trade has expired. The manifest is archived.";
     case "untracked":
