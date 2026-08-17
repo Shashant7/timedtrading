@@ -210,6 +210,76 @@ export function exhaustTrimMinProfitPct(d, daCfg, absFloorPct = 0.5) {
 }
 
 /**
+ * Structural stop guard (2026-08-16, NEU Jul 27 / CF Aug 3 autopsy).
+ *
+ * When a LONG's stop sits INSIDE the noise band of a major structural level
+ * (the hourly EMA-233), a routine test of that level takes the position out
+ * even when the level HOLDS. NEU Jul 27: stop 770.54 was 0.55% below the
+ * hourly 233 at 774.81; the Jul 29 test bottomed 0.62% below the level —
+ * a 5-cent pierce past our stop — the level held, and the name ran +24.7%
+ * without us. CF Aug 3 is the control case: price flushed 1.1% through the
+ * stop and kept going, so any guard must NOT hold that one.
+ *
+ * The discriminator is depth-through-the-level, volatility-scaled: a test
+ * that stays within ~1 hourly ATR below the level is noise; a move beyond
+ * it is a genuine break. When the stop sits above `level − atrMult×ATR_h1`,
+ * this returns the extra overshoot tolerance (as a fraction) needed to
+ * extend the effective stop down to that band floor:
+ *   NEU: band floor 767.1 → cushion 0.45%, the 0.07% pierce defers → saved.
+ *   CF:  band floor 120.9 → cushion 0.24%, the 1.09% flush exceeds it (and
+ *        the 1% material-breach override) → still exits.
+ *
+ * This is a per-tick DEFER like the ext-hours wick guard, not a stop move:
+ * price still below on the next cycle re-evaluates, and the max-loss and
+ * 1% material-breach overrides in the caller are untouched, which caps the
+ * worst case this guard can add.
+ *
+ * Returns a fraction (0.0045 = 0.45%) to feed into allowedOvershoot; 0 when
+ * the guard is off, the level is missing, or the stop already clears the
+ * band.
+ *
+ * @param {object} p
+ * @param {string} p.direction - "LONG" | "SHORT"
+ * @param {number} p.sl        - current stop price
+ * @param {number} p.level     - structural level (hourly EMA-233)
+ * @param {number} p.atrPct    - hourly ATR as % of price (tf_tech["1H"].atrPct)
+ * @param {object} p.daCfg     - deep-audit config
+ */
+export function structStopCushion({ direction, sl, level, atrPct, daCfg }) {
+  if (!flagOn(daCfg?.deep_audit_ja_struct_stop_guard)) return 0;
+  const s = Number(sl);
+  const lv = Number(level);
+  if (!(s > 0) || !(lv > 0)) return 0;
+
+  const multRaw = Number(daCfg?.deep_audit_ja_struct_stop_atr_mult);
+  const mult = Number.isFinite(multRaw) && multRaw > 0 ? multRaw : 1.0;
+  const atrRaw = Number(atrPct);
+  // Volatility-scaled band, sane fallback of 1% when hourly ATR is missing
+  // (e.g. thin h1 history), clamped so a wild ATR print can't blow it out.
+  const bandPct = Number.isFinite(atrRaw) && atrRaw > 0
+    ? Math.min(atrRaw * mult, 2.0)
+    : 1.0;
+  const maxRaw = Number(daCfg?.deep_audit_ja_struct_stop_max_cushion_pct);
+  const maxCushion = (Number.isFinite(maxRaw) && maxRaw > 0 ? maxRaw : 1.0) / 100;
+
+  if (direction === "LONG") {
+    // Level only in play when the stop is at/below it (support underneath)
+    // or within a whisker above; a stop far above the 233 isn't keyed to it.
+    if (s > lv * 1.02) return 0;
+    const bandFloor = lv * (1 - bandPct / 100);
+    if (s <= bandFloor) return 0; // stop already clears the noise band
+    return Math.min((s - bandFloor) / s, maxCushion);
+  }
+  if (direction === "SHORT") {
+    if (s < lv * 0.98) return 0;
+    const bandCeil = lv * (1 + bandPct / 100);
+    if (s >= bandCeil) return 0;
+    return Math.min((bandCeil - s) / s, maxCushion);
+  }
+  return 0;
+}
+
+/**
  * G4 — default-deny for admission holes (P8). Call with the admitSetup
  * result: when the only reason a cohort is allowed is a missing grade or a
  * missing matrix row, reject instead.
@@ -234,4 +304,5 @@ export default {
   julyAutopsyDefaultDeny,
   isHtfReclaimContext,
   exhaustTrimMinProfitPct,
+  structStopCushion,
 };

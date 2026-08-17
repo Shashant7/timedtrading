@@ -303,6 +303,8 @@ export function evaluateEntry(ctx) {
   let emaStructure15m = 0;
   let adverseRsiDivSummary = null;
   let adversePhaseDivSummary = null;
+  let adverseRsiFormingSummary = null;
+  let adversePhaseFormingSummary = null;
   let dailyBearDivergenceSummary = null;
   let phaseContext = null;
 
@@ -1585,6 +1587,19 @@ export function evaluateEntry(ctx) {
     ? collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bear")
     : collectActivePhaseDivergence([m10, m15, m30, h1, h4, D, W], "bull");
   adversePhaseDivSummary = summarizeDivergence(adversePhaseDiv);
+  // Forming (unconfirmed right-edge) divergence — 2026-08-16, NEU Jul 21
+  // autopsy. The confirmed detector needs ~5 bars past the top before it can
+  // see a divergence, which is exactly too late for an entry decision made
+  // AT the retest high. These summaries are always stamped for measurement;
+  // gate consumption is behind deep_audit_ja_forming_div_gate (default OFF).
+  const adverseRsiFormingDiv = side === "LONG"
+    ? collectFormingDivergence([m10, m30, h1, h4, D], "rsiDiv", "bear")
+    : collectFormingDivergence([m10, m30, h1, h4, D], "rsiDiv", "bull");
+  adverseRsiFormingSummary = summarizeDivergence(adverseRsiFormingDiv);
+  const adversePhaseFormingDiv = side === "LONG"
+    ? collectFormingDivergence([m10, m15, m30, h1, h4, D, W], "phaseDiv", "bear")
+    : collectFormingDivergence([m10, m15, m30, h1, h4, D, W], "phaseDiv", "bull");
+  adversePhaseFormingSummary = summarizeDivergence(adversePhaseFormingDiv);
   // V15 P0.7.22 — stamp divergence summary on tickerData so the
   // setup_snapshot can capture it for retrospective analysis. The
   // existing summarizeDivergence returns {anyActive, tfs:[...]}.
@@ -1592,6 +1607,8 @@ export function evaluateEntry(ctx) {
     d.__entry_divergence_summary = {
       adverse_rsi: adverseRsiDivSummary,
       adverse_phase: adversePhaseDivSummary,
+      adverse_rsi_forming: adverseRsiFormingSummary,
+      adverse_phase_forming: adversePhaseFormingSummary,
       bull_rsi: hasRsiDivBull,
       bear_rsi: hasRsiDivBear,
     };
@@ -2071,10 +2088,17 @@ export function evaluateEntry(ctx) {
       const _ntMomentumConfirm = side === "LONG"
         ? (hasStFlipBull || hasEmaCrossBull || hasSqRelease || ltfRecovering)
         : (hasStFlipBear || hasEmaCrossBear || hasSqRelease);
-      const _ntAdvRsi = Number(adverseRsiDivSummary?.count)
-        || (adverseRsiDivSummary?.anyActive ? 1 : 0);
-      const _ntAdvPhase = Number(adversePhaseDivSummary?.count)
-        || (adversePhaseDivSummary?.anyActive ? 1 : 0);
+      // Forming divergence (2026-08-16, NEU Jul 21): the confirmed detector
+      // cannot see a divergence at the current high (needs 5 right-side
+      // bars), which is why NEU's entry sailed through. When the forming
+      // flag is on, unconfirmed right-edge divergences count too.
+      const _ntFormingOn = String(daCfg.deep_audit_ja_forming_div_gate ?? "false") === "true";
+      const _ntFormRsi = _ntFormingOn ? (Number(adverseRsiFormingSummary?.count) || 0) : 0;
+      const _ntFormPhase = _ntFormingOn ? (Number(adversePhaseFormingSummary?.count) || 0) : 0;
+      const _ntAdvRsi = (Number(adverseRsiDivSummary?.count)
+        || (adverseRsiDivSummary?.anyActive ? 1 : 0)) + _ntFormRsi;
+      const _ntAdvPhase = (Number(adversePhaseDivSummary?.count)
+        || (adversePhaseDivSummary?.anyActive ? 1 : 0)) + _ntFormPhase;
       const _ntDivBlocked = _ntConfirmOn && (_ntAdvRsi >= 1 && _ntAdvPhase >= 1);
       const _ntConfirmOk = !_ntConfirmOn || (_ntMomentumConfirm && !_ntDivBlocked);
 
@@ -2099,6 +2123,9 @@ export function evaluateEntry(ctx) {
         momentum_confirm: _ntMomentumConfirm,
         adverse_rsi: _ntAdvRsi,
         adverse_phase: _ntAdvPhase,
+        forming_gate: _ntFormingOn,
+        adverse_rsi_forming: _ntFormRsi,
+        adverse_phase_forming: _ntFormPhase,
         divergence_blocked: _ntDivBlocked,
         support: _nts.support,
         resistance: _nts.resistance,
@@ -4589,6 +4616,36 @@ function collectSeriesDivergence(tfs, field, side, opts = {}) {
       strength,
       barsSince: Number.isFinite(barsSince) ? barsSince : null,
       active: !!active,
+    });
+  }
+  return hits.length ? hits : null;
+}
+
+/**
+ * Collect FORMING divergences (unconfirmed right-edge, 2026-08-16 NEU
+ * autopsy). These come from detectFormingSeriesDivergence via the bundle's
+ * formingBear/formingBull (raw shape) or tf_tech's fb/fu (compressed shape).
+ * Freshness is enforced at detection (extreme within 3 bars), so only a
+ * strength floor is applied here.
+ */
+function collectFormingDivergence(tfs, field, side, opts = {}) {
+  const minStrength = Number(opts.minStrength ?? 1.5);
+  const hits = [];
+  for (const [idx, tf] of (tfs || []).entries()) {
+    const bucket = tf?.[field];
+    if (!bucket) continue;
+    const div = side === "bear"
+      ? (bucket.fb ?? bucket.formingBear)
+      : (bucket.fu ?? bucket.formingBull);
+    if (!div) continue;
+    const strength = Number(div?.strength ?? div?.s) || 0;
+    if (strength < minStrength) continue;
+    const barsSince = Number(div?.barsSince ?? div?.bs);
+    hits.push({
+      tf: tfLabelForIndex(idx, tfs.length),
+      strength,
+      barsSince: Number.isFinite(barsSince) ? barsSince : null,
+      forming: true,
     });
   }
   return hits.length ? hits : null;

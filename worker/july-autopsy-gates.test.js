@@ -4,6 +4,7 @@ import {
   julyAutopsyDefaultDeny,
   isHtfReclaimContext,
   exhaustTrimMinProfitPct,
+  structStopCushion,
 } from "./july-autopsy-gates.js";
 import { admitSetup } from "./phase-c-setup-admission.js";
 
@@ -44,6 +45,79 @@ describe("exhaustTrimMinProfitPct — ATR-scaled exhaustion trim floor", () => {
   it("falls back to the flat floor when ATR or price is unavailable", () => {
     expect(exhaustTrimMinProfitPct({ price: 78 }, ON, 0.5)).toBe(0.5);
     expect(exhaustTrimMinProfitPct(null, ON, 0.5)).toBe(0.5);
+  });
+});
+
+describe("structStopCushion — stop inside the h1 EMA-233 noise band", () => {
+  const ON = { deep_audit_ja_struct_stop_guard: "true" };
+
+  // NEU Jul 27 (the save): LONG, stop 770.54 sat 0.55% below the hourly
+  // 233 at 774.81. The Jul 29 test bottomed at 770.00 — a 0.07% pierce past
+  // the stop — the level HELD, and NEU ran +24.7% without us.
+  const neu = { direction: "LONG", sl: 770.54, level: 774.81, atrPct: 1.1, daCfg: ON };
+  const neuOvershoot = (770.54 - 770.00) / 770.54;
+
+  // CF Aug 3 (the control): LONG, stop 121.21 just under the 233 at 122.14,
+  // and price flushed to 119.89 — 1.09% through the stop — and kept going.
+  // The guard must NOT hold that one.
+  const cf = { direction: "LONG", sl: 121.21, level: 122.14, atrPct: 1.0, daCfg: ON };
+  const cfOvershoot = (121.21 - 119.89) / 121.21;
+
+  it("is OFF by default", () => {
+    expect(structStopCushion({ ...neu, daCfg: {} })).toBe(0);
+    expect(structStopCushion({ ...neu, daCfg: { deep_audit_ja_struct_stop_guard: "false" } })).toBe(0);
+  });
+
+  it("NEU Jul 27: the 0.07% level-test pierce defers instead of exiting", () => {
+    const cushion = structStopCushion(neu);
+    expect(cushion).toBeGreaterThan(neuOvershoot);
+    expect(cushion).toBeLessThanOrEqual(0.01);
+  });
+
+  it("CF Aug 3: the 1.09% flush through the band still exits", () => {
+    const cushion = structStopCushion(cf);
+    expect(cushion).toBeGreaterThan(0);
+    expect(cfOvershoot).toBeGreaterThan(cushion);
+  });
+
+  it("no cushion when the stop already clears the noise band", () => {
+    // Stop 3% below the level — a breach there IS a confirmed break.
+    expect(structStopCushion({ ...neu, sl: 751.57 })).toBe(0);
+  });
+
+  it("no cushion when the stop is far above the level (level not in play)", () => {
+    expect(structStopCushion({ ...neu, sl: 800, level: 700 })).toBe(0);
+  });
+
+  it("no cushion when the level is missing (thin h1 history)", () => {
+    expect(structStopCushion({ ...neu, level: undefined })).toBe(0);
+    expect(structStopCushion({ ...neu, level: 0 })).toBe(0);
+  });
+
+  it("falls back to a 1% band when hourly ATR is unavailable", () => {
+    const cushion = structStopCushion({ ...neu, atrPct: undefined });
+    expect(cushion).toBeGreaterThan(0);
+    // band floor = 774.81 * 0.99 = 767.06 → (770.54 - 767.06) / 770.54
+    expect(cushion).toBeCloseTo((770.54 - 774.81 * 0.99) / 770.54, 6);
+  });
+
+  it("caps the cushion at the configured max", () => {
+    const cfg = { ...ON, deep_audit_ja_struct_stop_max_cushion_pct: 0.3 };
+    // Huge band: stop barely below level → uncapped cushion would be ~2%
+    const cushion = structStopCushion({ direction: "LONG", sl: 774, level: 774.81, atrPct: 2.0, daCfg: cfg });
+    expect(cushion).toBeCloseTo(0.003, 6);
+  });
+
+  it("SHORT mirror: stop inside the band above the level defers", () => {
+    // SHORT with stop 0.4% above the 233 — the mirrored NEU shape.
+    const cushion = structStopCushion({ direction: "SHORT", sl: 100.4, level: 100, atrPct: 1.0, daCfg: ON });
+    expect(cushion).toBeGreaterThan(0);
+    // band ceiling 101 → (101 - 100.4) / 100.4
+    expect(cushion).toBeCloseTo((101 - 100.4) / 100.4, 6);
+  });
+
+  it("SHORT: stop already beyond the band ceiling gets no cushion", () => {
+    expect(structStopCushion({ direction: "SHORT", sl: 101.5, level: 100, atrPct: 1.0, daCfg: ON })).toBe(0);
   });
 });
 

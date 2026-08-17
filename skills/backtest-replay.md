@@ -100,6 +100,24 @@ UPDATE model_config SET config_value='true'
  WHERE config_key IN ('deep_audit_...');
 ```
 
+### Bar-close SL evaluation hides intra-bar behavior
+
+The replay checks stops against the 10m/30m BAR CLOSE. A wick that pierces
+the stop and recovers inside the bar never registers as a breach, so any
+management rule keyed to intra-bar behavior (wick cushions, defer-on-pierce
+guards) validates as a NO-OP in replay even when it matters live (live SL
+checks run on */5 cron ticks against live prints). For those rules, replay
+can only prove no-harm; the positive case needs unit tests pinned to the
+live tape and a live observation window.
+
+### Sanity-check your epoch years
+
+Two separate analyses here went wrong by using a 2025 epoch for a 2026
+date (`1751328000000` is Jul 1 2025, not 2026). An hourly EMA computed
+against a tape that silently ends a year early produces garbage that looks
+plausible. When a derived level is >5% away from price, check the
+timestamps before believing the level.
+
 ### Candle depth
 
 Tickers outside the original preprod clone have no daily history, so

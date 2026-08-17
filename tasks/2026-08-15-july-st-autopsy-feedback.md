@@ -1529,6 +1529,140 @@ to the breakout path.
 Both remain unvalidated. Next arm should test: n-test confirmation with an
 explicit LTF-structure leg, plus the same leg on ATH breakout.
 
+## Batch 5 — NEU/CF structural stop + forming divergence (2026-08-16)
+
+Operator directive after merging PR 1259: "fix and refine the NEU/CF issue
+and our divergence issue. We need to be able to comfortably execute these
+types of trades." Both shipped flag-gated on PR #1261
+(`cursor/struct-stop-forming-div-dbdd`).
+
+### Fix 1 — structural stop guard (`deep_audit_ja_struct_stop_guard`)
+
+The NEU Jul 27 / CF Aug 3 pair defines the problem and its boundary:
+
+| | NEU Jul 27 (must save) | CF Aug 3 (must NOT save) |
+|---|---|---|
+| Stop | 770.54, **0.55% below** h1 EMA-233 (774.81) | 121.21, 0.76% below h1 EMA-233 (122.14) |
+| The breach | level test bottomed 770.00 — **0.07% pierce** | flush to 119.89 — **1.09% through** |
+| What followed | level HELD, +24.7% run without us | kept falling — genuine break |
+
+The discriminator is depth-through-the-level, volatility-scaled.
+`structStopCushion()` (worker/july-autopsy-gates.js): when the stop sits
+above `h1_ema233 − 1×ATR_h1`, extend the SL defer tolerance down to that
+band floor, capped at 1%. NEU's cushion computes to 0.45% (> the 0.07%
+pierce → defers, survives); CF's 1.09% flush exceeds both its 0.24% cushion
+and the untouched 1% material-breach override (→ still exits). Per-tick
+DEFER like the ext-hours wick guard — max-loss caps unchanged, so the worst
+case this can add is bounded. Needed `tf_tech[TF].atrPct` exposing raw
+ATR14 (only band labels existed).
+
+### Fix 2 — forming divergence (`deep_audit_ja_forming_div_gate`)
+
+Root cause of the NEU Jul 21 miss confirmed structural: the detector needs
+two CONFIRMED pivots and a pivot confirms only 5 bars after it prints, so a
+divergence forming AT the current high is invisible exactly at decision
+time. `detectFormingSeriesDivergence()` compares the unconfirmed right-edge
+extreme against the last confirmed pivot (freshness ≤ 3 bars):
+
+- Stamped per-TF (`rsiDiv.fb/fu`, `phaseDiv.fb/fu`) and into
+  `__entry_divergence_summary.adverse_rsi_forming` / `adverse_phase_forming`
+  ALWAYS — measurement is free, every future snapshot carries it.
+- Consumed only by the n-test confirmation gate and only when the flag is
+  ON. The live G2 location gate and confirmed summaries are untouched.
+
+### Validation arms (running)
+
+Same harness as ja-10m-* / ja-mgmt-*: 10m cadence, batch 24, 28 tickers.
+Preprod h1 depth verified: ~280 hourly bars before Jul 1 (coverage from
+May 2), above the 233-bar EMA warm-up minimum; replay loads 600.
+
+| Arm | Flags on top of tactical set | Months |
+|---|---|---|
+| `ja-struct-jul26` / `ja-struct-aug26` | + struct_stop_guard | Jul + Aug |
+| `ja-div-jul26` / `ja-div-aug26` | + n_test_confirm + forming_div_gate (struct OFF) | Jul + Aug |
+
+Reference: `ja-10m-jul26` $2,088 total / $1,345 realized (57% WR).
+Results to be appended below.
+
+### Arm S result — no harm, no replay-visible fires (2026-08-16)
+
+| Run | Trades | Wins | Realized $ | Open-mark $ |
+|---|---|---|---|---|
+| ja-10m-jul26 (baseline) | 51 | 29 | 1,345 | 470* |
+| **ja-struct-jul26** | 51 | 29 | **1,345** | 743 |
+| ja-10m-aug26 (baseline) | 24 | 18 | 1,370 | 664* |
+| **ja-struct-aug26** | 24 | 18 | **1,370** | 989 |
+
+*Baseline open-marks predate the sizing fix and are understated; realized
+columns are directly comparable and are IDENTICAL to the dollar — the guard
+changed zero trades in both months.
+
+Why identical is the expected (and acceptable) result:
+
+1. **The failure mode is sub-cadence.** NEU's live stop-out was a tick-level
+   wick pierce (0.07% past the stop for minutes) caught by a live */5 cron
+   tick. The replay evaluates SL on 10m BAR CLOSES — a wick that pierces and
+   recovers inside the bar never even registers as a breach. The exact shape
+   the guard fixes is structurally invisible to this harness.
+2. **The July replay had exactly one in-band candidate** (checked all 8
+   sl_breached exits against the h1 EMA-233 ± ATR band): SPHB Jul 13 — and
+   that one was an overnight gap through the stop at the 09:30 open, which
+   the guard correctly refuses to defer (material-breach override).
+3. **The replay never entered NEU Jul 27 or CF Aug 3** (path dependence),
+   so neither archetype could appear.
+
+So replay validates the guard's DOWNSIDE (no regression, no held losers,
+gap-throughs still exit); the save case is pinned by unit tests against the
+live tape numbers (NEU cushion 0.45% > 0.07% pierce → defer; CF 1.09% flush
+> cushion + 1% override → exit). Given the bounded worst case (per-tick
+defer only, max-loss / material-breach caps untouched), this is arm-able.
+
+### Arm F result — n-test confirm + forming divergence: replay-neutral
+
+| Run | Trades | Wins | Realized $ |
+|---|---|---|---|
+| ja-10m-jul26 (baseline) | 51 | 29 | 1,345 |
+| **ja-div-jul26** | 51 | 29 | 1,333 |
+| ja-10m-aug26 (baseline) | 24 | 18 | 1,370 |
+| **ja-div-aug26** | 24 | 18 | **1,370** (zero trade diff) |
+
+July's entire diff is ONE clean swap: the gate blocked the GRNI Jul 6
+unconfirmed support bounce (−$32) and GRNI re-entered next day via HTF
+reclaim (−$44) — net −$12. EXEL Jul 29 (−$473, the other n-test loser)
+STILL entered: its bounce carried a momentum confirm via the loose
+`ltfRecovering` leg (`scores.ltf > -10`), confirming the batch-4 note that
+the momentum leg needs an explicit LTF-structure condition to catch
+DE/EXEL-class bounces. Known limitation, follow-up candidate.
+
+The replay universe simply doesn't carry the live exposure: 2 n-test trades
+in replay-July vs 19 live (21% WR, the worst family in the book). Replay
+proves the gate doesn't hurt; the live evidence is why it should be on.
+
+### Go-live (staged 2026-08-16, activates with the Monday deploy)
+
+Armed in PROD `model_config` (rows inserted; struct/forming keys are inert
+until PR #1261 merges and deploys — n_test_confirm activates on the
+already-deployed PR-1259 code, market closed until Monday):
+
+- `deep_audit_ja_struct_stop_guard=true`
+- `deep_audit_ja_n_test_confirm_required=true`
+- `deep_audit_ja_forming_div_gate=true`
+
+Rollback is config-only: flip any row to `false`, no deploy needed.
+
+Monday watch list additions:
+- `[SL_STRUCT_LEVEL_DEFER]` log lines / `struct_level_defer` guard events —
+  expect a fire on names testing their hourly 233; verify the deferred name
+  either recovers (NEU shape) or exits within a tick or two on genuine
+  breaks (CF shape, via material-breach).
+- `__n_test_support_diag` on any support-bounce candidate: fields
+  `forming_gate`, `adverse_rsi_forming`, `adverse_phase_forming`,
+  `divergence_blocked` now populated.
+- Forming-divergence measurement is free everywhere:
+  `__entry_divergence_summary.adverse_rsi_forming` / `adverse_phase_forming`
+  in every setup snapshot — after a week, correlate against entry outcomes
+  to decide whether forming divergence should graduate into G2.
+
 ## Verification items (before coding)
 
 - [ ] Why did XLI Jul 1 (Confirmed ATH) enter despite `block_when: always`?

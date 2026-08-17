@@ -461,6 +461,10 @@ export const REPLAY_DA_KEYS = [
   "deep_audit_ja_opening_stop_confirm_end_minute",
   "deep_audit_ja_opening_stop_cushion_pct",
   "deep_audit_ja_n_test_confirm_required",
+  "deep_audit_ja_struct_stop_guard",
+  "deep_audit_ja_struct_stop_atr_mult",
+  "deep_audit_ja_struct_stop_max_cushion_pct",
+  "deep_audit_ja_forming_div_gate",
   "deep_audit_ja_no_slot_sector_limits",
   // V15 P0.7.63 (2026-05-05) — Cluster throttle flags
   "deep_audit_cluster_throttle_enabled",
