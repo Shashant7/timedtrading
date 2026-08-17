@@ -938,6 +938,7 @@ import {
   compactInvestorScoreProvenance,
   buildInvestorSignalContext,
 } from "./investor.js";
+import { shallowBreachScoreHold } from "./investor-autopsy-gates.js";
 import { enrichInvestorDayState } from "./seed-investor-daystate.js";
 import { resolveScoringUniverse } from "./universe.js";
 import {
@@ -91211,6 +91212,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
 
             const { score: _rawInvScore, components, accumZone } = computeInvestorScore(td, {
               rsRank, sectorRsRank, marketHealth: marketHealth.score, cfg: _invCfg2,
+              daCfg: env?._deepAuditConfig || null,
             });
 
             // B6 (2026-06-11) — "buy great businesses on sale": bounded +5
@@ -91269,7 +91271,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             const _existingPos = _invOpenPosByTicker[String(ticker || "").toUpperCase()] || null;
             // Thesis + sticky invalidation before stage (owned positions keep
             // the published floor until price recovers above it).
-            const thesis = generateThesis(td, rsRank);
+            const thesis = generateThesis(td, rsRank, env?._deepAuditConfig || null);
             const _prevInv = prevScores[ticker]?.primaryInvalidation;
             const _minFloorPct = Number(env?._deepAuditConfig?.deep_audit_investor_invalidation_min_floor_pct);
             const _freshInv = pickPrimaryInvalidationPrice(td, thesis.criteria, thesis.invalidation,
@@ -91288,6 +91290,8 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               primaryInvalidation,
               compounder: _compounder,
               dipBuy: _dipBuy,
+              daCfg: env?._deepAuditConfig || null,
+              marketOpen: isNyRegularMarketOpen(new Date()),
             });
             // 2026-06-23 — Post-exit cooldown. A name the model fully closed within
             // the cooldown window lands in the Exited lane (not Reduce / On Radar)
@@ -96901,8 +96905,24 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
             // get a TF signal snapshot for Trade Autopsy (not only when breach
             // resolution needs the fallback).
             let latestTickerData = await kvGetJSON(env.KV_TIMED, `timed:latest:${sym}`).catch(() => null);
-            let breach = resolvePrimaryInvalidationBreach(price, scoreData, latestTickerData);
             const notesObj = parseInvestorPositionNotes(pos.notes);
+            let breach = resolvePrimaryInvalidationBreach(price, scoreData, latestTickerData);
+
+            // deep_audit_investor_shallow_breach_score_hold — don't liquidate
+            // on a sub-2% breach while the engine's own score still rates the
+            // name a buy. Median historical breach was 1.29% and 18 of 23 such
+            // exits saw price close back above the exit inside 20 sessions.
+            const _shallowHold = shallowBreachScoreHold({
+              price,
+              breach,
+              score: Number(scoreData?.score),
+              daCfg: env?._deepAuditConfig || null,
+            });
+            if (_shallowHold.hold) {
+              console.log(`[AUTO-REBALANCE] ${sym} invalidation HELD — breach ${_shallowHold.breachPct}% < ${_shallowHold.detail.max_pct}% and score ${_shallowHold.score} >= ${_shallowHold.detail.min_score} (${_shallowHold.detail.label}).`);
+              continue;
+            }
+
             const movie = resolvePrimaryInvalidationMovie({
               breach,
               price,
@@ -96911,6 +96931,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
               cfg: _invRebalCfg,
               now,
               marketOpen: _invMarketOpen,
+              daCfg: env?._deepAuditConfig || null,
             });
 
             // Persist arm / clear so the sequence survives cron ticks.

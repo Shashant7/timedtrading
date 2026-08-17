@@ -21,6 +21,30 @@
 ## Open work — Mission Control + Today + UX polish
 
 ### Active
+- [ ] **Investor (long-term) stop forensics (2026-08-17).** 63 positions
+      opened May–Aug 2026, 47 closed. The damage is on the exit side, not
+      the entry side: 44 of 47 closes were `PRIMARY_INVALIDATION_BREACH`
+      for **−$11,132**, on a MEDIAN penetration of **1.29%**, on days when
+      SPY was above its own 21 EMA in 11 of 12 cases. 18 of 23 saw price
+      close back above the exit inside 20 sessions (median: 1 session,
+      average max recovery +7.3%). Every position the stop never touched
+      is profitable (+$5,820 unrealized on the 16 open). Full writeup in
+      [2026-08-17-investor-stop-forensics.md](2026-08-17-investor-stop-forensics.md).
+      Shipped three **default-OFF** gates in
+      `worker/investor-autopsy-gates.js` (22 tests):
+      `deep_audit_investor_weekly_st_dir_fix` (a real bug —
+      `tf_tech.W.atr.xs` is flip-only AND sign-mirrored, so
+      `trendDurability` scored 0 on all 35 recorded entries and Weekly
+      SuperTrend never became an invalidation candidate),
+      `deep_audit_investor_require_session_close`, and
+      `deep_audit_investor_shallow_breach_score_hold`. The latter two are
+      strictly widening. NOT shipped: a clamp on the floor ratchet — the
+      two obvious formulations fail for opposite reasons (see §5).
+      **Live risk:** 8 of 17 open positions sit inside the 4% band the
+      picker itself calls minimum-actionable; PANW (score 79, +13%) and
+      PLTR (score 73, +37%) are both ~2.2% from liquidation. Operator
+      next: arm D4 alone first, then D3, then D2 separately. Branch:
+      `cursor/investor-stop-refinement-dbdd`.
 - [ ] **Trade Review Agent (2026-08-17).** Independent per-leg grading of
       every ENTRY / TRIM / EXIT, with an operator approve / modify /
       reject loop. Admin page `/trade-review.html`; design in
