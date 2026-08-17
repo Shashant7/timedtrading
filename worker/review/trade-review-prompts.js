@@ -109,6 +109,13 @@ export function buildTradeReviewUserPrompt(context) {
   lines.push("");
 
   lines.push(`TAPE FACTS (computed from ${tape.bar_count || 0} ${tape.timeframe || "?"} candles — treat as ground truth):`);
+  // Coverage first: a review built on two bars is not the same artefact as
+  // one built on two hundred, and the model must be able to tell.
+  const barsIn = Number(cap.bars_in_trade) || 0;
+  lines.push(`- Candle coverage while the position was open: ${barsIn} bar${barsIn === 1 ? "" : "s"}${cap.exit ? `, plus ${Number(cap.bars_after_exit) || 0} after the exit` : ""}`);
+  if (barsIn < 3) {
+    lines.push(`- WARNING: the tape barely covers this trade. Excursion and capture numbers below are unreliable. Prefer grade "NA" with verdict INSUFFICIENT_DATA unless the leg is judgeable from the entry geometry and the multi-timeframe read alone.`);
+  }
   lines.push(`- Entry ${fmt(cap.entry?.price, 4)} at ${isoOrNa(cap.entry?.ts)}`);
   if (cap.exit) lines.push(`- Exit ${fmt(cap.exit.price, 4)} at ${isoOrNa(cap.exit.ts)} (${cap.exit.reason || "no reason recorded"})`);
   else lines.push(`- Position still open`);
@@ -119,6 +126,17 @@ export function buildTradeReviewUserPrompt(context) {
   if (big) {
     lines.push(`- DOMINANT MOVE in the window: ${fmt(big.pct)}% from ${fmt(big.from_price, 4)} (${isoOrNa(big.from_ts)}) to ${fmt(big.to_price, 4)} (${isoOrNa(big.to_ts)})`);
     lines.push(`- Share of that dominant move captured: ${cap.big_move_capture_ratio == null ? "n/a" : `${fmt(cap.big_move_capture_ratio * 100, 0)}%`}`);
+    // Capturing half of a move that only began after the exit is a
+    // different failure from being shaken out of a move already underway.
+    const exitTs = Number(cap.exit?.ts);
+    if (Number.isFinite(exitTs) && Number(big.from_ts) > exitTs) {
+      lines.push(`- NOTE: that move BEGAN AFTER the exit — the position was flat for all of it. The question is whether the exit was wrong, or whether re-entry was the missed action.`);
+    } else if (Number.isFinite(exitTs) && Number(big.to_ts) > exitTs) {
+      lines.push(`- NOTE: that move was still running when the position was closed.`);
+    }
+  } else {
+    // Say it plainly: absent is not the same as zero.
+    lines.push(`- Dominant move in the window: NOT COMPUTABLE (insufficient candle coverage). Do not conclude there was no move.`);
   }
   if (cap.post_exit_pct != null) {
     lines.push(`- AFTER the exit, price still ran ${fmt(cap.post_exit_pct)}% in the trade's favour (peak ${isoOrNa(cap.post_exit_extreme_ts)}) over the next ${cap.lookahead_days} days`);
@@ -129,7 +147,13 @@ export function buildTradeReviewUserPrompt(context) {
   lines.push("");
 
   lines.push("ENTRY GEOMETRY:");
-  lines.push(`- Stop distance ${fmt(geo.sl_distance_pct)}% / target distance ${fmt(geo.tp_distance_pct)}% → R:R ${fmt(geo.rr)}`);
+  if (geo.stop_loss == null && geo.take_profit == null) {
+    // Never print a fabricated stop. If we could not attribute this trade's
+    // own levels, say so — the reviewer must not grade risk on a guess.
+    lines.push(`- Stop and target: NOT RECOVERABLE for this trade. Do not grade the stop or the R:R; note the gap instead.`);
+  } else {
+    lines.push(`- Stop distance ${fmt(geo.sl_distance_pct)}% / target distance ${fmt(geo.tp_distance_pct)}% → R:R ${fmt(geo.rr)}`);
+  }
   lines.push(`- Fill position within the entry bar: ${geo.entry_in_bar_range == null ? "n/a" : fmt(geo.entry_in_bar_range, 2)} (1.0 = filled at the worst end of the bar)`);
   lines.push("");
 

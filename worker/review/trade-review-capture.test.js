@@ -6,6 +6,7 @@ import {
   computeEntryGeometry,
 } from "./trade-review-capture.js";
 import { extractLegs, reviewIdFor, parseReviewId } from "./trade-review-legs.js";
+import { levelsAreCoherent } from "./trade-review-context.js";
 
 const DAY = 86_400_000;
 const bar = (ts, o, h, l, c) => ({ ts, o, h, l, c });
@@ -158,6 +159,33 @@ describe("computeEntryGeometry", () => {
     const g = computeEntryGeometry({ entryPrice: 100, direction: "LONG" });
     expect(g.sl_distance_pct).toBeNull();
     expect(g.rr).toBeNull();
+  });
+});
+
+describe("levelsAreCoherent", () => {
+  it("accepts a long with the stop below and target above the fill", () => {
+    expect(levelsAreCoherent({ direction: "LONG", entryPrice: 100, stopLoss: 96, takeProfit: 112 })).toBe(true);
+  });
+
+  it("rejects a long whose stop sits above the fill", () => {
+    // The XLI case: positions fallback attributed a later position's levels
+    // (stop 185.66 on a 181.68 long) and produced a -0.27 R:R.
+    expect(levelsAreCoherent({ direction: "LONG", entryPrice: 181.68, stopLoss: 185.66, takeProfit: 182.77 })).toBe(false);
+  });
+
+  it("mirrors the check for shorts", () => {
+    expect(levelsAreCoherent({ direction: "SHORT", entryPrice: 100, stopLoss: 104, takeProfit: 92 })).toBe(true);
+    expect(levelsAreCoherent({ direction: "SHORT", entryPrice: 100, stopLoss: 96, takeProfit: 92 })).toBe(false);
+  });
+
+  it("accepts a stop with no target and vice versa", () => {
+    expect(levelsAreCoherent({ direction: "LONG", entryPrice: 100, stopLoss: 96 })).toBe(true);
+    expect(levelsAreCoherent({ direction: "LONG", entryPrice: 100, takeProfit: 112 })).toBe(true);
+  });
+
+  it("rejects when nothing is known", () => {
+    expect(levelsAreCoherent({ direction: "LONG", entryPrice: 100 })).toBe(false);
+    expect(levelsAreCoherent({ direction: "LONG", stopLoss: 96 })).toBe(false);
   });
 });
 

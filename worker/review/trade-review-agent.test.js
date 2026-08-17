@@ -134,6 +134,7 @@ describe("buildTradeReviewUserPrompt", () => {
       capture: {
         entry: { ts: 1785000000000, price: 77.93 },
         exit: { ts: 1786000000000, price: 81, reason: "ST_FLIP" },
+        bars_in_trade: 40, bars_after_exit: 60,
         mfe_pct: 8.35, mae_pct: -1.2, heat_before_payoff_pct: -1.2,
         realized_pct: 3.94, realized_usd: 300, capture_ratio: 0.47,
         post_exit_pct: 23.4, post_exit_extreme_ts: 1787000000000, lookahead_days: 10,
@@ -182,6 +183,46 @@ describe("buildTradeReviewUserPrompt", () => {
   it("includes the prior legs so a trim is judged in context", () => {
     expect(prompt).toContain("LEGS ALREADY EXECUTED ON THIS TRADE");
     expect(prompt).toContain("ENTRY at 77.9300");
+  });
+
+  it("states candle coverage and stays quiet when it is adequate", () => {
+    expect(prompt).toContain("Candle coverage while the position was open: 40 bars, plus 60 after the exit");
+    expect(prompt).not.toContain("WARNING: the tape barely covers");
+  });
+
+  it("warns and steers to INSUFFICIENT_DATA when the tape is too thin", () => {
+    const thin = JSON.parse(JSON.stringify(context));
+    thin.tape.capture.bars_in_trade = 1;
+    const p = buildTradeReviewUserPrompt(thin);
+    expect(p).toContain("WARNING: the tape barely covers this trade");
+    expect(p).toContain("INSUFFICIENT_DATA");
+  });
+
+  it("distinguishes a move still running at the exit from one that began after it", () => {
+    // Fixture's big move spans the exit → "still running".
+    expect(prompt).toContain("still running when the position was closed");
+
+    const after = JSON.parse(JSON.stringify(context));
+    after.tape.capture.big_move.from_ts = after.tape.capture.exit.ts + 1000;
+    const p = buildTradeReviewUserPrompt(after);
+    expect(p).toContain("BEGAN AFTER the exit");
+    expect(p).toContain("whether re-entry was the missed action");
+  });
+
+  it("refuses to grade a stop it could not attribute to this trade", () => {
+    const noLevels = JSON.parse(JSON.stringify(context));
+    noLevels.tape.geometry = { stop_loss: null, take_profit: null, entry_in_bar_range: 0.35 };
+    const p = buildTradeReviewUserPrompt(noLevels);
+    expect(p).toContain("NOT RECOVERABLE for this trade");
+    expect(p).not.toContain("→ R:R");
+  });
+
+  it("says a missing dominant move is uncomputed, not absent", () => {
+    const noBig = JSON.parse(JSON.stringify(context));
+    noBig.tape.capture.big_move = null;
+    const p = buildTradeReviewUserPrompt(noBig);
+    expect(p).toContain("NOT COMPUTABLE");
+    expect(p).toContain("Do not conclude there was no move");
   });
 
   it("omits the exit read for entry legs", () => {

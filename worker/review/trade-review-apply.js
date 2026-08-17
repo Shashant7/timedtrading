@@ -113,7 +113,10 @@ export function buildOnePager({ finding, review, context, analysis }) {
     ``,
     finding.finding,
     ``,
-    finding.rationale ? `${finding.rationale}\n` : ``,
+    // `null` means "omit this line"; `` is a deliberate blank line, which
+    // markdown needs before headings and after tables.
+    finding.rationale ? `\n${finding.rationale}` : null,
+    ``,
     `## Evidence`,
     ``,
     `Surfaced by the Trade Review Agent grading the **${legLabel}** leg of \`${review.trade_id}\` (${t.ticker || "?"} ${t.direction || "?"}).`,
@@ -130,8 +133,8 @@ export function buildOnePager({ finding, review, context, analysis }) {
     `| Share of that move captured | ${cap.big_move_capture_ratio == null ? "n/a" : `${(cap.big_move_capture_ratio * 100).toFixed(0)}%`} |`,
     `| Move left after exit | ${pctOrNa(cap.post_exit_pct)} |`,
     ``,
-    analysis?.price_action ? `**Price action:** ${analysis.price_action}\n` : ``,
-    analysis?.assessment ? `**Assessment:** ${analysis.assessment}\n` : ``,
+    analysis?.price_action ? `**Price action:** ${analysis.price_action}\n` : null,
+    analysis?.assessment ? `**Assessment:** ${analysis.assessment}\n` : null,
     `## Requirement`,
     ``,
     finding.kind === "config"
@@ -153,7 +156,7 @@ export function buildOnePager({ finding, review, context, analysis }) {
     ``,
     `---`,
     `_Filed automatically by the Trade Review Agent. Review \`${review.review_id}\`._`,
-  ].filter((l) => l !== ``).join("\n");
+  ].filter((l) => l !== null).join("\n");
 
   return { title, body };
 }

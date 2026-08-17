@@ -223,7 +223,7 @@ async function callReviewModel(env, { system, user, model, timeoutMs = 45_000 })
  * Never throws — a failed review is stored with status 'error' so the UI
  * can show why and the operator can retry.
  */
-export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq = 0, force = false } = {}) {
+export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq = 0, force = false, dryRun = false } = {}) {
   if (!env?.DB) return { ok: false, error: "no_db" };
   await ensureTradeReviewSchema(env);
 
@@ -252,6 +252,21 @@ export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq =
 
   const model = resolveModel(env);
   const user = buildTradeReviewUserPrompt(built.context);
+
+  // Dry run: return exactly what the reviewer would see, without spending a
+  // call. Used to audit the prompt and to verify the context pipeline in
+  // environments that have no model key.
+  if (dryRun) {
+    return {
+      ok: true, dry_run: true, review_id: rid, model,
+      prompt_version: TRADE_REVIEW_PROMPT_VERSION,
+      system_prompt: TRADE_REVIEW_SYSTEM_PROMPT,
+      user_prompt: user,
+      capture: built.capture,
+      context: built.context,
+    };
+  }
+
   const llm = await callReviewModel(env, { system: TRADE_REVIEW_SYSTEM_PROMPT, user, model });
   if (!llm.ok) {
     await persistError(env, rid, llm.error, llm.latency_ms);

@@ -107,27 +107,63 @@ async function loadSignals(env, tradeId) {
   } catch { return null; }
 }
 
-async function loadPositionLevels(env, tradeId, ticker) {
+/**
+ * Levels are only trustworthy if they sit on the correct side of the entry:
+ * a LONG's stop must be below the fill and its target above it. A stop
+ * quoted above a long's entry means we attributed some other position's
+ * levels to this trade — better to report "unknown" than to hand the
+ * reviewer a fabricated stop and have it grade the risk on that basis.
+ */
+export function levelsAreCoherent({ direction, entryPrice, stopLoss, takeProfit }) {
+  const ep = num(entryPrice);
+  if (ep == null) return false;
+  const isLong = String(direction || "LONG").toUpperCase() !== "SHORT";
+  const sl = num(stopLoss);
+  const tp = num(takeProfit);
+  if (sl == null && tp == null) return false;
+  if (sl != null && (isLong ? sl >= ep : sl <= ep)) return false;
+  if (tp != null && (isLong ? tp <= ep : tp >= ep)) return false;
+  return true;
+}
+
+async function loadPositionLevels(env, tradeId, ticker, trade) {
   const db = env?.DB;
   if (!db) return null;
+  const check = (levels, source) => {
+    if (!levels) return null;
+    const coherent = levelsAreCoherent({
+      direction: trade?.direction,
+      entryPrice: trade?.entry_price,
+      stopLoss: levels.stop_loss,
+      takeProfit: levels.take_profit,
+    });
+    return coherent ? { ...levels, source } : null;
+  };
+
   try {
-    // Position rows are keyed by ticker, not trade_id, so prefer the SL/TP
-    // stamped on the entry decision record and fall back to the position.
+    // Preferred: the SL/TP stamped on this trade's own entry decision.
     const dr = await db.prepare(
       `SELECT inputs_json FROM decision_records
         WHERE trade_id = ?1 AND event_type = 'ENTRY' ORDER BY ts ASC LIMIT 1`
     ).bind(String(tradeId)).first().catch(() => null);
     const inputs = parseJson(dr?.inputs_json);
-    const fromDr = {
+    const fromDr = check({
       stop_loss: num(inputs?.sl ?? inputs?.stop_loss ?? inputs?.stopLoss),
       take_profit: num(inputs?.tp ?? inputs?.take_profit ?? inputs?.takeProfit),
-    };
-    if (fromDr.stop_loss != null || fromDr.take_profit != null) return { ...fromDr, source: "decision_record" };
+    }, "decision_record");
+    if (fromDr) return fromDr;
 
-    const pos = await db.prepare(
-      `SELECT stop_loss, take_profit FROM positions WHERE ticker = ?1 ORDER BY updated_at DESC LIMIT 1`
-    ).bind(String(ticker || "").toUpperCase()).first().catch(() => null);
-    if (pos) return { stop_loss: num(pos.stop_loss), take_profit: num(pos.take_profit), source: "positions" };
+    // Fallback: the live position row — but ONLY while the trade is still
+    // open, because `positions` is keyed by ticker and a closed trade's
+    // ticker may since have been re-entered with entirely different levels.
+    const stillOpen = ["OPEN", "TP_HIT_TRIM"].includes(String(trade?.status || "").toUpperCase());
+    if (stillOpen) {
+      const pos = await db.prepare(
+        `SELECT stop_loss, take_profit FROM positions WHERE ticker = ?1 ORDER BY updated_at DESC LIMIT 1`
+      ).bind(String(ticker || "").toUpperCase()).first().catch(() => null);
+      const fromPos = check({ stop_loss: num(pos?.stop_loss), take_profit: num(pos?.take_profit) }, "positions");
+      if (fromPos) return fromPos;
+    }
   } catch { /* levels are optional */ }
   return null;
 }
@@ -196,7 +232,7 @@ export async function buildLegContext(env, { tradeId, legKind, legSeq = 0, looka
   const preEntry = bars.filter((b) => b.ts <= entryTs);
   const entryBar = preEntry.length ? preEntry[preEntry.length - 1] : null;
 
-  const levels = await loadPositionLevels(env, tradeId, trade.ticker);
+  const levels = await loadPositionLevels(env, tradeId, trade.ticker, trade);
   const geometry = computeEntryGeometry({
     entryPrice: trade.entry_price,
     stopLoss: levels?.stop_loss,

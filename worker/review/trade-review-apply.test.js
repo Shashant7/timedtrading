@@ -88,6 +88,17 @@ describe("buildOnePager", () => {
     expect(body).toContain("| Share of that move captured | 13% |");
   });
 
+  it("keeps the blank lines markdown needs around headings and tables", () => {
+    const { body } = buildOnePager({
+      finding: { finding: "x", scope: "recurring", kind: "engine", rationale: "because" },
+      review, context, analysis,
+    });
+    expect(body).toContain("\n\n## Evidence\n\n");
+    expect(body).toContain("\n\n## Requirement\n\n");
+    // Table must be followed by a blank line, else the next block merges in.
+    expect(body).toMatch(/\| Move left after exit \| [^|]+ \|\n\n/);
+  });
+
   it("says a one-off is not a population", () => {
     const { body } = buildOnePager({
       finding: { finding: "x", scope: "one_off", kind: "engine" },

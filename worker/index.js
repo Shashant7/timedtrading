@@ -69474,7 +69474,13 @@ export default {
           }
           const reviewId = String(body?.review_id || "").trim();
           if (!reviewId) return sendJSON({ ok: false, error: "review_id_or_drain_required" }, 400, corsHeaders(env, req));
-          const res = await runTradeReview(env, { reviewId, force: body?.force === true });
+          const res = await runTradeReview(env, {
+            reviewId,
+            force: body?.force === true,
+            // dry_run returns the exact prompt the reviewer would see,
+            // without spending a model call.
+            dryRun: body?.dry_run === true || body?.dry_run === "true",
+          });
           return sendJSON(res, res.ok ? 200 : 502, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 300) }, 500, corsHeaders(env, req));
