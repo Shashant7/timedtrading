@@ -3072,6 +3072,151 @@ export function attachManagementToTiers(tiersResult, ctx = {}) {
   };
 }
 
+/**
+ * Stage 5 — index-only auto-mirror routing decision (pure).
+ *
+ * Returns { should_mirror, reason }. Bridge-side sizing is the operator's
+ * per-vehicle cap (already in options-auto-mirror.js). This helper only
+ * answers: "is this a candidate at all?"
+ *
+ * Requires: SPY/QQQ/IWM (not DIA), long_call or long_put, day-trade
+ * archetype, options_auto_mirror_indices flag on, and — if the
+ * scorecard has data — the ticker's current tier winrate must be ≥60%.
+ */
+export function shouldIndexAutoMirror({ ticker, archetype, tier, scorecardTierWinRate, flagOn } = {}) {
+  const t = String(ticker || "").toUpperCase();
+  if (!flagOn) return { should_mirror: false, reason: "flag_off" };
+  if (!["SPY", "QQQ", "IWM"].includes(t)) return { should_mirror: false, reason: "ticker_not_index" };
+  const a = String(archetype || "").toLowerCase();
+  if (!["day_trade_call", "day_trade_put"].includes(a)) return { should_mirror: false, reason: "archetype_not_directional_day_trade" };
+  // No scorecard data yet → paper is fine (Alpaca paper only); block on
+  // real data when it comes in and is below the edge threshold.
+  if (scorecardTierWinRate == null) return { should_mirror: true, reason: null };
+  const winRate = Number(scorecardTierWinRate);
+  if (Number.isFinite(winRate) && winRate < 60) {
+    return { should_mirror: false, reason: `tier_${tier || "unknown"}_win_rate_${winRate}_below_60` };
+  }
+  return { should_mirror: true, reason: null };
+}
+
+// ── Stage 6 — Index Swing Play (2-5 sessions) ──────────────────────────────
+//
+// Multi-day play compiler for SPY/QQQ/IWM using the index-etf-model's
+// per-ticker profile. Builds a ~5-14 DTE ATM directional single-leg
+// with the same option_management contract as the day-trade tiers.
+// Fires only on qualified index entries (already gated by the entry
+// model in worker/pipeline/index-etf-model.js).
+
+export const INDEX_SWING_MIN_DTE = 5;
+export const INDEX_SWING_TARGET_DTE = 7;
+export const INDEX_SWING_MAX_DTE = 14;
+
+/** Pick the swing expiration: the next Friday ≥ 5 DTE. */
+export function pickIndexSwingExpiration(now = Date.now()) {
+  const target = new Date(now + INDEX_SWING_TARGET_DTE * 86400000);
+  const dow = target.getUTCDay();
+  const offset = (5 - dow + 7) % 7;
+  let friday = new Date(target.getTime() + offset * 86400000);
+  friday.setUTCHours(21, 0, 0, 0);
+  let dte = Math.round((friday.getTime() - now) / 86400000);
+  while (dte < INDEX_SWING_MIN_DTE) {
+    friday = new Date(friday.getTime() + 7 * 86400000);
+    dte = Math.round((friday.getTime() - now) / 86400000);
+  }
+  const iso = friday.toISOString().slice(0, 10);
+  const label = friday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return { iso, dte, label: `${label} (${dte}DTE · swing)` };
+}
+
+/**
+ * Build a multi-day index swing options play. Contract must be qualified
+ * by the index model (worker/pipeline/index-etf-model.js) before this is
+ * called; direction is taken from the contract.
+ *
+ * Pure. Returns null if the ticker is not SPY/QQQ/IWM or price/direction
+ * are missing.
+ */
+export function buildIndexSwingPlay(ctx = {}) {
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!["SPY", "QQQ", "IWM"].includes(ticker)) return null;
+  const price = Number(ctx?.price);
+  const direction = String(ctx?.direction || "").toUpperCase();
+  if (!(price > 0) || (direction !== "LONG" && direction !== "SHORT")) return null;
+  const atrPct = Number(ctx?.atrPct) || 0.012;
+  const expiration = ctx?.expiration || pickIndexSwingExpiration(Number(ctx?.now) || Date.now());
+  const strike = snapStrike(price, 1.0);
+  const optType = direction === "LONG" ? "C" : "P";
+  const chainLeg = ctx?.chain ? _chainLeg(ctx.chain, optType, strike) : null;
+  const prem = estimatePremium({
+    price, strike, dte: Math.max(expiration.dte, 1), atrPct, type: optType, chainLeg,
+  });
+  if (!prem) return null;
+  const premMid = Number(prem.mid);
+  const contracts = 1;
+  const breakeven = direction === "LONG" ? strike + premMid : strike - premMid;
+  const play = {
+    archetype: direction === "LONG" ? "index_swing_call" : "index_swing_put",
+    label: `${ticker} Index Swing ${direction === "LONG" ? "Call" : "Put"} (ATM · ${expiration.label})`,
+    rationale: direction === "LONG"
+      ? `Multi-day bullish on ${ticker}: ATM call at $${strike}, ${expiration.dte} DTE. Uses the index-model qualifier; direction inherited from the slow-range profile. Manage on daily levels, not intraday chop.`
+      : `Multi-day bearish on ${ticker}: ATM put at $${strike}, ${expiration.dte} DTE. Uses the index-model qualifier; direction inherited from the slow-range profile.`,
+    legs: [{
+      action: "BUY",
+      optionType: direction === "LONG" ? "CALL" : "PUT",
+      strike,
+      expiration: expiration.iso,
+      qty: contracts,
+      premium_mid: Number.isFinite(premMid) ? Math.round(premMid * 100) / 100 : null,
+      leg_cost_usd: Number.isFinite(premMid) ? Math.round(premMid * 100) : null,
+      side_label: "debit",
+    }],
+    strikes: { primary: strike },
+    expiration,
+    premium: prem,
+    contracts,
+    max_loss_usd: Number.isFinite(premMid) ? Math.round(premMid * 100) : null,
+    max_gain_label: direction === "LONG" ? "Uncapped above strike + premium" : "Capped at strike − premium",
+    breakeven,
+    notes: [
+      `${expiration.dte}DTE — theta ~1/3 the daily burn of a 1DTE contract, so a slow but right direction still pays`,
+      `Sizing capped at ${contracts} contract — scale via Mission Control "Index Swing" cap when comfortable`,
+      `Manage on the index-model's daily invalidation, not intraday levels`,
+    ],
+    _index_swing: true,
+    _index_swing_direction: direction,
+  };
+  return attachOptionManagement(play, { gamePlan: ctx.gamePlan });
+}
+
+// ── Stage 7 — Daily Brief / Right Rail surface ─────────────────────────────
+//
+// Deterministic scorecard headline the brief prompt and the Right Rail
+// can render straight (no LLM). Input is the scorecard rollup rows
+// from options-marks.js `summarizeScorecard`; output is a one-line
+// string per (ticker, tier) plus the tier chosen for today.
+
+/**
+ * Build a headline like:
+ *   "SPY 30d: 18-12 (60%) gamma medium+; best window 9:45–11 ET"
+ * from a scorecard rollup row.
+ */
+export function buildScorecardHeadline(row, { window = null } = {}) {
+  if (!row || !row.ticker || !Number.isFinite(Number(row.n))) return null;
+  const n = Number(row.n);
+  const wins = Math.round(((row.win_rate || 0) / 100) * n);
+  const losses = n - wins;
+  const bits = [
+    `${row.ticker} ${row.tier || "gamma"}`,
+    `${wins}-${losses} (${row.win_rate}%)`,
+  ];
+  if (row.conviction && row.conviction !== "unknown") bits.push(`${row.conviction}+`);
+  if (Number.isFinite(Number(row.avg_max_gain_pct))) {
+    bits.push(`avg peak ${row.avg_max_gain_pct}%`);
+  }
+  if (window) bits.push(`best window ${window}`);
+  return bits.join(" · ");
+}
+
 function buildLongStraddle(ctx) {
   const { price, atrPct, expiration, contracts, chain } = ctx;
   const strike = snapStrike(price);
