@@ -3944,35 +3944,52 @@
       // conviction), so the strip is honest about its cadence.
       // ─────────────────────────────────────────────────────────────
       function IndexDayTradeStrip({ onSelectTicker, embedded }) {
-        const [payload, setPayload] = useState(null);
-        const [loading, setLoading] = useState(true);
+        // TTFetchCache stale-while-revalidate: paint the last-seen response
+        // instantly from sessionStorage on mount, then revalidate in the
+        // background so the tape is never more than one 5-min tick stale.
+        const url = `${API_BASE}/timed/options/all?limit=10`;
+        const CACHE = (typeof window !== "undefined" && window.TTFetchCache) || null;
+        const initial = (CACHE && window._ttIsPro) ? CACHE.peek(url) : null;
+        const [payload, setPayload] = useState(initial);
+        const [loading, setLoading] = useState(!initial);
         const [openCard, setOpenCard] = useState(null); // ticker of expanded card
 
         useEffect(() => {
           let alive = true;
-          const url = `${API_BASE}/timed/options/all?limit=10`;
           const load = async () => {
             // Options plays carry strikes + premiums — proprietary data
             // that follows the same Pro/VIP/Admin gate as scoring.
             if (!window._ttIsPro) {
-              if (alive) setLoading(true);
+              if (alive) setLoading(false);
               return;
             }
             try {
-              if (alive) setLoading(true);
-              const j = await fetchJsonRetry(url);
+              const j = CACHE
+                ? await CACHE.get(url, {
+                    // Freshness budget: 90s (the underlying /timed/options/all
+                    // response is server-cached for 5 min, so 90s here means
+                    // at most a ~5-min tick of staleness).
+                    ttlMs: 90 * 1000,
+                    maxAgeMs: 10 * 60 * 1000,
+                    fetchOpts: { credentials: "include", cache: "no-store" },
+                  })
+                : await fetchJsonRetry(url);
               if (!alive) return;
               if (j?.ok) setPayload(j);
-              else setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
+              else if (!payload) setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
             } catch (_) {
-              if (alive) setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
+              if (alive && !payload) setPayload({ day_trade_plays: [], day_trade_suppressed: [] });
             } finally {
               if (alive) setLoading(false);
             }
           };
           load();
-          // Poll every 5 min while the tab is visible so the tier /
-          // strike / premium update as the underlying moves.
+          // React to background revalidations from the cache so tier /
+          // strike / premium refresh live without a page reload.
+          const unsub = CACHE?.subscribe?.(url, (body) => {
+            if (alive && body?.ok) setPayload(body);
+          });
+          // Poll every 5 min while the tab is visible.
           const iv = setInterval(() => {
             if (document.visibilityState === "visible") load();
           }, 5 * 60 * 1000);
@@ -3984,6 +4001,7 @@
           return () => {
             alive = false;
             clearInterval(iv);
+            if (typeof unsub === "function") unsub();
             window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
           };
         }, []);
@@ -4041,6 +4059,73 @@
         const NEUTRAL = "#a3e635";
         const BLUE = "#38bdf8";
         const flavorColor = (f) => (f === "put" ? RED : f === "call" ? GREEN : NEUTRAL);
+
+        // LivePremium — polls /timed/options/quote every 20s during RTH.
+        // Server caches ~10s so this is effectively real-time without
+        // hammering Alpaca. Falls back to the stale mid on network error.
+        function LivePremium({ ticker, exp, strike, right, fallbackMid }) {
+          const [q, setQ] = useState(null);
+          const [ageSec, setAgeSec] = useState(null);
+          useEffect(() => {
+            if (!ticker || !exp || !(Number(strike) > 0) || !right) return undefined;
+            let alive = true;
+            const url = `${API_BASE || ""}/timed/options/quote?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&strike=${encodeURIComponent(strike)}&right=${encodeURIComponent(right)}`;
+            const fetchQuote = async () => {
+              try {
+                const r = await fetch(url, { credentials: "include", cache: "no-store" });
+                if (!r.ok) return;
+                const j = await r.json();
+                if (alive && j?.ok) {
+                  setQ(j);
+                  setAgeSec(0);
+                }
+              } catch (_) { /* keep last */ }
+            };
+            fetchQuote();
+            // Poll every 20s while the tab is visible. Server cache is 10s
+            // so worst-case client staleness is ~30s.
+            const pollIv = setInterval(() => {
+              if (document.visibilityState === "visible") fetchQuote();
+            }, 20 * 1000);
+            // Age tick — updates the "as of Xs" label every 2s.
+            const ageIv = setInterval(() => setAgeSec((s) => (s == null ? null : s + 2)), 2000);
+            return () => { alive = false; clearInterval(pollIv); clearInterval(ageIv); };
+          }, [ticker, exp, strike, right]);
+          const mid = Number(q?.mid);
+          const showMid = Number.isFinite(mid) && mid > 0 ? mid : Number(fallbackMid);
+          const isLive = q != null && Number.isFinite(mid);
+          const isFresh = isLive && ageSec != null && ageSec < 30;
+          const dotColor = !isLive ? "#6b7280" : isFresh ? GREEN : "#f5c25c";
+          const label = !isLive
+            ? "PREMIUM"
+            : ageSec == null ? "LIVE"
+            : ageSec < 5 ? "LIVE"
+            : `${ageSec}s AGO`;
+          return h("div", { style: { textAlign: "right", fontFamily: "var(--tt-font-mono)" } },
+            h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--tt-text)" } },
+              Number.isFinite(showMid) ? `$${Number(showMid).toFixed(2)}` : "—",
+            ),
+            h("div", {
+              style: {
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 8.5, letterSpacing: "0.08em", textTransform: "uppercase",
+                color: isLive ? dotColor : "var(--tt-text-faint)", marginTop: 2, fontFamily: "var(--tt-font)",
+              },
+              title: q?.bid != null && q?.ask != null
+                ? `bid ${Number(q.bid).toFixed(2)} · ask ${Number(q.ask).toFixed(2)} · Δ ${q?.delta != null ? Number(q.delta).toFixed(2) : "—"}`
+                : (isLive ? "live from options chain" : "estimated · not live"),
+            },
+              h("span", {
+                style: {
+                  display: "inline-block", width: 6, height: 6, borderRadius: 999,
+                  background: dotColor,
+                  boxShadow: isFresh ? `0 0 4px ${dotColor}` : "none",
+                },
+              }),
+              label,
+            ),
+          );
+        }
 
         // Card content the operator scans in order: TICKER → strike / DTE / premium
         // → risk levels → chips → exit doctrine. Matches the visual weight
@@ -4115,6 +4200,8 @@
             ),
 
             // Row 2: Strike + expiration (left) · premium (right) — the "price".
+            // Premium is LIVE-polled from /timed/options/quote every 20s so
+            // the number never lags the underlying by more than ~30s.
             h("div", { style: { display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12 } },
               h("div", { style: { fontFamily: "var(--tt-font-mono)", lineHeight: 1.1 } },
                 h("div", null,
@@ -4123,10 +4210,13 @@
                 ),
                 exp?.label && h("div", { style: { fontSize: 10, color: "var(--tt-text-muted)", marginTop: 3, fontFamily: "var(--tt-font)" } }, exp.label),
               ),
-              Number.isFinite(Number(prem)) && h("div", { style: { textAlign: "right", fontFamily: "var(--tt-font-mono)" } },
-                h("div", { style: { fontSize: 16, fontWeight: 700, color: "var(--tt-text)" } }, fmtUsd(prem)),
-                h("div", { style: { fontSize: 8.5, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--tt-text-faint)", marginTop: 2, fontFamily: "var(--tt-font)" } }, "PREMIUM"),
-              ),
+              h(LivePremium, {
+                ticker: ctx.ticker || p.ticker,
+                exp: exp?.iso || null,
+                strike,
+                right: flavor === "put" ? "P" : "C",
+                fallbackMid: prem,
+              }),
             ),
 
             // Row 3: compact meta line — spot · risk · BE · bull → target · bear → target.
@@ -4198,7 +4288,11 @@
                 ...(p.primary || {}),
                 _tier: p.primary_tier || null,
               };
-              return h("div", { key: p.ticker, style: { display: "flex", flexDirection: "column", width: 280, flex: "0 0 280px" } },
+              // Plain block wrapper (NOT flex-column). `.tt-strip-card` uses
+              // `flex: 0 0 280px` as a WIDTH basis — a flex-column parent
+              // would flip that into a fixed HEIGHT and lock the card at
+              // 280px tall (that was the empty-space bug the operator caught).
+              return h("div", { key: p.ticker, style: { display: "block", width: 280, flex: "0 0 280px" } },
                 renderCard(headline, {
                   ticker: p.ticker,
                   spot: p.price,

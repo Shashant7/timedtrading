@@ -1393,27 +1393,35 @@ function IndexDayTradeStrip({
   onSelectTicker,
   embedded
 }) {
-  const [payload, setPayload] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const url = `${API_BASE}/timed/options/all?limit=10`;
+  const CACHE = typeof window !== "undefined" && window.TTFetchCache || null;
+  const initial = CACHE && window._ttIsPro ? CACHE.peek(url) : null;
+  const [payload, setPayload] = useState(initial);
+  const [loading, setLoading] = useState(!initial);
   const [openCard, setOpenCard] = useState(null);
   useEffect(() => {
     let alive = true;
-    const url = `${API_BASE}/timed/options/all?limit=10`;
     const load = async () => {
       if (!window._ttIsPro) {
-        if (alive) setLoading(true);
+        if (alive) setLoading(false);
         return;
       }
       try {
-        if (alive) setLoading(true);
-        const j = await fetchJsonRetry(url);
+        const j = CACHE ? await CACHE.get(url, {
+          ttlMs: 90 * 1000,
+          maxAgeMs: 10 * 60 * 1000,
+          fetchOpts: {
+            credentials: "include",
+            cache: "no-store"
+          }
+        }) : await fetchJsonRetry(url);
         if (!alive) return;
-        if (j?.ok) setPayload(j);else setPayload({
+        if (j?.ok) setPayload(j);else if (!payload) setPayload({
           day_trade_plays: [],
           day_trade_suppressed: []
         });
       } catch (_) {
-        if (alive) setPayload({
+        if (alive && !payload) setPayload({
           day_trade_plays: [],
           day_trade_suppressed: []
         });
@@ -1422,6 +1430,9 @@ function IndexDayTradeStrip({
       }
     };
     load();
+    const unsub = CACHE?.subscribe?.(url, body => {
+      if (alive && body?.ok) setPayload(body);
+    });
     const iv = setInterval(() => {
       if (document.visibilityState === "visible") load();
     }, 5 * 60 * 1000);
@@ -1438,6 +1449,7 @@ function IndexDayTradeStrip({
     return () => {
       alive = false;
       clearInterval(iv);
+      if (typeof unsub === "function") unsub();
       window.removeEventListener("tt-auth-bootstrap-updated", onAuth);
     };
   }, []);
@@ -1516,6 +1528,85 @@ function IndexDayTradeStrip({
   const NEUTRAL = "#a3e635";
   const BLUE = "#38bdf8";
   const flavorColor = f => f === "put" ? RED : f === "call" ? GREEN : NEUTRAL;
+  function LivePremium({
+    ticker,
+    exp,
+    strike,
+    right,
+    fallbackMid
+  }) {
+    const [q, setQ] = useState(null);
+    const [ageSec, setAgeSec] = useState(null);
+    useEffect(() => {
+      if (!ticker || !exp || !(Number(strike) > 0) || !right) return undefined;
+      let alive = true;
+      const url = `${API_BASE || ""}/timed/options/quote?ticker=${encodeURIComponent(ticker)}&exp=${encodeURIComponent(exp)}&strike=${encodeURIComponent(strike)}&right=${encodeURIComponent(right)}`;
+      const fetchQuote = async () => {
+        try {
+          const r = await fetch(url, {
+            credentials: "include",
+            cache: "no-store"
+          });
+          if (!r.ok) return;
+          const j = await r.json();
+          if (alive && j?.ok) {
+            setQ(j);
+            setAgeSec(0);
+          }
+        } catch (_) {}
+      };
+      fetchQuote();
+      const pollIv = setInterval(() => {
+        if (document.visibilityState === "visible") fetchQuote();
+      }, 20 * 1000);
+      const ageIv = setInterval(() => setAgeSec(s => s == null ? null : s + 2), 2000);
+      return () => {
+        alive = false;
+        clearInterval(pollIv);
+        clearInterval(ageIv);
+      };
+    }, [ticker, exp, strike, right]);
+    const mid = Number(q?.mid);
+    const showMid = Number.isFinite(mid) && mid > 0 ? mid : Number(fallbackMid);
+    const isLive = q != null && Number.isFinite(mid);
+    const isFresh = isLive && ageSec != null && ageSec < 30;
+    const dotColor = !isLive ? "#6b7280" : isFresh ? GREEN : "#f5c25c";
+    const label = !isLive ? "PREMIUM" : ageSec == null ? "LIVE" : ageSec < 5 ? "LIVE" : `${ageSec}s AGO`;
+    return h("div", {
+      style: {
+        textAlign: "right",
+        fontFamily: "var(--tt-font-mono)"
+      }
+    }, h("div", {
+      style: {
+        fontSize: 16,
+        fontWeight: 700,
+        color: "var(--tt-text)"
+      }
+    }, Number.isFinite(showMid) ? `$${Number(showMid).toFixed(2)}` : "—"), h("div", {
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        fontSize: 8.5,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: isLive ? dotColor : "var(--tt-text-faint)",
+        marginTop: 2,
+        fontFamily: "var(--tt-font)"
+      },
+      title: q?.bid != null && q?.ask != null ? `bid ${Number(q.bid).toFixed(2)} · ask ${Number(q.ask).toFixed(2)} · Δ ${q?.delta != null ? Number(q.delta).toFixed(2) : "—"}` : isLive ? "live from options chain" : "estimated · not live"
+    }, h("span", {
+      style: {
+        display: "inline-block",
+        width: 6,
+        height: 6,
+        borderRadius: 999,
+        background: dotColor,
+        boxShadow: isFresh ? `0 0 4px ${dotColor}` : "none"
+      }
+    }), label));
+  }
   const renderCard = (p, ctx = {}) => {
     const isExpandedTier = ctx.tier === true;
     const flavor = p._day_trade_flavor || (String(p.direction || "").toUpperCase() === "SHORT" ? "put" : String(p.direction || "").toUpperCase() === "LONG" ? "call" : "straddle");
@@ -1636,27 +1727,13 @@ function IndexDayTradeStrip({
         marginTop: 3,
         fontFamily: "var(--tt-font)"
       }
-    }, exp.label)), Number.isFinite(Number(prem)) && h("div", {
-      style: {
-        textAlign: "right",
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, h("div", {
-      style: {
-        fontSize: 16,
-        fontWeight: 700,
-        color: "var(--tt-text)"
-      }
-    }, fmtUsd(prem)), h("div", {
-      style: {
-        fontSize: 8.5,
-        letterSpacing: "0.08em",
-        textTransform: "uppercase",
-        color: "var(--tt-text-faint)",
-        marginTop: 2,
-        fontFamily: "var(--tt-font)"
-      }
-    }, "PREMIUM"))), !isExpandedTier && h("div", {
+    }, exp.label)), h(LivePremium, {
+      ticker: ctx.ticker || p.ticker,
+      exp: exp?.iso || null,
+      strike,
+      right: flavor === "put" ? "P" : "C",
+      fallbackMid: prem
+    })), !isExpandedTier && h("div", {
       style: {
         display: "flex",
         gap: 10,
@@ -1749,8 +1826,7 @@ function IndexDayTradeStrip({
     return h("div", {
       key: p.ticker,
       style: {
-        display: "flex",
-        flexDirection: "column",
+        display: "block",
         width: 280,
         flex: "0 0 280px"
       }
@@ -7657,6 +7733,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787033852915:279540879
+// cache-bust:1787067361563:469431317
 
-// cache-bust:1787033852915:279540879
+// cache-bust:1787067361563:469431317
