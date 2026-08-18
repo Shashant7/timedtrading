@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-08-18T07:02:22.867742+00:00",
+  "generated_at_utc": "2026-08-18T18:57:38.285001+00:00",
   "source": "d1",
   "window_sizes": {
     "recent": 400,
@@ -7,34 +7,34 @@
   },
   "recent": {
     "decision_rows": 400,
-    "rows_with_outcome": 150,
-    "approve_adjust_rows": 65,
+    "rows_with_outcome": 158,
+    "approve_adjust_rows": 71,
     "reject_rows": 1,
-    "approve_adjust_win_rate": 0.2769,
+    "approve_adjust_win_rate": 0.2535,
     "reject_counterfactual_win_rate": 0.0,
-    "avg_confidence": 0.8545,
-    "avg_edge_score": 0.429
+    "avg_confidence": 0.8524,
+    "avg_edge_score": 0.4315
   },
   "prior": {
     "decision_rows": 400,
-    "rows_with_outcome": 1,
-    "approve_adjust_rows": 1,
+    "rows_with_outcome": 0,
+    "approve_adjust_rows": 0,
     "reject_rows": 0,
-    "approve_adjust_win_rate": 1.0,
+    "approve_adjust_win_rate": 0.0,
     "reject_counterfactual_win_rate": 0.0,
-    "avg_confidence": 0.77,
-    "avg_edge_score": 0.43
+    "avg_confidence": 0.0,
+    "avg_edge_score": 0.0
   },
   "delta": {
-    "approve_adjust_win_rate": -0.7231,
+    "approve_adjust_win_rate": 0.2535,
     "reject_counterfactual_win_rate": 0.0,
-    "avg_confidence": 0.0845,
-    "avg_edge_score": -0.001
+    "avg_confidence": 0.8524,
+    "avg_edge_score": 0.4315
   },
   "alerts": {
-    "wr_drop_exceeds_threshold": true,
+    "wr_drop_exceeds_threshold": false,
     "reject_inversion": false,
-    "drift_alert": true
+    "drift_alert": false
   },
   "thresholds": {
     "wr_drop_threshold": 0.08
