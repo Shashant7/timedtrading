@@ -1843,6 +1843,10 @@ const ROUTES = [
   ["GET",  "/timed/options/risk-profile",  "GET /timed/options/risk-profile"],
   ["PUT",  "/timed/options/risk-profile",  "PUT /timed/options/risk-profile"],
   ["GET",  "/timed/options/chain",         "GET /timed/options/chain"],
+  // Live single-contract quote — ~10s KV cache during RTH so the card
+  // premium never lags spot by more than one 10s window. See
+  // tasks/2026-08-18-index-options-readiness.md Stage 1/2 wiring.
+  ["GET",  "/timed/options/quote",         "GET /timed/options/quote"],
   ["GET",  "/timed/options/expirations",   "GET /timed/options/expirations"],
   // Phase 3 — operator-only auto-mirror controls.
   ["GET",  "/timed/options/auto-mirror",   "GET /timed/options/auto-mirror"],
@@ -93979,6 +93983,84 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
           return sendJSON({ ok: true, ...res }, 200, corsHeaders(env, req));
         } catch (e) {
           return sendJSON({ ok: false, error: String(e).slice(0, 200) }, 500, corsHeaders(env, req));
+        }
+      }
+
+      // ── GET /timed/options/quote?ticker=SPY&exp=2026-08-19&strike=764&right=P ──
+      // Live single-contract quote. Hits Alpaca with a tight strike filter
+      // (±$0.50) so the response is small; caches ~10s during RTH so a
+      // Right Rail / Today-card polling loop can refresh premium as spot
+      // moves without hammering Alpaca. Returns just the leg — bid/ask/
+      // mid/last/iv/greeks + underlying + ts. Pro-gated at the client
+      // level via /timed/options/all's server gate.
+      if (routeKey === "GET /timed/options/quote") {
+        try {
+          const ticker = normTicker(url.searchParams.get("ticker"));
+          const exp = String(url.searchParams.get("exp") || url.searchParams.get("expiration") || "").trim();
+          const strike = Number(url.searchParams.get("strike"));
+          const right = String(url.searchParams.get("right") || "").toUpperCase().slice(0, 1);
+          if (!ticker || !exp || !(strike > 0) || !["C", "P"].includes(right)) {
+            return sendJSON({ ok: false, error: "missing_ticker_exp_strike_or_right" }, 400, corsHeaders(env, req));
+          }
+          const cacheKey = `timed:options:quote:${ticker}:${exp}:${right}:${strike.toFixed(2)}`;
+          const rthOpen = (typeof isNyRegularMarketOpen === "function") ? isNyRegularMarketOpen() : true;
+          const ttlMs = rthOpen ? 10_000 : 60_000;
+          try {
+            const cached = await env.KV_TIMED.get(cacheKey);
+            if (cached) {
+              const j = JSON.parse(cached);
+              const ageMs = Date.now() - (j.fetched_at || 0);
+              if (ageMs < ttlMs) {
+                return sendJSON({ ok: true, ...j, cached: true, age_ms: ageMs }, 200, corsHeaders(env, req));
+              }
+            }
+          } catch (_) { /* cache miss / parse error — fall through */ }
+          // Fetch a very narrow strike band so the snapshot response is small.
+          // strikeRangePct in alpacaFetchOptionsChain is a % of underlying — we
+          // don't know underlying here in advance, but the KV price cache is
+          // read inside the helper. Use a tiny percentage so <5 legs come back.
+          const chain = await _alpacaFetchOptionsChain(env, ticker, exp, { strikeRangePct: 0.005, skipOI: true });
+          if (!chain?.ok) {
+            return sendJSON({ ok: false, ticker, exp, strike, right, error: chain?.error || "chain_fetch_failed" }, 502, corsHeaders(env, req));
+          }
+          const legs = right === "C" ? chain.calls : chain.puts;
+          // Nearest strike within $0.50; day-trade indices are on $1 grid so
+          // exact hit is expected, but a small delta is a safe fallback.
+          let leg = (legs || []).find((l) => Math.abs(Number(l.strike) - strike) < 0.01)
+            || (legs || []).reduce((best, cur) => {
+              if (!best) return cur;
+              const dBest = Math.abs(Number(best.strike) - strike);
+              const dCur = Math.abs(Number(cur.strike) - strike);
+              return dCur < dBest ? cur : best;
+            }, null);
+          if (!leg) {
+            return sendJSON({ ok: false, ticker, exp, strike, right, error: "leg_not_found_in_chain" }, 404, corsHeaders(env, req));
+          }
+          const body = {
+            ticker,
+            expiration: exp,
+            strike: Number(leg.strike),
+            right,
+            option_symbol: leg.symbol || null,
+            bid: leg.bid ?? null,
+            ask: leg.ask ?? null,
+            mid: leg.mid ?? null,
+            last: leg.last ?? null,
+            iv: leg.implied_volatility ?? null,
+            delta: leg.delta ?? null,
+            gamma: leg.gamma ?? null,
+            theta: leg.theta ?? null,
+            vega: leg.vega ?? null,
+            underlying: chain.underlying_price ?? null,
+            fetched_at: Date.now(),
+            provider: chain.provider || "alpaca",
+          };
+          try {
+            await env.KV_TIMED.put(cacheKey, JSON.stringify(body), { expirationTtl: rthOpen ? 15 : 90 });
+          } catch (_) { /* best-effort */ }
+          return sendJSON({ ok: true, ...body, cached: false, age_ms: 0 }, 200, corsHeaders(env, req));
+        } catch (e) {
+          return sendJSON({ ok: false, error: String(e?.message || e).slice(0, 200) }, 500, corsHeaders(env, req));
         }
       }
 
