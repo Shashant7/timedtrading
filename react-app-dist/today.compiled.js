@@ -1567,12 +1567,11 @@ function IndexDayTradeStrip({
         border: isExpandedTier ? `1px solid ${tierBadge?.color || BLUE}44` : "1px solid rgba(56,189,248,0.30)",
         background: isExpandedTier ? `linear-gradient(135deg, ${tierBadge?.color || BLUE}0F, rgba(255,255,255,0.02))` : "linear-gradient(135deg, rgba(56,189,248,0.06), rgba(52,211,153,0.03))",
         borderRadius: 12,
-        padding: 14,
-        minWidth: isExpandedTier ? 240 : 280,
+        padding: 12,
         marginTop: isExpandedTier ? 8 : 0,
         display: "flex",
         flexDirection: "column",
-        gap: 10
+        gap: 8
       }
     }, h("div", {
       style: {
@@ -1599,7 +1598,7 @@ function IndexDayTradeStrip({
         fontSize: 11,
         fontWeight: 800,
         letterSpacing: "0.08em",
-        padding: "4px 10px",
+        padding: "3px 9px",
         borderRadius: 6,
         background: fc + "1F",
         color: fc,
@@ -1619,22 +1618,22 @@ function IndexDayTradeStrip({
       }
     }, h("div", null, h("span", {
       style: {
-        fontSize: 22,
+        fontSize: 20,
         fontWeight: 700,
         color: "var(--tt-text)"
       }
     }, `$${strike}`), h("span", {
       style: {
         fontSize: 12,
-        marginLeft: 6,
+        marginLeft: 5,
         color: fc,
         fontWeight: 700
       }
     }, flavor === "put" ? "P" : flavor === "call" ? "C" : "")), exp?.label && h("div", {
       style: {
-        fontSize: 10.5,
+        fontSize: 10,
         color: "var(--tt-text-muted)",
-        marginTop: 4,
+        marginTop: 3,
         fontFamily: "var(--tt-font)"
       }
     }, exp.label)), Number.isFinite(Number(prem)) && h("div", {
@@ -1644,110 +1643,70 @@ function IndexDayTradeStrip({
       }
     }, h("div", {
       style: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: 700,
         color: "var(--tt-text)"
       }
     }, fmtUsd(prem)), h("div", {
       style: {
-        fontSize: 9,
+        fontSize: 8.5,
         letterSpacing: "0.08em",
         textTransform: "uppercase",
         color: "var(--tt-text-faint)",
         marginTop: 2,
         fontFamily: "var(--tt-font)"
       }
-    }, "PREMIUM"))), h("div", {
+    }, "PREMIUM"))), !isExpandedTier && h("div", {
       style: {
         display: "flex",
-        gap: 14,
+        gap: 10,
         flexWrap: "wrap",
-        fontSize: 10.5,
+        fontSize: 10,
         fontFamily: "var(--tt-font-mono)",
         color: "var(--tt-text-muted)"
       }
-    }, !isExpandedTier && Number.isFinite(Number(ctx.spot ?? p.price)) && h("span", null, "SPOT ", Number(ctx.spot ?? p.price).toFixed(2)), risk != null && h("span", null, "RISK $", risk), Number.isFinite(Number(be)) && h("span", null, "BE ", Number(be).toFixed(2))), !isExpandedTier && h("div", {
+    }, Number.isFinite(Number(ctx.spot ?? p.price)) && h("span", null, "SPOT ", Number(ctx.spot ?? p.price).toFixed(2)), risk != null && h("span", null, "RISK $", risk), Number.isFinite(Number(be)) && h("span", null, "BE ", Number(be).toFixed(2)), Number.isFinite(Number(gp.bull_trigger)) && h("span", null, h("span", {
+      style: {
+        color: GREEN
+      }
+    }, "▲ "), Number(gp.bull_trigger).toFixed(2), Number.isFinite(Number(gp.bull_target)) && h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, ` → ${Number(gp.bull_target).toFixed(2)}`)), Number.isFinite(Number(gp.bear_trigger)) && h("span", null, h("span", {
+      style: {
+        color: RED
+      }
+    }, "▼ "), Number(gp.bear_trigger).toFixed(2), Number.isFinite(Number(gp.bear_target)) && h("span", {
+      style: {
+        color: "var(--tt-text-faint)"
+      }
+    }, ` → ${Number(gp.bear_target).toFixed(2)}`))), isExpandedTier && h("div", {
       style: {
         display: "flex",
-        gap: 6,
+        gap: 10,
+        flexWrap: "wrap",
+        fontSize: 10,
+        fontFamily: "var(--tt-font-mono)",
+        color: "var(--tt-text-muted)"
+      }
+    }, risk != null && h("span", null, "RISK $", risk), Number.isFinite(Number(be)) && h("span", null, "BE ", Number(be).toFixed(2))), !isExpandedTier && (p.day_lean || p.confluence_mode || p.honesty_gate_veto) && h("div", {
+      style: {
+        display: "flex",
+        gap: 5,
         flexWrap: "wrap",
         alignItems: "center"
       }
     }, p.day_lean && chip(`LEAN ${p.day_lean}${p.day_lean_conviction ? " · " + p.day_lean_conviction : ""}`, fc), p.confluence_mode && p.confluence_mode !== "UNKNOWN" && chip(p.confluence_mode, "#9ca3af"), p.honesty_gate_veto && chip("TIER DOWNGRADED", "#f5c25c", {
       title: p.honesty_gate_veto
-    })), !isExpandedTier && (Number.isFinite(Number(gp.bull_trigger)) || Number.isFinite(Number(gp.bear_trigger))) && h("div", {
-      style: {
-        display: "flex",
-        gap: 10,
-        padding: "8px 10px",
-        borderRadius: 8,
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.05)",
-        fontFamily: "var(--tt-font-mono)"
-      }
-    }, h("div", {
-      style: {
-        flex: 1,
-        minWidth: 0
-      }
-    }, h("div", {
-      style: {
-        fontSize: 8.5,
-        letterSpacing: "0.10em",
-        color: GREEN,
-        marginBottom: 3,
-        fontFamily: "var(--tt-font)",
-        fontWeight: 700
-      }
-    }, "BULL TRIGGER"), h("div", {
-      style: {
-        fontSize: 11.5,
-        color: "var(--tt-text)"
-      }
-    }, Number.isFinite(Number(gp.bull_trigger)) ? Number(gp.bull_trigger).toFixed(2) : "—", Number.isFinite(Number(gp.bull_target)) && h("span", {
-      style: {
-        color: "var(--tt-text-faint)"
-      }
-    }, ` → ${Number(gp.bull_target).toFixed(2)}`))), h("div", {
-      style: {
-        width: 1,
-        background: "rgba(255,255,255,0.06)"
-      }
-    }), h("div", {
-      style: {
-        flex: 1,
-        minWidth: 0,
-        textAlign: "right"
-      }
-    }, h("div", {
-      style: {
-        fontSize: 8.5,
-        letterSpacing: "0.10em",
-        color: RED,
-        marginBottom: 3,
-        fontFamily: "var(--tt-font)",
-        fontWeight: 700
-      }
-    }, "BEAR TRIGGER"), h("div", {
-      style: {
-        fontSize: 11.5,
-        color: "var(--tt-text)"
-      }
-    }, Number.isFinite(Number(gp.bear_trigger)) ? Number(gp.bear_trigger).toFixed(2) : "—", Number.isFinite(Number(gp.bear_target)) && h("span", {
-      style: {
-        color: "var(--tt-text-faint)"
-      }
-    }, ` → ${Number(gp.bear_target).toFixed(2)}`)))), mgmt && h("div", {
+    })), mgmt && h("div", {
       style: {
         display: "flex",
         gap: 6,
         flexWrap: "wrap",
-        padding: "8px 10px",
-        borderRadius: 8,
-        background: "rgba(255,255,255,0.03)",
-        border: "1px solid rgba(255,255,255,0.05)",
         fontFamily: "var(--tt-font-mono)",
-        fontSize: 10
+        fontSize: 9.5,
+        paddingTop: 2
       },
       title: "Machine-readable exit doctrine — Trade Review grades against these rules"
     }, mgmt.take_profit_1 && h("span", {
@@ -1770,7 +1729,7 @@ function IndexDayTradeStrip({
       style: {
         color: "var(--tt-text-muted)"
       }
-    }, mgmt.invalidation.underlying_above != null ? `Invalid > ${fmtLevel(mgmt.invalidation.underlying_above)}` : `Invalid < ${fmtLevel(mgmt.invalidation.underlying_below)}`)));
+    }, mgmt.invalidation.underlying_above != null ? `Inv > ${fmtLevel(mgmt.invalidation.underlying_above)}` : `Inv < ${fmtLevel(mgmt.invalidation.underlying_below)}`)));
   };
   return wrap(h(React.Fragment, null, head, h("div", {
     className: "tt-ready-scroll tt-opp-scroll",
@@ -1792,7 +1751,8 @@ function IndexDayTradeStrip({
       style: {
         display: "flex",
         flexDirection: "column",
-        minWidth: 280
+        width: 280,
+        flex: "0 0 280px"
       }
     }, renderCard(headline, {
       ticker: p.ticker,
@@ -7697,6 +7657,6 @@ const app = AuthGate ? React.createElement(AuthGate, {
   user: user
 })) : React.createElement(TodayApp, null);
 ReactDOM.createRoot(document.getElementById("root")).render(app);
-// cache-bust:1787032806298:296606104
+// cache-bust:1787033295858:690484285
 
-// cache-bust:1787032806298:296606104
+// cache-bust:1787033295858:690484285
