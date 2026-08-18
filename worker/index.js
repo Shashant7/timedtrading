@@ -42836,7 +42836,37 @@ async function _tradeReviewNextSeq(env, tradeId, legKind) {
   }
 }
 
-// ── Stage 1 helpers for options marks (tasks/2026-08-18-index-options-readiness.md).
+// ── Stage 1-7 helpers for the index options readiness plan
+//    (tasks/2026-08-18-index-options-readiness.md).
+// Every stage is default OFF and gated on model_config. Flags are all
+// on REPLAY_DA_KEYS + TRADE_REVIEW_CONFIG_KEYS so admin/HTTP paths
+// (which do not load _deepAuditConfig) can still see them.
+const _optOn = (v) => v === true || String(v ?? "").toLowerCase() === "true";
+function _optionsLadderTiersEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return _optOn(cfg.options_ladder_tiers ?? env?.OPTIONS_LADDER_TIERS ?? false);
+}
+function _optionsGateHonestyEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return _optOn(cfg.options_gate_honesty ?? env?.OPTIONS_GATE_HONESTY ?? false);
+}
+function _optionsManagementCardEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return _optOn(cfg.options_management_card ?? env?.OPTIONS_MANAGEMENT_CARD ?? false);
+}
+function _optionsBriefSurfaceEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return _optOn(cfg.options_brief_surface ?? env?.OPTIONS_BRIEF_SURFACE ?? false);
+}
+function _optionsAutoMirrorIndicesEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return _optOn(cfg.options_auto_mirror_indices ?? env?.OPTIONS_AUTO_MIRROR_INDICES ?? false);
+}
+function _optionsIndexSwingEnabled(env) {
+  const cfg = env?._deepAuditConfig || {};
+  return _optOn(cfg.options_index_swing_enabled ?? env?.OPTIONS_INDEX_SWING_ENABLED ?? false);
+}
+
 // Day-trade plays are keyed on ticker + expiration + strike + right + NY-date
 // so the same 0/1DTE play republished during a 5-min cycle resolves to the
 // same signal_id (idempotent INSERT OR IGNORE into signal_outcomes).
@@ -94607,6 +94637,17 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   ? "SHORT"
                   : (_dtPlay._day_trade_flavor === "call" ? "LONG" : "NEUTRAL");
                 const _dtSignalId = buildDayTradeSignalId(_dtSym, _dtExpiration.iso, _dtPlay);
+                // Stage 2 — three-tier ladder. Flag-gated: default OFF.
+                // When enabled, we return Gamma + Safety + Breathing on
+                // every card. Recording writes one signal_id per tier.
+                let _dtTiers = null;
+                if (_optionsLadderTiersEnabled(env) && _optionsPlaysMod.buildDayTradeTiers) {
+                  try {
+                    _dtTiers = _optionsPlaysMod.buildDayTradeTiers(_dtCtx);
+                  } catch (_tierErr) {
+                    console.warn(`[OPTIONS-TIERS] build failed for ${_dtSym}:`, String(_tierErr?.message || _tierErr).slice(0, 120));
+                  }
+                }
                 _dtPlays.push({
                   ticker: _dtSym,
                   setup_grade: "Day Trade",
@@ -94624,28 +94665,37 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                     ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
                     : null,
                   primary: _dtPlay,
-                  ladder_count: 1,
+                  ladder_count: _dtTiers?.tier_count || 1,
                   day_trade: true,
                   day_trade_dte: _dtExpiration.dte,
                   signal_id: _dtSignalId,
+                  tiers: _dtTiers?.tiers || null,
+                  primary_tier: _dtTiers?.primary_tier || null,
                 });
-                // Stage 1 — record the play in signal_outcomes so the
-                // nightly resolver can grade it AND the mark path can be
-                // stitched to it. Flag-gated: default OFF until the
-                // operator flips options_marks_enabled in model_config.
+                // Stage 1+2 — record every tier we published so the
+                // scorecard grades each independently. Signal ids are
+                // per (ticker, exp, strike, right, NY-date) so tiers
+                // never collide.
                 try {
-                  if (_optionMarksEnabled(env) && _dtSignalId) {
-                    await _optionsMarksRecordPlay(env, {
-                      signal_id: _dtSignalId,
-                      ticker: _dtSym,
-                      direction: _dtDirection,
-                      play: _dtPlay,
-                      tier: "gamma",
-                      day_lean: _dtLean || null,
-                      day_lean_conviction: _dtLeanConv || null,
-                      confluence_mode: _dtVerdict?.mode || null,
-                      underlying_price: _dtPrice,
-                    });
+                  if (_optionMarksEnabled(env)) {
+                    const _recordTargets = _dtTiers?.tiers?.length
+                      ? _dtTiers.tiers.map((t) => ({ play: t, tier: t._tier || "gamma" }))
+                      : [{ play: _dtPlay, tier: "gamma" }];
+                    for (const rt of _recordTargets) {
+                      const sid = buildDayTradeSignalId(_dtSym, rt.play.expiration?.iso, rt.play);
+                      if (!sid) continue;
+                      await _optionsMarksRecordPlay(env, {
+                        signal_id: sid,
+                        ticker: _dtSym,
+                        direction: _dtDirection,
+                        play: rt.play,
+                        tier: rt.tier,
+                        day_lean: _dtLean || null,
+                        day_lean_conviction: _dtLeanConv || null,
+                        confluence_mode: _dtVerdict?.mode || null,
+                        underlying_price: _dtPrice,
+                      });
+                    }
                   }
                 } catch (_recErr) {
                   console.warn(`[OPTION_MARKS] record failed for ${_dtSym}:`, String(_recErr?.message || _recErr).slice(0, 120));

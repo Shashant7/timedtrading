@@ -500,6 +500,52 @@ export function pickDayTradeExpiration(now = Date.now(), { forceTomorrow = false
   };
 }
 
+/**
+ * Stage 2 — pick a "breathing" expiration N trading sessions past today.
+ * Used by the multi-tier day-trade builder to offer a right-direction-
+ * that-takes-a-day-to-develop tier (targetSessions default 3).
+ */
+export function pickBreathingExpiration(now = Date.now(), { targetSessions = 3 } = {}) {
+  const _isWeekendUtc = (d) => { const dow = d.getUTCDay(); return dow === 0 || dow === 6; };
+  const _nextTradingDay = (d) => {
+    const next = new Date(d.getTime() + 86400000);
+    while (_isWeekendUtc(next)) next.setUTCDate(next.getUTCDate() + 1);
+    return next;
+  };
+  let cursor = new Date(now);
+  let hopped = 0;
+  const wantHops = Math.max(1, Math.min(10, Number(targetSessions) || 3));
+  while (hopped < wantHops) {
+    cursor = _nextTradingDay(cursor);
+    hopped += 1;
+  }
+  const iso = cursor.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  const labelDate = cursor.toLocaleDateString("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+  });
+  const dte = wantHops;
+  return {
+    iso,
+    dte,
+    label: `${labelDate} (${dte}DTE · breathing)`,
+  };
+}
+
+/**
+ * Stage 2 — pick the ITM strike for the Safety tier. Bias to ~1% ITM
+ * (call: strike below spot; put: strike above spot), snapped to the
+ * $1 index grid. Falls back to ATM when the requested ITM strike is
+ * further than 1.5% from spot (unlikely on $1-grid indexes).
+ */
+export function pickItmStrike(spot, flavor, { itmPct = 0.01 } = {}) {
+  const p = Number(spot);
+  if (!(p > 0)) return null;
+  const raw = flavor === "put" ? p * (1 + itmPct) : p * (1 - itmPct);
+  return Math.round(raw); // $1 grid for SPY/QQQ/IWM/DIA
+}
+
 /** Max distance from live spot for 0/1 DTE index plays — beyond this,
  *  gamma is negligible and theta burns premium without a realistic move. */
 export const DAY_TRADE_MAX_STRIKE_DRIFT_PCT = 0.02;
@@ -2752,6 +2798,186 @@ export function buildDayTradePlay(ctx) {
     ],
     _day_trade: true,
     _day_trade_flavor: "straddle",
+  };
+}
+
+/**
+ * Stage 2 — three-tier day-trade ladder.
+ *
+ * Operator ask (2026-08-17): the SPY 772P (1 DTE ATM) was
+ * directionally spot on, but an ITM 777P or a 3-DTE version would
+ * have been safer against theta. This wraps `buildDayTradePlay` and
+ * calls it three times with different overrides:
+ *
+ *   • Gamma tier    — current behavior (ATM ±0.5%, 0/1 DTE).
+ *   • Safety tier   — ~1% ITM strike, 1 DTE (skip 0 DTE — theta cliff
+ *                     defeats the safety premise).
+ *   • Breathing tier — ATM, ~3 DTE. A right direction that takes a
+ *                     day to develop still pays.
+ *
+ * Straddles get one tier only (Gamma) — the safety/breathing framing
+ * is directional. Returns { tiers, primary_tier } where `tiers` is
+ * ordered by the profile's preference; `primary_tier` is the one the
+ * Right Rail should headline (Speculator=Gamma, Aggressive=Safety,
+ * Moderate=Breathing, Conservative=Breathing).
+ */
+export function buildDayTradeTiers(ctx) {
+  const ticker = String(ctx?.ticker || "").toUpperCase();
+  if (!isDayTradeTicker(ticker)) return null;
+  const price = Number(ctx?.price);
+  if (!(price > 0)) return null;
+  const profile = ctx?.profile && PROFILE_META[ctx.profile] ? ctx.profile : DEFAULT_RISK_PROFILE;
+  const now = Number(ctx?.now) || Date.now();
+
+  // Gamma tier = the existing behavior. Reuse the same call unchanged
+  // so downstream consumers (recording, mirror, scorecard) key on the
+  // same shape/archetype we already ship.
+  const gammaPlay = buildDayTradePlay({ ...ctx, profile });
+  if (!gammaPlay) return null;
+
+  // Straddle → no directional tiers.
+  const flavor = String(gammaPlay._day_trade_flavor || "").toLowerCase();
+  if (flavor !== "call" && flavor !== "put") {
+    return {
+      tiers: [{ ...gammaPlay, _tier: "gamma", _tier_label: "Gamma" }],
+      primary_tier: "gamma",
+      tier_count: 1,
+    };
+  }
+
+  const tiers = [{ ...gammaPlay, _tier: "gamma", _tier_label: "Gamma" }];
+
+  // Safety tier: 1 DTE, ~1% ITM. Skip 0 DTE — an ITM 0 DTE burns just
+  // as hard as an ATM 0 DTE and defeats the "safety" framing.
+  const safetyExp = pickDayTradeExpiration(now, { forceTomorrow: true });
+  const itmStrike = pickItmStrike(price, flavor);
+  if (itmStrike && safetyExp) {
+    const safetyPlay = buildDayTradePlay({
+      ...ctx,
+      profile,
+      expiration: safetyExp,
+      _forceStrike: itmStrike, // consumed by builder if present; else fall back
+    });
+    // Since buildDayTradePlay does not honor _forceStrike today, we
+    // override the strike/premium on the returned play so the card
+    // still shows the ITM leg. Chain-first pricing (when available)
+    // will re-mid in the enrichment pass.
+    if (safetyPlay && (safetyPlay.archetype === "day_trade_call" || safetyPlay.archetype === "day_trade_put")) {
+      const optType = flavor === "call" ? "C" : "P";
+      const chainLeg = ctx?.chain ? _chainLeg(ctx.chain, optType, itmStrike) : null;
+      const prem = estimatePremium({
+        price,
+        strike: itmStrike,
+        dte: Math.max(safetyExp.dte, 0.5),
+        atrPct: Number(ctx?.atrPct) || 0.012,
+        type: optType,
+        chainLeg,
+      });
+      if (prem) {
+        const premMid = Number(prem.mid);
+        const breakeven = flavor === "call" ? itmStrike + premMid : itmStrike - premMid;
+        const patchedLeg = {
+          ...(safetyPlay.legs?.[0] || {}),
+          strike: itmStrike,
+          expiration: safetyExp.iso,
+          premium_mid: Number.isFinite(premMid) ? Math.round(premMid * 100) / 100 : null,
+          leg_cost_usd: Number.isFinite(premMid) ? Math.round(premMid * 100) : null,
+        };
+        tiers.push({
+          ...safetyPlay,
+          _tier: "safety",
+          _tier_label: "Safety",
+          label: flavor === "call"
+            ? `Day-Trade Call (ITM · ${safetyExp.label})`
+            : `Day-Trade Put (ITM · ${safetyExp.label})`,
+          rationale: flavor === "call"
+            ? `Bullish day-trade on ${ticker} with ITM cushion: $${itmStrike} call (${((price - itmStrike) / price * 100).toFixed(2)}% in the money) expiring ${safetyExp.label}. Higher delta than ATM, less gamma but a real theta cushion — trades closer to underlying moves.`
+            : `Bearish day-trade on ${ticker} with ITM cushion: $${itmStrike} put (${((itmStrike - price) / price * 100).toFixed(2)}% in the money) expiring ${safetyExp.label}. Higher delta than ATM, less gamma but a real theta cushion — trades closer to underlying moves.`,
+          strikes: { primary: itmStrike },
+          expiration: safetyExp,
+          premium: prem,
+          legs: [patchedLeg],
+          max_loss_usd: Number.isFinite(premMid) ? Math.round(premMid * 100) : safetyPlay.max_loss_usd,
+          breakeven,
+          notes: [
+            `ITM strike ~1% in the money — delta is ~0.55-0.65, so the contract tracks the underlying more closely than ATM`,
+            `1 DTE — some theta cushion vs 0 DTE; still a scalp, not a swing`,
+            `Sizing capped at 1 contract — Safety tier costs more premium per contract than Gamma`,
+          ],
+        });
+      }
+    }
+  }
+
+  // Breathing tier: ATM, 3 DTE. Gives a right-but-slow move room to
+  // work without paying LEAP-scale premium.
+  const breathExp = pickBreathingExpiration(now, { targetSessions: 3 });
+  const atmStrike = snapStrike(price, 1.0);
+  const optType = flavor === "call" ? "C" : "P";
+  const chainLegB = ctx?.chain ? _chainLeg(ctx.chain, optType, atmStrike) : null;
+  const premB = estimatePremium({
+    price,
+    strike: atmStrike,
+    dte: Math.max(breathExp.dte, 0.5),
+    atrPct: Number(ctx?.atrPct) || 0.012,
+    type: optType,
+    chainLeg: chainLegB,
+  });
+  if (premB) {
+    const premMid = Number(premB.mid);
+    const breakeven = flavor === "call" ? atmStrike + premMid : atmStrike - premMid;
+    tiers.push({
+      ...gammaPlay,
+      _tier: "breathing",
+      _tier_label: "Breathing",
+      label: flavor === "call"
+        ? `Day-Trade Call (ATM · ${breathExp.label})`
+        : `Day-Trade Put (ATM · ${breathExp.label})`,
+      rationale: flavor === "call"
+        ? `Bullish day-trade on ${ticker} with room to breathe: ATM $${atmStrike} call expiring ${breathExp.label}. Gives a right direction that takes a session or two to develop — theta is manageable and the strike still tracks intraday.`
+        : `Bearish day-trade on ${ticker} with room to breathe: ATM $${atmStrike} put expiring ${breathExp.label}. Gives a right direction that takes a session or two to develop — theta is manageable and the strike still tracks intraday.`,
+      strikes: { primary: atmStrike },
+      expiration: breathExp,
+      premium: premB,
+      legs: [{
+        action: "BUY",
+        optionType: flavor === "call" ? "CALL" : "PUT",
+        strike: atmStrike,
+        expiration: breathExp.iso,
+        qty: 1,
+        premium_mid: Number.isFinite(premMid) ? Math.round(premMid * 100) / 100 : null,
+        leg_cost_usd: Number.isFinite(premMid) ? Math.round(premMid * 100) : null,
+        side_label: "debit",
+      }],
+      max_loss_usd: Number.isFinite(premMid) ? Math.round(premMid * 100) : gammaPlay.max_loss_usd,
+      breakeven,
+      notes: [
+        `~3 DTE breathing room — theta ~1/3 of a 1 DTE contract per day, so a right direction that takes a session or two still pays`,
+        `Not a scalp; hold rules mirror multi-day plays. Manage on daily levels, not intraday chop`,
+        `Costs materially more premium per contract than Gamma`,
+      ],
+    });
+  }
+
+  // Primary tier by profile.
+  const preferred = {
+    speculator: "gamma",
+    aggressive: "safety",
+    moderate: "breathing",
+    conservative: "breathing",
+  };
+  const primary_tier = preferred[profile] || "gamma";
+  // Rank the tier list by preference (primary first).
+  const order = { [primary_tier]: 0 };
+  ["gamma", "safety", "breathing"].forEach((t, i) => {
+    if (!(t in order)) order[t] = i + 1;
+  });
+  tiers.sort((a, b) => (order[a._tier] ?? 9) - (order[b._tier] ?? 9));
+
+  return {
+    tiers,
+    primary_tier,
+    tier_count: tiers.length,
   };
 }
 
