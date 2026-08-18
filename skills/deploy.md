@@ -3,6 +3,13 @@
 **WHEN to use:** You've made any change in `worker/` or `react-app/` and
 need it live for the user.
 
+**BEFORE any `git push` to an existing branch**, run
+`bash scripts/check-branch-merge-state.sh`. If the branch's PR has already
+merged, the script exits 2 with recovery instructions — cherry-pick onto a
+fresh branch off `main` instead. This has bitten three times so far
+(2026-08-12 broker hardening; 2026-08-18 index-options card redesign;
+2026-08-18 same-day card height fix — same session).
+
 **Prerequisites:**
 - `wrangler` available at `node_modules/.bin/wrangler` (run via path; the
   agent VM does not have `wrangler` on PATH)

@@ -92,8 +92,11 @@ WRITE A NEW SKILL before exiting. Future you will thank you.
 - Cloud agents create branches `cursor/<slug>-9f61`.
 - One logical change per commit; don't batch.
 - Push after every iteration (implement → test → fix → push).
+- **Before pushing to an existing branch, run
+ `bash scripts/check-branch-merge-state.sh`.** If the PR is merged the
+ script blocks with recovery instructions (hit 3× on 2026-08-18 alone).
 - Open / update the PR at the end of every turn — see
-  [skills/deploy.md](skills/deploy.md) for the full deploy cycle.
+ [skills/deploy.md](skills/deploy.md) for the full deploy cycle.
 
 ---
 
