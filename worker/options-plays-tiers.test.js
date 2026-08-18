@@ -5,6 +5,8 @@ import {
   pickItmStrike,
   pickDayTradeExpiration,
   applyHonestyGate,
+  attachOptionManagement,
+  attachManagementToTiers,
 } from "./options-plays.js";
 
 describe("pickItmStrike", () => {
@@ -212,5 +214,47 @@ describe("applyHonestyGate (Stage 3)", () => {
     });
     expect(out.primary_tier).toBe("gamma");
     expect(out.veto_reason).toBeNull();
+  });
+});
+
+describe("attachOptionManagement (Stage 4)", () => {
+  const gp = { bull_trigger: 776, bull_target: 780, bear_trigger: 770, bear_target: 766 };
+
+  it("attaches the exit doctrine block to a put day-trade", () => {
+    const play = { _day_trade_flavor: "put", expiration: { dte: 1 } };
+    const out = attachOptionManagement(play, { gamePlan: gp });
+    expect(out.option_management).toBeTruthy();
+    expect(out.option_management.take_profit_1).toEqual({ pct: 40, size: 0.5 });
+    expect(out.option_management.hard_stop_pct).toBe(-50);
+    expect(out.option_management.time_stop_et).toBe("15:30");
+    // Put invalidation is the BULL trigger (reclaim)
+    expect(out.option_management.invalidation).toEqual({ underlying_above: 776 });
+  });
+
+  it("attaches to a call with the BEAR trigger as invalidation", () => {
+    const play = { _day_trade_flavor: "call", expiration: { dte: 0 } };
+    const out = attachOptionManagement(play, { gamePlan: gp });
+    expect(out.option_management.time_stop_et).toBe("12:00"); // 0 DTE cutoff
+    expect(out.option_management.invalidation).toEqual({ underlying_below: 770 });
+  });
+
+  it("degrades gracefully with no game plan", () => {
+    const play = { _day_trade_flavor: "call", expiration: { dte: 1 } };
+    const out = attachOptionManagement(play, {});
+    expect(out.option_management.invalidation).toEqual({ underlying_below: null });
+  });
+
+  it("attachManagementToTiers wraps every tier", () => {
+    const tiers = {
+      tiers: [
+        { _tier: "gamma", _day_trade_flavor: "put", expiration: { dte: 1 } },
+        { _tier: "safety", _day_trade_flavor: "put", expiration: { dte: 1 } },
+      ],
+      primary_tier: "gamma",
+    };
+    const out = attachManagementToTiers(tiers, { gamePlan: gp });
+    expect(out.tiers).toHaveLength(2);
+    expect(out.tiers[0].option_management).toBeTruthy();
+    expect(out.tiers[1].option_management).toBeTruthy();
   });
 });

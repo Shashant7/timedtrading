@@ -353,6 +353,61 @@ export async function backfillSignal(env, signal, { start, end } = {}) {
 }
 
 /**
+ * Stage 4 — Trade Review shim.
+ *
+ * When an options_day_trade signal is resolved (nightly resolver or
+ * on-demand admin call), write a single closed-trade review row so
+ * the Trade Review desk grades the options contract the same way it
+ * grades equity closes. The review row uses the existing TRADE verdict
+ * set (GOOD_TRADE / BAD_ENTRY / LEFT_MONEY / CORRECT_LOSS / …).
+ *
+ * The full Trade Review options prompt lives on a follow-on stage —
+ * this shim just seeds the row so the operator can see options plays
+ * in the same UI. Idempotent on trade_id.
+ */
+export async function pushOptionOutcomeToTradeReview(env, {
+  signal, outcome, tier, dayLean, dayLeanConviction, confluenceMode,
+} = {}) {
+  const db = env?.DB;
+  if (!db || !signal?.signal_id) return { ok: false, error: "bad_args" };
+  const tradeId = `opt:${signal.signal_id}`;
+  const now = Date.now();
+  try {
+    // Best-effort: trade_reviews table lives in worker/review/trade-review-schema.js.
+    // We reach for it via a light INSERT OR IGNORE so we do not
+    // introduce a circular import loading the schema helper.
+    await db.prepare(
+      `INSERT OR IGNORE INTO trade_reviews
+         (review_id, trade_id, ticker, direction, leg_kind, leg_seq,
+          leg_ts, leg_price, leg_qty_pct, status, headline,
+          capture_json, context_json, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, 'TRADE', 0, ?5, ?6, 100, 'pending', ?7, ?8, ?9, ?10, ?10)`
+    ).bind(
+      `${tradeId}::TRADE::0`,
+      tradeId,
+      String(signal.ticker || "").toUpperCase(),
+      String(signal.direction || "").toUpperCase() || null,
+      Number(signal.published_at) || now,
+      Number(signal.entry_price) || null,
+      `Options ${signal.direction || "?"} ${signal.ticker} ${tier || "gamma"}: ${outcome?.close_pct != null ? `${outcome.close_pct.toFixed(1)}% close` : "unresolved"}`.slice(0, 200),
+      JSON.stringify(outcome || {}),
+      JSON.stringify({
+        source: "options_day_trade",
+        signal_id: signal.signal_id,
+        tier: tier || "gamma",
+        day_lean: dayLean || null,
+        day_lean_conviction: dayLeanConviction || null,
+        confluence_mode: confluenceMode || null,
+      }),
+      now,
+    ).run();
+    return { ok: true, trade_id: tradeId };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+/**
  * Aggregate scorecard rollup — pure. Input: a list of signal rows
  * joined with their outcome payload. Output: the numbers the operator
  * needs to see before flipping stage 4/5/8.

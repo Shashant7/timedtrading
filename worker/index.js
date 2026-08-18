@@ -94642,6 +94642,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                 // every card. Recording writes one signal_id per tier.
                 let _dtTiers = null;
                 let _dtVetoReason = null;
+                let _dtHasManagement = false;
                 if (_optionsLadderTiersEnabled(env) && _optionsPlaysMod.buildDayTradeTiers) {
                   try {
                     _dtTiers = _optionsPlaysMod.buildDayTradeTiers(_dtCtx);
@@ -94669,9 +94670,23 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                         _dtVetoReason = g.veto_reason;
                       }
                     }
+                    // Stage 4 — attach machine-readable exit doctrine to
+                    // every tier: TP1 40% / TP2 100% / hard stop -50% /
+                    // time stop / underlying invalidation. Flag-gated.
+                    if (_dtTiers && _optionsManagementCardEnabled(env) && _optionsPlaysMod.attachManagementToTiers) {
+                      _dtTiers = _optionsPlaysMod.attachManagementToTiers(_dtTiers, { gamePlan: _dtGp });
+                      _dtHasManagement = true;
+                    }
                   } catch (_tierErr) {
                     console.warn(`[OPTIONS-TIERS] build failed for ${_dtSym}:`, String(_tierErr?.message || _tierErr).slice(0, 120));
                   }
+                }
+                // Stage 4 also attaches management on the SINGLE Gamma
+                // play when tiers are off — keeps the exit doctrine
+                // visible even before tiers flip live.
+                let _dtPrimary = _dtPlay;
+                if (!_dtHasManagement && _optionsManagementCardEnabled(env) && _optionsPlaysMod.attachOptionManagement) {
+                  _dtPrimary = _optionsPlaysMod.attachOptionManagement(_dtPlay, { gamePlan: _dtGp });
                 }
                 _dtPlays.push({
                   ticker: _dtSym,
@@ -94689,7 +94704,7 @@ One or two bullets on overall conditions or pattern insights, in simple terms.
                   game_plan: _optionsPlaysMod.summarizeDayTradeGamePlan
                     ? _optionsPlaysMod.summarizeDayTradeGamePlan(_dtGp)
                     : null,
-                  primary: _dtPlay,
+                  primary: _dtPrimary,
                   ladder_count: _dtTiers?.tier_count || 1,
                   day_trade: true,
                   day_trade_dte: _dtExpiration.dte,

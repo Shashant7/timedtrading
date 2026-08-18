@@ -2802,6 +2802,48 @@ export function buildDayTradePlay(ctx) {
 }
 
 /**
+ * Stage 4 — machine-readable exit doctrine on every day-trade tier.
+ *
+ * Rules the card enforces (deterministic — the same rules the Trade
+ * Review agent grades against after the fact):
+ *   • Take Profit 1: bank half at +40% premium
+ *   • Take Profit 2: close remaining at +100% premium
+ *   • Hard stop:     exit whole position at -50% premium
+ *   • Time stop:     exit anything not working by 12:00 ET on 0 DTE
+ *   • Underlying invalidation: exit if spot crosses the OPPOSITE
+ *     game-plan trigger (bull put → underlying breaks the bull
+ *     trigger; bear call → underlying loses the bear trigger).
+ *
+ * Pure. Attaches an `option_management` block to a passed play object
+ * and returns it. Does not mutate the input.
+ */
+export function attachOptionManagement(play, ctx = {}) {
+  if (!play) return play;
+  const flavor = String(play._day_trade_flavor || "").toLowerCase();
+  const gp = ctx.gamePlan || null;
+  const bullTrigger = Number(gp?.bull_trigger ?? gp?.bullTrigger);
+  const bearTrigger = Number(gp?.bear_trigger ?? gp?.bearTrigger);
+  // Bullish play (call): invalidation is losing the bull path (bear trigger).
+  // Bearish play (put): invalidation is reclaiming the bull trigger.
+  const invalidation = flavor === "put"
+    ? { underlying_above: Number.isFinite(bullTrigger) ? bullTrigger : null }
+    : flavor === "call"
+      ? { underlying_below: Number.isFinite(bearTrigger) ? bearTrigger : null }
+      : null;
+  const isDte0 = Number(play?.expiration?.dte) === 0;
+  const timeStopEt = isDte0 ? "12:00" : "15:30";
+  const management = {
+    take_profit_1: { pct: 40, size: 0.5 },
+    take_profit_2: { pct: 100, size: 0.5 },
+    hard_stop_pct: -50,
+    time_stop_et: timeStopEt,
+    invalidation,
+    doctrine_version: "options-mgmt-1",
+  };
+  return { ...play, option_management: management };
+}
+
+/**
  * Stage 3 — honesty gate on the day-trade tiers.
  *
  * When confluence WAIT opposes the day_lean, and day_lean conviction is
@@ -3015,6 +3057,18 @@ export function buildDayTradeTiers(ctx) {
     tiers,
     primary_tier,
     tier_count: tiers.length,
+  };
+}
+
+/**
+ * Attach exit doctrine to every tier. Convenience wrapper the caller
+ * can use after applyHonestyGate (or in place of it).
+ */
+export function attachManagementToTiers(tiersResult, ctx = {}) {
+  if (!tiersResult?.tiers) return tiersResult;
+  return {
+    ...tiersResult,
+    tiers: tiersResult.tiers.map((t) => attachOptionManagement(t, ctx)),
   };
 }
 
