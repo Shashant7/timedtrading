@@ -532,6 +532,7 @@ function TradeCard({
   const displayLegs = tradeLeg ? [tradeLeg] : trade.legs || [];
   const grades = displayLegs.map(l => l.grade).filter(Boolean);
   const undecided = displayLegs.filter(l => !["approved", "modified", "rejected", "deferred"].includes(l.status)).length;
+  const decisions = [...new Set(displayLegs.map(l => l.status).filter(s => ["approved", "modified", "rejected"].includes(s)))];
   return React.createElement("div", null, React.createElement("div", {
     className: "trade-row",
     onClick: () => setOpen(!open)
@@ -589,9 +590,12 @@ function TradeCard({
       alignItems: "center",
       gap: 14
     }
-  }, undecided > 0 && React.createElement("span", {
+  }, undecided > 0 ? React.createElement("span", {
     className: "pill pill--reviewed"
-  }, undecided, " to review"), React.createElement("span", {
+  }, undecided, " to review") : decisions.map(s => React.createElement("span", {
+    key: s,
+    className: `pill pill--${s}`
+  }, s)), React.createElement("span", {
     className: `mono ${signClass(trade.pnl)}`,
     style: {
       fontSize: 14,
@@ -801,6 +805,16 @@ function App() {
     setBusy(false);
   };
   const counts = data?.status_counts || {};
+  const historyStatuses = new Set(["decided", "approved", "modified", "rejected"]);
+  const onHistory = tab === "history";
+  const openHistory = (next = "decided") => {
+    setTab("history");
+    setStatus(historyStatuses.has(next) ? next : "decided");
+  };
+  const openQueue = (next = "undecided") => {
+    setTab("reviews");
+    setStatus(historyStatuses.has(next) ? "undecided" : next);
+  };
   return React.createElement("div", {
     className: "tt-page"
   }, React.createElement("div", {
@@ -822,20 +836,26 @@ function App() {
       gap: 8,
       flexWrap: "wrap"
     }
-  }, React.createElement("div", {
-    className: "tt-stat"
+  }, React.createElement("button", {
+    type: "button",
+    className: `tt-stat${status === "pending" && !onHistory ? " tt-stat--on" : ""}`,
+    onClick: () => openQueue("pending")
   }, React.createElement("div", {
     className: "tt-stat-label"
   }, "Pending"), React.createElement("div", {
     className: "tt-stat-value"
-  }, counts.pending || 0)), React.createElement("div", {
-    className: "tt-stat"
+  }, counts.pending || 0)), React.createElement("button", {
+    type: "button",
+    className: `tt-stat${status === "reviewed" && !onHistory ? " tt-stat--on" : ""}`,
+    onClick: () => openQueue("reviewed")
   }, React.createElement("div", {
     className: "tt-stat-label"
   }, "Reviewed"), React.createElement("div", {
     className: "tt-stat-value"
-  }, counts.reviewed || 0)), React.createElement("div", {
-    className: "tt-stat"
+  }, counts.reviewed || 0)), React.createElement("button", {
+    type: "button",
+    className: `tt-stat${(status === "approved" || status === "modified") && onHistory ? " tt-stat--on" : ""}`,
+    onClick: () => openHistory("approved")
   }, React.createElement("div", {
     className: "tt-stat-label"
   }, "Approved"), React.createElement("div", {
@@ -843,8 +863,10 @@ function App() {
     style: {
       color: "var(--tt-accent)"
     }
-  }, (counts.approved || 0) + (counts.modified || 0))), React.createElement("div", {
-    className: "tt-stat"
+  }, (counts.approved || 0) + (counts.modified || 0))), React.createElement("button", {
+    type: "button",
+    className: `tt-stat${status === "rejected" && onHistory ? " tt-stat--on" : ""}`,
+    onClick: () => openHistory("rejected")
   }, React.createElement("div", {
     className: "tt-stat-label"
   }, "Rejected"), React.createElement("div", {
@@ -873,8 +895,11 @@ function App() {
     className: "tt-tab-bar"
   }, React.createElement("button", {
     className: `tt-tab ${tab === "reviews" ? "active" : ""}`,
-    onClick: () => setTab("reviews")
+    onClick: () => openQueue(status)
   }, "Reviews"), React.createElement("button", {
+    className: `tt-tab ${tab === "history" ? "active" : ""}`,
+    onClick: () => openHistory(status)
+  }, "History"), React.createElement("button", {
     className: `tt-tab ${tab === "proposals" ? "active" : ""}`,
     onClick: () => setTab("proposals")
   }, "Proposals")), tab === "proposals" ? React.createElement(ProposalsTab, null) : React.createElement("div", null, React.createElement("div", {
@@ -885,25 +910,29 @@ function App() {
       marginBottom: 14,
       alignItems: "center"
     }
-  }, React.createElement("select", {
+  }, onHistory ? React.createElement("select", {
     className: "tt-select",
-    value: status,
+    value: historyStatuses.has(status) ? status : "decided",
     onChange: e => setStatus(e.target.value)
   }, React.createElement("option", {
-    value: "undecided"
-  }, "Needs a decision"), React.createElement("option", {
-    value: ""
-  }, "All"), React.createElement("option", {
-    value: "pending"
-  }, "Pending review"), React.createElement("option", {
-    value: "reviewed"
-  }, "Reviewed"), React.createElement("option", {
+    value: "decided"
+  }, "All decided"), React.createElement("option", {
     value: "approved"
   }, "Approved"), React.createElement("option", {
     value: "modified"
   }, "Modified"), React.createElement("option", {
     value: "rejected"
-  }, "Rejected"), React.createElement("option", {
+  }, "Rejected")) : React.createElement("select", {
+    className: "tt-select",
+    value: historyStatuses.has(status) ? "undecided" : status,
+    onChange: e => setStatus(e.target.value)
+  }, React.createElement("option", {
+    value: "undecided"
+  }, "Needs a decision"), React.createElement("option", {
+    value: "pending"
+  }, "Pending review"), React.createElement("option", {
+    value: "reviewed"
+  }, "Reviewed"), React.createElement("option", {
     value: "error"
   }, "Errors")), React.createElement("input", {
     className: "tt-input",
@@ -928,7 +957,7 @@ function App() {
     style: {
       flex: 1
     }
-  }), React.createElement("button", {
+  }), !onHistory && React.createElement(React.Fragment, null, React.createElement("button", {
     className: "tt-btn tt-btn--ghost",
     disabled: busy,
     onClick: backfill
@@ -941,7 +970,7 @@ function App() {
     style: {
       alignSelf: "center"
     }
-  })), err && React.createElement("div", {
+  }))), err && React.createElement("div", {
     className: "neg",
     style: {
       fontSize: 13,
@@ -957,7 +986,7 @@ function App() {
     style: {
       fontSize: 13
     }
-  }, "No legs match this filter. Use \u201CQueue recent trades\u201D to enqueue trades already in the ledger, then \u201CRun pending reviews\u201D."), data && data.trades.length > 0 && React.createElement("div", {
+  }, onHistory ? "No approved or rejected reviews in this window. Decide a review on the Reviews tab and it lands here for later reading." : "No legs match this filter. Use “Queue recent trades” to enqueue trades already in the ledger, then “Run pending reviews”."), data && data.trades.length > 0 && React.createElement("div", {
     className: "tt-card",
     style: {
       overflow: "hidden"
@@ -974,6 +1003,6 @@ root.render(AuthGate ? React.createElement(AuthGate, {
   apiBase: API_BASE,
   requiredTier: "admin"
 }, () => React.createElement(App, null)) : React.createElement(App, null));
-// cache-bust:1787019443111:735164677
+// cache-bust:1787020259880:276655334
 
-// cache-bust:1787019443111:735164677
+// cache-bust:1787020259880:276655334

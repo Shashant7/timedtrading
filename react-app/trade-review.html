@@ -42,7 +42,14 @@
       .tt-card-pad { padding: 18px 20px 16px; }
       .tt-page-title { margin: 0 0 6px; font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
       .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); max-width: 780px; }
-      .tt-stat { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px; padding: 10px 14px; min-width: 92px; }
+      .tt-stat {
+        appearance: none; text-align: left; color: inherit; font: inherit;
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px;
+        padding: 10px 14px; min-width: 92px; cursor: pointer;
+        transition: border-color .15s, box-shadow .15s;
+      }
+      .tt-stat:hover { border-color: var(--tt-border-hi); }
+      .tt-stat--on { border-color: var(--tt-accent); box-shadow: 0 0 0 1px var(--tt-accent-dim); }
       .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
       .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 20px; font-weight: 700; }
       .tt-btn { border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, opacity .15s; }
@@ -456,6 +463,9 @@
         const displayLegs = tradeLeg ? [tradeLeg] : (trade.legs || []);
         const grades = displayLegs.map((l) => l.grade).filter(Boolean);
         const undecided = displayLegs.filter((l) => !["approved", "modified", "rejected", "deferred"].includes(l.status)).length;
+        const decisions = [...new Set(displayLegs
+          .map((l) => l.status)
+          .filter((s) => ["approved", "modified", "rejected"].includes(s)))];
 
         return (
           <div>
@@ -476,7 +486,9 @@
                 )}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                {undecided > 0 && <span className="pill pill--reviewed">{undecided} to review</span>}
+                {undecided > 0
+                  ? <span className="pill pill--reviewed">{undecided} to review</span>
+                  : decisions.map((s) => <span key={s} className={`pill pill--${s}`}>{s}</span>)}
                 <span className={`mono ${signClass(trade.pnl)}`} style={{ fontSize: 14, fontWeight: 700 }}>{fmtUsd(trade.pnl)}</span>
               </div>
             </div>
@@ -585,6 +597,16 @@
         };
 
         const counts = data?.status_counts || {};
+        const historyStatuses = new Set(["decided", "approved", "modified", "rejected"]);
+        const onHistory = tab === "history";
+        const openHistory = (next = "decided") => {
+          setTab("history");
+          setStatus(historyStatuses.has(next) ? next : "decided");
+        };
+        const openQueue = (next = "undecided") => {
+          setTab("reviews");
+          setStatus(historyStatuses.has(next) ? "undecided" : next);
+        };
 
         return (
           <div className="tt-page">
@@ -598,10 +620,22 @@
                 </p>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <div className="tt-stat"><div className="tt-stat-label">Pending</div><div className="tt-stat-value">{counts.pending || 0}</div></div>
-                <div className="tt-stat"><div className="tt-stat-label">Reviewed</div><div className="tt-stat-value">{counts.reviewed || 0}</div></div>
-                <div className="tt-stat"><div className="tt-stat-label">Approved</div><div className="tt-stat-value" style={{ color: "var(--tt-accent)" }}>{(counts.approved || 0) + (counts.modified || 0)}</div></div>
-                <div className="tt-stat"><div className="tt-stat-label">Rejected</div><div className="tt-stat-value">{counts.rejected || 0}</div></div>
+                <button type="button" className={`tt-stat${status === "pending" && !onHistory ? " tt-stat--on" : ""}`} onClick={() => openQueue("pending")}>
+                  <div className="tt-stat-label">Pending</div>
+                  <div className="tt-stat-value">{counts.pending || 0}</div>
+                </button>
+                <button type="button" className={`tt-stat${status === "reviewed" && !onHistory ? " tt-stat--on" : ""}`} onClick={() => openQueue("reviewed")}>
+                  <div className="tt-stat-label">Reviewed</div>
+                  <div className="tt-stat-value">{counts.reviewed || 0}</div>
+                </button>
+                <button type="button" className={`tt-stat${(status === "approved" || status === "modified") && onHistory ? " tt-stat--on" : ""}`} onClick={() => openHistory("approved")}>
+                  <div className="tt-stat-label">Approved</div>
+                  <div className="tt-stat-value" style={{ color: "var(--tt-accent)" }}>{(counts.approved || 0) + (counts.modified || 0)}</div>
+                </button>
+                <button type="button" className={`tt-stat${status === "rejected" && onHistory ? " tt-stat--on" : ""}`} onClick={() => openHistory("rejected")}>
+                  <div className="tt-stat-label">Rejected</div>
+                  <div className="tt-stat-value">{counts.rejected || 0}</div>
+                </button>
               </div>
             </div>
 
@@ -616,23 +650,29 @@
             )}
 
             <div className="tt-tab-bar">
-              <button className={`tt-tab ${tab === "reviews" ? "active" : ""}`} onClick={() => setTab("reviews")}>Reviews</button>
+              <button className={`tt-tab ${tab === "reviews" ? "active" : ""}`} onClick={() => openQueue(status)}>Reviews</button>
+              <button className={`tt-tab ${tab === "history" ? "active" : ""}`} onClick={() => openHistory(status)}>History</button>
               <button className={`tt-tab ${tab === "proposals" ? "active" : ""}`} onClick={() => setTab("proposals")}>Proposals</button>
             </div>
 
             {tab === "proposals" ? <ProposalsTab /> : (
               <div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" }}>
-                  <select className="tt-select" value={status} onChange={(e) => setStatus(e.target.value)}>
-                    <option value="undecided">Needs a decision</option>
-                    <option value="">All</option>
-                    <option value="pending">Pending review</option>
-                    <option value="reviewed">Reviewed</option>
-                    <option value="approved">Approved</option>
-                    <option value="modified">Modified</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="error">Errors</option>
-                  </select>
+                  {onHistory ? (
+                    <select className="tt-select" value={historyStatuses.has(status) ? status : "decided"} onChange={(e) => setStatus(e.target.value)}>
+                      <option value="decided">All decided</option>
+                      <option value="approved">Approved</option>
+                      <option value="modified">Modified</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  ) : (
+                    <select className="tt-select" value={historyStatuses.has(status) ? "undecided" : status} onChange={(e) => setStatus(e.target.value)}>
+                      <option value="undecided">Needs a decision</option>
+                      <option value="pending">Pending review</option>
+                      <option value="reviewed">Reviewed</option>
+                      <option value="error">Errors</option>
+                    </select>
+                  )}
                   <input className="tt-input" style={{ width: 110 }} placeholder="Ticker" value={ticker}
                     onChange={(e) => setTicker(e.target.value)} onKeyDown={(e) => e.key === "Enter" && load()} />
                   <select className="tt-select" value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -640,16 +680,22 @@
                   </select>
                   <button className="tt-btn tt-btn--ghost" onClick={load}>Refresh</button>
                   <span style={{ flex: 1 }} />
-                  <button className="tt-btn tt-btn--ghost" disabled={busy} onClick={backfill}>Queue recent trades</button>
-                  <button className="tt-btn tt-btn--primary" disabled={busy} onClick={drain}>Run pending reviews</button>
-                  {busy && <span className="spinner" style={{ alignSelf: "center" }} />}
+                  {!onHistory && (
+                    <>
+                      <button className="tt-btn tt-btn--ghost" disabled={busy} onClick={backfill}>Queue recent trades</button>
+                      <button className="tt-btn tt-btn--primary" disabled={busy} onClick={drain}>Run pending reviews</button>
+                      {busy && <span className="spinner" style={{ alignSelf: "center" }} />}
+                    </>
+                  )}
                 </div>
 
                 {err && <div className="neg" style={{ fontSize: 13, marginBottom: 10 }}>{err}</div>}
                 {!data && <div className="muted" style={{ padding: 20 }}>Loading…</div>}
                 {data && data.trades.length === 0 && (
                   <div className="tt-card tt-card-pad muted" style={{ fontSize: 13 }}>
-                    No legs match this filter. Use “Queue recent trades” to enqueue trades already in the ledger, then “Run pending reviews”.
+                    {onHistory
+                      ? "No approved or rejected reviews in this window. Decide a review on the Reviews tab and it lands here for later reading."
+                      : "No legs match this filter. Use “Queue recent trades” to enqueue trades already in the ledger, then “Run pending reviews”."}
                   </div>
                 )}
                 {data && data.trades.length > 0 && (

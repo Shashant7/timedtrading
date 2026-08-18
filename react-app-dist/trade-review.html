@@ -15,13 +15,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="tt-tokens.css?v=1787019443111" />
-    <script defer src="/vendor/react.production.min.js?v=1787019443111"></script>
-    <script defer src="/vendor/react-dom.production.min.js?v=1787019443111"></script>
-<script defer src="auth-gate.js?v=1787019443111"></script>
-    <script src="tt-bottom-nav.js?v=1787019443111" defer></script>
-    <script src="tt-nav-extras.js?v=1787019443111" defer></script>
-    <script src="tt-global-search.js?v=1787019443111" defer></script>
+    <link rel="stylesheet" href="tt-tokens.css?v=1787020259880" />
+    <script defer src="/vendor/react.production.min.js?v=1787020259880"></script>
+    <script defer src="/vendor/react-dom.production.min.js?v=1787020259880"></script>
+<script defer src="auth-gate.js?v=1787020259880"></script>
+    <script src="tt-bottom-nav.js?v=1787020259880" defer></script>
+    <script src="tt-nav-extras.js?v=1787020259880" defer></script>
+    <script src="tt-global-search.js?v=1787020259880" defer></script>
     <style>
       :root {
         --tt-bg-base: var(--vf-ink, #0B1410);
@@ -48,7 +48,14 @@
       .tt-card-pad { padding: 18px 20px 16px; }
       .tt-page-title { margin: 0 0 6px; font-family: var(--tt-font-display); font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
       .tt-page-lede { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tt-text-muted); max-width: 780px; }
-      .tt-stat { background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px; padding: 10px 14px; min-width: 92px; }
+      .tt-stat {
+        appearance: none; text-align: left; color: inherit; font: inherit;
+        background: var(--tt-bg-elev); border: 1px solid var(--tt-border); border-radius: 12px;
+        padding: 10px 14px; min-width: 92px; cursor: pointer;
+        transition: border-color .15s, box-shadow .15s;
+      }
+      .tt-stat:hover { border-color: var(--tt-border-hi); }
+      .tt-stat--on { border-color: var(--tt-accent); box-shadow: 0 0 0 1px var(--tt-accent-dim); }
       .tt-stat-label { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tt-text-faint); }
       .tt-stat-value { margin-top: 4px; font-family: var(--tt-font-mono); font-size: 20px; font-weight: 700; }
       .tt-btn { border-radius: 999px; padding: 7px 13px; font-size: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, opacity .15s; }
@@ -141,10 +148,10 @@
          find their mount target. Listed in JOURNEY_PATHS so extras does not
          inject a duplicate journey strip above this row. -->
     <div id="global-nav-root"></div>
-    <script defer src="shared-nav.js?v=1787019443111"></script>
+    <script defer src="shared-nav.js?v=1787020259880"></script>
     <div id="root"></div>
-    <script defer src="trade-review.compiled.js?v=1787019443111"></script>
+    <script defer src="trade-review.compiled.js?v=1787020259880"></script>
   </body>
 </html>
 
-<!-- cache-bust:1787019443111:735164677 -->
+<!-- cache-bust:1787020259880:276655334 -->
