@@ -5369,3 +5369,22 @@ with a context pre-filter, measure candidate density on BOTH before assuming
 the validated entry rate carries over — otherwise a family that bypasses the
 ranking gates (as the reclaim family deliberately does) gets its slots by
 scan order rather than by quality.
+
+## Trade Review: one closed-trade card, and USO left-money is valid [2026-08-18]
+
+**Symptom:** 76 per-leg reviews in a day is not a sustainable operator
+loop. The USO "trimmed and exited early" review was initially discounted
+and then confirmed valid.
+
+**Root:** The reviewer was designed as one card per ENTRY/TRIM/EXIT.
+That accretes faster than a human can adjudicate, and it grades
+management scraps in isolation. LEFT_MONEY (a runner still going after
+a valid location) is a real class; PREMATURE_EXIT on a never-ran
+cloud-pivot (XYZ MFE −0.05%, leftover +0.27%) is not.
+
+**Fix:** Default `trade_review_closed_only=true`. Ledger EXIT enqueues
+`{trade_id}::TRADE::0` only. Drain defers leftover pending ENTRY/TRIM.
+Prompt rules: winners are not BAD_ENTRY; leftover under ~1% is noise.
+Open trades wait until flat. Movie reframe is a separate lesson: frames
+mechanism is fine, EMA-reclaim sequence as a general entry is the wrong
+question (`tasks/2026-08-18-movie-reframe.md`).

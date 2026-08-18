@@ -312,3 +312,49 @@ export async function buildLegContext(env, { tradeId, legKind, legSeq = 0, looka
 
   return { ok: true, context, capture, legs, trade, bars };
 }
+
+function tradeIsClosed(trade) {
+  if (!trade) return false;
+  if (num(trade.exit_ts) == null) return false;
+  return !["OPEN", "TP_HIT_TRIM"].includes(String(trade.status || "").toUpperCase());
+}
+
+/**
+ * One context object for a closed trade. Reuses the EXIT tape / claim
+ * assembly so capture math stays identical, then overlays every leg so
+ * the reviewer grades the whole story.
+ */
+export async function buildClosedTradeContext(env, { tradeId, lookaheadDays = 10 } = {}) {
+  const trade = await loadTrade(env, tradeId);
+  if (!trade) return { ok: false, error: "trade_not_found" };
+  if (!tradeIsClosed(trade)) return { ok: false, error: "trade_still_open" };
+
+  const events = await loadEvents(env, tradeId);
+  const legs = extractLegs(trade, events);
+  const exit = [...legs].reverse().find((l) => l.leg_kind === "EXIT") || legs.find((l) => l.leg_kind === "EXIT");
+  if (!exit) return { ok: false, error: "exit_leg_not_found" };
+
+  const built = await buildLegContext(env, {
+    tradeId,
+    legKind: "EXIT",
+    legSeq: exit.leg_seq,
+    lookaheadDays,
+  });
+  if (!built.ok) return built;
+
+  built.context.leg = {
+    ...built.context.leg,
+    kind: "TRADE",
+    seq: 0,
+  };
+  built.context.all_legs_full = legs.map((l) => ({
+    kind: l.leg_kind,
+    seq: l.leg_seq,
+    ts: l.ts,
+    price: l.price,
+    qty_pct: l.qty_pct,
+    reason: l.reason,
+    from_receipt: !l.synthesized,
+  }));
+  return built;
+}

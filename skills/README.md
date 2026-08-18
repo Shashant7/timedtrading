@@ -14,7 +14,7 @@ answer here, and reinventing them is the #1 source of regressions.
 | **Before enabling real broker orders / a trade entered or exited on a price that "never traded"** | [pre-go-live-execution-audit.md](pre-go-live-execution-audit.md) |
 | Backfill missing daily / weekly / monthly candles for a ticker | [backfill-candles.md](backfill-candles.md) |
 | Run a backtest / candle replay and read the results correctly | [backtest-replay.md](backtest-replay.md) |
-| Grade a trade's entry/trim/exit, or act on a review finding | [trade-review-agent.md](trade-review-agent.md) |
+| Grade a closed trade (entry+trim+exit as one story), or act on a review finding | [trade-review-agent.md](trade-review-agent.md) |
 | One ticker's Investor or Trader score looks stale or wrong | [rescore-ticker.md](rescore-ticker.md) |
 | You changed worker/ code and need it on production | [deploy.md](deploy.md) |
 | You changed `shared-right-rail.js` or any React/JSX in `react-app/` | [cache-bust-rail.md](cache-bust-rail.md) |

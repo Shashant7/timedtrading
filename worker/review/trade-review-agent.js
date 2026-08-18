@@ -8,12 +8,15 @@
 // rate-limited model can never delay a fill.
 
 import { ensureTradeReviewSchema } from "./trade-review-schema.js";
-import { buildLegContext } from "./trade-review-context.js";
+import { buildClosedTradeContext, buildLegContext } from "./trade-review-context.js";
 import { extractLegs, reviewIdFor } from "./trade-review-legs.js";
 import {
   TRADE_REVIEW_SYSTEM_PROMPT,
+  TRADE_REVIEW_TRADE_SYSTEM_PROMPT,
   TRADE_REVIEW_PROMPT_VERSION,
+  TRADE_REVIEW_CLOSED_PROMPT_VERSION,
   buildTradeReviewUserPrompt,
+  buildClosedTradeUserPrompt,
 } from "./trade-review-prompts.js";
 
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -22,6 +25,8 @@ const VALID_VERDICTS = {
   ENTRY: new Set(["VALID_SETUP", "VALID_BUT_LATE", "CHASE", "LOCATION_WRONG", "STOP_INVALID", "TARGET_UNREALISTIC", "NO_EDGE", "INSUFFICIENT_DATA"]),
   TRIM: new Set(["GOOD_TRIM", "PREMATURE_TRIM", "TOO_SMALL", "TOO_LATE", "SHOULD_NOT_HAVE_TRIMMED", "INSUFFICIENT_DATA"]),
   EXIT: new Set(["GOOD_EXIT", "PREMATURE_EXIT", "LATE_EXIT", "STOPPED_BY_NOISE", "CORRECT_STOP", "SHOULD_HAVE_HELD", "INSUFFICIENT_DATA"]),
+  // One card per closed trade: entry + trims + exit in a single grade.
+  TRADE: new Set(["GOOD_TRADE", "BAD_ENTRY", "LEFT_MONEY", "CORRECT_LOSS", "NO_EDGE", "MIXED", "INSUFFICIENT_DATA"]),
 };
 
 const flagOn = (v) => v === true || String(v ?? "").toLowerCase() === "true";
@@ -33,6 +38,7 @@ const TRADE_REVIEW_CONFIG_KEYS = [
   "trade_review_model",
   "trade_review_batch",
   "trade_review_lookahead_days",
+  "trade_review_closed_only",
 ];
 
 /**
@@ -72,6 +78,30 @@ export function tradeReviewEnabled(env) {
 export function tradeReviewAutoRun(env) {
   const cfg = env?._deepAuditConfig || {};
   return flagOn(cfg.trade_review_auto_run ?? env?.TRADE_REVIEW_AUTO_RUN ?? false);
+}
+
+/** Default ON: one high-level review after the trade closes, not per-leg. */
+export function tradeReviewClosedOnly(env) {
+  const cfg = env?._deepAuditConfig || {};
+  const raw = cfg.trade_review_closed_only ?? env?.TRADE_REVIEW_CLOSED_ONLY;
+  if (raw == null || raw === "") return true;
+  return flagOn(raw);
+}
+
+/**
+ * Map a ledger event onto a review row. Closed-only mode skips ENTRY/TRIM
+ * and queues a single TRADE row when the exit prints.
+ */
+export function resolveReviewEnqueue(eventType, { closedOnly = true } = {}) {
+  const t = String(eventType || "").toUpperCase();
+  let kind = "";
+  if (t === "ENTRY" || t === "ENTRY_CORRECTION" || t === "SCALE_IN") kind = "ENTRY";
+  else if (t === "TRIM" || t === "TP_HIT_TRIM") kind = "TRIM";
+  else if (t === "EXIT" || t === "CLOSE" || t === "STOP" || t === "SL_HIT") kind = "EXIT";
+  else return { enqueue: false, reason: "not_a_leg" };
+  if (!closedOnly) return { enqueue: true, legKind: kind };
+  if (kind === "EXIT") return { enqueue: true, legKind: "TRADE", legSeq: 0 };
+  return { enqueue: false, reason: "closed_only_wait_for_exit" };
 }
 
 function cfgNum(env, key, fallback) {
@@ -137,6 +167,21 @@ export async function enqueueTradeLegs(env, tradeId) {
   } catch { /* summary-only fallback */ }
 
   const legs = extractLegs(trade, events);
+  const closed = numTs(trade.exit_ts) != null
+    && !["OPEN", "TP_HIT_TRIM"].includes(String(trade.status || "").toUpperCase());
+
+  if (tradeReviewClosedOnly(env)) {
+    if (!closed) return { ok: true, queued: 0, legs: 0, skipped: "open" };
+    const exit = [...legs].reverse().find((l) => l.leg_kind === "EXIT") || null;
+    const res = await enqueueTradeReview(env, {
+      tradeId, ticker: trade.ticker, direction: trade.direction,
+      legKind: "TRADE", legSeq: 0, eventId: exit?.event_id || null,
+      ts: exit?.ts ?? trade.exit_ts, price: exit?.price ?? trade.exit_price,
+      qtyPct: exit?.qty_pct ?? null,
+    });
+    return { ok: true, queued: res.ok ? 1 : 0, legs: 1, mode: "closed_only" };
+  }
+
   let queued = 0;
   for (const leg of legs) {
     const res = await enqueueTradeReview(env, {
@@ -147,6 +192,11 @@ export async function enqueueTradeLegs(env, tradeId) {
     if (res.ok) queued += 1;
   }
   return { ok: true, queued, legs: legs.length };
+}
+
+function numTs(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function buildOpenAIBody(model, messages, maxCompletionTokens) {
@@ -316,14 +366,21 @@ export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq =
 
   const rid = row?.review_id || reviewIdFor(tid, kind, seq);
   const lookaheadDays = cfgNum(env, "trade_review_lookahead_days", 10);
-  const built = await buildLegContext(env, { tradeId: tid, legKind: kind, legSeq: seq, lookaheadDays });
+  const isClosedTrade = kind === "TRADE";
+  const built = isClosedTrade
+    ? await buildClosedTradeContext(env, { tradeId: tid, lookaheadDays })
+    : await buildLegContext(env, { tradeId: tid, legKind: kind, legSeq: seq, lookaheadDays });
   if (!built.ok) {
     await persistError(env, rid, built.error);
     return { ok: false, error: built.error, review_id: rid };
   }
 
   const model = resolveModel(env);
-  const user = buildTradeReviewUserPrompt(built.context);
+  const system = isClosedTrade ? TRADE_REVIEW_TRADE_SYSTEM_PROMPT : TRADE_REVIEW_SYSTEM_PROMPT;
+  const user = isClosedTrade
+    ? buildClosedTradeUserPrompt(built.context)
+    : buildTradeReviewUserPrompt(built.context);
+  const promptVersion = isClosedTrade ? TRADE_REVIEW_CLOSED_PROMPT_VERSION : TRADE_REVIEW_PROMPT_VERSION;
 
   // Dry run: return exactly what the reviewer would see, without spending a
   // call. Used to audit the prompt and to verify the context pipeline in
@@ -331,15 +388,15 @@ export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq =
   if (dryRun) {
     return {
       ok: true, dry_run: true, review_id: rid, model,
-      prompt_version: TRADE_REVIEW_PROMPT_VERSION,
-      system_prompt: TRADE_REVIEW_SYSTEM_PROMPT,
+      prompt_version: promptVersion,
+      system_prompt: system,
       user_prompt: user,
       capture: built.capture,
       context: built.context,
     };
   }
 
-  const llm = await callReviewModel(env, { system: TRADE_REVIEW_SYSTEM_PROMPT, user, model });
+  const llm = await callReviewModel(env, { system, user, model });
   if (!llm.ok) {
     await persistError(env, rid, llm.error, llm.latency_ms);
     return { ok: false, error: llm.error, detail: llm.detail || null, review_id: rid };
@@ -376,7 +433,7 @@ export async function runTradeReview(env, { reviewId, tradeId, legKind, legSeq =
       kind, seq, built.context.leg.ts ?? null, built.context.leg.price ?? null, built.context.leg.qty_pct ?? null,
       analysis.grade, analysis.verdict, analysis.probability_of_success, analysis.headline,
       JSON.stringify(built.capture || {}), JSON.stringify(built.context || {}), JSON.stringify(analysis),
-      model, TRADE_REVIEW_PROMPT_VERSION, llm.latency_ms ?? null, now,
+      model, promptVersion, llm.latency_ms ?? null, now,
     ).run();
   } catch (e) {
     console.warn("[TRADE_REVIEW] persist failed:", String(e?.message || e).slice(0, 160));
@@ -404,12 +461,24 @@ export async function drainTradeReviewQueue(env, { limit } = {}) {
   if (!env?.DB) return { ok: false, error: "no_db" };
   await ensureTradeReviewSchema(env);
   const batch = Math.max(1, Math.min(25, limit || cfgNum(env, "trade_review_batch", 6)));
+  const closedOnly = tradeReviewClosedOnly(env);
+  if (closedOnly) {
+    try {
+      await env.DB.prepare(
+        `UPDATE trade_reviews SET status = 'deferred', updated_at = ?1
+          WHERE status = 'pending' AND UPPER(leg_kind) IN ('ENTRY', 'TRIM')`
+      ).bind(Date.now()).run();
+    } catch { /* best effort — drain TRADE/EXIT anyway */ }
+  }
   let pending = [];
   try {
-    const { results } = await env.DB.prepare(
-      `SELECT review_id, trade_id, leg_kind, leg_seq FROM trade_reviews
-        WHERE status = 'pending' ORDER BY leg_ts ASC LIMIT ?1`
-    ).bind(batch).all();
+    const sql = closedOnly
+      ? `SELECT review_id, trade_id, leg_kind, leg_seq FROM trade_reviews
+          WHERE status = 'pending' AND UPPER(leg_kind) IN ('TRADE', 'EXIT')
+          ORDER BY leg_ts ASC LIMIT ?1`
+      : `SELECT review_id, trade_id, leg_kind, leg_seq FROM trade_reviews
+          WHERE status = 'pending' ORDER BY leg_ts ASC LIMIT ?1`;
+    const { results } = await env.DB.prepare(sql).bind(batch).all();
     pending = results || [];
   } catch (e) {
     return { ok: false, error: String(e?.message || e).slice(0, 150) };

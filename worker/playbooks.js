@@ -27,6 +27,8 @@
 const DAY_MS = 86400000;
 
 export const PLAYBOOKS_VERSION = 2;
+export const OPENING_WINDOW_MIN = 30;
+export const HIGH_CHOP_POSTERIOR = 0.55;
 
 export const PLAYBOOK_DEFS = Object.freeze({
   // CAT class: test of a respected Weekly EMA21 (confluence with Weekly ST
@@ -85,6 +87,24 @@ function hasFreshLedgerTest(frames, anchor, maxDays) {
     t?.anchor === anchor
     && Number(t.days_ago) <= maxDays
     && (t.resolution === "held" || t.resolution === "pending"));
+}
+
+/**
+ * Shadow arm/trigger vetoes from ST+LT autopsies. Sequence of
+ * approaching→testing→above EMA21 is not itself an entry. Opening-window
+ * chases and high-confidence CHOP are the classes that keep printing
+ * losers after scoring was refined.
+ */
+export function shouldSkipArm(frames) {
+  const sm = Number(frames?.session_min);
+  if (Number.isFinite(sm) && sm < OPENING_WINDOW_MIN) {
+    return { skip: true, reason: "opening_window" };
+  }
+  const chop = Number(frames?.hmm_chop);
+  const highChop = frames?.high_chop === true
+    || (String(frames?.hmm_state || "") === "CHOP" && Number.isFinite(chop) && chop >= HIGH_CHOP_POSTERIOR);
+  if (highChop) return { skip: true, reason: "high_chop" };
+  return { skip: false, reason: null };
 }
 
 function makeEvent(kind, entry, price, now) {
@@ -174,7 +194,10 @@ export function updateArmedPlaybooks({ frames = null, prior = [], now = Date.now
   // 2) Arm new entries. A bounce can complete BETWEEN cycles (the CAT
   //    miss), so a fresh ledger test of the anchor with price already back
   //    above the band arms AND triggers on the same cycle.
-  if (frames && price > 0) {
+  //    Opening-window / high-CHOP vetoes apply only to NEW arms — an
+  //    already-armed book can still invalidate or expire.
+  const skipNew = shouldSkipArm(frames);
+  if (frames && price > 0 && !skipNew.skip) {
     for (const [name, def] of Object.entries(PLAYBOOK_DEFS)) {
       if (liveByPlaybook[name]) continue; // armed or cooling down
       const fa = anchors[def.anchor];

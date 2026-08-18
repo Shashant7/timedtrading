@@ -282,7 +282,8 @@ function DecisionPanel({
 function LegCard({
   leg,
   tradeId,
-  onRefresh
+  onRefresh,
+  allowDecide = true
 }) {
   const [detail, setDetail] = useState(null);
   const [open, setOpen] = useState(false);
@@ -341,7 +342,7 @@ function LegCard({
     className: `grade ${gradeClass(leg.grade)}`
   }, leg.grade || "—"), React.createElement("span", {
     className: "leg-kind"
-  }, leg.leg_kind, leg.leg_seq ? ` #${leg.leg_seq + 1}` : ""), React.createElement("span", {
+  }, leg.leg_kind === "TRADE" ? "CLOSED TRADE" : `${leg.leg_kind}${leg.leg_seq ? ` #${leg.leg_seq + 1}` : ""}`), React.createElement("span", {
     className: "mono muted",
     style: {
       fontSize: 12
@@ -504,7 +505,7 @@ function LegCard({
       alignSelf: "center",
       fontSize: 11.5
     }
-  }, detail?.model || "", detail?.latency_ms ? ` · ${detail.latency_ms}ms` : "")), React.createElement(DecisionPanel, {
+  }, detail?.model || "", detail?.latency_ms ? ` · ${detail.latency_ms}ms` : "")), allowDecide ? React.createElement(DecisionPanel, {
     review: detail,
     analysis: analysis,
     busy: busy,
@@ -513,15 +514,24 @@ function LegCard({
       await load();
       await onRefresh();
     }
-  }))));
+  }) : React.createElement("p", {
+    className: "muted",
+    style: {
+      fontSize: 12.5,
+      marginTop: 12
+    }
+  }, "This position is still open. The closed-trade review waits until the book is flat so entry, trims and exit can be graded as one story."))));
 }
 function TradeCard({
   trade,
   onRefresh
 }) {
   const [open, setOpen] = useState(false);
-  const grades = trade.legs.map(l => l.grade).filter(Boolean);
-  const undecided = trade.legs.filter(l => !["approved", "modified", "rejected"].includes(l.status)).length;
+  const stillOpen = !trade.exit_ts || ["OPEN", "TP_HIT_TRIM"].includes(String(trade.trade_status || "").toUpperCase());
+  const tradeLeg = (trade.legs || []).find(l => l.leg_kind === "TRADE");
+  const displayLegs = tradeLeg ? [tradeLeg] : trade.legs || [];
+  const grades = displayLegs.map(l => l.grade).filter(Boolean);
+  const undecided = displayLegs.filter(l => !["approved", "modified", "rejected", "deferred"].includes(l.status)).length;
   return React.createElement("div", null, React.createElement("div", {
     className: "trade-row",
     onClick: () => setOpen(!open)
@@ -560,7 +570,7 @@ function TradeCard({
     style: {
       fontSize: 12
     }
-  }, trade.legs.length, " leg", trade.legs.length === 1 ? "" : "s"), grades.length > 0 && React.createElement("span", {
+  }, tradeLeg ? "closed-trade review" : stillOpen ? "open — waits for close" : `${displayLegs.length} leg${displayLegs.length === 1 ? "" : "s"}`), grades.length > 0 && React.createElement("span", {
     style: {
       display: "inline-flex",
       gap: 4
@@ -587,11 +597,12 @@ function TradeCard({
       fontSize: 14,
       fontWeight: 700
     }
-  }, fmtUsd(trade.pnl)))), open && trade.legs.map(leg => React.createElement(LegCard, {
+  }, fmtUsd(trade.pnl)))), open && displayLegs.map(leg => React.createElement(LegCard, {
     key: leg.review_id,
     leg: leg,
     tradeId: trade.trade_id,
-    onRefresh: onRefresh
+    onRefresh: onRefresh,
+    allowDecide: !stillOpen
   })));
 }
 function ProposalsTab() {
@@ -805,7 +816,7 @@ function App() {
     className: "tt-page-title"
   }, "Trade Review"), React.createElement("p", {
     className: "tt-page-lede"
-  }, "An independent agent grades every entry, trim and exit the model executes \u2014 against the tape, not against the model's own reasoning. Approve, modify or reject each review; approved findings flow to the learning bus, the executive desks, and engine work becomes a one-page proposal.")), React.createElement("div", {
+  }, "One high-level review per closed trade \u2014 entry, any trims, and the exit as a single story, graded against the tape, not the model's own reasoning. Open positions wait until they are flat. Approve, modify or reject; approved findings flow to the learning bus, the executive desks, and engine work becomes a one-page proposal.")), React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -958,6 +969,6 @@ function App() {
   })))));
 }
 ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App, null));
-// cache-bust:1786985420462:896669568
+// cache-bust:1787014444132:668951683
 
-// cache-bust:1786985420462:896669568
+// cache-bust:1787014444132:668951683

@@ -5,6 +5,7 @@
 // when the engine's own record says "TT Support Bounce, grade A".
 
 export const TRADE_REVIEW_PROMPT_VERSION = "tr-1";
+export const TRADE_REVIEW_CLOSED_PROMPT_VERSION = "tr-2-closed";
 
 export const TRADE_REVIEW_SYSTEM_PROMPT = `You are the Trade Review Agent for a systematic trading desk. You are an INDEPENDENT reviewer, not part of the execution engine.
 
@@ -186,5 +187,152 @@ export function buildTradeReviewUserPrompt(context) {
   }
 
   lines.push(`Grade this ${leg.kind} leg. Respond with JSON only.`);
+  return lines.join("\n");
+}
+
+/**
+ * One review for a closed trade: entry + trims + exit as a single story.
+ * Same JSON contract as the per-leg reviewer so the admin page and
+ * normalizer stay unchanged. Verdicts are the TRADE set.
+ */
+export const TRADE_REVIEW_TRADE_SYSTEM_PROMPT = `You are the Trade Review Agent for a systematic trading desk. You are an INDEPENDENT reviewer, not part of the execution engine.
+
+Your job is to grade ONE CLOSED TRADE as a single story — the entry, any trims, and the exit — and explain the price action across the hold.
+
+Rules of engagement:
+1. The block labelled "engine_claim" is the ASSERTION BEING GRADED. It is never evidence.
+2. The block labelled "tape" contains facts computed from candles. Use these numbers. Never invent a number that contradicts them.
+3. Be specific and falsifiable. Grade the decision given what was knowable at the time, then note the outcome separately.
+4. If the data is too thin to judge, say so and grade "NA" rather than guessing.
+5. Do NOT treat a winner as a bad location. If the trade paid, location was good enough — any miss is management (LEFT_MONEY), not LOCATION_WRONG / BAD_ENTRY.
+6. Do NOT treat a max-loss, hard stop, or cloud-pivot exit with no leftover runner as premature. Tiny post-exit noise (under ~1%) is not a leftover runner. LEFT_MONEY / PREMATURE requires a real continuation after a valid location (the USO class: trimmed and exited while the dominant move was still running).
+7. Do not invent one-pagers. engine_findings must be [] unless this trade is genuine evidence for a change.
+
+Two separate required fields:
+- "grade" is a LETTER GRADE and nothing else. Exactly one of: A+, A, B, C, D, F, NA.
+- "verdict" is a CATEGORY CODE from the TRADE list below. Never a letter grade and never a sentence.
+
+TRADE verdicts:
+- GOOD_TRADE: location valid, management reasonable; outcome is secondary
+- BAD_ENTRY: location/setup was the miss (never ran, CHOP-spec, support-in-CHOP)
+- LEFT_MONEY: location was valid; trim or exit cut a real leftover runner
+- CORRECT_LOSS: bad outcome but the stop / max-loss / cloud-pivot was the right bookkeeping
+- NO_EDGE: tape too thin or the setup never had an edge
+- MIXED: location and management are both only partly right
+- INSUFFICIENT_DATA: missing candles/config
+
+Output STRICT JSON only, matching this shape:
+{
+  "grade": "A+|A|B|C|D|F|NA",
+  "verdict": "GOOD_TRADE|BAD_ENTRY|LEFT_MONEY|CORRECT_LOSS|NO_EDGE|MIXED|INSUFFICIENT_DATA",
+  "headline": "<= 140 chars, the single most important sentence about the whole trade",
+  "price_action": "<2-4 sentences covering entry location, the hold, trims, and the exit>",
+  "assessment": "<2-5 sentences grading the trade as one story>",
+  "probability_of_success": <number 0-1 or null; judged at entry time>,
+  "failure_modes": ["<specific way this trade fails>", "..."],
+  "capture_commentary": "<realized vs MFE/MAE and vs the big move; what trims banked vs left>",
+  "should_have_held": <true|false|null; true only when a real leftover runner existed>,
+  "confidence": <number 0-1>,
+  "engine_findings": []
+}`;
+
+export function buildClosedTradeUserPrompt(context) {
+  const t = context?.trade || {};
+  const claim = context?.engine_claim || {};
+  const tape = context?.tape || {};
+  const cap = tape.capture || {};
+  const geo = tape.geometry || {};
+  const big = cap.big_move || null;
+  const allLegs = Array.isArray(context?.all_legs_full)
+    ? context.all_legs_full
+    : Array.isArray(context?.all_legs)
+      ? context.all_legs
+      : [];
+
+  const lines = [];
+  lines.push(`CLOSED TRADE UNDER REVIEW: ${t.ticker || "?"} ${t.direction || "?"}`);
+  lines.push(`Entry ${isoOrNa(cap.entry?.ts || t.entry_ts)} at ${fmt(cap.entry?.price ?? t.entry_price, 4)} → exit ${isoOrNa(cap.exit?.ts)} at ${fmt(cap.exit?.price, 4)} (${cap.exit?.reason || claim.exit_reason || "no reason"}).`);
+  lines.push(`Realized ${fmt(cap.realized_pct)}% (${fmt(cap.realized_usd)} USD). Status ${t.status || "?"}.`);
+  lines.push("");
+
+  lines.push("ENGINE CLAIM (the assertion you are grading — not evidence):");
+  lines.push(`- Setup: ${claim.setup_name || "n/a"} (grade ${claim.setup_grade || "n/a"}, path ${claim.entry_path || "n/a"})`);
+  lines.push(`- Engine rank ${claim.rank ?? "n/a"}, claimed R:R ${fmt(claim.rr)}, risk budget ${fmt(claim.risk_budget)}`);
+  lines.push(`- Stop ${fmt(claim.stop_loss, 4)} / target ${fmt(claim.take_profit, 4)} (source: ${claim.levels_source || "unknown"})`);
+  if (claim.market_state) lines.push(`- Market state at entry: ${claim.market_state}`);
+  if (claim.cio_decision) {
+    lines.push(`- Pre-trade AI CIO gate: ${claim.cio_decision.decision} (conf ${fmt(claim.cio_decision.confidence)}) — "${claim.cio_decision.reasoning}"`);
+  }
+  lines.push("");
+
+  lines.push("LEGS (the whole story — grade the trade, not each line in isolation):");
+  if (allLegs.length === 0) {
+    lines.push("- No execution receipts; using the trade summary only.");
+  } else {
+    for (const l of allLegs) {
+      const kind = l.kind || l.leg_kind;
+      const extra = l.reason ? ` — ${l.reason}` : "";
+      const qty = l.qty_pct != null ? ` (${fmt(l.qty_pct, 0)}%)` : "";
+      lines.push(`- ${kind} at ${fmt(l.price, 4)} on ${isoOrNa(l.ts)}${qty}${extra}`);
+    }
+  }
+  lines.push("");
+
+  lines.push(`TAPE FACTS (computed from ${tape.bar_count || 0} ${tape.timeframe || "?"} candles — treat as ground truth):`);
+  const barsIn = Number(cap.bars_in_trade) || 0;
+  lines.push(`- Candle coverage while the position was open: ${barsIn} bar${barsIn === 1 ? "" : "s"}${cap.exit ? `, plus ${Number(cap.bars_after_exit) || 0} after the exit` : ""}`);
+  if (barsIn < 3) {
+    lines.push(`- WARNING: the tape barely covers this trade. Prefer grade "NA" with verdict INSUFFICIENT_DATA unless the geometry alone is judgeable.`);
+  }
+  lines.push(`- While open: MFE ${fmt(cap.mfe_pct)}% (at ${isoOrNa(cap.mfe_ts)}), MAE ${fmt(cap.mae_pct)}%`);
+  lines.push(`- Heat taken before the payoff arrived: ${fmt(cap.heat_before_payoff_pct)}%`);
+  lines.push(`- Capture of the in-trade MFE: ${cap.capture_ratio == null ? "n/a" : `${fmt(cap.capture_ratio * 100, 0)}%`}`);
+  if (big) {
+    lines.push(`- DOMINANT MOVE in the window: ${fmt(big.pct)}% from ${fmt(big.from_price, 4)} (${isoOrNa(big.from_ts)}) to ${fmt(big.to_price, 4)} (${isoOrNa(big.to_ts)})`);
+    lines.push(`- Share of that dominant move captured: ${cap.big_move_capture_ratio == null ? "n/a" : `${fmt(cap.big_move_capture_ratio * 100, 0)}%`}`);
+    const exitTs = Number(cap.exit?.ts);
+    if (Number.isFinite(exitTs) && Number(big.from_ts) > exitTs) {
+      lines.push(`- NOTE: that move BEGAN AFTER the exit — the position was flat for all of it.`);
+    } else if (Number.isFinite(exitTs) && Number(big.to_ts) > exitTs) {
+      lines.push(`- NOTE: that move was still running when the position was closed.`);
+    }
+  } else {
+    lines.push(`- Dominant move in the window: NOT COMPUTABLE (insufficient candle coverage). Do not conclude there was no move.`);
+  }
+  if (cap.post_exit_pct != null) {
+    lines.push(`- AFTER the exit, price still ran ${fmt(cap.post_exit_pct)}% in the trade's favour (peak ${isoOrNa(cap.post_exit_extreme_ts)}) over the next ${cap.lookahead_days} days`);
+    if (Number(cap.post_exit_pct) < 1) {
+      lines.push(`- NOTE: leftover under 1% is noise, not LEFT_MONEY.`);
+    }
+  }
+  lines.push("");
+
+  lines.push("ENTRY GEOMETRY:");
+  if (geo.stop_loss == null && geo.take_profit == null) {
+    lines.push(`- Stop and target: NOT RECOVERABLE for this trade. Do not grade the stop or the R:R; note the gap instead.`);
+  } else {
+    lines.push(`- Stop distance ${fmt(geo.sl_distance_pct)}% / target distance ${fmt(geo.tp_distance_pct)}% → R:R ${fmt(geo.rr)}`);
+  }
+  lines.push(`- Fill position within the entry bar: ${geo.entry_in_bar_range == null ? "n/a" : fmt(geo.entry_in_bar_range, 2)} (1.0 = filled at the worst end of the bar)`);
+  lines.push("");
+
+  const sigIn = context.signals_at_entry;
+  if (sigIn) {
+    lines.push("MULTI-TIMEFRAME READ AT ENTRY (supertrend: +1 bull / -1 bear; ema_structure -1..+1):");
+    for (const [tf, v] of Object.entries(sigIn)) {
+      lines.push(`- ${tf}: bias ${v.bias ?? "n/a"}, ST ${v.supertrend ?? "n/a"}, struct ${v.ema_structure ?? "n/a"}, RSI ${v.rsi ?? "n/a"}`);
+    }
+    lines.push("");
+  }
+  const sigOut = context.signals_at_exit;
+  if (sigOut) {
+    lines.push("MULTI-TIMEFRAME READ AT EXIT:");
+    for (const [tf, v] of Object.entries(sigOut)) {
+      lines.push(`- ${tf}: bias ${v.bias ?? "n/a"}, ST ${v.supertrend ?? "n/a"}, struct ${v.ema_structure ?? "n/a"}, RSI ${v.rsi ?? "n/a"}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("Grade this closed trade as one story (entry, trims if any, exit). Respond with JSON only.");
   return lines.join("\n");
 }
