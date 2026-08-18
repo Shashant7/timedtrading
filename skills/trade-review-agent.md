@@ -76,7 +76,7 @@ live trades; all 64 graded.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/timed/admin/trade-review/trades` | trades with legs + grades (`?status=`, `?ticker=`, `?days=`) |
+| GET | `/timed/admin/trade-review/trades` | trades with legs + grades (`?status=`, `?ticker=`, `?days=`). `status=undecided` is the operator queue; `status=decided` is the History archive (approved / modified / rejected) |
 | GET | `/timed/admin/trade-review/detail?review_id=` | full analysis, capture, context, proposals |
 | POST | `/timed/admin/trade-review/enqueue` | backfill: `{trade_id}` or `{days, limit}` |
 | POST | `/timed/admin/trade-review/run` | `{review_id}`, `{review_id, dry_run:true}`, or `{drain:true, limit}` |

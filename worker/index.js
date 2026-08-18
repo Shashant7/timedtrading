@@ -69314,7 +69314,7 @@ export default {
       // ────────────────────────────────────────────────────────────────
 
       // GET /timed/admin/trade-review/trades — trades with their leg reviews
-      //   ?status=pending|reviewed|approved|modified|rejected|undecided
+      //   ?status=pending|reviewed|approved|modified|rejected|undecided|decided
       //   ?ticker=NVDA  ?limit=100  ?days=30
       if (routeKey === "GET /timed/admin/trade-review/trades") {
         const authFail = await requireKeyOrAdmin(req, env);
@@ -69335,6 +69335,8 @@ export default {
           if (tickerFilter) { binds.push(tickerFilter); where.push(`r.ticker = ?${binds.length}`); }
           if (statusFilter === "undecided") {
             where.push(`r.status IN ('pending','reviewed','error')`);
+          } else if (statusFilter === "decided") {
+            where.push(`r.status IN ('approved','modified','rejected')`);
           } else if (statusFilter === "deferred") {
             where.push(`r.status = 'deferred'`);
           } else if (statusFilter) {
